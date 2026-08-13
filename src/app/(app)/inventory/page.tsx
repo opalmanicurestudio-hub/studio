@@ -48,6 +48,16 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+
+// One row of chips instead of a dropdown nobody opens: every option visible,
+// every count answered before you tap.
+const FILTER_CHIPS: { id: string; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'retail', label: 'Retail' },
+  { id: 'professional', label: 'Professional' },
+  { id: 'equipment', label: 'Equipment' },
+  { id: 'overhead', label: 'Overhead' },
+];
 import { ManageSpoilageDialog } from '@/components/inventory/ManageSpoilageDialog';
 import { InventorySidebar } from '@/components/inventory/InventorySidebar';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet';
@@ -76,6 +86,7 @@ import { ImageUpload } from '@/components/shared/ImageUpload';
 import { AddOrderDialog } from '@/components/inventory/AddOrderDialog';
 import { ReceiveStockDialog, type ReceivedItem } from '@/components/inventory/ReceiveStockDialog';
 import { releaseCoverableBackorders } from '@/lib/retail-fulfill';
+import { buildEntry } from '@/lib/stock-ledger';
 import { useTenant } from '@/context/TenantContext';
 import { Html5Qrcode } from 'html5-qrcode';
 import { ProductCard } from '@/components/inventory/ProductCard';
@@ -720,6 +731,7 @@ export default function InventoryPage() {
   
   const [activeView, setActiveView] = useState('products');
   const [activeFilter, setActiveFilter] = useState('all');
+  const [attentionFilter, setAttentionFilter] = useState<'low' | 'noprice' | 'offline' | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   
@@ -1033,13 +1045,14 @@ export default function InventoryPage() {
 
     updateDocumentNonBlocking(productRef, updatedData);
     
-    const stockCorrection: Omit<StockCorrection, 'id'> = {
-      productId: productId,
-      date: new Date().toISOString(),
-      change: -quantity,
+    const stockCorrection = buildEntry({
+      productId,
+      type: 'spoiled',
+      delta: -quantity,
       unit: product.unit || 'units',
       reason: `Write-off: ${reason}`,
-    };
+      balanceAfter: newTotalStock,
+    });
     addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), stockCorrection);
 
     const transaction: Omit<Transaction, 'id' | 'date'> = {
@@ -1117,13 +1130,14 @@ export default function InventoryPage() {
     
     updateDocumentNonBlocking(productDocRef, updateData);
 
-    const newCorrection: Omit<StockCorrection, 'id'> = {
-        productId: productId,
-        date: new Date().toISOString(),
-        change: -quantity,
-        unit: unit,
+    const newCorrection = buildEntry({
+        productId,
+        type: 'used',
+        delta: -quantity,
+        unit,
         reason: notes || 'Manual Use Log',
-    };
+        ...(updateData.totalStock !== undefined ? { balanceAfter: updateData.totalStock } : {}),
+    });
     addDocumentNonBlocking(stockCorrectionsRef, newCorrection);
     
     return { success: true, message: `${quantity} ${unit} of ${product.name} logged.` };
@@ -1158,13 +1172,14 @@ export default function InventoryPage() {
       batches: sortedBatches,
     });
     
-    const stockCorrection: Omit<StockCorrection, 'id'> = {
-      productId: productId,
-      date: new Date().toISOString(),
-      change: -quantity,
+    const stockCorrection = buildEntry({
+      productId,
+      type: 'sold',
+      delta: -quantity,
       unit: 'units',
       reason: 'Manual Retail Sale',
-    };
+      balanceAfter: newTotalStock,
+    });
     addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), stockCorrection);
 
     const saleAmount = (product.msrp || product.costPerUnit || 0) * quantity;
@@ -1296,6 +1311,30 @@ export default function InventoryPage() {
     setSelectedProduct(null);
   }
 
+  // Counts live on the chips so a filter tells you what you'd get BEFORE you
+  // tap it — the difference between a menu and a map.
+  const typeCounts = useMemo(() => {
+    const live = (inventory || []).filter((i: any) => (showArchived ? i.status === 'archived' : i.status !== 'archived'));
+    const counts: Record<string, number> = { all: live.length };
+    for (const i of live as any[]) counts[i.type] = (counts[i.type] || 0) + 1;
+    return counts;
+  }, [inventory, showArchived]);
+
+  // The three things that actually cost money if nobody notices: stock about
+  // to run out, a retail product with no price, and one that never reached
+  // the shop. Everything else on this page can wait.
+  const attention = useMemo(() => {
+    const live = (inventory || []).filter((i: any) => i.status !== 'archived') as any[];
+    return {
+      lowStock: live.filter((i) => {
+        const available = Math.max(0, (Number(i.totalStock) || 0) - (Number(i.stockReserved) || 0));
+        return available <= (Number(i.lowStockThreshold) || 0);
+      }).length,
+      noPrice: live.filter((i) => i.type === 'retail' && !((i.msrp ?? 0) > 0)).length,
+      notOnline: live.filter((i) => i.type === 'retail' && (i.msrp ?? 0) > 0 && i.showOnline !== true).length,
+    };
+  }, [inventory]);
+
   const filteredInventory = useMemo(() => {
     if (!inventory) return [];
     let items = inventory.filter(item => {
@@ -1310,12 +1349,27 @@ export default function InventoryPage() {
         const lowercasedSearchTerm = searchTerm.toLowerCase();
         items = items.filter(item => 
             item.name.toLowerCase().includes(lowercasedSearchTerm) ||
-            item.id.toLowerCase().includes(lowercasedSearchTerm)
+            item.id.toLowerCase().includes(lowercasedSearchTerm) ||
+            String((item as any).sku || '').toLowerCase().includes(lowercasedSearchTerm) ||
+            String((item as any).barcode || '').toLowerCase().includes(lowercasedSearchTerm)
         );
     }
 
+    // Tapping a "needs attention" chip narrows to exactly those items, so the
+    // count is a door rather than a statistic.
+    if (attentionFilter === 'low') {
+        items = items.filter((item: any) => {
+            const available = Math.max(0, (Number(item.totalStock) || 0) - (Number(item.stockReserved) || 0));
+            return available <= (Number(item.lowStockThreshold) || 0);
+        });
+    } else if (attentionFilter === 'noprice') {
+        items = items.filter((item: any) => item.type === 'retail' && !((item.msrp ?? 0) > 0));
+    } else if (attentionFilter === 'offline') {
+        items = items.filter((item: any) => item.type === 'retail' && item.showOnline !== true);
+    }
+
     return items;
-  }, [inventory, activeFilter, searchTerm, showArchived]);
+  }, [inventory, activeFilter, searchTerm, showArchived, attentionFilter]);
   
   const totalPages = Math.ceil(filteredInventory.length / ITEMS_PER_PAGE);
   const paginatedItems = useMemo(() => {
@@ -1471,33 +1525,74 @@ export default function InventoryPage() {
                                             onChange={(e) => setSearchTerm(e.target.value)}
                                         />
                                     </div>
-                                    <div className="flex items-center gap-2 w-full sm:w-auto">
-                                        <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
-                                            <QrCode className="h-4 w-4" />
-                                            <span className="sr-only">Scan</span>
-                                        </Button>
-                                        <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                                <Button variant="outline" className="w-full sm:w-auto">
-                                                    <ListFilter className="mr-2 h-4 w-4" />
-                                                    Filter
-                                                </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end">
-                                                <DropdownMenuItem onClick={() => setActiveFilter('all')}>All</DropdownMenuItem>
-                                                <DropdownMenuItem onClick={() => setActiveFilter('professional')}>Professional</DropdownMenuItem>
-                                                <DropdownMenuItem onClick={() => setActiveFilter('retail')}>Retail</DropdownMenuItem>
-                                                <DropdownMenuItem onClick={() => setActiveFilter('equipment')}>Equipment</DropdownMenuItem>
-                                                <DropdownMenuItem onClick={() => setActiveFilter('overhead')}>Overhead</DropdownMenuItem>
-                                            </DropdownMenuContent>
-                                        </DropdownMenu>
-                                    </div>
+                                    <Button variant="outline" size="icon" aria-label="Scan a barcode" onClick={() => setIsScannerOpen(true)} className="shrink-0">
+                                        <QrCode className="h-4 w-4" />
+                                    </Button>
                                 </div>
-                                <div className="flex items-center space-x-2">
-                                    <Switch id="show-archived" checked={showArchived} onCheckedChange={setShowArchived} />
-                                    <Label htmlFor="show-archived">{showArchived ? "Viewing Archived" : "Show Archived"}</Label>
+
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    {FILTER_CHIPS.map((chip) => {
+                                        const count = typeCounts[chip.id] ?? 0;
+                                        const on = activeFilter === chip.id;
+                                        return (
+                                            <button
+                                                key={chip.id}
+                                                type="button"
+                                                onClick={() => setActiveFilter(chip.id)}
+                                                aria-pressed={on}
+                                                className={cn(
+                                                    'flex items-center gap-1.5 rounded-xl border-2 px-3 py-1.5 text-[11px] font-black uppercase tracking-widest transition-colors',
+                                                    on ? 'border-primary bg-primary text-primary-foreground' : 'bg-white hover:border-primary/30',
+                                                )}
+                                            >
+                                                {chip.label}
+                                                <span className={cn('font-mono', on ? 'opacity-80' : 'text-muted-foreground')}>{count}</span>
+                                            </button>
+                                        );
+                                    })}
+                                    <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowArchived(!showArchived)}
+                                        aria-pressed={showArchived}
+                                        className={cn(
+                                            'rounded-xl border-2 px-3 py-1.5 text-[11px] font-black uppercase tracking-widest transition-colors',
+                                            showArchived ? 'border-slate-800 bg-slate-800 text-white' : 'bg-white hover:border-primary/30',
+                                        )}
+                                    >
+                                        Archived
+                                    </button>
                                 </div>
                             </div>
+                            {(attention.lowStock > 0 || attention.notOnline > 0 || attention.noPrice > 0) && !showArchived && (
+                                <div className="mb-4 flex flex-wrap items-center gap-2">
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Needs attention</span>
+                                    {attention.lowStock > 0 && (
+                                        <button type="button" onClick={() => { setActiveFilter('all'); setSearchTerm(''); setAttentionFilter(attentionFilter === 'low' ? null : 'low'); }}
+                                            aria-pressed={attentionFilter === 'low'}
+                                            className={cn('rounded-lg border-2 px-2.5 py-1 text-[11px] font-black uppercase tracking-widest',
+                                                attentionFilter === 'low' ? 'border-amber-500 bg-amber-500 text-white' : 'border-amber-200 bg-amber-50 text-amber-800')}>
+                                            {attention.lowStock} low on stock
+                                        </button>
+                                    )}
+                                    {attention.noPrice > 0 && (
+                                        <button type="button" onClick={() => { setActiveFilter('retail'); setSearchTerm(''); setAttentionFilter(attentionFilter === 'noprice' ? null : 'noprice'); }}
+                                            aria-pressed={attentionFilter === 'noprice'}
+                                            className={cn('rounded-lg border-2 px-2.5 py-1 text-[11px] font-black uppercase tracking-widest',
+                                                attentionFilter === 'noprice' ? 'border-destructive bg-destructive text-white' : 'border-destructive/30 bg-destructive/5 text-destructive')}>
+                                            {attention.noPrice} missing a price
+                                        </button>
+                                    )}
+                                    {attention.notOnline > 0 && (
+                                        <button type="button" onClick={() => { setActiveFilter('retail'); setSearchTerm(''); setAttentionFilter(attentionFilter === 'offline' ? null : 'offline'); }}
+                                            aria-pressed={attentionFilter === 'offline'}
+                                            className={cn('rounded-lg border-2 px-2.5 py-1 text-[11px] font-black uppercase tracking-widest',
+                                                attentionFilter === 'offline' ? 'border-sky-600 bg-sky-600 text-white' : 'border-sky-200 bg-sky-50 text-sky-800')}>
+                                            {attention.notOnline} not in the shop
+                                        </button>
+                                    )}
+                                </div>
+                            )}
                              {selectedItems.size > 0 && (
                                 <div className="mb-4 p-3 rounded-lg bg-muted/50 flex items-center justify-between">
                                     <p className="text-sm font-medium">{selectedItems.size} item(s) selected</p>
