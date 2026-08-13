@@ -70,6 +70,8 @@ import {
 import { format, parseISO, isPast } from 'date-fns';
 import { cn, safeNumber } from '@/lib/utils';
 import { reconcile } from '@/lib/stock-ledger';
+import { OnlineListingTab } from '@/components/inventory/OnlineListingTab';
+import { syncPublicFields } from '@/lib/product-public';
 import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
 import { type InventoryItem } from '@/lib/data';
@@ -126,6 +128,20 @@ export default function ProductDetailPage() {
     const [isVerifyingVault, setIsVerifyingVault] = useState(false);
     
     const product = useMemo(() => inventory.find((p) => p.id === id), [inventory, id]);
+
+    /**
+     * Section saves from the Online listing tab.
+     *
+     * A PATCH, not a whole product: two sections saved seconds apart must not
+     * overwrite each other, and a page holding a stale copy of a field it
+     * never touched must not write it back.
+     */
+    const handleOnlineSave = async (patch: Record<string, any>) => {
+        if (!firestore || !tenantId || !product) return;
+        const itemRef = doc(firestore, 'tenants', tenantId, 'inventory', product.id);
+        updateDocumentNonBlocking(itemRef, syncPublicFields({ ...patch }));
+        toast({ title: 'Saved', description: 'Your shop is updated.' });
+    };
 
     const handleProductUpdate = (updatedProduct: InventoryItem) => {
         // FIX: guard on tenantId (derived above) instead of the undefined bare identifier
@@ -386,6 +402,9 @@ export default function ProductDetailPage() {
                         <Tabs defaultValue="history" className="w-full">
                             <ScrollArea className="w-full">
                                 <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-8 w-max">
+                                    {product.type === 'retail' && (
+                                        <TabsTrigger value="online" className="px-6 md:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Online listing</TabsTrigger>
+                                    )}
                                     <TabsTrigger value="history" className="px-6 md:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Audit Ledger</TabsTrigger>
                                     <TabsTrigger value="manufacturing" className="px-6 md:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Manufacturing Archive</TabsTrigger>
                                     <TabsTrigger value="batches" className="px-6 md:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Logistics</TabsTrigger>
@@ -393,6 +412,16 @@ export default function ProductDetailPage() {
                                 <ScrollBar orientation="horizontal" className="hidden" />
                             </ScrollArea>
                             
+                            {product.type === 'retail' && (
+                                <TabsContent value="online" className="m-0 space-y-6 animate-in fade-in duration-500 text-left">
+                                    <OnlineListingTab
+                                        product={product}
+                                        inventory={inventory}
+                                        onSave={handleOnlineSave}
+                                    />
+                                </TabsContent>
+                            )}
+
                             <TabsContent value="history" className="m-0 space-y-6 animate-in fade-in duration-500 text-left">
                                 <div className="relative text-left">
                                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
