@@ -1,6 +1,8 @@
+import type { Metadata } from 'next';
 import React from 'react';
 
 import { sanitizeTheme, themeToCss } from '@/lib/shop-theme';
+import { seoDescription } from '@/lib/shop-seo';
 
 // ─── /shop/[tenantId]/layout.tsx ──────────────────────────────────────────────
 // Every customer-facing page sits inside this, so a shop's brand is applied
@@ -35,7 +37,7 @@ async function loadShop(tenantId: string) {
   try {
     const db = getAdminDb();
     const snap = await db.collection('tenants').doc(tenantId).get();
-    if (!snap.exists) return { theme: sanitizeTheme(null), shopName: '' };
+    if (!snap.exists) return { theme: sanitizeTheme(null), shopName: '', tagline: '', logoUrl: '' };
     const data = snap.data() as any;
     const rs = data?.retailSettings || {};
     // The footer needs the shop's name and this read already has it — one
@@ -43,11 +45,38 @@ async function loadShop(tenantId: string) {
     return {
       theme: sanitizeTheme(rs.shopTheme),
       shopName: String(data?.businessName || data?.name || '').trim(),
+      tagline: String(rs.shopTagline || rs.shopBlurb || data?.tagline || '').trim(),
+      logoUrl: String(rs.logoUrl || data?.logoUrl || '').trim(),
     };
   } catch {
     // A theme is decoration; never let it stop a shop from selling.
-    return { theme: sanitizeTheme(null), shopName: '' };
+    return { theme: sanitizeTheme(null), shopName: '', tagline: '', logoUrl: '' };
   }
+}
+
+export async function generateMetadata(
+  { params }: { params: Promise<{ tenantId: string }> },
+): Promise<Metadata> {
+  const { tenantId } = await params;
+  const { shopName, tagline, logoUrl } = await loadShop(tenantId);
+  const origin = process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '';
+  const url = origin ? `${origin}/shop/${tenantId}` : undefined;
+  const title = shopName || 'Shop';
+  const description = seoDescription({ shopName: title, description: tagline });
+  return {
+    title: { default: title, template: `%s` },
+    description,
+    ...(url ? { alternates: { canonical: url } } : {}),
+    openGraph: {
+      type: 'website',
+      title,
+      description,
+      ...(url ? { url } : {}),
+      siteName: title,
+      ...(logoUrl ? { images: [logoUrl] } : {}),
+    },
+    twitter: { card: logoUrl ? 'summary_large_image' : 'summary', title, description },
+  };
 }
 
 export default async function ShopLayout({
