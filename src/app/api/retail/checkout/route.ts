@@ -10,6 +10,7 @@ import { makeQrToken, sendOrderConfirmation } from '@/lib/retail-webhook';
 import { isDigitalOnlyOrder } from '@/lib/retail-orders';
 import { resolveVariantProductId } from '@/lib/retail-orders';
 import { shipPromiseAt } from '@/lib/retail-orders';
+import { cartPromiseAt, preorderAckSnapshot } from '@/lib/preorder-terms';
 import { verifyQuote } from '@/lib/shipping-quote';
 
 import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
@@ -73,6 +74,15 @@ function getAdminDb() {
 
 interface CheckoutBody {
   applyStoreCredit?: boolean;
+  // The customer's tick on the pre-order terms. Optional in the type because
+  // most carts have no pre-order; REQUIRED at runtime the moment one does.
+  preorderAck?: boolean;
+  // These three were always sent by the storefront and always read here, but
+  // were missing from the interface — so every read of them was a type error
+  // hidden inside the repo-wide noise. Declaring them changes no behaviour.
+  tipCents?: number;
+  pickupAt?: string;
+  shippingQuote?: { amountCents?: number; service?: string; exp?: number; token?: string };
   tenantId?: string;
   items?: { productId?: string; qty?: number; selections?: Record<string, string> }[];
   method?: string;
@@ -258,6 +268,22 @@ async function handleCheckout(req: NextRequest) {
     lines.push(line);
   }
 
+  // ── PRE-ORDER DISCLOSURE ─────────────────────────────────────────────────
+  // The storefront shows the ship-by promise and asks the customer to tick
+  // it. This re-checks it server-side for the same reason every other rule
+  // here is re-checked: a page that merely displays a term is not a term. If
+  // a cart reaches this route with a pre-ordered line and no acknowledgement
+  // — an old tab, a stale bundle, anything scripted — the sale does not
+  // proceed. Refusing costs one round trip; taking money for an undisclosed
+  // pre-order costs the FTC's own remedy.
+  const preorderLines = lines.filter((l: any) => l.preorder === true);
+  if (preorderLines.length > 0 && body.preorderAck !== true) {
+    return NextResponse.json({
+      error: 'This order includes a pre-ordered item. Please review the ship-by date and tick the box to continue.',
+      needsPreorderAck: true,
+    }, { status: 422 });
+  }
+
   // Nothing physical? Then no address, no postage, no pickup slot — and the
   // fulfilment floor never sees this order at all.
   const digitalOnly = isDigitalOnlyOrder(lines);
@@ -362,6 +388,28 @@ async function handleCheckout(req: NextRequest) {
   const orderId = orderRef.id;
   const now = new Date().toISOString();
 
+  // One promise, computed once, used by both the stored date and the stored
+  // agreement — so the order can never carry a ship-by date that disagrees
+  // with the wording the customer ticked.
+  //
+  // For a pre-order it is computed from the calendar dates the shop set, at
+  // MIDDAY on that day. A calendar date has no time, and the obvious reading
+  // — midnight — is midnight UTC, which is the evening BEFORE in every US
+  // timezone: the order would be judged late, and the buyer handed an
+  // unconditional cancel right, a day early. Midday is the one instant that
+  // lands on the intended day from Hawaii to New Zealand.
+  const preorderItems = preorderLines.map((l: any) => ({
+    name: String(l.name || 'Item'),
+    etaAt: l.preorderEtaAt || null,
+    qty: Number(l.qtyOrdered) || 1,
+  }));
+  const promiseAt = preorderLines.length > 0
+    ? cartPromiseAt(preorderItems, new Date(now))
+    : shipPromiseAt(lines as any, now, now);
+  const preorderAck = preorderLines.length > 0
+    ? preorderAckSnapshot({ items: preorderItems, promiseAt, agreedAt: now })
+    : null;
+
   const order = {
     id: orderId,
     tenantId,
@@ -394,11 +442,14 @@ async function handleCheckout(req: NextRequest) {
     // The FTC promise, fixed at purchase: the latest pre-order date on the
     // order, or 30 days. Stored so a later settings change can never quietly
     // move a date the customer was already given.
-    ...(() => {
-      const promise = shipPromiseAt(lines as any, new Date().toISOString(), new Date().toISOString());
-      return promise && !digitalOnly ? { shipPromiseAt: promise } : {};
-    })(),
-    ...(lines.some((l: any) => l.preorder === true) ? { hasPreorder: true } : {}),
+    ...(promiseAt && !digitalOnly ? { shipPromiseAt: promiseAt } : {}),
+    ...(preorderLines.length > 0 ? { hasPreorder: true } : {}),
+    // The agreement itself, in the customer's own words as they were shown
+    // them. Carried as TEXT, not a version pointer: a pointer sends whoever
+    // reads this later to a file that has since been edited, which is the
+    // exact failure this is here to prevent. Same shape as policySnapshot,
+    // so anything that already reads one can read the other.
+    ...(preorderAck ? { preorderAck } : {}),
     customerPhone: body.customer?.phone || '',
     shippingAddress: method === 'ship' ? body.shippingAddress : null,
     curbside: null,
@@ -420,6 +471,7 @@ async function handleCheckout(req: NextRequest) {
       priceTier,
       units: lines.reduce((a, l) => a + l.qtyOrdered, 0),
       totalCents,
+      ...(preorderAck ? { preorderAgreedAt: preorderAck.agreedAt, shipPromiseAt: String(preorderAck.promiseAt || '') } : {}),
     }),
   });
   await batch.commit();
