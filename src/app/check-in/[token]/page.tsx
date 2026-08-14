@@ -2682,19 +2682,18 @@ const RescheduleGateView = ({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tenantId, appointmentId, k]);
 
-    const tzSuffixOf = (tzOffsetMinutes: any): string => {
-        const m = Number.isFinite(Number(tzOffsetMinutes)) ? Number(tzOffsetMinutes) : -300;
-        const sign = m <= 0 ? '-' : '+';
-        const abs = Math.abs(m);
-        return `${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
-    };
 
     const handleReschedule = async () => {
         if (!newDate || !newTime || isSubmitting) return;
         setIsSubmitting(true); setError(null);
         try {
-            const iso = new Date(`${newDate}T${newTime}:00${tzSuffixOf(info?.policy?.tzOffsetMinutes)}`).toISOString();
-            const d = await apptApi({ action: 'reschedule', newStartIso: iso });
+            // WALL CLOCK UP, INSTANT BACK. This used to glue a FIXED offset
+            // suffix onto the picked time in the browser — and a fixed offset
+            // is EST, so from March to November every rescheduled appointment
+            // landed an hour late in the planner. Only the server knows the
+            // studio's zone and whether daylight saving applies on the chosen
+            // date, so only the server should build the moment.
+            const d = await apptApi({ action: 'reschedule', newDate, newTime });
             if (!d.ok) { setError(d.error || 'Could not move the appointment — try another time.'); return; }
             setResult(d);
         } catch (e: any) { setError(e?.message || 'Something went wrong. Please call the studio directly.'); }
@@ -2779,7 +2778,7 @@ const RescheduleGateView = ({
                         <div className="grid grid-cols-2 gap-3">
                             <div className="space-y-2">
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">New date</Label>
-                                <input type="date" value={newDate} min={new Date(Date.now() + 86400000).toISOString().slice(0, 10)}
+                                <input type="date" value={newDate} min={info?.policy?.earliestDate || ''}
                                     onChange={(e) => setNewDate(e.target.value)}
                                     className="w-full h-14 rounded-2xl border-2 px-4 text-sm font-bold bg-white shadow-inner" />
                             </div>
