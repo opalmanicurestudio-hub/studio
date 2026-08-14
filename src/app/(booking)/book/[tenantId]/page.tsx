@@ -7,6 +7,7 @@ import { getFirestore } from 'firebase/firestore';
 import { getApp } from 'firebase/app';
 import { doc, setDoc, getDoc, getDocs, addDoc, collection, query, orderBy, where } from 'firebase/firestore';
 import { type PageSection, type PageBuilderConfig } from '@/lib/data';
+import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { X as XIcon, ArrowRight } from 'lucide-react';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import {
@@ -144,12 +145,24 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     let cancelled = false;
     const run = async () => {
       const db = getDb(); if (!db) return;
+      // THE LOWER BOUND ON EVERY "from today" QUERY BELOW.
+      // It used to be the VISITOR's day. That is the wrong direction of wrong:
+      // when the browser is a day AHEAD of the studio — anyone booking in the
+      // evening from further east — these queries silently excluded today's
+      // appointments, shifts and blocks, so the availability engine on this
+      // page could not see a slot that was already taken and offered it. The
+      // booking route then refused it at the last step. Same inputs on both
+      // sides, same answer: the studio's day. Phase 1 sets `tenant` and
+      // `configReady` in the same pass, so this closure has the tenant doc;
+      // if that fetch failed it degrades to UTC, exactly as before.
+      const fromDay = todayIn(tenantTimeZone(tenant));
+      const eventsFromDay = todayIn(tenantTimeZone(tenant), new Date(Date.now() - 31 * 86400000));
       try {
         const [svSnap,stSnap,evSnap,aptSnap,spSnap,ptSnap,cfSnap,shSnap,sbSnap,doSnap,rsSnap,tkSnap,mpSnap,ceSnap] = await Promise.all([
           getDocs(collection(db, `tenants/${tenantId}/services`)),
           getDocs(collection(db, `tenants/${tenantId}/staff`)),
           getDocs(query(collection(db, `tenants/${tenantId}/studioEvents`), orderBy('date','asc'))).catch(() => getDocs(collection(db, `tenants/${tenantId}/studioEvents`))),
-          getDocs(query(collection(db, `tenants/${tenantId}/appointments`), where('startTime','>=',new Date().toISOString().split('T')[0]))).catch(() => ({ docs: [] })),
+          getDocs(query(collection(db, `tenants/${tenantId}/appointments`), where('startTime','>=',fromDay))).catch(() => ({ docs: [] })),
           getDocs(collection(db, `tenants/${tenantId}/scheduleProfiles`)).catch(() => ({ docs: [] })),
           getDocs(collection(db, `tenants/${tenantId}/pricingTiers`)).catch(() => ({ docs: [] })),
           getDocs(collection(db, `tenants/${tenantId}/consentForms`)).catch(() => ({ docs: [] })),
@@ -159,13 +172,13 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           // pedicure chair with an urgent maintenance ticket on it. The booking
           // route checks all of them, so every one of those offers came back
           // refused at the last step. Same inputs on both sides, same answer.
-          getDocs(query(collection(db, `tenants/${tenantId}/shifts`), where('date', '>=', new Date().toISOString().split('T')[0]))).catch(() => ({ docs: [] })),
-          getDocs(query(collection(db, `tenants/${tenantId}/staffBlocks`), where('startTime', '>=', new Date().toISOString().split('T')[0]))).catch(() => ({ docs: [] })),
-          getDocs(query(collection(db, `tenants/${tenantId}/shiftDayOffBlocks`), where('date', '>=', new Date().toISOString().split('T')[0]))).catch(() => ({ docs: [] })),
+          getDocs(query(collection(db, `tenants/${tenantId}/shifts`), where('date', '>=', fromDay))).catch(() => ({ docs: [] })),
+          getDocs(query(collection(db, `tenants/${tenantId}/staffBlocks`), where('startTime', '>=', fromDay))).catch(() => ({ docs: [] })),
+          getDocs(query(collection(db, `tenants/${tenantId}/shiftDayOffBlocks`), where('date', '>=', fromDay))).catch(() => ({ docs: [] })),
           getDocs(collection(db, `tenants/${tenantId}/resources`)).catch(() => ({ docs: [] })),
           getDocs(query(collection(db, `tenants/${tenantId}/tickets`), where('status', 'in', ['open', 'in_progress']))).catch(() => ({ docs: [] })),
           getDocs(collection(db, `tenants/${tenantId}/maintenancePlans`)).catch(() => ({ docs: [] })),
-          getDocs(query(collection(db, `tenants/${tenantId}/events`), where('startTime', '>=', new Date(Date.now() - 31 * 86400000).toISOString().split('T')[0]))).catch(() => ({ docs: [] })),
+          getDocs(query(collection(db, `tenants/${tenantId}/events`), where('startTime', '>=', eventsFromDay))).catch(() => ({ docs: [] })),
         ]);
         if (!cancelled) {
           setServices(svSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false));
