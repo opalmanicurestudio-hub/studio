@@ -55,11 +55,46 @@ export type WeekDay = 0 | 1 | 2 | 3 | 4 | 5 | 6; // 0=Sun … 6=Sat
 // Firestore paths — every existing tenants/{t}/booths-style path stays
 // valid; nothing renamed, nothing moved.
 
+/** A place with a postal address and a point on the earth.
+ *
+ *  ADDRESS is stored BOTH ways on purpose. `address` stays a single display
+ *  line because a dozen surfaces already print it; `addressParts` holds the
+ *  fields separately because a shipping label, a tax jurisdiction and a
+ *  geocoder all need the street apart from the city, and you cannot split a
+ *  free-text line back into them reliably. The display line is derived from
+ *  the parts whenever the parts exist, so the two cannot disagree.
+ *
+ *  COORDINATES are what a geofence actually measures against. A street
+ *  address is not a position: it has to be geocoded once, and the result
+ *  stored, or every clock-in would depend on a third-party lookup being up. */
+export interface LocationAddressParts {
+  street: string;
+  street2?: string;
+  city: string;
+  state: string;      // state / province / region
+  zip: string;        // postal code
+  country?: string;   // ISO-ish label; omitted means the tenant's own country
+}
+
+export interface GeoPoint {
+  lat: number;
+  lng: number;
+}
+
 export interface Location {
   id: string;
   tenantId: string;
   name: string;                // "Downtown", "Westside" — owner's own label
-  address?: string;
+  address?: string;            // one display line, derived from addressParts
+  addressParts?: LocationAddressParts;
+  coordinates?: GeoPoint;      // geocoded once and stored; what a geofence measures
+  /** Metres. Absent = fall back to the tenant-level setting. Per location
+   *  because a strip-mall suite and a building with its own car park do not
+   *  need the same tolerance. */
+  geoFenceRadiusMeters?: number;
+  /** Metres, for returning from a break — usually wider, since a break is
+   *  taken outside the building on purpose. */
+  geoFenceBreakRadiusMeters?: number;
   timezone: string;            // IANA tz, e.g. "America/New_York" — the
                                 // daily automation job runs once per
                                 // tenant but "due at midnight" means a
@@ -68,6 +103,16 @@ export interface Location {
                                  // deleting its historical data
   createdAt: string;
   updatedAt: string;
+}
+
+/** The display line, built from the parts. One function, so the line printed
+ *  on a page and the line stored on the doc can never drift apart. */
+export function formatLocationAddress(parts?: LocationAddressParts | null): string {
+  if (!parts) return '';
+  const street = [parts.street, parts.street2].filter((x) => String(x || '').trim()).join(', ');
+  const cityLine = [parts.city, [parts.state, parts.zip].filter((x) => String(x || '').trim()).join(' ')]
+    .filter((x) => String(x || '').trim()).join(', ');
+  return [street, cityLine, parts.country].filter((x) => String(x || '').trim()).join(', ');
 }
 
 // ─── Schedule slot (for shared/part-time booths) ─────────────────────────────
