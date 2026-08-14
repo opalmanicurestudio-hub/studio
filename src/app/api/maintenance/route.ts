@@ -30,6 +30,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
 import { smsConfigured, sendTenantSms } from '@/lib/sms';
 import { ticketBlocksBooth, TICKET_STATUS_LABELS, normalizeRules, timedMinutesOf, fmtMinutes } from '@/lib/maintenance';
+import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { uploadTicketPhotoFromDataUrl } from '@/lib/maintenance-server';
 
 async function findWorker(db: FirebaseFirestore.Firestore, tenantId: string, token: string) {
@@ -96,10 +97,15 @@ export async function POST(req: NextRequest) {
         .slice(0, 20);
       let studioName = 'The studio';
       let rules: any = { autoApproveUnderCents: 0, requireQuoteOverCents: 0, receiptRequiredOverCents: 0 };
+      // The studio's today, sent down so the portal's date pickers cannot be
+      // earlier than the studio's own calendar. A worker in another timezone
+      // was otherwise offered a deadline the studio already considers past.
+      let today = todayIn(null);
       try {
         const t = await db.doc(`tenants/${tenantId}`).get();
         studioName = (t.data() as any)?.name || (t.data() as any)?.businessName || studioName;
         rules = normalizeRules((t.data() as any)?.maintenanceRules);
+        today = todayIn(tenantTimeZone(t.data() as any));
       } catch { /* cosmetic */ }
       // Staff first names only — so a request can say WHO has the problem
       // ("blow dryer at Maya's chair") without exposing contact details.
@@ -114,7 +120,7 @@ export async function POST(req: NextRequest) {
       } catch { /* names are a nicety */ }
       // Minimal reporter exposure: name only — techs don't need contacts.
       return NextResponse.json({
-        ok: true, studioName, rules, staffNames,
+        ok: true, studioName, rules, staffNames, today,
         worker: {
           id: worker.id, name: worker.name,
           payType: worker.payType === 'payroll' ? 'payroll' : 'per_job',
