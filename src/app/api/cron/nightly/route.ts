@@ -22,6 +22,7 @@ import { runReminderSweep } from '@/lib/reminders';
 import { sweepNoShows } from '@/lib/no-show';
 import { reconcileReservations } from '@/lib/stock-reconcile';
 import { sweepStaleCurbside } from '@/lib/stock-reconcile';
+import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 
 export const maxDuration = 300; // allow up to 5 min on Vercel Pro
 
@@ -107,9 +108,13 @@ export async function GET(req: NextRequest) {
   // still marks late after a default 3-day grace — just without a fee.
   let rentMarkedLate = 0;
   let leasesRenewed = 0;
-  const todayStr = new Date().toISOString().slice(0, 10);
   for (const tDoc of allTenantsSnap.docs) {
     try {
+      // "Today" belongs to the studio, not to the server. This ran at 07:00
+      // UTC, which is 2am Eastern and 11pm Pacific the PREVIOUS day — so a
+      // west-coast studio had rent marked late, and leases renewed, a day
+      // early. Computed per tenant for the same reason.
+      const todayStr = todayIn(tenantTimeZone(tDoc.data() as any));
       const leasesSnap = await db.collection(`tenants/${tDoc.id}/leases`).get();
       const leaseById = new Map(leasesSnap.docs.map((d: any) => [d.id, d.data()]));
 
@@ -230,13 +235,14 @@ export async function GET(req: NextRequest) {
       const tid = tDoc.id;
       const { smsConfigured, sendTenantSms } = await import('@/lib/sms');
       if (!smsConfigured()) break; // no SMS → these are pure-noise skips
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const tz = tenantTimeZone(tDoc.data() as any);
+      const todayStr = todayIn(tz);
       const base = String((tDoc.data() as any)?.publicOrigin || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/+$/, '');
 
       // 1) RENT COMING DUE (3 days out) — friendly nudge with pay link.
       try {
         const dueSnap = await db.collection(`tenants/${tid}/rentInvoices`).where('status', '==', 'due').get();
-        const soon = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+        const soon = todayIn(tz, new Date(Date.now() + 3 * 86400000));
         for (const inv of dueSnap.docs) {
           const v = inv.data() as any;
           const due = String(v.dueDate || '').slice(0, 10);
@@ -257,7 +263,7 @@ export async function GET(req: NextRequest) {
       // via their portal; you get a notification, not a filing task.
       try {
         const renters = await db.collection(`tenants/${tid}/renters`).get();
-        const cutoff = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
+        const cutoff = todayIn(tz, new Date(Date.now() + 14 * 86400000));
         for (const rDoc of renters.docs) {
           const r = rDoc.data() as any;
           if (!r?.phone || r.status === 'former') continue;
@@ -354,7 +360,7 @@ export async function GET(req: NextRequest) {
   for (const tDoc of allTenantsSnap.docs) {
     try {
       const tid = tDoc.id;
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const todayStr = todayIn(tenantTimeZone(tDoc.data() as any));
       const plansSnap = await db.collection(`tenants/${tid}/maintenancePlans`).get();
       for (const pDoc of plansSnap.docs) {
         const p = pDoc.data() as any;
