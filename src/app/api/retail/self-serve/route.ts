@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sendOrderConfirmation } from '@/lib/retail-webhook';
 import { requestForensics } from '@/lib/request-forensics';
 import { isPromiseLate } from '@/lib/retail-orders';
+import { canReturnLine } from '@/lib/return-eligibility';
 
 // ─── /api/retail/self-serve/route.ts ──────────────────────────────────────────
 // Customer self-service, gated by possession of the order's qrToken — the
@@ -270,9 +271,19 @@ export async function POST(req: NextRequest) {
       if (qty > returnable) {
         return NextResponse.json({ error: `Only ${returnable} of ${orig.name} can still be returned.` }, { status: 400 });
       }
+      // FINAL SALE, checked on the customer's own path. The refusal names the
+      // item, gives the shop's own reason, and ends by pointing at what they
+      // CAN still do — a bare "this cannot be returned" is the message that
+      // produces a phone call, or a card dispute. Fault reasons are never
+      // blocked, so "it arrived smashed" still goes straight through.
+      const chosenReason = REASONS.includes(sel.reason) ? sel.reason : 'other';
+      const eligible = canReturnLine(orig as any, chosenReason as any);
+      if (!eligible.allowed) {
+        return NextResponse.json({ error: eligible.message, finalSale: true }, { status: 409 });
+      }
       lines.push({
         lineId: orig.lineId, sku: orig.sku || '', name: orig.name, qty,
-        reason: REASONS.includes(sel.reason) ? sel.reason : 'other',
+        reason: chosenReason,
       });
     }
     if (lines.length === 0) return NextResponse.json({ error: 'Pick at least one item to return.' }, { status: 400 });
