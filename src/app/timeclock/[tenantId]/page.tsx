@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -30,7 +30,9 @@ type KioskStep = 'idle' | 'pin_entry' | 'action_confirm' | 'success' | 'error';
 
 export default function TimeClockPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const tenantId = params.tenantId as string;
+  const locationParam = searchParams?.get('location') || '';
   const { firestore } = useFirebase();
   const { toast } = useToast();
 
@@ -52,13 +54,48 @@ export default function TimeClockPage() {
 
   const tenantDocRef = useMemoFirebase(() => firestore ? doc(firestore, `tenants/${tenantId}`) : null, [firestore, tenantId]);
   const staffQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/staff`) : null, [firestore, tenantId]);
+  const locationsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/locations`) : null, [firestore, tenantId]);
 
   const { data: tenant } = useDoc<any>(tenantDocRef);
   const { data: staff } = useCollection<any>(staffQuery);
+  const { data: locations } = useCollection<any>(locationsQuery);
+
+  // ── WHICH DOOR IS THIS TABLET AT? ────────────────────────────────────────
+  // A wall-mounted kiosk stands at ONE location, but nothing in the data
+  // model says which: staff.locationIds is declared in the types and never
+  // written by any screen, and a kiosk has nobody to ask. So the URL says it
+  // — `/timeclock/{tenantId}?location={id}`, set once when the tablet is
+  // configured. Failing that, a single pinned location is unambiguous enough
+  // to use. Failing THAT, the studio-wide pin, which is what has always been
+  // used and stays correct for a one-site studio.
+  const activeLocations = (locations || []).filter((l: any) => l?.isActive !== false);
+  const pinnedLocations = activeLocations.filter(
+    (l: any) => Number.isFinite(Number(l?.coordinates?.lat)) && Number.isFinite(Number(l?.coordinates?.lng))
+  );
+  const namedLocation = locationParam
+    ? activeLocations.find((l: any) => l.id === locationParam) || null
+    : null;
+  const kioskLocation = namedLocation
+    || (pinnedLocations.length === 1 ? pinnedLocations[0] : null);
+
+  // The pin the fence measures from, and the tolerances around it. A
+  // location that sets nothing inherits the studio's values exactly, so
+  // adding locations can never tighten or loosen a fence by surprise.
+  const fenceOrigin = (Number.isFinite(Number(kioskLocation?.coordinates?.lat))
+    && Number.isFinite(Number(kioskLocation?.coordinates?.lng)))
+    ? { lat: Number(kioskLocation.coordinates.lat), lng: Number(kioskLocation.coordinates.lng) }
+    : (tenant?.studioLocation || null);
+  const fenceOriginLabel = fenceOrigin
+    ? (fenceOrigin === tenant?.studioLocation ? (tenant?.businessName || tenant?.name || 'Studio') : kioskLocation?.name)
+    : '';
+  const clockRadius = Number(kioskLocation?.geoFenceRadiusMeters)
+    || Number(tenant?.geoFenceRadiusMeters) || 200;
+  const breakRadius = Number(kioskLocation?.geoFenceBreakRadiusMeters)
+    || Number(tenant?.geoFenceBreakRadiusMeters) || 500;
 
   // Geo-fence check -- returns true if ok to proceed
   const checkGeoFence = useCallback(async (): Promise<boolean> => {
-    if (!tenant?.geoFenceEnabled || !tenant?.studioLocation) {
+    if (!tenant?.geoFenceEnabled || !fenceOrigin) {
       setGeoStatus('disabled');
       return true;
     }
@@ -70,16 +107,14 @@ export default function TimeClockPage() {
           setGeoCoords({ lat: latitude, lng: longitude });
           const R = 6371e3;
           const lat1 = latitude * Math.PI / 180;
-          const lat2 = tenant.studioLocation.lat * Math.PI / 180;
-          const dLat = (tenant.studioLocation.lat - latitude) * Math.PI / 180;
-          const dLon = (tenant.studioLocation.lng - longitude) * Math.PI / 180;
+          const lat2 = fenceOrigin.lat * Math.PI / 180;
+          const dLat = (fenceOrigin.lat - latitude) * Math.PI / 180;
+          const dLon = (fenceOrigin.lng - longitude) * Math.PI / 180;
           const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
           const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
           // Use break radius for break_end, otherwise clock-in radius
-          const radius = pendingAction === 'break_end'
-            ? (tenant.geoFenceBreakRadiusMeters || 500)
-            : (tenant.geoFenceRadiusMeters || 200);
+          const radius = pendingAction === 'break_end' ? breakRadius : clockRadius;
 
           if (dist <= radius) {
             setGeoStatus('verified');
@@ -93,7 +128,7 @@ export default function TimeClockPage() {
         { enableHighAccuracy: true, timeout: 10000 }
       );
     });
-  }, [tenant, pendingAction]);
+  }, [tenant, pendingAction, fenceOrigin, clockRadius, breakRadius]);
 
   // Check if staff has an appointment today
   const hasAppointmentToday = useCallback(async (staffId: string): Promise<boolean> => {
@@ -385,7 +420,7 @@ export default function TimeClockPage() {
       {tenant?.geoFenceEnabled && (
         <div className={cn("flex items-center gap-2 px-4 py-2 rounded-full border mb-6 z-10 text-[10px] font-black uppercase tracking-widest", geoStatus === 'verified' ? "bg-green-50 border-green-200 text-green-700" : geoStatus === 'failed' ? "bg-red-50 border-red-200 text-red-600" : "bg-slate-100 border-slate-200 text-slate-400")}>
           <MapPin className="w-3 h-3" />
-          {geoStatus === 'verified' ? 'Location Verified' : geoStatus === 'failed' ? (tenant?.geoFenceFailBehavior === 'block' ? 'Outside Studio Zone -- Blocked' : 'Outside Studio Zone -- Warning') : geoStatus === 'checking' ? 'Checking Location...' : 'Location Services'}
+          {geoStatus === 'verified' ? `Location Verified${fenceOriginLabel ? ` \u00b7 ${fenceOriginLabel}` : ''}` : geoStatus === 'failed' ? (tenant?.geoFenceFailBehavior === 'block' ? 'Outside Studio Zone -- Blocked' : 'Outside Studio Zone -- Warning') : geoStatus === 'checking' ? 'Checking Location...' : 'Location Services'}
         </div>
       )}
 
