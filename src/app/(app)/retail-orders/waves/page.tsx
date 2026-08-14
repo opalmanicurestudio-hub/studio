@@ -18,6 +18,7 @@ import {
   buildWave, eligibleForWave, packQueue, pickList, markRowPicked, setWaveStatus,
   waveCol, waveSummary, type Wave,
 } from '@/lib/waves';
+import { hourIn, tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { cn } from '@/lib/utils';
 
 // ─── Wave picking ─────────────────────────────────────────────────────────────
@@ -126,12 +127,22 @@ export default function WavesPage() {
     if (!rs.autoWaveEnabled) return;
     if (!perms.canPack) return;
 
+    // Both questions here — is it late enough, and has one been built today —
+    // were answered by whichever machine had the page open: getHours() is the
+    // browser's clock and toISOString() is UTC. A manager checking the board
+    // from another timezone could build the morning wave at the shop's 4am,
+    // or find a wave already built "today" that was yesterday's. The shop's
+    // own clock answers both.
+    const zone = tenantTimeZone(selectedTenant as any);
     const hour = Math.min(23, Math.max(0, Number(rs.autoWaveHour) || 9));
     const now = new Date();
-    if (now.getHours() < hour) return;
+    if (hourIn(now, zone) < hour) return;
 
-    const today = now.toISOString().slice(0, 10);
-    const builtToday = waves.some((w) => String(w.createdAt || '').slice(0, 10) === today);
+    const today = todayIn(zone, now);
+    const builtToday = waves.some((w) => {
+      const at = String(w.createdAt || '');
+      return at ? todayIn(zone, new Date(at)) === today : false;
+    });
     if (builtToday) return;
 
     const eligible = eligibleForWave(orders, new Date().toISOString());
