@@ -10,8 +10,14 @@
 //   'view'        → appointment details + policy + this studio's info
 //   'cancel'      → cancels (inside the studio's cancel window), frees
 //                   the slot, notifies owner + staff
-//   'reschedule'  { newStartIso } → conflict-checked move on the SAME
-//                   staff member; keeps duration; notifies owner + staff
+//   'reschedule'  { newDate, newTime } → conflict-checked move on the SAME
+//                   staff member; keeps duration; notifies owner + staff.
+//                   The client sends WALL-CLOCK ('2026-07-16', '14:30') and
+//                   the server turns it into an instant using the studio's
+//                   zone. It used to send a finished ISO instant built in the
+//                   browser from a fixed offset suffix, which booked every
+//                   summer reschedule an hour off. { newStartIso } is still
+//                   accepted so an older cached page keeps working.
 //   'late'        → one-tap "running late" note to staff + owner
 // GET ?tenantId=&apptId=&k=&ics=1 → calendar file (.ics)
 //
@@ -22,6 +28,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
 import { smsConfigured, sendTenantSms } from '@/lib/sms';
+import { addDays, formatDateTime, isValidTimeZone, tenantTimeZone, todayIn, wallToUtc } from '@/lib/tenant-time';
 
 const overlaps = (s1: number, e1: number, s2: number, e2: number) => s1 < e2 && s2 < e1;
 
@@ -54,7 +61,14 @@ async function notifyStaffAndOwner(db: any, tenantId: string, a: any, message: s
   } catch { /* text is a bonus */ }
 }
 
-const fmtWhen = (iso: string, tzOffset: number) => {
+/** The time a client reads. Takes the studio's zone when it has one, and
+ *  falls back to the stored fixed offset otherwise — same migration ladder as
+ *  the reminder cron, and for the same reason: a correct zone is better, but
+ *  nobody's times should silently shift by an hour because we improved the
+ *  code. An offset cannot know that -300 becomes -240 in March, so every
+ *  "when" label here was an hour out for eight months of the year. */
+const fmtWhen = (iso: string, tzOffset: number, zone?: string | null) => {
+  if (zone) return formatDateTime(iso, zone);
   const d = new Date(new Date(iso).getTime() + tzOffset * 60000);
   return `${d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })} at ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' })}`;
 };
@@ -81,6 +95,10 @@ export async function POST(req: NextRequest) {
     // fee engine recovers the cost rather than forcing a phone call.
     const rescheduleCutoffHours = Number.isFinite(Number(cfg.rescheduleCutoffHours)) ? Math.max(0, Number(cfg.rescheduleCutoffHours)) : 2;
     const tzOffset = Number.isFinite(Number(cfg.tzOffsetMinutes)) ? Number(cfg.tzOffsetMinutes) : -300;
+    // An IANA zone wins where the studio has set one; otherwise the legacy
+    // offset above still drives everything, unchanged.
+    const hasZone = isValidTimeZone(tDoc.timezone) || isValidTimeZone(tDoc.timeZone) || isValidTimeZone(tDoc.retailSettings?.timezone);
+    const zone = hasZone ? tenantTimeZone(tDoc) : null;
     const startMs = new Date(a.startTime).getTime();
     const insideWindow = Date.now() <= startMs - cancelHours * 3600000;
     const insideRescheduleWindow = Date.now() <= startMs - rescheduleCutoffHours * 3600000;
@@ -94,11 +112,17 @@ export async function POST(req: NextRequest) {
           staffName: a.staffName || null,
           startTime: a.startTime, endTime: a.endTime || null,
           status: a.status || 'confirmed',
-          whenLabel: fmtWhen(a.startTime, tzOffset),
+          whenLabel: fmtWhen(a.startTime, tzOffset, zone),
         },
         policy: {
           cancelHours, canChange: insideWindow && !already, tzOffsetMinutes: tzOffset,
           rescheduleCutoffHours, canReschedule: insideRescheduleWindow && !already,
+          // The earliest date the CLIENT may pick, on the STUDIO's calendar.
+          // The pages used to compute this from the browser's clock, so a
+          // client travelling — or simply awake late — could be offered a
+          // date the studio already considers past.
+          earliestDate: zone ? addDays(todayIn(zone), 1) : addDays(todayIn(null, new Date(Date.now() + tzOffset * 60000)), 1),
+          timeZone: zone || null,
         },
       });
     }
@@ -108,7 +132,7 @@ export async function POST(req: NextRequest) {
     if (action === 'late') {
       const nowIso = new Date().toISOString();
       await ref.set({ clientRunningLateAt: nowIso }, { merge: true });
-      await notifyStaffAndOwner(db, tenantId, a, `${a.clientName || 'Your client'} is running late for ${fmtWhen(a.startTime, tzOffset)} — they tapped "running late".`);
+      await notifyStaffAndOwner(db, tenantId, a, `${a.clientName || 'Your client'} is running late for ${fmtWhen(a.startTime, tzOffset, zone)} — they tapped "running late".`);
       return NextResponse.json({ ok: true });
     }
 
@@ -166,10 +190,10 @@ export async function POST(req: NextRequest) {
       const extra = alsoCancelled > 0
         ? ` This freed ${alsoCancelled + 1} linked bookings on the same visit.`
         : '';
-      await notifyStaffAndOwner(db, tenantId, a, `${a.clientName || 'A client'} cancelled ${fmtWhen(a.startTime, tzOffset)}${a.staffName ? ` with ${a.staffName}` : ''} (self-serve). The slot is open again.${extra}`);
+      await notifyStaffAndOwner(db, tenantId, a, `${a.clientName || 'A client'} cancelled ${fmtWhen(a.startTime, tzOffset, zone)}${a.staffName ? ` with ${a.staffName}` : ''} (self-serve). The slot is open again.${extra}`);
       await logAuditAdmin(db, tenantId, {
         action: 'appointment.client_cancelled', targetType: 'appointment', targetId: apptId,
-        summary: `${a.clientName || 'Client'} self-cancelled ${fmtWhen(a.startTime, tzOffset)}${alsoCancelled > 0 ? ` (+${alsoCancelled} linked)` : ''}`,
+        summary: `${a.clientName || 'Client'} self-cancelled ${fmtWhen(a.startTime, tzOffset, zone)}${alsoCancelled > 0 ? ` (+${alsoCancelled} linked)` : ''}`,
         actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'manage-link' },
       });
       return NextResponse.json({ ok: true, ...(alsoCancelled > 0 ? { alsoCancelled } : {}) });
@@ -177,7 +201,21 @@ export async function POST(req: NextRequest) {
 
     if (action === 'reschedule') {
       if (!insideRescheduleWindow) return NextResponse.json({ ok: false, error: `Online rescheduling closes ${rescheduleCutoffHours}h before the appointment — call the studio and we'll sort it out.` }, { status: 422 });
-      const newStart = new Date(String(body.newStartIso || ''));
+      // WALL CLOCK IN, INSTANT OUT. '2026-07-16' + '14:30' means half past two
+      // on the studio's wall — a fact only the server can turn into a moment,
+      // because only it knows the zone and whether daylight saving applies on
+      // that date. newStartIso stays accepted for pages served before this.
+      const newDate = String(body.newDate || '').slice(0, 10);
+      const newTime = String(body.newTime || '').slice(0, 5);
+      let newStart: Date;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(newDate) && /^\d{2}:\d{2}$/.test(newTime)) {
+        const [hh, mm] = newTime.split(':').map(Number);
+        newStart = zone
+          ? wallToUtc(newDate, hh, mm, zone)
+          : new Date(Date.UTC(+newDate.slice(0, 4), +newDate.slice(5, 7) - 1, +newDate.slice(8, 10), hh, mm) - tzOffset * 60000);
+      } else {
+        newStart = new Date(String(body.newStartIso || ''));
+      }
       if (Number.isNaN(newStart.getTime())) return NextResponse.json({ ok: false, error: 'Pick a date and time.' }, { status: 400 });
       const nowMs = Date.now();
       if (newStart.getTime() < nowMs + 2 * 3600000) return NextResponse.json({ ok: false, error: 'Pick a time at least 2 hours from now.' }, { status: 422 });
@@ -217,13 +255,13 @@ export async function POST(req: NextRequest) {
       });
       if (result.conflict) return NextResponse.json({ ok: false, error: `${a.staffName || 'That staff member'} is booked then — try another time.` }, { status: 409 });
       await notifyStaffAndOwner(db, tenantId, a,
-        `${a.clientName || 'A client'} moved their appointment${a.staffName ? ` with ${a.staffName}` : ''}: ${fmtWhen(a.startTime, tzOffset)} → ${fmtWhen(newStart.toISOString(), tzOffset)} (self-serve).`);
+        `${a.clientName || 'A client'} moved their appointment${a.staffName ? ` with ${a.staffName}` : ''}: ${fmtWhen(a.startTime, tzOffset, zone)} → ${fmtWhen(newStart.toISOString(), tzOffset, zone)} (self-serve).`);
       await logAuditAdmin(db, tenantId, {
         action: 'appointment.client_rescheduled', targetType: 'appointment', targetId: apptId,
-        summary: `${a.clientName || 'Client'} self-rescheduled to ${fmtWhen(newStart.toISOString(), tzOffset)}`,
+        summary: `${a.clientName || 'Client'} self-rescheduled to ${fmtWhen(newStart.toISOString(), tzOffset, zone)}`,
         actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'manage-link' },
       });
-      return NextResponse.json({ ok: true, newStartIso: newStart.toISOString(), whenLabel: fmtWhen(newStart.toISOString(), tzOffset) });
+      return NextResponse.json({ ok: true, newStartIso: newStart.toISOString(), whenLabel: fmtWhen(newStart.toISOString(), tzOffset, zone) });
     }
 
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
