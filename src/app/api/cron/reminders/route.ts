@@ -9,8 +9,14 @@
 //   enabled          — default true (set false to silence entirely)
 //   sendHour         — local hour 0-23 to send at (default 9 = 9am)
 //   daysBefore       — remind this many days ahead (default 1 = tomorrow)
-//   tzOffsetMinutes  — minutes from UTC, e.g. -300 EST / -360 CST
-//                      (default -300; set yours once)
+//   tzOffsetMinutes  — DEPRECATED. A fixed offset is not a timezone: it
+//                      cannot know that -300 becomes -240 in March, so every
+//                      reminder drifted an hour for eight months a year and
+//                      the civil-hour guard slid with it. Set the studio's
+//                      timezone in Settings instead (tenants/{id}.timezone,
+//                      an IANA name) and this field is ignored. It is still
+//                      honoured while it is the only thing set, so nobody's
+//                      send time moves without them choosing it.
 //
 // Idempotent: each appointment is stamped (reminderSentAt) after its
 // reminder goes out — reruns and overlapping windows can't double-text.
@@ -20,6 +26,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { smsConfigured, sendTenantSms } from '@/lib/sms';
 import { sendNotification } from '@/lib/notify';
+import {
+  addDays, dayKey, formatShortDay, formatTime, hourIn, isValidTimeZone, tenantTimeZone,
+} from '@/lib/tenant-time';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -43,12 +52,39 @@ export async function GET(req: NextRequest) {
       if (cfg.enabled === false) { results[tid] = 'disabled'; continue; }
       const sendHour = Number.isFinite(Number(cfg.sendHour)) ? Math.min(23, Math.max(0, Math.round(Number(cfg.sendHour)))) : 9;
       const daysBefore = Number.isFinite(Number(cfg.daysBefore)) ? Math.min(7, Math.max(0, Math.round(Number(cfg.daysBefore)))) : 1;
-      const tzOffset = Number.isFinite(Number(cfg.tzOffsetMinutes)) ? Number(cfg.tzOffsetMinutes) : -300;
+      // ── WHOSE CLOCK ─────────────────────────────────────────────────────
+      // An IANA zone wins, because only a zone knows about daylight saving.
+      // A stored offset is honoured ONLY while no zone is set: silently
+      // moving a studio's send time by an hour because we improved the code
+      // would be worse than the drift it fixes. `zoneSource` comes back in
+      // the response so a studio still on an offset is visible, not guessed
+      // at — and the legacy default is preserved for the same reason, even
+      // though a default of -300 assumes a country.
+      const tdata = (tDoc.data() as any) || {};
+      const zone = tenantTimeZone(tdata);
+      const hasZone = isValidTimeZone(tdata.timezone)
+        || isValidTimeZone(tdata.timeZone)
+        || isValidTimeZone(tdata.retailSettings?.timezone);
+      const storedOffset = Number.isFinite(Number(cfg.tzOffsetMinutes)) ? Number(cfg.tzOffsetMinutes) : null;
+      const tzOffset = storedOffset ?? -300;
+      const zoneSource = hasZone ? zone : (storedOffset !== null ? `legacy offset ${tzOffset}` : 'legacy default -300');
 
-      // Only act on the tenant's chosen local hour — hourly cron, per-
-      // tenant clock. (The hour we're IN, so a few minutes' cron jitter
-      // never skips a tenant.)
-      const localNow = new Date(Date.now() + tzOffset * 60000);
+      // Every "what day / what hour is it there" question in this file goes
+      // through these four, so the zone path and the legacy path can never
+      // disagree about the same moment.
+      const shifted = (d: Date) => new Date(d.getTime() + tzOffset * 60000);
+      const dayOfLocal = (d: Date) => hasZone
+        ? dayKey(d, zone)
+        : `${shifted(d).getUTCFullYear()}-${pad(shifted(d).getUTCMonth() + 1)}-${pad(shifted(d).getUTCDate())}`;
+      const hourOfLocal = (d: Date) => hasZone ? hourIn(d, zone) : shifted(d).getUTCHours();
+      const timeOf = (d: Date) => hasZone
+        ? formatTime(d, zone)
+        : shifted(d).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' });
+      const dayOf = (d: Date) => hasZone
+        ? formatShortDay(d, zone)
+        : shifted(d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+
+      const nowInstant = new Date();
 
       // ── WORKS ON A DAILY CRON TOO ───────────────────────────────────────
       // Vercel's Hobby plan only fires a cron once a day. On an hourly cron
@@ -65,12 +101,12 @@ export async function GET(req: NextRequest) {
         const v = s.exists ? (s.data() as any)?.lastRunAt : null;
         if (v) lastRunMs = new Date(v).getTime() || 0;
       } catch { /* treat as never run */ }
-      const localHour = localNow.getUTCHours();
+      const localHour = hourOfLocal(nowInstant);
       const atChosenHour = localHour === sendHour;
       const aDayStale = (Date.now() - lastRunMs) >= 20 * 3600000;
       const civilHour = localHour >= 8 && localHour <= 20;
       if (!atChosenHour && !(aDayStale && civilHour)) {
-        results[tid] = `waiting (their ${pad(sendHour)}:00)`;
+        results[tid] = `waiting (their ${pad(sendHour)}:00, clock ${zoneSource})`;
         continue;
       }
       // Stamped BEFORE the work, not after: if the send loop dies halfway the
@@ -79,9 +115,12 @@ export async function GET(req: NextRequest) {
       try { await stateRef.set({ lastRunAt: new Date().toISOString(), localHour }, { merge: true }); } catch { /* best effort */ }
       const base = String((tDoc.data() as any)?.publicOrigin || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/+$/, '');
 
-      // Target LOCAL day: today + daysBefore.
-      const target = new Date(localNow.getTime() + daysBefore * 86400000);
-      const targetDay = `${target.getUTCFullYear()}-${pad(target.getUTCMonth() + 1)}-${pad(target.getUTCDate())}`;
+      // Target LOCAL day: today + daysBefore, counted in DAYS rather than in
+      // 86,400,000-millisecond blocks. The two differ on the two mornings a
+      // year a day is 23 or 25 hours long, and on those mornings the old sum
+      // landed on the wrong date and skipped everyone.
+      const todayLocal = dayOfLocal(nowInstant);
+      const targetDay = addDays(todayLocal, daysBefore);
 
       const apts = await db.collection(`tenants/${tid}/appointments`).get();
 
@@ -119,12 +158,6 @@ export async function GET(req: NextRequest) {
         return { phone, email };
       };
 
-      const timeOf = (d: Date) =>
-        d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' });
-      const dayOf = (d: Date) =>
-        d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
-      const localDayKey = (d: Date) =>
-        `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
       const firstNameOf = (v: any) => String(v || '').trim().split(/\s+/)[0] || 'Guest';
 
       // ── ONE MESSAGE PER PERSON PER VISIT ────────────────────────────────────
@@ -144,7 +177,11 @@ export async function GET(req: NextRequest) {
       type Bucket = {
         phone: string | null;
         email: string | null;
-        items: Array<{ ref: any; a: any; id: string; local: Date }>;
+        // `at` is the REAL instant of the appointment. The old code stored a
+        // Date deliberately shifted by the offset so that reading its UTC
+        // fields gave local ones — a fake moment that sorted correctly by
+        // accident and could not be formatted for any other zone.
+        items: Array<{ ref: any; a: any; id: string; at: Date }>;
       };
       let sent = 0, skipped = 0;
       const buckets = new Map<string, Bucket>();
@@ -154,8 +191,8 @@ export async function GET(req: NextRequest) {
           if (!a.startTime || a.reminderSentAt) continue;
           if (['cancelled', 'canceled', 'no_show', 'completed'].includes(String(a.status || ''))) continue;
           // The appointment's LOCAL day must match the target day.
-          const aptLocal = new Date(new Date(a.startTime).getTime() + tzOffset * 60000);
-          if (localDayKey(aptLocal) !== targetDay) continue;
+          const at = new Date(a.startTime);
+          if (dayOfLocal(at) !== targetDay) continue;
 
           const { phone, email } = await contactFor(a);
           if (!phone && !email) { skipped++; continue; }
@@ -163,16 +200,16 @@ export async function GET(req: NextRequest) {
           const visitKey = a.groupBookingId || a.multiProviderGroupId || aDoc.id;
           const key = `${visitKey}::${String(phone || '').trim()}::${String(email || '').trim().toLowerCase()}`;
           const b = buckets.get(key) || { phone, email, items: [] };
-          b.items.push({ ref: aDoc.ref, a, id: aDoc.id, local: aptLocal });
+          b.items.push({ ref: aDoc.ref, a, id: aDoc.id, at });
           buckets.set(key, b);
         } catch { skipped++; }
       }
 
       for (const b of buckets.values()) {
         try {
-          b.items.sort((x, y) => x.local.getTime() - y.local.getTime());
+          b.items.sort((x, y) => x.at.getTime() - y.at.getTime());
           const first = b.items[0];
-          const when = `${dayOf(first.local)} at ${timeOf(first.local)}`;
+          const when = `${dayOf(first.at)} at ${timeOf(first.at)}`;
           // v18 — ONE portal for clients: the master check-in link
           // (/check-in/{token}) — arrival, running-late, concierge,
           // forms/deposit, and the studio's real cancellation flow all
@@ -194,10 +231,10 @@ export async function GET(req: NextRequest) {
               const svcName = svcNames.get(String(i.a.serviceId || '')) || 'appointment';
               const who = i.a.staffName ? ` with ${i.a.staffName}` : '';
               return names.size > 1
-                ? `${firstNameOf(i.a.clientName)} ${timeOf(i.local)} ${svcName}${who}`
-                : `${timeOf(i.local)} ${svcName}${who}`;
+                ? `${firstNameOf(i.a.clientName)} ${timeOf(i.at)} ${svcName}${who}`
+                : `${timeOf(i.at)} ${svcName}${who}`;
             }).join(', ');
-            const dayPart = daysBefore === 0 ? 'today' : dayOf(first.local);
+            const dayPart = daysBefore === 0 ? 'today' : dayOf(first.at);
             msg = names.size > 1
               ? `Reminder — your group is booked ${dayPart}: ${lines}.${manage}`
               : `Reminder — you have ${b.items.length} appointments ${dayPart}: ${lines}.${manage}`;
@@ -233,8 +270,7 @@ export async function GET(req: NextRequest) {
       // after. Retention on autopilot; disable via clientNotify.followUp=false.
       let followUps = 0;
       if (cfg.followUp !== false) {
-        const yest = new Date(localNow.getTime() - 86400000);
-        const yestDay = localDayKey(yest);
+        const yestDay = addDays(todayLocal, -1);
         // One thank-you per PERSON, not per document. A client who had colour
         // then cut then style yesterday had one visit, and the organizer of a
         // party of five was reachable on one phone — sending per document
@@ -244,7 +280,7 @@ export async function GET(req: NextRequest) {
         type FollowBucket = {
           phone: string | null;
           email: string | null;
-          items: Array<{ ref: any; a: any; id: string; local: Date }>;
+          items: Array<{ ref: any; a: any; id: string; at: Date }>;
         };
         const followBuckets = new Map<string, FollowBucket>();
         for (const aDoc of apts.docs) {
@@ -252,20 +288,20 @@ export async function GET(req: NextRequest) {
           try {
             if (!a.startTime || a.followUpSentAt) continue;
             if (['cancelled', 'canceled', 'no_show', 'pending_payment'].includes(String(a.status || ''))) continue;
-            const aptLocal = new Date(new Date(a.startTime).getTime() + tzOffset * 60000);
-            if (localDayKey(aptLocal) !== yestDay) continue;
+            const at = new Date(a.startTime);
+            if (dayOfLocal(at) !== yestDay) continue;
             const { phone, email } = await contactFor(a);
             if (!phone && !email) continue;
             const key = `${String(phone || '').trim()}::${String(email || '').trim().toLowerCase()}`;
             const b = followBuckets.get(key) || { phone, email, items: [] };
-            b.items.push({ ref: aDoc.ref, a, id: aDoc.id, local: aptLocal });
+            b.items.push({ ref: aDoc.ref, a, id: aDoc.id, at });
             followBuckets.set(key, b);
           } catch { /* next appt */ }
         }
 
         for (const b of followBuckets.values()) {
           try {
-            b.items.sort((x, y) => x.local.getTime() - y.local.getTime());
+            b.items.sort((x, y) => x.at.getTime() - y.at.getTime());
             const first = b.items[0];
             // Thank the whole team that touched the visit, deduped and in the
             // order they were seen — "Ana and Bea" reads like a studio, three
@@ -313,19 +349,18 @@ export async function GET(req: NextRequest) {
       // Disable via clientNotify.staffAgenda = false.
       let agendas = 0;
       if (cfg.staffAgenda !== false && smsConfigured()) {
-        const todayDay = `${localNow.getUTCFullYear()}-${pad(localNow.getUTCMonth() + 1)}-${pad(localNow.getUTCDate())}`;
+        const todayDay = todayLocal;
         const byStaff = new Map<string, { count: number; firstLabel: string | null; firstMs: number }>();
         for (const aDoc of apts.docs) {
           const a = aDoc.data() as any;
           if (!a.startTime || !a.staffId) continue;
           if (['cancelled', 'canceled', 'pending_payment'].includes(String(a.status || ''))) continue;
-          const aptLocal = new Date(new Date(a.startTime).getTime() + tzOffset * 60000);
-          const aptDay = `${aptLocal.getUTCFullYear()}-${pad(aptLocal.getUTCMonth() + 1)}-${pad(aptLocal.getUTCDate())}`;
-          if (aptDay !== todayDay) continue;
+          const at = new Date(a.startTime);
+          if (dayOfLocal(at) !== todayDay) continue;
           const cur = byStaff.get(a.staffId) || { count: 0, firstLabel: null, firstMs: Infinity };
           cur.count++;
-          const ms = aptLocal.getTime();
-          if (ms < cur.firstMs) { cur.firstMs = ms; cur.firstLabel = aptLocal.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' }); }
+          const ms = at.getTime();
+          if (ms < cur.firstMs) { cur.firstMs = ms; cur.firstLabel = timeOf(at); }
           byStaff.set(a.staffId, cur);
         }
         // Out-of-service context, once per tenant
@@ -356,16 +391,15 @@ export async function GET(req: NextRequest) {
       let brief = false;
       if (cfg.ownerBrief !== false && cfg.ownerPhone) {
         try {
-          const todayDay = `${localNow.getUTCFullYear()}-${pad(localNow.getUTCMonth() + 1)}-${pad(localNow.getUTCDate())}`;
+          const todayDay = todayLocal;
           let apptsToday = 0; let firstLabel: string | null = null; let firstMs = Infinity;
           for (const aDoc of apts.docs) {
             const a = aDoc.data() as any;
             if (!a.startTime || ['cancelled', 'canceled', 'pending_payment'].includes(String(a.status || ''))) continue;
-            const aptLocal = new Date(new Date(a.startTime).getTime() + tzOffset * 60000);
-            const aptDay = `${aptLocal.getUTCFullYear()}-${pad(aptLocal.getUTCMonth() + 1)}-${pad(aptLocal.getUTCDate())}`;
-            if (aptDay !== todayDay) continue;
+            const at = new Date(a.startTime);
+            if (dayOfLocal(at) !== todayDay) continue;
             apptsToday++;
-            if (aptLocal.getTime() < firstMs) { firstMs = aptLocal.getTime(); firstLabel = aptLocal.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' }); }
+            if (at.getTime() < firstMs) { firstMs = at.getTime(); firstLabel = timeOf(at); }
           }
           let openTickets = 0, overdueTickets = 0;
           try {
@@ -381,14 +415,11 @@ export async function GET(req: NextRequest) {
           try {
             const yStart = new Date(Date.now() - 36 * 3600000).toISOString();
             const txns = await db.collection(`tenants/${tid}/transactions`).where('date', '>=', yStart).get();
-            const yest = new Date(localNow.getTime() - 86400000);
-            const yestDay = `${yest.getUTCFullYear()}-${pad(yest.getUTCMonth() + 1)}-${pad(yest.getUTCDate())}`;
+            const yestDay = addDays(todayLocal, -1);
             for (const d of txns.docs) {
               const x = d.data() as any;
               if (x.type !== 'income') continue;
-              const xLocal = new Date(new Date(x.date).getTime() + tzOffset * 60000);
-              const xDay = `${xLocal.getUTCFullYear()}-${pad(xLocal.getUTCMonth() + 1)}-${pad(xLocal.getUTCDate())}`;
-              if (xDay === yestDay) revYesterday += Number(x.amount) || 0;
+              if (dayOfLocal(new Date(x.date)) === yestDay) revYesterday += Number(x.amount) || 0;
             }
           } catch { /* skip */ }
           const msg = `Morning brief: ${apptsToday} appointment${apptsToday === 1 ? '' : 's'} today${firstLabel ? ` (first ${firstLabel})` : ''} · ${openTickets} open maintenance${overdueTickets ? ` (${overdueTickets} overdue)` : ''} · $${revYesterday.toFixed(0)} collected yesterday.`;
@@ -396,7 +427,7 @@ export async function GET(req: NextRequest) {
         } catch { /* brief is a bonus */ }
       }
 
-      results[tid] = { sent, skipped, targetDay, followUps, agendas, ownerBrief: brief };
+      results[tid] = { sent, skipped, targetDay, followUps, agendas, ownerBrief: brief, clock: zoneSource };
     } catch (e: any) {
       results[tid] = { error: String(e?.message || e).slice(0, 120) };
     }
