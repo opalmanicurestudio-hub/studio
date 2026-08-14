@@ -30,6 +30,7 @@ import { resolveIncidentalPolicy, validateIncidental } from '@/lib/incidentals';
 import { resolveDayUseAgreement, buildSignedRecord } from '@/lib/esign';
 import { recognizeContact, resolveRenterDayDiscount } from '@/lib/booth-recognition';
 import { sendReservationConfirmation } from '@/lib/reservation-notify';
+import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
 
 // The owner's custom booking terms, if they wrote any, from the booking-page
 // config. A miss is fine — resolveDayUseAgreement falls back to the built-in
@@ -444,7 +445,9 @@ export async function POST(req: NextRequest) {
       ? `${startDate} · ${startTime}–${endTime}`
       : (startDate === endDate ? startDate : `${startDate} → ${endDate}`);
     const agreement = resolveDayUseAgreement(findBookingTerms(tenantData), {
-      date: new Date().toISOString().slice(0, 10),
+      // Same rule as the walk-in kiosk: the date on a signed agreement is the
+      // studio's date, not the server's.
+      date: todayIn(tenantTimeZone(tenantData)),
       studioName: tenantData?.name || tenantData?.businessName || 'The Studio',
       signerName: String(name),
       boothName: booth.name || 'the space',
