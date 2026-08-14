@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { isStorefrontVisible, listingPriceCents, preorderState, sellableStock, type SellableItem } from '@/lib/retail-orders';
 import { publicDescription, collectImages } from '@/lib/product-public';
+import { tenantTimeZone } from '@/lib/tenant-time';
 import { sanitizeShopConfig } from '@/lib/shop-config';
 import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
 
@@ -48,6 +49,10 @@ export async function GET(req: NextRequest) {
   const tenant = tenantSnap.data() as any;
   const rs = tenant.retailSettings || {};
 
+  // A pre-order run "closing March 3" must stay open all of March 3 on the
+  // SHOP'S clock, which is what its own comment always promised.
+  const shopZone = tenantTimeZone(tenant);
+
   const wsAccess = await resolveWholesaleAccess(db, tenantId, rs, wholesaleCode);
   if (wholesaleCode && !wsAccess.unlocked) {
     return NextResponse.json({ error: wsAccess.error || 'Invalid wholesale access code' }, { status: 403 });
@@ -72,7 +77,7 @@ export async function GET(req: NextRequest) {
         // pre-order sold out, and the customer never reaches the
         // product page that knows better. The product endpoint already had
         // this rule; the catalog did not, so the two disagreed.
-        const pre = item.preorder === true ? preorderState(item as any) : null;
+        const pre = item.preorder === true ? preorderState(item as any, shopZone) : null;
         const preOpen = pre?.open === true;
         const preCap = pre && pre.remaining !== null ? Math.max(0, pre.remaining) : MAX_SHOWN_QTY;
         return [{
