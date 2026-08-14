@@ -10,7 +10,8 @@ import { makeQrToken, sendOrderConfirmation } from '@/lib/retail-webhook';
 import { isDigitalOnlyOrder } from '@/lib/retail-orders';
 import { resolveVariantProductId } from '@/lib/retail-orders';
 import { shipPromiseAt } from '@/lib/retail-orders';
-import { cartPromiseAt, preorderAckSnapshot } from '@/lib/preorder-terms';
+import { preorderAckSnapshot } from '@/lib/preorder-terms';
+import { tenantTimeZone } from '@/lib/tenant-time';
 import { verifyQuote } from '@/lib/shipping-quote';
 
 import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
@@ -388,26 +389,26 @@ async function handleCheckout(req: NextRequest) {
   const orderId = orderRef.id;
   const now = new Date().toISOString();
 
+  // The shop's own clock. Every date this order carries — the ship-by
+  // promise, the wording the customer agreed to, and the moment the order
+  // starts counting as late — is read against it. Without this the engine
+  // uses the server's zone, which on Vercel is UTC: a shop in Eastern
+  // promising "March 3" was judged late from 7pm on March 2.
+  const shopZone = tenantTimeZone(tenant);
+
   // One promise, computed once, used by both the stored date and the stored
   // agreement — so the order can never carry a ship-by date that disagrees
-  // with the wording the customer ticked.
-  //
-  // For a pre-order it is computed from the calendar dates the shop set, at
-  // MIDDAY on that day. A calendar date has no time, and the obvious reading
-  // — midnight — is midnight UTC, which is the evening BEFORE in every US
-  // timezone: the order would be judged late, and the buyer handed an
-  // unconditional cancel right, a day early. Midday is the one instant that
-  // lands on the intended day from Hawaii to New Zealand.
+  // with the wording the customer ticked. shipPromiseAt now applies the
+  // deadline rule itself (end of the promised day, in the shop's zone), so
+  // there is no second calculation here to drift from it.
   const preorderItems = preorderLines.map((l: any) => ({
     name: String(l.name || 'Item'),
     etaAt: l.preorderEtaAt || null,
     qty: Number(l.qtyOrdered) || 1,
   }));
-  const promiseAt = preorderLines.length > 0
-    ? cartPromiseAt(preorderItems, new Date(now))
-    : shipPromiseAt(lines as any, now, now);
+  const promiseAt = shipPromiseAt(lines as any, now, now, shopZone);
   const preorderAck = preorderLines.length > 0
-    ? preorderAckSnapshot({ items: preorderItems, promiseAt, agreedAt: now })
+    ? preorderAckSnapshot({ items: preorderItems, promiseAt, agreedAt: now, timeZone: shopZone })
     : null;
 
   const order = {
