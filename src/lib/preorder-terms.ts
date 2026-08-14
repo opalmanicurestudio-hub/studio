@@ -20,6 +20,7 @@
 //     preorder-run-eta / delay-notice path, not an aspiration.
 
 import { FTC_DEFAULT_PROMISE_DAYS } from '@/lib/retail-orders';
+import { deadlineAt, formatDay } from '@/lib/tenant-time';
 
 /** Bump ONLY when the wording changes materially. Stored on every order so a
  *  past agreement can be read back against the text that produced it. */
@@ -44,6 +45,7 @@ export type PreorderAckSnapshot = {
   agreed: true;
   agreedAt: string;
   version: number;
+  timeZone: string | null;
   promiseAt: string | null;
   items: { name: string; etaAt: string | null; qty: number }[];
   text: string;
@@ -51,24 +53,23 @@ export type PreorderAckSnapshot = {
 
 /**
  * Dates arrive in two shapes: a plain calendar day from the product editor
- * ('2026-03-03') and a full ISO instant from shipPromiseAt(). A calendar day
- * parsed as an instant is UTC midnight, which renders as the PREVIOUS day for
- * anyone west of Greenwich — the single most common way a promised date
- * quietly becomes a day earlier than the shop meant. Midday local removes it.
+ * ('2026-03-03') and a full ISO instant from shipPromiseAt(). Both now go
+ * through the one deadline rule in tenant-time — a promised day means the END
+ * of that day on the SHOP'S clock — so the date the cart shows, the date the
+ * order stores, and the moment the order is judged late are the same thing.
+ * They used to be three near-misses computed in three places.
  */
-export function parsePromiseDate(value?: string | null): Date | null {
-  const raw = String(value || '').trim();
-  if (!raw) return null;
-  const iso = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T12:00:00` : raw;
+export function parsePromiseDate(value?: string | null, timeZone?: string | null): Date | null {
+  const iso = deadlineAt(value, timeZone);
+  if (!iso) return null;
   const d = new Date(iso);
   return Number.isFinite(d.getTime()) ? d : null;
 }
 
 /** "March 3, 2026" — the way a person reads a date, not the way a database stores one. */
-export function formatPromiseDay(value?: string | null): string {
-  const d = parsePromiseDate(value);
-  if (!d) return '';
-  return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+export function formatPromiseDay(value?: string | null, timeZone?: string | null): string {
+  const iso = deadlineAt(value, timeZone);
+  return iso ? formatDay(iso, timeZone) : '';
 }
 
 /**
@@ -77,9 +78,13 @@ export function formatPromiseDay(value?: string | null): string {
  * Mirrors shipPromiseAt() deliberately — same answer, computed before the
  * order exists.
  */
-export function cartPromiseAt(items: PreorderTermItem[], from: Date = new Date()): string | null {
+export function cartPromiseAt(
+  items: PreorderTermItem[],
+  from: Date = new Date(),
+  timeZone?: string | null,
+): string | null {
   const stamps = items
-    .map((i) => parsePromiseDate(i.etaAt))
+    .map((i) => parsePromiseDate(i.etaAt, timeZone))
     .filter((d): d is Date => d !== null)
     .map((d) => d.getTime());
   if (stamps.length > 0) return new Date(Math.max(...stamps)).toISOString();
@@ -97,6 +102,7 @@ export function preorderNotice(input: {
   items: PreorderTermItem[];
   promiseAt?: string | null;
   now?: Date;
+  timeZone?: string | null;
 }): PreorderNotice {
   const items = (Array.isArray(input.items) ? input.items : [])
     .map((i) => ({
@@ -105,15 +111,16 @@ export function preorderNotice(input: {
       qty: Math.max(1, Math.floor(Number(i?.qty) || 1)),
     }));
 
-  const promiseAt = input.promiseAt || cartPromiseAt(items, input.now || new Date());
-  const promiseDay = formatPromiseDay(promiseAt);
+  const tz = input.timeZone;
+  const promiseAt = input.promiseAt || cartPromiseAt(items, input.now || new Date(), tz);
+  const promiseDay = formatPromiseDay(promiseAt, tz);
 
   const headline = items.length > 1
     ? 'Your order includes pre-ordered items'
     : 'Your order includes a pre-ordered item';
 
   const itemLines = items.map((i) => {
-    const day = formatPromiseDay(i.etaAt);
+    const day = formatPromiseDay(i.etaAt, tz);
     const qty = i.qty > 1 ? ` × ${i.qty}` : '';
     return day ? `${i.name}${qty} — ships by ${day}` : `${i.name}${qty} — not in stock yet`;
   });
@@ -149,12 +156,16 @@ export function preorderAckSnapshot(input: {
   items: PreorderTermItem[];
   promiseAt?: string | null;
   agreedAt?: string;
+  timeZone?: string | null;
 }): PreorderAckSnapshot {
-  const notice = preorderNotice({ items: input.items, promiseAt: input.promiseAt });
+  const notice = preorderNotice({ items: input.items, promiseAt: input.promiseAt, timeZone: input.timeZone });
   return {
     agreed: true,
     agreedAt: input.agreedAt || new Date().toISOString(),
     version: PREORDER_TERMS_VERSION,
+    // The zone travels with the record. "By March 3" is not a fact until you
+    // know whose March 3 — and a reader six months from now cannot recover it.
+    timeZone: input.timeZone || null,
     promiseAt: notice.promiseAt,
     items: (Array.isArray(input.items) ? input.items : []).map((i) => ({
       name: String(i?.name || '').trim() || 'Item',
