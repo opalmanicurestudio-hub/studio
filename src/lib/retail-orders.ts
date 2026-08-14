@@ -20,6 +20,12 @@
  *   tenants/{tenantId}/retailReturns/{returnId}                  (new)
  */
 
+// The engine's ONE import, and it is also pure: every "by this date" in here
+// is a calendar day, and a calendar day only becomes an instant once you know
+// whose clock is being read. Deciding that inline is how a shop ends up late
+// on an order it shipped on time.
+import { deadlineAt } from './tenant-time';
+
 /* ════════════════════════════════════════════════════════════════════════════
  * STAGES & TRANSITIONS
  * ════════════════════════════════════════════════════════════════════════════ */
@@ -180,7 +186,7 @@ export type PreorderState = {
 export function preorderState(item: {
   preorder?: boolean; preorderEtaAt?: string; preorderClosesAt?: string;
   preorderLimit?: number; preorderSold?: number;
-}): PreorderState {
+}, timeZone?: string | null): PreorderState {
   if (item.preorder !== true) {
     return { isPreorder: false, open: false, reason: 'not_preorder', closesAt: null, etaAt: null, remaining: null };
   }
@@ -191,7 +197,11 @@ export function preorderState(item: {
   const remaining = limit > 0 ? Math.max(0, limit - sold) : null;
 
   if (closesAt) {
-    const end = Date.parse(`${closesAt}T23:59:59`);
+    // "Closes March 3" includes the whole of March 3 ON THE SHOP'S CLOCK.
+    // This used to build the instant with a bare string, which JavaScript
+    // reads in whatever zone the code happens to be running in — so the same
+    // run closed at 7pm Eastern on Vercel and at midnight in the browser.
+    const end = Date.parse(String(deadlineAt(closesAt, timeZone) || ''));
     if (Number.isFinite(end) && end < Date.now()) {
       return { isPreorder: true, open: false, reason: 'closed', closesAt, etaAt, remaining };
     }
@@ -1355,21 +1365,36 @@ export function digitalAccessEndsAt(line: OrderLine, paidAt?: string | null, pla
  */
 export const FTC_DEFAULT_PROMISE_DAYS = 30;
 
-export function shipPromiseAt(lines: OrderLine[], paidAt?: string | null, placedAt?: string | null): string | null {
+export function shipPromiseAt(
+  lines: OrderLine[],
+  paidAt?: string | null,
+  placedAt?: string | null,
+  timeZone?: string | null,
+): string | null {
   const start = Date.parse(String(paidAt || placedAt || ''));
   if (!Number.isFinite(start)) return null;
+  // A promised date is a DEADLINE: the shop has until the end of that day on
+  // its own clock. Parsing '2026-03-03' directly gives UTC midnight, which is
+  // 7pm on March 2 in Eastern — so an order was judged late, and the buyer
+  // handed the FTC's unconditional cancel right, a day early.
   const etas = lines
     .filter((l) => l.preorder === true && l.preorderEtaAt)
-    .map((l) => Date.parse(String(l.preorderEtaAt)))
+    .map((l) => Date.parse(String(deadlineAt(l.preorderEtaAt, timeZone) || '')))
     .filter((n) => Number.isFinite(n));
   if (etas.length > 0) return new Date(Math.max(...etas)).toISOString();
   return new Date(start + FTC_DEFAULT_PROMISE_DAYS * 24 * 60 * 60 * 1000).toISOString();
 }
 
 /** Past the promised date with nothing shipped or handed over yet. */
-export function isPromiseLate(order: { stage: string; lines: OrderLine[]; paidAt?: string | null; placedAt?: string | null; shipPromiseAt?: string | null }): boolean {
+export function isPromiseLate(
+  order: { stage: string; lines: OrderLine[]; paidAt?: string | null; placedAt?: string | null; shipPromiseAt?: string | null },
+  timeZone?: string | null,
+): boolean {
   if (!['paid', 'picking', 'packed', 'ready'].includes(String(order.stage))) return false;
-  const promise = order.shipPromiseAt || shipPromiseAt(order.lines || [], order.paidAt, order.placedAt);
+  // The stored promise always wins: it is what the customer was actually
+  // shown. Only an order written before that field existed falls through to
+  // the derivation, and that one needs the zone to land on the right day.
+  const promise = order.shipPromiseAt || shipPromiseAt(order.lines || [], order.paidAt, order.placedAt, timeZone);
   return !!promise && Date.parse(promise) < Date.now();
 }
 
