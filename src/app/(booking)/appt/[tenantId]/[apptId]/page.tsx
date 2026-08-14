@@ -151,7 +151,7 @@ export function ApptManagePage() {
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1 px-1">Date</p>
-                <input type="date" value={newDate} min={new Date(Date.now() + 86400000).toISOString().slice(0, 10)}
+                <input type="date" value={newDate} min={policy.earliestDate || ''}
                   onChange={(e) => setNewDate(e.target.value)}
                   className="w-full h-12 rounded-xl border-2 px-3 text-sm font-medium bg-white" />
               </div>
@@ -163,7 +163,7 @@ export function ApptManagePage() {
               </div>
             </div>
             <Btn tone="green" disabled={!newDate || !newTime}
-              onClick={() => act({ action: 'reschedule', newStartIso: new Date(`${newDate}T${newTime}:00${tzSuffix(policy.tzOffsetMinutes)}`).toISOString() }, 'Rescheduled to')}>
+              onClick={() => act({ action: 'reschedule', newDate, newTime }, 'Rescheduled to')}>
               Confirm new time
             </Btn>
             <Btn onClick={() => setMode('home')}>Back</Btn>
@@ -182,15 +182,6 @@ export function ApptManagePage() {
       </div>
     </div>
   );
-}
-
-// Build a fixed-offset suffix like "-05:00" from tzOffsetMinutes so the
-// picked local time converts to the correct instant.
-function tzSuffix(tzOffsetMinutes: any): string {
-  const m = Number.isFinite(Number(tzOffsetMinutes)) ? Number(tzOffsetMinutes) : -300;
-  const sign = m <= 0 ? '-' : '+';
-  const abs = Math.abs(m);
-  return `${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
 }
 
 export default ApptManagePage;
