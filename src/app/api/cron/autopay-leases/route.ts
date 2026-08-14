@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
+import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 
 // ─── /api/cron/autopay-leases/route.ts ─────────────────────────────────────
 // Runs once daily (wire to Vercel Cron / Cloud Scheduler / GitHub Actions —
@@ -52,15 +53,30 @@ function resolveChargeId(intent: Stripe.PaymentIntent): string | null {
   return typeof intent.latest_charge === 'string' ? intent.latest_charge : (intent.latest_charge as any)?.id || null;
 }
 
-/** True if `dueDay` matches today, honoring lease frequency (daily/weekly/biweekly = day-of-cycle count; monthly = day-of-month). */
+/** True if `dueDay` matches today, honoring lease frequency (daily/weekly/biweekly = day-of-cycle count; monthly = day-of-month).
+ *
+ *  Both dates are read as CALENDAR days, not as instants. The previous form
+ *  parsed `${day}T00:00:00` — a string with no zone, which JavaScript reads
+ *  in whatever zone the process happens to run in — and then asked it for a
+ *  day-of-month. It gave the right answer only because Vercel runs in UTC;
+ *  the same code on a laptop in Eastern reported the day before. A day is a
+ *  day: take the numbers out of the string and never build an instant. */
 function isDueToday(lease: any, todayIso: string): boolean {
-  const today = new Date(`${todayIso}T00:00:00`);
+  const parts = (v: any) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v || ''));
+    return m ? { y: +m[1], mo: +m[2], d: +m[3] } : null;
+  };
+  const today = parts(todayIso);
+  if (!today) return false;
   if (lease.frequency === 'monthly') {
-    return today.getDate() === lease.dueDay;
+    return today.d === lease.dueDay;
   }
-  const anchor = new Date(`${lease.firstChargeDate}T00:00:00`);
+  const anchor = parts(lease.firstChargeDate);
+  if (!anchor) return false;
   const stepDays = lease.frequency === 'daily' ? 1 : lease.frequency === 'weekly' ? 7 : 14;
-  const diffDays = Math.round((today.getTime() - anchor.getTime()) / 86_400_000);
+  const diffDays = Math.round(
+    (Date.UTC(today.y, today.mo - 1, today.d) - Date.UTC(anchor.y, anchor.mo - 1, anchor.d)) / 86_400_000,
+  );
   return diffDays >= 0 && diffDays % stepDays === 0;
 }
 
@@ -72,7 +88,6 @@ export async function POST(req: NextRequest) {
 
   const { db } = getAdmin();
   const stripe = getStripe();
-  const todayIso = new Date().toISOString().slice(0, 10);
   const nowISO = new Date().toISOString();
 
   const results: { leaseId: string; ok: boolean; reason?: string }[] = [];
@@ -85,6 +100,13 @@ export async function POST(req: NextRequest) {
     const tenantId = tenantDoc.id;
     const stripeAccountId = tenantDoc.data().stripeAccountId;
     if (!stripeAccountId) continue;
+
+    // Which day it is decides whether rent is charged AND forms the dedupe
+    // key, so it has to be the studio's day. On a UTC clock a west-coast
+    // lease was charged on the evening BEFORE its due date — and the dedupe
+    // key rolled over mid-evening, which is how one day could take two
+    // payments. Resolved per tenant.
+    const todayIso = todayIn(tenantTimeZone(tenantDoc.data() as any));
 
     const leasesSnap = await db.collection(`tenants/${tenantId}/leases`).where('status', '==', 'active').get();
 
