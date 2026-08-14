@@ -80,6 +80,8 @@ export function MaintenancePortalPage() {
   const [state, setState] = useState<'loading' | 'ready' | 'denied'>('loading');
   const [error, setError] = useState('');
   const [studioName, setStudioName] = useState('');
+  // The studio's calendar day, from the server — never the browser's.
+  const [today, setToday] = useState('');
   const [worker, setWorker] = useState<any>(null);
   const [rules, setRules] = useState<any>({});
   const [tickets, setTickets] = useState<any[]>([]);
@@ -183,6 +185,7 @@ export function MaintenancePortalPage() {
         return;
       }
       setStudioName(d.studioName || 'The studio');
+      setToday(d.today || '');
       setWorker(d.worker);
       setRules(d.rules || {});
       setStaffNames(d.staffNames || []);
@@ -654,7 +657,7 @@ export function MaintenancePortalPage() {
                   <div className="flex gap-2 items-center">
                     <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 shrink-0">Move deadline</span>
                     <input type="date" value={deadlineDraft} onChange={(e) => setDeadlineDraft(e.target.value)}
-                      min={new Date().toISOString().slice(0, 10)}
+                      min={today}
                       className="h-10 rounded-xl border-2 px-2 text-sm font-bold bg-white" />
                     <button onClick={() => deadlineDraft && act(t.id, undefined, deadlineDraft)} disabled={busy || !deadlineDraft}
                       className="h-10 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 disabled:opacity-40">Set</button>
@@ -735,7 +738,7 @@ export function MaintenancePortalPage() {
                   </div>
                   <div>
                     <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1 px-1">Needed by</p>
-                    <input type="date" value={reqNeededBy} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setReqNeededBy(e.target.value)}
+                    <input type="date" value={reqNeededBy} min={today} onChange={(e) => setReqNeededBy(e.target.value)}
                       className="w-full h-10 rounded-xl border-2 px-2 text-sm font-medium bg-white" />
                   </div>
                   <div>
