@@ -11,6 +11,7 @@ import { isDigitalOnlyOrder } from '@/lib/retail-orders';
 import { resolveVariantProductId } from '@/lib/retail-orders';
 import { shipPromiseAt } from '@/lib/retail-orders';
 import { preorderAckSnapshot } from '@/lib/preorder-terms';
+import { finalSaleFor } from '@/lib/return-eligibility';
 import { tenantTimeZone } from '@/lib/tenant-time';
 import { verifyQuote } from '@/lib/shipping-quote';
 
@@ -266,6 +267,16 @@ async function handleCheckout(req: NextRequest) {
     if (priceTier === 'wholesale' && wsDiscount > 0) {
       line.unitPriceCents = discountedCents(line.unitPriceCents, wsDiscount);
     }
+    // WHETHER IT CAN COME BACK, DECIDED NOW AND WRITTEN DOWN. Evaluated
+    // against the item AS IT IS AT PURCHASE and stamped onto the line, so a
+    // shop marking something final sale next spring cannot retroactively
+    // change what this customer was told today. Same reason policySnapshot
+    // and preorderAck carry their text rather than a pointer to it. Absent
+    // stamp = returns normally, which is every order written before this.
+    // Note this runs AFTER the variant has been resolved above, so a 30ml
+    // that is final sale is caught even when its parent is not.
+    const finalSale = finalSaleFor(item as any);
+    if (finalSale) Object.assign(line, finalSale);
     lines.push(line);
   }
 
