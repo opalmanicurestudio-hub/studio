@@ -96,6 +96,43 @@ export async function GET(req: NextRequest) {
   // holding the order link is holding the order.
   const selfServeToken = order.qrToken ? String(order.qrToken) : null;
 
+  // ── WHERE "HERE" IS, FOR CURBSIDE ────────────────────────────────────────
+  // Three sources, in the order that respects what a shop has deliberately
+  // said:
+  //   1. retailSettings.curbsideLat/Lng — an EXPLICIT curbside pin. It stays
+  //      first because the kerb is often not the building: a shop may have
+  //      aimed this at the loading bay or the two spaces out front, and a
+  //      "better" building pin would silently undo that choice.
+  //   2. the location's own coordinates — set in Settings > Locations, which
+  //      is where a shop would reasonably expect to describe where it is.
+  //      This is what makes curbside work for a shop that never found the
+  //      curbside card at all.
+  //   3. the studio-wide pin used by the timeclock.
+  // Absent from all three, the geofence simply never fires and the "I'm
+  // here" button still works — which is the existing, deliberate behaviour.
+  const pickupGeo = await (async () => {
+    const t: any = tenantSnap.exists ? tenantSnap.data() : {};
+    const usable = (lat: any, lng: any) => {
+      const a = Number(lat); const b = Number(lng);
+      return Number.isFinite(a) && Number.isFinite(b) && (a !== 0 || b !== 0) ? { lat: a, lng: b } : null;
+    };
+    const explicit = usable(t?.retailSettings?.curbsideLat, t?.retailSettings?.curbsideLng);
+    if (explicit) return explicit;
+    try {
+      const locSnap = await db.collection(`tenants/${tenantId}/locations`).get();
+      const pinned = locSnap.docs
+        .map((d: any) => d.data() as any)
+        .filter((l: any) => l?.isActive !== false)
+        .map((l: any) => usable(l?.coordinates?.lat, l?.coordinates?.lng))
+        .filter(Boolean);
+      // Only when it is unambiguous. With two pinned locations and no
+      // locationId on the order, picking one would be a guess, and a guess
+      // here sends a customer to the wrong building.
+      if (pinned.length === 1) return pinned[0];
+    } catch { /* a locations read failing must never break order status */ }
+    return usable(t?.studioLocation?.lat, t?.studioLocation?.lng);
+  })();
+
   return NextResponse.json({
     shopName: String((tenantSnap.exists ? (tenantSnap.data() as any) : {})?.businessName || (tenantSnap.exists ? (tenantSnap.data() as any) : {})?.name || ''),
     // Where the shop physically is, so the customer's phone can answer "am I
@@ -103,12 +140,7 @@ export async function GET(req: NextRequest) {
     // is streaming their position to us, which is worse for them and worse
     // for us. Absent = the geofence simply never fires and everything else
     // still works.
-    shopGeo: (() => {
-      const t: any = tenantSnap.exists ? tenantSnap.data() : {};
-      const lat = Number(t?.retailSettings?.curbsideLat);
-      const lng = Number(t?.retailSettings?.curbsideLng);
-      return Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0) ? { lat, lng } : null;
-    })(),
+    shopGeo: pickupGeo,
     selfServeToken,
     order: {
       id: orderId,
