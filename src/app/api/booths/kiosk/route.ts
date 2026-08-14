@@ -20,6 +20,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { resolveDayUseAgreement, buildSignedRecord } from '@/lib/esign';
 import { resolveIncidentalPolicy } from '@/lib/incidentals';
 import { recognizeContact, resolveRenterDayDiscount } from '@/lib/booth-recognition';
+import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
 
 const digits = (s: any) => String(s || '').replace(/\D/g, '');
 
@@ -40,7 +41,10 @@ async function buildDayUseAgreement(db: FirebaseFirestore.Firestore, tenantId: s
     ? cats.map((c: any) => c.capCents > 0 ? `• ${c.label} — up to $${(c.capCents / 100).toFixed(0)}` : `• ${c.label}`).join('\n')
     : '(No incidental charges configured.)';
   return resolveDayUseAgreement(custom, {
-    date: new Date().toISOString().slice(0, 10),
+    // The date printed on a signed agreement is the studio's date. A UTC one
+    // would date an 8pm signature to tomorrow, on a document the guest signed
+    // and may later be shown.
+    date: todayIn(tenantTimeZone(tenantData)),
     studioName: tenantData?.name || tenantData?.businessName || 'The Studio',
     signerName: r.name || 'Guest',
     boothName: r.boothName || 'the space',
@@ -140,7 +144,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
     }
     const db = getAdminDb();
-    const today = new Date().toISOString().slice(0, 10);
+    // THE KIOSK'S TODAY. Every lookup below asks "is this booking active
+    // today" — so on a UTC clock a guest checking in at 8pm Pacific was told
+    // "no booking found for today" while standing in front of the booth,
+    // because the server had already rolled over to tomorrow. Read from the
+    // tenant doc, which the kiosk already needs anyway.
+    let kioskTenant: any = {};
+    try { kioskTenant = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {}; } catch { /* falls back to UTC */ }
+    const today = todayIn(tenantTimeZone(kioskTenant));
 
     // ── 'recognize': who is this contact to the business? ─────────────
     // Powers the booking form's "welcome back" state. Requires a FULL
