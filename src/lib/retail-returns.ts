@@ -10,6 +10,7 @@ import {
   type OrderEventType, type RetailOrder, type RetailReturn, type ReturnDisposition,
   type ReturnLine, type ReturnReason, type ReturnResolution,
 } from '@/lib/retail-orders';
+import { canReturnLine } from '@/lib/return-eligibility';
 
 // ─── src/lib/retail-returns.ts ────────────────────────────────────────────────
 // RMA action layer. Same rules as fulfillment: every mutation is a Firestore
@@ -88,6 +89,17 @@ export async function openReturn(
     const returnable = orig.qtyOrdered - orig.qtyShorted - orig.qtyReturned;
     if (sel.qty > returnable) {
       return { ok: false, message: `Only ${returnable} of ${orig.name} can still be returned.` };
+    }
+    // FINAL SALE. Checked here and not only in the UI, because a screen that
+    // hides a button is not a rule — the storefront, the returns board and
+    // anything built later all come through this function. A fault reason
+    // (damaged, defective, wrong item) passes regardless: final sale means no
+    // returns for a change of mind, not no recourse when the shop got it
+    // wrong, and telling someone otherwise about a wrong item is how a return
+    // becomes a chargeback.
+    const eligible = canReturnLine(orig as any, sel.reason);
+    if (!eligible.allowed) {
+      return { ok: false, message: eligible.message || `${orig.name} cannot be returned.` };
     }
     lines.push({ lineId: orig.lineId, sku: orig.sku, name: orig.name, qty: sel.qty, reason: sel.reason });
   }
