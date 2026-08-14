@@ -48,6 +48,8 @@ import {
   RentLedgerEntry,
   Receipt,
   Location,
+  LocationAddressParts,
+  GeoPoint,
   RentFrequency,
   LedgerEntryType,
   BOOTH_RENTAL_COLLECTIONS,
@@ -980,6 +982,10 @@ export interface CreateLocationInput {
   tenantId: string;
   name: string;
   address?: string;
+  addressParts?: LocationAddressParts;
+  coordinates?: GeoPoint;
+  geoFenceRadiusMeters?: number;
+  geoFenceBreakRadiusMeters?: number;
   timezone: string;
 }
 
@@ -988,14 +994,26 @@ export async function createLocation(
   input: CreateLocationInput
 ): Promise<string> {
   const now = new Date().toISOString();
+  // Firestore REJECTS `undefined` — it is not the same as "leave it out", and
+  // this app does not set ignoreUndefinedProperties. Writing an optional
+  // field straight through meant that adding a location with no address threw
+  // "Unsupported field value: undefined" and nothing was created. Every
+  // optional field is now omitted rather than set to undefined.
+  const optional: Record<string, unknown> = {};
+  if (input.address) optional.address = input.address;
+  if (input.addressParts) optional.addressParts = input.addressParts;
+  if (input.coordinates) optional.coordinates = input.coordinates;
+  if (Number.isFinite(input.geoFenceRadiusMeters)) optional.geoFenceRadiusMeters = input.geoFenceRadiusMeters;
+  if (Number.isFinite(input.geoFenceBreakRadiusMeters)) optional.geoFenceBreakRadiusMeters = input.geoFenceBreakRadiusMeters;
+
   const locationDoc: Omit<Location, 'id'> = {
     tenantId: input.tenantId,
     name: input.name,
-    address: input.address,
     timezone: input.timezone,
     isActive: true,
     createdAt: now,
     updatedAt: now,
+    ...optional,
   };
   const ref = doc(
     collection(firestore, BOOTH_RENTAL_COLLECTIONS.locations(input.tenantId))
