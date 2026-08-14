@@ -41,6 +41,7 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { StripeConnectSetup } from '@/components/settings/StripeConnectSetup';
 import { TerminalSettings } from '@/components/pos/TerminalSettings';
 import { LocationsSettingsTab } from '@/components/settings/LocationsSettingsTab';
+import { TimezoneSettingCard } from '@/components/settings/TimezoneSettingCard';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const defaultRecoveryPresets: RecoveryPreset[] = [
@@ -509,6 +510,14 @@ function SettingsPageImpl() {
                   </div>
                 </CardContent>
               </Card>
+
+              {/* The studio's clock. It lived only on the AI Receptionist page,
+                  which is where it was first needed — but every cron, every
+                  promised ship-by date, the booth kiosk and the booking page
+                  now read the field this card writes, so this is where anyone
+                  would look for it. Same card, same field: setting it in
+                  either place is the same edit. */}
+              <TimezoneSettingCard firestore={firestore} tenantId={tenantId || ''} tenant={selectedTenant} />
             </TabsContent>
 
             {/* ── LOCATIONS ── */}
