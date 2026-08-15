@@ -32,7 +32,7 @@ import {
   type HeldMap, type TableLike,
 } from '@/lib/hosting';
 import {
-  businessDayFor, freezeUnits, heldUnits, lateVerdict, sessionDecision,
+  businessDayFor, freezeUnits, heldUnits, lateVerdict, partyFromAppointment, sessionDecision,
   type HostedParty, type ServiceSession,
 } from '@/lib/hosting-sessions';
 import { resolveHostingSettings, starterTemplate } from '@/lib/floor-plans';
@@ -131,6 +131,36 @@ export default function HostScreen() {
     await updateDoc(doc(firestore, `tenants/${tenantId}/parties`, id), patch);
   }, [firestore, tenantId]);
 
+  /** OPAL BECOMES A HOSTING TENANT HERE. Pull today's appointment book onto
+   *  the floor as expected parties. Idempotent: each imported party carries
+   *  its appointment id in guestIds, and anything already carried is skipped —
+   *  pressing the button twice imports nothing twice. Only bookings on THIS
+   *  session's business day come across. */
+  const importBookings = async () => {
+    if (!firestore || !tenantId || !session) return;
+    try {
+      const have = new Set(parties.flatMap((p) => p.guestIds || []));
+      const snap = await getDocs(query(
+        collection(firestore, `tenants/${tenantId}/appointments`),
+        where('startTime', '>=', session.businessDay),
+      ));
+      let added = 0;
+      for (const d of snap.docs) {
+        const a = { id: d.id, ...(d.data() as any) };
+        if (have.has(`appt:${d.id}`)) continue;
+        if (businessDayFor(new Date(a.startTime), tz, hs.dayCutoverHour) !== session.businessDay) continue;
+        const party = partyFromAppointment(a, session.id);
+        if (!party) continue; // cancelled / no-show / malformed — never guessed at
+        await addDoc(collection(firestore, `tenants/${tenantId}/parties`),
+          { ...party, guestIds: [`appt:${d.id}`] });
+        added += 1;
+      }
+      toast({ title: added ? `${added} booking${added === 1 ? '' : 's'} imported` : 'Nothing new to import' });
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Import failed', description: e instanceof Error ? e.message : undefined });
+    }
+  };
+
   const addParty = async () => {
     if (!firestore || !tenantId || !session || !name.trim()) return;
     const isRes = /^\d{2}:\d{2}$/.test(at.trim());
@@ -192,6 +222,9 @@ export default function HostScreen() {
         <div className="w-16"><Input inputMode="numeric" value={size} onChange={(e: any) => setSize(e.target.value)} className="h-11 rounded-2xl border-2 font-bold bg-white text-center" /></div>
         <div className="w-24"><Input placeholder="19:30?" value={at} onChange={(e: any) => setAt(e.target.value)} className="h-11 rounded-2xl border-2 font-bold bg-white text-center" /></div>
         <Button onClick={addParty} disabled={!name.trim() || !session} className={CHIP}><Plus className="w-4 h-4 mr-1" />{at.trim() ? 'Book' : 'Add'}</Button>
+        <Button variant="outline" className={`${CHIP} border-2 bg-white`} onClick={importBookings} disabled={!session}>
+          Import bookings
+        </Button>
         <Button variant="outline" className={`${CHIP} border-2 bg-white`}
           onClick={() => setProposals(autoSeatPlan(units, waiting.map((p) => ({ id: p.id, size: p.size, needs: p.needs })), seatedGuests, { held, vocabulary: hs.vocabulary }))}>
           <Sparkles className="w-4 h-4 mr-1" />Auto-seat
