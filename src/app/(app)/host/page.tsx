@@ -184,6 +184,47 @@ export default function HostScreen() {
     }
   };
 
+  /** BOOTH DAY-USE. Today's hourly/daily boothReservations become expected
+   *  parties — same idempotence key pattern as bookings (booth:{id}), same
+   *  refusal to guess: cancelled rows and rows off this business day are
+   *  skipped. Monthly LEASES are deliberately absent: a lease is tenancy,
+   *  not hosting — nobody seats a renter who has keys. Units are not pinned
+   *  (booth ids live in their own module, not on this floor template), so a
+   *  day-use hold is abstract capacity, exactly how a host thinks of it. */
+  const importBooths = async () => {
+    if (!firestore || !tenantId || !session) return;
+    try {
+      const have = new Set(parties.flatMap((p) => p.guestIds || []));
+      const snap = await getDocs(query(
+        collection(firestore, `tenants/${tenantId}/boothReservations`),
+        where('startDate', '==', session.businessDay),
+      ));
+      let added = 0;
+      for (const d of snap.docs) {
+        const r = { id: d.id, ...(d.data() as any) };
+        if (have.has(`booth:${d.id}`)) continue;
+        if (['cancelled', 'canceled'].includes(String(r.status || ''))) continue;
+        const startIso = r.startTime
+          ? new Date(`${session.businessDay}T${String(r.startTime).slice(0, 5)}:00`).toISOString()
+          : new Date(`${session.businessDay}T09:00:00`).toISOString();
+        await addDoc(collection(firestore, `tenants/${tenantId}/parties`), {
+          sessionId: session.id,
+          name: `${String(r.name || 'Day use').trim()}${r.boothName ? ` (${r.boothName})` : ''}`,
+          size: 1, needs: [], source: 'booking',
+          status: r.checked_inAt || r.status === 'checked_in' ? 'seated' : 'expected',
+          arrivesAt: startIso, joinedAt: null, quotedMinutes: null,
+          notifiedAt: null, seatedAt: iso0(r.checked_inAt), finishedAt: null,
+          turnMinutes: null, unitIds: [], guestIds: [`booth:${d.id}`],
+        });
+        added += 1;
+      }
+      toast({ title: added ? `${added} booth booking${added === 1 ? '' : 's'} imported` : 'Nothing new to import' });
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Import failed', description: e instanceof Error ? e.message : undefined });
+    }
+  };
+  const iso0 = (v: any) => { const t = Date.parse(String(v || '')); return Number.isFinite(t) ? new Date(t).toISOString() : null; };
+
   const addParty = async () => {
     if (!firestore || !tenantId || !session || !name.trim()) return;
     const isRes = /^\d{2}:\d{2}$/.test(at.trim());
@@ -256,6 +297,9 @@ export default function HostScreen() {
         <Button onClick={addParty} disabled={!name.trim() || !session} className={CHIP}><Plus className="w-4 h-4 mr-1" />{at.trim() ? 'Book' : 'Add'}</Button>
         <Button variant="outline" className={`${CHIP} border-2 bg-white`} onClick={importBookings} disabled={!session}>
           Import bookings
+        </Button>
+        <Button variant="outline" className={`${CHIP} border-2 bg-white`} onClick={importBooths} disabled={!session}>
+          Import booths
         </Button>
         <Button variant="outline" className={`${CHIP} border-2 bg-white`}
           onClick={() => setProposals(autoSeatPlan(units, waiting.map((p) => ({ id: p.id, size: p.size, needs: p.needs })), seatedGuests, { held, vocabulary: hs.vocabulary }))}>
