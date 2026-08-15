@@ -198,6 +198,16 @@ function EventGuestOrderPageInner() {
   const courses: any[] = useMemo(() => event?.courses || [], [event]);
   const hasCourses = courses.length > 0;
 
+  const chartTables: any[] = useMemo(
+    () => (Array.isArray(event?.seatingTables) ? event.seatingTables.filter((t: any) => t && t.name) : []),
+    [event]
+  );
+  const hasChart = chartTables.length > 0;
+  const pickedTable = useMemo(
+    () => (hasChart ? chartTables.find((t: any) => t.name === tableNumber) || null : null),
+    [hasChart, chartTables, tableNumber]
+  );
+
   // ── Auto-skip PIN ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (event && step === 'pin' && !requiresPin) setStep('identity');
@@ -229,7 +239,7 @@ function EventGuestOrderPageInner() {
 
   const handleIdentityNext = async () => {
     if (!guestName.trim()) { setSubmitError('Please enter your name.'); return; }
-    if (!tableNumber.trim()) { setSubmitError('Please enter your table number.'); return; }
+    if (!tableNumber.trim()) { setSubmitError(hasChart ? 'Please pick your table.' : 'Please enter your table number.'); return; }
     setSubmitError('');
     if (guestEmail.trim()) {
       const isDup = await checkDuplicate();
@@ -387,7 +397,6 @@ function EventGuestOrderPageInner() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 flex items-center justify-center p-4">
       <div className="w-full max-w-lg">
 
-        {/* Header */}
         <div className="text-center mb-6 space-y-2">
           {logoUrl && (
             <div className="relative w-14 h-14 mx-auto rounded-2xl overflow-hidden shadow-md">
@@ -403,7 +412,6 @@ function EventGuestOrderPageInner() {
           )}
         </div>
 
-        {/* Card */}
         <div className="bg-white rounded-3xl border-2 border-slate-200 shadow-xl overflow-hidden">
           {step !== 'pin' && step !== 'done' && (
             <div className="p-6 border-b border-slate-100">
@@ -413,7 +421,6 @@ function EventGuestOrderPageInner() {
 
           <AnimatePresence mode="wait">
 
-            {/* ── PIN GATE ── */}
             {step === 'pin' && requiresPin && (
               <motion.div key="pin" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="p-6 space-y-6">
                 <div className="space-y-1 text-center">
@@ -443,7 +450,6 @@ function EventGuestOrderPageInner() {
               </motion.div>
             )}
 
-            {/* ── STEP 1: Identity ── */}
             {step === 'identity' && (
               <motion.div key="identity" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="p-6 space-y-5">
                 <div className="space-y-1">
@@ -459,20 +465,72 @@ function EventGuestOrderPageInner() {
                     <input value={guestName} onChange={e => setGuestName(e.target.value)} placeholder="Your full name"
                       className="w-full h-12 rounded-xl border-2 border-slate-200 px-4 font-bold text-slate-900 outline-none focus:border-slate-400 transition-all" />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
-                        <MapPin className="w-3 h-3" /> Table *
-                      </label>
-                      <input value={tableNumber} onChange={e => setTableNumber(e.target.value)} placeholder="e.g. 4"
-                        className="w-full h-12 rounded-xl border-2 border-slate-200 px-4 font-bold text-slate-900 text-center outline-none focus:border-slate-400 transition-all" />
+                  {hasChart ? (
+                    <div className="space-y-3">
+                      <div className="space-y-1.5">
+                        <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
+                          <MapPin className="w-3 h-3" /> Your Table *
+                        </label>
+                        <div className="grid grid-cols-3 gap-2">
+                          {chartTables.map((t: any) => (
+                            <button
+                              key={t.id || t.name}
+                              type="button"
+                              onClick={() => { setTableNumber(tableNumber === t.name ? '' : t.name); setSeatNumber(''); }}
+                              aria-pressed={tableNumber === t.name}
+                              className={cn(
+                                'h-12 rounded-xl border-2 font-black text-sm transition-all active:scale-95 truncate px-1',
+                                tableNumber === t.name
+                                  ? 'border-slate-900 bg-slate-900 text-white shadow-md'
+                                  : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                              )}
+                            >
+                              {t.name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {pickedTable && Array.isArray(pickedTable.seats) && pickedTable.seats.length > 0 && (
+                        <div className="space-y-1.5">
+                          <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Seat (optional)</label>
+                          <div className="flex flex-wrap gap-2">
+                            {pickedTable.seats.map((seat: any) => (
+                              <button
+                                key={seat.id || seat.label}
+                                type="button"
+                                onClick={() => setSeatNumber(seatNumber === seat.label ? '' : seat.label)}
+                                aria-pressed={seatNumber === seat.label}
+                                className={cn(
+                                  'h-10 min-w-10 px-3 rounded-xl border-2 font-black text-xs transition-all active:scale-95',
+                                  seatNumber === seat.label
+                                    ? 'border-slate-900 bg-slate-900 text-white'
+                                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                                )}
+                              >
+                                {seat.label}
+                              </button>
+                            ))}
+                          </div>
+                          <p className="text-[9px] font-bold text-slate-400">Not sure which seat? Leave it blank — your table is enough.</p>
+                        </div>
+                      )}
                     </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Seat (optional)</label>
-                      <input value={seatNumber} onChange={e => setSeatNumber(e.target.value)} placeholder="e.g. A"
-                        className="w-full h-12 rounded-xl border-2 border-slate-200 px-4 font-bold text-slate-900 text-center outline-none focus:border-slate-400 transition-all" />
+                  ) : (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
+                          <MapPin className="w-3 h-3" /> Table *
+                        </label>
+                        <input value={tableNumber} onChange={e => setTableNumber(e.target.value)} placeholder="e.g. 4" aria-label="Table number"
+                          className="w-full h-12 rounded-xl border-2 border-slate-200 px-4 font-bold text-slate-900 text-center outline-none focus:border-slate-400 transition-all" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Seat (optional)</label>
+                        <input value={seatNumber} onChange={e => setSeatNumber(e.target.value)} placeholder="e.g. A" aria-label="Seat"
+                          className="w-full h-12 rounded-xl border-2 border-slate-200 px-4 font-bold text-slate-900 text-center outline-none focus:border-slate-400 transition-all" />
+                      </div>
                     </div>
-                  </div>
+                  )}
                   <div className="space-y-1.5">
                     <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Email (optional, for confirmation)</label>
                     <input type="email" value={guestEmail} onChange={e => setGuestEmail(e.target.value)} placeholder="your@email.com"
@@ -492,7 +550,6 @@ function EventGuestOrderPageInner() {
               </motion.div>
             )}
 
-            {/* ── STEP 2: Meal — single course ── */}
             {step === 'meal' && !hasCourses && (
               <motion.div key="meal-single" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="p-6 space-y-5">
                 <div className="space-y-1">
@@ -529,7 +586,6 @@ function EventGuestOrderPageInner() {
               </motion.div>
             )}
 
-            {/* ── STEP 2+: Multi-course ── */}
             {step === 'meal' && hasCourses && (() => {
               const course = courses[currentCourseIdx];
               if (!course) return null;
@@ -575,7 +631,6 @@ function EventGuestOrderPageInner() {
               );
             })()}
 
-            {/* ── STEP 3: Allergies ── */}
             {step === 'allergies' && (
               <motion.div key="allergies" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="p-6 space-y-5">
                 <div className="space-y-1">
@@ -645,7 +700,6 @@ function EventGuestOrderPageInner() {
               </motion.div>
             )}
 
-            {/* ── STEP 4: Confirm ── */}
             {step === 'confirm' && (
               <motion.div key="confirm" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="p-6 space-y-5">
                 <div className="space-y-1">
@@ -741,7 +795,6 @@ function EventGuestOrderPageInner() {
               </motion.div>
             )}
 
-            {/* ── DONE ── */}
             {step === 'done' && (
               <motion.div key="done" initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} className="p-8 text-center space-y-6">
                 <motion.div
