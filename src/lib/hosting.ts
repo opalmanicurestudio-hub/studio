@@ -341,7 +341,23 @@ export function seatingState(tables: TableLike[], guests: GuestLike[]): SeatingS
 
 // ══════════════════════════════════════════════════════════════════════════
 // SEATING A PARTY
+//
+// HOLDS. A reservation takes its unit off the market BEFORE the party
+// arrives — that is the whole point of booking. Every function below accepts
+// an optional `held` map (unitId -> { partyId }), produced by heldUnits() in
+// hosting-sessions.ts. A held unit is unavailable to everyone EXCEPT the
+// party it is held for: when the Riveras walk in at 7:28, their own hold must
+// not refuse them their own table. Passing no map means no holds, which is
+// exactly the pre-reservation behaviour — every earlier caller and test is
+// untouched by construction, not by luck.
 // ══════════════════════════════════════════════════════════════════════════
+
+export type HeldMap = Record<string, { partyId?: string }>;
+
+const heldAgainst = (held: HeldMap | undefined, unitId: string, partyId?: string): boolean => {
+  const h = held?.[unitId];
+  return !!h && (!partyId || h.partyId !== partyId);
+};
 
 export type Party = {
   id: string;
@@ -358,11 +374,14 @@ export function canSeat(
   state: SeatingState,
   tableId: string,
   party: Party,
-  opts: { allowOverfill?: boolean; vocabulary?: Partial<Vocabulary> } = {},
+  opts: { allowOverfill?: boolean; vocabulary?: Partial<Vocabulary>; held?: HeldMap } = {},
 ): SeatVerdict {
   const V = resolveVocabulary(opts.vocabulary);
   const t = state.byTable[tableId];
   if (!t) return { allowed: false, reason: `That ${V.unit} no longer exists.` };
+  if (heldAgainst(opts.held, tableId, party?.id)) {
+    return { allowed: false, reason: `${t.name} is held for a ${V.party} arriving soon.` };
+  }
 
   const size = Math.max(1, Math.floor(Number(party?.size) || 1));
   const needs = (party?.needs || []).filter(Boolean);
@@ -410,7 +429,7 @@ export function autoSeatPlan(
   tables: TableLike[],
   parties: Party[],
   guests: GuestLike[] = [],
-  opts: { allowOverfill?: boolean; load?: Record<string, number>; vocabulary?: Partial<Vocabulary> } = {},
+  opts: { allowOverfill?: boolean; load?: Record<string, number>; vocabulary?: Partial<Vocabulary>; held?: HeldMap } = {},
 ): SeatProposal[] {
   const V = resolveVocabulary(opts.vocabulary);
   const state = seatingState(tables, guests);
@@ -434,7 +453,23 @@ export function autoSeatPlan(
   const out: SeatProposal[] = [];
   for (const party of queue) {
     const needs = (party.needs || []).filter(Boolean);
+    // The party's OWN held unit is the strongest candidate there is — it was
+    // chosen for them at booking time. It goes first when it still fits;
+    // units held for anyone else are simply not on the market.
+    const own = Object.entries(opts.held || {})
+      .find(([, h]) => h?.partyId === party.id)?.[0];
+    if (own && free[own] !== undefined && (opts.allowOverfill || free[own] >= party.size)
+      && needs.every((n) => state.byTable[own].tags.includes(n))) {
+      free[own] -= party.size;
+      out.push({
+        partyId: party.id, partySize: party.size,
+        tableId: own, tableName: state.byTable[own].name,
+        rationale: `Held for this ${V.party}.`,
+      });
+      continue;
+    }
     const candidates = state.tables
+      .filter((t) => !heldAgainst(opts.held, t.tableId, party.id))
       .filter((t) => needs.every((n) => t.tags.includes(n)))
       .filter((t) => opts.allowOverfill || free[t.tableId] >= party.size)
       .sort((a, b) =>
@@ -518,7 +553,7 @@ export function combinationsFor(
   tables: TableLike[],
   size: number,
   guests: GuestLike[] = [],
-  opts: { maxUnits?: number; limit?: number } = {},
+  opts: { maxUnits?: number; limit?: number; held?: HeldMap; forPartyId?: string } = {},
 ): Combination[] {
   const want = Math.max(1, Math.floor(Number(size) || 1));
   const maxUnits = Math.min(4, Math.max(2, Math.floor(Number(opts.maxUnits) || 3)));
@@ -528,7 +563,10 @@ export function combinationsFor(
 
   // Only units with something free are worth joining — combining a full unit
   // with an empty one seats nobody and moves a party that is already sitting.
-  const usable = list.filter((t) => (state.byTable[t.id]?.free || 0) > 0);
+  const usable = list
+    .filter((t) => (state.byTable[t.id]?.free || 0) > 0)
+    // A held unit must not be quietly welded into someone else's combination.
+    .filter((t) => !heldAgainst(opts.held, t.id, opts.forPartyId));
   const out: Combination[] = [];
 
   const walk = (start: number, chosen: TableLike[], free: number) => {
@@ -596,7 +634,7 @@ export function quoteWait(
   guests: GuestLike[],
   seated: Seated[],
   party: Party,
-  opts: { turnMinutes?: number; now?: Date; vocabulary?: Partial<Vocabulary>; allowCombination?: boolean } = {},
+  opts: { turnMinutes?: number; now?: Date; vocabulary?: Partial<Vocabulary>; allowCombination?: boolean; held?: HeldMap } = {},
 ): Quote {
   const V = resolveVocabulary(opts.vocabulary);
   const now = opts.now || new Date();
@@ -605,7 +643,12 @@ export function quoteWait(
   const defaultTurn = Math.max(1, Math.floor(Number(opts.turnMinutes) || DEFAULT_TURN_MINUTES));
   const state = seatingState(tables, guests);
 
-  const fits = state.tables.filter((t) => needs.every((n) => t.tags.includes(n)));
+  const fits = state.tables
+    .filter((t) => needs.every((n) => t.tags.includes(n)))
+    // Held units are not on the market for a quote either — telling a walk-in
+    // "ready now" and then seating them at a booked unit is the exact failure
+    // holds exist to prevent.
+    .filter((t) => !heldAgainst(opts.held, t.tableId, party?.id));
 
   const openNow = fits.filter((t) => t.free >= size);
   if (openNow.length > 0) {
@@ -617,7 +660,7 @@ export function quoteWait(
   }
 
   if (opts.allowCombination !== false) {
-    const combo = combinationsFor(tables, size, guests)[0];
+    const combo = combinationsFor(tables, size, guests, { held: opts.held, forPartyId: party?.id })[0];
     if (combo) {
       return {
         minutes: 0, tableId: combo.tableIds[0], tableName: combo.names.join(' + '), immediate: true,
