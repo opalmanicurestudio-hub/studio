@@ -32,7 +32,7 @@ import {
   type HeldMap, type TableLike,
 } from '@/lib/hosting';
 import {
-  businessDayFor, freezeUnits, heldUnits, lateVerdict, partyFromAppointment, partyFromWalkIn, sessionDecision,
+  businessDayFor, freezeUnits, heldUnits, lateVerdict, partiesFromEventGuests, partyFromAppointment, partyFromWalkIn, sessionDecision,
   type HostedParty, type ServiceSession,
 } from '@/lib/hosting-sessions';
 import { resolveHostingSettings, starterTemplate } from '@/lib/floor-plans';
@@ -54,6 +54,7 @@ export default function HostScreen() {
   const [name, setName] = useState('');
   const [size, setSize] = useState('2');
   const [at, setAt] = useState('');           // optional HH:MM → reservation
+  const [phone, setPhone] = useState('');     // optional — enables the ready text
   const [now, setNow] = useState(new Date());
   const [proposals, setProposals] = useState<ReturnType<typeof autoSeatPlan>>([]);
 
@@ -225,6 +226,65 @@ export default function HostScreen() {
   };
   const iso0 = (v: any) => { const t = Date.parse(String(v || '')); return Number.isFinite(t) ? new Date(t).toISOString() : null; };
 
+  /** THE EVENT ADAPTER GOES LIVE HERE. The active event's guest manifest
+   *  becomes hosted parties through the tested partiesFromEventGuests mapping:
+   *  guests sharing a booking arrive as one party, seat assignments resolve
+   *  through the same identity logic the floor uses (id, internal-id-in-
+   *  tableNumber, and human name — ambiguity skipped, never guessed), and a
+   *  guest already checked in imports as seated at their assigned unit.
+   *  Idempotent like the other three sources: every member id is carried as
+   *  event:{guestId}, and a party whose members are all carried already is
+   *  skipped, so the button is safe to press after every RSVP wave. */
+  const importEvent = async () => {
+    if (!firestore || !tenantId || !session) return;
+    try {
+      const evSnap = await getDocs(query(
+        collection(firestore, `tenants/${tenantId}/studioEvents`),
+        where('status', '==', 'active'), limit(1),
+      ));
+      if (evSnap.empty) { toast({ title: 'No active event to import' }); return; }
+      const ev = { id: evSnap.docs[0].id, ...(evSnap.docs[0].data() as any) };
+      const gSnap = await getDocs(query(
+        collection(firestore, `tenants/${tenantId}/eventGuests`),
+        where('eventId', '==', ev.id),
+      ));
+      const guests = gSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+      const evUnits: TableLike[] = Array.isArray(ev.seatingTables) ? ev.seatingTables : units;
+      const have = new Set(parties.flatMap((p) => p.guestIds || []));
+      let added = 0;
+      for (const p of partiesFromEventGuests(guests, session.id, evUnits)) {
+        const keys = (p.guestIds || []).map((g) => `event:${g}`);
+        if (keys.every((k) => have.has(k))) continue;
+        await addDoc(collection(firestore, `tenants/${tenantId}/parties`),
+          { ...p, guestIds: keys });
+        added += 1;
+      }
+      toast({ title: added ? `${added} ${added === 1 ? 'party' : 'parties'} imported from ${ev.name || ev.title || 'the event'}` : 'Nothing new to import' });
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Import failed', description: e instanceof Error ? e.message : undefined });
+    }
+  };
+
+  /** READY TEXT. The server claims the notification (a double-tap cannot send
+   *  twice), texts the party if a phone is on file, and marks them notified
+   *  either way — walking over IS notifying. If the route is unreachable the
+   *  board still moves: mark locally and say the text did not go. Mirrored
+   *  queue rows never reach this — the walk-in queue keeps its own SMS. */
+  const notifyParty = async (p: HostedParty) => {
+    try {
+      const res = await fetch('/api/host/notify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, partyId: p.id }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || d?.ok !== true) throw new Error(d?.error || 'Notify failed');
+      toast({ title: d.sent ? `Text sent to ${p.name}` : (d.message || 'Marked as notified') });
+    } catch {
+      await write(p.id, { status: 'notified', notifiedAt: new Date().toISOString() });
+      toast({ title: 'Marked as notified — the text could not be sent' });
+    }
+  };
+
   const addParty = async () => {
     if (!firestore || !tenantId || !session || !name.trim()) return;
     const isRes = /^\d{2}:\d{2}$/.test(at.trim());
@@ -238,8 +298,9 @@ export default function HostScreen() {
       joinedAt: isRes ? null : new Date().toISOString(),
       quotedMinutes: null, notifiedAt: null, seatedAt: null, finishedAt: null,
       turnMinutes: null, unitIds: [], guestIds: [],
+      ...(phone.trim() ? { phone: phone.trim() } : {}),
     });
-    setName(''); setAt('');
+    setName(''); setAt(''); setPhone('');
   };
 
   const seatAt = async (party: HostedParty, unitId: string, force = false) => {
@@ -289,17 +350,20 @@ export default function HostScreen() {
         </div>
       )}
 
-      {/* Add a party — a time makes it a reservation */}
       <div className="p-4 rounded-[2rem] border-2 bg-slate-50 border-slate-200 flex flex-wrap gap-2 items-end">
         <div className="flex-1 min-w-[8rem]"><Input placeholder="Name" value={name} onChange={(e: any) => setName(e.target.value)} className="h-11 rounded-2xl border-2 font-bold bg-white" /></div>
         <div className="w-16"><Input inputMode="numeric" value={size} onChange={(e: any) => setSize(e.target.value)} className="h-11 rounded-2xl border-2 font-bold bg-white text-center" /></div>
         <div className="w-24"><Input placeholder="19:30?" value={at} onChange={(e: any) => setAt(e.target.value)} className="h-11 rounded-2xl border-2 font-bold bg-white text-center" /></div>
+        <div className="w-32"><Input type="tel" inputMode="tel" placeholder="Phone?" value={phone} onChange={(e: any) => setPhone(e.target.value)} className="h-11 rounded-2xl border-2 font-bold bg-white text-center" /></div>
         <Button onClick={addParty} disabled={!name.trim() || !session} className={CHIP}><Plus className="w-4 h-4 mr-1" />{at.trim() ? 'Book' : 'Add'}</Button>
         <Button variant="outline" className={`${CHIP} border-2 bg-white`} onClick={importBookings} disabled={!session}>
           Import bookings
         </Button>
         <Button variant="outline" className={`${CHIP} border-2 bg-white`} onClick={importBooths} disabled={!session}>
           Import booths
+        </Button>
+        <Button variant="outline" className={`${CHIP} border-2 bg-white`} onClick={importEvent} disabled={!session}>
+          Import event
         </Button>
         <Button variant="outline" className={`${CHIP} border-2 bg-white`}
           onClick={() => setProposals(autoSeatPlan(units, waiting.map((p) => ({ id: p.id, size: p.size, needs: p.needs })), seatedGuests, { held, vocabulary: hs.vocabulary }))}>
@@ -328,7 +392,6 @@ export default function HostScreen() {
       )}
 
       <div className="grid md:grid-cols-2 gap-4">
-        {/* Expected */}
         <div className="space-y-2">
           <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Expected</p>
           {expected.length === 0 && <p className="text-xs text-muted-foreground ml-1">Nothing booked.</p>}
@@ -347,7 +410,6 @@ export default function HostScreen() {
           })}
         </div>
 
-        {/* Waiting */}
         <div className="space-y-2">
           <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Waiting</p>
           {waiting.length === 0 && <p className="text-xs text-muted-foreground ml-1">Empty list.</p>}
@@ -363,7 +425,7 @@ export default function HostScreen() {
                 </button>
                 {p.status === 'waiting' && !p.id.startsWith('walkin:') && (
                   <Button size="sm" variant="outline" className="mt-2 rounded-xl font-black uppercase text-[9px] border-2"
-                    onClick={() => write(p.id, { status: 'notified', notifiedAt: new Date().toISOString() })}>
+                    onClick={() => notifyParty(p)}>
                     <Bell className="w-3 h-3 mr-1" />Notify
                   </Button>
                 )}
@@ -373,7 +435,6 @@ export default function HostScreen() {
         </div>
       </div>
 
-      {/* The floor */}
       <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">
         {sel ? `Tap a ${V.unit} to seat ${sel.name}` : `The floor · ${state.totalSeated}/${state.totalCapacity} ${V.seats}`}
       </p>
@@ -398,7 +459,6 @@ export default function HostScreen() {
         })}
       </div>
 
-      {/* Seated — finish */}
       <div className="space-y-2">
         <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Seated</p>
         {parties.filter((p) => p.status === 'seated').map((p) => (
