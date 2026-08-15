@@ -32,7 +32,7 @@ import {
   type HeldMap, type TableLike,
 } from '@/lib/hosting';
 import {
-  businessDayFor, freezeUnits, heldUnits, lateVerdict, partyFromAppointment, sessionDecision,
+  businessDayFor, freezeUnits, heldUnits, lateVerdict, partyFromAppointment, partyFromWalkIn, sessionDecision,
   type HostedParty, type ServiceSession,
 } from '@/lib/hosting-sessions';
 import { resolveHostingSettings, starterTemplate } from '@/lib/floor-plans';
@@ -101,6 +101,29 @@ export default function HostScreen() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firestore, tenantId]);
+
+  // ── THE WALK-IN QUEUE, MIRRORED LIVE ──────────────────────────────────────
+  // Read-side strangler: today's queue rows appear here through the tested
+  // partyFromWalkIn mapping WITHOUT writing anything — the queue stays the
+  // sole owner of its data, and if this mirror vanished tomorrow the lobby
+  // would not notice. A mirrored row only becomes a real party doc the moment
+  // the host SEATS it (materialise-on-touch), so nothing is stored twice.
+  const [queueMirror, setQueueMirror] = useState<HostedParty[]>([]);
+  useEffect(() => {
+    if (!firestore || !tenantId || !session?.id) return;
+    return onSnapshot(collection(firestore, `tenants/${tenantId}/walkIns`), (snap) => {
+      const out: HostedParty[] = [];
+      for (const d of snap.docs) {
+        const w = { id: d.id, ...(d.data() as any) };
+        const mapped = partyFromWalkIn(w, session.id);
+        if (!mapped || !['waiting', 'notified'].includes(mapped.status)) continue;
+        if (mapped.joinedAt && businessDayFor(new Date(mapped.joinedAt), tz, hs.dayCutoverHour) !== session.businessDay) continue;
+        out.push({ ...mapped, id: `walkin:${d.id}`, guestIds: [`walkin:${d.id}`] });
+      }
+      setQueueMirror(out);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firestore, tenantId, session?.id]);
 
   // ── Live parties for this session ─────────────────────────────────────────
   useEffect(() => {
@@ -179,6 +202,14 @@ export default function HostScreen() {
   };
 
   const seatAt = async (party: HostedParty, unitId: string, force = false) => {
+    // Seating a MIRRORED walk-in materialises it as a real party first —
+    // skipped if a prior touch already did (the dedupe key is the queue id).
+    if (party.id.startsWith('walkin:') && firestore && tenantId && session) {
+      if (parties.some((x) => (x.guestIds || []).includes(party.id))) return;
+      const { id: _drop, ...body } = party;
+      const ref = await addDoc(collection(firestore, `tenants/${tenantId}/parties`), body);
+      party = { ...party, id: ref.id };
+    }
     const verdict = canSeat(state, unitId, { id: party.id, size: party.size, needs: party.needs }, { held, vocabulary: hs.vocabulary, allowOverfill: force });
     if (!verdict.allowed) {
       toast({ variant: 'destructive', title: verdict.reason,
@@ -191,7 +222,8 @@ export default function HostScreen() {
   };
   const [forceFor, setForceFor] = useState<string | null>(null);
 
-  const waiting = parties.filter((p) => ['waiting', 'notified'].includes(p.status))
+  const mirrored = queueMirror.filter((m) => !parties.some((x) => (x.guestIds || []).includes(m.id)));
+  const waiting = [...parties, ...mirrored].filter((p) => ['waiting', 'notified'].includes(p.status))
     .sort((a, b) => String(a.joinedAt || '').localeCompare(String(b.joinedAt || '')));
   const expected = parties.filter((p) => p.status === 'expected')
     .sort((a, b) => String(a.arrivesAt || '').localeCompare(String(b.arrivesAt || '')));
@@ -285,7 +317,7 @@ export default function HostScreen() {
                   </p>
                   <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{q.text}</p>
                 </button>
-                {p.status === 'waiting' && (
+                {p.status === 'waiting' && !p.id.startsWith('walkin:') && (
                   <Button size="sm" variant="outline" className="mt-2 rounded-xl font-black uppercase text-[9px] border-2"
                     onClick={() => write(p.id, { status: 'notified', notifiedAt: new Date().toISOString() })}>
                     <Bell className="w-3 h-3 mr-1" />Notify
