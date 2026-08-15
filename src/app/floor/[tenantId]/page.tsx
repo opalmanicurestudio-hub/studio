@@ -11,6 +11,7 @@ import { format, parseISO, formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+import { routeRequests, sectionLoad, type Routed } from '@/lib/hosting';
 import {
   Bell, CheckCircle2, AlertTriangle, Loader, WifiOff, LogOut,
   ChefHat, Megaphone, X, Delete, LayoutGrid, List, Users,
@@ -183,7 +184,6 @@ const PinLogin = ({ staff, tenantId, tenantName, onLogin, isLoading }: {
           <p className="text-[10px] font-bold uppercase tracking-widest text-slate-600">Enter PIN to continue</p>
         </div>
 
-        {/* PIN dots */}
         <div className="flex gap-4">
           {[0, 1, 2, 3].map(i => (
             <div key={i} className={cn('w-4 h-4 rounded-full border-2 transition-all',
@@ -193,7 +193,6 @@ const PinLogin = ({ staff, tenantId, tenantName, onLogin, isLoading }: {
           ))}
         </div>
 
-        {/* Keypad */}
         <div className="grid grid-cols-3 gap-3 w-full">
           {PIN_KEYS.map((key, i) => (
             <button
@@ -226,7 +225,6 @@ const PinLogin = ({ staff, tenantId, tenantName, onLogin, isLoading }: {
           )}
         </AnimatePresence>
 
-        {/* No-PIN staff list */}
         <div className="w-full space-y-2">
           <p className="text-[9px] font-black uppercase tracking-widest text-slate-600 text-center">No PIN? Select your name</p>
           {isLoading ? (
@@ -359,9 +357,10 @@ const AllergyAlert = ({ requests }: { requests: FloorRequest[] }) => {
 
 // ─── REQUEST CARD ─────────────────────────────────────────────────────────────
 const RequestCard = ({
-  request, currentStaff, myTableIds, onResolve, onAcknowledge, onClaim, onFlag, isPending,
+  request, currentStaff, myTableIds, onResolve, onAcknowledge, onClaim, onFlag, isPending, resolvedTableId,
 }: {
   request: FloorRequest; currentStaff: StaffMember | null; myTableIds: string[];
+  resolvedTableId?: string | null;
   onResolve: (id: string) => Promise<void>;
   onAcknowledge: (id: string) => Promise<void>;
   onClaim: (id: string) => Promise<void>;
@@ -375,8 +374,10 @@ const RequestCard = ({
   const mins = elapsedMins(request.createdAt);
   const isLate = !isDone && mins >= 5;
   const isMyTable = myTableIds.length === 0
-    || (!!request.tableNumber && myTableIds.includes(request.tableNumber))
-    || (!!request.tableId && myTableIds.includes(request.tableId));
+    || (resolvedTableId !== undefined
+      ? (resolvedTableId === null || myTableIds.includes(resolvedTableId))
+      : (!!request.tableNumber && myTableIds.includes(request.tableNumber))
+        || (!!request.tableId && myTableIds.includes(request.tableId)));
   // Safe null check: claimedBySomeone only true if claimed AND not by current staff
   const claimedByMe = !!currentStaff && request.claimedBy === currentStaff.id;
   const claimedBySomeone = !!request.claimedBy && !claimedByMe;
@@ -404,14 +405,12 @@ const RequestCard = ({
       )}
     >
       <div className="p-4 flex items-start gap-3">
-        {/* Emoji */}
         <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0',
           isDone ? 'bg-slate-800' : isLate ? 'bg-amber-500/20' : isAck ? 'bg-violet-500/20' : 'bg-slate-800')}>
           {request.emoji || '💬'}
         </div>
 
         <div className="flex-1 min-w-0">
-          {/* Label + badges */}
           <div className="flex flex-wrap items-center gap-1.5 mb-1">
             <p className={cn('font-black text-sm uppercase tracking-tight', isDone ? 'text-slate-500' : 'text-white')}>
               {request.label}
@@ -438,7 +437,6 @@ const RequestCard = ({
             )}
           </div>
 
-          {/* Location */}
           <div className="flex items-center gap-2 flex-wrap mb-1">
             {request.tableNumber && (
               <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
@@ -456,7 +454,6 @@ const RequestCard = ({
             )}
           </div>
 
-          {/* Critical allergies inline */}
           {hasCritical && (
             <div className="flex flex-wrap gap-1 my-1">
               {(request.guestAllergies || [])
@@ -472,14 +469,12 @@ const RequestCard = ({
             </div>
           )}
 
-          {/* Message */}
           {(request.message || request.requestText) && (
             <p className="text-[11px] text-slate-400 mt-1 leading-relaxed line-clamp-2">
               "{request.message || request.requestText}"
             </p>
           )}
 
-          {/* Timer + flag buttons */}
           <div className="flex items-center gap-3 mt-2 flex-wrap">
             {!isDone && <ElapsedTimer createdAt={request.createdAt} />}
             {isDone && request.resolvedBy && (
@@ -512,7 +507,6 @@ const RequestCard = ({
           </div>
         </div>
 
-        {/* Action buttons */}
         {!isDone && (
           <div className="flex flex-col gap-1.5 shrink-0">
             {isNew && !claimedBySomeone && (
@@ -615,7 +609,6 @@ const VisualChart = ({
               {reqs.length} req
             </div>
           )}
-          {/* Seat dots */}
           <div className="flex flex-wrap gap-0.5 justify-center mt-1.5">
             {table.seats.slice(0, 8).map(seat => {
               const g = getGuestAtSeat(table.name, seat.label);
@@ -636,7 +629,6 @@ const VisualChart = ({
               <span className="text-[7px] text-white/50">+{table.seats.length - 8}</span>
             )}
           </div>
-          {/* My-table indicator dot */}
           {isMyT && myTableIds.length > 0 && (
             <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-violet-500 border-2 border-slate-950" />
           )}
@@ -652,7 +644,6 @@ const VisualChart = ({
           className="relative w-full bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden"
           style={{ aspectRatio: '16/9' }}
         >
-          {/* Grid overlay */}
           <div
             className="absolute inset-0 pointer-events-none"
             style={{
@@ -664,7 +655,6 @@ const VisualChart = ({
             <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             <p className="text-[7px] font-black uppercase tracking-[0.3em] text-slate-400">Live Floor Plan</p>
           </div>
-          {/* Legend */}
           <div className="absolute bottom-2 right-2 flex items-center gap-2">
             <div className="flex items-center gap-1">
               <div className="w-2.5 h-2.5 rounded-full bg-amber-400" />
@@ -731,7 +721,10 @@ const VisualChart = ({
 };
 
 // ─── ANALYTICS PANEL ──────────────────────────────────────────────────────────
-const AnalyticsPanel = ({ requests, staff }: { requests: FloorRequest[]; staff: StaffMember[] }) => {
+const AnalyticsPanel = ({ requests, staff, sections }: {
+  requests: FloorRequest[]; staff: StaffMember[];
+  sections: ReturnType<typeof sectionLoad>;
+}) => {
   const allDone = requests.filter(r => r.status === 'done');
   const allActive = requests.filter(r => r.status !== 'done');
 
@@ -776,6 +769,33 @@ const AnalyticsPanel = ({ requests, staff }: { requests: FloorRequest[]; staff: 
 
   return (
     <div className="space-y-5 pb-6">
+      {sections.length > 0 && (
+        <div className="bg-slate-800/40 border border-slate-700/30 rounded-2xl p-4 space-y-3">
+          <p className="text-[9px] font-black uppercase tracking-[0.25em] text-slate-500">Section Load — Right Now</p>
+          {sections.map(sec => (
+            <div key={sec.staffId} className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="min-w-0">
+                <p className="text-[11px] font-black uppercase tracking-tight text-white truncate">{sec.staffName}</p>
+                <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">
+                  {sec.tableIds.length} tables · {sec.guests}/{sec.seats} seated
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className={cn('px-2 py-0.5 rounded-full text-[9px] font-black uppercase',
+                  sec.openRequests > 0 ? 'bg-amber-500/20 text-amber-300' : 'bg-slate-700/60 text-slate-400')}>
+                  {sec.openRequests} open
+                </span>
+                {sec.oldestWaitMinutes > 0 && (
+                  <span className={cn('px-2 py-0.5 rounded-full text-[9px] font-black uppercase',
+                    sec.oldestWaitMinutes >= 5 ? 'bg-red-500/20 text-red-300' : 'bg-slate-700/60 text-slate-400')}>
+                    {sec.oldestWaitMinutes}m oldest
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <Stat label="Active" value={String(allActive.length)} sub="pending requests" color="text-amber-400" />
         <Stat label="Resolved" value={String(allDone.length)} sub="this session" color="text-emerald-400" />
@@ -887,6 +907,8 @@ export default function FloorStaffPage() {
   const [pendingResolves, setPendingResolves] = useState<Set<string>>(new Set());
   const [requestFilter, setRequestFilter] = useState<string | null>(null);
   const [chartFocusTable, setChartFocusTable] = useState<string | null>(null);
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => { const t = setInterval(() => setClock(Date.now()), 30000); return () => clearInterval(t); }, []);
 
   // Broadcast dismissal — persisted in sessionStorage so it survives refreshes
   const [dismissedBroadcastAt, setDismissedBroadcastAt] = useState<string | null>(() => {
@@ -1090,21 +1112,41 @@ export default function FloorStaffPage() {
       .slice(0, 30),
   }), [allRequests]);
 
+  const routed = useMemo(
+    () => routeRequests(activeRequests, seatingTables, { now: new Date(clock) }),
+    [activeRequests, seatingTables, clock]
+  );
+  const routedById = useMemo(() => {
+    const m: Record<string, Routed> = {};
+    routed.forEach(r => { m[r.requestId] = r; });
+    return m;
+  }, [routed]);
+
   const myRequests = useMemo(() =>
     myTableIds.length === 0
       ? activeRequests
-      : activeRequests.filter(r =>
-          !r.tableNumber || myTableIds.includes(r.tableNumber) || myTableIds.includes(r.tableId || '')
-        ),
-    [activeRequests, myTableIds]
+      : activeRequests.filter(r => {
+          const t = routedById[r.id]?.tableId;
+          return !t || myTableIds.includes(t);
+        }),
+    [activeRequests, myTableIds, routedById]
   );
   const otherRequests = useMemo(() =>
     myTableIds.length === 0
       ? []
-      : activeRequests.filter(r =>
-          r.tableNumber && !myTableIds.includes(r.tableNumber) && !myTableIds.includes(r.tableId || '')
-        ),
-    [activeRequests, myTableIds]
+      : activeRequests.filter(r => {
+          const t = routedById[r.id]?.tableId;
+          return !!t && !myTableIds.includes(t);
+        }),
+    [activeRequests, myTableIds, routedById]
+  );
+
+  const escalations = useMemo(() => routed.filter(r => r.escalate), [routed]);
+  const sections = useMemo(
+    () => (seatingTables.length && (staffList || []).length
+      ? sectionLoad(seatingTables, staffList || [], eventGuests, activeRequests, new Date(clock))
+      : []),
+    [seatingTables, staffList, eventGuests, activeRequests, clock]
   );
 
   // Request type filter options derived from active requests
@@ -1195,7 +1237,6 @@ export default function FloorStaffPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
-      {/* Offline banner */}
       <AnimatePresence>
         {!isOnline && (
           <motion.div
@@ -1217,7 +1258,6 @@ export default function FloorStaffPage() {
         )}
       </AnimatePresence>
 
-      {/* Header */}
       <div className="sticky top-0 z-20 bg-slate-950/95 backdrop-blur border-b border-slate-800 px-4 py-3">
         <div className="max-w-md mx-auto space-y-3">
           <div className="flex items-center justify-between">
@@ -1234,7 +1274,6 @@ export default function FloorStaffPage() {
                   <span className="text-[9px] font-black text-white">{unreadCount}</span>
                 </div>
               )}
-              {/* Pending sync indicator (online) */}
               {isOnline && pendingResolves.size > 0 && (
                 <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-800 border border-slate-700">
                   <Loader className="w-3 h-3 text-violet-400 animate-spin" />
@@ -1243,9 +1282,7 @@ export default function FloorStaffPage() {
               )}
             </div>
 
-            {/* Right controls */}
             <div className="flex items-center gap-1.5">
-              {/* Staff chip */}
               <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-xl bg-slate-800 border border-slate-700">
                 <div className="w-5 h-5 rounded-md bg-violet-500/20 flex items-center justify-center font-black text-violet-400 text-[9px] shrink-0">
                   {getInitials(currentStaff.name)}
@@ -1258,7 +1295,6 @@ export default function FloorStaffPage() {
                 </button>
               </div>
 
-              {/* View toggle */}
               <div className="flex rounded-xl overflow-hidden border border-slate-700">
                 <button
                   onClick={() => setViewMode('list')}
@@ -1276,7 +1312,6 @@ export default function FloorStaffPage() {
                 </button>
               </div>
 
-              {/* Show done toggle */}
               <button
                 onClick={() => setShowDone(s => !s)}
                 className={cn('h-8 px-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all',
@@ -1287,7 +1322,6 @@ export default function FloorStaffPage() {
             </div>
           </div>
 
-          {/* Tab bar */}
           <div className="flex gap-1 bg-slate-900 rounded-xl p-1">
             {([
               { id: 'requests', label: 'Requests', icon: Bell },
@@ -1306,7 +1340,6 @@ export default function FloorStaffPage() {
             ))}
           </div>
 
-          {/* My tables chips */}
           {myTableIds.length > 0 && (
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[8px] font-black uppercase tracking-widest text-slate-600">Watching:</span>
@@ -1333,10 +1366,8 @@ export default function FloorStaffPage() {
         </div>
       </div>
 
-      {/* Content */}
       <div className="max-w-md mx-auto px-4 py-4 space-y-4">
 
-        {/* Broadcast */}
         <AnimatePresence>
           {showBroadcast && (
             <BroadcastBanner
@@ -1347,7 +1378,6 @@ export default function FloorStaffPage() {
           )}
         </AnimatePresence>
 
-        {/* Active event info bar */}
         {activeEvent && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-violet-500/10 border border-violet-500/20">
             <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
@@ -1359,7 +1389,6 @@ export default function FloorStaffPage() {
                 {format(safeDate(activeEvent.date), 'MMM d')}
               </p>
             )}
-            {/* Quick-jump to floor plan */}
             {seatingTables.length > 0 && (
               <button
                 onClick={() => setTab('chart')}
@@ -1371,7 +1400,6 @@ export default function FloorStaffPage() {
           </div>
         )}
 
-        {/* ── REQUESTS TAB ── */}
         {tab === 'requests' && (
           <>
             {isLoading && (
@@ -1382,10 +1410,42 @@ export default function FloorStaffPage() {
 
             {!isLoading && (
               <>
-                {/* Critical allergy alert — always shown at top */}
                 <AllergyAlert requests={allRequests || []} />
 
-                {/* Request type filter strip */}
+                {escalations.length > 0 && (
+                  <div className="bg-amber-950/40 border-2 border-amber-500/40 rounded-2xl p-4 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <ArrowUp className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <p className="text-[9px] font-black uppercase tracking-[0.25em] text-amber-400">
+                        Needs Attention · {escalations.length}
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      {escalations.slice(0, 6).map(e => {
+                        const req = activeRequests.find(r => r.id === e.requestId);
+                        return (
+                          <div key={e.requestId} className="flex items-start gap-2 flex-wrap">
+                            <span className="text-[10px] font-black text-amber-200">
+                              {e.tableName || 'Unattached'}
+                            </span>
+                            {req && (
+                              <span className="text-[9px] font-bold text-amber-400/80 uppercase tracking-widest">
+                                {req.label}
+                              </span>
+                            )}
+                            <span className="text-[9px] text-amber-300/70">{e.reason}</span>
+                          </div>
+                        );
+                      })}
+                      {escalations.length > 6 && (
+                        <p className="text-[9px] font-bold text-amber-500/70 uppercase tracking-widest">
+                          +{escalations.length - 6} more below
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {requestTypeOptions.length > 1 && (
                   <div className="flex gap-1.5 flex-wrap items-center">
                     <Filter className="w-3 h-3 text-slate-600 shrink-0" />
@@ -1438,6 +1498,7 @@ export default function FloorStaffPage() {
                       {filteredMyRequests.map(r => (
                         <RequestCard
                           key={r.id} request={r} currentStaff={currentStaff}
+                          resolvedTableId={routedById[r.id]?.tableId}
                           myTableIds={myTableIds} onResolve={handleResolve}
                           onAcknowledge={handleAcknowledge} onClaim={handleClaim}
                           onFlag={handleFlag} isPending={pendingResolves.has(r.id)}
@@ -1501,7 +1562,6 @@ export default function FloorStaffPage() {
                         updateMyTableIds(prev => prev.includes(id) ? prev : [...prev, id]);
                       }}
                     />
-                    {/* Requests for focused table */}
                     {chartFocusTable && (
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
@@ -1543,7 +1603,6 @@ export default function FloorStaffPage() {
           </>
         )}
 
-        {/* ── ROOM TAB ── */}
         {tab === 'chart' && (
           <div className="space-y-4">
             <VisualChart
@@ -1557,7 +1616,6 @@ export default function FloorStaffPage() {
                 updateMyTableIds(prev => prev.includes(id) ? prev : [...prev, id]);
               }}
             />
-            {/* Focused table requests */}
             {chartFocusTable && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -1595,9 +1653,8 @@ export default function FloorStaffPage() {
           </div>
         )}
 
-        {/* ── ANALYTICS TAB ── */}
         {tab === 'analytics' && (
-          <AnalyticsPanel requests={allRequests || []} staff={staffList || []} />
+          <AnalyticsPanel requests={allRequests || []} staff={staffList || []} sections={sections} />
         )}
 
       </div>
