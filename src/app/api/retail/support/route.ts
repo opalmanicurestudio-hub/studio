@@ -58,6 +58,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'This order already has open requests — we will get back to you soon.' }, { status: 429 });
   }
 
+  /* THE HONEST CLOCK. Reply-time expectations are computed from the queue
+   * that actually exists — the tenant-wide open ticket count — at the moment
+   * this message lands, then stamped on the ticket so every surface (ack
+   * email, the customer's thread, the staff inbox) quotes the same promise.
+   * Tiers are deliberately loose ranges: a precise minute would be a lie. */
+  let expectNote = 'We usually reply within a few hours.';
+  try {
+    const tenantOpen = await db.collection(`tenants/${tenantId}/retailSupport`)
+      .where('status', '==', 'open').count().get();
+    const n = tenantOpen.data().count ?? 0;
+    expectNote = n >= 15
+      ? 'We\u2019re busier than usual — expect a reply within 1\u20132 days.'
+      : n >= 5
+        ? 'Expect a reply within a day.'
+        : 'We usually reply within a few hours.';
+  } catch { /* the default tier stands */ }
+
+  /* Photos: URLs minted by our own upload route (customer sends bytes there,
+   * the server chooses the path) — capped and length-checked here so the
+   * ticket can never carry an arbitrary payload. */
+  const photoUrls: string[] = (Array.isArray(body.photoUrls) ? body.photoUrls : [])
+    .map((u: any) => String(u || '').trim())
+    .filter((u: string) => u.startsWith('https://') && u.length < 500)
+    .slice(0, 4);
+
   const lower = message.toLowerCase();
   const stageLine: Record<string, string> = {
     placed: 'Your order is awaiting payment confirmation.',
@@ -131,6 +156,8 @@ export async function POST(req: NextRequest) {
     message, status: 'open', createdAt: now,
     priority: urgent ? 'urgent' : 'normal',
     autoReply: urgent ? '' : autoReply,
+    expectNote,
+    photoUrls,
     replies: [],
   });
   const evRef = orderRef.collection('events').doc();
@@ -160,7 +187,7 @@ export async function POST(req: NextRequest) {
             ${urgent
               ? `<p style="font-size:13px;color:#0f172a">We hear you \u2014 this has been flagged and a person is looking at it as a priority. We\u2019ll make it right.</p>`
               : autoReply ? `<div style="background:#f8fafc;border:2px solid #e2e8f0;border-radius:12px;padding:14px;margin:16px 0"><p style="font-size:13px;color:#0f172a;margin:0"><strong>Instant answer:</strong> ${autoReply}</p></div>` : ''}
-            <p style="font-size:13px;color:#64748b">${urgent ? 'You\u2019ll hear from us shortly. Live status any time:' : 'A human will follow up if anything else is needed. Live status any time:'}</p>
+            <p style="font-size:13px;color:#64748b">${urgent ? 'You\u2019ll hear from us shortly.' : expectNote} Live status any time:</p>
             <p style="text-align:center;margin:20px 0"><a href="${link}" style="background:#111827;color:#ffffff;padding:12px 26px;border-radius:12px;text-decoration:none;font-weight:700;font-size:13px">View my order</a></p>
           </div>`,
         }),
@@ -170,5 +197,5 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, instantAnswer: urgent ? null : (autoReply || null) });
+  return NextResponse.json({ ok: true, instantAnswer: urgent ? null : (autoReply || null), expectNote });
 }
