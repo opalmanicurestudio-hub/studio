@@ -16,7 +16,7 @@ import { useToast } from '@/hooks/use-toast';
 import { permissionsFor } from '@/lib/fulfilment-access';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
 import {
-  buildWave, claimTote, eligibleForWave, matchWaveItem, packQueue, parseToteScan, pickList, markRowPicked, recordWavePut, setWaveStatus, suggestTote, toteResiduals, wavePut,
+  buildWave, claimTote, dealTotes, eligibleForWave, matchWaveItem, packQueue, parseToteScan, pickList, markRowPicked, recordWavePut, saveToteDeal, setWaveStatus, suggestTote, toteResiduals, unitsByTote, wavePut,
   waveCol, waveSummary, type Wave,
 } from '@/lib/waves';
 import { hourIn, tenantTimeZone, todayIn } from '@/lib/tenant-time';
@@ -33,7 +33,7 @@ import { cn } from '@/lib/utils';
 export default function WavesPage() {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
-  const { inventory } = useInventory();
+  const { inventory, staff } = useInventory();
   const { user } = useUser();
   const { toast } = useToast();
   const tenantId = selectedTenant?.id || '';
@@ -47,6 +47,7 @@ export default function WavesPage() {
   const [lastDrop, setLastDrop] = useState<{ tote: number; name: string; putInTote: number; toteNeed: number; toteDone: boolean } | null>(null);
   const [activeTote, setActiveTote] = useState<number | null>(null);
   const [pendingItem, setPendingItem] = useState<{ value: string; name: string; suggested: number } | null>(null);
+  const [dealPickerIds, setDealPickerIds] = useState<string[]>([]);
 
   const actor = useMemo(
     () => ({ id: user?.uid || 'staff', name: user?.displayName || user?.email || 'Staff' }),
@@ -198,6 +199,40 @@ export default function WavesPage() {
     const need = rows.reduce((a, r) => a + (r.totes.find((t) => t.tote === tote)?.qty || 0), 0);
     const left = Object.values(residuals[tote] || {}).reduce((a, n) => a + n, 0);
     return { done: need - left, need };
+  };
+
+  const pickers = useMemo(
+    () => (staff || [])
+      .filter((m: any) => permissionsFor(m).canPick)
+      .map((m: any) => ({ id: m.id, name: m.name || 'Staff' })),
+    [staff]
+  );
+
+  const liveLoads = useMemo(() => {
+    if (!active) return [] as { name: string; units: number; totes: number }[];
+    const units = unitsByTote(rows);
+    const agg: Record<string, { name: string; units: number; totes: number }> = {};
+    for (const [tote, c] of Object.entries(active.toteClaims || {})) {
+      if (!agg[c.staffId]) agg[c.staffId] = { name: c.staffName, units: 0, totes: 0 };
+      agg[c.staffId].units += units[Number(tote)] || 0;
+      agg[c.staffId].totes += 1;
+    }
+    return Object.values(agg).sort((a, b) => b.units - a.units);
+  }, [active, rows]);
+
+  const runDeal = async () => {
+    if (!firestore || !active) return;
+    const chosen = pickers.filter((p) => dealPickerIds.includes(p.id));
+    if (chosen.length === 0) {
+      toast({ title: 'Pick who\u2019s working first', description: 'Tap the pickers below, then deal.' });
+      return;
+    }
+    const { claims, loads } = dealTotes(rows, active, chosen);
+    await saveToteDeal(firestore as Firestore, tenantId, active.id, claims);
+    toast({
+      title: 'Totes dealt',
+      description: chosen.map((p) => `${p.name.split(' ')[0]} ${loads[p.id] || 0} units`).join(' \u00b7 '),
+    });
   };
 
   /** THE GATE ON THE WALK — one scan bar, two grammars, both put-verified.
@@ -414,6 +449,40 @@ export default function WavesPage() {
                     Scan a tote label to start filling it — then beep items in
                   </p>
                 </div>
+                {perms.canManage && pickers.length > 1 && (
+                  <div className="space-y-1.5 rounded-2xl border-2 border-dashed p-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                      Deal unclaimed totes evenly — balanced by units
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {pickers.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          aria-pressed={dealPickerIds.includes(p.id)}
+                          onClick={() => setDealPickerIds((cur) =>
+                            cur.includes(p.id) ? cur.filter((x) => x !== p.id) : [...cur, p.id])}
+                          className={cn('h-9 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest transition-all active:scale-95',
+                            dealPickerIds.includes(p.id) ? 'bg-foreground text-background border-foreground' : 'bg-white')}
+                        >
+                          {p.name.split(' ')[0]}
+                        </button>
+                      ))}
+                      <Button
+                        onClick={() => void runDeal()}
+                        disabled={dealPickerIds.length === 0}
+                        className="h-9 rounded-xl text-[10px] font-black uppercase tracking-widest"
+                      >
+                        Deal
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {liveLoads.length > 0 && (
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                    {liveLoads.map((l) => `${l.name.split(' ')[0]} \u00b7 ${l.units} units \u00b7 ${l.totes} tote${l.totes === 1 ? '' : 's'}`).join('   —   ')}
+                  </p>
+                )}
                 <div className="flex gap-1.5 overflow-x-auto pb-1">
                   {(active.orders || []).map((w) => {
                     const claim = active.toteClaims?.[String(w.tote)];
