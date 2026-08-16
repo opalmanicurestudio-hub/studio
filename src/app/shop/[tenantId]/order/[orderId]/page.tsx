@@ -98,6 +98,11 @@ export default function OrderStatusPage() {
   const [instantQ, setInstantQ] = useState<string | null>(null);
   const [helpSending, setHelpSending] = useState(false);
   const [helpSent, setHelpSent] = useState(false);
+  const [supportThread, setSupportThread] = useState<{
+    message: string; createdAt: string | null; status: string; autoReply: string;
+    replies: { by: string; text: string; at: string | null }[];
+    pending?: boolean;
+  }[]>([]);
   const [checkingIn, setCheckingIn] = useState(false);
   const [onWayBusy, setOnWayBusy] = useState(false);
   const [bringToVehicle, setBringToVehicle] = useState(false);
@@ -151,6 +156,7 @@ export default function OrderStatusPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Order not found');
       setOrder(data.order);
+      if (Array.isArray(data.support)) setSupportThread(data.support);
       setShopGeo(data.shopGeo || null);
       // Remember this order on THIS phone, so scanning a spot sign in the car
       // park can check the right person in without typing. Stored locally and
@@ -635,9 +641,14 @@ export default function OrderStatusPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Could not send');
+      setSupportThread((cur) => [...cur, {
+        message: helpMsg.trim(), createdAt: new Date().toISOString(),
+        status: 'open', autoReply: '', replies: [], pending: true,
+      }]);
       setHelpSent(true);
       setHelpMsg('');
-      toast({ title: 'Message sent', description: 'The shop will get back to you.' });
+      toast({ title: 'Message received', description: 'It’s with the team — you can watch it right here.' });
+      load();
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Could not send', description: e?.message });
     } finally {
@@ -1131,11 +1142,53 @@ export default function OrderStatusPage() {
                   Download invoice
                 </a>
               )}
-              {helpSent ? (
-                <p className="text-sm font-bold text-muted-foreground">
-                  Got it — your message is with the shop and tied to this order. They&apos;ll reach out.
-                </p>
-              ) : (
+              {supportThread.length > 0 && (
+                <div className="space-y-2 rounded-2xl border-2 border-primary/20 bg-primary/[0.02] p-3">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground/60">Your messages</p>
+                  <div className="max-h-72 space-y-2 overflow-y-auto">
+                    {supportThread.map((t, i) => (
+                      <div key={i} className="space-y-2">
+                        <div className="ml-6">
+                          <p className="rounded-xl bg-primary px-3 py-2 text-sm font-bold text-primary-foreground whitespace-pre-wrap">{t.message}</p>
+                          <p className="mt-0.5 text-right text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+                            ✓ Received{t.createdAt ? ` · ${new Date(t.createdAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}
+                          </p>
+                        </div>
+                        {t.autoReply && (
+                          <div className="mr-6">
+                            <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground/60">Instant answer</p>
+                            <p className="rounded-xl bg-muted px-3 py-2 text-sm font-bold whitespace-pre-wrap">{t.autoReply}</p>
+                          </div>
+                        )}
+                        {t.replies.map((r, j) => (
+                          <div key={j} className="mr-6">
+                            <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground/60">{r.by}</p>
+                            <p className="rounded-xl bg-muted px-3 py-2 text-sm font-bold whitespace-pre-wrap">{r.text}</p>
+                            {r.at && (
+                              <p className="mt-0.5 text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+                                {new Date(r.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                  {(() => {
+                    const last = supportThread[supportThread.length - 1];
+                    const answered = last.replies.length > 0 || last.status === 'resolved';
+                    return (
+                      <p className={cn('rounded-xl border-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest',
+                        answered ? 'border-green-600/40 bg-green-500/10 text-green-700' : 'border-primary/30 bg-primary/[0.05] text-primary')}>
+                        {last.status === 'resolved' ? '✓ Resolved — reply below if anything’s still off'
+                          : last.replies.length > 0 ? '✓ The team replied — answer below any time'
+                          : 'With the team — replies land right here (and by email). This page checks automatically.'}
+                      </p>
+                    );
+                  })()}
+                </div>
+              )}
+              {(
                 <>
                   {selfToken && !aiDown && (
                     <div className="space-y-2 rounded-2xl border-2 p-3">
@@ -1230,7 +1283,7 @@ export default function OrderStatusPage() {
                     variant="outline"
                     className="w-full h-11 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest"
                   >
-                    {helpSending ? <Loader className="h-4 w-4 animate-spin" /> : 'Send to the shop'}
+                    {helpSending ? <Loader className="h-4 w-4 animate-spin" /> : supportThread.length > 0 ? 'Send another message' : 'Send to the shop'}
                   </Button>
                 </>
               )}
