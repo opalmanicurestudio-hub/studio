@@ -145,6 +145,8 @@ export async function GET(req: NextRequest) {
           createdAt: t.createdAt || null,
           status: String(t.status || 'open'),
           autoReply: String(t.autoReply || ''),
+          expectNote: String(t.expectNote || ''),
+          photoUrls: Array.isArray(t.photoUrls) ? t.photoUrls.slice(0, 4) : [],
           replies: Array.isArray(t.replies)
             ? t.replies.map((r: any) => ({
                 by: String(r.by || 'The shop'),
