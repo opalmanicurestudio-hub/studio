@@ -5,7 +5,7 @@ import {
 } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 
-import { buildEvent } from '@/lib/retail-orders';
+import { buildEvent, codesMatch, parseProductQr } from '@/lib/retail-orders';
 
 // ─── src/lib/waves.ts ─────────────────────────────────────────────────────────
 // Wave picking: pick everything at once by product, then sort into orders at a
@@ -45,6 +45,7 @@ export interface Wave {
   cutoffAt: string;
   orders: WaveOrder[];
   pickedProductIds?: string[];
+  scanned?: Record<string, number>;
 }
 
 export interface PickRow {
@@ -218,7 +219,108 @@ export async function markRowPicked(
     const next = picked
       ? [...new Set([...current, productId])]
       : current.filter((id) => id !== productId);
-    txn.update(ref, { pickedProductIds: next });
+    const scanned = { ...((snap.data() as any).scanned || {}) };
+    if (!picked) delete scanned[productId];
+    txn.update(ref, { pickedProductIds: next, scanned });
+  });
+}
+
+// ─── Scan-to-tote ──────────────────────────────────────────────────────────────
+// The pick walk, gated. Tap-to-tick trusts the walker's memory; a beep trusts
+// the barcode. Each successful scan answers the only question that matters
+// mid-walk — WHICH TOTE does this unit go in — by allocating units to totes in
+// tote order, so the screen can flash "→ TOTE 3" the instant the gun reads.
+// The wrong item refuses loudly, an extra unit of the right item refuses too
+// (the shelf count is not the order count), and a row that reaches its total
+// ticks itself — the same pickedProductIds the sheet and the bench already
+// trust, so nothing downstream changes.
+
+export interface WaveScanHit {
+  ok: true;
+  productId: string;
+  name: string;
+  tote: number;
+  scanned: number;
+  totalQty: number;
+  rowComplete: boolean;
+}
+export interface WaveScanMiss {
+  ok: false;
+  reason: 'no_match' | 'row_complete';
+  message: string;
+}
+
+/** Which tote the nth unit (1-based) of a row belongs in — totes fill in the
+ *  order the pick sheet lists them, so paper and flash always agree. */
+export function toteForNthUnit(row: PickRow, nth: number): number {
+  let acc = 0;
+  for (const t of row.totes) {
+    acc += t.qty;
+    if (nth <= acc) return t.tote;
+  }
+  return row.totes.length ? row.totes[row.totes.length - 1].tote : 0;
+}
+
+export function waveScan(
+  rows: PickRow[],
+  scanned: Record<string, number>,
+  value: string,
+  codesForProduct: Map<string, string[]>,
+): WaveScanHit | WaveScanMiss {
+  const raw = String(value || '').trim();
+  if (!raw) return { ok: false, reason: 'no_match', message: 'Empty scan — try again.' };
+  const qrId = parseProductQr(raw);
+
+  const row = rows.find((r) =>
+    (qrId !== null && qrId === r.productId)
+    || (codesForProduct.get(r.productId) || []).some((c) => codesMatch(c, raw))
+  );
+  if (!row) {
+    return { ok: false, reason: 'no_match', message: 'Not on this pick list — put it back.' };
+  }
+
+  const cur = Math.max(0, Number(scanned[row.productId]) || 0);
+  if (cur >= row.totalQty) {
+    return {
+      ok: false, reason: 'row_complete',
+      message: `${row.name} is fully picked — put the extra back.`,
+    };
+  }
+
+  const nth = cur + 1;
+  return {
+    ok: true,
+    productId: row.productId,
+    name: row.name,
+    tote: toteForNthUnit(row, nth),
+    scanned: nth,
+    totalQty: row.totalQty,
+    rowComplete: nth >= row.totalQty,
+  };
+}
+
+/** Persist one scanned unit. Capped in the transaction so two guns racing on
+ *  the same row can never overcount; hitting the total ticks the row. */
+export async function recordWaveScan(
+  fs: Firestore, tenantId: string, waveId: string, productId: string, totalQty: number
+): Promise<void> {
+  await runTransaction(fs, async (txn) => {
+    const ref = doc(waveCol(fs, tenantId), waveId);
+    const snap = await txn.get(ref);
+    if (!snap.exists()) return;
+    const data = snap.data() as any;
+    const scanned = { ...(data.scanned || {}) };
+    const cur = Math.max(0, Number(scanned[productId]) || 0);
+    if (cur >= totalQty) return;
+    const next = cur + 1;
+    scanned[productId] = next;
+    const pickedProductIds: string[] = data.pickedProductIds || [];
+    txn.update(ref, {
+      scanned,
+      ...(next >= totalQty && !pickedProductIds.includes(productId)
+        ? { pickedProductIds: [...pickedProductIds, productId] }
+        : {}),
+    });
   });
 }
 
