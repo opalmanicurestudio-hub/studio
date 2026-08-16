@@ -105,6 +105,8 @@ export default function CheckoutPage() {
   const [placing, setPlacing] = useState(false);
   const [tipPct, setTipPct] = useState<number>(0);
   const [applyCredit, setApplyCredit] = useState(false);
+  const [creditMode, setCreditMode] = useState<'all' | 'limit'>('all');
+  const [creditLimit, setCreditLimit] = useState('');
   const [pickupChoice, setPickupChoice] = useState('ASAP');
   const [preorderAgreed, setPreorderAgreed] = useState(false);
 
@@ -327,6 +329,9 @@ export default function CheckoutPage() {
           pickupAt: !digitalOnlyCart && method !== 'ship' && shop?.scheduledPickup ? pickupChoice : '',
           method: digitalOnlyCart ? 'counter' : method,
           applyStoreCredit: applyCredit,
+          storeCreditCapCents: applyCredit && creditMode === 'limit' && Number(creditLimit) > 0
+            ? Math.round(Number(creditLimit) * 100)
+            : undefined,
           preorderAck: hasPreorder ? true : undefined,
           customer: { name: name.trim(), email: email.trim(), phone: phone.trim() },
           shippingAddress: method === 'ship' && !digitalOnlyCart ? { ...addr, country: 'US' } : undefined,
@@ -614,19 +619,62 @@ export default function CheckoutPage() {
                 </select>
               </div>
             )}
-            <label className="flex items-start gap-2.5 rounded-2xl border-2 p-3">
-              <input
-                type="checkbox"
-                aria-label="Apply my store credit if I have any"
-                checked={applyCredit}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setApplyCredit(e.target.checked)}
-                className="mt-0.5 h-4 w-4 shrink-0 accent-current"
-              />
-              <span className="text-[11px] font-bold leading-relaxed text-muted-foreground">
-                <span className="font-black uppercase tracking-widest text-foreground">Apply my store credit</span>
-                <br />From past returns, if any is on file for your email — the discount appears on the payment page.
-              </span>
-            </label>
+            <div className={cn('rounded-2xl border-2 p-3 transition-all', applyCredit && 'border-foreground/60 bg-muted/20')}>
+              <label className="flex items-start gap-2.5">
+                <input
+                  type="checkbox"
+                  aria-label="Apply my store credit if I have any"
+                  checked={applyCredit}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setApplyCredit(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-current"
+                />
+                <span className="text-[11px] font-bold leading-relaxed text-muted-foreground">
+                  <span className="font-black uppercase tracking-widest text-foreground">Apply my store credit</span>
+                  <br />From returns and credits on file for your email — the discount appears on the payment page.
+                </span>
+              </label>
+              {applyCredit && (
+                <div className="mt-3 space-y-2 pl-6">
+                  <div className="flex gap-1.5" role="radiogroup" aria-label="How much store credit to use">
+                    <button
+                      type="button" role="radio" aria-checked={creditMode === 'all'}
+                      onClick={() => setCreditMode('all')}
+                      className={cn('h-9 flex-1 rounded-xl border-2 text-[10px] font-black uppercase tracking-widest transition-all',
+                        creditMode === 'all' ? 'bg-foreground text-background border-foreground' : 'bg-white')}
+                    >
+                      Use all of it
+                    </button>
+                    <button
+                      type="button" role="radio" aria-checked={creditMode === 'limit'}
+                      onClick={() => setCreditMode('limit')}
+                      className={cn('h-9 flex-1 rounded-xl border-2 text-[10px] font-black uppercase tracking-widest transition-all',
+                        creditMode === 'limit' ? 'bg-foreground text-background border-foreground' : 'bg-white')}
+                    >
+                      Set a limit
+                    </button>
+                  </div>
+                  {creditMode === 'limit' && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-black">$</span>
+                      <input
+                        inputMode="decimal"
+                        aria-label="Most store credit to use on this order, in dollars"
+                        placeholder="10.00"
+                        value={creditLimit}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCreditLimit(e.target.value.replace(/[^0-9.]/g, ''))}
+                        className="h-10 w-28 rounded-xl border-2 bg-white px-3 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60"
+                      />
+                      <span className="text-[10px] font-bold leading-tight text-muted-foreground">
+                        at most — the rest of your credit stays on your account
+                      </span>
+                    </div>
+                  )}
+                  <p className="text-[10px] font-bold text-muted-foreground">
+                    We only ever apply what you actually have — never more than your balance{creditMode === 'limit' ? ', your limit,' : ''} or the order total.
+                  </p>
+                </div>
+              )}
+            </div>
             {shop.tipsEnabled && (
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tip</span>
