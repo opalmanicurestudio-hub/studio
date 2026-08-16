@@ -605,7 +605,7 @@ async function readOrderItems(txn: any, fs: Firestore, tenantId: string, order: 
  * Idempotent: tapping twice tells the customer once.
  */
 export async function markBringingOut(
-  fs: Firestore, tenantId: string, orderId: string, actor: Actor
+  fs: Firestore, tenantId: string, orderId: string, actor: Actor, actorPhotoUrl?: string
 ): Promise<{ ok: boolean; message: string; notify?: { phone: string; orderNumber: number; spot: string } }> {
   try {
     return await runTransaction(fs, async (txn) => {
@@ -624,6 +624,7 @@ export async function markBringingOut(
           ...(order.curbside || {}),
           bringingOutAt: new Date().toISOString(),
           bringingOutBy: actor.name || 'Staff',
+          bringingOutPhoto: actorPhotoUrl || null,
         },
       });
       txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, {
