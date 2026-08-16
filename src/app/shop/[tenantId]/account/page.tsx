@@ -67,6 +67,7 @@ function AccountInner() {
   const [checkedStorage, setCheckedStorage] = useState(false);
   const [orders, setOrders] = useState<AccountOrder[]>([]);
   const [creditCents, setCreditCents] = useState(0);
+  const [messages, setMessages] = useState<any[]>([]);
   const [library, setLibrary] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [emailInput, setEmailInput] = useState('');
@@ -102,6 +103,7 @@ function AccountInner() {
       }
       setOrders(data.orders || []);
       setCreditCents(data.creditCents || 0);
+      setMessages(Array.isArray(data.messages) ? data.messages : []);
       setLibrary(Array.isArray(data.library) ? data.library : []);
     } finally {
       setLoading(false);
@@ -258,6 +260,33 @@ function AccountInner() {
                       </span>
                     </span>
                     <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-muted-foreground">Open</span>
+                  </Link>
+                ))}
+              </div>
+            )}
+
+            {messages.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Your messages</p>
+                {messages.map((m: any, i: number) => (
+                  <Link
+                    key={i}
+                    href={`/shop/${tenantId}/order/${m.orderId}`}
+                    className="flex items-center justify-between gap-3 rounded-2xl border-2 bg-white p-3.5 hover:border-primary/40"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-bold text-muted-foreground">{m.message}</span>
+                      <span className="mt-0.5 block text-[9px] font-black uppercase tracking-widest text-muted-foreground/70">
+                        Order #{String(m.orderNumber ?? '').padStart(4, '0')} · {when(m.createdAt)}
+                        {m.replies > 0 ? ` · ${m.lastReplyBy || 'The shop'} replied` : ''}
+                      </span>
+                    </span>
+                    <span className={cn('shrink-0 rounded-full border-2 px-2.5 py-1 text-[8px] font-black uppercase tracking-widest',
+                      m.status === 'resolved' ? 'border-green-200 bg-green-50 text-green-700'
+                        : m.replies > 0 ? 'border-primary/30 bg-primary/[0.05] text-primary'
+                        : 'border-amber-200 bg-amber-50 text-amber-700')}>
+                      {m.status === 'resolved' ? 'Resolved' : m.replies > 0 ? 'Replied' : 'With the team'}
+                    </span>
                   </Link>
                 ))}
               </div>
