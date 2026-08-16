@@ -16,7 +16,7 @@ import { useToast } from '@/hooks/use-toast';
 import { permissionsFor } from '@/lib/fulfilment-access';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
 import {
-  buildWave, eligibleForWave, packQueue, pickList, markRowPicked, recordWaveScan, setWaveStatus, waveScan,
+  buildWave, claimTote, eligibleForWave, matchWaveItem, packQueue, parseToteScan, pickList, markRowPicked, recordWavePut, setWaveStatus, suggestTote, toteResiduals, wavePut,
   waveCol, waveSummary, type Wave,
 } from '@/lib/waves';
 import { hourIn, tenantTimeZone, todayIn } from '@/lib/tenant-time';
@@ -44,7 +44,9 @@ export default function WavesPage() {
   const [maxTotes, setMaxTotes] = useState('12');
   const [cutoff, setCutoff] = useState('');
   const [autoTried, setAutoTried] = useState(false);
-  const [lastDrop, setLastDrop] = useState<{ tote: number; name: string; scanned: number; totalQty: number } | null>(null);
+  const [lastDrop, setLastDrop] = useState<{ tote: number; name: string; putInTote: number; toteNeed: number; toteDone: boolean } | null>(null);
+  const [activeTote, setActiveTote] = useState<number | null>(null);
+  const [pendingItem, setPendingItem] = useState<{ value: string; name: string; suggested: number } | null>(null);
 
   const actor = useMemo(
     () => ({ id: user?.uid || 'staff', name: user?.displayName || user?.email || 'Staff' }),
@@ -188,23 +190,96 @@ export default function WavesPage() {
   };
 
   const picked = new Set(active?.pickedProductIds || []);
+  const residuals = useMemo(
+    () => (active ? toteResiduals(rows, active.scannedByTote || {}) : {}),
+    [active, rows]
+  );
+  const toteProgress = (tote: number) => {
+    const need = rows.reduce((a, r) => a + (r.totes.find((t) => t.tote === tote)?.qty || 0), 0);
+    const left = Object.values(residuals[tote] || {}).reduce((a, n) => a + n, 0);
+    return { done: need - left, need };
+  };
 
-  /** THE GATE ON THE WALK. A beep resolves the item, names the tote, and
-   *  advances the count; the flash card below the gate is the answer to the
-   *  only mid-walk question — where does this unit go. Wrong item and extra
-   *  unit both refuse with a reason. Progress persists per unit, so a dropped
-   *  signal or a second gun on the same wave never double-counts. */
-  const onWaveScan = (value: string) => {
-    if (!firestore || !active || active.status !== 'picking') return;
-    const res = waveScan(rows, active.scanned || {}, value, codesFor);
+  /** THE GATE ON THE WALK — one scan bar, two grammars, both put-verified.
+   *  Scan a TOTE label (the order QR already printed on it): that tote becomes
+   *  yours and every item beep counts into it — the multi-picker flow, one
+   *  beep per unit. Beep an ITEM with no tote active: the screen names the
+   *  tote it suggests and holds the unit until a tote scan (or chip tap)
+   *  confirms the drop. Either way a put is (item, tote), validated against
+   *  what THAT tote still needs — never a global fill order two pairs of
+   *  hands would trip over. */
+  const commitPut = (tote: number, itemValue: string) => {
+    if (!firestore || !active) return;
+    const res = wavePut(rows, active.scannedByTote || {}, tote, itemValue, codesFor);
     scanFeedback(res.ok);
     if (!res.ok) {
       setLastDrop(null);
-      toast({ variant: 'destructive', title: res.reason === 'row_complete' ? 'Already picked' : 'Wrong item', description: res.message });
+      toast({
+        variant: 'destructive',
+        title: res.reason === 'row_complete' ? 'Already picked'
+          : res.reason === 'not_needed_in_tote' ? 'Wrong tote' : 'Wrong item',
+        description: res.message,
+      });
       return;
     }
-    setLastDrop({ tote: res.tote, name: res.name, scanned: res.scanned, totalQty: res.totalQty });
-    void recordWaveScan(firestore as Firestore, tenantId, active.id, res.productId, res.totalQty);
+    setPendingItem(null);
+    setLastDrop({ tote: res.tote, name: res.name, putInTote: res.putInTote, toteNeed: res.toteNeed, toteDone: res.toteDone });
+    const toteRow = rows.find((r) => r.productId === res.productId)!;
+    void recordWavePut(firestore as Firestore, tenantId, active.id, res.tote, res.productId,
+      toteRow.totes.find((t) => t.tote === res.tote)?.qty || 0, toteRow.totalQty);
+    if (res.toteDone) {
+      toast({ title: `Tote ${res.tote} is complete`, description: 'Everything that bin needs is in it.' });
+    }
+  };
+
+  const setToteContext = async (tote: number, viaScan: boolean) => {
+    if (!firestore || !active) return;
+    const claim = await claimTote(firestore as Firestore, tenantId, active.id, tote, actor, perms.canManage);
+    if (!claim.ok) {
+      scanFeedback(false);
+      toast({ variant: 'destructive', title: 'That tote is taken', description: claim.message });
+      return;
+    }
+    if (claim.released && !pendingItem) {
+      setActiveTote((cur) => (cur === tote ? null : cur));
+      if (!viaScan) return;
+    }
+    if (pendingItem) {
+      setActiveTote(tote);
+      commitPut(tote, pendingItem.value);
+      return;
+    }
+    if (!claim.released) {
+      scanFeedback(true);
+      setActiveTote(tote);
+      setLastDrop(null);
+    }
+  };
+
+  const onWaveScan = (value: string) => {
+    if (!firestore || !active || active.status !== 'picking') return;
+    const tote = parseToteScan(value, active);
+    if (tote !== null) { void setToteContext(tote, true); return; }
+
+    if (activeTote !== null) { commitPut(activeTote, value); return; }
+
+    const matched = matchWaveItem(rows, value, codesFor);
+    const suggested = matched ? suggestTote(rows, active.scannedByTote || {}, matched.productId) : null;
+    if (!matched || suggested === null) {
+      scanFeedback(false);
+      setLastDrop(null);
+      toast({
+        variant: 'destructive',
+        title: matched ? 'Already picked' : 'Wrong item',
+        description: matched
+          ? `${matched.name} is fully picked — put the extra back.`
+          : 'Not on this pick list — put it back.',
+      });
+      return;
+    }
+    scanFeedback(true);
+    setLastDrop(null);
+    setPendingItem({ value, name: matched.name, suggested });
   };
 
   /** Tap-to-tick survives, but only where it is honest: rows whose product has
@@ -336,23 +411,102 @@ export default function WavesPage() {
                 <div className="flex items-center gap-2">
                   <ScanLine className="h-4 w-4 text-primary shrink-0" aria-hidden="true" />
                   <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
-                    Scan each unit into its tote
+                    Scan a tote label to start filling it — then beep items in
                   </p>
                 </div>
+                <div className="flex gap-1.5 overflow-x-auto pb-1">
+                  {(active.orders || []).map((w) => {
+                    const claim = active.toteClaims?.[String(w.tote)];
+                    const mine = claim?.staffId === actor.id;
+                    const prog = toteProgress(w.tote);
+                    const full = prog.need > 0 && prog.done >= prog.need;
+                    return (
+                      <button
+                        key={w.tote}
+                        type="button"
+                        onClick={() => void setToteContext(w.tote, false)}
+                        aria-pressed={activeTote === w.tote}
+                        className={cn(
+                          'shrink-0 rounded-2xl border-2 px-3 py-2 text-left transition-all active:scale-95',
+                          activeTote === w.tote ? 'border-primary bg-primary text-primary-foreground shadow-md'
+                            : full ? 'border-green-600/40 bg-green-500/10'
+                            : claim && !mine ? 'border-amber-500/50 bg-amber-500/5'
+                            : 'bg-white hover:border-primary/40'
+                        )}
+                      >
+                        <span className="block font-mono text-base font-bold leading-none">T{w.tote}</span>
+                        <span className={cn('mt-1 block max-w-24 truncate text-[9px] font-black uppercase tracking-widest',
+                          activeTote === w.tote ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
+                          {full ? 'Complete' : claim ? (mine ? 'You' : claim.staffName.split(' ')[0]) : w.customerName.split(' ')[0]}
+                        </span>
+                        <span className={cn('block text-[9px] font-bold',
+                          activeTote === w.tote ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
+                          {prog.done}/{prog.need}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
                 <ScanGate onScan={onWaveScan} />
-                {lastDrop && (
+                {activeTote !== null && !pendingItem && (() => {
+                  const w = (active.orders || []).find((x) => x.tote === activeTote);
+                  const left = Object.entries(residuals[activeTote] || {})
+                    .filter(([, n]) => n > 0)
+                    .map(([pid, n]) => `${n}× ${rows.find((r) => r.productId === pid)?.name || 'item'}`);
+                  return (
+                    <div className="flex items-start justify-between gap-3 rounded-2xl border-2 border-primary/40 bg-primary/[0.06] p-3">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-primary">
+                          Filling tote {activeTote}{w ? ` — ${w.customerName} · #${String(w.orderNumber).padStart(4, '0')}` : ''}
+                        </p>
+                        <p className="mt-0.5 truncate text-[11px] font-bold text-muted-foreground">
+                          {left.length ? `Still needs: ${left.join(', ')}` : 'This tote has everything it needs.'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTote(null)}
+                        className="shrink-0 text-[10px] font-black uppercase tracking-widest text-muted-foreground underline-offset-4 hover:underline"
+                      >
+                        Done here
+                      </button>
+                    </div>
+                  );
+                })()}
+                {pendingItem && (
+                  <div role="status" className="rounded-2xl border-2 border-amber-500/60 bg-amber-500/10 p-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">
+                      {pendingItem.name} — goes to tote {pendingItem.suggested}
+                    </p>
+                    <p className="mt-0.5 text-[11px] font-bold text-muted-foreground">
+                      Scan that tote&apos;s label (or tap its chip above) to confirm the drop.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setPendingItem(null)}
+                      className="mt-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground underline-offset-4 hover:underline"
+                    >
+                      Never mind — put it back
+                    </button>
+                  </div>
+                )}
+                {lastDrop && !pendingItem && (
                   <div
-                    key={`${lastDrop.tote}-${lastDrop.scanned}`}
+                    key={`${lastDrop.tote}-${lastDrop.name}-${lastDrop.putInTote}`}
                     role="status"
-                    className="flex items-center gap-4 rounded-2xl border-2 border-primary bg-primary/10 p-4"
+                    className={cn('flex items-center gap-4 rounded-2xl border-2 p-4',
+                      lastDrop.toteDone ? 'border-green-600 bg-green-500/10' : 'border-primary bg-primary/10')}
                   >
-                    <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-primary font-mono text-3xl font-bold text-primary-foreground">
+                    <span className={cn('flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl font-mono text-3xl font-bold',
+                      lastDrop.toteDone ? 'bg-green-600 text-white' : 'bg-primary text-primary-foreground')}>
                       {lastDrop.tote}
                     </span>
                     <span className="min-w-0">
-                      <span className="block text-lg font-black uppercase leading-tight tracking-tight">Tote {lastDrop.tote}</span>
+                      <span className="block text-lg font-black uppercase leading-tight tracking-tight">
+                        Tote {lastDrop.tote}{lastDrop.toteDone ? ' — complete' : ''}
+                      </span>
                       <span className="block truncate text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-                        {lastDrop.name} · {lastDrop.scanned} of {lastDrop.totalQty}
+                        {lastDrop.name} · {lastDrop.putInTote} of {lastDrop.toteNeed} in this tote
                       </span>
                     </span>
                   </div>
