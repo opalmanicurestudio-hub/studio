@@ -76,6 +76,7 @@ function getAdminDb() {
 
 interface CheckoutBody {
   applyStoreCredit?: boolean;
+  storeCreditCapCents?: number; // customer-set spend limit; omitted = use all
   // The customer's tick on the pre-order terms. Optional in the type because
   // most carts have no pre-order; REQUIRED at runtime the moment one does.
   preorderAck?: boolean;
@@ -588,10 +589,17 @@ async function handleCheckout(req: NextRequest) {
         .where('clientEmail', '==', customerEmail)
         .where('status', '==', 'available')
         .limit(25).get();
-      const available = credSnap.docs.reduce((a: number, d: any) => {
+      const rawAvailable = credSnap.docs.reduce((a: number, d: any) => {
         const c = d.data();
         return a + Math.max(0, (Number(c.amountCents) || 0) - (Number(c.usedCents) || 0));
       }, 0);
+      // Partial redemption: the customer may cap how much of their credit
+      // this order spends. The cap only ever LOWERS what applies — the server
+      // still enforces the real balance, so no amount typed on the page can
+      // spend credit that isn't there.
+      const capRaw = Number(body.storeCreditCapCents);
+      const cap = Number.isFinite(capRaw) && capRaw > 0 ? Math.floor(capRaw) : null;
+      const available = cap !== null ? Math.min(rawAvailable, cap) : rawAvailable;
       const chargeable = subtotalCents + (stripeTax ? 0 : taxCents) + shippingCents + tipCents;
 
       // ── FULL-CREDIT, ZERO-CHARGE PATH ────────────────────────────────────
