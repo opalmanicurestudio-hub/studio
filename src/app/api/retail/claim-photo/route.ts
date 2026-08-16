@@ -48,8 +48,9 @@ export async function POST(req: NextRequest) {
     const orderId = String(body.orderId || '').trim();
     const qrToken = String(body.qrToken || '').trim();
     const claimId = String(body.claimId || '').trim();
+    const purpose = String(body.purpose || 'claim').trim();
     const image = body.image;
-    if (!tenantId || !orderId || !qrToken || !claimId || !image) {
+    if (!tenantId || !orderId || !qrToken || !image || (purpose !== 'support' && !claimId)) {
       return NextResponse.json({ error: 'Missing photo details' }, { status: 400 });
     }
 
@@ -60,6 +61,19 @@ export async function POST(req: NextRequest) {
     const order = orderSnap.data() as any;
     if (!order.qrToken || String(order.qrToken) !== qrToken) {
       return NextResponse.json({ error: 'Not allowed' }, { status: 403 });
+    }
+
+    /* SUPPORT MODE: the photo is uploaded BEFORE any ticket exists (the
+     * customer attaches, then sends the message that creates the ticket
+     * carrying these URLs). Same auth — link possession — same validated
+     * pipeline, server-chosen path under the order; no document to attach to
+     * yet, so we return the URL and the support route caps and stores it. */
+    if (purpose === 'support') {
+      const up = await uploadClaimPhotoFromDataUrl(tenantId, `support-${orderId}`, image);
+      if (!up.url) {
+        return NextResponse.json({ error: up.error || 'The photo couldn\u2019t be saved.' }, { status: 422 });
+      }
+      return NextResponse.json({ ok: true, url: up.url });
     }
 
     const claimRef = db.collection(`tenants/${tenantId}/retailClaims`).doc(claimId);
