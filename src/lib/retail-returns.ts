@@ -227,8 +227,9 @@ export async function receiveReturnLine(
 export async function resolveReturn(
   fs: Firestore, tenantId: string, ret: ReturnDoc, actor: Actor
 ): Promise<{ ok: boolean; message: string }> {
+  let issuedCreditId: string | null = null;
   try {
-    return await runTransaction(fs, async (txn) => {
+    const result = await runTransaction(fs, async (txn) => {
       const rRef = doc(returnCol(fs, tenantId), ret.id);
       const rSnap = await txn.get(rRef);
       if (!rSnap.exists()) return { ok: false, message: 'Return not found.' };
@@ -255,6 +256,7 @@ export async function resolveReturn(
       if (fresh.resolution === 'store_credit') {
         const cents = fresh.storeCreditCents || 0;
         const creditRef = doc(collection(fs, `tenants/${tenantId}/depositCredits`));
+        issuedCreditId = creditRef.id;
         txn.set(creditRef, {
           id: creditRef.id, tenantId,
           clientId: order.clientId || null,
@@ -300,6 +302,19 @@ export async function resolveReturn(
 
       return { ok: true, message: summary || 'Return resolved' };
     });
+
+    /* THE CUSTOMER FINDS OUT. A credit nobody knows about is a refund the
+     * customer thinks they never got. Fire-and-forget: the credit exists the
+     * moment the transaction committed, and the route dedupes by claiming
+     * grantEmailAt, so a retry can never double-send and a failed send never
+     * un-resolves the return. */
+    if (result.ok && issuedCreditId) {
+      void fetch('/api/retail/credit-notify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, creditId: issuedCreditId }),
+      }).catch(() => undefined);
+    }
+    return result;
   } catch (e: any) {
     return { ok: false, message: e?.message || 'Could not resolve the return.' };
   }
