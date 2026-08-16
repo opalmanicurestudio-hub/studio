@@ -66,7 +66,16 @@ export async function GET(req: NextRequest) {
       id: o.id,
       orderNumber: o.orderNumber,
       stage: o.stage,
-      stageLabel: STAGE_LABELS[o.stage as keyof typeof STAGE_LABELS] || o.stage,
+      /* A resolved return changes what an order IS in the customer's history:
+       * "Completed" on an order whose items came back and were refunded is a
+       * status page lying by omission. The label carries the outcome. */
+      stageLabel: o.returnSummary
+        ? (o.returnSummary.resolution === 'refund' ? 'Returned \u2014 refunded'
+          : o.returnSummary.resolution === 'store_credit' ? 'Returned \u2014 store credit'
+          : o.returnSummary.resolution === 'replacement' ? 'Returned \u2014 replaced'
+          : 'Returned')
+        : (STAGE_LABELS[o.stage as keyof typeof STAGE_LABELS] || o.stage),
+      returnSummary: o.returnSummary || null,
       active: ACTIVE.includes(o.stage),
       method: o.method,
       totalCents: o.totalCents || 0,
