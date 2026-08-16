@@ -121,5 +121,28 @@ export async function GET(req: NextRequest) {
       });
     });
 
-  return NextResponse.json({ email, orders, creditCents, library });
+  /* THE PROFILE'S MESSAGE HISTORY. Every support conversation across every
+   * order, under the proven email — so "where was that reply?" has one
+   * answer. Same minimal shape the order page's thread renders. */
+  let messages: any[] = [];
+  try {
+    const mSnap = await db.collection(`tenants/${tenantId}/retailSupport`)
+      .where('customerEmail', '==', email).limit(30).get();
+    messages = mSnap.docs
+      .map((d: any) => {
+        const t = d.data() || {};
+        return {
+          orderId: String(t.orderId || ''),
+          orderNumber: t.orderNumber ?? null,
+          message: String(t.message || ''),
+          createdAt: t.createdAt || null,
+          status: String(t.status || 'open'),
+          replies: Array.isArray(t.replies) ? t.replies.length : 0,
+          lastReplyBy: Array.isArray(t.replies) && t.replies.length ? String(t.replies[t.replies.length - 1].by || '') : null,
+        };
+      })
+      .sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  } catch { messages = []; }
+
+  return NextResponse.json({ email, orders, creditCents, library, messages });
 }
