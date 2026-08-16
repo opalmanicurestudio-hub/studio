@@ -177,7 +177,17 @@ export async function GET(req: NextRequest) {
         cancelledAt: order.cancelledAt || null,
       },
       curbside: order.curbside
-        ? { arrivedAt: order.curbside.arrivedAt || null, spotOrVehicle: order.curbside.spotOrVehicle || '' }
+        ? {
+            arrivedAt: order.curbside.arrivedAt || null,
+            spotOrVehicle: order.curbside.spotOrVehicle || '',
+            onWayAt: order.curbside.onWayAt || null,
+            etaMinutes: order.curbside.etaMinutes || null,
+            bringingOutAt: order.curbside.bringingOutAt || null,
+            bringingOutBy: order.curbside.bringingOutBy
+              ? String(order.curbside.bringingOutBy).split(' ')[0]
+              : null,
+            bringingOutPhoto: order.curbside.bringingOutPhoto || null,
+          }
         : null,
       shipCity: order.shippingAddress ? `${order.shippingAddress.city}, ${order.shippingAddress.state}` : null,
       shippingAddress: order.shippingAddress || null,
