@@ -313,9 +313,19 @@ export async function POST(req: NextRequest) {
     });
     await batch.commit();
 
+    /* The label chain-link. The return-label route was fully built — policy-
+     * aware, cost-recording, customer-emailing, billed only on carrier scan —
+     * and nothing customer-side ever called it. Handing back the returnId
+     * (plus whether this order shipped) lets the order page fire it the
+     * moment the return opens, so a shipped order's return STARTS with a
+     * label in hand instead of a shrug. */
     return NextResponse.json({
       ok: true,
-      message: 'Return started. Bring the items by (or ship them back) and the shop will verify and finish it \u2014 you can watch progress right here.',
+      returnId: retRef.id,
+      shipped: order.method === 'ship' && !!order.shippingAddress,
+      message: order.method === 'ship' && order.shippingAddress
+        ? 'Return started \u2014 your prepaid return label is on its way to this page and your email.'
+        : 'Return started. Bring the items by and the shop will verify and finish it \u2014 you can watch progress right here.',
     });
   } catch (e: any) {
     return NextResponse.json({ error: String(e?.message || 'Request failed').slice(0, 200) }, { status: 500 });
