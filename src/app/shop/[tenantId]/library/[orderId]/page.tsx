@@ -29,7 +29,7 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
 
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get('t') || '';
-    if (!t) { setErr('This link is missing its key \u2014 open your library from your order page.'); return; }
+    if (!t) { setErr('This link is missing its key — open your library from your order page.'); return; }
     setToken(t);
     (async () => {
       try {
@@ -37,7 +37,7 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
         const d = await res.json();
         if (!res.ok) { setErr(d.error || 'This library could not be loaded.'); return; }
         const digital = (d.order?.lines || []).filter((l: any) => l.digital === true);
-        if (digital.length === 0) setErr('There\u2019s nothing digital on this order.');
+        if (digital.length === 0) setErr('There’s nothing digital on this order.');
         const paid = d.order?.timestamps?.paidAt || d.order?.timestamps?.placedAt || '';
         setItems(digital.map((l: any) => {
           const days = Number(l.digitalAccessDays) || 0;
@@ -45,7 +45,7 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
           return { productId: l.productId, name: l.name, endsAt: ends, expired: !!ends && Date.parse(ends) < Date.now() };
         }));
       } catch {
-        setErr('This library could not be loaded \u2014 check your connection.');
+        setErr('This library could not be loaded — check your connection.');
       }
     })();
   }, [tenantId, orderId]);
@@ -64,7 +64,7 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
       if (d.kind === 'link') { window.open(d.url, '_blank', 'noopener,noreferrer'); return; }
       setViewing({ url: d.url, name: d.name, watermark: d.watermark, kind: d.kind, productId: it.productId });
     } catch {
-      setErr('Could not open that \u2014 try again.');
+      setErr('Could not open that — try again.');
     } finally {
       setBusy(null);
     }
@@ -99,7 +99,7 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
           Open full screen
         </a>
         <p className="mt-3 text-[11px] font-bold text-muted-foreground">
-          Licensed to {viewing.watermark} \u2014 your name is printed into this file itself. Personal use only, please don\u2019t share or repost it.
+          Licensed to {viewing.watermark} — your name is printed into this file itself. Personal use only, please don’t share or repost it.
         </p>
       </div>
     );
@@ -138,7 +138,7 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
                 </span>
               </span>
               <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                {busy === it.productId ? 'Opening\u2026' : 'Open'}
+                {busy === it.productId ? 'Opening…' : 'Open'}
               </span>
             </button>
           ))}
@@ -146,7 +146,7 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
       )}
 
       <p className="mt-6 text-[11px] font-bold text-muted-foreground">
-        These live with your order, so you can come back from any device \u2014 sign in with your email on the shop\u2019s account page and open the order again. Nothing to keep track of.
+        These live with your order, so you can come back from any device — sign in with your email on the shop’s account page and open the order again. Nothing to keep track of.
       </p>
     </div>
   );
