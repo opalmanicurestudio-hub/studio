@@ -107,6 +107,35 @@ export default function CheckoutPage() {
   const [applyCredit, setApplyCredit] = useState(false);
   const [creditMode, setCreditMode] = useState<'all' | 'limit'>('all');
   const [creditLimit, setCreditLimit] = useState('');
+  const [acctEmail, setAcctEmail] = useState('');
+  const [acctCreditCents, setAcctCreditCents] = useState<number | null>(null);
+
+  /* THE BOX EARNS ITS PLACE. Store credit only shows for people who have
+   * PROVEN credit: the signed account session (magic link) unlocks a
+   * balance check, and the box renders only when that balance is above
+   * zero — with the real number on it. No session, or nothing on file, and
+   * the checkout stays clean; a guest with credit gets one quiet sign-in
+   * hint instead of a speculative checkbox. The server-side cap math is
+   * unchanged and still authoritative. */
+  useEffect(() => {
+    if (!tenantId || typeof window === 'undefined') return;
+    let sess: any = null;
+    try {
+      const raw = localStorage.getItem(`cfshop-acct-${tenantId}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.e && parsed?.x && parsed?.s && Date.now() < parsed.x) sess = parsed;
+      }
+    } catch { sess = null; }
+    if (!sess) { setAcctCreditCents(null); return; }
+    setAcctEmail(String(sess.e));
+    setEmail((cur) => cur || String(sess.e));
+    fetch(`/api/retail/account/credit?tenantId=${encodeURIComponent(tenantId)}&e=${encodeURIComponent(sess.e)}&x=${sess.x}&s=${encodeURIComponent(sess.s)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setAcctCreditCents(d && Number.isFinite(Number(d.creditCents)) ? Number(d.creditCents) : null))
+      .catch(() => setAcctCreditCents(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId]);
   const [pickupChoice, setPickupChoice] = useState('ASAP');
   const [preorderAgreed, setPreorderAgreed] = useState(false);
 
@@ -619,18 +648,30 @@ export default function CheckoutPage() {
                 </select>
               </div>
             )}
+            {acctCreditCents === null && (
+              <p className="text-[10px] font-bold text-muted-foreground">
+                Have store credit?{' '}
+                <a href={`/shop/${tenantId}/account`} className="font-black uppercase tracking-widest text-foreground underline underline-offset-4">
+                  Sign in
+                </a>{' '}
+                to see and use your balance.
+              </p>
+            )}
+            {acctCreditCents !== null && acctCreditCents > 0 && (
             <div className={cn('rounded-2xl border-2 p-3 transition-all', applyCredit && 'border-foreground/60 bg-muted/20')}>
               <label className="flex items-start gap-2.5">
                 <input
                   type="checkbox"
-                  aria-label="Apply my store credit if I have any"
+                  aria-label={`Apply my store credit — $${(acctCreditCents / 100).toFixed(2)} available`}
                   checked={applyCredit}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setApplyCredit(e.target.checked)}
                   className="mt-0.5 h-4 w-4 shrink-0 accent-current"
                 />
                 <span className="text-[11px] font-bold leading-relaxed text-muted-foreground">
-                  <span className="font-black uppercase tracking-widest text-foreground">Apply my store credit</span>
-                  <br />From returns and credits on file for your email — the discount appears on the payment page.
+                  <span className="font-black uppercase tracking-widest text-foreground">
+                    Apply my store credit — ${(acctCreditCents / 100).toFixed(2)} available
+                  </span>
+                  <br />Tied to {acctEmail} — the discount appears on the payment page.
                 </span>
               </label>
               {applyCredit && (
@@ -659,7 +700,7 @@ export default function CheckoutPage() {
                       <input
                         inputMode="decimal"
                         aria-label="Most store credit to use on this order, in dollars"
-                        placeholder="10.00"
+                        placeholder={acctCreditCents !== null ? (acctCreditCents / 100).toFixed(2) : "10.00"}
                         value={creditLimit}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCreditLimit(e.target.value.replace(/[^0-9.]/g, ''))}
                         className="h-10 w-28 rounded-xl border-2 bg-white px-3 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60"
@@ -670,11 +711,12 @@ export default function CheckoutPage() {
                     </div>
                   )}
                   <p className="text-[10px] font-bold text-muted-foreground">
-                    We only ever apply what you actually have — never more than your balance{creditMode === 'limit' ? ', your limit,' : ''} or the order total.
+                    We only ever apply what you actually have — never more than ${(acctCreditCents / 100).toFixed(2)}{creditMode === 'limit' ? ', your limit,' : ''} or the order total.
                   </p>
                 </div>
               )}
             </div>
+            )}
             {shop.tipsEnabled && (
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tip</span>
