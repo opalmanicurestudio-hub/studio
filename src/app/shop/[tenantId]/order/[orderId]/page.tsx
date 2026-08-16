@@ -56,7 +56,7 @@ interface StatusOrder {
   subtotalCents: number; taxCents: number; shippingCents: number;
   refundedCents: number; totalCents: number;
   timestamps: Record<string, string | null>;
-  curbside: { arrivedAt: string | null; spotOrVehicle: string; onWayAt?: string | null; etaMinutes?: number; bringingOutAt?: string | null; bringingOutBy?: string } | null;
+  curbside: { arrivedAt: string | null; spotOrVehicle: string; onWayAt?: string | null; etaMinutes?: number; bringingOutAt?: string | null; bringingOutBy?: string; bringingOutPhoto?: string | null } | null;
   shipCity: string | null; trackingNumber: string | null; trackingUrl: string | null; carrier: string | null;
 }
 
@@ -785,8 +785,8 @@ export default function OrderStatusPage() {
               {order.stage === 'arrived' && (
                 <p className="text-center text-[10px] font-black uppercase tracking-widest text-primary mt-4 animate-pulse">
                   {curbside.mode === 'drive_thru' && lanePosition != null
-                    ? lanePosition <= 1 ? 'You&#39;re next — pull forward' : `#${lanePosition} in the lane — we&#39;re moving fast`
-                    : 'We&apos;re bringing your order out now'}
+                    ? lanePosition <= 1 ? 'You’re next — pull forward' : `#${lanePosition} in the lane — we’re moving fast`
+                    : order.curbside?.bringingOutBy ? `${order.curbside.bringingOutBy} is bringing your order out now` : 'We’re bringing your order out now'}
                 </p>
               )}
             </CardContent>
@@ -830,12 +830,35 @@ export default function OrderStatusPage() {
                 </p>
               ) : order.stage === 'arrived' ? (
                 order.curbside?.bringingOutAt ? (
-                  <div className="rounded-2xl border-2 border-primary/30 bg-primary/[0.05] p-3">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-primary">On the way to you</p>
-                    <p className="mt-1 text-sm font-bold text-foreground">
-                      {order.curbside.bringingOutBy || 'Someone'} is walking out with your order now
-                      {order.curbside?.spotOrVehicle ? ` — ${order.curbside.spotOrVehicle}` : ''}.
-                    </p>
+                  <div className="flex items-center gap-4 rounded-2xl border-2 border-primary/30 bg-primary/[0.05] p-4">
+                    <span className="relative shrink-0">
+                      <span className="absolute inset-0 animate-ping rounded-full bg-primary/20" aria-hidden="true" />
+                      {order.curbside?.bringingOutPhoto ? (
+                        <img
+                          src={order.curbside.bringingOutPhoto}
+                          alt={`${order.curbside.bringingOutBy || 'A team member'} from the shop`}
+                          className="relative h-16 w-16 rounded-full border-2 border-white object-cover shadow-lg ring-4 ring-primary/20"
+                        />
+                      ) : (
+                        <span className="relative flex h-16 w-16 items-center justify-center rounded-full bg-primary text-xl font-black text-primary-foreground shadow-lg ring-4 ring-primary/20">
+                          {(order.curbside?.bringingOutBy || 'S').slice(0, 1).toUpperCase()}
+                        </span>
+                      )}
+                      <span className="absolute -bottom-1 -right-1 flex h-7 w-7 animate-bounce items-center justify-center rounded-full border-2 border-white bg-primary shadow-md" aria-hidden="true">
+                        <ShoppingBag className="h-3.5 w-3.5 text-primary-foreground" />
+                      </span>
+                    </span>
+                    <span className="min-w-0">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-primary">On the way to you</p>
+                      <p className="mt-0.5 text-base font-black leading-tight text-foreground">
+                        {order.curbside.bringingOutBy || 'A team member'} is walking out with your order
+                      </p>
+                      {order.curbside?.spotOrVehicle && (
+                        <p className="mt-0.5 text-[11px] font-bold text-muted-foreground">
+                          Heading to {order.curbside.spotOrVehicle} — no need to do anything.
+                        </p>
+                      )}
+                    </span>
                   </div>
                 ) : (
                   <p className="text-sm font-bold text-muted-foreground">
