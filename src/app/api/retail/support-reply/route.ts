@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
+
 // ─── /api/retail/support-reply/route.ts ───────────────────────────────────────
 // POST { tenantId, ticketId, reply, resolve? , staffName? }
 //
@@ -35,7 +37,10 @@ export async function POST(req: NextRequest) {
   const ticketId = String(body.ticketId || '').trim();
   const reply = String(body.reply || '').trim().slice(0, 2000);
   const resolve = body.resolve === true;
-  const staffName = String(body.staffName || 'The shop').slice(0, 80);
+  /* FIRST NAME ONLY, enforced here — not left to whoever typed the reply.
+   * This email reaches a stranger's inbox; the staffer's surname doesn't
+   * belong there, and no client-side mistake can leak it past this line. */
+  const staffName = (String(body.staffName || 'The shop').trim().split(/\s+/)[0] || 'The shop').slice(0, 40);
 
   if (!tenantId || !ticketId || !reply) {
     return NextResponse.json({ error: 'A reply is required' }, { status: 400 });
@@ -56,18 +61,37 @@ export async function POST(req: NextRequest) {
     const origin = req.nextUrl.origin;
     const link = `${origin}/shop/${tenantId}/order/${ticket.orderId}`;
     try {
+      /* The reply wears the shop's clothes: same branded shell as receipts
+       * and credit emails — logo band, brand color, real button — with a
+       * proper signature block instead of a bare em dash. The customer's
+       * original message is quoted underneath so the email stands alone in
+       * an inbox without the thread. */
+      const emailBrand = await getEmailBrand(db, tenantId);
+      const first = String(ticket.customerName || '').trim().split(/\s+/)[0];
+      const num = `#${String(ticket.orderNumber).padStart(4, '0')}`;
+      const html = brandedEmail(emailBrand, `
+        ${first ? `<p style="font-size:14px;color:#0f172a;font-weight:700;margin:0 0 10px">Hi ${first},</p>` : ''}
+        <p style="font-size:14px;color:#0f172a;line-height:1.7;white-space:pre-wrap;margin:0">${reply.replace(/</g, '&lt;')}</p>
+        <table style="border-collapse:collapse;margin:20px 0 0">
+          <tr>
+            <td style="border-left:3px solid ${emailBrand.brandColor};padding:2px 0 2px 12px">
+              <p style="font-size:13px;font-weight:800;color:#0f172a;margin:0">${staffName}</p>
+              <p style="font-size:11px;color:#64748b;margin:2px 0 0">${emailBrand.shopName} \u00b7 order ${num}</p>
+            </td>
+          </tr>
+        </table>
+        ${emailButton(link, 'View my order', emailBrand)}
+        <p style="font-size:11px;color:#94a3b8;margin:18px 0 0;border-top:1px solid #e2e8f0;padding-top:10px;line-height:1.6">You wrote: \u201c${String(ticket.message || '').slice(0, 240).replace(/</g, '&lt;')}${String(ticket.message || '').length > 240 ? '\u2026' : ''}\u201d</p>`,
+        { preheader: `${staffName} at ${emailBrand.shopName} replied about order ${num}` });
+
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           from: RESEND_FROM,
           to: [ticket.customerEmail],
-          subject: `Re: your order #${String(ticket.orderNumber).padStart(4, '0')}`,
-          html: `<div style="font-family:-apple-system,Segoe UI,sans-serif;max-width:480px;margin:0 auto;padding:8px">
-            <p style="font-size:14px;color:#0f172a;white-space:pre-wrap">${reply.replace(/</g, '&lt;')}</p>
-            <p style="font-size:12px;color:#64748b;margin-top:18px">\u2014 ${staffName}</p>
-            <p style="text-align:center;margin:20px 0"><a href="${link}" style="background:#111827;color:#ffffff;padding:12px 26px;border-radius:12px;text-decoration:none;font-weight:700;font-size:13px">View my order</a></p>
-          </div>`,
+          subject: `${emailBrand.shopName} \u2014 about your order ${num}`,
+          html,
         }),
       });
       emailed = res.ok;
