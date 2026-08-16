@@ -133,6 +133,30 @@ export async function GET(req: NextRequest) {
     return usable(t?.studioLocation?.lat, t?.studioLocation?.lng);
   })();
 
+  let supportTickets: any[] = [];
+  try {
+    const tSnap = await db.collection(`tenants/${tenantId}/retailSupport`)
+      .where('orderId', '==', orderId).limit(20).get();
+    supportTickets = tSnap.docs
+      .map((d: any) => {
+        const t = d.data() || {};
+        return {
+          message: String(t.message || ''),
+          createdAt: t.createdAt || null,
+          status: String(t.status || 'open'),
+          autoReply: String(t.autoReply || ''),
+          replies: Array.isArray(t.replies)
+            ? t.replies.map((r: any) => ({
+                by: String(r.by || 'The shop'),
+                text: String(r.text || ''),
+                at: r.at || null,
+              }))
+            : [],
+        };
+      })
+      .sort((a: any, b: any) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+  } catch { supportTickets = []; }
+
   return NextResponse.json({
     shopName: String((tenantSnap.exists ? (tenantSnap.data() as any) : {})?.businessName || (tenantSnap.exists ? (tenantSnap.data() as any) : {})?.name || ''),
     // Where the shop physically is, so the customer's phone can answer "am I
@@ -167,6 +191,12 @@ export async function GET(req: NextRequest) {
       taxCents: order.taxCents || 0,
       shippingCents: order.shippingCents || 0,
       refundedCents: order.refundedCents || 0,
+      /* The inquiry thread. A customer should never have to wonder whether
+       * a message landed — every ticket they've sent on this order comes
+       * back with its receipt time, its instant answer if one was given,
+       * every staff reply, and its status. Same poll that moves the stage
+       * tracker moves this, so a reply appears without a refresh. */
+      support: supportTickets,
       totalCents: order.totalCents || 0,
       timestamps: {
         placedAt: order.placedAt || null,
