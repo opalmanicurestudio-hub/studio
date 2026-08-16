@@ -280,7 +280,7 @@ export default function OrderEvidencePage({ params }: { params: Promise<{ orderI
               })}
             </div>
             <p className="text-[10px] font-bold text-muted-foreground">
-              Opens are counted per buyer. A number far above what one person would need is the signal worth looking at \u2014 every file they open carries their name printed inside it.
+              Opens are counted per buyer. A number far above what one person would need is the signal worth looking at — every file they open carries their name printed inside it.
             </p>
           </CardContent>
         </Card>
