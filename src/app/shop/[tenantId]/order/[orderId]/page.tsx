@@ -87,6 +87,7 @@ export default function OrderStatusPage() {
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
   const [lanePosition, setLanePosition] = useState<number | null>(null);
   const [curbside, setCurbside] = useState<{ mode: string; spots: string[] }>({ mode: 'freeform', spots: [] });
+  const [hereEarly, setHereEarly] = useState(false);
   const [qrValue, setQrValue] = useState<string | null>(null);
   const [selfToken, setSelfToken] = useState<string | null>(null);
   const [shopGeo, setShopGeo] = useState<{ lat: number; lng: number } | null>(null);
@@ -240,10 +241,10 @@ export default function OrderStatusPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Could not send that');
       toast({
-        title: 'Thanks — we know you\u2019re coming',
+        title: 'Thanks — we know you’re coming',
         description: etaMinutes
-          ? `We\u2019ll have it ready in about ${etaMinutes} minutes.`
-          : 'We\u2019ll have it ready and watch for you.',
+          ? `We’ll have it ready in about ${etaMinutes} minutes.`
+          : 'We’ll have it ready and watch for you.',
       });
       load();
     };
@@ -303,7 +304,7 @@ export default function OrderStatusPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ tenantId, orderId, qrToken: selfToken, source: 'geo_auto', distanceM: m, spotOrVehicle: vehicle.trim() }),
           });
-          toast({ title: 'We can see you\u2019re here', description: 'Someone is heading out. Add your spot below if you can.' });
+          toast({ title: 'We can see you’re here', description: 'Someone is heading out. Add your spot below if you can.' });
           load();
         } catch { /* the manual button is still there */ }
       },
@@ -410,12 +411,12 @@ export default function OrderStatusPage() {
         setAiDown(true);
         setAiThread(aiThread);
       } else if (!res.ok) {
-        setAiThread([...nextThread, { role: 'assistant', content: data.error || 'That didn\u2019t go through \u2014 try again, or use Report a problem below.' }]);
+        setAiThread([...nextThread, { role: 'assistant', content: data.error || 'That didn’t go through — try again, or use Report a problem below.' }]);
       } else {
         setAiThread([...nextThread, { role: 'assistant', content: String(data.reply || '') }]);
       }
     } catch {
-      setAiThread([...nextThread, { role: 'assistant', content: 'Connection hiccup \u2014 try again, or use Report a problem below.' }]);
+      setAiThread([...nextThread, { role: 'assistant', content: 'Connection hiccup — try again, or use Report a problem below.' }]);
     } finally {
       setAiBusy(false);
     }
@@ -435,7 +436,7 @@ export default function OrderStatusPage() {
       if (!res.ok) {
         toast({ variant: 'destructive', title: 'Not sent', description: data.error || 'Try again.' });
       } else {
-        toast({ title: 'Answer sent', description: 'The shop has it \u2014 review continues.' });
+        toast({ title: 'Answer sent', description: 'The shop has it — review continues.' });
         setInfoAnswer({ ...infoAnswer, [claimId]: '' });
         await loadClaims();
       }
@@ -479,11 +480,11 @@ export default function OrderStatusPage() {
       if (!res.ok) {
         toast({ variant: 'destructive', title: 'Photo not added', description: data.error || 'Try again.' });
       } else {
-        toast({ title: 'Photo added', description: 'It\u2019s attached to your report for review.' });
+        toast({ title: 'Photo added', description: 'It’s attached to your report for review.' });
         await loadClaims();
       }
     } catch {
-      toast({ variant: 'destructive', title: 'Photo not added', description: 'That photo couldn\u2019t be read \u2014 try another.' });
+      toast({ variant: 'destructive', title: 'Photo not added', description: 'That photo couldn’t be read — try another.' });
     } finally {
       setPhotoBusyFor(null);
     }
@@ -842,84 +843,112 @@ export default function OrderStatusPage() {
                   </p>
                 )
               ) : (
-                <>
-                  {curbside.mode === 'spots' && curbside.spots.length > 0 ? (
-                    <div className="grid grid-cols-3 gap-2">
-                      {curbside.spots.map((s) => (
-                        <button
-                          key={s}
-                          type="button"
-                          aria-pressed={vehicle === s}
-                          onClick={() => setVehicle(s)}
-                          className={cn(
-                            'rounded-2xl border-2 p-3 text-[10px] font-black uppercase tracking-widest transition-all',
-                            vehicle === s ? 'border-primary bg-primary/5 text-primary' : 'hover:border-primary/30'
-                          )}
-                        >
-                          {s}
-                        </button>
-                      ))}
-                    </div>
-                  ) : curbside.mode === 'drive_thru' ? (
+                !order.curbside?.onWayAt && !hereEarly ? (
+                  <>
                     <p className="text-sm font-bold text-muted-foreground">
-                      Pull into the pickup lane, then tap below — you&apos;ll see your live spot in line.
+                      Tap when you leave and we&apos;ll have it ready the moment you pull in.
                     </p>
-                  ) : (
-                    <Input
-                      placeholder="Spot number or car description"
-                      aria-label="Spot number or car description"
-                      value={vehicle}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setVehicle(e.target.value)}
-                      className="h-12 rounded-xl border-2 font-bold text-sm"
-                    />
-                  )}
-                  <label className="flex items-start gap-3 rounded-2xl border-2 p-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5 h-5 w-5 shrink-0 rounded border-2"
-                      checked={bringToVehicle}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBringToVehicle(e.target.checked)}
-                      aria-label="Please bring my order to my vehicle"
-                    />
-                    <span className="min-w-0">
-                      <span className="block text-xs font-black uppercase tracking-tight">Please bring it to my vehicle</span>
-                      <span className="mt-0.5 block text-[11px] font-bold text-muted-foreground">
-                        Tick this if coming inside is difficult for any reason. We&apos;ll come to you \u2014 no explanation needed.
-                      </span>
-                    </span>
-                  </label>
-                  {bringToVehicle && (
-                    <Input
-                      placeholder="Anything that helps us find you? (optional)"
-                      aria-label="Anything that helps us find you"
-                      value={accessNote}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAccessNote(e.target.value)}
-                      className="h-11 rounded-xl border-2 font-bold text-sm"
-                    />
-                  )}
-                  {!order.curbside?.onWayAt ? (
                     <Button
-                      variant="outline"
                       disabled={onWayBusy}
                       onClick={sendOnWay}
-                      className="w-full h-11 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest"
+                      className="w-full h-14 rounded-2xl font-black uppercase text-[11px] tracking-widest shadow-lg shadow-primary/20 transition-all active:scale-[0.98]"
                     >
-                      {onWayBusy ? <Loader className="h-4 w-4 animate-spin" /> : "I'm on my way"}
+                      {onWayBusy
+                        ? <span className="flex items-center gap-2"><Loader className="h-4 w-4 animate-spin" /> Letting them know…</span>
+                        : <span className="flex items-center gap-2"><Car className="h-4 w-4" /> I&apos;m on my way</span>}
                     </Button>
-                  ) : (
-                    <p className="rounded-2xl border-2 border-primary/20 bg-primary/[0.04] p-3 text-[11px] font-bold text-muted-foreground">
-                      We know you&apos;re coming{order.curbside?.etaMinutes ? ` — about ${order.curbside.etaMinutes} min` : ''}. We&apos;ll have it ready.
-                      {geoWatching ? ' Keep this page open and we\u2019ll spot you when you pull in.' : ''}
-                    </p>
-                  )}
-                  <Button
-                    disabled={checkingIn || (curbside.mode === 'spots' && curbside.spots.length > 0 && !vehicle)}
-                    onClick={checkIn}
-                    className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20"
-                  >
-                    {checkingIn ? <Loader className="h-4 w-4 animate-spin" /> : curbside.mode === 'drive_thru' ? "I'm in the lane" : "I'm here"}
-                  </Button>
-                </>
+                    <button
+                      type="button"
+                      onClick={() => setHereEarly(true)}
+                      className="w-full py-2 text-center text-[11px] font-black uppercase tracking-widest text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+                    >
+                      Already parked outside? Check in →
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {order.curbside?.onWayAt && (
+                      <p className="rounded-2xl border-2 border-primary/20 bg-primary/[0.04] p-3 text-[11px] font-bold text-muted-foreground">
+                        We know you&apos;re coming{order.curbside?.etaMinutes ? ` — about ${order.curbside.etaMinutes} min` : ''}. We&apos;ll have it ready.
+                        {geoWatching ? ' Keep this page open and we’ll spot you when you pull in.' : ''}
+                      </p>
+                    )}
+                    {curbside.mode === 'spots' && curbside.spots.length > 0 ? (
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Which spot are you in?</p>
+                        <div className="grid grid-cols-3 gap-2">
+                          {curbside.spots.map((s) => (
+                            <button
+                              key={s}
+                              type="button"
+                              aria-pressed={vehicle === s}
+                              onClick={() => setVehicle(vehicle === s ? '' : s)}
+                              className={cn(
+                                'rounded-2xl border-2 p-4 text-[11px] font-black uppercase tracking-widest transition-all active:scale-95',
+                                vehicle === s
+                                  ? 'border-primary bg-primary text-primary-foreground shadow-md'
+                                  : 'bg-white hover:border-primary/40'
+                              )}
+                            >
+                              {s}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : curbside.mode === 'drive_thru' ? (
+                      <p className="text-sm font-bold text-muted-foreground">
+                        Pull into the pickup lane, then tap below — you&apos;ll see your live spot in line.
+                      </p>
+                    ) : (
+                      <Input
+                        placeholder="Spot number or car description"
+                        aria-label="Spot number or car description"
+                        value={vehicle}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setVehicle(e.target.value)}
+                        className="h-12 rounded-xl border-2 font-bold text-sm"
+                      />
+                    )}
+                    <label className={cn(
+                      'flex items-start gap-3 rounded-2xl border-2 p-3 cursor-pointer transition-all',
+                      bringToVehicle && 'border-primary/50 bg-primary/[0.04]'
+                    )}>
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-5 w-5 shrink-0 rounded border-2 accent-current"
+                        checked={bringToVehicle}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBringToVehicle(e.target.checked)}
+                        aria-label="Please bring my order to my vehicle"
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-xs font-black uppercase tracking-tight">Please bring it to my vehicle</span>
+                        <span className="mt-0.5 block text-[11px] font-bold text-muted-foreground">
+                          Tick this if coming inside is difficult for any reason. We&apos;ll come to you — no explanation needed.
+                        </span>
+                      </span>
+                    </label>
+                    {bringToVehicle && (
+                      <Input
+                        placeholder="Anything that helps us find you? (optional)"
+                        aria-label="Anything that helps us find you"
+                        value={accessNote}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAccessNote(e.target.value)}
+                        className="h-11 rounded-xl border-2 font-bold text-sm"
+                      />
+                    )}
+                    <Button
+                      disabled={checkingIn || (curbside.mode === 'spots' && curbside.spots.length > 0 && !vehicle)}
+                      onClick={checkIn}
+                      className="w-full h-14 rounded-2xl font-black uppercase text-[11px] tracking-widest shadow-lg shadow-primary/20 transition-all active:scale-[0.98]"
+                    >
+                      {checkingIn
+                        ? <span className="flex items-center gap-2"><Loader className="h-4 w-4 animate-spin" /> Checking you in…</span>
+                        : curbside.mode === 'drive_thru' ? "I'm in the lane" : "I'm here"}
+                    </Button>
+                    {curbside.mode === 'spots' && curbside.spots.length > 0 && !vehicle && (
+                      <p className="text-center text-[10px] font-bold text-muted-foreground">Pick your spot first so we walk to the right car.</p>
+                    )}
+                  </>
+                )
               )}
             </CardContent>
           </Card>
@@ -1001,8 +1030,8 @@ export default function OrderStatusPage() {
                   {totBack > 0 && (
                     <p className="col-span-3 text-[9px] font-bold text-amber-800">
                       {isShip
-                        ? 'Backordered units ship separately at no extra shipping cost \u2014 we\u2019ll email tracking when they\u2019re on the way.'
-                        : 'Backordered units will be ready for pickup when restocked \u2014 we\u2019ll let you know.'}
+                        ? 'Backordered units ship separately at no extra shipping cost — we’ll email tracking when they’re on the way.'
+                        : 'Backordered units will be ready for pickup when restocked — we’ll let you know.'}
                       {totRefunded > 0 ? ` ${totRefunded} unavailable unit(s) were refunded.` : ''}
                     </p>
                   )}
@@ -1096,7 +1125,7 @@ export default function OrderStatusPage() {
                               {m.content}
                             </p>
                           ))}
-                          {aiBusy && <p className="mr-6 rounded-xl bg-muted px-3 py-2 text-sm font-bold text-muted-foreground">Reading your order\u2026</p>}
+                          {aiBusy && <p className="mr-6 rounded-xl bg-muted px-3 py-2 text-sm font-bold text-muted-foreground">Reading your order…</p>}
                         </div>
                       )}
                       <div className="flex gap-2">
@@ -1114,7 +1143,7 @@ export default function OrderStatusPage() {
                         </Button>
                       </div>
                       <p className="text-[9px] font-bold text-muted-foreground/70">
-                        Answers come straight from this order\u2019s record. It can\u2019t change your order or promise refunds \u2014 the buttons below do the real work, and a person reviews anything important.
+                        Answers come straight from this order’s record. It can’t change your order or promise refunds — the buttons below do the real work, and a person reviews anything important.
                       </p>
                     </div>
                   )}
@@ -1122,7 +1151,7 @@ export default function OrderStatusPage() {
                     <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground/60">Instant answers</p>
                     <div className="flex flex-wrap gap-1.5">
                       {[
-                        ['status', 'Where\u2019s my order?'],
+                        ['status', 'Where’s my order?'],
                         ['refund', 'Refund status'],
                         ['change', 'Cancel or change'],
                         ['return', 'Returns'],
@@ -1148,17 +1177,17 @@ export default function OrderStatusPage() {
                           )}
                           {instantQ === 'refund' && (
                             (order.refundedCents || 0) > 0
-                              ? `A refund of ${fmt(order.refundedCents)} has been issued. Card refunds typically appear in 5\u201310 business days.`
-                              : 'No refund is recorded on this order yet. If one is processed, it will show here and typically reaches your card in 5\u201310 business days.'
+                              ? `A refund of ${fmt(order.refundedCents)} has been issued. Card refunds typically appear in 5–10 business days.`
+                              : 'No refund is recorded on this order yet. If one is processed, it will show here and typically reaches your card in 5–10 business days.'
                           )}
                           {instantQ === 'change' && (
                             ['placed', 'paid'].includes(order.stage)
-                              ? 'You can cancel yourself — the \u201cCancel this order\u201d button is just below. For item changes, cancel and re-order, or send us a note.'
-                              : 'Packing has already started, so changes need a human — send us a note below and we\u2019ll sort it out.'
+                              ? 'You can cancel yourself — the “Cancel this order” button is just below. For item changes, cancel and re-order, or send us a note.'
+                              : 'Packing has already started, so changes need a human — send us a note below and we’ll sort it out.'
                           )}
                           {instantQ === 'return' && (
                             ['shipped', 'handed_off', 'completed'].includes(order.stage)
-                              ? 'Tap \u201cStart a return\u201d below — pick your items and reason, and we\u2019ll take it from there.'
+                              ? 'Tap “Start a return” below — pick your items and reason, and we’ll take it from there.'
                               : 'Returns open once your order is picked up or delivered — the button will appear right on this page.'
                           )}
                         </p>
@@ -1166,7 +1195,7 @@ export default function OrderStatusPage() {
                     )}
                   </div>
                   <Textarea
-                    placeholder="Still need us? Tell us what's going on\u2026"
+                    placeholder="Still need us? Tell us what's going on…"
                     aria-label="Message to the shop"
                     value={helpMsg}
                     onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setHelpMsg(e.target.value)}
@@ -1231,7 +1260,7 @@ export default function OrderStatusPage() {
             <CardContent className="p-5 space-y-2">
               <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">Running late</p>
               <p className="text-xs font-bold text-amber-900">
-                We said this would be on its way by {new Date((order as any).shipPromiseAt).toLocaleDateString()} and it isn&apos;t yet. You can wait \u2014 we&apos;ll email as soon as it ships \u2014 or cancel right now for a full refund, no questions asked.
+                We said this would be on its way by {new Date((order as any).shipPromiseAt).toLocaleDateString()} and it isn&apos;t yet. You can wait — we&apos;ll email as soon as it ships — or cancel right now for a full refund, no questions asked.
               </p>
             </CardContent>
           </Card>
@@ -1456,7 +1485,7 @@ export default function OrderStatusPage() {
                   )}
                   <Textarea
                     aria-label="Tell us what happened"
-                    placeholder={claimType === 'damaged' ? 'Describe the damage \u2014 required, it\u2019s what the shop reviews first' : claimType === 'wrong_item' ? 'What arrived instead? Required' : 'Anything that helps \u2014 what you found when you opened it'}
+                    placeholder={claimType === 'damaged' ? 'Describe the damage — required, it’s what the shop reviews first' : claimType === 'wrong_item' ? 'What arrived instead? Required' : 'Anything that helps — what you found when you opened it'}
                     value={claimNote}
                     onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setClaimNote(e.target.value)}
                     className="min-h-20 rounded-xl border-2 font-bold text-sm"
@@ -1593,7 +1622,7 @@ export default function OrderStatusPage() {
                   <p className="text-[10px] font-black uppercase tracking-widest">Start a return</p>
                   {(order.lines || []).some((l: any) => l.digital === true) && (
                     <p className="rounded-2xl border-2 border-amber-200 bg-amber-50/60 p-2.5 text-[11px] font-bold text-amber-900">
-                      Digital items aren&apos;t listed \u2014 there&apos;s nothing to post back. If something\u2019s wrong with one, use &ldquo;Report a problem&rdquo; and the shop will sort it with you.
+                      Digital items aren&apos;t listed — there&apos;s nothing to post back. If something’s wrong with one, use &ldquo;Report a problem&rdquo; and the shop will sort it with you.
                     </p>
                   )}
                   <div className="space-y-2">
