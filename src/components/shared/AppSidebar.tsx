@@ -11,7 +11,7 @@ import {
 import {
   LayoutDashboard, Calendar, Users, User, Settings, Box, FileText, BookOpen,
   Landmark, FileSignature, ListChecks, BarChart, HardHat, Percent,
-  Megaphone, Star, LogOut, Globe, Fingerprint, Coffee,
+  Megaphone, Star, LogOut, Globe, Fingerprint, Coffee, ConciergeBell,
   Clock, ClipboardList, CalendarDays, Shield, ChefHat, PartyPopper, Layers,
   PanelLeftClose, PanelLeftOpen, ChevronRight, ExternalLink,
   Armchair, KeyRound, HandCoins, Receipt, Wallet, AlertTriangle, Bot,
@@ -49,6 +49,7 @@ const DAILY_HUB = [
   { href: '/dashboard',   icon: LayoutDashboard, label: 'Dashboard'      },
   { href: '/planner',     icon: Calendar,        label: 'Planner'        },
   { href: '/pos',         icon: ListChecks,      label: 'Terminal (POS)' },
+  { href: '/host',        icon: ConciergeBell,   label: 'Host Stand'     },
   { href: '/voice',       icon: Bot,             label: 'AI Receptionist'},
   { href: '/messages',    icon: MessageSquare,   label: 'Messages'       },
   { href: '/message-log', icon: Send,            label: 'Message Log'    },
