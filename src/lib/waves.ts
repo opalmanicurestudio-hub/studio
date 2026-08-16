@@ -46,6 +46,8 @@ export interface Wave {
   orders: WaveOrder[];
   pickedProductIds?: string[];
   scanned?: Record<string, number>;
+  scannedByTote?: Record<string, Record<string, number>>;
+  toteClaims?: Record<string, { staffId: string; staffName: string; at: string }>;
 }
 
 export interface PickRow {
@@ -220,108 +222,241 @@ export async function markRowPicked(
       ? [...new Set([...current, productId])]
       : current.filter((id) => id !== productId);
     const scanned = { ...((snap.data() as any).scanned || {}) };
-    if (!picked) delete scanned[productId];
-    txn.update(ref, { pickedProductIds: next, scanned });
+    const scannedByTote = { ...((snap.data() as any).scannedByTote || {}) };
+    if (!picked) {
+      delete scanned[productId];
+      for (const k of Object.keys(scannedByTote)) {
+        if (scannedByTote[k] && scannedByTote[k][productId] !== undefined) {
+          const bucket = { ...scannedByTote[k] };
+          delete bucket[productId];
+          scannedByTote[k] = bucket;
+        }
+      }
+    }
+    txn.update(ref, { pickedProductIds: next, scanned, scannedByTote });
   });
 }
 
-// ─── Scan-to-tote ──────────────────────────────────────────────────────────────
-// The pick walk, gated. Tap-to-tick trusts the walker's memory; a beep trusts
-// the barcode. Each successful scan answers the only question that matters
-// mid-walk — WHICH TOTE does this unit go in — by allocating units to totes in
-// tote order, so the screen can flash "→ TOTE 3" the instant the gun reads.
-// The wrong item refuses loudly, an extra unit of the right item refuses too
-// (the shelf count is not the order count), and a row that reaches its total
-// ticks itself — the same pickedProductIds the sheet and the bench already
-// trust, so nothing downstream changes.
+// ─── Scan-to-tote: the PUT model ──────────────────────────────────────────────
+// A pick is not one fact but two: WHICH ITEM and WHICH TOTE. The first version
+// of this gate answered the second question with a global fill order (tote 1
+// fills first) — right for one picker, wrong the moment two people share a
+// wave, because the order the SYSTEM fills in is not the order two pairs of
+// hands do. So the unit of truth is now a PUT: (tote, product), validated
+// against what that tote still needs. Both scan orders express it:
+//
+//   tote-first  — scan a tote label once, then beep items into it; each beep
+//                 is one unit for THAT tote. This claims the tote, so two
+//                 pickers each own their bins and never collide.
+//   item-first  — beep an item with no tote active and the screen answers
+//                 "goes to tote N" and waits for the tote scan (or a tap on
+//                 its chip) to confirm the drop. Put-verified, either order.
+//
+// The printed tote labels already carry the order QR, so the label in the bin
+// IS the tote scan — no new paper. The pick sheet's per-row tote split is the
+// same residual-needs math, so paper and screen can never disagree.
 
-export interface WaveScanHit {
+export interface TotePutHit {
   ok: true;
+  tote: number;
   productId: string;
   name: string;
-  tote: number;
-  scanned: number;
-  totalQty: number;
-  rowComplete: boolean;
+  putInTote: number;   // units of this product now in this tote
+  toteNeed: number;    // units of this product this tote wants in total
+  toteDone: boolean;   // this tote has everything it needs
+  rowComplete: boolean; // this product is fully picked across all totes
 }
-export interface WaveScanMiss {
+export interface TotePutMiss {
   ok: false;
-  reason: 'no_match' | 'row_complete';
+  reason: 'no_match' | 'not_needed_in_tote' | 'row_complete';
   message: string;
+  /** For not_needed_in_tote: the totes that DO still need this item. */
+  totesNeedingIt?: number[];
 }
 
-/** Which tote the nth unit (1-based) of a row belongs in — totes fill in the
- *  order the pick sheet lists them, so paper and flash always agree. */
-export function toteForNthUnit(row: PickRow, nth: number): number {
-  let acc = 0;
-  for (const t of row.totes) {
-    acc += t.qty;
-    if (nth <= acc) return t.tote;
-  }
-  return row.totes.length ? row.totes[row.totes.length - 1].tote : 0;
-}
-
-export function waveScan(
+/** What each tote still needs, derived from the same rows the pick sheet
+ *  prints — one source of residual truth for paper and screen. */
+export function toteResiduals(
   rows: PickRow[],
-  scanned: Record<string, number>,
+  scannedByTote: Record<string, Record<string, number>>,
+): Record<number, Record<string, number>> {
+  const out: Record<number, Record<string, number>> = {};
+  for (const r of rows) {
+    for (const t of r.totes) {
+      const have = Math.max(0, Number(scannedByTote[String(t.tote)]?.[r.productId]) || 0);
+      const left = Math.max(0, t.qty - have);
+      if (!out[t.tote]) out[t.tote] = {};
+      out[t.tote][r.productId] = left;
+    }
+  }
+  return out;
+}
+
+/** The lowest tote that still needs this product — the suggestion shown in
+ *  item-first flow. Guidance, never law: any tote with residual need accepts. */
+export function suggestTote(
+  rows: PickRow[],
+  scannedByTote: Record<string, Record<string, number>>,
+  productId: string,
+): number | null {
+  const res = toteResiduals(rows, scannedByTote);
+  const totes = Object.keys(res).map(Number).sort((a, b) => a - b);
+  for (const t of totes) {
+    if ((res[t][productId] || 0) > 0) return t;
+  }
+  return null;
+}
+
+/** Resolve a scanned value to a tote of THIS wave. Accepts the order QR the
+ *  printed tote labels already carry, plus typed forms for a damaged label. */
+export function parseToteScan(value: string, wave: Wave): number | null {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const m = raw.match(/^clarityflow:\/\/order\/(.+)$/i);
+  if (m) {
+    const hit = (wave.orders || []).find((o) => o.orderId === m[1]);
+    return hit ? hit.tote : null;
+  }
+  const t = raw.match(/^(?:tote[:\s#-]*|t)(\d{1,3})$/i);
+  if (t) {
+    const n = Number(t[1]);
+    return (wave.orders || []).some((o) => o.tote === n) ? n : null;
+  }
+  return null;
+}
+
+/** Resolve an item code against the wave's rows (barcode, SKU, product QR). */
+export function matchWaveItem(
+  rows: PickRow[],
   value: string,
   codesForProduct: Map<string, string[]>,
-): WaveScanHit | WaveScanMiss {
+): PickRow | null {
   const raw = String(value || '').trim();
-  if (!raw) return { ok: false, reason: 'no_match', message: 'Empty scan — try again.' };
+  if (!raw) return null;
   const qrId = parseProductQr(raw);
-
-  const row = rows.find((r) =>
+  return rows.find((r) =>
     (qrId !== null && qrId === r.productId)
     || (codesForProduct.get(r.productId) || []).some((c) => codesMatch(c, raw))
-  );
+  ) || null;
+}
+
+/** One put, validated: does THIS tote still need THIS item? */
+export function wavePut(
+  rows: PickRow[],
+  scannedByTote: Record<string, Record<string, number>>,
+  tote: number,
+  itemValue: string,
+  codesForProduct: Map<string, string[]>,
+): TotePutHit | TotePutMiss {
+  const row = matchWaveItem(rows, itemValue, codesForProduct);
   if (!row) {
     return { ok: false, reason: 'no_match', message: 'Not on this pick list — put it back.' };
   }
 
-  const cur = Math.max(0, Number(scanned[row.productId]) || 0);
-  if (cur >= row.totalQty) {
+  const res = toteResiduals(rows, scannedByTote);
+  const needHere = res[tote]?.[row.productId] || 0;
+
+  if (needHere <= 0) {
+    const elsewhere = Object.keys(res).map(Number).sort((a, b) => a - b)
+      .filter((t) => (res[t][row.productId] || 0) > 0);
+    if (elsewhere.length === 0) {
+      return {
+        ok: false, reason: 'row_complete',
+        message: `${row.name} is fully picked — put the extra back.`,
+      };
+    }
     return {
-      ok: false, reason: 'row_complete',
-      message: `${row.name} is fully picked — put the extra back.`,
+      ok: false, reason: 'not_needed_in_tote',
+      message: `Tote ${tote} doesn\u2019t need ${row.name} — tote${elsewhere.length > 1 ? 's' : ''} ${elsewhere.join(', ')} still ${elsewhere.length > 1 ? 'do' : 'does'}.`,
+      totesNeedingIt: elsewhere,
     };
   }
 
-  const nth = cur + 1;
+  const toteRow = row.totes.find((t) => t.tote === tote)!;
+  const inToteNow = Math.max(0, Number(scannedByTote[String(tote)]?.[row.productId]) || 0) + 1;
+
+  const resAfter = { ...res, [tote]: { ...res[tote], [row.productId]: needHere - 1 } };
+  const toteDone = Object.values(resAfter[tote]).every((n) => n <= 0);
+  const rowLeft = row.totes.reduce((a, t) => a + Math.max(0, resAfter[t.tote][row.productId] || 0), 0);
+  const rowComplete = rowLeft <= 0;
+
   return {
     ok: true,
+    tote,
     productId: row.productId,
     name: row.name,
-    tote: toteForNthUnit(row, nth),
-    scanned: nth,
-    totalQty: row.totalQty,
-    rowComplete: nth >= row.totalQty,
+    putInTote: inToteNow,
+    toteNeed: toteRow.qty,
+    toteDone,
+    rowComplete,
   };
 }
 
-/** Persist one scanned unit. Capped in the transaction so two guns racing on
- *  the same row can never overcount; hitting the total ticks the row. */
-export async function recordWaveScan(
-  fs: Firestore, tenantId: string, waveId: string, productId: string, totalQty: number
+/** Persist one put. Caps per (tote, product) inside the transaction so two
+ *  guns racing on the same bin can never overcount; keeps the aggregate
+ *  `scanned` in step; ticks the row when the aggregate reaches its total. */
+export async function recordWavePut(
+  fs: Firestore, tenantId: string, waveId: string,
+  tote: number, productId: string, toteNeed: number, totalQty: number,
 ): Promise<void> {
   await runTransaction(fs, async (txn) => {
     const ref = doc(waveCol(fs, tenantId), waveId);
     const snap = await txn.get(ref);
     if (!snap.exists()) return;
     const data = snap.data() as any;
+    const byTote = { ...(data.scannedByTote || {}) };
+    const bucket = { ...(byTote[String(tote)] || {}) };
+    const curTote = Math.max(0, Number(bucket[productId]) || 0);
+    if (curTote >= toteNeed) return;
+    bucket[productId] = curTote + 1;
+    byTote[String(tote)] = bucket;
+
     const scanned = { ...(data.scanned || {}) };
-    const cur = Math.max(0, Number(scanned[productId]) || 0);
-    if (cur >= totalQty) return;
-    const next = cur + 1;
-    scanned[productId] = next;
+    const agg = Math.min(totalQty, Math.max(0, Number(scanned[productId]) || 0) + 1);
+    scanned[productId] = agg;
+
     const pickedProductIds: string[] = data.pickedProductIds || [];
     txn.update(ref, {
+      scannedByTote: byTote,
       scanned,
-      ...(next >= totalQty && !pickedProductIds.includes(productId)
+      ...(agg >= totalQty && !pickedProductIds.includes(productId)
         ? { pickedProductIds: [...pickedProductIds, productId] }
         : {}),
     });
   });
+}
+
+/** Claim a tote (scan its label or tap its chip). Claiming your own tote
+ *  again releases it. Someone else's claim refuses unless forced (leads) —
+ *  ownership is a coordination hint with an override, not a lock that
+ *  deadlocks when somebody goes to lunch. */
+export async function claimTote(
+  fs: Firestore, tenantId: string, waveId: string,
+  tote: number, staff: { id: string; name: string }, force = false,
+): Promise<{ ok: boolean; message?: string; released?: boolean }> {
+  try {
+    return await runTransaction(fs, async (txn) => {
+      const ref = doc(waveCol(fs, tenantId), waveId);
+      const snap = await txn.get(ref);
+      if (!snap.exists()) return { ok: false, message: 'Wave not found.' };
+      const claims = { ...((snap.data() as any).toteClaims || {}) };
+      const key = String(tote);
+      const cur = claims[key];
+      if (cur && cur.staffId === staff.id) {
+        delete claims[key];
+        txn.update(ref, { toteClaims: claims });
+        return { ok: true, released: true };
+      }
+      if (cur && cur.staffId !== staff.id && !force) {
+        return { ok: false, message: `${cur.staffName} is filling tote ${tote}.` };
+      }
+      claims[key] = { staffId: staff.id, staffName: staff.name, at: new Date().toISOString() };
+      txn.update(ref, { toteClaims: claims });
+      return { ok: true };
+    });
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'Could not claim that tote.' };
+  }
 }
 
 /** Wave moves to the bench once the shelves have been walked. */
