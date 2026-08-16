@@ -433,7 +433,7 @@ export function OnlineListingTab({ product, inventory, onSave }: Props) {
           />
         </div>
         <p className="text-[10px] font-bold text-muted-foreground">
-          Both are optional. Google often rewrites descriptions anyway \u2014 write for the person deciding whether to click, not for the search engine.
+          Both are optional. Google often rewrites descriptions anyway — write for the person deciding whether to click, not for the search engine.
         </p>
       </Section>
 
