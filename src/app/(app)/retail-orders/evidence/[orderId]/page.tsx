@@ -193,11 +193,13 @@ export default function OrderEvidencePage({ params }: { params: Promise<{ orderI
         </Button>
         <h1 className="text-xl font-black uppercase tracking-tighter">Evidence record</h1>
         <Button
+          asChild
           variant="outline"
-          onClick={() => window.print()}
           className="ml-auto h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest"
         >
-          <Printer className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />Print / export
+          <a href={`/print/evidence/${tenantId}/${orderId}`} target="_blank" rel="noreferrer">
+            <Printer className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />Print / export
+          </a>
         </Button>
       </div>
 
