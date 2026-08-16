@@ -1,7 +1,7 @@
 'use client';
 
 import { type Firestore, collection, onSnapshot, query, where } from 'firebase/firestore';
-import { ArrowLeft, Check, Loader, Printer, Waves as WavesIcon } from 'lucide-react';
+import { ArrowLeft, Check, Loader, Printer, ScanLine, Waves as WavesIcon } from 'lucide-react';
 import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
 
@@ -14,8 +14,9 @@ import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { permissionsFor } from '@/lib/fulfilment-access';
+import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
 import {
-  buildWave, eligibleForWave, packQueue, pickList, markRowPicked, setWaveStatus,
+  buildWave, eligibleForWave, packQueue, pickList, markRowPicked, recordWaveScan, setWaveStatus, waveScan,
   waveCol, waveSummary, type Wave,
 } from '@/lib/waves';
 import { hourIn, tenantTimeZone, todayIn } from '@/lib/tenant-time';
@@ -43,6 +44,7 @@ export default function WavesPage() {
   const [maxTotes, setMaxTotes] = useState('12');
   const [cutoff, setCutoff] = useState('');
   const [autoTried, setAutoTried] = useState(false);
+  const [lastDrop, setLastDrop] = useState<{ tote: number; name: string; scanned: number; totalQty: number } | null>(null);
 
   const actor = useMemo(
     () => ({ id: user?.uid || 'staff', name: user?.displayName || user?.email || 'Staff' }),
@@ -88,6 +90,17 @@ export default function WavesPage() {
   }, [inventory]);
 
   const ordersById = useMemo(() => new Map(orders.map((o) => [o.id, o])), [orders]);
+
+  const codesFor = useMemo(() => {
+    const map = new Map<string, string[]>();
+    (inventory || []).forEach((i: any) => {
+      const codes = [i.barcode, i.sku, i.upc, i.gtin]
+        .map((c: any) => String(c || '').trim())
+        .filter(Boolean);
+      if (codes.length) map.set(i.id, codes);
+    });
+    return map;
+  }, [inventory]);
 
   const cutoffIso = useMemo(
     () => (cutoff ? new Date(cutoff).toISOString() : new Date().toISOString()),
@@ -176,6 +189,37 @@ export default function WavesPage() {
 
   const picked = new Set(active?.pickedProductIds || []);
 
+  /** THE GATE ON THE WALK. A beep resolves the item, names the tote, and
+   *  advances the count; the flash card below the gate is the answer to the
+   *  only mid-walk question — where does this unit go. Wrong item and extra
+   *  unit both refuse with a reason. Progress persists per unit, so a dropped
+   *  signal or a second gun on the same wave never double-counts. */
+  const onWaveScan = (value: string) => {
+    if (!firestore || !active || active.status !== 'picking') return;
+    const res = waveScan(rows, active.scanned || {}, value, codesFor);
+    scanFeedback(res.ok);
+    if (!res.ok) {
+      setLastDrop(null);
+      toast({ variant: 'destructive', title: res.reason === 'row_complete' ? 'Already picked' : 'Wrong item', description: res.message });
+      return;
+    }
+    setLastDrop({ tote: res.tote, name: res.name, scanned: res.scanned, totalQty: res.totalQty });
+    void recordWaveScan(firestore as Firestore, tenantId, active.id, res.productId, res.totalQty);
+  };
+
+  /** Tap-to-tick survives, but only where it is honest: rows whose product has
+   *  no code at all (nothing to scan), unticking a mistake, and managers
+   *  overriding. A coded row stays scan-only for everyone else. */
+  const onRowTap = (r: { productId: string }, done: boolean) => {
+    if (!firestore || !active) return;
+    const coded = codesFor.has(r.productId);
+    if (!done && coded && !perms.canManage) {
+      toast({ title: 'Scan it in', description: 'This item has a barcode — beep each unit into its tote. A manager can tap to override.' });
+      return;
+    }
+    void markRowPicked(firestore as Firestore, tenantId, active.id, r.productId, !done);
+  };
+
   return (
     <div className="min-h-dvh bg-muted/5 pb-24">
       <header className="sticky top-0 z-30 border-b-2 bg-white/90 backdrop-blur print:hidden">
@@ -190,13 +234,24 @@ export default function WavesPage() {
             </p>
           </div>
           {active && (
-            <Button
-              variant="outline"
-              onClick={() => window.print()}
-              className="h-10 shrink-0 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest"
-            >
-              <Printer className="mr-1.5 h-4 w-4" aria-hidden="true" /> Print
-            </Button>
+            <div className="flex shrink-0 gap-2">
+              <Button
+                asChild variant="outline"
+                className="h-10 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest"
+              >
+                <a href={`/print/wave/${tenantId}/${active.id}`} target="_blank" rel="noreferrer">
+                  <Printer className="mr-1.5 h-4 w-4" aria-hidden="true" /> Pick sheet
+                </a>
+              </Button>
+              <Button
+                asChild variant="outline"
+                className="h-10 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest"
+              >
+                <a href={`/print/slips/${tenantId}/${active.id}`} target="_blank" rel="noreferrer">
+                  All slips
+                </a>
+              </Button>
+            </div>
           )}
         </div>
       </header>
@@ -271,8 +326,39 @@ export default function WavesPage() {
               </div>
               <p className="mt-3 text-[11px] font-bold text-muted-foreground">
                 Tote 1 is the order that has waited longest. Drop each unit into its tote as you walk.
+                Print the <span className="font-black">pick sheet</span> for the walk (route + tote labels) and
+                <span className="font-black"> all slips</span> for the bench (every packing slip in this wave, sorted by tote).
               </p>
             </div>
+
+            {active.status === 'picking' && perms.canPick && (
+              <div className="space-y-2 print:hidden">
+                <div className="flex items-center gap-2">
+                  <ScanLine className="h-4 w-4 text-primary shrink-0" aria-hidden="true" />
+                  <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
+                    Scan each unit into its tote
+                  </p>
+                </div>
+                <ScanGate onScan={onWaveScan} />
+                {lastDrop && (
+                  <div
+                    key={`${lastDrop.tote}-${lastDrop.scanned}`}
+                    role="status"
+                    className="flex items-center gap-4 rounded-2xl border-2 border-primary bg-primary/10 p-4"
+                  >
+                    <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-primary font-mono text-3xl font-bold text-primary-foreground">
+                      {lastDrop.tote}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-lg font-black uppercase leading-tight tracking-tight">Tote {lastDrop.tote}</span>
+                      <span className="block truncate text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+                        {lastDrop.name} · {lastDrop.scanned} of {lastDrop.totalQty}
+                      </span>
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="space-y-2">
               <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
@@ -284,10 +370,7 @@ export default function WavesPage() {
                   <button
                     key={r.productId}
                     type="button"
-                    onClick={() => {
-                      if (!firestore || !active) return;
-                      markRowPicked(firestore as Firestore, tenantId, active.id, r.productId, !done);
-                    }}
+                    onClick={() => onRowTap(r, done)}
                     className={cn(
                       'flex w-full items-center gap-3 rounded-2xl border-2 bg-white p-4 text-left',
                       done && 'opacity-45'
@@ -304,6 +387,11 @@ export default function WavesPage() {
                       <span className="block truncate text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
                         {r.location || 'no location set'} · totes {r.totes.map((t) => (t.qty > 1 ? `${t.tote}×${t.qty}` : t.tote)).join(', ')}
                       </span>
+                      {!done && (active.scanned?.[r.productId] || 0) > 0 && (
+                        <span className="mt-0.5 block text-[11px] font-black uppercase tracking-widest text-primary">
+                          {active.scanned?.[r.productId]} of {r.totalQty} scanned
+                        </span>
+                      )}
                     </span>
                     <span className="shrink-0 font-mono text-2xl font-bold">{r.totalQty}</span>
                   </button>
