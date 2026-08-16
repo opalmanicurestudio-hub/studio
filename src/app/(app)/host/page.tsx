@@ -21,7 +21,7 @@
 
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
-  addDoc, collection, doc, getDoc, getDocs, limit, onSnapshot, query, updateDoc, where,
+  addDoc, collection, doc, getDoc, getDocs, limit, onSnapshot, query, setDoc, updateDoc, where,
 } from 'firebase/firestore';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
@@ -110,18 +110,26 @@ export default function HostScreen() {
   // would not notice. A mirrored row only becomes a real party doc the moment
   // the host SEATS it (materialise-on-touch), so nothing is stored twice.
   const [queueMirror, setQueueMirror] = useState<HostedParty[]>([]);
+  const [rowMeta, setRowMeta] = useState<Record<string, { token: string | null; appointmentOwned: boolean; open: boolean }>>({});
   useEffect(() => {
     if (!firestore || !tenantId || !session?.id) return;
     return onSnapshot(collection(firestore, `tenants/${tenantId}/walkIns`), (snap) => {
       const out: HostedParty[] = [];
+      const meta: Record<string, { token: string | null; appointmentOwned: boolean; open: boolean }> = {};
       for (const d of snap.docs) {
         const w = { id: d.id, ...(d.data() as any) };
+        meta[d.id] = {
+          token: w.checkInToken ? String(w.checkInToken) : null,
+          appointmentOwned: !!w.appointmentId,
+          open: ['waiting', 'notified', 'arrived', 'held', 'confirmed'].includes(String(w.status || 'waiting').toLowerCase()),
+        };
         const mapped = partyFromWalkIn(w, session.id);
         if (!mapped || !['waiting', 'notified'].includes(mapped.status)) continue;
         if (mapped.joinedAt && businessDayFor(new Date(mapped.joinedAt), tz, hs.dayCutoverHour) !== session.businessDay) continue;
         out.push({ ...mapped, id: `walkin:${d.id}`, guestIds: [`walkin:${d.id}`] });
       }
       setQueueMirror(out);
+      setRowMeta(meta);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firestore, tenantId, session?.id]);
@@ -285,6 +293,58 @@ export default function HostScreen() {
     }
   };
 
+  /** THE WHITEBOARD TALKS BACK. Every party carries where it came from
+   *  (walkin:{id} in guestIds), so a host action on a kiosk guest can advance
+   *  the queue's OWN row instead of leaving two modules disagreeing about one
+   *  person. Two guards, both load-bearing: a row carrying an appointmentId
+   *  belongs to the appointment flow (the queue's complete action refuses it
+   *  for the same reason), and a row the queue already closed is never
+   *  resurrected — the meta sidecar tells us both without an extra read.
+   *  Failure is non-fatal by design: the host board must move even when the
+   *  queue write can't, so we seat first and report the sync honestly. */
+  const walkInIdOf = (p: HostedParty): string | null => {
+    const key = (p.guestIds || []).find((g) => g.startsWith('walkin:'))
+      || (p.id.startsWith('walkin:') ? p.id : null);
+    return key ? key.slice('walkin:'.length) : null;
+  };
+
+  const syncQueueSeated = async (p: HostedParty) => {
+    const wid = walkInIdOf(p);
+    if (!wid || !firestore || !tenantId) return;
+    const meta = rowMeta[wid];
+    if (!meta || meta.appointmentOwned || !meta.open) return;
+    try {
+      const nowIso = new Date().toISOString();
+      await setDoc(doc(firestore, `tenants/${tenantId}/walkIns`, wid),
+        { status: 'servicing', serviceStartTime: nowIso, needsFrontDesk: false, updatedAt: nowIso },
+        { merge: true });
+      if (meta.token) {
+        const st = { status: 'servicing', tenantId, updatedAt: nowIso };
+        await setDoc(doc(firestore, `tenants/${tenantId}/appointmentCheckIns`, meta.token), st, { merge: true });
+        await setDoc(doc(firestore, 'appointmentCheckIns', meta.token), st, { merge: true });
+      }
+    } catch {
+      toast({ title: 'Seated — the lobby queue could not be updated' });
+    }
+  };
+
+  const finishParty = async (p: HostedParty) => {
+    await write(p.id, { status: 'finished', finishedAt: new Date().toISOString() });
+    const wid = walkInIdOf(p);
+    if (!wid || rowMeta[wid]?.appointmentOwned) return;
+    try {
+      const res = await fetch('/api/walkins', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'complete', tenantId, walkInId: wid }),
+      });
+      if (res.status === 404) return;
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || d?.ok !== true) throw new Error(d?.error || 'sync failed');
+    } catch {
+      toast({ title: 'Finished here — please also close them on the queue board' });
+    }
+  };
+
   const addParty = async () => {
     if (!firestore || !tenantId || !session || !name.trim()) return;
     const isRes = /^\d{2}:\d{2}$/.test(at.trim());
@@ -320,6 +380,7 @@ export default function HostScreen() {
       return;
     }
     await write(party.id, { status: 'seated', seatedAt: new Date().toISOString(), unitIds: [unitId] });
+    await syncQueueSeated(party);
     setSelected(null); setProposals([]);
   };
   const [forceFor, setForceFor] = useState<string | null>(null);
@@ -465,7 +526,7 @@ export default function HostScreen() {
           <div key={p.id} className="flex items-center justify-between p-3 rounded-2xl border-2 border-slate-200 bg-white">
             <p className="text-sm font-black uppercase tracking-tight">{p.name} · {p.size} · {p.unitIds?.map((u) => state.byTable[u]?.name || u).join(' + ')}</p>
             <Button size="sm" variant="outline" className="rounded-xl font-black uppercase text-[9px] border-2"
-              onClick={() => write(p.id, { status: 'finished', finishedAt: new Date().toISOString() })}>Done</Button>
+              onClick={() => finishParty(p)}>Done</Button>
           </div>
         ))}
       </div>
