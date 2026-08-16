@@ -58,7 +58,7 @@ type BoardOrder = RetailOrder & { id: string };
 export default function RetailFulfillmentBoard() {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
-  const { inventory } = useInventory();
+  const { inventory, staff } = useInventory();
 
   // Picking is a visual task: a thumbnail is faster to match against a shelf
   // than a name, and it catches the classic "two products, similar words"
@@ -1136,7 +1136,9 @@ export default function RetailFulfillmentBoard() {
                   <Button
                     disabled={busy === `out-${o.id}`}
                     onClick={() => act(`out-${o.id}`, async () => {
-                      const r = await markBringingOut(requireCtx() as Firestore, tenantId, o.id, actor);
+                      const me = (staff || []).find((m: any) =>
+                        m.id === actor.id || (m.email && user?.email && String(m.email).toLowerCase() === String(user.email).toLowerCase()));
+                      const r = await markBringingOut(requireCtx() as Firestore, tenantId, o.id, actor, (me as any)?.avatarUrl || undefined);
                       // A banner only reaches a phone that is awake and looking.
                       // The text reaches the one in the cupholder.
                       if (r.ok) notifyCurbside(tenantId, o.id, 'out');
