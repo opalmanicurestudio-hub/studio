@@ -40,6 +40,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
 
+import { sendStoreCreditEmail } from '@/lib/retail-webhook';
+
 function getAdmin() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
   const { getFirestore, FieldValue }     = require('firebase-admin/firestore');
@@ -154,6 +156,34 @@ export async function POST(req: NextRequest) {
   });
 
   await batch.commit();
+
+  // The customer finds out. Balance and history come from the client's own
+  // storeCredits array (this system's ledger); non-fatal — the credit exists
+  // whether or not the email lands, and the response never carries balances
+  // beyond what the caller (staff) already knows.
+  const clientEmail = String(client.email || '').trim();
+  if (clientEmail) {
+    try {
+      const entries = [...(Array.isArray(client.storeCredits) ? client.storeCredits : []), creditEntry]
+        .sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+      const history = entries.slice(0, 10).map((c: any) => ({
+        at: String(c.createdAt || ''),
+        label: c.usedAt ? 'Store credit \u2014 used' : 'Store credit added',
+        deltaCents: (c.usedAt ? -1 : 1) * Math.max(0, Number(c.amountCents) || 0),
+      }));
+      await sendStoreCreditEmail(db, tenantId, {
+        toEmail: clientEmail,
+        toName: String(client.name || ''),
+        grantedCents: Math.round(amountCents),
+        reason,
+        balanceCents: Math.round(((client.totalStoreCredit || 0) + dollars) * 100),
+        expiresAt: expiresAt || null,
+        history,
+      });
+    } catch (e: any) {
+      console.error('[credits/issue] grant email failed (credit is issued):', e?.message);
+    }
+  }
 
   return NextResponse.json({ ok: true, creditId: creditEntry.id, amount: dollars, newTotalStoreCredit: (client.totalStoreCredit || 0) + dollars });
 }
