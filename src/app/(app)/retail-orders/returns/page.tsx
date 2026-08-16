@@ -175,6 +175,23 @@ export default function RetailReturnsPage() {
     setBusy(null);
     toast({ variant: res.ok ? 'default' : 'destructive', title: res.ok ? res.message : 'Problem', description: res.ok ? undefined : res.message });
     if (res.ok) setVerifiedLineId(null);
+    /* THE LOOP CLOSES ITSELF. The last disposition IS the decision point —
+     * making someone find and press a second button afterwards is where
+     * returns stalled. The lib reports allReceived from inside the same
+     * transaction that recorded the line, so this fires exactly once, and
+     * the resolution (refund queue / credit + email / replacement order)
+     * runs immediately with the same actor on record. */
+    if (res.ok && res.allReceived && activeReturn) {
+      setBusy('resolve');
+      const fin = await resolveReturn(firestore as Firestore, tenantId, activeReturn, actor);
+      setBusy(null);
+      toast({
+        variant: fin.ok ? 'default' : 'destructive',
+        title: fin.ok ? 'Return resolved automatically' : 'All items received — resolve manually',
+        description: fin.message,
+      });
+      if (fin.ok) setActiveReturn(null);
+    }
   };
 
   const finish = async () => {
