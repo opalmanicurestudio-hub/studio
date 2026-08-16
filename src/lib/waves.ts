@@ -459,6 +459,84 @@ export async function claimTote(
   }
 }
 
+// ─── Dealing totes: even distribution across pickers ─────────────────────────
+// Claims are pull-based on purpose — a fast picker naturally takes more, and
+// a push system can't know who went on break. But pull alone lets one person
+// cherry-pick the light bins, so a lead can DEAL: split the unclaimed totes
+// across chosen pickers, balanced by UNITS (the honest currency — tote sizes
+// vary wildly), seeded with what each picker already holds so the deal
+// balances around work in progress instead of ignoring it. Greedy
+// longest-first: heaviest unclaimed tote goes to whoever currently carries
+// the least. A deal writes ordinary claims — everything downstream (refusal
+// by name, lead override, release, the rail) already understands them.
+
+/** Units each tote still needs, from the same rows the sheet prints. */
+export function unitsByTote(rows: PickRow[]): Record<number, number> {
+  const out: Record<number, number> = {};
+  for (const r of rows) for (const t of r.totes) out[t.tote] = (out[t.tote] || 0) + t.qty;
+  return out;
+}
+
+export function dealTotes(
+  rows: PickRow[],
+  wave: Wave,
+  pickers: { id: string; name: string }[],
+): { claims: Record<string, { staffId: string; staffName: string; at: string }>; loads: Record<string, number> } {
+  const units = unitsByTote(rows);
+  const existing = { ...(wave.toteClaims || {}) };
+  const now = new Date().toISOString();
+
+  const loads: Record<string, number> = {};
+  const toteCount: Record<string, number> = {};
+  for (const p of pickers) { loads[p.id] = 0; toteCount[p.id] = 0; }
+  for (const [tote, c] of Object.entries(existing)) {
+    if (loads[c.staffId] !== undefined) {
+      loads[c.staffId] += units[Number(tote)] || 0;
+      toteCount[c.staffId] += 1;
+    }
+  }
+
+  const unclaimed = Object.keys(units).map(Number)
+    .filter((t) => !existing[String(t)] && (units[t] || 0) > 0)
+    .sort((a, b) => (units[b] - units[a]) || (a - b));
+
+  const claims = { ...existing };
+  for (const t of unclaimed) {
+    let best = pickers[0];
+    for (const p of pickers) {
+      if (
+        loads[p.id] < loads[best.id]
+        || (loads[p.id] === loads[best.id] && toteCount[p.id] < toteCount[best.id])
+        || (loads[p.id] === loads[best.id] && toteCount[p.id] === toteCount[best.id] && p.id < best.id)
+      ) best = p;
+    }
+    claims[String(t)] = { staffId: best.id, staffName: best.name, at: now };
+    loads[best.id] += units[t];
+    toteCount[best.id] += 1;
+  }
+
+  return { claims, loads };
+}
+
+/** Persist a deal. Re-checks inside the transaction: a tote claimed by hand
+ *  while the lead was dealing keeps its hand-made claim — dealing never
+ *  stomps a person already working. */
+export async function saveToteDeal(
+  fs: Firestore, tenantId: string, waveId: string,
+  claims: Record<string, { staffId: string; staffName: string; at: string }>,
+): Promise<void> {
+  await runTransaction(fs, async (txn) => {
+    const ref = doc(waveCol(fs, tenantId), waveId);
+    const snap = await txn.get(ref);
+    if (!snap.exists()) return;
+    const live = { ...((snap.data() as any).toteClaims || {}) };
+    for (const [tote, c] of Object.entries(claims)) {
+      if (!live[tote]) live[tote] = c;
+    }
+    txn.update(ref, { toteClaims: live });
+  });
+}
+
 /** Wave moves to the bench once the shelves have been walked. */
 export async function setWaveStatus(
   fs: Firestore, tenantId: string, waveId: string, status: Wave['status']
