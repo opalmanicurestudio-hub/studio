@@ -142,7 +142,7 @@ export async function openReturn(
 export async function receiveReturnLine(
   fs: Firestore, tenantId: string, ret: ReturnDoc, lineId: string,
   disposition: ReturnDisposition, actor: Actor
-): Promise<{ ok: boolean; message: string }> {
+): Promise<{ ok: boolean; allReceived?: boolean; message: string }> {
   try {
     return await runTransaction(fs, async (txn) => {
       const rRef = doc(returnCol(fs, tenantId), ret.id);
@@ -201,6 +201,7 @@ export async function receiveReturnLine(
       const updatedLines = fresh.lines.map((l) =>
         l.lineId === lineId ? { ...l, disposition, dispositionScannedAt: now } : l
       );
+      const allReceived = updatedLines.every((l) => !!l.disposition);
       txn.update(rRef, { lines: JSON.parse(JSON.stringify(updatedLines)), status: 'received' });
 
       if (order && origLine) {
@@ -213,7 +214,7 @@ export async function receiveReturnLine(
         txn.update(oRef, { lines: JSON.parse(JSON.stringify(newLines)) });
       }
 
-      return { ok: true, message: `${line.name}: ${disposition === 'restock' ? 'back in stock' : 'written off'}` };
+      return { ok: true, allReceived, message: `${line.name}: ${disposition === 'restock' ? 'back in stock' : 'written off'}${allReceived ? ' \u2014 that was the last item' : ''}` };
     });
   } catch (e: any) {
     return { ok: false, message: e?.message || 'Could not receive the line.' };
@@ -247,14 +248,39 @@ export async function resolveReturn(
       const now = new Date().toISOString();
       let summary = '';
 
+      /* THE LABEL SETTLES HERE. If the policy deducted return shipping, it
+       * comes off the money now — and by the time a return is being resolved
+       * the label was demonstrably USED (the items arrived on it), so the
+       * Shippo billed-on-scan economics and the deduction agree. If the shop
+       * paid, the label cost becomes a real Shipping expense so the return
+       * tells the whole P&L truth (item cost is already Spoilage per line;
+       * Stripe fees are exact-tracked by the charge webhooks). */
+      const labelDeduct = Math.max(0, Number((fresh as any).labelDeductCents) || 0);
+      const labelCost = Math.max(0, Number((fresh as any).labelCostCents) || 0);
+      const unitsBack = fresh.lines.reduce((a, l) => a + (l.disposition ? l.qty : 0), 0);
+
+      if (labelCost > 0 && labelDeduct === 0) {
+        const shipTxnRef = doc(collection(fs, `tenants/${tenantId}/transactions`));
+        txn.set(shipTxnRef, {
+          id: shipTxnRef.id, date: now,
+          description: `Return shipping label (Order #${fresh.orderNumber})`,
+          clientOrVendor: (fresh as any).labelCarrier || 'Carrier',
+          type: 'expense', context: 'Business', category: 'Shipping', taxBucket: 'expense',
+          amount: labelCost / 100, paymentMethod: 'Shippo', hasReceipt: false,
+          retailOrderId: fresh.orderId, retailReturnId: ret.id, tenantId,
+        });
+      }
+
       if (fresh.resolution === 'refund') {
-        const cents = fresh.refundCents || 0;
+        const gross = fresh.refundCents || 0;
+        const cents = Math.max(0, gross - labelDeduct);
         txn.update(oRef, { pendingRefundCents: (order.pendingRefundCents || 0) + cents });
-        summary = `Refund of $${(cents / 100).toFixed(2)} queued — execute in Stripe, then Mark refunded on the board`;
+        summary = `Refund of $${(cents / 100).toFixed(2)} queued${labelDeduct ? ` ($${(labelDeduct / 100).toFixed(2)} return shipping deducted)` : ''} — execute in Stripe, then Mark refunded on the board`;
       }
 
       if (fresh.resolution === 'store_credit') {
-        const cents = fresh.storeCreditCents || 0;
+        const gross = fresh.storeCreditCents || 0;
+        const cents = Math.max(0, gross - labelDeduct);
         const creditRef = doc(collection(fs, `tenants/${tenantId}/depositCredits`));
         issuedCreditId = creditRef.id;
         txn.set(creditRef, {
@@ -265,7 +291,7 @@ export async function resolveReturn(
           amountCents: cents, status: 'available',
           sourceRetailReturnId: ret.id, createdAt: now,
         });
-        summary = `$${(cents / 100).toFixed(2)} store credit issued — spendable at POS checkout`;
+        summary = `$${(cents / 100).toFixed(2)} store credit issued${labelDeduct ? ` ($${(labelDeduct / 100).toFixed(2)} return shipping deducted)` : ''} — spendable at POS checkout`;
       }
 
       if (fresh.resolution === 'replacement') {
@@ -297,21 +323,32 @@ export async function resolveReturn(
       }
 
       txn.update(rRef, { status: 'resolved', resolvedBy: actor.name, resolvedAt: now });
+      txn.set(oRef, {
+        returnSummary: {
+          returnId: ret.id, resolution: fresh.resolution, resolvedAt: now,
+          unitsReturned: unitsBack,
+          refundCents: fresh.resolution === 'refund' ? Math.max(0, (fresh.refundCents || 0) - labelDeduct) : 0,
+          creditCents: fresh.resolution === 'store_credit' ? Math.max(0, (fresh.storeCreditCents || 0) - labelDeduct) : 0,
+          labelDeductCents: labelDeduct,
+        },
+      }, { merge: true });
       txn.set(doc(collection(oRef, 'events')),
         evPayload('return_resolved', actor, { returnId: ret.id, resolution: fresh.resolution }));
 
       return { ok: true, message: summary || 'Return resolved' };
     });
 
-    /* THE CUSTOMER FINDS OUT. A credit nobody knows about is a refund the
-     * customer thinks they never got. Fire-and-forget: the credit exists the
-     * moment the transaction committed, and the route dedupes by claiming
-     * grantEmailAt, so a retry can never double-send and a failed send never
-     * un-resolves the return. */
-    if (result.ok && issuedCreditId) {
-      void fetch('/api/retail/credit-notify', {
+    /* THE CUSTOMER FINDS OUT — every arm, one email. return-notify tells
+     * them their items were received and exactly what happened: refund amount
+     * on its way, credit issued with their new balance (it claims the
+     * credit's grantEmailAt itself, so the grant email never doubles), or the
+     * replacement shipment that's now in the queue. Fire-and-forget: the
+     * resolution is committed either way, and the route dedupes on the
+     * return doc so a retry can't double-send. */
+    if (result.ok) {
+      void fetch('/api/retail/return-notify', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, creditId: issuedCreditId }),
+        body: JSON.stringify({ tenantId, returnId: ret.id }),
       }).catch(() => undefined);
     }
     return result;
