@@ -1,6 +1,6 @@
 'use client';
 
-import { type Firestore, collection, onSnapshot, query, where } from 'firebase/firestore';
+import { type Firestore, collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
 import { ArrowLeft, Check, Loader, Printer, ScanLine, Waves as WavesIcon } from 'lucide-react';
 import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -188,6 +188,23 @@ export default function WavesPage() {
     );
     setBusy(false);
     toast({ variant: res.ok ? 'default' : 'destructive', title: res.ok ? 'Wave built' : 'Could not build', description: res.message });
+    /* THE PAGE FLIPS ITSELF. buildWave runs in a transaction, and
+     * transactions don't echo locally the way plain writes do — on a slow
+     * connection the snapshot arrives seconds later and the screen sits on
+     * the build form looking like nothing happened. So on success we fetch
+     * the new wave once and merge it in ourselves (the snapshot will agree
+     * when it lands — same doc, same id), then scroll to the top where the
+     * wave view now is. */
+    if (res.ok && res.waveId && firestore) {
+      try {
+        const snap = await getDoc(doc(collection(firestore as Firestore, `tenants/${tenantId}/waves`), res.waveId));
+        if (snap.exists()) {
+          const fresh = { id: snap.id, ...(snap.data() as any) } as Wave;
+          setWaves((prev) => (prev.some((w) => w.id === fresh.id) ? prev : [fresh, ...prev]));
+        }
+      } catch { /* the snapshot listener will catch up */ }
+      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   const picked = new Set(active?.pickedProductIds || []);
