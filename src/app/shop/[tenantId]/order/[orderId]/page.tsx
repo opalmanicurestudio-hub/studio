@@ -117,6 +117,7 @@ export default function OrderStatusPage() {
   const [retNotes, setRetNotes] = useState('');
   const [retSending, setRetSending] = useState(false);
   const [retDone, setRetDone] = useState(false);
+  const [retLabel, setRetLabel] = useState<{ url: string; deductCents: number; carrier: string } | null>(null);
   const [revLine, setRevLine] = useState<string | null>(null);
   const [revRating, setRevRating] = useState(5);
   const [revTitle, setRevTitle] = useState('');
@@ -622,6 +623,23 @@ export default function OrderStatusPage() {
       const data = await selfServe({ action: 'start_return', selections, resolution: retResolution, notes: retNotes.trim() });
       setRetDone(true);
       toast({ title: 'Return started', description: data.message });
+      /* THE LABEL, WITHOUT ASKING. For shipped orders the return starts with
+       * a prepaid label in hand: the label route is policy-aware (shop pays /
+       * deducted / by fault), emails the PDF itself, and Shippo bills it only
+       * when the carrier first scans it — so generating eagerly costs nothing
+       * if they change their mind. Pickup orders skip this entirely. */
+      if (data.returnId && data.shipped && selfToken) {
+        try {
+          const lr = await fetch('/api/retail/return-label', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tenantId, orderId, returnId: data.returnId, qrToken: selfToken }),
+          });
+          const ld = await lr.json().catch(() => ({}));
+          if (lr.ok && ld?.labelUrl) {
+            setRetLabel({ url: String(ld.labelUrl), deductCents: Number(ld.deductCents) || 0, carrier: String(ld.carrier || '') });
+          }
+        } catch { /* the staff desk can still send one; the return is open either way */ }
+      }
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Could not start return', description: e?.message });
     } finally {
@@ -1680,10 +1698,29 @@ export default function OrderStatusPage() {
           <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-5 space-y-3">
               {retDone ? (
-                <div className="rounded-2xl border-2 border-primary/30 bg-primary/5 p-4 text-center">
-                  <p className="text-sm font-bold text-primary">
-                    Return started — bring the items by (or ship them back) and we&rsquo;ll take it from there.
-                  </p>
+                <div className="space-y-2">
+                  {retLabel && (
+                    <div className="space-y-2 rounded-2xl border-2 border-primary/30 bg-primary/[0.05] p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-primary">Your prepaid return label is ready</p>
+                      <a
+                        href={retLabel.url} target="_blank" rel="noreferrer"
+                        className="flex h-11 w-full items-center justify-center rounded-xl bg-primary font-black uppercase text-[10px] tracking-widest text-primary-foreground shadow-md transition-all active:scale-[0.98]"
+                      >
+                        Open my return label{retLabel.carrier ? ` — ${retLabel.carrier}` : ''}
+                      </a>
+                      <p className="text-[10px] font-bold text-muted-foreground">
+                        {retLabel.deductCents > 0
+                          ? `Return shipping of $${(retLabel.deductCents / 100).toFixed(2)} will be deducted from your refund or credit — you'll see the exact amount in the confirmation.`
+                          : 'Return shipping is on us — the label costs you nothing.'}{' '}
+                        It's also in your email. Tape it over the old label on any box.
+                      </p>
+                    </div>
+                  )}
+                  <div className="rounded-2xl border-2 border-primary/30 bg-primary/5 p-4 text-center">
+                    <p className="text-sm font-bold text-primary">
+                      Return started — {retLabel ? 'ship the items back with the label above' : 'bring the items by (or ship them back)'} and we&rsquo;ll take it from there.
+                    </p>
+                  </div>
                 </div>
               ) : !returnOpen ? (
                 <Button
