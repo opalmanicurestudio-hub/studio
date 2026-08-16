@@ -477,6 +477,12 @@ export async function sendOrderConfirmation(
     </tr>`;
   }).join('');
 
+  const creditCents = Math.max(0, Number(order.storeCreditRequestedCents) || 0);
+  const fullCredit = String(order.paidVia || '') === 'store_credit';
+  const chargedCents = fullCredit
+    ? 0
+    : (session?.amount_total ?? Math.max(0, (Number(order.totalCents) || 0) - creditCents));
+
   const method = String(order.method || 'pickup');
   const nextStep = method === 'ship'
     ? 'We\u2019ll email tracking as soon as your package ships.'
@@ -499,7 +505,10 @@ export async function sendOrderConfirmation(
       ${(order.shippingCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#64748b">Shipping</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.shippingCents)}</td></tr>` : ''}
       ${(order.taxCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#64748b">Sales tax</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.taxCents)}</td></tr>` : ''}
       ${(order.tipCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#64748b">Tip</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.tipCents)}</td></tr>` : ''}
-      <tr><td style="font-size:14px;font-weight:700;color:#0f172a;padding-top:6px">Total paid</td><td style="font-size:14px;font-weight:700;text-align:right;color:#0f172a;padding-top:6px">${money(session?.amount_total ?? order.totalCents)}</td></tr>
+      ${creditCents > 0 ? `<tr><td style="font-size:13px;color:#64748b">Order total</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.totalCents)}</td></tr>
+      <tr><td style="font-size:13px;color:#0f766e;font-weight:700">Store credit applied</td><td style="font-size:13px;text-align:right;color:#0f766e;font-weight:700">\u2212${money(creditCents)}</td></tr>` : ''}
+      <tr><td style="font-size:14px;font-weight:700;color:#0f172a;padding-top:6px">${creditCents > 0 ? 'Charged to card' : 'Total paid'}</td><td style="font-size:14px;font-weight:700;text-align:right;color:#0f172a;padding-top:6px">${money(chargedCents)}</td></tr>
+      ${fullCredit ? `<tr><td colspan="2" style="font-size:12px;color:#0f766e;padding-top:2px">Paid in full with store credit \u2014 nothing was charged to a card.</td></tr>` : ''}
     </table>
     ${(order.lines || []).some((l: any) => l.digital === true && l.digitalUrl)
       ? `<div style="border:2px solid #e2e8f0;border-radius:12px;padding:14px;margin:16px 0">
@@ -676,3 +685,84 @@ async function sendCartRecovery(
  *    Then in the Stripe Dashboard, add `checkout.session.expired` to the
  *    connected-accounts webhook's enabled events.
  * ──────────────────────────────────────────────────────────────────────────── */
+
+
+/**
+ * "You've received store credit" — sent at ISSUANCE, not redemption. Shows
+ * the amount granted, the live balance, and the recent history (grants and
+ * spends), because a credit nobody knows about is a refund the customer
+ * thinks they never got. Caller supplies balance and history so the same
+ * renderer serves both credit systems.
+ */
+export async function sendStoreCreditEmail(
+  db: any,
+  tenantId: string,
+  args: {
+    toEmail: string;
+    toName?: string;
+    grantedCents: number;
+    reason?: string;
+    balanceCents: number;
+    expiresAt?: string | null;
+    history: { at: string; label: string; deltaCents: number }[];
+  }
+): Promise<boolean> {
+  const RESEND_API_KEY = process.env.RESEND_API_KEY;
+  const RESEND_FROM = process.env.RESEND_FROM;
+  const to = String(args.toEmail || '').trim();
+  if (!RESEND_API_KEY || !RESEND_FROM || !to) return false;
+
+  const emailBrand = await getEmailBrand(db, tenantId);
+  const money = (c: number) => `$${((Number(c) || 0) / 100).toFixed(2)}`;
+  const first = String(args.toName || '').split(' ')[0];
+  const origin = String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '');
+
+  const fmtDay = (iso: string) => {
+    const t = Date.parse(String(iso || ''));
+    if (!Number.isFinite(t)) return '';
+    return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  const historyRows = (args.history || []).slice(0, 10).map((h) => `<tr>
+      <td style="padding:6px 0;font-size:12px;color:#64748b">${fmtDay(h.at)}</td>
+      <td style="padding:6px 0 6px 10px;font-size:12px;color:#0f172a">${h.label}</td>
+      <td style="padding:6px 0;font-size:12px;text-align:right;font-weight:700;color:${h.deltaCents >= 0 ? '#0f766e' : '#0f172a'}">${h.deltaCents >= 0 ? '+' : '\u2212'}${money(Math.abs(h.deltaCents))}</td>
+    </tr>`).join('');
+
+  const emailBody = `
+    <p style="font-size:16px;color:#0f172a;margin:0 0 8px"><strong>${first ? `${first}, y` : 'Y'}ou've received store credit.</strong></p>
+    <div style="border:2px solid #e2e8f0;border-radius:16px;padding:18px;margin:14px 0;text-align:center">
+      <p style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin:0 0 4px">Added to your account</p>
+      <p style="font-size:30px;font-weight:800;color:#0f766e;margin:0">${money(args.grantedCents)}</p>
+      ${args.reason ? `<p style="font-size:12px;color:#64748b;margin:8px 0 0">${String(args.reason)}</p>` : ''}
+    </div>
+    <table style="width:100%;border-collapse:collapse;margin:0 0 4px">
+      <tr>
+        <td style="font-size:13px;font-weight:700;color:#0f172a;padding:8px 0">Your balance</td>
+        <td style="font-size:16px;font-weight:800;text-align:right;color:#0f172a;padding:8px 0">${money(args.balanceCents)}</td>
+      </tr>
+    </table>
+    ${args.expiresAt ? `<p style="font-size:12px;color:#64748b;margin:0 0 12px">This credit is good through <strong>${fmtDay(args.expiresAt)}</strong>.</p>` : ''}
+    ${historyRows ? `<p style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin:14px 0 4px">Recent activity</p>
+    <table style="width:100%;border-collapse:collapse;border-top:2px solid #e2e8f0;border-bottom:2px solid #e2e8f0">${historyRows}</table>` : ''}
+    <p style="font-size:13px;color:#64748b;margin:14px 0 0">Spend it at checkout \u2014 tick \u201cApply my store credit\u201d under this email address and it comes straight off your total. Use as much or as little as you like; the rest stays on your account.</p>
+    ${origin ? emailButton(`${origin}/shop/${tenantId}/catalog`, 'Browse the shop', emailBrand) : ''}`;
+
+  const html = brandedEmail(emailBrand, emailBody, { preheader: `${money(args.grantedCents)} in store credit added \u2014 balance ${money(args.balanceCents)}` });
+
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: RESEND_FROM,
+      to: [to],
+      subject: `${emailBrand.shopName} \u2014 ${money(args.grantedCents)} store credit added`,
+      html,
+    }),
+  });
+  if (!res.ok) {
+    console.error('[credit-email] Resend rejected:', (await res.text()).slice(0, 160));
+    return false;
+  }
+  return true;
+}
