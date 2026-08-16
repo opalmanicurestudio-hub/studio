@@ -101,8 +101,12 @@ export default function OrderStatusPage() {
   const [supportThread, setSupportThread] = useState<{
     message: string; createdAt: string | null; status: string; autoReply: string;
     replies: { by: string; text: string; at: string | null }[];
+    expectNote?: string;
+    photoUrls?: string[];
     pending?: boolean;
   }[]>([]);
+  const [helpPhotos, setHelpPhotos] = useState<string[]>([]);
+  const [photoBusy, setPhotoBusy] = useState(false);
   const [checkingIn, setCheckingIn] = useState(false);
   const [onWayBusy, setOnWayBusy] = useState(false);
   const [bringToVehicle, setBringToVehicle] = useState(false);
@@ -647,6 +651,34 @@ export default function OrderStatusPage() {
     }
   };
 
+  /* PHOTOS BEFORE THE TICKET. Each file uploads through the same validated,
+   * link-authorized pipeline the claims flow uses (customer sends bytes, the
+   * server chooses the path); the URLs then ride the message that creates
+   * the ticket. Capped at 3, compressed by the phone's own picker. */
+  const attachHelpPhoto = async (file: File) => {
+    if (!selfToken || photoBusy || helpPhotos.length >= 3) return;
+    setPhotoBusy(true);
+    try {
+      const dataUrl: string = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(String(r.result || ''));
+        r.onerror = () => rej(new Error('Could not read that file'));
+        r.readAsDataURL(file);
+      });
+      const resp = await fetch('/api/retail/claim-photo', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, orderId, qrToken: selfToken, purpose: 'support', image: dataUrl }),
+      });
+      const d = await resp.json().catch(() => ({}));
+      if (!resp.ok || !d?.url) throw new Error(d?.error || 'Upload failed');
+      setHelpPhotos((cur) => [...cur, String(d.url)]);
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Photo not added', description: e?.message });
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
+
   const sendHelp = async () => {
     if (!order || !selfToken || helpSending || !helpMsg.trim()) return;
     setHelpSending(true);
@@ -655,14 +687,16 @@ export default function OrderStatusPage() {
       const res = await fetch('/api/retail/support', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, orderId, qrToken, message: helpMsg.trim() }),
+        body: JSON.stringify({ tenantId, orderId, qrToken, message: helpMsg.trim(), photoUrls: helpPhotos }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Could not send');
       setSupportThread((cur) => [...cur, {
         message: helpMsg.trim(), createdAt: new Date().toISOString(),
         status: 'open', autoReply: '', replies: [], pending: true,
+        expectNote: data.expectNote || '', photoUrls: helpPhotos,
       }]);
+      setHelpPhotos([]);
       setHelpSent(true);
       setHelpMsg('');
       toast({ title: 'Message received', description: 'It’s with the team — you can watch it right here.' });
@@ -1168,6 +1202,15 @@ export default function OrderStatusPage() {
                       <div key={i} className="space-y-2">
                         <div className="ml-6">
                           <p className="rounded-xl bg-primary px-3 py-2 text-sm font-bold text-primary-foreground whitespace-pre-wrap">{t.message}</p>
+                          {(t.photoUrls || []).length > 0 && (
+                            <div className="mt-1 flex justify-end gap-1.5">
+                              {(t.photoUrls || []).map((u, k) => (
+                                <a key={k} href={u} target="_blank" rel="noreferrer">
+                                  <img src={u} alt={`Attached photo ${k + 1}`} className="h-14 w-14 rounded-lg border-2 object-cover" />
+                                </a>
+                              ))}
+                            </div>
+                          )}
                           <p className="mt-0.5 text-right text-[9px] font-black uppercase tracking-widest text-muted-foreground">
                             ✓ Received{t.createdAt ? ` · ${new Date(t.createdAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}
                           </p>
@@ -1200,7 +1243,7 @@ export default function OrderStatusPage() {
                         answered ? 'border-green-600/40 bg-green-500/10 text-green-700' : 'border-primary/30 bg-primary/[0.05] text-primary')}>
                         {last.status === 'resolved' ? '✓ Resolved — reply below if anything’s still off'
                           : last.replies.length > 0 ? '✓ The team replied — answer below any time'
-                          : 'With the team — replies land right here (and by email). This page checks automatically.'}
+                          : `With the team — ${last.expectNote || 'replies land right here (and by email)'}. This page checks automatically.`}
                       </p>
                     );
                   })()}
@@ -1295,6 +1338,32 @@ export default function OrderStatusPage() {
                     onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setHelpMsg(e.target.value)}
                     className="rounded-2xl border-2 min-h-[80px] font-bold text-sm"
                   />
+                  <div className="flex items-center gap-2">
+                    <label className={cn('flex h-9 cursor-pointer items-center gap-1.5 rounded-xl border-2 px-3 text-[9px] font-black uppercase tracking-widest transition-all',
+                      (photoBusy || helpPhotos.length >= 3) ? 'opacity-50' : 'hover:border-primary/40 active:scale-95')}>
+                      <Camera className="h-3.5 w-3.5" />
+                      {photoBusy ? 'Adding…' : helpPhotos.length >= 3 ? '3 photo max' : 'Add photo'}
+                      <input
+                        type="file" accept="image/*" className="hidden"
+                        disabled={photoBusy || helpPhotos.length >= 3}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                          const f = e.target.files?.[0];
+                          if (f) void attachHelpPhoto(f);
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                    {helpPhotos.map((u, i) => (
+                      <span key={i} className="relative">
+                        <img src={u} alt={`Photo ${i + 1} ready to send`} className="h-9 w-9 rounded-lg border-2 object-cover" />
+                        <button
+                          type="button" aria-label={`Remove photo ${i + 1}`}
+                          onClick={() => setHelpPhotos((cur) => cur.filter((_, k) => k !== i))}
+                          className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-foreground text-[9px] font-black text-background"
+                        >×</button>
+                      </span>
+                    ))}
+                  </div>
                   <Button
                     disabled={!helpMsg.trim() || helpSending}
                     onClick={sendHelp}
