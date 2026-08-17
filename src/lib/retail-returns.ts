@@ -254,7 +254,7 @@ export async function receiveReturnLine(
 
 export async function resolveReturn(
   fs: Firestore, tenantId: string, ret: ReturnDoc, actor: Actor
-): Promise<{ ok: boolean; message: string }> {
+): Promise<{ ok: boolean; message: string; refundQueuedCents?: number; orderQrToken?: string }> {
   let issuedCreditId: string | null = null;
   try {
     const result = await runTransaction(fs, async (txn) => {
@@ -272,8 +272,15 @@ export async function resolveReturn(
       if (!oSnap.exists()) return { ok: false, message: 'Original order missing.' };
       const order = { ...(oSnap.data() as RetailOrder), id: fresh.orderId };
 
+      /* Policy read rides the same transaction — the fee applied is the fee
+       * configured at the moment of resolution, not a stale client copy. */
+      const tSnap = await txn.get(doc(fs, 'tenants', tenantId));
+      const pol = ((tSnap.exists() ? (tSnap.data() as any).retailSettings : {})?.policies) || {};
+
       const now = new Date().toISOString();
       let summary = '';
+      let feeCents = 0;
+      let refundNetCents = 0;
 
       /* THE LABEL SETTLES HERE. If the policy deducted return shipping, it
        * comes off the money now — and by the time a return is being resolved
@@ -300,9 +307,18 @@ export async function resolveReturn(
 
       if (fresh.resolution === 'refund') {
         const gross = fresh.refundCents || 0;
-        const cents = Math.max(0, gross - labelDeduct);
+        let cents = Math.max(0, gross - labelDeduct);
+        /* RESTOCKING FEE — remorse only. A fee on the shop's own mistake
+         * (damage, defect, wrong item) would be charging the customer for
+         * being wronged, so any shop-fault line on the return waives it. */
+        const shopFault = new Set(['damaged_in_transit', 'defective', 'wrong_item']);
+        const anyShopFault = fresh.lines.some((l: any) => shopFault.has(String(l.reason || '')));
+        const feePct = Math.min(50, Math.max(0, Number(pol.restockingFeePct) || 0));
+        feeCents = !anyShopFault && feePct > 0 ? Math.round((cents * feePct) / 100) : 0;
+        cents = Math.max(0, cents - feeCents);
+        refundNetCents = cents;
         txn.update(oRef, { pendingRefundCents: (order.pendingRefundCents || 0) + cents });
-        summary = `Refund of $${(cents / 100).toFixed(2)} queued${labelDeduct ? ` ($${(labelDeduct / 100).toFixed(2)} return shipping deducted)` : ''} — execute in Stripe, then Mark refunded on the board`;
+        summary = `Refund of $${(cents / 100).toFixed(2)} queued${labelDeduct ? ` ($${(labelDeduct / 100).toFixed(2)} return shipping deducted)` : ''}${feeCents ? ` ($${(feeCents / 100).toFixed(2)} restocking fee, ${feePct}%)` : ''}`;
       }
 
       if (fresh.resolution === 'store_credit') {
@@ -354,15 +370,16 @@ export async function resolveReturn(
         returnSummary: {
           returnId: ret.id, resolution: fresh.resolution, resolvedAt: now,
           unitsReturned: unitsBack,
-          refundCents: fresh.resolution === 'refund' ? Math.max(0, (fresh.refundCents || 0) - labelDeduct) : 0,
+          refundCents: fresh.resolution === 'refund' ? refundNetCents : 0,
           creditCents: fresh.resolution === 'store_credit' ? Math.max(0, (fresh.storeCreditCents || 0) - labelDeduct) : 0,
           labelDeductCents: labelDeduct,
+          restockingFeeCents: feeCents,
         },
       }, { merge: true });
       txn.set(doc(collection(oRef, 'events')),
         evPayload('return_resolved', actor, { returnId: ret.id, resolution: fresh.resolution }));
 
-      return { ok: true, message: summary || 'Return resolved' };
+      return { ok: true, message: summary || 'Return resolved', refundQueuedCents: refundNetCents, orderQrToken: String((order as any).qrToken || '') };
     });
 
     /* THE CUSTOMER FINDS OUT — every arm, one email. return-notify tells
