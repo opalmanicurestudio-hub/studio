@@ -11,7 +11,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
-  const { getFirestore } = require('firebase-admin/firestore');
+  const { getFirestore, FieldValue } = require('firebase-admin/firestore');
+  (getAdminDb as any).FieldValue = FieldValue;
   const APP_NAME = 'admin-retail-support';
   let app = getApps().find((a: any) => a.name === APP_NAME);
   if (!app) {
@@ -24,6 +25,28 @@ function getAdminDb() {
     }, APP_NAME);
   }
   return getFirestore(app);
+}
+
+/** Issue-category classification — the case key's second half. Deliberately
+ *  coarse: these buckets exist to stop one problem becoming five tickets,
+ *  not to be a taxonomy. */
+function categoryOf(lower: string): string {
+  if (/missing|not in the box|short(ed)?|didn.t (get|receive)|only received/.test(lower)) return 'missing';
+  if (/damag|leak|broke|crack|shatter|spill/.test(lower)) return 'damaged';
+  if (/wrong|different (item|product|color|shade)|incorrect item|not what i/.test(lower)) return 'wrong_item';
+  if (/deliver|arrive|track|lost|where|status|when|eta|how long/.test(lower)) return 'delivery';
+  if (/return|refund|money back|exchange/.test(lower)) return 'return_refund';
+  if (/cancel/.test(lower)) return 'cancel';
+  return 'other';
+}
+
+/** Chaser vs evidence. A chaser is short, photo-less, and asks rather than
+ *  tells — "any update??" — and its arrival should never re-alert staff. */
+function isChaser(message: string, photoCount: number): boolean {
+  if (photoCount > 0) return false;
+  const t = message.trim();
+  if (t.length < 25) return true;
+  return t.length < 90 && /update|status|hello|hey\b|any(one|body)|still (there|waiting)|\?{2,}|when will|how long/i.test(t.toLowerCase());
 }
 
 export async function POST(req: NextRequest) {
@@ -97,6 +120,47 @@ export async function POST(req: NextRequest) {
     cancelled: 'This order is cancelled.',
     refunded: 'This order was refunded.',
   };
+  /* ═══ ONE ISSUE = ONE CASE ═════════════════════════════════════════════
+   * Before creating anything, look for an open case on this order. A new
+   * message matching an open case's category (or any open case, when the
+   * message is uncategorizable) APPENDS to that case's timeline instead of
+   * becoming a sibling ticket: no second ack email, no new inbox row, no
+   * reset of their place in the queue. Chasers bump a counter staff see as
+   * one consolidated chip; evidence (photos, substantive text) rides in
+   * marked as such. A message that clearly names a DIFFERENT problem still
+   * opens its own case — one order can honestly have two issues. */
+  const newCat = categoryOf(lower);
+  const caseSnap = await db.collection(`tenants/${tenantId}/retailSupport`)
+    .where('orderId', '==', orderId).get();
+  const allCases = caseSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+  const openCases = allCases.filter((c: any) => c.status === 'open');
+  const target = openCases.find((c: any) => (c.category || 'other') === newCat)
+    || (newCat === 'other' && openCases.length > 0 ? openCases[0] : null)
+    || (openCases.length === 1 && !openCases[0].category ? openCases[0] : null);
+
+  if (target) {
+    const FieldValue = (getAdminDb as any).FieldValue;
+    const kind = isChaser(message, photoUrls.length) ? 'chaser' : 'evidence';
+    const angry = /furious|angry|unacceptable|ridiculous|scam|fraud|lawyer|dispute|chargeback/.test(lower);
+    const update: any = {
+      followUps: FieldValue.arrayUnion({ at: new Date().toISOString(), message, photoUrls, kind }),
+      customerMessagesSinceStaffReply: FieldValue.increment(1),
+      expectNote,
+    };
+    if (angry && target.priority !== 'urgent') update.priority = 'urgent';
+    if (photoUrls.length > 0) {
+      update.photoUrls = [...(Array.isArray(target.photoUrls) ? target.photoUrls : []), ...photoUrls].slice(0, 12);
+    }
+    await db.collection(`tenants/${tenantId}/retailSupport`).doc(target.id).update(update);
+    return NextResponse.json({
+      ok: true, attached: true, caseId: target.id,
+      caseRef: target.caseRef || null, kind, expectNote,
+      status: target.status,
+      replies: Array.isArray(target.replies) ? target.replies.length : 0,
+    });
+  }
+  const caseRef = `${order.orderNumber}-${allCases.length + 1}`;
+
   let autoReply = '';
   if (/refund|money back|charge/.test(lower)) {
     const refunded = order.refundedCents || 0;
@@ -154,6 +218,9 @@ export async function POST(req: NextRequest) {
     customerPhone: order.customerPhone || '',
     stageAtRequest: order.stage,
     message, status: 'open', createdAt: now,
+    category: newCat, caseRef,
+    followUps: [],
+    customerMessagesSinceStaffReply: 0,
     priority: urgent ? 'urgent' : 'normal',
     autoReply: urgent ? '' : autoReply,
     expectNote,
@@ -197,5 +264,5 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, instantAnswer: urgent ? null : (autoReply || null), expectNote });
+  return NextResponse.json({ ok: true, attached: false, caseId: ticketRef.id, caseRef, instantAnswer: urgent ? null : (autoReply || null), expectNote });
 }
