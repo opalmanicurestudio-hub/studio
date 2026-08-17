@@ -1,7 +1,9 @@
 'use client';
 
 import { collection, doc, onSnapshot, orderBy, query, limit, runTransaction, type Firestore } from 'firebase/firestore';
-import { updateDoc } from 'firebase/firestore';
+import { getDoc, updateDoc } from 'firebase/firestore';
+
+import { recordInventoryException } from '@/lib/inventory-exceptions';
 import {
   ArrowLeft, Check, ClipboardList, ExternalLink, Loader, ShieldQuestion, X,
 } from 'lucide-react';
@@ -140,6 +142,70 @@ export default function RetailClaimsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tenantId, claimId: c.id }),
       }).catch(() => {});
+      /* THE EXCEPTION SPINE. An approved claim IS an inventory loss — a unit
+       * was consumed without producing its value — so approval records the
+       * exception: reason from the claim type, responsible party and
+       * recovery candidacy following from it (a never-arrived order is the
+       * CARRIER's loss to reimburse, and N2's Recovery Queue starts from
+       * that stamp). Landed cost resolves through the order line's product;
+       * a claim whose product can't be costed records with costed:false and
+       * the retail figure, honestly flagged rather than guessed. Declines
+       * record nothing — a declined claim lost no inventory. Deterministic
+       * id = one record no matter how many devices tapped approve. */
+      if (approve && firestore) {
+        void (async () => {
+          try {
+            const lineId = String(c.id).split('__')[2] || '';
+            let productId: string | null = null;
+            let costPerUnit: number | null = null;
+            let retailPer: number | null = null;
+            let qty = Math.max(1, Number(c.qty) || 1);
+            let trackingNumber: string | null = null;
+            let carrier: string | null = null;
+            const oSnap = await getDoc(doc(firestore as Firestore, `tenants/${tenantId}/retailOrders/${c.orderId}`));
+            if (oSnap.exists()) {
+              const o = oSnap.data() as any;
+              trackingNumber = o.trackingNumber || null;
+              carrier = o.carrier || null;
+              const line = (o.lines || []).find((l: any) => l.lineId === lineId);
+              if (line) {
+                productId = line.productId || null;
+                retailPer = Number(line.unitPriceCents) || null;
+                if (productId) {
+                  const iSnap = await getDoc(doc(firestore as Firestore, `tenants/${tenantId}/inventory/${productId}`));
+                  if (iSnap.exists()) costPerUnit = Number((iSnap.data() as any).costPerUnit) || null;
+                }
+              } else if (c.type === 'not_received') {
+                qty = (o.lines || []).reduce((a: number, l: any) => a + Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0)), 0) || qty;
+              }
+            }
+            await recordInventoryException(firestore as Firestore, tenantId, {
+              dedupeId: `claim-${c.id}`,
+              reason: c.type === 'missing' ? 'reported_missing'
+                : c.type === 'damaged' ? 'reported_damaged'
+                : c.type === 'wrong_item' ? 'wrong_item_shipped'
+                : 'carrier_lost',
+              qty,
+              productId,
+              sku: c.lineSku || null,
+              name: c.lineName || `Order #${String(c.orderNumber ?? '').padStart(4, '0')} contents`,
+              costPerUnitDollars: costPerUnit,
+              retailPerUnitCents: retailPer,
+              orderId: c.orderId,
+              orderNumber: c.orderNumber ?? null,
+              claimId: c.id,
+              trackingNumber,
+              carrier,
+              responsibleParty: c.type === 'not_received' ? 'carrier'
+                : c.type === 'wrong_item' ? 'internal' : 'unknown',
+              note: c.description || null,
+              photoUrls: Array.isArray((c as any).photoUrls) ? (c as any).photoUrls : [],
+              recordedBy: { id: 'staff', name: 'Claims desk' },
+              source: 'claims_desk',
+            });
+          } catch { /* the claim decision stands; the ledger view will show the gap */ }
+        })();
+      }
       toast({
         title: approve ? 'Approved — refund queued' : 'Declined',
         description: approve
