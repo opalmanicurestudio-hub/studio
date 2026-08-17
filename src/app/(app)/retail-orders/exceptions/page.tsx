@@ -12,7 +12,7 @@
 // enforcement; the UI mirror keeps the refusal friendly).
 
 import { collection, onSnapshot, type Firestore } from 'firebase/firestore';
-import { ArrowLeft, Clock, Loader, ShieldQuestion, TriangleAlert } from 'lucide-react';
+import { ArrowLeft, Clock, Copy, Loader, Printer, ShieldQuestion, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
 
@@ -23,7 +23,7 @@ import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import {
-  advanceRecovery, deadlineState, reasonGroup, reasonLabel, recoveryNetLossCents,
+  advanceRecovery, deadlineState, markMonthHandedOff, reasonGroup, reasonLabel, recoveryNetLossCents,
   type RecoveryAction,
 } from '@/lib/inventory-exceptions';
 
@@ -63,6 +63,7 @@ export default function InventoryExceptionsPage() {
   const [fileDeadline, setFileDeadline] = useState('');
   const [fileNote, setFileNote] = useState('');
   const [payDraft, setPayDraft] = useState<Record<string, string>>({});
+  const monthKey = new Date().toISOString().slice(0, 7);
 
   useEffect(() => {
     if (!firestore || !tenantId) return;
@@ -74,7 +75,6 @@ export default function InventoryExceptionsPage() {
     });
   }, [firestore, tenantId]);
 
-  const monthKey = new Date().toISOString().slice(0, 7);
   const totals = useMemo(() => {
     const month = rows.filter((r) => String(r.at || '').startsWith(monthKey));
     return {
@@ -136,6 +136,25 @@ export default function InventoryExceptionsPage() {
               Nothing disappears as an adjustment · recoveries offset, never erase
             </p>
           </div>
+          <Button asChild variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
+            <a href={`/print/loss-recovery/${tenantId}?month=${monthKey}`} target="_blank" rel="noreferrer">
+              <Printer className="mr-1.5 h-3.5 w-3.5" /> Register
+            </a>
+          </Button>
+          {isMgr && (
+            <Button variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest"
+              disabled={busy === 'handoff'}
+              onClick={async () => {
+                if (!firestore || !tenantId) return;
+                if (!window.confirm('Stamp every exception this month as handed to accounting?')) return;
+                setBusy('handoff');
+                const res = await markMonthHandedOff(firestore as Firestore, tenantId, monthKey, 'Manager');
+                setBusy(null);
+                toast(res.ok ? { title: res.message } : { variant: 'destructive', title: 'Not stamped', description: res.message });
+              }}>
+              {busy === 'handoff' ? <Loader className="h-3.5 w-3.5 animate-spin" /> : 'Hand off month'}
+            </Button>
+          )}
         </div>
       </header>
 
@@ -329,6 +348,17 @@ export default function InventoryExceptionsPage() {
                 )}
 
                 <div className="flex flex-wrap items-center gap-2">
+                  {Array.isArray(r.flags) && r.flags.includes('possible_duplicate') && (
+                    <span className="flex items-center gap-1 rounded-full border-2 border-orange-300 bg-orange-50 px-2.5 py-1 text-[8px] font-black uppercase tracking-widest text-orange-700">
+                      <Copy className="h-3 w-3" /> Possible duplicate — review both
+                    </span>
+                  )}
+                  <span className={cn('rounded-full border-2 px-2.5 py-1 text-[8px] font-black uppercase tracking-widest',
+                    r.accountingStatus === 'handed_off' ? 'border-green-200 bg-green-50 text-green-700'
+                      : r.accountingStatus === 'ledgered' ? 'border-slate-200 bg-slate-50 text-slate-600'
+                      : 'border-slate-200 bg-white text-slate-500')}>
+                    {r.accountingStatus === 'handed_off' ? 'Handed to accounting' : r.accountingStatus === 'ledgered' ? 'On the books' : 'Recorded'}
+                  </span>
                   {r.costed === false && (
                     <span className="rounded-full border-2 border-amber-200 bg-amber-50 px-2.5 py-1 text-[8px] font-black uppercase tracking-widest text-amber-700">
                       Needs product cost
