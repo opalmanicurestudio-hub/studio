@@ -297,6 +297,17 @@ async function handleCheckout(req: NextRequest) {
     // that is final sale is caught even when its parent is not.
     const finalSale = finalSaleFor(item as any);
     if (finalSale) Object.assign(line, finalSale);
+    /* DOCUMENTS RIDE THE LINE. SDS/MSDS and other product documents are
+     * snapshotted at purchase (same principle as finalSale and the policy
+     * text): the customer's order history shows the sheet for the product
+     * AS SOLD, and a listing edited next year cannot change what this
+     * buyer can download. Validated https-only, capped; absent = nothing
+     * renders, which is every order written before this. */
+    const lineDocs = (Array.isArray((item as any).documents) ? (item as any).documents : [])
+      .filter((d: any) => d && d.name && /^https:\/\//i.test(String(d.url || '')))
+      .slice(0, 6)
+      .map((d: any) => ({ name: String(d.name).slice(0, 80), url: String(d.url).slice(0, 500) }));
+    if (lineDocs.length > 0) (line as any).documents = lineDocs;
     lines.push(line);
   }
 
