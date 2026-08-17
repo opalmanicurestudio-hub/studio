@@ -184,6 +184,7 @@ export async function GET(req: NextRequest) {
         productId: l.productId,
         qtyReturned: l.qtyReturned || 0,
         name: l.name,
+        documents: Array.isArray(l.documents) ? l.documents.slice(0, 6) : [],
         qtyOrdered: l.qtyOrdered,
         qtyShorted: l.qtyShorted || 0,
         unitPriceCents: l.unitPriceCents,
