@@ -12,7 +12,7 @@
 // enforcement; the UI mirror keeps the refusal friendly).
 
 import { collection, onSnapshot, type Firestore } from 'firebase/firestore';
-import { ArrowLeft, ChartColumn, Clock, Copy, Loader, Printer, ShieldQuestion, TriangleAlert } from 'lucide-react';
+import { ArrowLeft, ChartColumn, Clock, Copy, ExternalLink, FileStack, Loader, Printer, Shield, ShieldOff, ShieldQuestion, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
 
@@ -23,7 +23,7 @@ import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import {
-  advanceRecovery, deadlineState, lossAnalytics, markMonthHandedOff, reasonGroup, reasonLabel, recoveryNetLossCents,
+  advanceRecovery, claimWindowFor, deadlineState, lossAnalytics, markMonthHandedOff, reasonGroup, reasonLabel, recoveryNetLossCents, suggestedDeadline,
   type RecoveryAction,
 } from '@/lib/inventory-exceptions';
 
@@ -373,10 +373,25 @@ export default function InventoryExceptionsPage() {
                       </div>
                     )}
 
+                    {r.reasonGroup === 'carrier' && r.insuredCents != null && (
+                      <p className={cn('flex items-center gap-1.5 rounded-xl border-2 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-widest',
+                        r.insuredCents > 0 ? 'border-green-200 bg-green-50 text-green-700' : 'border-slate-200 bg-slate-50 text-slate-600')}>
+                        {r.insuredCents > 0 ? <Shield className="h-3 w-3 shrink-0" /> : <ShieldOff className="h-3 w-3 shrink-0" />}
+                        {r.insuredCents > 0
+                          ? `Insured for ${fmt(r.insuredCents)} at label purchase — claim up to this plus postage`
+                          : 'Rode uninsured — carrier minimums only (many services include ~$100)'}
+                      </p>
+                    )}
                     {rec.status === 'candidate' && fileFor !== r.id && (
                       <div className="flex flex-wrap gap-2">
                         <Button variant="outline" className={ACT_BTN}
-                          onClick={() => { setFileFor(r.id); setFileAmount(((r.landedCostCents || 0) / 100).toFixed(2)); }}>
+                          onClick={() => {
+                            setFileFor(r.id);
+                            const cap = r.insuredCents && r.insuredCents > 0 ? Math.min(r.landedCostCents || 0, r.insuredCents) : (r.landedCostCents || 0);
+                            setFileAmount((cap / 100).toFixed(2));
+                            const dl = suggestedDeadline(r.shippedAt, r.carrier);
+                            setFileDeadline(dl ? dl.slice(0, 10) : '');
+                          }}>
                           File claim
                         </Button>
                         <Button variant="outline" className={cn(ACT_BTN, 'text-muted-foreground')} disabled={busy === `${r.id}-abandon`}
@@ -403,6 +418,16 @@ export default function InventoryExceptionsPage() {
                         <input placeholder="Note (optional)" aria-label="Filing note" value={fileNote}
                           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFileNote(e.target.value)}
                           className="h-9 w-full rounded-xl border-2 bg-white px-2.5 text-sm font-bold outline-none focus:border-foreground/60" />
+                        {(() => { const w = claimWindowFor(r.carrier); return (
+                          <p className="flex flex-wrap items-center gap-x-2 text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+                            Typical {r.carrier || 'carrier'} window: {w.days} days from ship — verify for your service.
+                            {w.url && (
+                              <a href={w.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary underline underline-offset-2">
+                                {w.label} <ExternalLink className="h-3 w-3" />
+                              </a>
+                            )}
+                          </p>
+                        ); })()}
                         <div className="flex gap-2">
                           <Button className={ACT_BTN} disabled={busy === `${r.id}-file`}
                             onClick={() => void act(r.id, 'file', {
@@ -467,9 +492,16 @@ export default function InventoryExceptionsPage() {
                       Needs product cost
                     </span>
                   )}
+                  {['carrier', 'supplier'].includes(String(r.reasonGroup)) && (
+                    <a href={`/print/claim-pack/${tenantId}/${r.id}`} target="_blank" rel="noreferrer"
+                      className="ml-auto inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-primary underline-offset-4 hover:underline">
+                      <FileStack className="h-3 w-3" /> Claim pack
+                    </a>
+                  )}
                   {r.orderId && (
                     <Link href={`/retail-orders/evidence/${r.orderId}`}
-                      className="ml-auto text-[9px] font-black uppercase tracking-widest text-primary underline-offset-4 hover:underline">
+                      className={cn('text-[9px] font-black uppercase tracking-widest text-primary underline-offset-4 hover:underline',
+                        !['carrier', 'supplier'].includes(String(r.reasonGroup)) && 'ml-auto')}>
                       Evidence
                     </Link>
                   )}
