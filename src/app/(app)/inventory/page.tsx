@@ -94,7 +94,9 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
 import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch } from 'firebase/firestore';
+import { collection, doc, setDoc, writeBatch } from 'firebase/firestore';
+
+import { reasonLabel, recordManualException } from '@/lib/inventory-exceptions';
 import { nanoid } from 'nanoid';
 import { BrowseProductsDialog } from '@/components/services/BrowseProductsDialog';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
@@ -595,7 +597,7 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
             if (released.length > 0) {
               toast({
                 title: `Restock releases ${released.length} backorder${released.length > 1 ? 's' : ''}`,
-                description: released.map(r => `#${String(r.orderNumber ?? '').padStart(4, '0')} (${r.units}u)`).join(', ') + ' \u2014 back in the pick queue.',
+                description: released.map(r => `#${String(r.orderNumber ?? '').padStart(4, '0')} (${r.units}u)`).join(', ') + ' — back in the pick queue.',
               });
             }
           } catch {
@@ -1034,7 +1036,7 @@ export default function InventoryPage() {
     setIsWriteOffOpen(true);
   };
 
-  const handleWriteOffConfirm = useCallback((productId: string, batchId: string, quantity: number, reason: string): { success: boolean, message: string } => {
+  const handleWriteOffConfirm = useCallback((productId: string, batchId: string, quantity: number, reason: string, notes?: string, imageUrl?: string): { success: boolean, message: string } => {
     if (!firestore || !tenantId || !inventory) return { success: false, message: 'Firestore not available' };
 
     const product = inventory.find(p => p.id === productId);
@@ -1049,6 +1051,7 @@ export default function InventoryPage() {
     }
 
     const lossAmount = quantity * batchToUpdate.costPerUnit;
+    const reasonText = reasonLabel(reason);
 
     const productRef = doc(firestore, `tenants/${tenantId}/inventory`, productId);
     const updatedBatches = [...product.batches];
@@ -1072,26 +1075,58 @@ export default function InventoryPage() {
       type: 'spoiled',
       delta: -quantity,
       unit: product.unit || 'units',
-      reason: `Write-off: ${reason}`,
+      reason: `Write-off: ${reasonText}${notes ? ` — ${notes}` : ''}`,
       balanceAfter: newTotalStock,
     });
     addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), stockCorrection);
 
+    /* The ledger line gets an explicit ref so the exception can link to it —
+     * one economic loss, one Spoilage line, provably paired. */
+    const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
     const transaction: Omit<Transaction, 'id' | 'date'> = {
-      description: `Write-off: ${quantity} x ${product.name}`,
+      description: `Write-off (${reasonText}): ${quantity} x ${product.name}`,
       clientOrVendor: 'Internal',
       type: 'expense',
       context: 'Business',
       category: 'Spoilage',
       amount: lossAmount,
       paymentMethod: 'Internal',
-      hasReceipt: false,
+      hasReceipt: Boolean(imageUrl),
     };
-    addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/transactions`), { ...transaction, date: new Date().toISOString() });
+    void setDoc(txnRef, { ...transaction, id: txnRef.id, date: new Date().toISOString(), tenantId }).catch(() => undefined);
+
+    /* THE SPINE, from the manual door. Reason is a taxonomy CODE now, the
+     * dialog's photo and notes ride along as evidence, and the duplicate
+     * guard flags a second exception on the same product within 30 days —
+     * the human path to double-counting the same loss. 'Damaged on arrival'
+     * stamps the supplier responsible and lands in the Recovery Queue. */
+    void recordManualException(firestore, tenantId, {
+      dedupeId: `man-${txnRef.id}`,
+      reason,
+      qty: quantity,
+      productId,
+      sku: (product as any).sku || null,
+      name: product.name,
+      costPerUnitDollars: batchToUpdate.costPerUnit,
+      retailPerUnitCents: Math.round(((product as any).price || 0) * 100),
+      responsibleParty: undefined as any,
+      ledgerTxnId: txnRef.id,
+      note: notes || null,
+      photoUrls: imageUrl ? [imageUrl] : [],
+      recordedBy: { id: 'staff', name: 'Inventory' },
+      source: 'manual',
+    }).then((res) => {
+      if (res.possibleDuplicate) {
+        toast({
+          title: 'Recorded — possible duplicate flagged',
+          description: `${product.name} already has a loss recorded in the last 30 days. The Loss & Recovery ledger shows both for review.`,
+        });
+      }
+    }).catch(() => undefined);
 
     toast({
         title: "Item Written Off",
-        description: `${quantity} unit(s) of ${product.name} have been written off with a total loss of $${lossAmount.toFixed(2)}.`,
+        description: `${quantity} unit(s) of ${product.name} written off (${reasonText}) — $${lossAmount.toFixed(2)} landed cost.`,
     });
 
     return { success: true, message: "Write-off successful." };
@@ -1583,7 +1618,7 @@ export default function InventoryPage() {
                                         onChange={(e) => setSortBy(e.target.value as SortKey)}
                                         className="h-9 rounded-xl border-2 bg-white px-2 text-[11px] font-black uppercase tracking-widest"
                                     >
-                                        <option value="name">A \u2013 Z</option>
+                                        <option value="name">A – Z</option>
                                         <option value="stock_low">Least stock first</option>
                                         <option value="recent">Recently updated</option>
                                         <option value="value">Highest value</option>
