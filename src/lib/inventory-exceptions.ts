@@ -18,7 +18,7 @@
 // idempotent: the same source event can fire twice and produce one record.
 
 import {
-  collection, doc, getDoc, setDoc, type Firestore,
+  collection, doc, getDoc, runTransaction, setDoc, type Firestore,
 } from 'firebase/firestore';
 
 // ─── Reason taxonomy (spec's codes, grouped) ─────────────────────────────────
@@ -199,5 +199,118 @@ export async function recordInventoryException(
     return { ok: true, created: true };
   } catch (e: any) {
     return { ok: false, created: false, message: e?.message || 'Could not record the exception.' };
+  }
+}
+
+
+// ─── Round N2: the Recovery Queue lifecycle ──────────────────────────────────
+// A carrier or supplier loss is money someone else may owe. The lifecycle is
+// deliberately small and every transition is APPENDED to recovery.events —
+// offsets never erase, exactly like the order event log. Recovered money
+// writes a ledger INCOME line ('Loss recovery') that stands NEXT TO the
+// original Spoilage expense, never instead of it: the loss happened, the
+// reimbursement happened, and the books show both. netLoss = landed −
+// recovered is computed truth, not a stored opinion.
+
+export type RecoveryStatus = 'none' | 'candidate' | 'filed' | 'approved' | 'denied' | 'abandoned' | 'paid';
+export type RecoveryAction = 'file' | 'approve' | 'deny' | 'abandon' | 'payment';
+
+const RECOVERY_TRANSITIONS: Record<RecoveryAction, RecoveryStatus[]> = {
+  file: ['candidate'],
+  approve: ['filed'],
+  deny: ['filed', 'approved'],
+  abandon: ['candidate', 'filed'],
+  payment: ['filed', 'approved', 'paid'], // partial payments accumulate
+};
+
+export function recoveryNetLossCents(exc: { landedCostCents?: number; recovery?: { recoveredCents?: number } }): number {
+  return Math.max(0, (Number(exc.landedCostCents) || 0) - (Number(exc.recovery?.recoveredCents) || 0));
+}
+
+export function deadlineState(exc: any, now = Date.now()): 'none' | 'ok' | 'soon' | 'overdue' {
+  const d = exc?.recovery?.deadlineAt ? Date.parse(String(exc.recovery.deadlineAt)) : NaN;
+  if (!Number.isFinite(d)) return 'none';
+  if (exc?.recovery?.status !== 'filed') return 'none';
+  if (d < now) return 'overdue';
+  if (d - now < 7 * 86400000) return 'soon';
+  return 'ok';
+}
+
+export async function advanceRecovery(
+  fs: Firestore, tenantId: string, excId: string,
+  action: RecoveryAction,
+  payload: { amountCents?: number; refNumber?: string; deadlineAt?: string | null; note?: string },
+  actor: { id: string; name: string },
+): Promise<{ ok: boolean; message: string }> {
+  try {
+    return await runTransaction(fs, async (txn) => {
+      const ref = doc(collection(fs, `tenants/${tenantId}/inventoryExceptions`), excId);
+      const snap = await txn.get(ref);
+      if (!snap.exists()) return { ok: false, message: 'Exception not found.' };
+      const exc = snap.data() as any;
+      const rec = { ...(exc.recovery || { status: 'none', claimAmountCents: 0, recoveredCents: 0 }) };
+      const from: RecoveryStatus = rec.status || 'none';
+
+      if (!RECOVERY_TRANSITIONS[action].includes(from)) {
+        return { ok: false, message: `Can't ${action} a ${String(from).replace('_', ' ')} recovery.` };
+      }
+
+      const now = new Date().toISOString();
+      const events = Array.isArray(rec.events) ? [...rec.events] : [];
+      const note = payload.note ? String(payload.note).slice(0, 400) : null;
+
+      if (action === 'file') {
+        const amount = Math.max(0, Math.round(Number(payload.amountCents) || 0)) || (Number(exc.landedCostCents) || 0);
+        rec.status = 'filed';
+        rec.claimAmountCents = amount;
+        rec.refNumber = payload.refNumber ? String(payload.refNumber).slice(0, 60) : null;
+        rec.filedAt = now;
+        rec.deadlineAt = payload.deadlineAt || null;
+        events.push({ at: now, by: actor.name, action: 'file', amountCents: amount, ...(rec.refNumber ? { refNumber: rec.refNumber } : {}), ...(note ? { note } : {}) });
+      } else if (action === 'approve') {
+        rec.status = 'approved';
+        events.push({ at: now, by: actor.name, action: 'approve', ...(note ? { note } : {}) });
+      } else if (action === 'deny') {
+        rec.status = 'denied';
+        events.push({ at: now, by: actor.name, action: 'deny', ...(note ? { note } : {}) });
+      } else if (action === 'abandon') {
+        rec.status = 'abandoned';
+        events.push({ at: now, by: actor.name, action: 'abandon', ...(note ? { note } : {}) });
+      } else if (action === 'payment') {
+        const amount = Math.max(0, Math.round(Number(payload.amountCents) || 0));
+        if (amount <= 0) return { ok: false, message: 'Enter the amount that actually arrived.' };
+        rec.recoveredCents = Math.max(0, Number(rec.recoveredCents) || 0) + amount;
+        rec.status = 'paid';
+        rec.lastPaymentAt = now;
+        events.push({ at: now, by: actor.name, action: 'payment', amountCents: amount, ...(note ? { note } : {}) });
+
+        /* The income line — the offset that never erases. Linked both ways
+         * so reconciliation can pair every recovery with its loss. */
+        const txnRef = doc(collection(fs, `tenants/${tenantId}/transactions`));
+        txn.set(txnRef, {
+          id: txnRef.id, date: now,
+          description: `Loss recovery: ${exc.name}${exc.orderNumber != null ? ` (Order #${String(exc.orderNumber).padStart(4, '0')})` : ''}${rec.refNumber ? ` · ref ${rec.refNumber}` : ''}`,
+          clientOrVendor: exc.carrier || (exc.responsibleParty === 'supplier' ? 'Supplier' : 'Carrier'),
+          type: 'income', context: 'Business',
+          category: 'Loss recovery', taxBucket: 'income',
+          amount: amount / 100, paymentMethod: 'External', hasReceipt: false,
+          inventoryExceptionId: excId, tenantId,
+        });
+        rec.lastRecoveryTxnId = txnRef.id;
+      }
+
+      rec.events = events;
+      txn.update(ref, { recovery: JSON.parse(JSON.stringify(rec)) });
+      const netAfter = Math.max(0, (Number(exc.landedCostCents) || 0) - (Number(rec.recoveredCents) || 0));
+      return {
+        ok: true,
+        message: action === 'payment'
+          ? `$${((Number(payload.amountCents) || 0) / 100).toFixed(2)} recorded — net loss now $${(netAfter / 100).toFixed(2)}`
+          : action === 'file' ? 'Claim filed — the deadline clock is running'
+          : `Recovery ${rec.status}`,
+      };
+    });
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'Could not update the recovery.' };
   }
 }
