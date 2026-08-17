@@ -135,6 +135,25 @@ async function handleCheckout(req: NextRequest) {
   if (!customerName || !customerEmail) {
     return NextResponse.json({ error: 'customer name and email are required' }, { status: 400 });
   }
+
+  /* THE DOOR, FOR PEOPLE WHO EARNED IT. A customer flagged 'banned' (fraud,
+   * chargebacks, staff abuse — staff decide, with notes) cannot place online
+   * orders. The refusal is deliberately neutral: no reason is disclosed, so
+   * the flag's notes stay an internal record and the message gives an angry
+   * person nothing to argue with. 'watch' flags never block — they only
+   * inform staff surfaces. A flag-read failure fails OPEN: protection must
+   * never take the shop's checkout down. */
+  try {
+    const flagSnap = await getAdminDb()
+      .collection(`tenants/${tenantId}/customerFlags`)
+      .where('email', '==', customerEmail).limit(1).get();
+    if (!flagSnap.empty && String((flagSnap.docs[0].data() as any).level) === 'banned') {
+      return NextResponse.json(
+        { error: 'We can\u2019t take this order online. Please contact the shop directly.' },
+        { status: 403 },
+      );
+    }
+  } catch { /* fail open */ }
   const priceTier = (body.priceTier || 'retail') as PriceTier;
   if (!PRICE_TIERS.includes(priceTier)) {
     return NextResponse.json({ error: 'priceTier must be retail or wholesale' }, { status: 400 });
