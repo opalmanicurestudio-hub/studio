@@ -193,85 +193,80 @@ export default function HostScreen() {
     }
   };
 
-  /** BOOTH DAY-USE. Today's hourly/daily boothReservations become expected
-   *  parties — same idempotence key pattern as bookings (booth:{id}), same
-   *  refusal to guess: cancelled rows and rows off this business day are
-   *  skipped. Monthly LEASES are deliberately absent: a lease is tenancy,
-   *  not hosting — nobody seats a renter who has keys. Units are not pinned
-   *  (booth ids live in their own module, not on this floor template), so a
-   *  day-use hold is abstract capacity, exactly how a host thinks of it. */
-  const importBooths = async () => {
-    if (!firestore || !tenantId || !session) return;
-    try {
-      const have = new Set(parties.flatMap((p) => p.guestIds || []));
-      const snap = await getDocs(query(
-        collection(firestore, `tenants/${tenantId}/boothReservations`),
-        where('startDate', '==', session.businessDay),
-      ));
-      let added = 0;
+  /** BOOTH DAY-USE, MIRRORED LIVE. Today's hourly/daily boothReservations
+   *  appear as expected parties the moment they exist — read-side only, the
+   *  booth module stays sole owner of its rows (payments, agreements, kiosk
+   *  check-in untouched). A mirrored row becomes a real party doc only when
+   *  the host seats it (materialise-on-touch, deduped by booth:{id}).
+   *  Monthly LEASES are deliberately absent: a lease is tenancy, not
+   *  hosting — nobody seats a renter who has keys. Units are not pinned:
+   *  booth ids live in their own module, not on this floor template. */
+  const [boothMirror, setBoothMirror] = useState<HostedParty[]>([]);
+  useEffect(() => {
+    if (!firestore || !tenantId || !session?.id) return;
+    return onSnapshot(query(
+      collection(firestore, `tenants/${tenantId}/boothReservations`),
+      where('startDate', '==', session.businessDay),
+    ), (snap) => {
+      const out: HostedParty[] = [];
       for (const d of snap.docs) {
         const r = { id: d.id, ...(d.data() as any) };
-        if (have.has(`booth:${d.id}`)) continue;
         if (['cancelled', 'canceled'].includes(String(r.status || ''))) continue;
         const startIso = r.startTime
           ? new Date(`${session.businessDay}T${String(r.startTime).slice(0, 5)}:00`).toISOString()
           : new Date(`${session.businessDay}T09:00:00`).toISOString();
-        await addDoc(collection(firestore, `tenants/${tenantId}/parties`), {
+        out.push({
+          id: `booth:${d.id}`,
           sessionId: session.id,
           name: `${String(r.name || 'Day use').trim()}${r.boothName ? ` (${r.boothName})` : ''}`,
           size: 1, needs: [], source: 'booking',
-          status: r.checked_inAt || r.status === 'checked_in' ? 'seated' : 'expected',
+          status: 'expected',
           arrivesAt: startIso, joinedAt: null, quotedMinutes: null,
-          notifiedAt: null, seatedAt: iso0(r.checked_inAt), finishedAt: null,
+          notifiedAt: null, seatedAt: null, finishedAt: null,
           turnMinutes: null, unitIds: [], guestIds: [`booth:${d.id}`],
-        });
-        added += 1;
+        } as HostedParty);
       }
-      toast({ title: added ? `${added} booth booking${added === 1 ? '' : 's'} imported` : 'Nothing new to import' });
-    } catch (e) {
-      toast({ variant: 'destructive', title: 'Import failed', description: e instanceof Error ? e.message : undefined });
-    }
-  };
-  const iso0 = (v: any) => { const t = Date.parse(String(v || '')); return Number.isFinite(t) ? new Date(t).toISOString() : null; };
+      setBoothMirror(out);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firestore, tenantId, session?.id]);
 
-  /** THE EVENT ADAPTER GOES LIVE HERE. The active event's guest manifest
-   *  becomes hosted parties through the tested partiesFromEventGuests mapping:
-   *  guests sharing a booking arrive as one party, seat assignments resolve
-   *  through the same identity logic the floor uses (id, internal-id-in-
-   *  tableNumber, and human name — ambiguity skipped, never guessed), and a
-   *  guest already checked in imports as seated at their assigned unit.
-   *  Idempotent like the other three sources: every member id is carried as
-   *  event:{guestId}, and a party whose members are all carried already is
-   *  skipped, so the button is safe to press after every RSVP wave. */
-  const importEvent = async () => {
-    if (!firestore || !tenantId || !session) return;
-    try {
-      const evSnap = await getDocs(query(
-        collection(firestore, `tenants/${tenantId}/studioEvents`),
-        where('status', '==', 'active'), limit(1),
-      ));
-      if (evSnap.empty) { toast({ title: 'No active event to import' }); return; }
-      const ev = { id: evSnap.docs[0].id, ...(evSnap.docs[0].data() as any) };
-      const gSnap = await getDocs(query(
-        collection(firestore, `tenants/${tenantId}/eventGuests`),
-        where('eventId', '==', ev.id),
-      ));
-      const guests = gSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-      const evUnits: TableLike[] = Array.isArray(ev.seatingTables) ? ev.seatingTables : units;
-      const have = new Set(parties.flatMap((p) => p.guestIds || []));
-      let added = 0;
+  /** THE EVENT, MIRRORED LIVE. The active event's guest manifest flows
+   *  through the tested partiesFromEventGuests mapping continuously — every
+   *  RSVP wave appears without anyone pressing anything. Same discipline:
+   *  the event module owns its guests; a mirror row materialises only on
+   *  seat (all member ids carried as event:{guestId}). Guests the event has
+   *  already checked in and seated are left to the event's own surfaces —
+   *  a read-side mirror refuses to write a seat it did not give. */
+  const [activeEvent, setActiveEvent] = useState<any | null>(null);
+  const [eventMirror, setEventMirror] = useState<HostedParty[]>([]);
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    return onSnapshot(query(
+      collection(firestore, `tenants/${tenantId}/studioEvents`),
+      where('status', '==', 'active'), limit(1),
+    ), (snap) => {
+      setActiveEvent(snap.empty ? null : { id: snap.docs[0].id, ...(snap.docs[0].data() as any) });
+    });
+  }, [firestore, tenantId]);
+  useEffect(() => {
+    if (!firestore || !tenantId || !session?.id || !activeEvent?.id) { setEventMirror([]); return; }
+    const evUnits: TableLike[] = Array.isArray(activeEvent.seatingTables) ? activeEvent.seatingTables : units;
+    return onSnapshot(query(
+      collection(firestore, `tenants/${tenantId}/eventGuests`),
+      where('eventId', '==', activeEvent.id),
+    ), (snap) => {
+      const guests = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+      const out: HostedParty[] = [];
       for (const p of partiesFromEventGuests(guests, session.id, evUnits)) {
+        if (p.status === 'seated') continue; // checked in by the event itself — not ours to re-seat
         const keys = (p.guestIds || []).map((g) => `event:${g}`);
-        if (keys.every((k) => have.has(k))) continue;
-        await addDoc(collection(firestore, `tenants/${tenantId}/parties`),
-          { ...p, guestIds: keys });
-        added += 1;
+        out.push({ ...p, id: `event:${keys[0] || Math.random().toString(36).slice(2)}`, guestIds: keys } as HostedParty);
       }
-      toast({ title: added ? `${added} ${added === 1 ? 'party' : 'parties'} imported from ${ev.name || ev.title || 'the event'}` : 'Nothing new to import' });
-    } catch (e) {
-      toast({ variant: 'destructive', title: 'Import failed', description: e instanceof Error ? e.message : undefined });
-    }
-  };
+      setEventMirror(out);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firestore, tenantId, session?.id, activeEvent?.id]);
 
   /** READY TEXT. The server claims the notification (a double-tap cannot send
    *  twice), texts the party if a phone is on file, and marks them notified
@@ -364,10 +359,11 @@ export default function HostScreen() {
   };
 
   const seatAt = async (party: HostedParty, unitId: string, force = false) => {
-    // Seating a MIRRORED walk-in materialises it as a real party first —
-    // skipped if a prior touch already did (the dedupe key is the queue id).
-    if (party.id.startsWith('walkin:') && firestore && tenantId && session) {
-      if (parties.some((x) => (x.guestIds || []).includes(party.id))) return;
+    // Seating ANY mirrored row (walk-in, booth, event) materialises it as a
+    // real party first — skipped if a prior touch already did (the dedupe
+    // keys are the source ids carried in guestIds).
+    if (/^(walkin|booth|event):/.test(party.id) && firestore && tenantId && session) {
+      if (parties.some((x) => (x.guestIds || []).some((g) => (party.guestIds || []).includes(g)))) return;
       const { id: _drop, ...body } = party;
       const ref = await addDoc(collection(firestore, `tenants/${tenantId}/parties`), body);
       party = { ...party, id: ref.id };
@@ -381,14 +377,36 @@ export default function HostScreen() {
     }
     await write(party.id, { status: 'seated', seatedAt: new Date().toISOString(), unitIds: [unitId] });
     await syncQueueSeated(party);
+    /* SEAT → GUEST DOC WRITE-BACK (the last one-way seam). When the party
+     * came from the event, the seat the host just gave is written back to
+     * each guest's own doc as the unit NAME — the same convention
+     * SeatingChartTab writes — so the floor screen, allergy alerts, and the
+     * seating chart all see the host's decision instead of a stale blank.
+     * Guards mirror H8's: only event-owned members, non-fatal (the party is
+     * seated either way; a sync miss gets an honest toast, never a rollback). */
+    const evKeys = (party.guestIds || []).filter((g) => g.startsWith('event:'));
+    if (evKeys.length > 0 && firestore && tenantId) {
+      const unitName = units.find((u) => u.id === unitId)?.name || unitId;
+      try {
+        await Promise.all(evKeys.map((k) =>
+          setDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, k.slice('event:'.length)),
+            { tableNumber: unitName }, { merge: true })
+        ));
+      } catch {
+        toast({ title: 'Seated — chart sync missed', description: `They're seated here; the event chart may still show the old ${V.unit}.` });
+      }
+    }
     setSelected(null); setProposals([]);
   };
   const [forceFor, setForceFor] = useState<string | null>(null);
 
-  const mirrored = queueMirror.filter((m) => !parties.some((x) => (x.guestIds || []).includes(m.id)));
-  const waiting = [...parties, ...mirrored].filter((p) => ['waiting', 'notified'].includes(p.status))
+  const notCarried = (m: HostedParty) =>
+    !parties.some((x) => (x.guestIds || []).some((g) => (m.guestIds || []).includes(g)));
+  const mirrored = queueMirror.filter(notCarried);
+  const mirroredExpected = [...boothMirror, ...eventMirror].filter(notCarried);
+  const waiting = [...parties, ...mirrored, ...mirroredExpected].filter((p) => ['waiting', 'notified'].includes(p.status))
     .sort((a, b) => String(a.joinedAt || '').localeCompare(String(b.joinedAt || '')));
-  const expected = parties.filter((p) => p.status === 'expected')
+  const expected = [...parties, ...mirroredExpected].filter((p) => p.status === 'expected')
     .sort((a, b) => String(a.arrivesAt || '').localeCompare(String(b.arrivesAt || '')));
   const sel = parties.find((p) => p.id === selected) || null;
 
@@ -420,12 +438,9 @@ export default function HostScreen() {
         <Button variant="outline" className={`${CHIP} border-2 bg-white`} onClick={importBookings} disabled={!session}>
           Import bookings
         </Button>
-        <Button variant="outline" className={`${CHIP} border-2 bg-white`} onClick={importBooths} disabled={!session}>
-          Import booths
-        </Button>
-        <Button variant="outline" className={`${CHIP} border-2 bg-white`} onClick={importEvent} disabled={!session}>
-          Import event
-        </Button>
+        <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground self-center">
+          Booths{activeEvent ? ` + ${activeEvent.name || activeEvent.title || 'event'}` : ''} mirror in live
+        </span>
         <Button variant="outline" className={`${CHIP} border-2 bg-white`}
           onClick={() => setProposals(autoSeatPlan(units, waiting.map((p) => ({ id: p.id, size: p.size, needs: p.needs })), seatedGuests, { held, vocabulary: hs.vocabulary }))}>
           <Sparkles className="w-4 h-4 mr-1" />Auto-seat
