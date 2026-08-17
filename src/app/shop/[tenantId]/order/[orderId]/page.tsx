@@ -109,6 +109,7 @@ export default function OrderStatusPage() {
     pending?: boolean;
   }[]>([]);
   const [helpCooldown, setHelpCooldown] = useState<{ caseRef: string; expectNote: string } | null>(null);
+  const [helpElig, setHelpElig] = useState<any>(null);
   const [helpPhotos, setHelpPhotos] = useState<string[]>([]);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [checkingIn, setCheckingIn] = useState(false);
@@ -165,6 +166,7 @@ export default function OrderStatusPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Order not found');
       setOrder(data.order);
+      if (data.help) setHelpElig(data.help);
       if (Array.isArray(data.support)) setSupportThread(data.support);
       setShopGeo(data.shopGeo || null);
       // Remember this order on THIS phone, so scanning a spot sign in the car
@@ -1408,6 +1410,51 @@ export default function OrderStatusPage() {
                       </div>
                     )}
                   </div>
+                  {/* THE ELIGIBLE-OPTIONS MENU. Only what THIS order can
+                      actually do right now — eligibility computed server-side
+                      next to the code that enforces it, so no option here can
+                      ever error with "not allowed". Chips either jump to the
+                      real flow, open a link, or start the message for them. */}
+                  {helpElig && !helpCooldown && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {([
+                        helpElig.hasTracking && order?.trackingUrl ? { label: 'Track my package', kind: 'link', href: order.trackingUrl } : null,
+                        !['completed', 'cancelled'].includes(order?.stage || '') ? { label: 'Where is my order?', kind: 'prefill', text: 'Where is my order right now?' } : null,
+                        helpElig.canChangeAddress ? { label: 'Change shipping address', kind: 'prefill', text: 'I need to change my shipping address to: ' } : null,
+                        helpElig.canCancel ? { label: 'Cancel order', kind: 'scroll', target: 'cancel-entry' } : null,
+                        helpElig.canReport ? { label: 'Missing / wrong / damaged item', kind: 'scroll', target: 'claims-entry' } : null,
+                        helpElig.canReport ? { label: 'Says delivered, not here', kind: 'scroll', target: 'claims-entry' } : null,
+                        helpElig.canReturn ? { label: 'Return an item', kind: 'scroll', target: 'return-entry' } : null,
+                        helpElig.refundState !== 'none' ? { label: 'Refund status', kind: 'prefill', text: 'What is the status of my refund?' } : null,
+                        { label: 'Invoice / receipt', kind: 'link', href: `/shop/${tenantId}/invoice/${orderId}?t=${encodeURIComponent(selfToken || '')}` },
+                        { label: 'Reorder', kind: 'link', href: `/shop/${tenantId}` },
+                        { label: 'Product question', kind: 'prefill', text: 'I have a question about a product in this order: ' },
+                        { label: 'Something else', kind: 'prefill', text: '' },
+                      ] as ({ label: string; kind: string; href?: string; target?: string; text?: string } | null)[])
+                        .filter((o): o is { label: string; kind: string; href?: string; target?: string; text?: string } => o !== null)
+                        .map((o) => (
+                          o.kind === 'link' ? (
+                            <a key={o.label} href={o.href} target={o.href?.startsWith('http') ? '_blank' : undefined} rel="noreferrer"
+                              className="h-8 rounded-full border-2 bg-white px-3 text-[8px] font-black uppercase tracking-widest leading-8 transition-all hover:border-primary/40 active:scale-95">
+                              {o.label}
+                            </a>
+                          ) : (
+                            <button key={o.label} type="button"
+                              onClick={() => {
+                                if (o.kind === 'scroll' && o.target) {
+                                  document.getElementById(o.target)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                } else {
+                                  setHelpMsg(o.text || '');
+                                  document.getElementById('help-message-box')?.focus();
+                                }
+                              }}
+                              className="h-8 rounded-full border-2 bg-white px-3 text-[8px] font-black uppercase tracking-widest transition-all hover:border-primary/40 active:scale-95">
+                              {o.label}
+                            </button>
+                          )
+                        ))}
+                    </div>
+                  )}
                   {helpCooldown && (
                     <div className="space-y-1.5 rounded-2xl border-2 border-green-600/30 bg-green-500/[0.06] p-3">
                       <p className="text-[10px] font-black uppercase tracking-widest text-green-700">
@@ -1425,6 +1472,7 @@ export default function OrderStatusPage() {
                   )}
                   {!helpCooldown && (<>
                   <Textarea
+                    id="help-message-box"
                     placeholder="Still need us? Tell us what's going on…"
                     aria-label="Message to the shop"
                     value={helpMsg}
@@ -1528,6 +1576,7 @@ export default function OrderStatusPage() {
             variant="outline"
             disabled={cancelBusy}
             onClick={cancelSelf}
+            id="cancel-entry"
             className="w-full h-11 rounded-2xl border-2 border-destructive/30 text-destructive font-black uppercase text-[10px] tracking-widest"
           >
             {cancelBusy ? <Loader className="h-4 w-4 animate-spin" /> : promiseLate ? 'Cancel and refund me' : 'Cancel this order'}
@@ -1537,7 +1586,7 @@ export default function OrderStatusPage() {
         {selfToken && order && ['shipped', 'handed_off', 'completed'].includes(order.stage) && (
           <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-5 space-y-3">
-              <div className="flex items-center justify-between gap-2">
+              <div id="claims-entry" className="flex items-center justify-between gap-2">
                 <p className="text-[11px] font-black uppercase tracking-widest">Something wrong with your order?</p>
                 {!claimDone && (
                   <Button
@@ -1895,7 +1944,7 @@ export default function OrderStatusPage() {
                 </Button>
               ) : (
                 <>
-                  <p className="text-[10px] font-black uppercase tracking-widest">Start a return</p>
+                  <p id="return-entry" className="text-[10px] font-black uppercase tracking-widest">Start a return</p>
                   {(order.lines || []).some((l: any) => l.digital === true) && (
                     <p className="rounded-2xl border-2 border-amber-200 bg-amber-50/60 p-2.5 text-[11px] font-bold text-amber-900">
                       Digital items aren&apos;t listed — there&apos;s nothing to post back. If something’s wrong with one, use &ldquo;Report a problem&rdquo; and the shop will sort it with you.
