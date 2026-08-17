@@ -103,6 +103,8 @@ export async function POST(req: NextRequest) {
   const batch = db.batch();
   batch.set(ticketRef, JSON.parse(JSON.stringify({
     replies: [...(ticket.replies || []), { by: staffName, text: reply, at: now, emailed }],
+    customerMessagesSinceStaffReply: 0,
+    lastStaffReplyAt: now,
     ...(resolve ? { status: 'resolved', resolvedBy: staffName, resolvedAt: now } : {}),
   })), { merge: true });
   const evRef = db.collection(`tenants/${tenantId}/retailOrders`).doc(ticket.orderId).collection('events').doc();
