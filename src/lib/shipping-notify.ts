@@ -25,7 +25,11 @@
 
 export type CarrierStatus =
   | 'PRE_TRANSIT' | 'TRANSIT' | 'OUT_FOR_DELIVERY'
-  | 'DELIVERED' | 'RETURNED' | 'FAILURE';
+  | 'DELIVERED' | 'RETURNED' | 'FAILURE'
+  /** Synthetic — never comes from readShippoStatus. The webhook raises it
+   *  when the carrier's own ETA slips past what it first promised, so the
+   *  customer hears about the delay from the shop before they notice it. */
+  | 'DELAYED';
 
 /** Statuses worth an email. PRE_TRANSIT is deliberately silent — the label
  *  existing is not news to anyone. */
@@ -38,6 +42,8 @@ export interface CarrierUpdate {
   trackingUrl?: string;
   /** Carrier's own timestamp — not ours. This is the one a dispute cares about. */
   statusAt?: string;
+  /** New estimated delivery (ISO date) — only meaningful on DELAYED. */
+  eta?: string;
   /** Free-text city/state the carrier reported, when it gives one. */
   location?: string;
   /** Carrier's own words, e.g. "Left at front door". */
@@ -116,6 +122,20 @@ function copyFor(u: CarrierUpdate, shopName: string, firstName: string) {
           'We are already looking into it — you do not need to do anything yet.',
         ].filter(Boolean),
       };
+    case 'DELAYED': {
+      const etaDate = u.eta
+        ? new Date(u.eta).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+        : '';
+      return {
+        title: 'Running a little behind',
+        subject: 'Your delivery estimate moved',
+        lines: [
+          `${who}${carrier} is running behind on this one — your package is still moving, it is just taking longer than first promised.`,
+          etaDate ? `New estimated delivery: ${etaDate}.` : 'The carrier has not committed to a new date yet — the tracking page updates as it moves.',
+          'Nothing is needed from you. If it stops moving entirely, we will take it up with the carrier ourselves.',
+        ].filter(Boolean),
+      };
+    }
     default:
       return null;
   }
