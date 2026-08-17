@@ -270,6 +270,15 @@ export async function POST(req: NextRequest) {
     const riskFactors: string[] = [];
     if (claimValueCents >= 10000) riskFactors.push('High value');
     if (priorClaims >= 2) riskFactors.push(`${priorClaims} prior claims on this email`);
+
+    /* POLICY: after N prior claims, nothing auto-approves — a human looks.
+     * The claim still files normally (ambiguity reads in the customer's
+     * favor); only the shortcut is withdrawn, and the desk sees why. */
+    const reviewAfter = Math.max(0, Math.floor(Number((rs.policies || {}).claimReviewAfter) || 0));
+    const needsReview = reviewAfter > 0 && priorClaims >= reviewAfter;
+    if (needsReview) riskFactors.push(`Policy: manual review after ${reviewAfter} claims`);
+    const photosRequired = (rs.policies || {}).claimPhotosRequired === true && ['damaged', 'wrong_item'].includes(type);
+    if (photosRequired) riskFactors.push('Policy: photo evidence required before approval');
     if (type === 'missing' && evidence.lineScanComplete) riskFactors.push('Item was scanned complete at packing');
     if (type === 'missing' && photoCount > 0) riskFactors.push('Packing photo exists');
     if (type === 'not_received' && evidence.delivered) riskFactors.push('Carrier reported delivered');
@@ -278,7 +287,8 @@ export async function POST(req: NextRequest) {
     // Auto-approve ONLY the case where the shop's own record concedes the
     // point, under the shop's ceiling, from a low-risk account.
     const evidenceConcedes = (type === 'missing' || type === 'wrong_item') && line != null && !evidence.lineScanComplete;
-    const autoApprove = autoMaxCents > 0 && claimValueCents > 0 && claimValueCents <= autoMaxCents && risk === 'low' && evidenceConcedes;
+    const autoApprove = autoMaxCents > 0 && claimValueCents > 0 && claimValueCents <= autoMaxCents && risk === 'low' && evidenceConcedes
+      && !needsReview && !photosRequired;
 
     const now = new Date().toISOString();
     const claim = {
@@ -294,6 +304,7 @@ export async function POST(req: NextRequest) {
       component: component || null,
       claimValueCents,
       evidence, risk, riskFactors,
+      needsReview, photosRequired,
       status: autoApprove ? 'auto_resolved' : 'in_review',
       resolution: autoApprove ? 'refund' : null,
       resolutionCents: autoApprove ? claimValueCents : null,
