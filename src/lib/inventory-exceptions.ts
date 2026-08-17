@@ -422,3 +422,143 @@ export async function markMonthHandedOff(
     return { ok: false, stamped: 0, message: e?.message || 'Could not stamp the month.' };
   }
 }
+
+
+// ─── Round N4: analytics + prevention ────────────────────────────────────────
+// The spec's last stage: Detect → Document → Classify → Recover → Account →
+// ANALYZE → PREVENT. Everything below is a pure function over the exception
+// rows — no queries, no state — so the numbers are recomputable, testable,
+// and identical wherever they render. Signals are deliberately conservative:
+// each one states its threshold in its own text, fires only when the data
+// clears it, and says nothing when the data is thin. A prevention system
+// that cries wolf gets ignored by week two.
+
+export interface LossAnalytics {
+  windowDays: number;
+  total: { count: number; landed: number; recovered: number; net: number; retail: number; margin: number };
+  byGroup: { group: string; count: number; landed: number; recovered: number; net: number }[];
+  byProduct: { productId: string | null; name: string; count: number; landed: number; net: number; topReason: string }[];
+  byCarrier: { carrier: string; count: number; landed: number; recovered: number; ratePct: number | null }[];
+  recovery: {
+    candidateLanded: number;   // carrier/supplier losses where recovery was on the table
+    recovered: number;
+    ratePct: number | null;    // recovered ÷ candidate landed — null when no candidates
+    avgDaysToPaid: number | null;
+    openFiled: number;
+  };
+  signals: { severity: 'warn' | 'info'; text: string }[];
+}
+
+export function lossAnalytics(rows: any[], windowDays = 90, now = Date.now()): LossAnalytics {
+  const cutoff = now - windowDays * 86400000;
+  const inWin = rows.filter((r) => Date.parse(String(r.at || '')) >= cutoff);
+
+  const landedOf = (r: any) => Number(r.landedCostCents) || 0;
+  const recoveredOf = (r: any) => Number(r.recovery?.recoveredCents) || 0;
+  const netOf = (r: any) => Math.max(0, landedOf(r) - recoveredOf(r));
+
+  const total = {
+    count: inWin.length,
+    landed: inWin.reduce((a, r) => a + landedOf(r), 0),
+    recovered: inWin.reduce((a, r) => a + recoveredOf(r), 0),
+    net: inWin.reduce((a, r) => a + netOf(r), 0),
+    retail: inWin.reduce((a, r) => a + (Number(r.retailCents) || 0), 0),
+    margin: inWin.reduce((a, r) => a + (Number(r.marginCents) || 0), 0),
+  };
+
+  const groupAgg = new Map<string, { count: number; landed: number; recovered: number; net: number }>();
+  for (const r of inWin) {
+    const g = String(r.reasonGroup || 'internal');
+    const cur = groupAgg.get(g) || { count: 0, landed: 0, recovered: 0, net: 0 };
+    cur.count += 1; cur.landed += landedOf(r); cur.recovered += recoveredOf(r); cur.net += netOf(r);
+    groupAgg.set(g, cur);
+  }
+  const byGroup = [...groupAgg.entries()]
+    .map(([group, v]) => ({ group, ...v }))
+    .sort((a, b) => b.landed - a.landed);
+
+  const prodAgg = new Map<string, { productId: string | null; name: string; count: number; landed: number; net: number; reasons: Map<string, number> }>();
+  for (const r of inWin) {
+    const key = String(r.productId || r.name || 'unknown');
+    const cur = prodAgg.get(key) || { productId: r.productId || null, name: String(r.name || 'Unknown'), count: 0, landed: 0, net: 0, reasons: new Map() };
+    cur.count += 1; cur.landed += landedOf(r); cur.net += netOf(r);
+    cur.reasons.set(String(r.reason), (cur.reasons.get(String(r.reason)) || 0) + 1);
+    prodAgg.set(key, cur);
+  }
+  const byProduct = [...prodAgg.values()]
+    .map((p) => ({
+      productId: p.productId, name: p.name, count: p.count, landed: p.landed, net: p.net,
+      topReason: [...p.reasons.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || '',
+    }))
+    .sort((a, b) => b.landed - a.landed)
+    .slice(0, 8);
+
+  const carrierAgg = new Map<string, { count: number; landed: number; recovered: number }>();
+  for (const r of inWin) {
+    if (String(r.reasonGroup) !== 'carrier') continue;
+    const c = String(r.carrier || 'Unknown carrier');
+    const cur = carrierAgg.get(c) || { count: 0, landed: 0, recovered: 0 };
+    cur.count += 1; cur.landed += landedOf(r); cur.recovered += recoveredOf(r);
+    carrierAgg.set(c, cur);
+  }
+  const byCarrier = [...carrierAgg.entries()]
+    .map(([carrier, v]) => ({ carrier, ...v, ratePct: v.landed > 0 ? Math.round((v.recovered / v.landed) * 100) : null }))
+    .sort((a, b) => b.landed - a.landed);
+
+  const candidates = inWin.filter((r) => ['candidate', 'filed', 'approved', 'denied', 'paid'].includes(String(r.recovery?.status)));
+  const candidateLanded = candidates.reduce((a, r) => a + landedOf(r), 0);
+  const paidOnes = candidates.filter((r) => (Number(r.recovery?.recoveredCents) || 0) > 0 && r.recovery?.filedAt && r.recovery?.lastPaymentAt);
+  const avgDaysToPaid = paidOnes.length
+    ? Math.round(paidOnes.reduce((a, r) => a + Math.max(0, (Date.parse(r.recovery.lastPaymentAt) - Date.parse(r.recovery.filedAt)) / 86400000), 0) / paidOnes.length)
+    : null;
+  const recovery = {
+    candidateLanded,
+    recovered: total.recovered,
+    ratePct: candidateLanded > 0 ? Math.round((total.recovered / candidateLanded) * 100) : null,
+    avgDaysToPaid,
+    openFiled: inWin.filter((r) => r.recovery?.status === 'filed').length,
+  };
+
+  // ── Prevention signals — each states its own threshold ──
+  const signals: { severity: 'warn' | 'info'; text: string }[] = [];
+  const $ = (c: number) => `$${(c / 100).toFixed(2)}`;
+
+  for (const p of byProduct) {
+    /* Compared against the average of the OTHER products — with a small
+     * catalog, a dominant loser inflates the plain average enough to mute
+     * its own signal, which is exactly backwards. */
+    const avgOther = prodAgg.size > 1 ? (total.landed - p.landed) / (prodAgg.size - 1) : 0;
+    if (p.count >= 3 && p.landed >= Math.max(2 * avgOther, 2000)) {
+      const hint = p.topReason.includes('damage') || p.topReason === 'carrier_damaged' ? 'packaging or handling review'
+        : p.topReason === 'expired' ? 'smaller purchase quantities'
+        : p.topReason.includes('defect') ? 'a supplier quality conversation'
+        : 'a closer look at handling';
+      signals.push({ severity: 'warn', text: `${p.name}: ${p.count} losses (${$(p.landed)}) in ${windowDays} days — 3+ events and 2×+ the product average suggests ${hint}.` });
+    }
+  }
+  for (const c of byCarrier) {
+    if (c.landed >= 5000 && (c.ratePct ?? 0) < 60) {
+      signals.push({ severity: 'warn', text: `${c.carrier}: ${$(c.landed)} lost, only ${c.ratePct ?? 0}% recovered ($50+ at under 60%) — consider filing harder, insuring more, or routing around them.` });
+    }
+  }
+  const internal = byGroup.find((g) => g.group === 'internal');
+  const expiredLanded = inWin.filter((r) => r.reason === 'expired').reduce((a, r) => a + landedOf(r), 0);
+  if (internal && internal.landed > 0 && expiredLanded / internal.landed >= 0.3 && expiredLanded >= 2000) {
+    signals.push({ severity: 'warn', text: `Expiry is ${Math.round((expiredLanded / internal.landed) * 100)}% of internal losses (${$(expiredLanded)}, threshold 30% and $20+) — buying above sales velocity; trim reorder quantities.` });
+  }
+  const staleFiled = inWin.filter((r) => r.recovery?.status === 'filed' && r.recovery?.filedAt && (now - Date.parse(r.recovery.filedAt)) > 21 * 86400000);
+  if (staleFiled.length > 0) {
+    signals.push({ severity: 'info', text: `${staleFiled.length} filed claim${staleFiled.length === 1 ? '' : 's'} older than 21 days with no payment — carriers count on you forgetting; follow up.` });
+  }
+  const supplierEvents = inWin.filter((r) => String(r.reasonGroup) === 'supplier');
+  if (supplierEvents.length >= 2) {
+    const supLanded = supplierEvents.reduce((a, r) => a + landedOf(r), 0);
+    signals.push({ severity: 'info', text: `${supplierEvents.length} supplier-caused losses (${$(supLanded)}) in ${windowDays} days — worth raising on the next order; supplier claims recover at the highest rate.` });
+  }
+  const uncosted = inWin.filter((r) => r.costed === false).length;
+  if (uncosted > 0) {
+    signals.push({ severity: 'info', text: `${uncosted} exception${uncosted === 1 ? '' : 's'} missing a product cost — every figure above understates the true loss until costPerUnit is set.` });
+  }
+
+  return { windowDays, total, byGroup, byProduct, byCarrier, recovery, signals };
+}
