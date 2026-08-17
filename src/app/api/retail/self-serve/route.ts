@@ -80,6 +80,8 @@ export async function POST(req: NextRequest) {
   try {
     if (action === 'cancel') {
       const reason = String(body.reason || '').slice(0, 200);
+      const tenantSnapC = await db.collection('tenants').doc(tenantId).get();
+      const polC = ((tenantSnapC.exists ? (tenantSnapC.data() as any).retailSettings : {})?.policies) || {};
       const result = await db.runTransaction(async (txn: any) => {
         const snap = await txn.get(orderRef);
         if (!snap.exists) return { status: 404, error: 'Order not found.' };
@@ -87,6 +89,21 @@ export async function POST(req: NextRequest) {
         if (order.qrToken !== qrToken) return { status: 403, error: 'Not authorized.' };
 
         const promiseLate = isPromiseLate(order);
+        /* POLICY GATES — but a LATE PROMISE overrides every one of them:
+         * when the shop has blown its own ship promise, cancelling is the
+         * customer's right, not a courtesy the policy can switch off. */
+        if (!promiseLate) {
+          if (polC.cancelAllowed === false) {
+            return { status: 409, error: 'This shop handles cancellations personally \u2014 send a note below and they\u2019ll sort it out fast.' };
+          }
+          const windowHours = Math.max(0, Number(polC.cancelWindowHours) || 0);
+          if (windowHours > 0 && order.paidAt) {
+            const ageH = (Date.now() - new Date(order.paidAt).getTime()) / 3600000;
+            if (Number.isFinite(ageH) && ageH > windowHours) {
+              return { status: 409, error: `The ${windowHours}-hour cancellation window for this shop has passed \u2014 packing may already be underway. Send a note below and they\u2019ll help.` };
+            }
+          }
+        }
         const cancellable = promiseLate
           ? LATE_CANCEL_STAGES.includes(order.stage)
           : CANCEL_STAGES.includes(order.stage);
