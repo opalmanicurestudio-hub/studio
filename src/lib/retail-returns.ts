@@ -5,6 +5,8 @@ import {
 } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 
+import { buildExceptionDoc } from '@/lib/inventory-exceptions';
+
 import {
   buildEvent, isReturnReceivable, parseOrderQr, returnRefundCents,
   type OrderEventType, type RetailOrder, type RetailReturn, type ReturnDisposition,
@@ -186,7 +188,8 @@ export async function receiveReturnLine(
       }
 
       if (['write_off', 'damaged', 'dispose'].includes(disposition) && origLine) {
-        const costCents = Math.round(((iSnap?.exists() ? (iSnap.data() as any).costPerUnit : 0) || 0) * 100) * line.qty;
+        const costPerUnit = (iSnap?.exists() ? (iSnap.data() as any).costPerUnit : 0) || 0;
+        const costCents = Math.round(costPerUnit * 100) * line.qty;
         const txnRef = doc(collection(fs, `tenants/${tenantId}/transactions`));
         txn.set(txnRef, {
           id: txnRef.id, date: now,
@@ -196,6 +199,30 @@ export async function receiveReturnLine(
           amount: costCents / 100, paymentMethod: 'Internal', hasReceipt: false,
           retailOrderId: fresh.orderId, retailReturnId: ret.id, tenantId,
         });
+        /* THE EXCEPTION SPINE. Same transaction as the Spoilage line, so the
+         * loss record and its ledger recognition are atomic and linked
+         * (ledgerTxnId is the double-count guard: one economic loss, one
+         * ledger line, provably). Landed cost is what accounting sees; the
+         * retail and margin figures ride along as analytics only. */
+        const excRef = doc(collection(fs, `tenants/${tenantId}/inventoryExceptions`), `ret-${ret.id}-${lineId}`);
+        txn.set(excRef, JSON.parse(JSON.stringify(buildExceptionDoc({
+          dedupeId: `ret-${ret.id}-${lineId}`,
+          reason: disposition === 'damaged' ? 'return_damaged'
+            : disposition === 'dispose' ? 'return_contaminated' : 'return_opened',
+          qty: line.qty,
+          productId: origLine.productId || null,
+          sku: (origLine as any).sku || null,
+          name: line.name,
+          costPerUnitDollars: costPerUnit,
+          retailPerUnitCents: Number(origLine.unitPriceCents) || 0,
+          orderId: fresh.orderId,
+          orderNumber: fresh.orderNumber,
+          returnId: ret.id,
+          responsibleParty: 'customer',
+          ledgerTxnId: txnRef.id,
+          recordedBy: { id: actor.id, name: actor.name },
+          source: 'returns_desk',
+        }, tenantId))));
       }
 
       const updatedLines = fresh.lines.map((l) =>
