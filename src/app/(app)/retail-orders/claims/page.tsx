@@ -109,6 +109,12 @@ export default function RetailClaimsPage() {
   };
 
   const decide = async (c: Claim, approve: boolean) => {
+    /* Policy mirror — the route stamped photosRequired at creation; approving
+     * without the photo would make the setting a lie. Denials stay open. */
+    if (approve && (c as any).photosRequired && !((c as any).photoUrls || []).length) {
+      toast({ variant: 'destructive', title: 'Photo required by your policy', description: 'Ask the customer for a photo first (Request info), or deny if it doesn\u2019t hold up.' });
+      return;
+    }
     if (!firestore || !tenantId || busy) return;
     if (!approve && !declineWhy.trim()) {
       toast({ variant: 'destructive', title: 'A decline needs a reason', description: 'The customer email quotes it word for word.' });
