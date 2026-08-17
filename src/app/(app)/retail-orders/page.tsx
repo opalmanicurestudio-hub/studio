@@ -1,6 +1,6 @@
 'use client';
 
-import { collection, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
+import { arrayUnion, collection, doc, onSnapshot, query, updateDoc, where, type Firestore } from 'firebase/firestore';
 import {
   AlertTriangle, Car, Check, ClipboardList, Loader, Package, PackageCheck,
   History, PackageOpen, Printer, QrCode, RefreshCw, RotateCcw, ScanLine, Settings, Ship, Store, Truck, X, Zap,
@@ -131,6 +131,91 @@ export default function RetailFulfillmentBoard() {
   const [shortReason, setShortReason] = useState('');
   const [shipTarget, setShipTarget] = useState<BoardOrder | null>(null);
   const [parcel, setParcel] = useState({ weightLb: '1', weightOz: '0', lengthIn: '10', widthIn: '8', heightIn: '4' });
+  const [activePresetId, setActivePresetId] = useState<string | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const packagingPresets: { id: string; name: string; weightOz: number; lengthIn: number; widthIn: number; heightIn: number }[] =
+    ((selectedTenant as any)?.retailSettings?.packagingPresets || []).slice(0, 8);
+
+  /* Real product weight of an order — item.weightOz × open qty, 4oz fallback
+   * per unknown unit. The box's own weight comes from the chosen preset. */
+  const productWeightOz = (o: BoardOrder) => (o.lines || []).reduce((sum: number, l: any) => {
+    if (l.digital === true) return sum;
+    const w = Number((inventory || []).find((i: any) => i.id === l.productId)?.weightOz) || 0;
+    const open = Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0));
+    return sum + (w > 0 ? w : 4) * open;
+  }, 0);
+
+  const applyPreset = (pr: { id: string; name: string; weightOz: number; lengthIn: number; widthIn: number; heightIn: number }) => {
+    if (!shipTarget) return;
+    const total = Math.max(8, Math.ceil(productWeightOz(shipTarget) + (Number(pr.weightOz) || 0)));
+    setParcel({
+      weightLb: String(Math.floor(total / 16)), weightOz: String(total % 16),
+      lengthIn: String(pr.lengthIn || 10), widthIn: String(pr.widthIn || 8), heightIn: String(pr.heightIn || 4),
+    });
+    setActivePresetId(pr.id);
+    setRates([]);
+  };
+
+  const savePreset = async () => {
+    if (!firestore || !tenantId || !shipTarget) return;
+    const name = (window.prompt('Name this packaging (e.g. Small mailer, 8x6x4 box):') || '').trim().slice(0, 40);
+    if (!name) return;
+    /* The preset stores the BOX's own weight — current parcel weight minus
+     * this order's product weight — so applying it to any future order adds
+     * the right box weight to THAT order's products. */
+    const boxOz = Math.max(0, perBoxOz() - Math.ceil(productWeightOz(shipTarget)));
+    const preset = {
+      id: `pkg-${Date.now()}`, name, weightOz: boxOz,
+      lengthIn: Number(parcel.lengthIn) || 10, widthIn: Number(parcel.widthIn) || 8, heightIn: Number(parcel.heightIn) || 4,
+    };
+    try {
+      await updateDoc(doc(firestore as Firestore, 'tenants', tenantId), {
+        'retailSettings.packagingPresets': arrayUnion(preset),
+      });
+      setActivePresetId(preset.id);
+      toast({ title: `"${name}" saved`, description: `${preset.lengthIn}×${preset.widthIn}×${preset.heightIn} in · box weighs ${boxOz} oz — it'll be one tap on every ship dialog.` });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Could not save preset', description: e?.message });
+    }
+  };
+
+  const packedShipOrders = useMemo(
+    () => orders.filter((o: any) => o.stage === 'packed' && o.method === 'ship'
+      && o.shippingAddress && !o.trackingNumber && !o.labelUrl),
+    [orders]
+  );
+
+  /* ONE TAP, EVERY LABEL. Cheapest rate per order, weights from the products
+   * plus the default preset's box, same protection policy as the dialog —
+   * then the print stack opens with the whole run in order-number order. */
+  const buyAllLabels = async () => {
+    if (bulkBusy || packedShipOrders.length === 0) return;
+    setBulkBusy(true);
+    try {
+      const pr = packagingPresets[0];
+      const res = await fetch('/api/retail/shipping-labels-bulk', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId,
+          orders: packedShipOrders.map((o: any) => ({ orderId: o.id, qrToken: o.qrToken || '' })),
+          parcelDefaults: pr
+            ? { lengthIn: pr.lengthIn, widthIn: pr.widthIn, heightIn: pr.heightIn, boxWeightOz: pr.weightOz }
+            : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Bulk purchase failed');
+      toast({ title: 'Labels bought', description: data.message });
+      const okIds = (data.results || []).filter((r: any) => r.ok && r.labelUrl).map((r: any) => r.orderId);
+      if (okIds.length > 0) {
+        window.open(`/print/labels/${tenantId}?ids=${okIds.join(',')}`, '_blank');
+      }
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Bulk labels failed', description: e?.message });
+    } finally {
+      setBulkBusy(false);
+    }
+  };
   const [boxes, setBoxes] = useState(1);
   const [extraLabels, setExtraLabels] = useState<string[]>([]);
   const perBoxOz = () => Math.max(1, (Number(parcel.weightLb) || 0) * 16 + (Number(parcel.weightOz) || 0));
@@ -735,6 +820,20 @@ export default function RetailFulfillmentBoard() {
             </Button>
           </div>
         </div>
+        {packedShipOrders.length > 1 && shippoConfigured && (
+          <div className="bg-primary/[0.04] border-t border-primary/10">
+            <div className="max-w-7xl mx-auto px-4 py-1.5 flex flex-wrap items-center gap-2">
+              <Ship className="w-3.5 h-3.5 text-primary" />
+              <p className="text-[10px] font-black uppercase tracking-widest text-primary flex-1">
+                {packedShipOrders.length} packed ship orders have no label yet
+              </p>
+              <Button size="sm" disabled={bulkBusy} onClick={() => void buyAllLabels()}
+                className="h-7 rounded-lg px-3 font-black uppercase text-[9px] tracking-widest">
+                {bulkBusy ? <Loader className="h-3 w-3 animate-spin" /> : `Buy all ${packedShipOrders.length} labels — cheapest rates`}
+              </Button>
+            </div>
+          </div>
+        )}
         {pendingRefunds.length > 0 && (
           <div className="bg-amber-50 border-t border-amber-100">
             <div className="max-w-7xl mx-auto px-4 py-1.5 flex flex-wrap items-center gap-2">
@@ -1248,6 +1347,25 @@ export default function RetailFulfillmentBoard() {
             {shippoConfigured && !labelUrl && (
               <div className="rounded-2xl border-2 border-primary/30 bg-primary/[0.03] p-4 space-y-3">
                 <p className="text-[9px] font-black uppercase tracking-widest text-primary">Live label via Shippo</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {packagingPresets.map((pr) => (
+                    <button key={pr.id} type="button" aria-pressed={activePresetId === pr.id}
+                      onClick={() => applyPreset(pr)}
+                      className={cn('h-8 rounded-lg border-2 px-2.5 text-[8px] font-black uppercase tracking-widest transition-all active:scale-95',
+                        activePresetId === pr.id ? 'bg-foreground text-background border-foreground' : 'bg-white hover:border-primary/40')}>
+                      {pr.name}
+                    </button>
+                  ))}
+                  <button type="button" onClick={() => void savePreset()}
+                    className="h-8 rounded-lg border-2 border-dashed px-2.5 text-[8px] font-black uppercase tracking-widest text-muted-foreground transition-all hover:border-primary/40 active:scale-95">
+                    + Save as preset
+                  </button>
+                </div>
+                {activePresetId && (
+                  <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">
+                    Weight = this order&apos;s products + the box — dims from the preset. Adjust anything below.
+                  </p>
+                )}
                 <div className="flex items-center justify-between">
                   <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Boxes</p>
                   <div className="flex items-center gap-2">
