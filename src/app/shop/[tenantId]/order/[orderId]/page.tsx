@@ -103,8 +103,12 @@ export default function OrderStatusPage() {
     replies: { by: string; text: string; at: string | null }[];
     expectNote?: string;
     photoUrls?: string[];
+    category?: string;
+    caseRef?: string;
+    followUps?: { at: string | null; message: string; kind: 'chaser' | 'evidence'; photoUrls?: string[] }[];
     pending?: boolean;
   }[]>([]);
+  const [helpCooldown, setHelpCooldown] = useState<{ caseRef: string; expectNote: string } | null>(null);
   const [helpPhotos, setHelpPhotos] = useState<string[]>([]);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [checkingIn, setCheckingIn] = useState(false);
@@ -691,15 +695,33 @@ export default function OrderStatusPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Could not send');
-      setSupportThread((cur) => [...cur, {
-        message: helpMsg.trim(), createdAt: new Date().toISOString(),
-        status: 'open', autoReply: '', replies: [], pending: true,
-        expectNote: data.expectNote || '', photoUrls: helpPhotos,
-      }]);
+      /* ONE ISSUE = ONE CASE. When the server attached this message to an
+       * existing case, it joins that case's timeline locally too — no new
+       * bubble-group, no illusion of a second ticket — and the cooldown
+       * card replaces the form: "received, no need to resubmit". */
+      if (data.attached) {
+        setSupportThread((cur) => cur.map((t: any) => ((t as any).id === data.caseId || t.caseRef === data.caseRef
+          ? {
+              ...t,
+              expectNote: data.expectNote || t.expectNote,
+              followUps: [...(t.followUps || []), { at: new Date().toISOString(), message: helpMsg.trim(), kind: data.kind || 'evidence', photoUrls: helpPhotos }],
+            }
+          : t)));
+      } else {
+        setSupportThread((cur) => [...cur, {
+          id: data.caseId, message: helpMsg.trim(), createdAt: new Date().toISOString(),
+          status: 'open', autoReply: '', replies: [], pending: true,
+          expectNote: data.expectNote || '', photoUrls: helpPhotos,
+          caseRef: data.caseRef || '', followUps: [],
+        } as any]);
+      }
+      setHelpCooldown({ caseRef: data.caseRef || '', expectNote: data.expectNote || '' });
       setHelpPhotos([]);
       setHelpSent(true);
       setHelpMsg('');
-      toast({ title: 'Message received', description: 'It’s with the team — you can watch it right here.' });
+      toast(data.attached
+        ? { title: `Added to your case${data.caseRef ? ` #${data.caseRef}` : ''}`, description: 'Your place in the queue is saved — no need to resubmit.' }
+        : { title: 'Message received', description: 'It’s with the team — you can watch it right here.' });
       load();
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Could not send', description: e?.message });
@@ -1212,6 +1234,32 @@ export default function OrderStatusPage() {
                   <div className="max-h-72 space-y-2 overflow-y-auto">
                     {supportThread.map((t, i) => (
                       <div key={i} className="space-y-2">
+                        {/* THE CASE TRACKER — the visibility that prevents the
+                            chaser message: named case, four honest steps, and
+                            the same expectation stamp everywhere else quotes. */}
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border-2 border-dashed px-2.5 py-1.5">
+                          <span className="text-[9px] font-black uppercase tracking-widest">
+                            Case{t.caseRef ? ` #${t.caseRef}` : ''}
+                          </span>
+                          {(() => {
+                            const replied = t.replies.length > 0;
+                            const resolved = t.status === 'resolved';
+                            const steps: [string, boolean, boolean][] = [
+                              ['Received', true, false],
+                              ['Reviewing', replied || resolved, !replied && !resolved],
+                              ['Replied', replied || resolved, false],
+                              ['Resolved', resolved, false],
+                            ];
+                            return steps.map(([label, done, active], k) => (
+                              <span key={k} className={cn('flex items-center gap-1 text-[8px] font-black uppercase tracking-widest',
+                                done ? 'text-green-700' : active ? 'text-primary' : 'text-muted-foreground/40')}>
+                                <span className={cn('inline-block h-1.5 w-1.5 rounded-full',
+                                  done ? 'bg-green-600' : active ? 'animate-pulse bg-primary' : 'bg-muted-foreground/30')} />
+                                {label}
+                              </span>
+                            ));
+                          })()}
+                        </div>
                         <div className="ml-6">
                           <p className="rounded-xl bg-primary px-3 py-2 text-sm font-bold text-primary-foreground whitespace-pre-wrap">{t.message}</p>
                           {(t.photoUrls || []).length > 0 && (
@@ -1242,6 +1290,23 @@ export default function OrderStatusPage() {
                                 {new Date(r.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
                               </p>
                             )}
+                          </div>
+                        ))}
+                        {(t.followUps || []).map((f, j) => (
+                          <div key={`f${j}`} className="ml-10">
+                            <p className="rounded-xl bg-primary/80 px-3 py-2 text-sm font-bold text-primary-foreground whitespace-pre-wrap">{f.message}</p>
+                            {(f.photoUrls || []).length > 0 && (
+                              <div className="mt-1 flex justify-end gap-1.5">
+                                {(f.photoUrls || []).map((u, k) => (
+                                  <a key={k} href={u} target="_blank" rel="noreferrer">
+                                    <img src={u} alt={`Attached photo ${k + 1}`} className="h-14 w-14 rounded-lg border-2 object-cover" />
+                                  </a>
+                                ))}
+                              </div>
+                            )}
+                            <p className="mt-0.5 text-right text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+                              ✓ Added to this case{f.at ? ` · ${new Date(f.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}
+                            </p>
                           </div>
                         ))}
                       </div>
@@ -1343,6 +1408,22 @@ export default function OrderStatusPage() {
                       </div>
                     )}
                   </div>
+                  {helpCooldown && (
+                    <div className="space-y-1.5 rounded-2xl border-2 border-green-600/30 bg-green-500/[0.06] p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-green-700">
+                        ✓ Message received{helpCooldown.caseRef ? ` — Case #${helpCooldown.caseRef}` : ''}
+                      </p>
+                      <p className="text-[11px] font-bold text-green-900/70 leading-relaxed">
+                        Your place in the queue is saved — sending it again won&apos;t speed things up.
+                        {helpCooldown.expectNote ? ` ${helpCooldown.expectNote}` : ''}
+                      </p>
+                      <button type="button" onClick={() => setHelpCooldown(null)}
+                        className="text-[9px] font-black uppercase tracking-widest text-green-800 underline underline-offset-2">
+                        I have new information to add
+                      </button>
+                    </div>
+                  )}
+                  {!helpCooldown && (<>
                   <Textarea
                     placeholder="Still need us? Tell us what's going on…"
                     aria-label="Message to the shop"
@@ -1382,8 +1463,9 @@ export default function OrderStatusPage() {
                     variant="outline"
                     className="w-full h-11 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest"
                   >
-                    {helpSending ? <Loader className="h-4 w-4 animate-spin" /> : supportThread.length > 0 ? 'Send another message' : 'Send to the shop'}
+                    {helpSending ? <Loader className="h-4 w-4 animate-spin" /> : supportThread.length > 0 ? 'Add to my case' : 'Send to the shop'}
                   </Button>
+                  </>)}
                 </>
               )}
             </CardContent>
