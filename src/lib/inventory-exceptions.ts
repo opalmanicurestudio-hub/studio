@@ -137,6 +137,10 @@ export interface InventoryExceptionInput {
   replacementOrderId?: string | null;
   trackingNumber?: string | null;
   carrier?: string | null;
+  /** What the label purchase actually insured (0 = rode uninsured); null =
+   *  unknown/legacy. The File-claim form and analytics both read this. */
+  insuredCents?: number | null;
+  shippedAt?: string | null;
   responsibleParty: 'customer' | 'carrier' | 'supplier' | 'internal' | 'unknown';
   /** The ledger transaction that recognised the landed cost, when one was
    *  written — the anti-double-deduction link. Absent = not yet ledgered. */
@@ -172,6 +176,8 @@ export function buildExceptionDoc(input: InventoryExceptionInput, tenantId: stri
     replacementOrderId: input.replacementOrderId || null,
     trackingNumber: input.trackingNumber || null,
     carrier: input.carrier || null,
+    insuredCents: input.insuredCents ?? null,
+    shippedAt: input.shippedAt || null,
     responsibleParty: input.responsibleParty,
     ledgerTxnId: input.ledgerTxnId || null,
     note: input.note ? String(input.note).slice(0, 600) : null,
@@ -555,10 +561,47 @@ export function lossAnalytics(rows: any[], windowDays = 90, now = Date.now()): L
     const supLanded = supplierEvents.reduce((a, r) => a + landedOf(r), 0);
     signals.push({ severity: 'info', text: `${supplierEvents.length} supplier-caused losses (${$(supLanded)}) in ${windowDays} days — worth raising on the next order; supplier claims recover at the highest rate.` });
   }
+  const uninsured = inWin.filter((r) => String(r.reasonGroup) === 'carrier' && r.insuredCents === 0);
+  const uninsuredLanded = uninsured.reduce((a, r) => a + landedOf(r), 0);
+  if (uninsured.length >= 1 && uninsuredLanded >= 2000) {
+    signals.push({ severity: 'warn', text: `${uninsured.length} carrier loss${uninsured.length === 1 ? '' : 'es'} rode UNINSURED (${$(uninsuredLanded)} landed, $20+ threshold) — beyond carrier minimums that money is gone; consider lowering the auto-insure threshold in shipping settings.` });
+  }
   const uncosted = inWin.filter((r) => r.costed === false).length;
   if (uncosted > 0) {
     signals.push({ severity: 'info', text: `${uncosted} exception${uncosted === 1 ? '' : 's'} missing a product cost — every figure above understates the true loss until costPerUnit is set.` });
   }
 
   return { windowDays, total, byGroup, byProduct, byCarrier, recovery, signals };
+}
+
+
+// ─── Round N5: claims without friction ───────────────────────────────────────
+// Filing a carrier claim means knowing three things nobody remembers under
+// pressure: whether the package was insured, how long the window is, and
+// where the form lives. The windows below are the carriers' TYPICAL US
+// domestic limits — stated as defaults the shop can override, never as legal
+// advice; services differ, so the UI always says "verify for your service".
+
+export interface ClaimWindow { days: number; url: string; label: string }
+
+const CLAIM_WINDOWS: { match: RegExp; win: ClaimWindow }[] = [
+  { match: /usps/i, win: { days: 60, url: 'https://www.usps.com/help/claims.htm', label: 'USPS claims' } },
+  { match: /ups/i, win: { days: 60, url: 'https://www.ups.com/us/en/support/file-a-claim', label: 'UPS claims' } },
+  { match: /fedex/i, win: { days: 60, url: 'https://www.fedex.com/en-us/customer-support/claims.html', label: 'FedEx claims' } },
+  { match: /dhl/i, win: { days: 30, url: 'https://www.dhl.com/us-en/home/customer-service.html', label: 'DHL claims' } },
+];
+const DEFAULT_WINDOW: ClaimWindow = { days: 30, url: '', label: 'your carrier\u2019s claim portal' };
+
+export function claimWindowFor(carrier?: string | null): ClaimWindow {
+  const c = String(carrier || '');
+  for (const { match, win } of CLAIM_WINDOWS) if (match.test(c)) return win;
+  return DEFAULT_WINDOW;
+}
+
+/** Deadline suggestion: ship date + the carrier's typical window. Null when
+ *  the ship date is unknown — a guessed deadline is worse than none. */
+export function suggestedDeadline(shippedAt?: string | null, carrier?: string | null): string | null {
+  const t = shippedAt ? Date.parse(String(shippedAt)) : NaN;
+  if (!Number.isFinite(t)) return null;
+  return new Date(t + claimWindowFor(carrier).days * 86400000).toISOString();
 }
