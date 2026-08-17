@@ -1,10 +1,7 @@
 'use client';
 
 import { arrayUnion, collection, doc, onSnapshot, query, updateDoc, where, type Firestore } from 'firebase/firestore';
-import {
-  AlertTriangle, Car, Check, ClipboardList, Loader, Package, PackageCheck,
-  History, PackageOpen, Printer, QrCode, RefreshCw, RotateCcw, ScanLine, Settings, Ship, Store, Truck, X, Zap,
-} from 'lucide-react';
+import { AlertTriangle, Car, Check, ClipboardList, FileText, History, Loader, Package, PackageCheck, PackageOpen, Printer, QrCode, RefreshCw, RotateCcw, ScanLine, Settings, Ship, Store, TriangleAlert, Truck, X, Zap } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
@@ -811,6 +808,12 @@ export default function RetailFulfillmentBoard() {
           <div className="hidden sm:flex items-center gap-1">
             <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl">
               <Link href="/retail-orders/history" aria-label="Order history"><History className="h-4 w-4" aria-hidden="true" /></Link>
+            </Button>
+            <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl">
+              <Link href="/retail-orders/invoices" aria-label="Invoices and records"><FileText className="h-4 w-4" aria-hidden="true" /></Link>
+            </Button>
+            <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl">
+              <Link href="/retail-orders/exceptions" aria-label="Inventory exceptions — loss and recovery"><TriangleAlert className="h-4 w-4" aria-hidden="true" /></Link>
             </Button>
             <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl">
               <Link href="/retail-orders/settings" aria-label="Shop settings"><Settings className="h-4 w-4" aria-hidden="true" /></Link>
