@@ -176,6 +176,35 @@ export async function POST(req: NextRequest) {
         // never let bookkeeping fail the webhook
       }
 
+      /* THE DELAY THE CUSTOMER HEARS ABOUT FIRST. Shippo's track payload
+       * carries both the carrier's ORIGINAL promise and its CURRENT eta.
+       * When the current one slips a full day or more past the original —
+       * and the parcel isn't delivered — the customer gets one email per
+       * distinct new date (the marker id carries the date, so a repeated
+       * webhook or a same-day wobble sends nothing, but a second slip to a
+       * later date speaks again). This is the "they know before they ask"
+       * email: it exists precisely so 'Where is my order?' never gets typed. */
+      try {
+        const etaRaw = Date.parse(String(data.eta || ''));
+        const origEtaRaw = Date.parse(String(data.original_eta || ''));
+        const slippedDays = Number.isFinite(etaRaw) && Number.isFinite(origEtaRaw)
+          ? Math.floor((etaRaw - origEtaRaw) / 86400000) : 0;
+        if (slippedDays >= 1 && !['DELIVERED', 'RETURNED'].includes(String(status))) {
+          const etaKey = new Date(etaRaw).toISOString().slice(0, 10);
+          const res = await sendCarrierUpdate({
+            markerRef: d.ref.collection('events').doc(`carrier-delayed-${etaKey}`),
+            order, tenant, origin, tenantId, orderId: d.id,
+            update: { ...update, status: 'DELAYED', eta: new Date(etaRaw).toISOString() },
+          });
+          if (res.sent) {
+            notified += 1;
+            await d.ref.set({ carrierEtaAt: new Date(etaRaw).toISOString(), carrierEtaSlippedDays: slippedDays }, { merge: true });
+          }
+        }
+      } catch {
+        // delay detection is best-effort; the scan trail already landed
+      }
+
       if (shouldNotify(status)) {
         const res = await sendCarrierUpdate({
           // Deterministic id = one email per order per status, however many
