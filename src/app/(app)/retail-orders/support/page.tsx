@@ -35,6 +35,10 @@ interface SupportTicket {
   autoReply?: string;
   expectNote?: string;
   photoUrls?: string[];
+  category?: string;
+  caseRef?: string;
+  followUps?: { at: string | null; message: string; kind: 'chaser' | 'evidence'; photoUrls?: string[] }[];
+  customerMessagesSinceStaffReply?: number;
   replies?: { by: string; text: string; at: string; emailed: boolean }[];
   createdAt: string;
   resolvedBy?: string;
@@ -383,7 +387,7 @@ export default function RetailSupportPage() {
                     </p>
                   </div>
                   <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mt-0.5">
-                    {when(t.createdAt)} · order was {t.stageAtRequest}
+                    {t.caseRef ? `Case #${t.caseRef} · ` : ''}{when(t.createdAt)} · order was {t.stageAtRequest}
                     {t.resolvedBy ? ` · resolved by ${t.resolvedBy}` : ''}
                   </p>
                 </div>
@@ -435,6 +439,40 @@ export default function RetailSupportPage() {
                     <a key={i} href={u} target="_blank" rel="noreferrer" className="block">
                       <img src={u} alt={`Customer photo ${i + 1}`} className="h-20 w-20 rounded-xl border-2 object-cover" />
                     </a>
+                  ))}
+                </div>
+              )}
+              {/* SATURATION, NOT SPAM. Follow-ups landed on this case instead
+                  of becoming new tickets; the chip is the consolidated truth —
+                  "3 follow-ups, nothing new" reads in one glance — and the
+                  messages sit inline with evidence marked apart from chasers. */}
+              {(t.customerMessagesSinceStaffReply || 0) > 0 && t.status === 'open' && (
+                <p className="rounded-xl border-2 border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-widest text-amber-700">
+                  {t.customerMessagesSinceStaffReply} follow-up{(t.customerMessagesSinceStaffReply || 0) === 1 ? '' : 's'} since your last reply
+                  {(t.followUps || []).slice(-(t.customerMessagesSinceStaffReply || 0)).every((f) => f.kind === 'chaser') ? ' — no new info, just waiting' : ' — includes new evidence'}
+                </p>
+              )}
+              {(t.followUps || []).length > 0 && (
+                <div className="space-y-1.5 rounded-2xl border-2 border-dashed p-2.5">
+                  {(t.followUps || []).slice(-6).map((f, i) => (
+                    <div key={i} className="space-y-1">
+                      <p className="text-sm font-bold text-muted-foreground leading-snug">
+                        <span className={cn('mr-1.5 rounded-full border px-1.5 py-0.5 text-[7px] font-black uppercase tracking-widest align-middle',
+                          f.kind === 'evidence' ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 bg-slate-50 text-slate-500')}>
+                          {f.kind === 'evidence' ? 'New info' : 'Follow-up'}
+                        </span>
+                        {f.message}
+                      </p>
+                      {(f.photoUrls || []).length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {(f.photoUrls || []).map((u, k) => (
+                            <a key={k} href={u} target="_blank" rel="noreferrer">
+                              <img src={u} alt={`Follow-up photo ${k + 1}`} className="h-16 w-16 rounded-lg border-2 object-cover" />
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
               )}
