@@ -63,13 +63,32 @@ export async function POST(req: NextRequest) {
     Array.isArray(order.lines) ? `Items: ${order.lines.map((l: any) => `${l.qtyOrdered}x ${l.name}${l.qtyShorted ? ` (${l.qtyShorted} shorted/refunded)` : ''}`).join(', ')}` : '',
   ].filter(Boolean).join('\n');
 
+  /* THE COACH KNOWS. A flagged customer changes how a reply should be
+   * written — not what the customer is told. The flag and its notes are
+   * INTERNAL: the draft gets coached toward firm, kind, commitment-free
+   * de-escalation, and is explicitly forbidden from referencing the flag,
+   * so nothing about the record can leak into a customer inbox. */
+  let flagCoaching = '';
+  try {
+    const email = String(ticket.customerEmail || '').trim().toLowerCase();
+    if (email) {
+      const fSnap = await db.collection(`tenants/${tenantId}/customerFlags`)
+        .where('email', '==', email).limit(1).get();
+      if (!fSnap.empty) {
+        const f = fSnap.docs[0].data() as any;
+        const kinds = [...new Set((f.reasons || []).map((r: any) => String(r.kind || 'other')))].join(', ');
+        flagCoaching = `\n- INTERNAL CONTEXT (never reference or hint at this to the customer): this customer is flagged ${String(f.level)} for: ${kinds || 'staff concern'}. Be professionally warm but FIRM: make zero commitments (no refunds, credits, replacements, or exceptions), do not apologize beyond one sentence, state only recorded facts, and close by saying the team will review and follow up. Keep it short. Do not match hostility.`;
+      }
+    }
+  } catch { /* coaching is best-effort */ }
+
   const urgent = ticket.priority === 'urgent';
   const system = `You draft short customer-service email replies for ${shopName}, a small local shop. Rules:
 - Use ONLY the order facts provided. NEVER invent refunds, dates, discounts, or policies not in the facts.
 - Warm, human, concise (3-6 sentences). First name only. No subject line, no signature block.
 - If a refund is queued, say it will be processed shortly and typically reaches cards in 5-10 business days.
 ${urgent ? '- The customer is upset. Lead by acknowledging their specific frustration sincerely, no corporate speak, no exclamation marks, offer a concrete next step, and do not quote policy at them.' : '- Match the customer\u2019s energy and answer their actual question.'}
-- If the message asks for something the facts cannot answer, say the team is checking and will follow up \u2014 do not guess.`;
+- If the message asks for something the facts cannot answer, say the team is checking and will follow up \u2014 do not guess.${flagCoaching}`;
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
