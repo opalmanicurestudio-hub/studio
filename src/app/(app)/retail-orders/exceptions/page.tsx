@@ -12,7 +12,7 @@
 // enforcement; the UI mirror keeps the refusal friendly).
 
 import { collection, onSnapshot, type Firestore } from 'firebase/firestore';
-import { ArrowLeft, Clock, Copy, Loader, Printer, ShieldQuestion, TriangleAlert } from 'lucide-react';
+import { ArrowLeft, ChartColumn, Clock, Copy, Loader, Printer, ShieldQuestion, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
 
@@ -23,7 +23,7 @@ import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import {
-  advanceRecovery, deadlineState, markMonthHandedOff, reasonGroup, reasonLabel, recoveryNetLossCents,
+  advanceRecovery, deadlineState, lossAnalytics, markMonthHandedOff, reasonGroup, reasonLabel, recoveryNetLossCents,
   type RecoveryAction,
 } from '@/lib/inventory-exceptions';
 
@@ -64,6 +64,8 @@ export default function InventoryExceptionsPage() {
   const [fileNote, setFileNote] = useState('');
   const [payDraft, setPayDraft] = useState<Record<string, string>>({});
   const monthKey = new Date().toISOString().slice(0, 7);
+  const [view, setView] = useState<'ledger' | 'analytics'>('ledger');
+  const analytics = useMemo(() => lossAnalytics(rows, 90), [rows]);
 
   useEffect(() => {
     if (!firestore || !tenantId) return;
@@ -177,7 +179,108 @@ export default function InventoryExceptionsPage() {
           ))}
         </div>
 
-        {deadlineAlerts.length > 0 && (
+        <div className="flex gap-2">
+          {(['ledger', 'analytics'] as const).map((v) => (
+            <button key={v} type="button" onClick={() => setView(v)}
+              className={cn('h-10 flex-1 rounded-2xl border-2 text-[10px] font-black uppercase tracking-widest transition-all',
+                view === v ? 'bg-foreground text-background border-foreground' : 'bg-white hover:border-primary/40')}>
+              {v === 'ledger' ? 'Ledger' : 'Analytics · 90 days'}
+            </button>
+          ))}
+        </div>
+
+        {view === 'analytics' && (
+          <div className="space-y-4">
+            {analytics.signals.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Prevention signals</p>
+                {analytics.signals.map((sig, i) => (
+                  <p key={i} className={cn('flex items-start gap-2 rounded-xl border-2 px-3 py-2 text-[11px] font-bold leading-relaxed',
+                    sig.severity === 'warn' ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-slate-200 bg-white text-slate-600')}>
+                    <ChartColumn className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>{sig.text}</span>
+                  </p>
+                ))}
+              </div>
+            )}
+            {analytics.total.count === 0 && (
+              <div className="rounded-2xl border-2 border-dashed py-16 text-center">
+                <p className="text-[10px] font-black uppercase tracking-widest opacity-30">No losses in the last 90 days — nothing to analyze</p>
+              </div>
+            )}
+
+            {analytics.recovery.candidateLanded > 0 && (
+              <Card className="border-2 rounded-[2rem] bg-white">
+                <CardContent className="p-4 space-y-1.5">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Recovery performance</p>
+                  <p className="text-sm font-bold leading-relaxed">
+                    {fmt(analytics.recovery.recovered)} recovered of {fmt(analytics.recovery.candidateLanded)} recoverable
+                    {analytics.recovery.ratePct != null ? ` — ${analytics.recovery.ratePct}%` : ''}.
+                    {analytics.recovery.avgDaysToPaid != null ? ` Average ${analytics.recovery.avgDaysToPaid} days from filing to payment.` : ''}
+                    {analytics.recovery.openFiled > 0 ? ` ${analytics.recovery.openFiled} claim${analytics.recovery.openFiled === 1 ? '' : 's'} still filed and waiting.` : ''}
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
+            {analytics.byGroup.length > 0 && (
+              <Card className="border-2 rounded-[2rem] bg-white">
+                <CardContent className="p-4 space-y-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Where losses come from</p>
+                  {analytics.byGroup.map((g) => (
+                    <div key={g.group} className="space-y-1">
+                      <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest">
+                        <span className={cn('rounded-full border px-2 py-0.5', GROUP_CLS[g.group] || GROUP_CLS.internal)}>{g.group}</span>
+                        <span className="font-mono">{g.count} · {fmt(g.landed)} lost · {fmt(g.net)} net</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-muted/40">
+                        <div className="h-full rounded-full bg-foreground/70" style={{ width: `${analytics.total.landed > 0 ? Math.max(3, Math.round((g.landed / analytics.total.landed) * 100)) : 0}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+
+            {analytics.byProduct.length > 0 && (
+              <Card className="border-2 rounded-[2rem] bg-white">
+                <CardContent className="p-4 space-y-1.5">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Losses by product</p>
+                  {analytics.byProduct.map((pr) => (
+                    <div key={pr.productId || pr.name} className="flex items-center justify-between gap-2 border-b border-dashed py-1.5 last:border-b-0">
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-bold">{pr.name}</span>
+                        <span className="block text-[9px] font-black uppercase tracking-widest text-muted-foreground">{pr.count}× · mostly {reasonLabel(pr.topReason)}</span>
+                      </span>
+                      <span className="shrink-0 text-right font-mono text-sm font-black">{fmt(pr.landed)}<span className="block text-[9px] font-bold text-muted-foreground">{fmt(pr.net)} net</span></span>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+
+            {analytics.byCarrier.length > 0 && (
+              <Card className="border-2 rounded-[2rem] bg-white">
+                <CardContent className="p-4 space-y-1.5">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Carriers</p>
+                  {analytics.byCarrier.map((c) => (
+                    <div key={c.carrier} className="flex items-center justify-between gap-2 border-b border-dashed py-1.5 last:border-b-0">
+                      <span className="text-sm font-bold">{c.carrier} <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{c.count}×</span></span>
+                      <span className="shrink-0 font-mono text-sm font-black">
+                        {fmt(c.landed)}
+                        <span className={cn('ml-2 rounded-full border px-2 py-0.5 text-[9px]', (c.ratePct ?? 0) >= 60 ? 'border-green-200 bg-green-50 text-green-700' : 'border-amber-200 bg-amber-50 text-amber-700')}>
+                          {c.ratePct ?? 0}% back
+                        </span>
+                      </span>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
+
+        {view === 'ledger' && deadlineAlerts.length > 0 && (
           <div className="space-y-1.5">
             {deadlineAlerts.map(({ r, st }) => (
               <p key={r.id} className={cn('flex items-center gap-2 rounded-xl border-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest',
@@ -189,14 +292,14 @@ export default function InventoryExceptionsPage() {
             ))}
           </div>
         )}
-        {totals.uncosted > 0 && (
+        {view === 'ledger' && totals.uncosted > 0 && (
           <p className="rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-amber-700">
             {totals.uncosted} missing a product cost — set costPerUnit in inventory for true figures
           </p>
         )}
 
         {loading && <p className="py-20 text-center text-[10px] font-black uppercase tracking-widest opacity-30">Loading…</p>}
-        {!loading && rows.length === 0 && (
+        {view === 'ledger' && !loading && rows.length === 0 && (
           <div className="rounded-2xl border-2 border-dashed py-20 text-center space-y-2">
             <ShieldQuestion className="mx-auto h-8 w-8 opacity-20" />
             <p className="text-[10px] font-black uppercase tracking-widest opacity-30">
@@ -205,7 +308,7 @@ export default function InventoryExceptionsPage() {
           </div>
         )}
 
-        {rows.map((r) => {
+        {view === 'ledger' && rows.map((r) => {
           const rec = r.recovery || { status: 'none' };
           const net = recoveryNetLossCents(r);
           const dl = deadlineState(r);
