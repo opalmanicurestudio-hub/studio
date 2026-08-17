@@ -75,6 +75,32 @@ service cloud.firestore {
       allow read, write: if isStaff(tenantId);
     }
 
+    // ── Store credit — discretionary grants are CAPPED for staff.
+    // Issuing credit is spending the shop's money, so the ceiling is the
+    // owner's call (retailSettings.staffCreditCapCents, default $25 when
+    // unset). Managers and the owner are uncapped. Return-derived credits
+    // (sourceRetailReturnId) pass at any amount: those figures come from
+    // order math on the returns desk, not discretion — a staffer abusing
+    // that field is a personnel matter the audit trail exposes, not a rule
+    // the database can referee. Server routes (checkout burn, notify
+    // emails) use the Admin SDK and are not governed here.
+    function staffCreditCapCents(tenantId) {
+      return tenantDoc(tenantId).data
+        .get('retailSettings', {})
+        .get('staffCreditCapCents', 2500);
+    }
+    match /tenants/{tenantId}/depositCredits/{creditId} {
+      allow read: if isStaff(tenantId);
+      allow create: if isManager(tenantId) || (
+        isStaff(tenantId) && (
+          ('sourceRetailReturnId' in request.resource.data) ||
+          (request.resource.data.amountCents is int
+            && request.resource.data.amountCents <= staffCreditCapCents(tenantId))
+        )
+      );
+      allow update, delete: if isManager(tenantId);
+    }
+
     // ── Hosting (host stand + floor) — the boundary that was honestly
     // deferred until a staff surface needed these collections. Now it does:
     // any staff member can run the host stand (sessions and parties are
@@ -319,6 +345,7 @@ service cloud.firestore {
     match /tenants/{tenantId}/{allSubcollections=**} {
       allow read, write: if isStaff(tenantId) &&
         !(allSubcollections.size() > 0 && allSubcollections[0] in [
+          'depositCredits',
           'assetUnits',
           'assetScanEvents',
           'stationAllocations',
