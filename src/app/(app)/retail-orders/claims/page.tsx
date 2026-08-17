@@ -162,11 +162,15 @@ export default function RetailClaimsPage() {
             let qty = Math.max(1, Number(c.qty) || 1);
             let trackingNumber: string | null = null;
             let carrier: string | null = null;
+            let insuredCents: number | null = null;
+            let shippedAt: string | null = null;
             const oSnap = await getDoc(doc(firestore as Firestore, `tenants/${tenantId}/retailOrders/${c.orderId}`));
             if (oSnap.exists()) {
               const o = oSnap.data() as any;
               trackingNumber = o.trackingNumber || null;
               carrier = o.carrier || null;
+              insuredCents = o.shipmentProtection ? (Number(o.shipmentProtection.insuranceCents) || 0) : null;
+              shippedAt = o.completedAt || o.shipmentProtection?.decidedAt || null;
               const line = (o.lines || []).find((l: any) => l.lineId === lineId);
               if (line) {
                 productId = line.productId || null;
@@ -196,6 +200,8 @@ export default function RetailClaimsPage() {
               claimId: c.id,
               trackingNumber,
               carrier,
+              insuredCents,
+              shippedAt,
               responsibleParty: c.type === 'not_received' ? 'carrier'
                 : c.type === 'wrong_item' ? 'internal' : 'unknown',
               note: c.description || null,
