@@ -169,7 +169,33 @@ export async function GET(req: NextRequest) {
       .sort((a: any, b: any) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
   } catch { supportTickets = []; }
 
+  /* HELP ELIGIBILITY — computed HERE, beside the routes that enforce it,
+   * so the menu the customer sees and the server's refusals can never
+   * disagree. A hidden button is honest; a button that errors is not. */
+  const polH = (rs.policies || {});
+  const cancelWindowOk = (() => {
+    const wh = Math.max(0, Number(polH.cancelWindowHours) || 0);
+    if (wh <= 0 || !order.paidAt) return true;
+    const ageH = (Date.now() - new Date(order.paidAt).getTime()) / 3600000;
+    return !Number.isFinite(ageH) || ageH <= wh;
+  })();
+  const returnWindowOk = (() => {
+    const wd = Math.max(0, Number(rs.returnWindowDays) || 0);
+    if (wd <= 0 || !order.completedAt) return true;
+    const ageD = (Date.now() - new Date(order.completedAt).getTime()) / 86400000;
+    return !Number.isFinite(ageD) || ageD <= wd;
+  })();
+  const help = {
+    canCancel: ['placed', 'paid'].includes(order.stage) && polH.cancelAllowed !== false && cancelWindowOk,
+    canReturn: ['shipped', 'handed_off', 'completed'].includes(order.stage) && rs.returnsEnabled !== false && returnWindowOk,
+    canReport: ['shipped', 'handed_off', 'completed'].includes(order.stage),
+    canChangeAddress: order.method === 'ship' && ['placed', 'paid', 'picking', 'packed'].includes(order.stage),
+    hasTracking: Boolean(order.trackingUrl || order.trackingNumber),
+    refundState: (Number(order.refundedCents) || 0) > 0 ? 'refunded' : (Number(order.pendingRefundCents) || 0) > 0 ? 'pending' : 'none',
+  };
+
   return NextResponse.json({
+    help,
     shopName: String((tenantSnap.exists ? (tenantSnap.data() as any) : {})?.businessName || (tenantSnap.exists ? (tenantSnap.data() as any) : {})?.name || ''),
     // Where the shop physically is, so the customer's phone can answer "am I
     // there yet?" locally. Sent to the browser deliberately: the alternative
