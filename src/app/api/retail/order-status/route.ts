@@ -146,6 +146,16 @@ export async function GET(req: NextRequest) {
           status: String(t.status || 'open'),
           autoReply: String(t.autoReply || ''),
           expectNote: String(t.expectNote || ''),
+          category: String(t.category || ''),
+          caseRef: String(t.caseRef || ''),
+          followUps: Array.isArray(t.followUps)
+            ? t.followUps.slice(-20).map((f: any) => ({
+                at: f.at || null,
+                message: String(f.message || ''),
+                kind: f.kind === 'evidence' ? 'evidence' : 'chaser',
+                photoUrls: Array.isArray(f.photoUrls) ? f.photoUrls.slice(0, 4) : [],
+              }))
+            : [],
           photoUrls: Array.isArray(t.photoUrls) ? t.photoUrls.slice(0, 4) : [],
           replies: Array.isArray(t.replies)
             ? t.replies.map((r: any) => ({
