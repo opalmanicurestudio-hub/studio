@@ -184,6 +184,7 @@ export default function RetailReturnsPage() {
     if (res.ok && res.allReceived && activeReturn) {
       setBusy('resolve');
       const fin = await resolveReturn(firestore as Firestore, tenantId, activeReturn, actor);
+      await maybeAutoRefund(fin, activeReturn.orderId);
       setBusy(null);
       toast({
         variant: fin.ok ? 'default' : 'destructive',
@@ -194,10 +195,34 @@ export default function RetailReturnsPage() {
     }
   };
 
+  /* POLICY: AUTO-REFUND UNDER THE THRESHOLD. When the owner set "refund
+   * automatically below $X", a resolved return whose queued refund fits
+   * fires the Stripe route immediately — same route, same closure, same
+   * idempotency as the board tap; a failure just leaves the amber banner
+   * doing its job. Above the threshold (or unset), nothing changes. */
+  const maybeAutoRefund = async (fin: { ok: boolean; refundQueuedCents?: number; orderQrToken?: string }, orderId: string) => {
+    const autoBelow = Math.max(0, Number((selectedTenant as any)?.retailSettings?.policies?.refundAutoBelowCents) || 0);
+    const cents = Number(fin.refundQueuedCents) || 0;
+    if (!fin.ok || autoBelow <= 0 || cents <= 0 || cents > autoBelow) return;
+    try {
+      const r = await fetch('/api/retail/refund', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, orderId, qrToken: fin.orderQrToken || '' }),
+      });
+      const d = await r.json().catch(() => ({}));
+      toast(r.ok
+        ? { title: 'Refunded through Stripe automatically', description: d.message }
+        : { title: 'Auto-refund did not go through', description: `${d.error || 'Stripe error'} — it stays on the board's refund banner.` });
+    } catch {
+      toast({ title: 'Auto-refund did not go through', description: 'It stays on the board\u2019s refund banner.' });
+    }
+  };
+
   const finish = async () => {
     if (!firestore || !tenantId || !activeReturn || busy) return;
     setBusy('resolve');
     const res = await resolveReturn(firestore as Firestore, tenantId, activeReturn, actor);
+    await maybeAutoRefund(res, activeReturn.orderId);
     setBusy(null);
     toast({ variant: res.ok ? 'default' : 'destructive', title: res.ok ? 'Return resolved' : 'Not yet', description: res.message });
     if (res.ok) setActiveReturn(null);
