@@ -280,7 +280,22 @@ export default function WavesPage() {
     void recordWavePut(firestore as Firestore, tenantId, active.id, res.tote, res.productId,
       toteRow.totes.find((t) => t.tote === res.tote)?.qty || 0, toteRow.totalQty);
     if (res.toteDone) {
-      toast({ title: `Tote ${res.tote} is complete`, description: 'Everything that bin needs is in it.' });
+      /* THE WAVE ADVANCES ITSELF. When a solo operator's last beep completes
+       * the last tote, making them find a "move to the bench" button is a
+       * screen-jump for no reason — the walk being over IS the instruction.
+       * Computed against the optimistic put (the transaction echo lags), and
+       * setWaveStatus is idempotent, so a double-fire is harmless. The
+       * manual button stays for partial handoffs. */
+      const after = { ...(active.scannedByTote || {}) };
+      after[String(res.tote)] = { ...(after[String(res.tote)] || {}), [res.productId]: res.putInTote };
+      const resid = toteResiduals(rows, after);
+      const allDone = Object.values(resid).every((byPid) => Object.values(byPid).every((n) => n <= 0));
+      if (allDone) {
+        void setWaveStatus(firestore as Firestore, tenantId, active.id, 'packing');
+        toast({ title: 'Wave picked — moving to the bench', description: 'Every tote has everything it needs. Grab the bins and the slip stack.' });
+      } else {
+        toast({ title: `Tote ${res.tote} is complete`, description: 'Everything that bin needs is in it.' });
+      }
     }
   };
 
@@ -640,9 +655,14 @@ export default function WavesPage() {
             </div>
 
             <div className="space-y-2 print:break-before-page">
-              <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
-                Totes — pack in this order
-              </p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
+                  Totes — pack in this order
+                </p>
+                <Button asChild size="sm" className="h-9 shrink-0 rounded-xl text-[10px] font-black uppercase tracking-widest print:hidden">
+                  <Link href="/retail-orders/bench">Open the bench →</Link>
+                </Button>
+              </div>
               {packQueue(active, ordersById).map((w) => (
                 <div key={w.orderId} className="flex items-center gap-3 rounded-2xl border-2 bg-white p-3">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2 font-mono text-lg font-bold">
