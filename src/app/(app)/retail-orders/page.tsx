@@ -842,19 +842,41 @@ export default function RetailFulfillmentBoard() {
             <div className="max-w-7xl mx-auto px-4 py-1.5 flex flex-wrap items-center gap-2">
               <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
               <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 flex-1">
-                {pendingRefunds.length} refund(s) to execute in Stripe:
+                {pendingRefunds.length} refund(s) promised:
               </p>
               {pendingRefunds.map((o) => (
-                <Button
-                  key={o.id}
-                  variant="outline"
-                  size="sm"
-                  disabled={busy === `refund-${o.id}`}
-                  onClick={() => act(`refund-${o.id}`, () => markRefundExecuted(requireCtx() as Firestore, tenantId, o.id, actor))}
-                  className="h-7 rounded-lg font-black uppercase text-[8px] tracking-widest border-2 border-amber-200 text-amber-700 hover:bg-amber-100"
-                >
-                  #{o.orderNumber} {fmt(o.pendingRefundCents || 0)} · Mark refunded
-                </Button>
+                <span key={o.id} className="flex items-center gap-1">
+                  <Button
+                    size="sm"
+                    disabled={busy === `refund-${o.id}`}
+                    onClick={() => act(`refund-${o.id}`, async () => {
+                      /* ONE TAP, REAL MONEY MOVES. The route refunds the exact
+                       * promised amount through Stripe on the connected account
+                       * and performs the same closure "Mark done" performs — a
+                       * failure writes nothing and the banner keeps the debt. */
+                      const res = await fetch('/api/retail/refund', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tenantId, orderId: o.id, qrToken: (o as any).qrToken || '' }),
+                      });
+                      const data = await res.json().catch(() => ({}));
+                      if (!res.ok) return { ok: false, message: data.error || 'Refund failed' };
+                      return { ok: true, message: data.message };
+                    })}
+                    className="h-7 rounded-lg px-2.5 font-black uppercase text-[8px] tracking-widest bg-amber-600 text-white hover:bg-amber-700"
+                  >
+                    #{o.orderNumber} · Refund {fmt(o.pendingRefundCents || 0)} via Stripe
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy === `refund-manual-${o.id}`}
+                    onClick={() => act(`refund-manual-${o.id}`, () => markRefundExecuted(requireCtx() as Firestore, tenantId, o.id, actor))}
+                    className="h-7 rounded-lg px-2 font-black uppercase text-[8px] tracking-widest border-2 border-amber-200 text-amber-700 hover:bg-amber-100"
+                    title="Already refunded it in the Stripe dashboard? Record it without charging again."
+                  >
+                    Mark done manually
+                  </Button>
+                </span>
               ))}
             </div>
           </div>
