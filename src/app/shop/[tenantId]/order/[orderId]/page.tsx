@@ -1138,6 +1138,18 @@ export default function OrderStatusPage() {
                           : `${l.qtyShorted} unavailable — refunded`}
                       </p>
                     )}
+                    {Array.isArray((l as any).documents) && (l as any).documents.length > 0 && (
+                      <p className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5">
+                        {(l as any).documents.map((d: { name: string; url: string }, k: number) => (
+                          <a
+                            key={k} href={d.url} target="_blank" rel="noreferrer"
+                            className="text-[9px] font-black uppercase tracking-widest text-primary underline underline-offset-2"
+                          >
+                            {d.name} ↓
+                          </a>
+                        ))}
+                      </p>
+                    )}
                   </div>
                   <p className="font-black font-mono text-xs shrink-0">{fmt(l.unitPriceCents * (l.qtyOrdered - l.qtyShorted))}</p>
                 </div>
