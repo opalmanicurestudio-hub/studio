@@ -74,6 +74,25 @@ service cloud.firestore {
     match /tenants/{tenantId}/appointments/{appointmentId} {
       allow read, write: if isStaff(tenantId);
     }
+
+    // ── Hosting (host stand + floor) — the boundary that was honestly
+    // deferred until a staff surface needed these collections. Now it does:
+    // any staff member can run the host stand (sessions and parties are
+    // operational, same trust level as appointments and walkIns), while the
+    // floor-plan TEMPLATE — the room's definition, frozen into every
+    // session at open — is manager-only to write, because editing it
+    // reshapes every future session. Nothing here is public: guests touch
+    // hosting only through server routes and their own RSVP surfaces.
+    match /tenants/{tenantId}/serviceSessions/{sessionId} {
+      allow read, write: if isStaff(tenantId);
+    }
+    match /tenants/{tenantId}/parties/{partyId} {
+      allow read, write: if isStaff(tenantId);
+    }
+    match /tenants/{tenantId}/floorPlans/{planId} {
+      allow read: if isStaff(tenantId);
+      allow write: if isManager(tenantId);
+    }
     match /tenants/{tenantId}/clients/{clientId} {
       allow create: if true;
       allow read, write: if isStaff(tenantId);
