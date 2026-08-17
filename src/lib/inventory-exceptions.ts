@@ -18,7 +18,7 @@
 // idempotent: the same source event can fire twice and produce one record.
 
 import {
-  collection, doc, getDoc, runTransaction, setDoc, type Firestore,
+  collection, doc, getDoc, getDocs, query, runTransaction, setDoc, where, writeBatch, type Firestore,
 } from 'firebase/firestore';
 
 // ─── Reason taxonomy (spec's codes, grouped) ─────────────────────────────────
@@ -145,6 +145,8 @@ export interface InventoryExceptionInput {
   photoUrls?: string[];
   recordedBy: { id: string; name: string };
   source: 'returns_desk' | 'claims_desk' | 'manual';
+  flags?: string[];
+  duplicateOfId?: string | null;
 }
 
 export function buildExceptionDoc(input: InventoryExceptionInput, tenantId: string) {
@@ -176,6 +178,8 @@ export function buildExceptionDoc(input: InventoryExceptionInput, tenantId: stri
     photoUrls: Array.isArray(input.photoUrls) ? input.photoUrls.slice(0, 8) : [],
     recordedBy: { id: input.recordedBy.id, name: input.recordedBy.name },
     source: input.source,
+    flags: Array.isArray(input.flags) ? input.flags : [],
+    duplicateOfId: input.duplicateOfId || null,
     recovery: {
       status: RECOVERY_CANDIDATES.has(input.reason) ? 'candidate' : 'none',
       claimAmountCents: 0,
@@ -312,5 +316,109 @@ export async function advanceRecovery(
     });
   } catch (e: any) {
     return { ok: false, message: e?.message || 'Could not update the recovery.' };
+  }
+}
+
+
+// ─── Round N3: manual write-offs, duplicate recognition, accounting hand-off ─
+
+/** The write-off dialog's reason list — codes from the taxonomy, in the
+ *  order a small shop actually reaches for them. 'inbound_damage' is the
+ *  quiet win: "damaged on arrival" is the SUPPLIER's loss, so choosing it
+ *  lands the write-off in the Recovery Queue automatically. */
+export const MANUAL_WRITEOFF_REASONS: { code: string; label: string }[] = [
+  { code: 'inbound_damage', label: 'Damaged on arrival (supplier)' },
+  { code: 'warehouse_damage', label: 'Damaged in studio' },
+  { code: 'employee_damage', label: 'Employee damage' },
+  { code: 'expired', label: 'Expired' },
+  { code: 'obsolete', label: 'Obsolete / discontinued' },
+  { code: 'theft_shrinkage', label: 'Theft / shrinkage' },
+  { code: 'missing_inventory', label: 'Missing — can\u2019t locate' },
+  { code: 'count_discrepancy', label: 'Count discrepancy' },
+  { code: 'packaging_failure', label: 'Packaging failure / leaked' },
+  { code: 'environmental', label: 'Temperature / environmental' },
+  { code: 'sample_tester', label: 'Sample / tester' },
+  { code: 'quality_testing', label: 'Quality-control testing' },
+  { code: 'internal_use', label: 'Internal use' },
+  { code: 'promo_giveaway', label: 'Promotional giveaway' },
+  { code: 'recall', label: 'Product recall' },
+];
+
+const MANUAL_RESPONSIBLE: Record<string, InventoryExceptionInput['responsibleParty']> = {
+  inbound_damage: 'supplier',
+  theft_shrinkage: 'unknown',
+  missing_inventory: 'unknown',
+  count_discrepancy: 'unknown',
+};
+
+/** Duplicate recognition (the spec's double-deduction guard, second layer —
+ *  deterministic ids catch exact re-fires; this catches the HUMAN path where
+ *  the same economic loss gets recorded twice through different doors, e.g.
+ *  a return already wrote the unit off and someone also writes it off from
+ *  inventory). Looks for another exception on the same product within the
+ *  window; a hit doesn't block — losses can legitimately repeat — it FLAGS,
+ *  and the ledger shows the flag for a human to judge. */
+export async function findRecentExceptionForProduct(
+  fs: Firestore, tenantId: string, productId: string, withinDays = 30, excludeId?: string,
+): Promise<{ id: string; at: string; reason: string } | null> {
+  try {
+    const snap = await getDocs(query(
+      collection(fs, `tenants/${tenantId}/inventoryExceptions`),
+      where('productId', '==', productId),
+    ));
+    const cutoff = Date.now() - withinDays * 86400000;
+    const hits = snap.docs
+      .map((d) => ({ id: d.id, ...(d.data() as any) }))
+      .filter((r) => r.id !== excludeId && Date.parse(String(r.at || '')) >= cutoff)
+      .sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+    return hits.length ? { id: hits[0].id, at: hits[0].at, reason: hits[0].reason } : null;
+  } catch {
+    return null; // the guard is best-effort; recording the loss still matters more
+  }
+}
+
+/** Manual write-off entry point: runs the duplicate check, then records. */
+export async function recordManualException(
+  fs: Firestore, tenantId: string, input: InventoryExceptionInput,
+): Promise<{ ok: boolean; created: boolean; possibleDuplicate: boolean; message?: string }> {
+  const dup = input.productId
+    ? await findRecentExceptionForProduct(fs, tenantId, input.productId, 30, input.dedupeId)
+    : null;
+  const res = await recordInventoryException(fs, tenantId, {
+    ...input,
+    responsibleParty: input.responsibleParty || MANUAL_RESPONSIBLE[input.reason] || 'internal',
+    ...(dup ? { flags: [...(input.flags || []), 'possible_duplicate'], duplicateOfId: dup.id } : {}),
+  });
+  return { ...res, possibleDuplicate: Boolean(dup) };
+}
+
+/** Accounting hand-off: stamp every exception in a month as delivered to
+ *  the accounting layer. The stamp is a state, not an edit — the records
+ *  themselves stay append-only, and re-running skips already-stamped rows. */
+export async function markMonthHandedOff(
+  fs: Firestore, tenantId: string, monthKey: string, actorName: string,
+): Promise<{ ok: boolean; stamped: number; message: string }> {
+  try {
+    const [y, m] = monthKey.split('-').map(Number);
+    const start = new Date(y, m - 1, 1).toISOString();
+    const end = new Date(y, m, 1).toISOString();
+    const snap = await getDocs(query(
+      collection(fs, `tenants/${tenantId}/inventoryExceptions`),
+      where('at', '>=', start), where('at', '<', end),
+    ));
+    const now = new Date().toISOString();
+    const targets = snap.docs.filter((d) => (d.data() as any).accountingStatus !== 'handed_off');
+    if (targets.length === 0) return { ok: true, stamped: 0, message: 'Everything this month is already handed off.' };
+    // Firestore batches cap at 500 writes — a month over that is chunked.
+    for (let i = 0; i < targets.length; i += 450) {
+      const batch = writeBatch(fs);
+      for (const d of targets.slice(i, i + 450)) {
+        batch.update(d.ref, { accountingStatus: 'handed_off', handedOffAt: now, handedOffBy: actorName });
+      }
+      await batch.commit();
+    }
+    return { ok: true, stamped: targets.length, message: `${targets.length} exception${targets.length === 1 ? '' : 's'} marked handed off.` };
+  } catch (e: any) {
+    return { ok: false, stamped: 0, message: e?.message || 'Could not stamp the month.' };
   }
 }
