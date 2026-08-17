@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/select';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { type InventoryItem, type Batch } from '@/lib/data';
+import { MANUAL_WRITEOFF_REASONS } from '@/lib/inventory-exceptions';
 import { useForm, Controller, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -140,8 +141,8 @@ export const WriteOffDialog: React.FC<WriteOffDialogProps> = ({
                                         <SelectValue placeholder="SELECT REASON..." />
                                     </SelectTrigger>
                                     <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                        {['Damaged on Arrival', 'Damaged in Studio', 'Expired', 'Theft/Loss', 'Internal Use', 'Other'].map(r => (
-                                            <SelectItem key={r} value={r} className="font-bold uppercase text-[10px] tracking-widest">{r.toUpperCase()}</SelectItem>
+                                        {MANUAL_WRITEOFF_REASONS.map(r => (
+                                            <SelectItem key={r.code} value={r.code} className="font-bold uppercase text-[10px] tracking-widest">{r.label.toUpperCase()}</SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
