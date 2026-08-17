@@ -61,6 +61,29 @@ export default function RetailSupportPage() {
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [claims, setClaims] = useState<any[]>([]);
   const [creditDraft, setCreditDraft] = useState<Record<string, string>>({});
+
+  /* CREDIT IS THE OWNER'S MONEY. Staff can grant up to the owner-set cap
+   * (retailSettings.staffCreditCapCents, default $25); managers and the
+   * owner are uncapped and set the cap right here. The database rule is the
+   * real enforcement — this mirror just makes the refusal friendly. */
+  const staffRole = String((selectedTenant as any)?.staffMember?.role || 'owner').toLowerCase();
+  const isMgr = ['owner', 'admin'].includes(staffRole);
+  const capCents = Math.max(0, Number((selectedTenant as any)?.retailSettings?.staffCreditCapCents) || 2500);
+  const [capDraft, setCapDraft] = useState('');
+  const saveCap = async () => {
+    if (!firestore || !tenantId || !isMgr) return;
+    const dollars = Number(capDraft);
+    if (!Number.isFinite(dollars) || dollars < 0) { toast({ variant: 'destructive', title: 'Enter a cap in dollars' }); return; }
+    try {
+      await updateDoc(doc(firestore as Firestore, 'tenants', tenantId), {
+        'retailSettings.staffCreditCapCents': Math.round(dollars * 100),
+      });
+      setCapDraft('');
+      toast({ title: `Staff credit cap set to $${dollars.toFixed(2)}` });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Could not save the cap', description: e?.message });
+    }
+  };
   const [flags, setFlags] = useState<Record<string, any>>({});
   const [flagOpen, setFlagOpen] = useState<string | null>(null);
   const [flagNote, setFlagNote] = useState('');
@@ -239,6 +262,14 @@ export default function RetailSupportPage() {
       toast({ variant: 'destructive', title: 'Enter a credit amount first' });
       return;
     }
+    if (!isMgr && Math.round(dollars * 100) > capCents) {
+      toast({
+        variant: 'destructive',
+        title: `Above your limit — $${(capCents / 100).toFixed(2)} max`,
+        description: 'Larger credits are the owner\u2019s call. Draft your reply and flag a manager, or ask them to issue it.',
+      });
+      return;
+    }
     if (!t.customerEmail) {
       toast({ variant: 'destructive', title: 'No email on this order', description: 'Store credit is keyed to the customer email — this order has none.' });
       return;
@@ -305,6 +336,23 @@ export default function RetailSupportPage() {
               {loadNote || `${tickets.length + visibleClaims.length} ${showResolved ? 'closed' : 'open'}`}
             </p>
           </div>
+          {isMgr && (
+            <span className="hidden items-center gap-1.5 md:flex">
+              <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Staff credit cap $</span>
+              <input
+                inputMode="decimal"
+                aria-label="Staff store-credit cap in dollars"
+                placeholder={(capCents / 100).toFixed(2)}
+                value={capDraft}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCapDraft(e.target.value.replace(/[^0-9.]/g, ''))}
+                className="h-8 w-16 rounded-lg border-2 bg-white px-1.5 text-center font-mono text-[11px] font-bold outline-none focus:border-foreground/60"
+              />
+              <button type="button" onClick={() => void saveCap()} disabled={!capDraft}
+                className="h-8 rounded-lg border-2 px-2 text-[8px] font-black uppercase tracking-widest transition-all hover:border-primary/40 disabled:opacity-40">
+                Set
+              </button>
+            </span>
+          )}
           <button type="button" onClick={() => setShowResolved(!showResolved)}
             className={cn('h-9 px-4 rounded-full border-2 text-[9px] font-black uppercase tracking-widest transition-all',
               showResolved ? 'bg-foreground text-background border-foreground' : 'bg-white hover:border-primary/40')}>
@@ -457,7 +505,9 @@ export default function RetailSupportPage() {
                     className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
                     {busy === `credit-${t.id}` ? <Loader className="h-3.5 w-3.5 animate-spin" /> : 'Issue store credit'}
                   </Button>
-                  <span className="hidden text-[9px] font-bold text-muted-foreground sm:block">balance email sends itself · reply drafts below</span>
+                  <span className="hidden text-[9px] font-bold text-muted-foreground sm:block">
+                    {isMgr ? 'balance email sends itself · reply drafts below' : `your limit: $${(capCents / 100).toFixed(2)} · balance email sends itself`}
+                  </span>
                 </div>
               )}
               {flagOpen === t.id && (
