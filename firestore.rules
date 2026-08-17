@@ -75,6 +75,18 @@ service cloud.firestore {
       allow read, write: if isStaff(tenantId);
     }
 
+    // ── Inventory exceptions — the loss & recovery spine. Append-mostly
+    // audit records: any staff surface may create one (the returns desk and
+    // claims desk do), managers may update (Round N2's recovery lifecycle
+    // edits land here), and NOBODY deletes — a loss record that can vanish
+    // is not an audit trail. Corrections are new records that reference the
+    // old, same principle as the order event log.
+    match /tenants/{tenantId}/inventoryExceptions/{excId} {
+      allow read, create: if isStaff(tenantId);
+      allow update: if isManager(tenantId);
+      allow delete: if false;
+    }
+
     // ── Store credit — discretionary grants are CAPPED for staff.
     // Issuing credit is spending the shop's money, so the ceiling is the
     // owner's call (retailSettings.staffCreditCapCents, default $25 when
@@ -346,6 +358,7 @@ service cloud.firestore {
       allow read, write: if isStaff(tenantId) &&
         !(allSubcollections.size() > 0 && allSubcollections[0] in [
           'depositCredits',
+          'inventoryExceptions',
           'assetUnits',
           'assetScanEvents',
           'stationAllocations',
