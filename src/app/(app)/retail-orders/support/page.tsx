@@ -3,7 +3,7 @@
 import {
   addDoc, collection, doc, onSnapshot, query, updateDoc, where, type Firestore,
 } from 'firebase/firestore';
-import { ArrowLeft, Check, ClipboardCopy, Coins, Inbox, LifeBuoy, Loader, Scale } from 'lucide-react';
+import { ArrowLeft, Check, ClipboardCopy, Coins, Flag, Inbox, LifeBuoy, Loader, Scale, ShieldAlert } from 'lucide-react';
 import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
 
@@ -61,6 +61,10 @@ export default function RetailSupportPage() {
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [claims, setClaims] = useState<any[]>([]);
   const [creditDraft, setCreditDraft] = useState<Record<string, string>>({});
+  const [flags, setFlags] = useState<Record<string, any>>({});
+  const [flagOpen, setFlagOpen] = useState<string | null>(null);
+  const [flagNote, setFlagNote] = useState('');
+  const [flagKind, setFlagKind] = useState<'fraud' | 'abuse' | 'chargeback' | 'other'>('fraud');
   const [loading, setLoading] = useState(true);
   const [showResolved, setShowResolved] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -145,6 +149,69 @@ export default function RetailSupportPage() {
       setClaims(snap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })));
     });
   }, [firestore, tenantId]);
+
+  /* THE FLAG BOARD. Internal-only, keyed by customer email: 'watch' informs
+   * every ticket the person touches, 'banned' also refuses their checkout.
+   * Notes are the institutional memory — the next staffer sees what happened
+   * and how it was handled, before they type a word. Nothing here is ever
+   * shown to the customer; the AI draft is coached by it but forbidden from
+   * referencing it. */
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    return onSnapshot(collection(firestore as Firestore, `tenants/${tenantId}/customerFlags`), (snap: any) => {
+      const map: Record<string, any> = {};
+      snap.docs.forEach((d: any) => {
+        const f = { id: d.id, ...(d.data() as any) };
+        if (f.email) map[String(f.email).toLowerCase()] = f;
+      });
+      setFlags(map);
+    });
+  }, [firestore, tenantId]);
+
+  const flagFor = (email?: string) => (email ? flags[email.toLowerCase().trim()] : undefined);
+
+  const saveFlag = async (t: SupportTicket, level: 'watch' | 'banned') => {
+    if (!firestore || !tenantId || busy) return;
+    if (!t.customerEmail) { toast({ variant: 'destructive', title: 'No email on this order' }); return; }
+    if (!flagNote.trim()) { toast({ variant: 'destructive', title: 'Write the note first', description: 'The note is what protects the next staffer.' }); return; }
+    setBusy(`flag-${t.id}`);
+    try {
+      const email = t.customerEmail.toLowerCase().trim();
+      const existing = flags[email];
+      const reason = { at: new Date().toISOString(), by: staffName.split(' ')[0], kind: flagKind, note: flagNote.trim().slice(0, 400), orderId: t.orderId };
+      if (existing?.id) {
+        await updateDoc(doc(firestore as Firestore, `tenants/${tenantId}/customerFlags`, existing.id), {
+          level, updatedAt: new Date().toISOString(),
+          reasons: [...(existing.reasons || []), reason],
+        });
+      } else {
+        await addDoc(collection(firestore as Firestore, `tenants/${tenantId}/customerFlags`), {
+          tenantId, email, name: t.customerName || '',
+          level, reasons: [reason],
+          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        });
+      }
+      setFlagOpen(null); setFlagNote('');
+      toast({ title: level === 'banned' ? 'Customer banned from online checkout' : 'Watch flag saved', description: 'Internal only — the customer sees nothing.' });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Could not save the flag', description: e?.message });
+    } finally { setBusy(null); }
+  };
+
+  const clearFlag = async (email: string) => {
+    if (!firestore || !tenantId || busy) return;
+    const f = flags[email.toLowerCase().trim()];
+    if (!f?.id) return;
+    setBusy(`flag-clear-${f.id}`);
+    try {
+      await updateDoc(doc(firestore as Firestore, `tenants/${tenantId}/customerFlags`, f.id), {
+        level: 'watch', updatedAt: new Date().toISOString(),
+      });
+      toast({ title: 'Downgraded to watch', description: 'Delete history is deliberate — notes stay.' });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Could not update', description: e?.message });
+    } finally { setBusy(null); }
+  };
 
   const visibleClaims = useMemo(() => {
     const open = ['in_review'];
@@ -284,6 +351,33 @@ export default function RetailSupportPage() {
                   </Badge>
                 </div>
               </div>
+              {(() => {
+                const f = flagFor(t.customerEmail);
+                if (!f) return null;
+                const last = (f.reasons || [])[Math.max(0, (f.reasons || []).length - 1)];
+                return (
+                  <div className={cn('flex items-start gap-2 rounded-2xl border-2 p-3',
+                    f.level === 'banned' ? 'border-destructive/60 bg-destructive/5' : 'border-amber-400/60 bg-amber-500/5')}>
+                    <ShieldAlert className={cn('mt-0.5 h-4 w-4 shrink-0', f.level === 'banned' ? 'text-destructive' : 'text-amber-600')} />
+                    <div className="min-w-0">
+                      <p className={cn('text-[9px] font-black uppercase tracking-widest', f.level === 'banned' ? 'text-destructive' : 'text-amber-700')}>
+                        {f.level === 'banned' ? 'Banned from online checkout' : 'On watch'} · {(f.reasons || []).length} note{(f.reasons || []).length === 1 ? '' : 's'} · internal only
+                      </p>
+                      {last && (
+                        <p className="mt-0.5 text-[11px] font-bold text-muted-foreground">
+                          {last.by} · {String(last.kind).replace('_', ' ')}: {last.note}
+                        </p>
+                      )}
+                      {f.level === 'banned' && (
+                        <button type="button" onClick={() => clearFlag(t.customerEmail)}
+                          className="mt-1 text-[9px] font-black uppercase tracking-widest text-muted-foreground underline-offset-4 hover:underline">
+                          Downgrade to watch
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
               <p className="text-sm font-bold text-muted-foreground leading-relaxed rounded-2xl border-2 border-dashed p-3">
                 {t.message}
               </p>
@@ -366,6 +460,41 @@ export default function RetailSupportPage() {
                   <span className="hidden text-[9px] font-bold text-muted-foreground sm:block">balance email sends itself · reply drafts below</span>
                 </div>
               )}
+              {flagOpen === t.id && (
+                <div className="space-y-2 rounded-2xl border-2 border-amber-400/50 bg-amber-500/5 p-3">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-amber-700">
+                    Internal flag — the customer never sees this. The note is for the next staffer.
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(['fraud', 'abuse', 'chargeback', 'other'] as const).map((k) => (
+                      <button key={k} type="button" aria-pressed={flagKind === k}
+                        onClick={() => setFlagKind(k)}
+                        className={cn('h-7 px-3 rounded-full border-2 text-[8px] font-black uppercase tracking-widest transition-all',
+                          flagKind === k ? 'bg-foreground text-background border-foreground' : 'bg-white')}>
+                        {k}
+                      </button>
+                    ))}
+                  </div>
+                  <Textarea
+                    placeholder="What happened, and how was it handled? e.g. Claimed package never arrived; tracking shows delivered + signed. Second attempt this month."
+                    value={flagNote}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setFlagNote(e.target.value)}
+                    className="rounded-2xl border-2 min-h-[60px] font-bold text-sm bg-white"
+                  />
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" disabled={busy === `flag-${t.id}` || !flagNote.trim()}
+                      onClick={() => saveFlag(t, 'watch')}
+                      className="h-9 flex-1 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
+                      Watch — inform staff
+                    </Button>
+                    <Button size="sm" variant="destructive" disabled={busy === `flag-${t.id}` || !flagNote.trim()}
+                      onClick={() => saveFlag(t, 'banned')}
+                      className="h-9 flex-1 rounded-xl font-black uppercase text-[9px] tracking-widest">
+                      Ban from checkout
+                    </Button>
+                  </div>
+                </div>
+              )}
               <div className="flex flex-wrap gap-2">
                 <Button asChild variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
                   <Link href={`/retail-orders/evidence/${t.orderId}`}>Evidence</Link>
@@ -389,6 +518,14 @@ export default function RetailSupportPage() {
                   onClick={() => copy(`${window.location.origin}/shop/${tenantId}/order/${t.orderId}`, 'Tracking link')}>
                   Tracking link
                 </Button>
+                {t.customerEmail && (
+                  <Button variant="outline" size="sm"
+                    className={cn('h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest',
+                      flagFor(t.customerEmail) && 'border-amber-400/60 text-amber-700')}
+                    onClick={() => { setFlagOpen(flagOpen === t.id ? null : t.id); setFlagNote(''); }}>
+                    <Flag className="mr-1.5 h-3.5 w-3.5" /> {flagFor(t.customerEmail) ? 'Add note' : 'Flag customer'}
+                  </Button>
+                )}
                 {t.status === 'open' && (
                   <Button size="sm" disabled={busy === t.id} onClick={() => resolve(t)}
                     className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest ml-auto">
