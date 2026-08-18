@@ -42,6 +42,34 @@ export interface MessageKindDef {
   requiredTokens: string[];
   /** Why it cannot be disabled — shown in the UI instead of a dead switch. */
   mandatoryNote?: string;
+
+  /* ── Default copy ──────────────────────────────────────────────────────
+   * The shipped wording, kept HERE rather than inside the route that sends
+   * it. Two consequences that matter: the settings screen can show the owner
+   * exactly what goes out today and let them edit that text directly instead
+   * of writing from a blank box, and changing the house voice is a change to
+   * one file rather than a hunt through a dozen send paths.
+   *
+   * The voice is deliberately plain and professional: state the fact, state
+   * what happens next, stop. No apologising for things that are not
+   * failures, no filling silence with reassurance nobody asked for. */
+  defaultSubject: string;
+  defaultBody: string;
+
+  /* ── Timing ────────────────────────────────────────────────────────────
+   * 'immediate'  fires on the action itself. Nothing to schedule.
+   * 'before_event' fires a configurable interval BEFORE a known moment
+   *   (the appointment, the expiry date, the rent date).
+   * 'after_event' fires an interval AFTER something happened. */
+  timing: 'immediate' | 'before_event' | 'after_event';
+  /** Default offset in hours for scheduled kinds. Ignored when immediate. */
+  defaultOffsetHours?: number;
+  /** What the offset is measured from, in the owner's words. */
+  offsetAnchor?: string;
+  /** Set when this kind's timing is owned by ANOTHER screen. Two controls for
+   *  one schedule is how settings start disagreeing with reality, so the
+   *  Messages screen shows this sentence and no input. */
+  timingOwnedElsewhere?: string;
 }
 
 /** The catalog. Adding a kind here is what makes it configurable — a `kind`
@@ -54,6 +82,9 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     channels: ['email', 'sms'], canDisable: true,
     tokens: ['{{client_first}}', '{{service}}', '{{staff}}', '{{when}}', '{{studio}}', '{{link}}', '{{code}}'],
     requiredTokens: ['{{when}}'],
+    defaultSubject: 'Confirmed: {{service}} on {{when}}',
+    defaultBody: '{{client_first}}, your {{service}} with {{staff}} is confirmed for {{when}}.\n\nYour confirmation code is {{code}}. Manage or check in here: {{link}}',
+    timing: 'immediate',
   },
   {
     id: 'booking_hold', group: 'Booking', label: 'Slot held, deposit needed',
@@ -62,6 +93,9 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     mandatoryNote: 'They are holding a time that is not theirs yet — they have to be told what is needed.',
     tokens: ['{{client_first}}', '{{service}}', '{{when}}', '{{amount}}', '{{link}}', '{{studio}}'],
     requiredTokens: ['{{link}}'],
+    defaultSubject: 'Complete your booking — {{service}}',
+    defaultBody: '{{client_first}}, {{when}} is held for your {{service}}.\n\nThe booking is confirmed once the {{amount}} deposit is paid: {{link}}',
+    timing: 'immediate',
   },
   {
     id: 'booking_request', group: 'Booking', label: 'Request received',
@@ -69,6 +103,9 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     channels: ['email', 'sms'], canDisable: true,
     tokens: ['{{client_first}}', '{{service}}', '{{when}}', '{{amount}}', '{{studio}}', '{{link}}'],
     requiredTokens: [],
+    defaultSubject: 'Request received — {{service}} on {{when}}',
+    defaultBody: '{{client_first}}, we have your request for {{service}} on {{when}}.\n\nThis time is not booked yet. We will confirm or offer an alternative shortly. Nothing has been charged.',
+    timing: 'immediate',
   },
   {
     id: 'request_accepted', group: 'Booking', label: 'Request accepted',
@@ -77,6 +114,9 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     mandatoryNote: 'They asked for a time and are waiting on the answer.',
     tokens: ['{{client_first}}', '{{service}}', '{{when}}', '{{amount}}', '{{link}}', '{{studio}}'],
     requiredTokens: ['{{when}}'],
+    defaultSubject: 'Confirmed: {{service}} on {{when}}',
+    defaultBody: '{{client_first}}, your request for {{when}} is accepted.\n\n{{link}}',
+    timing: 'immediate',
   },
   {
     id: 'request_declined', group: 'Booking', label: 'Request declined',
@@ -85,6 +125,9 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     mandatoryNote: 'Somebody is keeping that time free for you. Not telling them is the one unforgivable version of this feature.',
     tokens: ['{{client_first}}', '{{when}}', '{{reason}}', '{{link}}', '{{studio}}'],
     requiredTokens: [],
+    defaultSubject: 'Your request for {{when}}',
+    defaultBody: '{{client_first}}, we are not able to take {{when}}.\n\n{{reason}}\n\nNothing has been charged. You can view other available times here: {{link}}',
+    timing: 'immediate',
   },
   {
     id: 'appointment_reminder', group: 'Reminders', label: 'Appointment reminder',
@@ -92,6 +135,12 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     channels: ['email', 'sms'], canDisable: true,
     tokens: ['{{client_first}}', '{{service}}', '{{when}}', '{{staff}}', '{{link}}', '{{studio}}'],
     requiredTokens: ['{{when}}'],
+    timingOwnedElsewhere: 'Reminder timing (how many days ahead, and the hour it goes out) is set under Automations \u2192 Reminders, so the schedule stays in one place.',
+    defaultSubject: 'Reminder: {{service}} on {{when}}',
+    defaultBody: '{{client_first}}, this is a reminder for your {{service}} with {{staff}} on {{when}}.\n\nManage your appointment: {{link}}',
+    timing: 'before_event',
+    defaultOffsetHours: 24,
+    offsetAnchor: 'the appointment start time',
   },
   {
     id: 'deposit_charged', group: 'Money', label: 'Deposit charged',
@@ -100,6 +149,9 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     mandatoryNote: 'You moved money. A charge nobody was told about is how chargebacks start.',
     tokens: ['{{client_first}}', '{{amount}}', '{{when}}', '{{service}}', '{{link}}', '{{studio}}'],
     requiredTokens: ['{{amount}}'],
+    defaultSubject: 'Deposit received — {{amount}}',
+    defaultBody: '{{client_first}}, we have charged {{amount}} to your card on file as the deposit for {{service}} on {{when}}.\n\nIt will be applied to your total. {{link}}',
+    timing: 'immediate',
   },
   {
     id: 'deposit_failed', group: 'Money', label: 'Card declined',
@@ -108,6 +160,9 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     mandatoryNote: 'They think they are paid up. Only this message tells them otherwise.',
     tokens: ['{{client_first}}', '{{amount}}', '{{when}}', '{{link}}', '{{studio}}'],
     requiredTokens: ['{{link}}'],
+    defaultSubject: 'Payment required — {{amount}}',
+    defaultBody: '{{client_first}}, the {{amount}} deposit did not complete on the card we have on file.\n\nYour time is held. Pay here to confirm it: {{link}}',
+    timing: 'immediate',
   },
   {
     id: 'refund_issued', group: 'Money', label: 'Refund sent',
@@ -116,6 +171,9 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     mandatoryNote: 'Refund timing questions are the most common support message there is. This one prevents them.',
     tokens: ['{{client_first}}', '{{amount}}', '{{studio}}', '{{link}}'],
     requiredTokens: ['{{amount}}'],
+    defaultSubject: 'Refund issued — {{amount}}',
+    defaultBody: '{{client_first}}, a refund of {{amount}} has been issued to your original payment method.\n\nMost banks post refunds within 5–10 business days. {{link}}',
+    timing: 'immediate',
   },
   {
     id: 'receipt', group: 'Money', label: 'Receipt',
@@ -123,6 +181,9 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     channels: ['email'], canDisable: true,
     tokens: ['{{client_first}}', '{{amount}}', '{{when}}', '{{studio}}'],
     requiredTokens: ['{{amount}}'],
+    defaultSubject: 'Your receipt — {{amount}}',
+    defaultBody: '{{client_first}}, thank you. Your receipt for {{amount}} on {{when}} is below.',
+    timing: 'immediate',
   },
   {
     id: 'order_shipped', group: 'Retail', label: 'Order on its way',
@@ -130,6 +191,9 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     channels: ['email'], canDisable: true,
     tokens: ['{{client_first}}', '{{order_number}}', '{{carrier}}', '{{link}}', '{{studio}}'],
     requiredTokens: ['{{link}}'],
+    defaultSubject: 'Order {{order_number}} is on its way',
+    defaultBody: '{{client_first}}, order {{order_number}} has been collected by {{carrier}}.\n\nTrack it here: {{link}}',
+    timing: 'immediate',
   },
   {
     id: 'order_delayed', group: 'Retail', label: 'Delivery running late',
@@ -137,6 +201,9 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     channels: ['email'], canDisable: true,
     tokens: ['{{client_first}}', '{{order_number}}', '{{carrier}}', '{{when}}', '{{link}}', '{{studio}}'],
     requiredTokens: [],
+    defaultSubject: 'Delivery update — order {{order_number}}',
+    defaultBody: '{{client_first}}, {{carrier}} has revised the delivery estimate for order {{order_number}} to {{when}}.\n\nThe parcel is still in transit. Track it here: {{link}}',
+    timing: 'immediate',
   },
   {
     id: 'renter_signin_code', group: 'Renters', label: 'Renter sign-in code',
@@ -145,6 +212,9 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     mandatoryNote: 'They asked for it and cannot get into their own portal without it.',
     tokens: ['{{code}}', '{{studio}}', '{{link}}'],
     requiredTokens: ['{{code}}'],
+    defaultSubject: 'Your sign-in code',
+    defaultBody: 'Your sign-in code is {{code}}. It expires in 10 minutes.',
+    timing: 'immediate',
   },
   {
     id: 'renter_credential_expiring', group: 'Renters', label: 'Licence or insurance expiring',
@@ -153,6 +223,11 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     mandatoryNote: 'Working on an expired licence or lapsed insurance is a legal problem for them and for you. They get the warning.',
     tokens: ['{{renter_first}}', '{{document}}', '{{expiry}}', '{{link}}', '{{studio}}'],
     requiredTokens: ['{{expiry}}'],
+    defaultSubject: '{{document}} expires {{expiry}}',
+    defaultBody: '{{renter_first}}, your {{document}} on file expires on {{expiry}}.\n\nPlease upload the renewal before that date: {{link}}',
+    timing: 'before_event',
+    defaultOffsetHours: 720,
+    offsetAnchor: 'the expiry date',
   },
   {
     id: 'renter_rent_due', group: 'Renters', label: 'Rent reminder',
@@ -160,6 +235,11 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     channels: ['email', 'sms'], canDisable: true,
     tokens: ['{{renter_first}}', '{{amount}}', '{{when}}', '{{link}}', '{{studio}}'],
     requiredTokens: ['{{amount}}'],
+    defaultSubject: 'Rent due — {{amount}}',
+    defaultBody: '{{renter_first}}, booth rent of {{amount}} is due {{when}}.\n\n{{link}}',
+    timing: 'before_event',
+    defaultOffsetHours: 72,
+    offsetAnchor: 'the rent due date',
   },
   {
     id: 'renter_ticket_update', group: 'Renters', label: 'Maintenance ticket update',
@@ -167,6 +247,9 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     channels: ['email'], canDisable: true,
     tokens: ['{{renter_first}}', '{{ticket}}', '{{status}}', '{{link}}', '{{studio}}'],
     requiredTokens: [],
+    defaultSubject: 'Maintenance update — {{ticket}}',
+    defaultBody: '{{renter_first}}, your maintenance request {{ticket}} is now {{status}}.\n\n{{link}}',
+    timing: 'immediate',
   },
   {
     id: 'support_reply', group: 'Retail', label: 'Reply to a customer message',
@@ -175,6 +258,9 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     mandatoryNote: 'They wrote to you and are waiting. A reply nobody receives is not a reply.',
     tokens: ['{{client_first}}', '{{order_number}}', '{{link}}', '{{studio}}'],
     requiredTokens: [],
+    defaultSubject: 'Re: your message about order {{order_number}}',
+    defaultBody: '{{client_first}}, a reply to your message about order {{order_number}} is below.\n\nView the full conversation: {{link}}',
+    timing: 'immediate',
   },
   {
     id: 'support_ack', group: 'Retail', label: 'Message received',
@@ -182,6 +268,9 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     channels: ['email'], canDisable: true,
     tokens: ['{{client_first}}', '{{order_number}}', '{{case_ref}}', '{{link}}', '{{studio}}'],
     requiredTokens: [],
+    defaultSubject: 'Message received — order {{order_number}}',
+    defaultBody: '{{client_first}}, we have your message about order {{order_number}} (case {{case_ref}}).\n\nIt is in the queue and sending it again will not move it up. {{link}}',
+    timing: 'immediate',
   },
   {
     id: 'return_update', group: 'Retail', label: 'Return progress',
@@ -190,6 +279,9 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     mandatoryNote: 'They posted something back and are owed an answer about it.',
     tokens: ['{{client_first}}', '{{order_number}}', '{{amount}}', '{{link}}', '{{studio}}'],
     requiredTokens: [],
+    defaultSubject: 'Return update — order {{order_number}}',
+    defaultBody: '{{client_first}}, there is an update on the return for order {{order_number}}.\n\n{{link}}',
+    timing: 'immediate',
   },
   {
     id: 'claim_decision', group: 'Retail', label: 'Claim decision',
@@ -198,6 +290,9 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     mandatoryNote: 'They reported a problem. The decision is the whole point of reporting it.',
     tokens: ['{{client_first}}', '{{order_number}}', '{{amount}}', '{{link}}', '{{studio}}'],
     requiredTokens: [],
+    defaultSubject: 'Decision on your report — order {{order_number}}',
+    defaultBody: '{{client_first}}, we have reviewed your report on order {{order_number}}.\n\n{{link}}',
+    timing: 'immediate',
   },
   {
     id: 'account_link', group: 'Account', label: 'Sign-in link',
@@ -206,6 +301,9 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     mandatoryNote: 'They asked for it and cannot get in without it.',
     tokens: ['{{link}}', '{{studio}}'],
     requiredTokens: ['{{link}}'],
+    defaultSubject: 'Your sign-in link',
+    defaultBody: 'Use this link to view your orders. It works for 30 days.\n\n{{link}}',
+    timing: 'immediate',
   },
 ];
 
@@ -346,4 +444,105 @@ export async function gateMessage(
     body: p.custom && p.body ? renderMessage(p.body, tokens) : '',
     subject: p.subject ? renderMessage(p.subject, tokens) : '',
   };
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// COPY + TIMING RESOLUTION
+//
+// One call answers "should this send, when, and in exactly what words" — and
+// it ALWAYS returns copy. The catalog default is real, editable text rather
+// than a hidden string inside a route, so there is no wording in the product
+// the owner cannot see and change.
+
+export interface MessageTimingConfig {
+  /** 'immediate' kinds ignore this. */
+  offsetHours: number;
+  /** Which side of the anchor. Fixed per kind; surfaced for the UI's wording. */
+  timing: 'immediate' | 'before_event' | 'after_event';
+  anchor: string;
+}
+
+export function resolveMessageTiming(tenant: any, kind: string): MessageTimingConfig {
+  const def = MESSAGE_KIND_BY_ID[kind];
+  const cfg = ((tenant && tenant.messagePolicy) || {})[kind] || {};
+  if (!def) return { offsetHours: 0, timing: 'immediate', anchor: '' };
+  const stored = Number(cfg.offsetHours);
+  return {
+    offsetHours: Number.isFinite(stored) && stored >= 0 ? stored : (def.defaultOffsetHours || 0),
+    timing: def.timing,
+    anchor: def.offsetAnchor || '',
+  };
+}
+
+/** Shop-wide quiet hours. A text at 3am is not a service, and this is the one
+ *  setting that protects every kind at once rather than per-message. */
+export interface QuietHours { enabled: boolean; startHour: number; endHour: number }
+
+export function resolveQuietHours(tenant: any): QuietHours {
+  const q = (tenant && tenant.messageQuietHours) || {};
+  const h = (v: any, d: number) => {
+    const n = Number(v);
+    return Number.isInteger(n) && n >= 0 && n <= 23 ? n : d;
+  };
+  return { enabled: q.enabled === true, startHour: h(q.startHour, 21), endHour: h(q.endHour, 8) };
+}
+
+/** Is `date` inside quiet hours? Handles the overnight wrap (21:00 → 08:00). */
+export function inQuietHours(qh: QuietHours, date: Date): boolean {
+  if (!qh.enabled) return false;
+  const h = date.getHours();
+  return qh.startHour > qh.endHour
+    ? (h >= qh.startHour || h < qh.endHour)   // wraps midnight
+    : (h >= qh.startHour && h < qh.endHour);
+}
+
+export interface ResolvedMessage {
+  send: boolean;
+  reason: string;
+  subject: string;
+  body: string;
+  /** True when the owner wrote this wording; false = the shipped default. */
+  custom: boolean;
+  timing: MessageTimingConfig;
+}
+
+/**
+ * The full resolution. `body` is never empty for a known kind — custom copy
+ * when it is valid, the catalog default otherwise.
+ */
+export function resolveMessage(
+  tenant: any,
+  kind: string,
+  tokens: Record<string, string | number | null | undefined> = {},
+  channel: MessageChannel = 'email',
+): ResolvedMessage {
+  const def = MESSAGE_KIND_BY_ID[kind];
+  const policy = resolveMessagePolicy(tenant, kind, channel);
+  const timing = resolveMessageTiming(tenant, kind);
+
+  if (!def) {
+    return { send: policy.enabled, reason: 'unknown kind', subject: '', body: '', custom: false, timing };
+  }
+  const subjectTpl = policy.subject || def.defaultSubject;
+  const bodyTpl = policy.custom && policy.body ? policy.body : def.defaultBody;
+  return {
+    send: policy.enabled,
+    reason: policy.overrideRejected || 'ok',
+    subject: renderMessage(subjectTpl, tokens),
+    body: renderMessage(bodyTpl, tokens),
+    custom: policy.custom,
+    timing,
+  };
+}
+
+/** Cleans a rendered body for display: collapses the blank lines left behind
+ *  when an optional token (a decline reason, a staff name) renders empty. */
+export function tidyBody(body: string): string {
+  return String(body || '')
+    .split('\n')
+    .map((l) => l.trimEnd())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
