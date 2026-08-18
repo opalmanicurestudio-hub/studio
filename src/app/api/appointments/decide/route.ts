@@ -215,73 +215,55 @@ export async function POST(req: NextRequest) {
 
     const { sendNotification } = await import('@/lib/notify');
     const { brandedEmailHtml } = await import('@/lib/email-template');
+    const { resolveMessage, tidyBody } = await import('@/lib/message-policy');
 
-    if (email.includes('@')) {
-      const html = accepted
-        ? brandedEmailHtml({
-          studioName,
-          title: cardFailed
-            ? 'Accepted — but your card was declined'
-            : needsDeposit ? 'Accepted — one step to lock it in' : "You're confirmed",
-          bodyLines: [
-            `Good news, ${firstName} — we can take you on ${when}.`,
-            ...(cardFailed
-              // Never blame the client, never bury the consequence.
-              ? [
-                `We tried the card we have on file for the ${money} deposit and it did not go through${chargeResult.code === 'card_declined' ? '' : ''}. That happens — an expired card or a bank hold is usually all it is.`,
-                'Tap below to pay it with any card and your time is locked in. We are holding it for you in the meantime.',
-              ]
-              : chargedOnFile
-                ? [`We have charged the ${money} deposit to the card on file — nothing else to do. It goes toward your total.`]
-                : needsDeposit
-                  ? [`To finish, tap below and pay the ${money} deposit. It goes toward your total, and the time is yours the moment it clears.`]
-                  : ['Nothing else is needed. Show the code below when you arrive.']),
-          ],
-          ...(needsDeposit || cardFailed ? {} : { bigCode: apt.shortCode ? String(apt.shortCode).toUpperCase() : undefined }),
-          cta: {
-            label: cardFailed ? 'Pay deposit with another card' : needsDeposit ? 'Pay deposit & confirm' : 'Check in / manage my visit',
-            url: portalUrl,
-          },
-          footerNote: `Questions? Just reply — ${studioName}.`,
-        })
-        : brandedEmailHtml({
-          studioName,
-          title: 'About your request',
-          bodyLines: [
-            `Hi ${firstName} — we are sorry, we cannot take ${when}.`,
-            reason || 'That slot will not work on our end.',
-            'Nothing was charged. Please do pick another time — we would love to see you.',
-          ],
-          cta: { label: 'Choose another time', url: bookUrl },
-          footerNote: `Thank you for thinking of us — ${studioName}.`,
-        });
+    /* THE WORDS COME FROM THE CATALOG, NOT FROM HERE. Every sentence below
+     * used to be a string literal in this file, which meant the shop could
+     * not change it however hard it tried. Now this route supplies only the
+     * FACTS as tokens; the sentence is the shop's — their own if they wrote
+     * one, the shipped default if not. */
+    const kind = accepted
+      ? (cardFailed ? 'deposit_failed' : chargedOnFile ? 'deposit_charged' : needsDeposit ? 'booking_hold' : 'request_accepted')
+      : 'request_declined';
+    const msgTokens = {
+      client_first: firstName,
+      service: apt.serviceName || 'your appointment',
+      staff: apt.staffName || '',
+      when,
+      amount: money,
+      reason,
+      link: portalUrl,
+      code: apt.shortCode ? String(apt.shortCode).toUpperCase() : '',
+      studio: studioName,
+    };
+    const msg = resolveMessage(tenant, kind, msgTokens, 'email');
+    const smsMsg = resolveMessage(tenant, kind, msgTokens, 'sms');
+
+    if (msg.send && email.includes('@')) {
+      const html = brandedEmailHtml({
+        studioName,
+        title: msg.subject,
+        bodyLines: tidyBody(msg.body).split('\n\n'),
+        ...(accepted && !needsDeposit && !cardFailed && apt.shortCode
+          ? { bigCode: String(apt.shortCode).toUpperCase() } : {}),
+        cta: {
+          label: cardFailed ? 'Pay deposit' : needsDeposit ? 'Pay deposit' : accepted ? 'Manage my visit' : 'View available times',
+          url: accepted ? portalUrl : bookUrl,
+        },
+      });
       const er = await sendNotification(db, {
         tenantId, channel: 'email', to: email,
-        subject: accepted
-          ? (cardFailed
-            ? `Your card didn't go through — ${when}`
-            : chargedOnFile
-              ? `Confirmed: ${when} — deposit charged`
-              : needsDeposit ? `Accepted — finish booking your ${when}` : `Confirmed: ${when}`)
-          : `About your request for ${when}`,
+        subject: msg.subject,
         html, kind: accepted ? 'request_accepted' : 'request_declined',
         appointmentId, clientId: apt.clientId || null, clientName: apt.clientName || null,
       });
       sendStatus.emailSent = !!er.ok;
     }
 
-    if (phone) {
+    if (smsMsg.send && phone) {
       const sr = await sendNotification(db, {
         tenantId, channel: 'sms', to: phone,
-        text: accepted
-          ? (cardFailed
-            ? `Good news — we can take ${when}. Your card on file was declined for the ${money} deposit; pay with another card here and it's locked in: ${portalUrl}`
-            : chargedOnFile
-              ? `You're confirmed for ${when}. The ${money} deposit was charged to your card on file. Details: ${portalUrl}`
-              : needsDeposit
-                ? `Good news — we can take ${when}. Pay the ${money} deposit to lock it in: ${portalUrl}`
-                : `You're confirmed for ${when}. Details & check-in: ${portalUrl}`)
-          : `Sorry — we can't take ${when}.${reason ? ` ${reason}` : ''} Nothing was charged. Pick another time: ${bookUrl}`,
+        text: tidyBody(smsMsg.body),
         kind: accepted ? 'request_accepted' : 'request_declined',
         appointmentId, clientId: apt.clientId || null, clientName: apt.clientName || null,
       });
