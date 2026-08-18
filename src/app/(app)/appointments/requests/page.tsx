@@ -33,6 +33,7 @@ type Req = {
   requestedAt?: string;
   requestExpiresAt?: string | null;
   depositAmountCents?: number;
+  hasCardOnFile?: boolean;
   notes?: string | null;
   inspirationPhotoUrl?: string | null;
   requiresCardOnFile?: boolean;
@@ -101,7 +102,12 @@ export default function BookingRequestsPage() {
       if (!res.ok) {
         toast({ variant: 'destructive', title: 'Not recorded', description: data.error || 'Try again.' });
       } else {
-        toast({ title: decision === 'accept' ? 'Accepted' : 'Declined', description: data.message });
+        // A declined card is not a failure of the DECISION — the acceptance
+        // stands and the client keeps their time — but the studio has to
+        // actually see it, so it gets the loud toast rather than the quiet one.
+        toast(data.chargeFailed
+          ? { variant: 'destructive', title: 'Accepted — card declined', description: data.message }
+          : { title: decision === 'accept' ? 'Accepted' : 'Declined', description: data.message });
         setDeclineFor(null);
         setDeclineReason('');
       }
@@ -171,7 +177,10 @@ export default function BookingRequestsPage() {
 
                 {(Number(r.depositAmountCents) || 0) > 0 && (
                   <p className="rounded-xl border-2 border-dashed px-2.5 py-1.5 text-[10px] font-bold leading-relaxed text-muted-foreground">
-                    {money(r.depositAmountCents)} deposit — <strong>not charged yet</strong>. Accepting asks them for it.
+                    {money(r.depositAmountCents)} deposit — <strong>not charged yet</strong>.{' '}
+                    {r.hasCardOnFile
+                      ? 'They have a card on file, so accepting charges it straight away.'
+                      : 'Accepting sends them a link to pay it.'}
                   </p>
                 )}
                 {r.requiresCardOnFile && (
