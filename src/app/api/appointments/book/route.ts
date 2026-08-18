@@ -644,6 +644,55 @@ export async function POST(req: NextRequest) {
           });
           sendStatus.smsSent = !!sr.ok;
         }
+        /* ═══ TELL THE STUDIO, NOW ═══════════════════════════════════════
+         * A request sitting unseen until tomorrow's digest is the single
+         * biggest weakness of approval mode: the client is holding their day
+         * open while the shop does not know they exist. This fires
+         * immediately, to the owner, and is the one kind in the catalog whose
+         * recipient is staff. Best-effort — the booking already succeeded. */
+        if (isRequest) {
+          try {
+            const { resolveMessage, tidyBody, internalOrigin } = await import('@/lib/message-policy');
+            const { brandedEmailHtml } = await import('@/lib/email-template');
+            const ownerTo = String(tData.ownerEmail || tData.email || tData.businessEmail || '').trim();
+            const ownerPhone = String(tData.ownerPhone || tData.phone || '').trim();
+            const queueUrl = `${internalOrigin(tData, base)}/appointments/requests`;
+            const staffTokens = {
+              client_first: r.clientName || 'A client',
+              service: svcLabel,
+              when: whenStr,
+              amount: `$${((r.plan?.depositCents || 0) / 100).toFixed(2)}`,
+              link: queueUrl,
+              studio: studioName,
+            };
+            const sMsg = resolveMessage(tData, 'staff_new_request', staffTokens, 'email');
+            if (sMsg.send && ownerTo) {
+              await sendNotification(db, {
+                tenantId, channel: 'email', to: ownerTo,
+                subject: sMsg.subject,
+                html: brandedEmailHtml({
+                  studioName,
+                  title: sMsg.subject,
+                  bodyLines: tidyBody(sMsg.body).split('\n\n'),
+                  cta: { label: 'Open the queue', url: queueUrl },
+                }),
+                kind: 'staff_new_request',
+                appointmentId: r.aptId, recipientType: 'staff', recipientName: 'Studio',
+              });
+            }
+            const sSms = resolveMessage(tData, 'staff_new_request', staffTokens, 'sms');
+            if (sSms.send && ownerPhone) {
+              await sendNotification(db, {
+                tenantId, channel: 'sms', to: ownerPhone,
+                text: tidyBody(sSms.body),
+                kind: 'staff_new_request',
+                appointmentId: r.aptId, recipientType: 'staff', recipientName: 'Studio',
+              });
+            }
+          } catch (e) {
+            console.error('[appointments/book] staff request alert failed (booking is safe)', e);
+          }
+        }
       } catch (e) {
         console.error('[appointments/book] confirmation send failed (booking is safe)', e);
       }
