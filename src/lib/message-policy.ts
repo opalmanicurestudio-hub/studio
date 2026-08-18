@@ -146,6 +146,22 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     timing: 'immediate',
   },
   {
+    /* The only STAFF-facing kind in the catalog. Approval mode is only a good
+     * experience for the client when the answer is fast, and "fast" cannot
+     * depend on the owner happening to open the app. This fires the moment a
+     * request lands. Disableable, because a busy shop may prefer the daily
+     * digest — but on by default, because the alternative is a client waiting
+     * on silence. */
+    id: 'staff_new_request', group: 'Booking', label: 'Alert me: new booking request',
+    when: 'A client sends a booking request in approval mode. Sent to you, not the client.',
+    channels: ['email', 'sms'], canDisable: true,
+    tokens: ['{{client_first}}', '{{service}}', '{{when}}', '{{amount}}', '{{link}}', '{{studio}}'],
+    requiredTokens: [],
+    defaultSubject: 'New request: {{service}} on {{when}}',
+    defaultBody: '{{client_first}} has requested {{service}} on {{when}}.\n\nAccept or decline here: {{link}}',
+    timing: 'immediate',
+  },
+  {
     id: 'appointment_reminder', group: 'Reminders', label: 'Appointment reminder',
     when: 'Ahead of the visit, on your reminder schedule.',
     channels: ['email', 'sms'], canDisable: true,
@@ -641,4 +657,70 @@ export function paymentDueAt(
   const start = appointmentStartIso ? Date.parse(appointmentStartIso) : NaN;
   if (Number.isFinite(start) && start < due) due = start;
   return new Date(due).toISOString();
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// INTERNAL CALL ORIGIN
+//
+// Server code that calls another of our own routes needs a base URL, and the
+// obvious choice — the incoming request's origin — is wrong in two situations
+// that both happen in production: a cron run has no incoming request at all,
+// and a preview/proxy origin can differ from where the app actually serves.
+// A deposit that silently fell back to "send them a pay link" because the
+// origin was off is the kind of failure nobody reports and everybody feels.
+//
+// Order of trust: what the tenant declares > the platform's production URL >
+// the request we happen to be handling.
+
+export function internalOrigin(tenant?: any, requestOrigin?: string | null): string {
+  const candidates = [
+    tenant?.publicOrigin,
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '',
+    process.env.NEXT_PUBLIC_APP_URL,
+    requestOrigin,
+  ];
+  for (const c of candidates) {
+    const v = String(c || '').trim().replace(/\/+$/, '');
+    if (/^https?:\/\/.+/.test(v)) return v;
+  }
+  return '';
+}
+
+/** POST to one of our own routes with a bounded wait and one retry on a
+ *  transport failure. A cold serverless start can exceed a default fetch's
+ *  patience; a single retry costs a second and saves the charge. */
+export async function internalPost(
+  origin: string,
+  path: string,
+  body: any,
+  opts?: { timeoutMs?: number; retries?: number },
+): Promise<{ ok: boolean; status: number; data: any; transportError?: string }> {
+  const timeoutMs = opts?.timeoutMs ?? 15000;
+  const retries = opts?.retries ?? 1;
+  if (!origin) return { ok: false, status: 0, data: {}, transportError: 'no origin configured' };
+
+  let lastErr = '';
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(`${origin}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      const data = await res.json().catch(() => ({}));
+      // A 5xx is worth one retry; a 4xx is a real answer and must not be.
+      if (res.status >= 500 && attempt < retries) { lastErr = `server ${res.status}`; continue; }
+      return { ok: res.ok, status: res.status, data };
+    } catch (e: any) {
+      clearTimeout(timer);
+      lastErr = e?.name === 'AbortError' ? 'timed out' : String(e?.message || e).slice(0, 80);
+      // Retry transport failures only.
+    }
+  }
+  return { ok: false, status: 0, data: {}, transportError: lastErr };
 }
