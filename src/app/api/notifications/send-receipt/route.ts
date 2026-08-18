@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { brandedEmail, getEmailBrand, type EmailBrand } from '@/lib/email-shell';
+
 // ─── /api/notifications/send-receipt/route.ts ─────────────────────────────────
 // Sends a cash/card receipt by email (Resend) or SMS (Twilio).
 // Falls back gracefully if neither is configured.
@@ -41,7 +43,7 @@ type ReceiptPayload = {
   date:          string;
 };
 
-function buildEmailHtml(r: ReceiptPayload): string {
+function buildEmailHtml(r: ReceiptPayload, brand: EmailBrand): string {
   const lineItemsHtml = r.lineItems
     .map(l => `<tr>
       <td style="padding:6px 0; color:#374151;">${l.label}${l.staff ? ` <span style="color:#9ca3af; font-size:12px;">· ${l.staff}</span>` : ''}</td>
@@ -49,19 +51,11 @@ function buildEmailHtml(r: ReceiptPayload): string {
     </tr>`)
     .join('');
 
-  return `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-  <div style="max-width:480px;margin:32px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-    
-    <div style="background:#534AB7;padding:28px 32px;text-align:center;">
-      <p style="color:#c4b5fd;font-size:12px;letter-spacing:0.1em;text-transform:uppercase;margin:0 0 6px;">${r.studioName}</p>
-      <h1 style="color:#fff;font-size:24px;font-weight:700;margin:0 0 6px;">Thank you, ${r.clientName.split(' ')[0]}!</h1>
-      <p style="color:#a78bfa;font-size:13px;margin:0;">${r.date}</p>
-    </div>
-
-    <div style="padding:24px 32px;">
+  /* SAME CLOTHES AS THE RETAIL MAIL. The receipt used a hardcoded violet
+   * header no matter what color the shop actually is; it now rides the
+   * shared shell, so a client who buys online and in person gets one
+   * consistent-looking business. */
+  return brandedEmail(brand, `
       <table style="width:100%;border-collapse:collapse;font-size:14px;">
         ${lineItemsHtml}
       </table>
@@ -81,16 +75,12 @@ function buildEmailHtml(r: ReceiptPayload): string {
           ${r.change > 0.005 ? `<tr><td style="padding:3px 0;color:#166534;font-weight:600;">Change returned</td><td style="text-align:right;color:#166534;font-weight:600;font-family:monospace;">$${r.change.toFixed(2)}</td></tr>` : ''}
         </table>
       </div>
-    </div>
-
-    <div style="border-top:1px solid #f3f4f6;padding:20px 32px;text-align:center;background:#f9fafb;">
-      ${r.cashierName ? `<p style="color:#9ca3af;font-size:12px;margin:0 0 4px;">Served by ${r.cashierName}</p>` : ''}
-      <p style="color:#6b7280;font-size:13px;margin:0 0 4px;">Questions? We're happy to help.</p>
-      ${r.studioPhone ? `<p style="color:#534AB7;font-size:13px;font-weight:600;margin:0;">${r.studioPhone}</p>` : ''}
-    </div>
-  </div>
-</body>
-</html>`;
+      <div style="border-top:1px solid #f3f4f6;margin-top:16px;padding-top:14px;text-align:center;">
+        ${r.cashierName ? `<p style="color:#9ca3af;font-size:12px;margin:0 0 4px;">Served by ${r.cashierName}</p>` : ''}
+        <p style="color:#6b7280;font-size:12px;margin:0 0 4px;">Questions? We&#39;re happy to help.</p>
+        ${r.studioPhone ? `<p style="color:#0f172a;font-size:13px;font-weight:600;margin:0;">${r.studioPhone}</p>` : ''}
+      </div>`,
+    { preheader: `Your receipt \u2014 $${r.total.toFixed(2)} on ${r.date}`, title: `Thank you, ${r.clientName.split(' ')[0]}!`, tag: r.date });
 }
 
 function buildSmsText(r: ReceiptPayload): string {
@@ -118,10 +108,11 @@ function buildSmsText(r: ReceiptPayload): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const { contact, type, receipt } = await req.json() as {
+    const { contact, type, receipt, tenantId } = await req.json() as {
       contact: string;
       type:    'email' | 'sms';
       receipt: ReceiptPayload;
+      tenantId?: string;
     };
 
     if (!contact || !receipt) {
@@ -140,7 +131,9 @@ export async function POST(req: NextRequest) {
           from:    `${receipt.studioName} <receipts@${process.env.RESEND_FROM_DOMAIN || 'clarityflow.app'}>`,
           to:      [contact],
           subject: `Your receipt from ${receipt.studioName}`,
-          html:    buildEmailHtml(receipt),
+          html:    buildEmailHtml(receipt, tenantId
+            ? await getEmailBrand(getAdminDb(), tenantId)
+            : { shopName: receipt.studioName, brandColor: '#16171a' }),
         }),
       });
       const data = await res.json().catch(() => null);
