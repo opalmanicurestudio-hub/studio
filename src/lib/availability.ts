@@ -484,8 +484,20 @@ function blocksTime(apt: any, now: Date): boolean {
   // the instant it dies, or approval mode slowly eats the calendar.
   if (status === 'declined' || status === 'expired') return false;
   if (status === 'pending_payment') {
-    const created = safeDate(apt?.createdAt);
-    if (created && now.getTime() - created.getTime() > PENDING_HOLD_MS) return false;
+    /* Two different holds wear the same status, and they deserve different
+     * clocks. Someone sitting at a checkout screen gets the short 30-minute
+     * hold. Someone whose card failed during an approval they were not
+     * present for gets the shop's payment grace window, written onto the row
+     * as paymentDueAt — losing your slot while asleep, over a decline you
+     * were never told about in time, is an accident rather than a policy.
+     * paymentDueAt therefore WINS whenever it is present. */
+    const due = safeDate(apt?.paymentDueAt);
+    if (due) {
+      if (now.getTime() > due.getTime()) return false;
+    } else {
+      const created = safeDate(apt?.createdAt);
+      if (created && now.getTime() - created.getTime() > PENDING_HOLD_MS) return false;
+    }
   }
   /* A REQUEST holds its slot — otherwise two people request the same time and
    * one gets accepted into a conflict. It stops holding at its own stated
