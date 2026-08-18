@@ -62,6 +62,9 @@ const sanitizeForFirestore = (obj: any): any => {
 function BookingPageContent({ tenantId }: { tenantId: string }) {
   usePageFonts();
 
+  /* What the server actually made of the last booking — read by the sheet's
+   * confirmation screen so it never claims "confirmed" for a request. */
+  const [bookingOutcome, setBookingOutcome] = useState<{ status: string; notice: string; depositCents: number } | null>(null);
   const [tenant,          setTenant]          = useState<any>(null);
   const [services,        setServices]        = useState<any[]>([]);
   const [staff,           setStaff]           = useState<any[]>([]);
@@ -313,6 +316,16 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
                       sanitizeForFirestore({ signedForms }), { merge: true });
                   } catch { /* forms are secondary — the booking already exists */ }
                 }
+                /* The SERVER decides what this booking became — instant,
+                 * held for a deposit, or a request awaiting approval. The
+                 * confirmation screen must say the same thing the server
+                 * wrote and the email repeats, or the shop tells the client
+                 * three different stories about the same booking. */
+                setBookingOutcome({
+                  status: String(out.status || 'confirmed'),
+                  notice: String(out.clientNotice || ''),
+                  depositCents: Number(out.depositCents) || 0,
+                });
                 setStep('confirmation');
                 return { requiresPayment: false };
               }
@@ -460,6 +473,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           maintenancePlans={maintenancePlans}
           calendarEvents={calendarEvents}
           onConfirm={handleConfirm}
+          bookingOutcome={bookingOutcome}
         />
       )}
 
