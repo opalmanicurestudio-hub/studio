@@ -37,6 +37,13 @@ export async function POST(req: NextRequest) {
   const tenantId = String(body.tenantId || '').trim();
   const appointmentId = String(body.appointmentId || '').trim();
   const decision = String(body.decision || '').trim();
+  /* 'alternative' (default) = this TIME does not work, come back for another.
+   * 'final' = this BOOKING does not work — not taking new clients, not a
+   * service offered, not a fit. Sending "here are other times" to someone you
+   * are declining as a client reads as a brush-off and invites a booking you
+   * will decline again, so the studio says which it is and the wording
+   * follows. */
+  const declineOutcome = body.declineOutcome === 'final' ? 'final' : 'alternative';
   const staffName = String(body.staffName || 'The studio').slice(0, 80);
   const reason = String(body.reason || '').slice(0, 300);
 
@@ -47,6 +54,9 @@ export async function POST(req: NextRequest) {
   const db = getAdminDb();
   const aptRef = db.doc(`tenants/${tenantId}/appointments/${appointmentId}`);
   const nowIso = new Date().toISOString();
+  // Read once up front: the transaction needs the grace window, and the
+  // notification block below needs the shop's branding and message policy.
+  const tenantForGrace = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
 
   let outcome: any;
   try {
@@ -76,18 +86,33 @@ export async function POST(req: NextRequest) {
         const nextStatus = depositCents > 0 && apt.depositStatus !== 'paid'
           ? 'pending_payment'
           : 'confirmed';
+        /* The unpaid-accepted hold gets the shop's grace window rather than
+         * the 30-minute checkout clock — see paymentDueAt in message-policy. */
+        const graceHours = (() => {
+          const v = Number((tenantForGrace?.bookingMode || {}).paymentGraceHours);
+          return Number.isFinite(v) && v >= 0 ? v : 24;
+        })();
+        const dueAt = nextStatus === 'pending_payment' && graceHours > 0
+          ? (() => {
+            let due = Date.now() + graceHours * 3600000;
+            const start = apt.startTime ? Date.parse(apt.startTime) : NaN;
+            if (Number.isFinite(start) && start < due) due = start;
+            return new Date(due).toISOString();
+          })()
+          : null;
         tx.update(aptRef, {
           status: nextStatus,
           decidedAt: nowIso,
           decidedBy: staffName,
           requestExpiresAt: null,
+          ...(nextStatus === 'pending_payment' ? { paymentDueAt: dueAt } : { paymentDueAt: null }),
           // The hold clock restarts NOW: the client has not been waiting on
           // themselves, they have been waiting on us, so they get the full
           // window from the moment of acceptance.
           createdAt: nextStatus === 'pending_payment' ? nowIso : apt.createdAt,
           ...(apt.createdAt && nextStatus === 'pending_payment' ? { originallyRequestedAt: apt.createdAt } : {}),
         });
-        return { ok: true, status: nextStatus, depositCents, apt, needsCharge: nextStatus === 'pending_payment' };
+        return { ok: true, status: nextStatus, depositCents, apt, dueAt, needsCharge: nextStatus === 'pending_payment' };
       }
 
       tx.update(aptRef, {
@@ -95,6 +120,7 @@ export async function POST(req: NextRequest) {
         decidedAt: nowIso,
         decidedBy: staffName,
         declineReason: reason || null,
+        declineOutcome,
         requestExpiresAt: null,
       });
       return { ok: true, status: 'declined', depositCents, apt };
@@ -109,6 +135,11 @@ export async function POST(req: NextRequest) {
 
   const apt = outcome.apt || {};
   const accepted = outcome.status !== 'declined';
+  // Human-readable deadline for the hold, used in both the client copy and
+  // the studio's own confirmation toast.
+  const holdUntil = outcome.dueAt
+    ? new Date(outcome.dueAt).toLocaleString('en-US', { weekday: 'long', hour: 'numeric', minute: '2-digit' })
+    : '';
 
   /* ═══ AUTO-CHARGE THE DEPOSIT WHEN WE HOLD A CARD ═════════════════════════
    * The honest version of "we'll ask for the deposit when we accept": if the
@@ -116,7 +147,7 @@ export async function POST(req: NextRequest) {
    * we charge it and tell them. Everything about failure is explicit: no
    * silent confirm, no silent cancel, a real reason code on the row, and a
    * client email that says what to do next. */
-  let chargeResult: { attempted: boolean; ok: boolean; reason?: string; code?: string } = { attempted: false, ok: false };
+  let chargeResult: { attempted: boolean; ok: boolean; reason?: string; code?: string; guidance?: string } = { attempted: false, ok: false };
   if (accepted && outcome.needsCharge && outcome.depositCents > 0 && apt.clientId) {
     try {
       const clientSnap = await db.doc(`tenants/${tenantId}/clients/${apt.clientId}`).get();
@@ -155,14 +186,25 @@ export async function POST(req: NextRequest) {
           outcome.status = 'confirmed';
         } else {
           chargeResult.reason = String(cd.reason || 'Card declined');
-          chargeResult.code = String(cd.code || 'charge_failed');
-          // Stays pending_payment — accepted, but not yet paid for.
+          chargeResult.code = String(cd.declineCode || cd.code || 'charge_failed');
+          /* Stays pending_payment — accepted, but not yet paid for. The
+           * failure is CLASSIFIED so the client gets a next step rather than
+           * a diagnosis, and so the nightly retry knows whether trying this
+           * same card again could ever work. An expired card will never work;
+           * retrying it is a second failure with the client's hope attached. */
+          const { classifyCardFailure } = await import('@/lib/message-policy');
+          const cf = classifyCardFailure(chargeResult.code, cd.declineCode);
           await aptRef.update({
             depositStatus: 'failed',
             depositFailureReason: chargeResult.reason,
-            depositFailureCode: chargeResult.code,
+            depositFailureCode: cf.code,
+            depositFailureGuidance: cf.guidance,
+            depositRetryable: cf.retryable,
+            depositNeedsNewCard: cf.needsNewCard,
             depositFailedAt: nowIso,
+            depositAttempts: (Number(apt.depositAttempts) || 0) + 1,
           });
+          chargeResult.guidance = cf.guidance;
         }
       }
     } catch (e) {
@@ -224,7 +266,8 @@ export async function POST(req: NextRequest) {
      * one, the shipped default if not. */
     const kind = accepted
       ? (cardFailed ? 'deposit_failed' : chargedOnFile ? 'deposit_charged' : needsDeposit ? 'booking_hold' : 'request_accepted')
-      : 'request_declined';
+      : (declineOutcome === 'final' ? 'request_declined_final' : 'request_declined');
+
     const msgTokens = {
       client_first: firstName,
       service: apt.serviceName || 'your appointment',
@@ -232,6 +275,8 @@ export async function POST(req: NextRequest) {
       when,
       amount: money,
       reason,
+      card_issue: chargeResult.guidance || '',
+      hold_until: holdUntil,
       link: portalUrl,
       code: apt.shortCode ? String(apt.shortCode).toUpperCase() : '',
       studio: studioName,
@@ -281,11 +326,13 @@ export async function POST(req: NextRequest) {
     chargedOnFile: chargeResult.attempted && chargeResult.ok,
     chargeFailed: chargeResult.attempted && !chargeResult.ok,
     chargeFailureReason: chargeResult.reason || null,
+    chargeGuidance: chargeResult.guidance || null,
+    paymentDueAt: outcome.dueAt || null,
     message: accepted
       ? (chargeResult.attempted && chargeResult.ok
         ? `Accepted — the ${(outcome.depositCents / 100).toFixed(2)} deposit was charged to their card on file.`
         : chargeResult.attempted
-          ? `Accepted, but their card was declined (${chargeResult.reason}). They have been sent a link to pay another way — the time is still held.`
+          ? `Accepted, but their card was declined. ${chargeResult.guidance || ''} They have a link to pay another way${holdUntil ? `, and the time is held until ${holdUntil}` : ' and the time is still held'}.`
           : outcome.status === 'pending_payment'
             ? 'Accepted — the client has been asked for their deposit.'
             : 'Accepted and confirmed — the client has been told.')
