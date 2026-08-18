@@ -23,6 +23,7 @@ import { sweepNoShows } from '@/lib/no-show';
 import { reconcileReservations } from '@/lib/stock-reconcile';
 import { sweepStaleCurbside } from '@/lib/stock-reconcile';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
+import { sweepRecoveryDeadlines, sweepStalledShipments, sweepStaleCases } from '@/lib/retail-sweeps';
 
 export const maxDuration = 300; // allow up to 5 min on Vercel Pro
 
@@ -527,6 +528,31 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate, '· leases renewed', leasesRenewed, '· reminders', reminderTotals, '· no-shows', noShowTotals, '· plans', planTotals, '· sla', slaTotals, '· stock holds', stockTotals);
-  return NextResponse.json({ ok: true, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, reminderTotals, noShowTotals, planTotals, slaTotals, stockTotals, results });
+  // ── RETAIL: the three things only a clock can notice ───────────────────
+  // A parcel that stopped scanning, a filed claim whose window is closing,
+  // and a resolved case nobody has touched. Each is marker-guarded inside
+  // the sweep, so a re-run of this cron sends nothing twice.
+  const retailTotals = { stalled: 0, stalledEmailed: 0, deadlines: 0, deadlineDigests: 0, casesClosed: 0 };
+  for (const tDoc of allTenantsSnap.docs) {
+    try {
+      const [stall, deadlines, cases] = await Promise.all([
+        sweepStalledShipments(db, tDoc.id),
+        sweepRecoveryDeadlines(db, tDoc.id),
+        sweepStaleCases(db, tDoc.id),
+      ]);
+      retailTotals.stalled += stall.actioned;
+      retailTotals.stalledEmailed += stall.emailed;
+      retailTotals.deadlines += deadlines.actioned;
+      retailTotals.deadlineDigests += deadlines.emailed;
+      retailTotals.casesClosed += cases.actioned;
+      if (stall.actioned || deadlines.actioned || cases.actioned) {
+        results[`retail:${tDoc.id}`] = { stall, deadlines, cases };
+      }
+    } catch (e) {
+      results[`retail:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
+    }
+  }
+
+  console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate, '· leases renewed', leasesRenewed, '· reminders', reminderTotals, '· no-shows', noShowTotals, '· plans', planTotals, '· sla', slaTotals, '· stock holds', stockTotals, '· retail sweeps', retailTotals);
+  return NextResponse.json({ ok: true, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, reminderTotals, noShowTotals, planTotals, slaTotals, stockTotals, retailTotals, results });
 }
