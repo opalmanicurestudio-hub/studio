@@ -20,6 +20,7 @@
 // Hybrid renters (chair + salon booking system) keep the full staff
 // portal; this page is intentionally simpler.
 
+import { downscaleImageToDataUrl } from '@/lib/client-image';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { format, parseISO } from 'date-fns';
@@ -539,10 +540,9 @@ export default function RenterPortalPage() {
                         onChange={async (e) => {
                           const f = e.target.files?.[0]; e.target.value = '';
                           if (!f || !session) return;
-                          if (f.size > 2_800_000) { toast({ variant: 'destructive', title: 'Photo too large', description: 'Keep it under 3 MB.' }); return; }
                           setCredBusy(kind);
                           try {
-                            const dataUrl: string = await new Promise((res, rej) => { const rd = new FileReader(); rd.onload = () => res(String(rd.result || '')); rd.onerror = rej; rd.readAsDataURL(f); });
+                            const dataUrl: string = await downscaleImageToDataUrl(f, { maxDim: 1600 });
                             const d = await api({ action: 'upload-credential', tenantId, token: session.token, kind, photoData: dataUrl });
                             if (d.ok) { setCredDone(kind); toast({ title: 'Uploaded ✓', description: 'The studio has been notified — you\'re all set.' }); }
                             else toast({ variant: 'destructive', title: 'Upload failed', description: d.error || 'Try again.' });
