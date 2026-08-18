@@ -142,6 +142,9 @@ export function CashCheckout({
           contact: receiptContact.trim(),
           type:    isEmail ? 'email' : 'sms',
           receipt: buildReceiptPayload(),
+          // Lets the receipt wear the shop's own brand color, like every
+          // other email the business sends.
+          tenantId: selectedTenant?.id || undefined,
         }),
       });
       setReceiptSent(true);
