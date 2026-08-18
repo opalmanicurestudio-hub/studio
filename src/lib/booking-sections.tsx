@@ -37,6 +37,12 @@ const ANIM_CSS = `
 `;
 
 const STACKS: Record<string, string> = {
+  /* jakarta = the typeface the ClarityFlow app itself is set in. It leads the
+   * map and it is the DEFAULT below, so a booking site that has never had a
+   * font chosen for it reads as the same business as the app, the receipts,
+   * and the shop. Every other face stays available — a studio that picked
+   * Cormorant on purpose keeps Cormorant. */
+  jakarta:"'Plus Jakarta Sans',system-ui,sans-serif",
   cormorant:"'Cormorant Garamond',Georgia,serif", playfair:"'Playfair Display',Georgia,serif",
   lora:"'Lora',Georgia,serif", merriweather:"'Merriweather',Georgia,serif",
   'eb-garamond':"'EB Garamond',Georgia,serif", 'libre-bask':"'Libre Baskerville',Georgia,serif",
@@ -54,6 +60,7 @@ const STACKS: Record<string, string> = {
 };
 
 const GFONTS: Record<string, string> = {
+  jakarta:'Plus+Jakarta+Sans:wght@400;500;600;700;800',
   cormorant:'Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400',
   playfair:'Playfair+Display:ital,wght@0,400;0,700;0,900;1,400',
   lora:'Lora:ital,wght@0,400;0,600;0,700;1,400', merriweather:'Merriweather:wght@300;400;700',
@@ -108,8 +115,8 @@ interface PageData {
 }
 
 const DS: StyleConfig = {
-  accentColor: '#000000', bgColor: '#ffffff', headingFont: 'josefin',
-  bodyFont: 'inter', borderRadius: 4, buttonStyle: 'filled', density: 'balanced',
+  accentColor: '#000000', bgColor: '#ffffff', headingFont: 'jakarta',
+  bodyFont: 'jakarta', borderRadius: 4, buttonStyle: 'filled', density: 'balanced',
 };
 
 const ac  = (s: StyleConfig) => s.accentColor || '#000000';
