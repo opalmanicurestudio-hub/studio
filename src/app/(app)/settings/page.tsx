@@ -9,16 +9,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Building, Clock, FileText, Edit, Check, Globe, Palette, Wifi, Coffee,
-  ShieldCheck, Zap, Fingerprint, Save, Loader, ShieldAlert, ArrowRight,
-  Smartphone, Calendar, ImageIcon, CheckCircle2, AlertTriangle, Settings as SettingsIcon,
-  Unlock, DollarSign, Scale, Percent, Target, Search, ChevronDown, Users, Box,
-  Activity, Tag, Shield, Star, Landmark, PlusCircle, LayoutGrid, Sparkles,
-  Flame, Workflow, Printer, QrCode, Scale as ScaleIcon, HeartHandshake, Trash2,
-  FileWarning, MapPin, Timer, TrendingUp, Bell, Coffee as BreakIcon, Eye,
-  Monitor, Wallet, RefreshCw, Ban, CreditCard,
-} from 'lucide-react';
+import { Activity, AlertTriangle, ArrowRight, Ban, Bell, Box, Building, Calendar, CalendarCheck, Check, CheckCircle2, ChevronDown, Clock, Coffee, Coffee as BreakIcon, CreditCard, DollarSign, Edit, Eye, FileText, FileWarning, Fingerprint, Flame, Globe, HeartHandshake, ImageIcon, Landmark, LayoutGrid, Loader, MapPin, Monitor, Palette, Percent, PlusCircle, Printer, QrCode, RefreshCw, Save, Scale, Scale as ScaleIcon, Search, Settings as SettingsIcon, Shield, ShieldAlert, ShieldCheck, Smartphone, Sparkles, Star, Tag, Target, Timer, Trash2, TrendingUp, Unlock, Users, Wallet, Wifi, Workflow, Zap } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
 import { useFirebase, updateDocumentNonBlocking, useMemoFirebase, useCollection } from '@/firebase';
@@ -576,6 +567,26 @@ function SettingsPageImpl() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="p-6 md:p-8">
+                  {/* Booking policy — the rules that decide what an online
+                      booking even becomes. Sits above automations because
+                      automations act on the states this page creates. */}
+                  <div className="mb-6 flex flex-col sm:flex-row items-center gap-6 p-8 rounded-[2rem] border-2 border-border bg-muted/5">
+                    <div className="w-14 h-14 rounded-2xl bg-foreground/5 border-2 border-border flex items-center justify-center shrink-0">
+                      <CalendarCheck className="w-7 h-7 text-foreground" />
+                    </div>
+                    <div className="flex-1 space-y-1.5 text-center sm:text-left">
+                      <p className="text-base font-black uppercase tracking-tight text-slate-900">Booking &amp; Deposits</p>
+                      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-70 leading-relaxed">
+                        Book instantly, hold for a deposit, save a card, or approve each request — plus what happens to deposits when plans change.
+                      </p>
+                    </div>
+                    <a
+                      href="/settings/booking"
+                      className="shrink-0 flex items-center gap-2 h-12 px-8 rounded-2xl bg-foreground text-background font-black uppercase text-[10px] tracking-widest shadow-lg hover:opacity-90 transition-all active:scale-95 whitespace-nowrap"
+                    >
+                      Open Booking Rules <ArrowRight className="w-4 h-4" />
+                    </a>
+                  </div>
                   <div className="flex flex-col sm:flex-row items-center gap-6 p-8 rounded-[2rem] border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/[0.02] shadow-inner">
                     <div className="w-14 h-14 rounded-2xl bg-primary/10 border-2 border-primary/20 flex items-center justify-center shrink-0">
                       <Zap className="w-7 h-7 text-primary" />
