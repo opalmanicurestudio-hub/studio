@@ -44,6 +44,15 @@ export async function POST(req: NextRequest) {
   if (!RESEND_API_KEY || !RESEND_FROM) return NextResponse.json({ ok: true, sent: false, why: 'email not configured' });
 
   const db = getAdminDb();
+
+  /* Policy gate. Claim decisions are a MANDATORY kind — they can never be
+   * switched off — so this is here to pick up the shop's own wording, not to
+   * suppress. Fails open either way. */
+  try {
+    const { gateMessage } = await import('@/lib/message-policy');
+    const g = await gateMessage(db, tenantId, 'claim_decision');
+    if (!g.send) return NextResponse.json({ ok: true, sent: false, why: g.reason });
+  } catch { /* fail open */ }
   const claimRef = db.collection(`tenants/${tenantId}/retailClaims`).doc(claimId);
 
   // ── Evidence request ping: same claim-then-send idempotency, keyed on the
