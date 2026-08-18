@@ -30,6 +30,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { brandedEmail, brandFromTenant, emailButton } from '@/lib/email-shell';
 import { getAdminDb } from '@/lib/firebase-admin';
 
 export const runtime = 'nodejs';
@@ -56,7 +57,7 @@ const formatWhen = (iso: string): string => {
 
 async function sendReminderEmail(opts: {
   to: string; clientName: string; serviceName: string; whenText: string;
-  studioName: string; checkInUrl: string;
+  studioName: string; checkInUrl: string; tenant?: any;
 }): Promise<boolean> {
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -68,13 +69,16 @@ async function sendReminderEmail(opts: {
       from: `${opts.studioName} <notifications@${process.env.RESEND_SENDING_DOMAIN || 'clarityflow.app'}>`,
       to: opts.to,
       subject: `Reminder: ${opts.serviceName} on ${opts.whenText}`,
-      html: `
-        <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
-          <h2 style="margin-bottom: 4px;">See you soon, ${opts.clientName.split(' ')[0]}!</h2>
-          <p style="color: #475569;">Just a reminder — ${opts.studioName} has you down for <strong>${opts.serviceName}</strong> on ${opts.whenText}.</p>
-          <a href="${opts.checkInUrl}" style="display: inline-block; background: #0f172a; color: white; padding: 12px 24px; border-radius: 12px; text-decoration: none; font-weight: 600;">Check in or manage your appointment</a>
-        </div>
-      `,
+      html: (() => {
+        /* The appointment reminder now matches every other email the
+         * business sends \u2014 same card, same brand color, same button. */
+        const brand = opts.tenant ? brandFromTenant(opts.tenant) : { shopName: opts.studioName, brandColor: '#16171a' };
+        return brandedEmail(brand, `
+          <p style="font-size:14px;color:#0f172a;line-height:1.7;margin:0">Just a reminder \u2014 we have you down for <strong>${opts.serviceName}</strong> on <strong>${opts.whenText}</strong>.</p>
+          ${emailButton(opts.checkInUrl, 'Check in or manage', brand)}
+          <p style="font-size:11px;color:#94a3b8;margin:0">Need to change something? The link above handles it \u2014 no phone tag.</p>`,
+          { preheader: `${opts.serviceName} on ${opts.whenText}`, title: `See you soon, ${opts.clientName.split(' ')[0]}!` });
+      })(),
     }),
   });
   return res.ok;
@@ -199,7 +203,7 @@ export async function POST(req: NextRequest) {
 
       if ((channel === 'email' || channel === 'both') && clientEmail) {
         try {
-          emailOk = await sendReminderEmail({ to: clientEmail, clientName, serviceName, whenText, studioName: tenant.name || 'the studio', checkInUrl });
+          emailOk = await sendReminderEmail({ to: clientEmail, clientName, serviceName, whenText, studioName: tenant.name || 'the studio', checkInUrl, tenant });
         } catch (e) {
           console.error('[notifications/send-reminders] email failed', e);
         }
