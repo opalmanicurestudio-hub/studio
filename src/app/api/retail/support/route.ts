@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { brandedEmail, emailButton, getEmailBrand } from '@/lib/email-shell';
+
 // ─── /api/retail/support/route.ts ─────────────────────────────────────────────
 // POST { tenantId, orderId, qrToken, message }
 //
@@ -249,14 +251,17 @@ export async function POST(req: NextRequest) {
           from: RESEND_FROM,
           to: [order.customerEmail],
           subject: `We got your message \u2014 order #${String(order.orderNumber).padStart(4, '0')}`,
-          html: `<div style="font-family:-apple-system,Segoe UI,sans-serif;max-width:480px;margin:0 auto;padding:8px">
-            <p style="font-size:15px;color:#0f172a">Thanks \u2014 your message about order <strong>#${String(order.orderNumber).padStart(4, '0')}</strong> is with the team.</p>
-            ${urgent
-              ? `<p style="font-size:13px;color:#0f172a">We hear you \u2014 this has been flagged and a person is looking at it as a priority. We\u2019ll make it right.</p>`
-              : autoReply ? `<div style="background:#f8fafc;border:2px solid #e2e8f0;border-radius:12px;padding:14px;margin:16px 0"><p style="font-size:13px;color:#0f172a;margin:0"><strong>Instant answer:</strong> ${autoReply}</p></div>` : ''}
-            <p style="font-size:13px;color:#64748b">${urgent ? 'You\u2019ll hear from us shortly.' : expectNote} Live status any time:</p>
-            <p style="text-align:center;margin:20px 0"><a href="${link}" style="background:#111827;color:#ffffff;padding:12px 26px;border-radius:12px;text-decoration:none;font-weight:700;font-size:13px">View my order</a></p>
-          </div>`,
+          html: await (async () => {
+            const emailBrand = await getEmailBrand(db, tenantId);
+            return brandedEmail(emailBrand, `
+              <p style="font-size:14px;color:#0f172a;line-height:1.7;margin:0">Thanks \u2014 your message is with the team${caseRef ? ` as <strong>Case #${caseRef}</strong>` : ''}. Your place in the queue is saved; no need to resend it.</p>
+              ${urgent
+                ? `<p style="font-size:14px;color:#0f172a;line-height:1.7;margin:12px 0 0">We hear you \u2014 this has been flagged and a person is looking at it as a priority. We\u2019ll make it right.</p>`
+                : autoReply ? `<div style="background:#f8fafc;border:2px solid #e2e8f0;border-radius:12px;padding:14px;margin:16px 0 0"><p style="font-size:13px;color:#0f172a;margin:0;line-height:1.6"><strong>Instant answer:</strong> ${autoReply}</p></div>` : ''}
+              <p style="font-size:12px;color:#64748b;margin:14px 0 0">${urgent ? 'You\u2019ll hear from us shortly.' : expectNote} Replies land on your order page and by email.</p>
+              ${emailButton(link, 'View my order', emailBrand)}`,
+              { preheader: urgent ? 'Flagged as a priority \u2014 a person is on it' : expectNote, title: 'We got your message', tag: `#${String(order.orderNumber).padStart(4, '0')}` });
+          })(),
         }),
       });
     } catch {
