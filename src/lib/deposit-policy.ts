@@ -207,6 +207,12 @@ export type ChargeTiming = 'at_booking' | 'on_approval' | 'on_penalty' | 'never'
 
 export interface BookingModeConfig {
   mode: BookingMode;
+  /** Card on file is ORTHOGONAL to the mode, because in practice it is a
+   *  house rule that rides alongside whatever else is true: "book instantly,
+   *  but we keep a card", "request an appointment, and we keep a card". The
+   *  'card_on_file' MODE is just the case where the card is the ONLY
+   *  requirement; this flag is what makes it composable with the rest. */
+  requireCardOnFile: boolean;
   /** Minutes an unpaid/unanswered hold survives before the slot is released. */
   holdMinutes: number;
   /** Hours an unanswered REQUEST survives before it auto-declines. 0 = never. */
@@ -218,6 +224,7 @@ export interface BookingModeConfig {
 
 export const DEFAULT_BOOKING_MODE: BookingModeConfig = {
   mode: 'instant',
+  requireCardOnFile: false,
   holdMinutes: 30,          // matches PENDING_HOLD_MS in availability.ts
   approvalExpiryHours: 24,
   autoApproveAfterVisits: 0,
@@ -230,6 +237,8 @@ export function resolveBookingMode(tenant: any): BookingModeConfig {
     : DEFAULT_BOOKING_MODE.mode;
   return {
     mode,
+    // The dedicated mode implies the requirement; the flag can also stand alone.
+    requireCardOnFile: b.requireCardOnFile === true || mode === 'card_on_file',
     holdMinutes: numOr(b.holdMinutes, DEFAULT_BOOKING_MODE.holdMinutes),
     approvalExpiryHours: numOr(b.approvalExpiryHours, DEFAULT_BOOKING_MODE.approvalExpiryHours),
     autoApproveAfterVisits: numOr(b.autoApproveAfterVisits, DEFAULT_BOOKING_MODE.autoApproveAfterVisits),
@@ -317,18 +326,27 @@ export function resolveBookingPlan(input: BookingPlanInput): BookingPlan {
 
   const money = `$${(depositCents / 100).toFixed(2)}`;
 
+  /* A service may demand a card even when the shop does not (a $400 full set
+   * in a walk-in-friendly shop), and a trusted client is never let out of it
+   * — the card is the shop's protection, not a punishment to be waived. */
+  const cardRequired = cfg.requireCardOnFile
+    || service?.requireCardOnFile === true
+    || mode === 'card_on_file';
+  const cardLine = ' A card is saved on file to hold the appointment — nothing extra is charged today.';
+
   switch (mode) {
     case 'approval':
       return {
         mode, status: 'requested', depositCents,
         chargeTiming: depositCents > 0 ? 'on_approval' : 'never',
         paymentBlocksConfirmation: false,
-        requiresCardOnFile: false,
+        requiresCardOnFile: cardRequired,
         holdMinutes: cfg.holdMinutes,
         approvalExpiryHours: cfg.approvalExpiryHours,
-        clientNotice: depositCents > 0
+        clientNotice: (depositCents > 0
           ? `This time is requested, not booked yet. Nothing is charged now — if it is accepted you will be asked for the ${money} deposit to lock it in.`
-          : 'This time is requested, not booked yet. You will hear back shortly.',
+          : 'This time is requested, not booked yet. You will hear back shortly.')
+          + (cardRequired ? cardLine : ''),
         reason,
       };
 
@@ -339,12 +357,13 @@ export function resolveBookingPlan(input: BookingPlanInput): BookingPlan {
         depositCents,
         chargeTiming: depositCents > 0 ? 'at_booking' : 'never',
         paymentBlocksConfirmation: depositCents > 0,
-        requiresCardOnFile: false,
+        requiresCardOnFile: cardRequired,
         holdMinutes: cfg.holdMinutes,
         approvalExpiryHours: 0,
-        clientNotice: depositCents > 0
+        clientNotice: (depositCents > 0
           ? `Your slot is held for ${cfg.holdMinutes} minutes. It is confirmed the moment the ${money} deposit goes through.`
-          : 'Your time is confirmed.',
+          : 'Your time is confirmed.')
+          + (cardRequired ? cardLine : ''),
         reason: depositCents > 0 ? reason : `${reason} — no deposit is set for this service`,
       };
 
@@ -368,12 +387,13 @@ export function resolveBookingPlan(input: BookingPlanInput): BookingPlan {
         depositCents,
         chargeTiming: depositCents > 0 ? 'at_booking' : 'never',
         paymentBlocksConfirmation: depositCents > 0,
-        requiresCardOnFile: false,
+        requiresCardOnFile: cardRequired,
         holdMinutes: cfg.holdMinutes,
         approvalExpiryHours: 0,
-        clientNotice: depositCents > 0
+        clientNotice: (depositCents > 0
           ? `A ${money} deposit confirms this time. It goes toward your total.`
-          : 'Your time is confirmed.',
+          : 'Your time is confirmed.')
+          + (cardRequired ? cardLine : ''),
         reason,
       };
   }
