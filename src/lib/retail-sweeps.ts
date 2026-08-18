@@ -282,3 +282,158 @@ export async function sweepStaleCases(
   }
   return res;
 }
+
+
+// ═══ 4. BOOKING REQUESTS THAT NOBODY ANSWERED ════════════════════════════════
+// Approval mode's honest failure case. A request the studio never got to is
+// the studio's fault, not the client's — so it does not sit forever pretending
+// to be alive. At its stated expiry it declines itself, frees the slot, and
+// tells the client plainly, because the worst outcome is a person who kept a
+// morning free for an appointment that was never going to happen.
+//
+// Only requests that CARRY an expiry are swept: a shop that configured "never
+// expire" means it, and those wait for a human indefinitely.
+
+export async function sweepExpiredRequests(
+  db: any,
+  tenantId: string,
+  opts?: { now?: number },
+): Promise<SweepResult> {
+  const res = empty();
+  const now = opts?.now ?? Date.now();
+
+  try {
+    const tenantSnap = await db.collection('tenants').doc(tenantId).get();
+    if (!tenantSnap.exists) return res;
+    const tenant = tenantSnap.data() || {};
+    const brand = brandFromTenant(tenant);
+    const origin = originOf(tenant);
+
+    const snap = await db.collection(`tenants/${tenantId}/appointments`)
+      .where('status', '==', 'requested')
+      .get();
+
+    for (const d of snap.docs) {
+      const apt = d.data() as any;
+      res.scanned += 1;
+      try {
+        const exp = Date.parse(String(apt.requestExpiresAt || ''));
+        if (!Number.isFinite(exp) || now < exp) continue;
+
+        await d.ref.set({
+          status: 'expired',
+          decidedAt: new Date(now).toISOString(),
+          decidedBy: 'system',
+          declineReason: 'The studio did not respond before the request expired',
+        }, { merge: true });
+        res.actioned += 1;
+
+        const email = String(apt.clientEmail || '').trim()
+          || (apt.clientId
+            ? String(((await db.doc(`tenants/${tenantId}/clients/${apt.clientId}`).get()).data() as any)?.email || '').trim()
+            : '');
+        if (!email) continue;
+
+        const first = String(apt.clientName || '').trim().split(/\s+/)[0];
+        const when = apt.startTime
+          ? new Date(apt.startTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+          : 'your requested time';
+        const bookUrl = origin ? `${origin}/book/${tenantId}` : '';
+        /* Wording comes from the message catalog — the shop's own if they
+         * wrote one, the shipped default otherwise. Nothing about the tone
+         * of this message is decided in this file. */
+        const { resolveMessage, tidyBody } = await import('./message-policy');
+        const msg = resolveMessage(tenant, 'request_declined', {
+          client_first: first,
+          when,
+          reason: 'The request expired before it was answered.',
+          link: bookUrl,
+          studio: brand.shopName,
+        }, 'email');
+        if (!msg.send) continue;
+        const paras = tidyBody(msg.body).split('\n\n')
+          .map((line) => `<p style="font-size:14px;color:#334155;line-height:1.7;margin:0 0 12px">${line.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`)
+          .join('');
+        const html = brandedEmail(brand, `
+          ${paras}
+          ${bookUrl ? emailButton(bookUrl, 'View available times', brand) : ''}`,
+          { preheader: msg.subject, title: msg.subject, tag: 'Booking' });
+        if (await sendEmail(email, `${brand.shopName} \u2014 ${msg.subject}`, html)) res.emailed += 1;
+      } catch (e: any) {
+        res.errors.push(`request ${d.id}: ${String(e?.message || e).slice(0, 120)}`);
+      }
+    }
+  } catch (e: any) {
+    res.errors.push(String(e?.message || e).slice(0, 160));
+  }
+  return res;
+}
+
+// ═══ 5. REQUESTS GETTING STALE (owner nudge) ═════════════════════════════════
+// Before anything expires, the owner gets ONE nudge listing everything waiting.
+// Sent only when something is genuinely close to its deadline or the visit is
+// imminent — a daily "you have 0 requests" email trains people to ignore it.
+
+export async function sweepPendingRequestNudge(
+  db: any,
+  tenantId: string,
+  opts?: { now?: number; urgentHours?: number },
+): Promise<SweepResult> {
+  const res = empty();
+  const now = opts?.now ?? Date.now();
+  const urgentH = Math.max(1, opts?.urgentHours ?? 6);
+
+  try {
+    const tenantSnap = await db.collection('tenants').doc(tenantId).get();
+    if (!tenantSnap.exists) return res;
+    const tenant = tenantSnap.data() || {};
+    const to = ownerEmailOf(tenant);
+    if (!to) return res;
+
+    const snap = await db.collection(`tenants/${tenantId}/appointments`)
+      .where('status', '==', 'requested')
+      .get();
+
+    const urgent: any[] = [];
+    for (const d of snap.docs) {
+      const apt = { id: d.id, ...(d.data() as any) };
+      res.scanned += 1;
+      const exp = Date.parse(String(apt.requestExpiresAt || ''));
+      const start = Date.parse(String(apt.startTime || ''));
+      const expSoon = Number.isFinite(exp) && (exp - now) < urgentH * 3600000;
+      const startSoon = Number.isFinite(start) && (start - now) < 48 * DAY / 24;
+      if (expSoon || startSoon) urgent.push(apt);
+    }
+    if (urgent.length === 0) return res;
+
+    const dayKey = new Date(now).toISOString().slice(0, 10);
+    const markerRef = db.collection(`tenants/${tenantId}/systemMarkers`).doc(`request-nudge-${dayKey}`);
+    if ((await markerRef.get()).exists) return res;
+
+    const brand = await getEmailBrand(db, tenantId);
+    const origin = originOf(tenant);
+    const link = origin ? `${origin}/appointments/requests` : '';
+    const rows = urgent.slice(0, 10).map((a) => {
+      const when = a.startTime
+        ? new Date(a.startTime).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+        : 'time TBC';
+      return `<tr><td style="padding:6px 0;font-size:13px;color:#0f172a">${String(a.clientName || 'A client')}<br>
+        <span style="font-size:11px;color:#64748b">${String(a.serviceName || 'Service')} \u00b7 ${when}</span></td></tr>`;
+    }).join('');
+
+    const html = brandedEmail(brand, `
+      <p style="font-size:14px;color:#0f172a;line-height:1.7;margin:0">${urgent.length} booking request${urgent.length === 1 ? '' : 's'} ${urgent.length === 1 ? 'is' : 'are'} close to expiring or close to the appointment itself. Each one is somebody holding their day open for you.</p>
+      <table style="width:100%;border-collapse:collapse;margin:14px 0 0">${rows}</table>
+      ${link ? emailButton(link, 'Answer them now', brand) : ''}
+      <p style="font-size:11px;color:#94a3b8;margin:12px 0 0">Expired requests decline themselves and free the slot \u2014 answering beats letting that happen.</p>`,
+      { preheader: `${urgent.length} request${urgent.length === 1 ? '' : 's'} waiting`, title: 'Requests waiting on you' });
+
+    const sent = await sendEmail(to, `${brand.shopName} \u2014 ${urgent.length} booking request${urgent.length === 1 ? '' : 's'} waiting`, html);
+    await markerRef.set({ at: new Date(now).toISOString(), count: urgent.length, emailed: sent });
+    res.actioned += urgent.length;
+    if (sent) res.emailed += 1;
+  } catch (e: any) {
+    res.errors.push(String(e?.message || e).slice(0, 160));
+  }
+  return res;
+}
