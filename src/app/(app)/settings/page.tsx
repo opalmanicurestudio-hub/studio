@@ -9,7 +9,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Activity, AlertTriangle, ArrowRight, Ban, Bell, Box, Building, Calendar, CalendarCheck, Check, CheckCircle2, ChevronDown, Clock, Coffee, Coffee as BreakIcon, CreditCard, DollarSign, Edit, Eye, FileText, FileWarning, Fingerprint, Flame, Globe, HeartHandshake, ImageIcon, Landmark, LayoutGrid, Loader, MapPin, Monitor, Palette, Percent, PlusCircle, Printer, QrCode, RefreshCw, Save, Scale, Scale as ScaleIcon, Search, Settings as SettingsIcon, Shield, ShieldAlert, ShieldCheck, Smartphone, Sparkles, Star, Tag, Target, Timer, Trash2, TrendingUp, Unlock, Users, Wallet, Wifi, Workflow, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowRight, Ban, Bell, Box, Building, Calendar, CalendarCheck, Check, CheckCircle2, ChevronDown, Clock, Coffee, Coffee as BreakIcon, CreditCard, DollarSign, Edit, Eye, FileText, FileWarning, Fingerprint, Flame, Globe, HeartHandshake, ImageIcon, Landmark, LayoutGrid, Loader, Mail, MapPin, Monitor, Palette, Percent, PlusCircle, Printer, QrCode, RefreshCw, Save, Scale, Scale as ScaleIcon, Search, Settings as SettingsIcon, Shield, ShieldAlert, ShieldCheck, Smartphone, Sparkles, Star, Tag, Target, Timer, Trash2, TrendingUp, Unlock, Users, Wallet, Wifi, Workflow, Zap } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
 import { useFirebase, updateDocumentNonBlocking, useMemoFirebase, useCollection } from '@/firebase';
@@ -585,6 +585,25 @@ function SettingsPageImpl() {
                       className="shrink-0 flex items-center gap-2 h-12 px-8 rounded-2xl bg-foreground text-background font-black uppercase text-[10px] tracking-widest shadow-lg hover:opacity-90 transition-all active:scale-95 whitespace-nowrap"
                     >
                       Open Booking Rules <ArrowRight className="w-4 h-4" />
+                    </a>
+                  </div>
+                  {/* Message centre — which of these automations actually reach
+                      a client, and in whose words. */}
+                  <div className="mb-6 flex flex-col sm:flex-row items-center gap-6 p-8 rounded-[2rem] border-2 border-border bg-muted/5">
+                    <div className="w-14 h-14 rounded-2xl bg-foreground/5 border-2 border-border flex items-center justify-center shrink-0">
+                      <Mail className="w-7 h-7 text-foreground" />
+                    </div>
+                    <div className="flex-1 space-y-1.5 text-center sm:text-left">
+                      <p className="text-base font-black uppercase tracking-tight text-slate-900">Messages</p>
+                      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-70 leading-relaxed">
+                        Every automatic email and text — switch the optional ones off, or rewrite any of them in your own voice.
+                      </p>
+                    </div>
+                    <a
+                      href="/settings/messages"
+                      className="shrink-0 flex items-center gap-2 h-12 px-8 rounded-2xl bg-foreground text-background font-black uppercase text-[10px] tracking-widest shadow-lg hover:opacity-90 transition-all active:scale-95 whitespace-nowrap"
+                    >
+                      Open Messages <ArrowRight className="w-4 h-4" />
                     </a>
                   </div>
                   <div className="flex flex-col sm:flex-row items-center gap-6 p-8 rounded-[2rem] border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/[0.02] shadow-inner">
