@@ -139,6 +139,9 @@ function useGoogleFonts() {
 }
 
 const FONTS = [
+  // First in the list and first in the group order: the face the app itself
+  // uses. Picking it makes the public site, the app, and every email match.
+  { id: 'jakarta',    label: 'Plus Jakarta Sans',    stack: "'Plus Jakarta Sans',system-ui,sans-serif", desc: 'Matches the app', group: 'House'   },
   { id: 'cormorant',  label: 'Cormorant Garamond',  stack: "'Cormorant Garamond',Georgia,serif",       desc: 'Luxury serif',    group: 'Serif'   },
   { id: 'playfair',   label: 'Playfair Display',     stack: "'Playfair Display',Georgia,serif",         desc: 'Editorial serif', group: 'Serif'   },
   { id: 'lora',       label: 'Lora',                 stack: "'Lora',Georgia,serif",                     desc: 'Elegant serif',   group: 'Serif'   },
@@ -168,7 +171,7 @@ const FONTS = [
   { id: 'system',     label: 'System UI',            stack: 'system-ui,sans-serif',                     desc: 'Default clean',   group: 'System'  },
   { id: 'georgia',    label: 'Georgia',              stack: 'Georgia,serif',                            desc: 'Classic system',  group: 'System'  },
 ];
-const FONT_GROUPS = ['Serif', 'Sans', 'Display', 'System'];
+const FONT_GROUPS = ['House', 'Serif', 'Sans', 'Display', 'System'];
 
 const BRAND_KITS = [
   { id: 'edition',   label: 'Édition',   accentColor: '#1a1a1a', bgColor: '#fafafa', headingFont: 'eb-garamond', bodyFont: 'josefin',     borderRadius: 2,  desc: 'Magazine editorial'   },
@@ -1043,7 +1046,12 @@ const LibraryItem = ({ type, onAdd }: { type: SectionType; onAdd: () => void }) 
 };
 
 const FontPicker = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => {
-  const [activeGroup, setActiveGroup] = useState('Sans');
+  /* Open on the group the CURRENT font lives in — so the picker shows you
+   * where you are rather than dumping you in Sans every time. New sites are
+   * on the house face, so they open on House. */
+  const [activeGroup, setActiveGroup] = useState(
+    () => FONTS.find(f => f.id === value)?.group || 'House',
+  );
   const groupFonts = FONTS.filter(f => f.group === activeGroup);
   return (
     <div className="space-y-3">
@@ -1150,7 +1158,7 @@ export function PageBuilderPageInner() {
   }, [selectedTenant?.id, firestore]); // eslint-disable-line
 
   const [style, setStyle] = useState({
-    accentColor: '#000000', bgColor: '#ffffff', headingFont: 'josefin', bodyFont: 'inter',
+    accentColor: '#000000', bgColor: '#ffffff', headingFont: 'jakarta', bodyFont: 'jakarta',
     borderRadius: 4, buttonStyle: 'filled' as 'filled' | 'outline' | 'ghost' | 'pill',
     density: 'balanced' as 'compact' | 'balanced' | 'airy', brandKit: null as string | null,
   });
