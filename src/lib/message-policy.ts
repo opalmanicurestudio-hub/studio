@@ -29,7 +29,7 @@ export type MessageChannel = 'email' | 'sms';
 
 export interface MessageKindDef {
   id: string;
-  group: 'Booking' | 'Money' | 'Reminders' | 'Retail' | 'Account';
+  group: 'Booking' | 'Money' | 'Reminders' | 'Retail' | 'Renters' | 'Account';
   label: string;
   /** What actually triggers it, in the owner's language. */
   when: string;
@@ -139,6 +139,67 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     requiredTokens: [],
   },
   {
+    id: 'renter_signin_code', group: 'Renters', label: 'Renter sign-in code',
+    when: 'A booth renter asks for a code to open their portal.',
+    channels: ['email', 'sms'], canDisable: false,
+    mandatoryNote: 'They asked for it and cannot get into their own portal without it.',
+    tokens: ['{{code}}', '{{studio}}', '{{link}}'],
+    requiredTokens: ['{{code}}'],
+  },
+  {
+    id: 'renter_credential_expiring', group: 'Renters', label: 'Licence or insurance expiring',
+    when: 'A renter\u2019s licence or insurance is approaching its expiry date.',
+    channels: ['email', 'sms'], canDisable: false,
+    mandatoryNote: 'Working on an expired licence or lapsed insurance is a legal problem for them and for you. They get the warning.',
+    tokens: ['{{renter_first}}', '{{document}}', '{{expiry}}', '{{link}}', '{{studio}}'],
+    requiredTokens: ['{{expiry}}'],
+  },
+  {
+    id: 'renter_rent_due', group: 'Renters', label: 'Rent reminder',
+    when: 'A renter\u2019s booth rent is coming due or is late.',
+    channels: ['email', 'sms'], canDisable: true,
+    tokens: ['{{renter_first}}', '{{amount}}', '{{when}}', '{{link}}', '{{studio}}'],
+    requiredTokens: ['{{amount}}'],
+  },
+  {
+    id: 'renter_ticket_update', group: 'Renters', label: 'Maintenance ticket update',
+    when: 'A renter\u2019s maintenance request changes status or gets a reply.',
+    channels: ['email'], canDisable: true,
+    tokens: ['{{renter_first}}', '{{ticket}}', '{{status}}', '{{link}}', '{{studio}}'],
+    requiredTokens: [],
+  },
+  {
+    id: 'support_reply', group: 'Retail', label: 'Reply to a customer message',
+    when: 'You answer a customer\u2019s support message.',
+    channels: ['email'], canDisable: false,
+    mandatoryNote: 'They wrote to you and are waiting. A reply nobody receives is not a reply.',
+    tokens: ['{{client_first}}', '{{order_number}}', '{{link}}', '{{studio}}'],
+    requiredTokens: [],
+  },
+  {
+    id: 'support_ack', group: 'Retail', label: 'Message received',
+    when: 'A customer sends a support message.',
+    channels: ['email'], canDisable: true,
+    tokens: ['{{client_first}}', '{{order_number}}', '{{case_ref}}', '{{link}}', '{{studio}}'],
+    requiredTokens: [],
+  },
+  {
+    id: 'return_update', group: 'Retail', label: 'Return progress',
+    when: 'A return is received, resolved, or a label is issued.',
+    channels: ['email'], canDisable: false,
+    mandatoryNote: 'They posted something back and are owed an answer about it.',
+    tokens: ['{{client_first}}', '{{order_number}}', '{{amount}}', '{{link}}', '{{studio}}'],
+    requiredTokens: [],
+  },
+  {
+    id: 'claim_decision', group: 'Retail', label: 'Claim decision',
+    when: 'You approve or decline a damage, missing, or wrong-item claim.',
+    channels: ['email'], canDisable: false,
+    mandatoryNote: 'They reported a problem. The decision is the whole point of reporting it.',
+    tokens: ['{{client_first}}', '{{order_number}}', '{{amount}}', '{{link}}', '{{studio}}'],
+    requiredTokens: [],
+  },
+  {
     id: 'account_link', group: 'Account', label: 'Sign-in link',
     when: 'A client asks to see their orders.',
     channels: ['email'], canDisable: false,
@@ -226,4 +287,63 @@ export function validateOverride(kind: string, body: string): { ok: boolean; err
     return { ok: false, error: `${unknown[0]} is not available for this message — it would come out blank.` };
   }
   return { ok: true };
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// THE GATE FOR DIRECT SENDERS
+//
+// sendNotification enforces policy for everything that goes through it. But a
+// good half of the app's mail is composed by the sender itself — retail order
+// mail with its shop-branded shell, renter portal mail, receipts — and routing
+// those through a generic helper would flatten the very branding that makes
+// them look like the business.
+//
+// So instead of moving them, this gate goes TO them: three lines at the top of
+// any direct sender, and that sender is policy-governed without giving up its
+// own HTML.
+//
+//     const gate = await gateMessage(db, tenantId, 'return_update');
+//     if (!gate.send) return { ok: false, reason: gate.reason };
+//     ... existing branded send, unchanged ...
+//
+// Mandatory kinds can never come back `send: false`, so wiring the gate into a
+// sender can never accidentally silence a message a person has a right to.
+
+export interface MessageGate {
+  send: boolean;
+  reason: string;
+  /** Owner's custom copy, already merged, when they wrote their own. Senders
+   *  that can use a plain body may; senders with rich layouts may ignore it
+   *  and simply respect `send`. */
+  body: string;
+  subject: string;
+}
+
+export async function gateMessage(
+  db: any,
+  tenantId: string,
+  kind: string,
+  opts?: { channel?: MessageChannel; tokens?: Record<string, string | number | null | undefined>; tenant?: any },
+): Promise<MessageGate> {
+  const channel = opts?.channel || 'email';
+  let tenant = opts?.tenant;
+  if (!tenant) {
+    try {
+      const snap = await db.collection('tenants').doc(tenantId).get();
+      tenant = snap.exists ? snap.data() : {};
+    } catch {
+      // Fail OPEN: a policy lookup that breaks must never swallow a message.
+      return { send: true, reason: 'policy unavailable', body: '', subject: '' };
+    }
+  }
+  const p = resolveMessagePolicy(tenant, kind, channel);
+  if (!p.enabled) return { send: false, reason: `${kind} is switched off in message settings`, body: '', subject: '' };
+  const tokens = opts?.tokens || {};
+  return {
+    send: true,
+    reason: p.overrideRejected || 'ok',
+    body: p.custom && p.body ? renderMessage(p.body, tokens) : '',
+    subject: p.subject ? renderMessage(p.subject, tokens) : '',
+  };
 }
