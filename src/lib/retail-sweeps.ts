@@ -467,7 +467,8 @@ export async function sweepUnpaidAccepted(
     if (!tenantSnap.exists) return res;
     const tenant = tenantSnap.data() || {};
     const brand = brandFromTenant(tenant);
-    const origin = opts?.origin || originOf(tenant);
+    const { internalOrigin } = await import('./message-policy');
+    const origin = opts?.origin || internalOrigin(tenant, null) || originOf(tenant);
     const { resolveMessage, tidyBody } = await import('./message-policy');
 
     const snap = await db.collection(`tenants/${tenantId}/appointments`)
@@ -527,17 +528,15 @@ export async function sweepUnpaidAccepted(
           // Give the bank some daylight before asking again.
           if (Number.isFinite(failedAt) && (now - failedAt) > 6 * 3600000) {
             try {
-              const rr = await fetch(`${origin}/api/stripe/charge-card`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  tenantId, clientId: apt.clientId,
-                  amountCents: Number(apt.depositAmountCents) || 0,
-                  description: 'Deposit (retry)', category: 'Deposits',
-                  appointmentId: d.id, reason: apt.serviceName || 'Appointment deposit',
-                  kind: 'deposit', mode: 'auto',
-                }),
+              const { internalPost } = await import('./message-policy');
+              const rr = await internalPost(origin, '/api/stripe/charge-card', {
+                tenantId, clientId: apt.clientId,
+                amountCents: Number(apt.depositAmountCents) || 0,
+                description: 'Deposit (retry)', category: 'Deposits',
+                appointmentId: d.id, reason: apt.serviceName || 'Appointment deposit',
+                kind: 'deposit', mode: 'auto',
               });
-              const rd = await rr.json().catch(() => ({}));
+              const rd = rr.data || {};
               if (rr.ok && rd.ok) {
                 await d.ref.set({
                   status: 'confirmed', depositStatus: 'paid',
