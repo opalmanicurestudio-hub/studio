@@ -10,10 +10,18 @@ import { logAuditAdmin } from '@/lib/audit';
 // The studio's answer to a booking request. Two outcomes, both final and both
 // honest with the client:
 //
-//   accept  → status becomes 'confirmed' (or 'pending_payment' when a deposit
-//             is owed, because approval mode never charges at request time —
-//             acceptance is the moment the money is asked for). The client
-//             gets the real confirmation, with the deposit link when needed.
+//   accept  → acceptance is the moment the money is asked for, and HOW it is
+//             asked depends on whether we already hold a card:
+//               • card on file  → the deposit is charged off-session right
+//                 here. Success confirms outright; the client's next contact
+//                 is a receipt, not a chore. Failure does NOT silently confirm
+//                 and does NOT silently cancel — the row lands in
+//                 'pending_payment' with the decline code recorded, the client
+//                 gets a "card didn't go through, here's the link" email, and
+//                 the studio sees the failure on the appointment.
+//               • no card       → 'pending_payment' plus the pay link, exactly
+//                 as before.
+//             With no deposit owed, acceptance simply confirms.
 //   decline → status becomes 'declined', the slot frees immediately, and the
 //             client is told plainly, with an invitation to pick another time
 //             rather than a dead end.
@@ -61,8 +69,10 @@ export async function POST(req: NextRequest) {
       const depositCents = Number(apt.depositAmountCents) || 0;
 
       if (decision === 'accept') {
-        // Deposit owed → the client still has a step to take, so the row goes
-        // to pending_payment rather than pretending the money is in.
+        /* The charge itself cannot run inside a transaction — Stripe is not
+         * transactional and a retry would double-charge. So the txn only
+         * CLAIMS the decision (nobody else can now decide this request), and
+         * the charge runs immediately after, updating the row again. */
         const nextStatus = depositCents > 0 && apt.depositStatus !== 'paid'
           ? 'pending_payment'
           : 'confirmed';
@@ -77,7 +87,7 @@ export async function POST(req: NextRequest) {
           createdAt: nextStatus === 'pending_payment' ? nowIso : apt.createdAt,
           ...(apt.createdAt && nextStatus === 'pending_payment' ? { originallyRequestedAt: apt.createdAt } : {}),
         });
-        return { ok: true, status: nextStatus, depositCents, apt };
+        return { ok: true, status: nextStatus, depositCents, apt, needsCharge: nextStatus === 'pending_payment' };
       }
 
       tx.update(aptRef, {
@@ -99,6 +109,73 @@ export async function POST(req: NextRequest) {
 
   const apt = outcome.apt || {};
   const accepted = outcome.status !== 'declined';
+
+  /* ═══ AUTO-CHARGE THE DEPOSIT WHEN WE HOLD A CARD ═════════════════════════
+   * The honest version of "we'll ask for the deposit when we accept": if the
+   * client already gave us a card, asking again is friction for no reason —
+   * we charge it and tell them. Everything about failure is explicit: no
+   * silent confirm, no silent cancel, a real reason code on the row, and a
+   * client email that says what to do next. */
+  let chargeResult: { attempted: boolean; ok: boolean; reason?: string; code?: string } = { attempted: false, ok: false };
+  if (accepted && outcome.needsCharge && outcome.depositCents > 0 && apt.clientId) {
+    try {
+      const clientSnap = await db.doc(`tenants/${tenantId}/clients/${apt.clientId}`).get();
+      const card = (clientSnap.data() as any)?.cardOnFile;
+      if (card?.customerId && card?.paymentMethodId) {
+        chargeResult.attempted = true;
+        const cr = await fetch(`${req.nextUrl.origin}/api/stripe/charge-card`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tenantId, clientId: apt.clientId,
+            amountCents: outcome.depositCents,
+            description: 'Deposit',
+            category: 'Deposits',
+            appointmentId,
+            reason: apt.serviceName || 'Appointment deposit',
+            // 'deposit' kind deliberately: an arrears fee parks itself as a
+            // client balance on failure, which would be wrong here — an
+            // unpaid deposit means the slot is not yet earned, not that the
+            // client owes us money.
+            kind: 'deposit',
+            mode: 'auto',
+          }),
+        });
+        const cd = await cr.json().catch(() => ({}));
+        chargeResult.ok = cr.ok && cd.ok === true;
+        if (chargeResult.ok) {
+          await aptRef.update({
+            status: 'confirmed',
+            depositStatus: 'paid',
+            depositPaidAt: nowIso,
+            depositChargedOnFile: true,
+            depositPaymentIntentId: cd.paymentIntentId || null,
+            depositFailureReason: null,
+            depositFailureCode: null,
+          });
+          outcome.status = 'confirmed';
+        } else {
+          chargeResult.reason = String(cd.reason || 'Card declined');
+          chargeResult.code = String(cd.code || 'charge_failed');
+          // Stays pending_payment — accepted, but not yet paid for.
+          await aptRef.update({
+            depositStatus: 'failed',
+            depositFailureReason: chargeResult.reason,
+            depositFailureCode: chargeResult.code,
+            depositFailedAt: nowIso,
+          });
+        }
+      }
+    } catch (e) {
+      chargeResult.reason = 'Could not reach the card processor';
+      chargeResult.code = 'network';
+      await aptRef.update({
+        depositStatus: 'failed',
+        depositFailureReason: chargeResult.reason,
+        depositFailureCode: chargeResult.code,
+        depositFailedAt: nowIso,
+      }).catch(() => {});
+    }
+  }
 
   await logAuditAdmin(db, tenantId, {
     action: accepted ? 'appointment.request_accepted' : 'appointment.request_declined',
@@ -133,6 +210,8 @@ export async function POST(req: NextRequest) {
       : 'your requested time';
     const money = `$${((Number(outcome.depositCents) || 0) / 100).toFixed(2)}`;
     const needsDeposit = outcome.status === 'pending_payment';
+    const chargedOnFile = chargeResult.attempted && chargeResult.ok;
+    const cardFailed = chargeResult.attempted && !chargeResult.ok;
 
     const { sendNotification } = await import('@/lib/notify');
     const { brandedEmailHtml } = await import('@/lib/email-template');
@@ -141,15 +220,28 @@ export async function POST(req: NextRequest) {
       const html = accepted
         ? brandedEmailHtml({
           studioName,
-          title: needsDeposit ? 'Accepted — one step to lock it in' : "You're confirmed",
+          title: cardFailed
+            ? 'Accepted — but your card was declined'
+            : needsDeposit ? 'Accepted — one step to lock it in' : "You're confirmed",
           bodyLines: [
             `Good news, ${firstName} — we can take you on ${when}.`,
-            ...(needsDeposit
-              ? [`To finish, tap below and pay the ${money} deposit. It goes toward your total, and the time is yours the moment it clears.`]
-              : ['Nothing else is needed. Show the code below when you arrive.']),
+            ...(cardFailed
+              // Never blame the client, never bury the consequence.
+              ? [
+                `We tried the card we have on file for the ${money} deposit and it did not go through${chargeResult.code === 'card_declined' ? '' : ''}. That happens — an expired card or a bank hold is usually all it is.`,
+                'Tap below to pay it with any card and your time is locked in. We are holding it for you in the meantime.',
+              ]
+              : chargedOnFile
+                ? [`We have charged the ${money} deposit to the card on file — nothing else to do. It goes toward your total.`]
+                : needsDeposit
+                  ? [`To finish, tap below and pay the ${money} deposit. It goes toward your total, and the time is yours the moment it clears.`]
+                  : ['Nothing else is needed. Show the code below when you arrive.']),
           ],
-          ...(needsDeposit ? {} : { bigCode: apt.shortCode ? String(apt.shortCode).toUpperCase() : undefined }),
-          cta: { label: needsDeposit ? 'Pay deposit & confirm' : 'Check in / manage my visit', url: portalUrl },
+          ...(needsDeposit || cardFailed ? {} : { bigCode: apt.shortCode ? String(apt.shortCode).toUpperCase() : undefined }),
+          cta: {
+            label: cardFailed ? 'Pay deposit with another card' : needsDeposit ? 'Pay deposit & confirm' : 'Check in / manage my visit',
+            url: portalUrl,
+          },
           footerNote: `Questions? Just reply — ${studioName}.`,
         })
         : brandedEmailHtml({
@@ -166,7 +258,11 @@ export async function POST(req: NextRequest) {
       const er = await sendNotification(db, {
         tenantId, channel: 'email', to: email,
         subject: accepted
-          ? (needsDeposit ? `Accepted — finish booking your ${when}` : `Confirmed: ${when}`)
+          ? (cardFailed
+            ? `Your card didn't go through — ${when}`
+            : chargedOnFile
+              ? `Confirmed: ${when} — deposit charged`
+              : needsDeposit ? `Accepted — finish booking your ${when}` : `Confirmed: ${when}`)
           : `About your request for ${when}`,
         html, kind: accepted ? 'request_accepted' : 'request_declined',
         appointmentId, clientId: apt.clientId || null, clientName: apt.clientName || null,
@@ -178,9 +274,13 @@ export async function POST(req: NextRequest) {
       const sr = await sendNotification(db, {
         tenantId, channel: 'sms', to: phone,
         text: accepted
-          ? (needsDeposit
-            ? `Good news — we can take ${when}. Pay the ${money} deposit to lock it in: ${portalUrl}`
-            : `You're confirmed for ${when}. Details & check-in: ${portalUrl}`)
+          ? (cardFailed
+            ? `Good news — we can take ${when}. Your card on file was declined for the ${money} deposit; pay with another card here and it's locked in: ${portalUrl}`
+            : chargedOnFile
+              ? `You're confirmed for ${when}. The ${money} deposit was charged to your card on file. Details: ${portalUrl}`
+              : needsDeposit
+                ? `Good news — we can take ${when}. Pay the ${money} deposit to lock it in: ${portalUrl}`
+                : `You're confirmed for ${when}. Details & check-in: ${portalUrl}`)
           : `Sorry — we can't take ${when}.${reason ? ` ${reason}` : ''} Nothing was charged. Pick another time: ${bookUrl}`,
         kind: accepted ? 'request_accepted' : 'request_declined',
         appointmentId, clientId: apt.clientId || null, clientName: apt.clientName || null,
@@ -196,10 +296,17 @@ export async function POST(req: NextRequest) {
     status: outcome.status,
     depositCents: outcome.depositCents,
     sendStatus,
+    chargedOnFile: chargeResult.attempted && chargeResult.ok,
+    chargeFailed: chargeResult.attempted && !chargeResult.ok,
+    chargeFailureReason: chargeResult.reason || null,
     message: accepted
-      ? (outcome.status === 'pending_payment'
-        ? 'Accepted — the client has been asked for their deposit.'
-        : 'Accepted and confirmed — the client has been told.')
+      ? (chargeResult.attempted && chargeResult.ok
+        ? `Accepted — the ${(outcome.depositCents / 100).toFixed(2)} deposit was charged to their card on file.`
+        : chargeResult.attempted
+          ? `Accepted, but their card was declined (${chargeResult.reason}). They have been sent a link to pay another way — the time is still held.`
+          : outcome.status === 'pending_payment'
+            ? 'Accepted — the client has been asked for their deposit.'
+            : 'Accepted and confirmed — the client has been told.')
       : 'Declined — the time is free again and the client has been told.',
   });
 }
