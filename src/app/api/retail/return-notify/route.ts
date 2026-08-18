@@ -35,6 +35,13 @@ export async function POST(req: NextRequest) {
     }
 
     const db = getAdminDb();
+
+    // Policy gate — mandatory kind; present for custom wording, fails open.
+    try {
+      const { gateMessage } = await import('@/lib/message-policy');
+      const g = await gateMessage(db, tenantId, 'return_update');
+      if (!g.send) return NextResponse.json({ ok: true, sent: false, why: g.reason });
+    } catch { /* fail open */ }
     const retRef = db.doc(`tenants/${tenantId}/retailReturns/${returnId}`);
     const retSnap = await retRef.get();
     if (!retSnap.exists) return NextResponse.json({ ok: false, error: 'Return not found.' }, { status: 404 });
