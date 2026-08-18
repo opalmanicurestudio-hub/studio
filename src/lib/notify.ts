@@ -127,8 +127,21 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
     }
   }
 
+  /* QUIET HOURS — texts only. An email at 3am waits in an inbox; a text at
+   * 3am wakes someone up. Deferred rather than dropped: the log records why,
+   * and nothing that must reach a person tonight is a text anyway. */
+  let quietDeferred = false;
+  if (!suppressed && channel === 'sms' && tenantDoc) {
+    try {
+      const { resolveQuietHours, inQuietHours } = await import('./message-policy');
+      quietDeferred = inQuietHours(resolveQuietHours(tenantDoc), new Date());
+    } catch { /* fail open */ }
+  }
+
   if (suppressed) {
     result = { ok: false, status: 'skipped_by_policy', error: `${kind} is switched off in message settings` };
+  } else if (quietDeferred) {
+    result = { ok: false, status: 'skipped_by_policy', error: 'held back — inside your quiet hours' };
   } else if (channel === 'email') {
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) {
