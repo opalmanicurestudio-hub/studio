@@ -173,3 +173,218 @@ function toDate(val: any): Date {
   const d = new Date(val);
   return isNaN(d.getTime()) ? new Date(0) : d;
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// BOOKING MODE — Round U
+//
+// The shop-wide answer to "what happens when someone books online?", and the
+// single place the answer is computed. Four modes, one status vocabulary:
+//
+//   instant           booked and confirmed on the spot (today's behavior).
+//                     A deposit may still be collected if the service asks.
+//   deposit_required  the slot is HELD, not confirmed, until the deposit is
+//                     actually paid. Abandon it and the hold expires.
+//   card_on_file      confirmed immediately, nothing charged. The card is
+//                     vaulted so a no-show or late cancel can be charged
+//                     under the policy already in this file.
+//   approval          nothing is confirmed until the shop says yes. Money is
+//                     NEVER taken at request time — see chargeTiming below.
+//
+// Three layers, resolved here so the booking sheet, the API route, and the
+// calendar can never disagree about what is owed or what state to write:
+//     shop default  →  per-service override  →  per-client override
+// A layer only speaks when it has an opinion; silence inherits.
+//
+// Pure and dependency-free like everything above it.
+
+export type BookingMode = 'instant' | 'deposit_required' | 'card_on_file' | 'approval';
+
+/** When money may be taken. The approval trap this closes: charging at
+ *  REQUEST time means refunding every decline, which is both work and a bad
+ *  look. So approval mode always defers the charge to the moment of
+ *  acceptance — the client is told exactly that. */
+export type ChargeTiming = 'at_booking' | 'on_approval' | 'on_penalty' | 'never';
+
+export interface BookingModeConfig {
+  mode: BookingMode;
+  /** Minutes an unpaid/unanswered hold survives before the slot is released. */
+  holdMinutes: number;
+  /** Hours an unanswered REQUEST survives before it auto-declines. 0 = never. */
+  approvalExpiryHours: number;
+  /** Approval mode only: auto-accept requests from clients with a clean
+   *  history and at least this many completed visits. 0 = never auto-accept. */
+  autoApproveAfterVisits: number;
+}
+
+export const DEFAULT_BOOKING_MODE: BookingModeConfig = {
+  mode: 'instant',
+  holdMinutes: 30,          // matches PENDING_HOLD_MS in availability.ts
+  approvalExpiryHours: 24,
+  autoApproveAfterVisits: 0,
+};
+
+export function resolveBookingMode(tenant: any): BookingModeConfig {
+  const b = (tenant && tenant.bookingMode) || {};
+  const mode: BookingMode = ['instant', 'deposit_required', 'card_on_file', 'approval'].includes(b.mode)
+    ? b.mode
+    : DEFAULT_BOOKING_MODE.mode;
+  return {
+    mode,
+    holdMinutes: numOr(b.holdMinutes, DEFAULT_BOOKING_MODE.holdMinutes),
+    approvalExpiryHours: numOr(b.approvalExpiryHours, DEFAULT_BOOKING_MODE.approvalExpiryHours),
+    autoApproveAfterVisits: numOr(b.autoApproveAfterVisits, DEFAULT_BOOKING_MODE.autoApproveAfterVisits),
+  };
+}
+
+export interface BookingPlanInput {
+  tenant: any;
+  service: any;
+  price: number;
+  /** The matched client record, when the booker is recognized. */
+  client?: any;
+  /** Staff booking on someone's behalf skip approval — they ARE the approval. */
+  byStaff?: boolean;
+}
+
+export interface BookingPlan {
+  mode: BookingMode;
+  /** What the appointment document should be created as. */
+  status: 'confirmed' | 'pending_payment' | 'requested';
+  depositCents: number;
+  chargeTiming: ChargeTiming;
+  /** True when the client must complete a payment step to keep the slot. */
+  paymentBlocksConfirmation: boolean;
+  /** True when a card must be vaulted (no charge now). */
+  requiresCardOnFile: boolean;
+  holdMinutes: number;
+  approvalExpiryHours: number;
+  /** Plain-language line shown to the CLIENT at the point of decision. */
+  clientNotice: string;
+  /** Why this plan came out the way it did — for the audit trail and for
+   *  the owner staring at an appointment wondering what happened. */
+  reason: string;
+}
+
+/**
+ * THE one resolver. Every surface that needs to know "what happens when this
+ * person books this service right now" calls exactly this.
+ */
+export function resolveBookingPlan(input: BookingPlanInput): BookingPlan {
+  const { tenant, service, price, client, byStaff } = input;
+  const cfg = resolveBookingMode(tenant);
+
+  const poorHistory = !!client
+    && (numOr(client.noShowCount, 0) + numOr(client.cancellationCount, 0)) > 2;
+  const guardianActive = tenant?.guardianProtocolEnabled !== false;
+
+  const depositCents = computeDepositCents({
+    service, price,
+    depositsLive: !!tenant?.depositsLive,
+    poorHistory, guardianActive,
+  });
+
+  // ── Layer 2/3: overrides that can only ever RELAX or TIGHTEN explicitly ──
+  // A service may force its own mode (a $400 full set can demand a deposit in
+  // an otherwise instant shop). A client may be trusted past the shop rule —
+  // but never past the guardian, which exists precisely for the clients whose
+  // history says otherwise.
+  let mode = cfg.mode;
+  let reason = `Shop default: ${cfg.mode.replace(/_/g, ' ')}`;
+
+  const svcMode = service?.bookingMode;
+  if (['instant', 'deposit_required', 'card_on_file', 'approval'].includes(svcMode)) {
+    mode = svcMode;
+    reason = `${service?.name || 'This service'} overrides the shop rule (${String(svcMode).replace(/_/g, ' ')})`;
+  }
+
+  if (client?.bookingTrust === 'trusted' && !(guardianActive && poorHistory)) {
+    if (mode === 'approval' || mode === 'deposit_required') {
+      mode = 'instant';
+      reason = 'Trusted client — books instantly';
+    }
+  }
+  if (guardianActive && poorHistory && mode === 'instant' && depositCents > 0) {
+    mode = 'deposit_required';
+    reason = 'Booking history requires the deposit up front';
+  }
+
+  // Staff booking for a client is itself the approval, and the studio does not
+  // make itself wait on its own permission.
+  if (byStaff && mode === 'approval') {
+    mode = depositCents > 0 ? 'instant' : 'instant';
+    reason = 'Booked by the studio — no request needed';
+  }
+
+  const money = `$${(depositCents / 100).toFixed(2)}`;
+
+  switch (mode) {
+    case 'approval':
+      return {
+        mode, status: 'requested', depositCents,
+        chargeTiming: depositCents > 0 ? 'on_approval' : 'never',
+        paymentBlocksConfirmation: false,
+        requiresCardOnFile: false,
+        holdMinutes: cfg.holdMinutes,
+        approvalExpiryHours: cfg.approvalExpiryHours,
+        clientNotice: depositCents > 0
+          ? `This time is requested, not booked yet. Nothing is charged now — if it is accepted you will be asked for the ${money} deposit to lock it in.`
+          : 'This time is requested, not booked yet. You will hear back shortly.',
+        reason,
+      };
+
+    case 'deposit_required':
+      return {
+        mode,
+        status: depositCents > 0 ? 'pending_payment' : 'confirmed',
+        depositCents,
+        chargeTiming: depositCents > 0 ? 'at_booking' : 'never',
+        paymentBlocksConfirmation: depositCents > 0,
+        requiresCardOnFile: false,
+        holdMinutes: cfg.holdMinutes,
+        approvalExpiryHours: 0,
+        clientNotice: depositCents > 0
+          ? `Your slot is held for ${cfg.holdMinutes} minutes. It is confirmed the moment the ${money} deposit goes through.`
+          : 'Your time is confirmed.',
+        reason: depositCents > 0 ? reason : `${reason} — no deposit is set for this service`,
+      };
+
+    case 'card_on_file':
+      return {
+        mode, status: 'confirmed', depositCents: 0,
+        chargeTiming: 'on_penalty',
+        paymentBlocksConfirmation: false,
+        requiresCardOnFile: true,
+        holdMinutes: cfg.holdMinutes,
+        approvalExpiryHours: 0,
+        clientNotice: 'Your card is saved to hold the appointment — nothing is charged today. It is only used if the visit is missed or cancelled late.',
+        reason,
+      };
+
+    case 'instant':
+    default:
+      return {
+        mode: 'instant',
+        status: depositCents > 0 ? 'pending_payment' : 'confirmed',
+        depositCents,
+        chargeTiming: depositCents > 0 ? 'at_booking' : 'never',
+        paymentBlocksConfirmation: depositCents > 0,
+        requiresCardOnFile: false,
+        holdMinutes: cfg.holdMinutes,
+        approvalExpiryHours: 0,
+        clientNotice: depositCents > 0
+          ? `A ${money} deposit confirms this time. It goes toward your total.`
+          : 'Your time is confirmed.',
+        reason,
+      };
+  }
+}
+
+/** Should this request skip the queue? Kept separate from the plan because it
+ *  needs the client's completed-visit count, which only the server has. */
+export function shouldAutoApprove(tenant: any, client: any): boolean {
+  const cfg = resolveBookingMode(tenant);
+  if (cfg.mode !== 'approval' || cfg.autoApproveAfterVisits <= 0) return false;
+  const visits = numOr(client?.completedVisits ?? client?.visitCount, 0);
+  const bad = numOr(client?.noShowCount, 0) + numOr(client?.cancellationCount, 0);
+  return visits >= cfg.autoApproveAfterVisits && bad === 0;
+}
