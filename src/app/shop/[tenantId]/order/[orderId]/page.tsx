@@ -18,6 +18,7 @@ import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { customerOutcomeHeadline, fulfilmentSummary } from '@/lib/fulfilment-state';
 import { clearCart } from '@/lib/shop-cart';
+import { downscaleImageToDataUrl } from '@/lib/client-image';
 import { cn } from '@/lib/utils';
 import { distanceMetres, roughEtaMinutes, CURBSIDE_GEOFENCE_M } from '@/lib/retail-orders';
 
@@ -468,26 +469,7 @@ export default function OrderStatusPage() {
     if (!selfToken || photoBusyFor) return;
     setPhotoBusyFor(claimId);
     try {
-      const dataUrl: string = await new Promise((resolve, reject) => {
-        const img = new Image();
-        const fr = new FileReader();
-        fr.onerror = () => reject(new Error('read'));
-        fr.onload = () => {
-          img.onload = () => {
-            const scale = Math.min(1, 1280 / Math.max(img.width, img.height));
-            const canvas = document.createElement('canvas');
-            canvas.width = Math.max(1, Math.round(img.width * scale));
-            canvas.height = Math.max(1, Math.round(img.height * scale));
-            const ctx = canvas.getContext('2d');
-            if (!ctx) { reject(new Error('canvas')); return; }
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            resolve(canvas.toDataURL('image/jpeg', 0.82));
-          };
-          img.onerror = () => reject(new Error('img'));
-          img.src = String(fr.result);
-        };
-        fr.readAsDataURL(file);
-      });
+      const dataUrl: string = await downscaleImageToDataUrl(file, { maxDim: 1280 });
       const res = await fetch('/api/retail/claim-photo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -660,17 +642,15 @@ export default function OrderStatusPage() {
   /* PHOTOS BEFORE THE TICKET. Each file uploads through the same validated,
    * link-authorized pipeline the claims flow uses (customer sends bytes, the
    * server chooses the path); the URLs then ride the message that creates
-   * the ticket. Capped at 3, compressed by the phone's own picker. */
+   * the ticket. Capped at 3, DOWNSCALED CLIENT-SIDE first — a raw phone
+   * photo can be 8 MB and the request body tops out well under that, so
+   * without this the customers with the newest phones (and the angriest
+   * problems) are the ones whose evidence silently failed to attach. */
   const attachHelpPhoto = async (file: File) => {
     if (!selfToken || photoBusy || helpPhotos.length >= 3) return;
     setPhotoBusy(true);
     try {
-      const dataUrl: string = await new Promise((res, rej) => {
-        const r = new FileReader();
-        r.onload = () => res(String(r.result || ''));
-        r.onerror = () => rej(new Error('Could not read that file'));
-        r.readAsDataURL(file);
-      });
+      const dataUrl: string = await downscaleImageToDataUrl(file, { maxDim: 1280 });
       const resp = await fetch('/api/retail/claim-photo', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tenantId, orderId, qrToken: selfToken, purpose: 'support', image: dataUrl }),
