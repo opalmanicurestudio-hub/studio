@@ -154,9 +154,15 @@ export async function POST(req: NextRequest) {
       const card = (clientSnap.data() as any)?.cardOnFile;
       if (card?.customerId && card?.paymentMethodId) {
         chargeResult.attempted = true;
-        const cr = await fetch(`${req.nextUrl.origin}/api/stripe/charge-card`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        /* Resilient internal call: a resolved origin (never just the incoming
+         * request's), a bounded wait, and one retry on a cold start. A charge
+         * that quietly became "send them a pay link" because a serverless
+         * function was warming up is a failure nobody reports. */
+        const { internalOrigin, internalPost } = await import('@/lib/message-policy');
+        const cr = await internalPost(
+          internalOrigin(tenantForGrace, req.nextUrl.origin),
+          '/api/stripe/charge-card',
+          {
             tenantId, clientId: apt.clientId,
             amountCents: outcome.depositCents,
             description: 'Deposit',
@@ -169,10 +175,16 @@ export async function POST(req: NextRequest) {
             // client owes us money.
             kind: 'deposit',
             mode: 'auto',
-          }),
-        });
-        const cd = await cr.json().catch(() => ({}));
+          },
+        );
+        const cd = cr.data || {};
         chargeResult.ok = cr.ok && cd.ok === true;
+        if (cr.transportError) {
+          // Distinguish "the card said no" from "we never got to ask" — they
+          // need different words and different retry behaviour.
+          cd.reason = `Could not reach the payment processor (${cr.transportError})`;
+          cd.declineCode = 'network';
+        }
         if (chargeResult.ok) {
           await aptRef.update({
             status: 'confirmed',
