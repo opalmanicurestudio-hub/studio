@@ -486,6 +486,10 @@ export async function POST(req: NextRequest) {
         bookingReason: plan.reason,
         chargeTiming: plan.chargeTiming,
         requiresCardOnFile: plan.requiresCardOnFile,
+        // Stamped so the requests queue can tell the owner what "Accept"
+        // will actually DO — charge the card now, or send a pay link —
+        // without reading every client document to render a list.
+        hasCardOnFile: !!(clientRecord?.cardOnFile?.customerId && clientRecord?.cardOnFile?.paymentMethodId),
         ...(plan.status === 'requested' ? {
           requestedAt: nowIso,
           requestExpiresAt: plan.approvalExpiryHours > 0
