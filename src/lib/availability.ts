@@ -480,9 +480,21 @@ export function isCertified(service: any, staffId: string): boolean {
 function blocksTime(apt: any, now: Date): boolean {
   const status = apt?.status;
   if (status === 'cancelled') return false;
+  // A declined or expired request is a dead row — it must stop holding time
+  // the instant it dies, or approval mode slowly eats the calendar.
+  if (status === 'declined' || status === 'expired') return false;
   if (status === 'pending_payment') {
     const created = safeDate(apt?.createdAt);
     if (created && now.getTime() - created.getTime() > PENDING_HOLD_MS) return false;
+  }
+  /* A REQUEST holds its slot — otherwise two people request the same time and
+   * one gets accepted into a conflict. It stops holding at its own stated
+   * expiry, which the booking route wrote onto the row; requests with no
+   * expiry configured hold until a human answers, which is the honest
+   * reading of "no expiry". */
+  if (status === 'requested') {
+    const exp = safeDate(apt?.requestExpiresAt);
+    if (exp && now.getTime() > exp.getTime()) return false;
   }
   return true;
 }
