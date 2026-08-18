@@ -53,11 +53,20 @@ export async function POST(req: NextRequest) {
   const ticket = snap.data() as any;
 
   const now = new Date().toISOString();
+  /* Policy gate for the EMAIL only — the reply is always recorded on the case
+   * and always visible on the customer's order page. Switching the email off
+   * means "I'll tell them another way", not "swallow my reply". */
+  let emailAllowed = true;
+  try {
+    const { gateMessage } = await import('@/lib/message-policy');
+    emailAllowed = (await gateMessage(db, tenantId, 'support_reply')).send;
+  } catch { /* fail open */ }
+
   let emailed = false;
 
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
   const RESEND_FROM = process.env.RESEND_FROM;
-  if (RESEND_API_KEY && RESEND_FROM && ticket.customerEmail) {
+  if (emailAllowed && RESEND_API_KEY && RESEND_FROM && ticket.customerEmail) {
     const origin = req.nextUrl.origin;
     const link = `${origin}/shop/${tenantId}/order/${ticket.orderId}`;
     try {
