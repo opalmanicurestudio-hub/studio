@@ -27,7 +27,7 @@ import { useToast } from '@/hooks/use-toast';
 import { MESSAGE_KINDS, validateOverride, type MessageKindDef } from '@/lib/message-policy';
 import { cn } from '@/lib/utils';
 
-const GROUPS = ['Booking', 'Money', 'Reminders', 'Retail', 'Account'] as const;
+const GROUPS = ['Booking', 'Money', 'Reminders', 'Retail', 'Renters', 'Account'] as const;
 
 export default function MessageSettingsPage() {
   const { firestore } = useFirebase();
