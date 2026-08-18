@@ -120,6 +120,13 @@ export async function POST(req: NextRequest) {
     }
 
     if (type === 'email') {
+      // Policy gate — an owner who switched receipts off in Messages does
+      // not get them sent anyway from a route that predates the setting.
+      try {
+        const { gateMessage } = await import('@/lib/message-policy');
+        const gate = await gateMessage(getAdminDb(), String(tenantId || ''), 'receipt');
+        if (!gate.send) return NextResponse.json({ ok: false, reason: gate.reason });
+      } catch { /* fail open — never lose a receipt over a settings lookup */ }
       const resendKey = process.env.RESEND_API_KEY;
       if (!resendKey) {
         return NextResponse.json({ ok: false, reason: 'Email not configured (RESEND_API_KEY missing)' });
