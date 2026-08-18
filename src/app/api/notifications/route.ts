@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { brandedEmail, emailButton } from '@/lib/email-shell';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sends the booking-completion link to the client by email (Resend) and/or
@@ -39,15 +40,15 @@ export async function POST(req: NextRequest) {
               from: RESEND_FROM,
               to: [clientEmail],
               subject: `Finish securing your appointment at ${studio}`,
-              html: `<div style="font-family:-apple-system,Segoe UI,sans-serif;max-width:480px;margin:0 auto;padding:8px">
-                <p style="font-size:15px;color:#0f172a">Hi ${name},</p>
-                <p style="font-size:15px;color:#0f172a;line-height:1.6">You're almost booked at <strong>${studio}</strong>. Tap below to save your card on file, accept the policy, and complete any forms — it only takes a minute.</p>
-                <p style="text-align:center;margin:28px 0">
-                  <a href="${link}" style="background:#111827;color:#ffffff;padding:14px 30px;border-radius:12px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block">Finish my booking</a>
-                </p>
-                <p style="color:#64748b;font-size:13px;line-height:1.5">Or paste this link into your browser:<br><span style="color:#0f172a">${link}</span></p>
-                <p style="color:#94a3b8;font-size:12px;margin-top:20px">This secure link expires in 7 days.</p>
-              </div>`,
+              html: (() => {
+                const brand = { shopName: studio, brandColor: '#16171a' };
+                return brandedEmail(brand, `
+                  <p style="font-size:14px;color:#0f172a;line-height:1.7;margin:0">Hi ${name}, you&#39;re almost booked. Tap below to save your card on file, accept the policy, and complete any forms \u2014 it only takes a minute.</p>
+                  ${emailButton(link, 'Finish my booking', brand)}
+                  <p style="color:#64748b;font-size:12px;line-height:1.6;margin:0">Or paste this link into your browser:<br><span style="color:#0f172a;word-break:break-all">${link}</span></p>
+                  <p style="color:#94a3b8;font-size:11px;margin:16px 0 0">This secure link expires in 7 days.</p>`,
+                  { preheader: 'Save your card and accept the policy \u2014 one minute', title: 'Finish securing your appointment' });
+              })(),
             }),
           });
           if (r.ok) result.emailSent = true;
