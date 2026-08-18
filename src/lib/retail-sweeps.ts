@@ -437,3 +437,165 @@ export async function sweepPendingRequestNudge(
   }
   return res;
 }
+
+
+// ═══ 6. UNPAID ACCEPTED BOOKINGS ═════════════════════════════════════════════
+// The gap a failed card leaves behind. An accepted booking whose deposit never
+// completed is holding a slot on the strength of money that did not arrive.
+// Three things happen here, in order of decreasing hope:
+//
+//   1. RETRY once, if the failure was the kind that can pass later
+//      (insufficient funds, a bank limit, a processing blip). An expired or
+//      reported card is never retried — that is a second failure with the
+//      client's hope attached.
+//   2. REMIND, once, partway through the grace window, so the client hears
+//      about it while they can still act.
+//   3. RELEASE at the deadline: the slot goes back on sale and the client is
+//      told plainly. Quietly keeping a slot for someone who never paid costs
+//      the shop the booking twice.
+
+export async function sweepUnpaidAccepted(
+  db: any,
+  tenantId: string,
+  opts?: { now?: number; origin?: string },
+): Promise<SweepResult> {
+  const res = empty();
+  const now = opts?.now ?? Date.now();
+
+  try {
+    const tenantSnap = await db.collection('tenants').doc(tenantId).get();
+    if (!tenantSnap.exists) return res;
+    const tenant = tenantSnap.data() || {};
+    const brand = brandFromTenant(tenant);
+    const origin = opts?.origin || originOf(tenant);
+    const { resolveMessage, tidyBody } = await import('./message-policy');
+
+    const snap = await db.collection(`tenants/${tenantId}/appointments`)
+      .where('status', '==', 'pending_payment')
+      .get();
+
+    for (const d of snap.docs) {
+      const apt = d.data() as any;
+      res.scanned += 1;
+      try {
+        const due = Date.parse(String(apt.paymentDueAt || ''));
+        if (!Number.isFinite(due)) continue;          // checkout holds are not ours
+        if (apt.depositStatus === 'paid') continue;
+
+        const first = String(apt.clientName || '').trim().split(/\s+/)[0];
+        const when = apt.startTime
+          ? new Date(apt.startTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+          : 'your appointment';
+        const money = `$${((Number(apt.depositAmountCents) || 0) / 100).toFixed(2)}`;
+        const link = origin && apt.checkInToken ? `${origin}/check-in/${apt.checkInToken}` : '';
+        const email = String(apt.clientEmail || '').trim()
+          || (apt.clientId
+            ? String(((await db.doc(`tenants/${tenantId}/clients/${apt.clientId}`).get()).data() as any)?.email || '').trim()
+            : '');
+
+        // ── 3. Past the deadline: release it ──
+        if (now >= due) {
+          await d.ref.set({
+            status: 'cancelled',
+            cancelledAt: new Date(now).toISOString(),
+            cancelledBy: 'system',
+            cancelReason: 'The deposit was not completed within the payment window',
+          }, { merge: true });
+          res.actioned += 1;
+          if (email) {
+            const msg = resolveMessage(tenant, 'request_declined', {
+              client_first: first, when,
+              reason: 'The deposit was not completed in time, so the booking has been released.',
+              link: origin ? `${origin}/book/${tenantId}` : '',
+              studio: brand.shopName,
+            }, 'email');
+            if (msg.send) {
+              const paras = tidyBody(msg.body).split('\n\n')
+                .map((l) => `<p style="font-size:14px;color:#334155;line-height:1.7;margin:0 0 12px">${l.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`).join('');
+              const html = brandedEmail(brand, `${paras}${origin ? emailButton(`${origin}/book/${tenantId}`, 'View available times', brand) : ''}`,
+                { preheader: msg.subject, title: msg.subject, tag: 'Booking' });
+              if (await sendEmail(email, `${brand.shopName} \u2014 ${msg.subject}`, html)) res.emailed += 1;
+            }
+          }
+          continue;
+        }
+
+        // ── 1. Retry, once, when the card could plausibly work now ──
+        const attempts = Number(apt.depositAttempts) || 0;
+        if (apt.depositRetryable === true && attempts < 2 && apt.clientId && origin) {
+          const failedAt = Date.parse(String(apt.depositFailedAt || ''));
+          // Give the bank some daylight before asking again.
+          if (Number.isFinite(failedAt) && (now - failedAt) > 6 * 3600000) {
+            try {
+              const rr = await fetch(`${origin}/api/stripe/charge-card`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  tenantId, clientId: apt.clientId,
+                  amountCents: Number(apt.depositAmountCents) || 0,
+                  description: 'Deposit (retry)', category: 'Deposits',
+                  appointmentId: d.id, reason: apt.serviceName || 'Appointment deposit',
+                  kind: 'deposit', mode: 'auto',
+                }),
+              });
+              const rd = await rr.json().catch(() => ({}));
+              if (rr.ok && rd.ok) {
+                await d.ref.set({
+                  status: 'confirmed', depositStatus: 'paid',
+                  depositPaidAt: new Date(now).toISOString(),
+                  depositChargedOnFile: true,
+                  depositPaymentIntentId: rd.paymentIntentId || null,
+                  depositFailureReason: null, depositFailureCode: null, depositFailureGuidance: null,
+                  paymentDueAt: null,
+                }, { merge: true });
+                res.actioned += 1;
+                if (email) {
+                  const msg = resolveMessage(tenant, 'deposit_charged', {
+                    client_first: first, amount: money, when,
+                    service: apt.serviceName || 'your appointment',
+                    link, studio: brand.shopName,
+                  }, 'email');
+                  if (msg.send) {
+                    const paras = tidyBody(msg.body).split('\n\n')
+                      .map((l) => `<p style="font-size:14px;color:#334155;line-height:1.7;margin:0 0 12px">${l.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`).join('');
+                    const html = brandedEmail(brand, `${paras}${link ? emailButton(link, 'Manage my visit', brand) : ''}`,
+                      { preheader: msg.subject, title: msg.subject, tag: 'Booking' });
+                    if (await sendEmail(email, `${brand.shopName} \u2014 ${msg.subject}`, html)) res.emailed += 1;
+                  }
+                }
+                continue;
+              }
+              await d.ref.set({ depositAttempts: attempts + 1, depositFailedAt: new Date(now).toISOString() }, { merge: true });
+            } catch { /* the deadline sweep still protects the slot */ }
+          }
+        }
+
+        // ── 2. One reminder, partway to the deadline ──
+        const markerId = `unpaid-nudge-${d.id}`;
+        const markerRef = db.collection(`tenants/${tenantId}/systemMarkers`).doc(markerId);
+        const halfway = due - (due - Date.parse(String(apt.decidedAt || apt.createdAt || ''))) / 2;
+        if (Number.isFinite(halfway) && now >= halfway && email && !(await markerRef.get()).exists) {
+          const dueLabel = new Date(due).toLocaleString('en-US', { weekday: 'long', hour: 'numeric', minute: '2-digit' });
+          const msg = resolveMessage(tenant, 'deposit_failed', {
+            client_first: first, amount: money, when,
+            card_issue: String(apt.depositFailureGuidance || ''),
+            hold_until: dueLabel, link, studio: brand.shopName,
+          }, 'email');
+          if (msg.send) {
+            const paras = tidyBody(msg.body).split('\n\n')
+              .map((l) => `<p style="font-size:14px;color:#334155;line-height:1.7;margin:0 0 12px">${l.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`).join('');
+            const html = brandedEmail(brand, `${paras}${link ? emailButton(link, 'Pay deposit', brand) : ''}`,
+              { preheader: msg.subject, title: msg.subject, tag: 'Booking' });
+            if (await sendEmail(email, `${brand.shopName} \u2014 ${msg.subject}`, html)) res.emailed += 1;
+            await markerRef.set({ at: new Date(now).toISOString(), appointmentId: d.id });
+            res.actioned += 1;
+          }
+        }
+      } catch (e: any) {
+        res.errors.push(`appt ${d.id}: ${String(e?.message || e).slice(0, 120)}`);
+      }
+    }
+  } catch (e: any) {
+    res.errors.push(String(e?.message || e).slice(0, 160));
+  }
+  return res;
+}
