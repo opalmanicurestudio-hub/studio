@@ -35,6 +35,9 @@ export async function ensureApptToken(db: any, tenantId: string, apptId: string)
 }
 
 export type NotifyInput = {
+  /** Merge values for owner-customized copy. Ignored when the shop has not
+   *  written its own version of this message kind. */
+  tokens?: Record<string, string | number | null | undefined>;
   tenantId: string;
   channel: 'email' | 'sms';
   to: string;                    // email address or phone number
@@ -55,7 +58,7 @@ export type NotifyInput = {
 
 export type NotifyResult = {
   ok: boolean;
-  status: 'sent' | 'failed' | 'skipped_no_provider';
+  status: 'sent' | 'failed' | 'skipped_no_provider' | 'skipped_by_policy';
   providerId?: string | null;
   error?: string;
 };
@@ -73,7 +76,60 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
   const { tenantId, channel, to, kind } = input;
   let result: NotifyResult;
 
-  if (channel === 'email') {
+  /* ═══ MESSAGE POLICY ══════════════════════════════════════════════════════
+   * Every client-facing send passes through here carrying its `kind`, which
+   * makes this the one honest place to ask two questions: does this shop want
+   * this message at all, and have they written their own words for it?
+   *
+   * Enforced HERE rather than at each call site so a kind can never be
+   * switched off in settings and still go out from some route nobody
+   * remembered. Messages a client has a right to (money moved, request
+   * declined, deposit needed) are refused disablement inside the resolver, so
+   * this block cannot suppress them however the database is edited.
+   *
+   * A suppressed message is logged as 'skipped_by_policy' rather than
+   * silently dropped — an owner asking "why didn't they get that?" deserves
+   * the answer in the timeline. */
+  let policy: { enabled: boolean; subject: string; body: string; custom: boolean; overrideRejected?: string } = {
+    enabled: true, subject: '', body: '', custom: false,
+  };
+  let tenantDoc: any = null;
+  if (kind) {
+    try {
+      const { resolveMessagePolicy } = await import('./message-policy');
+      tenantDoc = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+      policy = resolveMessagePolicy(tenantDoc, String(kind), channel === 'sms' ? 'sms' : 'email');
+    } catch {
+      // A policy lookup failure must never stop a message — fail OPEN.
+    }
+  }
+  // Suppression falls through to the SAME logging path every other outcome
+  // uses, so a message the shop switched off still appears in the timeline
+  // with its reason — an owner asking "why didn't they get that?" gets an
+  // answer instead of a silence.
+  const suppressed = !policy.enabled;
+
+  /* Owner copy wins over the caller's default wording. The caller still
+   * supplies the TOKENS; the owner supplies the sentence. */
+  if (policy.custom && policy.body) {
+    const { renderMessage } = await import('./message-policy');
+    const tokens = (input as any).tokens || {};
+    const rendered = renderMessage(policy.body, tokens);
+    if (rendered) {
+      input = {
+        ...input,
+        text: rendered,
+        // Custom copy replaces the BODY; the branded shell is rebuilt around
+        // it below, so a shop writing its own words still gets its own look.
+        html: undefined,
+        ...(policy.subject ? { subject: renderMessage(policy.subject, tokens) } : {}),
+      };
+    }
+  }
+
+  if (suppressed) {
+    result = { ok: false, status: 'skipped_by_policy', error: `${kind} is switched off in message settings` };
+  } else if (channel === 'email') {
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) {
       result = { ok: false, status: 'skipped_no_provider', error: 'RESEND_API_KEY not set' };
@@ -188,7 +244,10 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
       action: `notify.${result.status}`,
       targetType: 'message', targetId: result.providerId || 'message',
       summary: `${kind.replace(/_/g, ' ')} ${channel} to ${input.recipientName || input.clientName || mask(to)} — ${
-        result.status === 'sent' ? 'sent' : result.status === 'failed' ? `FAILED (${result.error})` : 'skipped (no provider configured)'
+        result.status === 'sent' ? 'sent'
+          : result.status === 'failed' ? `FAILED (${result.error})`
+            : result.status === 'skipped_by_policy' ? 'skipped (switched off in message settings)'
+              : 'skipped (no provider configured)'
       }`,
       actor: { type: 'system', name: 'notifications' },
     });
