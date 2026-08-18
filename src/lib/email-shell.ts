@@ -26,21 +26,28 @@ const EMAIL_FONT = "'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system
 
 /** Per-send tenant brand lookup. Fallbacks keep emails sending when a tenant
  *  has no theme: ink header, honest name. */
-export async function getEmailBrand(db: any, tenantId: string): Promise<EmailBrand> {
+/** Derive the brand from a tenant object already in hand — zero reads.
+ *  getEmailBrand delegates here; senders holding the tenant (the webhook
+ *  does) call this directly instead of paying a second fetch per email. */
+export function brandFromTenant(t: any): EmailBrand {
   let shopName = 'Your shop';
   let brandColor = '#16171a';
   try {
+    shopName = String(t?.businessName || t?.name || shopName);
+    const c = t?.retailSettings?.shopTheme?.brand;
+    if (typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c.trim())) brandColor = c.trim();
+  } catch { /* never block an email on cosmetics */ }
+  return { shopName, brandColor };
+}
+
+export async function getEmailBrand(db: any, tenantId: string): Promise<EmailBrand> {
+  try {
     const snap = await db.collection('tenants').doc(tenantId).get();
-    if (snap.exists) {
-      const t = snap.data() || {};
-      shopName = String(t.businessName || t.name || shopName);
-      const c = t?.retailSettings?.shopTheme?.brand;
-      if (typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c.trim())) brandColor = c.trim();
-    }
+    if (snap.exists) return brandFromTenant(snap.data() || {});
   } catch {
     // brand lookup is never allowed to block an email
   }
-  return { shopName, brandColor };
+  return brandFromTenant({});
 }
 
 /** White or ink, whichever actually reads on the given background. */
@@ -70,17 +77,26 @@ export function emailButton(href: string, label: string, brand: EmailBrand): str
  * customer-entered text must be escaped by the CALLER before interpolation
  * (the claim-decision sender already does).
  */
-export function brandedEmail(brand: EmailBrand, bodyHtml: string, opts?: { preheader?: string }): string {
+export function brandedEmail(brand: EmailBrand, bodyHtml: string, opts?: { preheader?: string; title?: string; tag?: string }): string {
   const headerFg = readableTextOn(brand.brandColor);
   const pre = opts?.preheader
     ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0">${opts.preheader}</div>`
+    : '';
+  /* Optional HEADLINE BAND: when a sender passes a title, the brand header
+   * carries the news itself — "Out for delivery today" in the shop's color —
+   * instead of burying it in the body. tag is the small line above it
+   * (usually the order number). Callers that pass neither render exactly as
+   * before. */
+  const titleBlock = opts?.title
+    ? `${opts?.tag ? `<span style="display:block;font-size:10px;font-weight:800;letter-spacing:0.22em;text-transform:uppercase;opacity:0.75;margin-bottom:6px">${opts.tag}</span>` : ''}<span style="display:block;font-size:21px;font-weight:800;letter-spacing:-0.02em;line-height:1.25">${opts.title}</span>`
     : '';
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <style>@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap');</style>
 </head><body style="margin:0;padding:0">${pre}<div style="background:#f4f4f5;padding:24px 12px">
   <div style="max-width:560px;margin:0 auto">
     <div style="background:${brand.brandColor};color:${headerFg};border-radius:16px 16px 0 0;padding:18px 24px;font-family:${EMAIL_FONT}">
-      <span style="font-size:15px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase">${brand.shopName}</span>
+      <span style="font-size:${opts?.title ? '11px' : '15px'};font-weight:800;letter-spacing:0.06em;text-transform:uppercase${opts?.title ? ';opacity:0.85' : ''}">${brand.shopName}</span>
+      ${titleBlock ? `<div style="margin-top:10px">${titleBlock}</div>` : ''}
     </div>
     <div style="background:#ffffff;border-radius:0 0 16px 16px;padding:26px 24px;font-family:${EMAIL_FONT}">
       ${bodyHtml}
