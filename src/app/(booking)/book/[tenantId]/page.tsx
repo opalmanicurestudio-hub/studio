@@ -233,8 +233,10 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   useEffect(() => { injectFonts(resolvedStyle.headingFont, resolvedStyle.bodyFont); }, [resolvedStyle.headingFont, resolvedStyle.bodyFont]);
   useEffect(() => {
     const root = document.documentElement;
-    root.style.setProperty('--booking-heading-font', STACKS[resolvedStyle.headingFont] || STACKS.josefin);
-    root.style.setProperty('--booking-body-font',    STACKS[resolvedStyle.bodyFont]    || STACKS.inter);
+    /* Fallbacks point at the app's own typeface, so an unknown or missing
+     * font id degrades INTO the house style rather than out of it. */
+    root.style.setProperty('--booking-heading-font', STACKS[resolvedStyle.headingFont] || STACKS.jakarta);
+    root.style.setProperty('--booking-body-font',    STACKS[resolvedStyle.bodyFont]    || STACKS.jakarta);
     root.style.setProperty('--radius', `${resolvedStyle.borderRadius}px`);
     try { root.style.setProperty('--primary', hexToHsl(resolvedStyle.accentColor)); } catch {}
   }, [resolvedStyle]);
@@ -388,7 +390,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="w-full min-h-dvh overflow-x-hidden"
-         style={{ background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.inter }}>
+         style={{ background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
 
       {/* Service picker modal */}
       {showPicker && (
