@@ -192,6 +192,9 @@ interface BookingSheetProps {
   maintenancePlans?: any[];
   /** Real calendar occupancy — what the engine treats as `events`. */
   calendarEvents?:  any[];
+  /** What the SERVER made of the booking. Absent = an older caller, in
+   *  which case the sheet keeps its original confirmed wording. */
+  bookingOutcome?: { status: string; notice: string; depositCents: number } | null;
   onConfirm: (
     formData: { clientName: string; clientEmail: string; clientPhone?: string; notes?: string },
     appointmentDetails: Omit<Appointment, 'id' | 'clientId' | 'clientName' | 'clientEmail' | 'clientPhone'> & { depositAmount?: number; depositStatus?: string },
@@ -205,6 +208,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   open, onOpenChange, service, staff, pricingTiers, initialStaffId,
   appointments, events, scheduleProfiles, services, consentForms, tenant, onConfirm,
   shifts, staffBlocks, dayOffBlocks, resources, tickets, maintenancePlans, calendarEvents,
+  bookingOutcome,
 }) => {
   const isMobile = useIsMobile();
   const { headingFont, bodyFont, r, r2, r3 } = useThemeStyles();
@@ -640,10 +644,27 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                     <CheckCircle2 className="w-10 h-10 text-green-500 -rotate-6" />
                   </div>
                   <div className="space-y-2">
-                    <h2 style={{ fontFamily: headingFont }} className="text-2xl font-black uppercase tracking-tighter">You're All Set!</h2>
+                    {/* THE SCREEN MUST MATCH WHAT THE SERVER WROTE. A shop in
+                        approval mode has not booked anything yet, and telling
+                        the client "you're all set" would be the single most
+                        damaging lie in the whole flow. */}
+                    <h2 style={{ fontFamily: headingFont }} className="text-2xl font-black uppercase tracking-tighter">
+                      {bookingOutcome?.status === 'requested' ? 'Request Sent'
+                        : bookingOutcome?.status === 'pending_payment' ? 'Almost There'
+                          : "You're All Set!"}
+                    </h2>
                     <p className="text-muted-foreground text-sm font-medium max-w-sm mx-auto leading-relaxed">
-                      Your appointment for <strong className="text-foreground">{service?.name}</strong> is confirmed. We've sent the details to your email.
+                      {bookingOutcome?.status === 'requested'
+                        ? <>Your request for <strong className="text-foreground">{service?.name}</strong> is with the studio. It is not booked yet — you will hear back shortly.</>
+                        : bookingOutcome?.status === 'pending_payment'
+                          ? <>Your time for <strong className="text-foreground">{service?.name}</strong> is held. Check your email to finish and lock it in.</>
+                          : <>Your appointment for <strong className="text-foreground">{service?.name}</strong> is confirmed. We&apos;ve sent the details to your email.</>}
                     </p>
+                    {bookingOutcome?.notice && (
+                      <p className="mx-auto max-w-sm rounded-2xl border-2 border-dashed px-3 py-2 text-[11px] font-bold leading-relaxed text-muted-foreground">
+                        {bookingOutcome.notice}
+                      </p>
+                    )}
                   </div>
                   <div className="grid gap-4 max-sm mx-auto text-left">
                     {bookedStaff && (
