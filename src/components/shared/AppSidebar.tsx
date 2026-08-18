@@ -8,17 +8,7 @@ import {
   SidebarFooter, SidebarContent, SidebarSeparator, SidebarGroup,
   SidebarGroupLabel, SidebarRail, SidebarTrigger, useSidebar,
 } from '@/components/ui/sidebar';
-import {
-  LayoutDashboard, Calendar, Users, User, Settings, Box, FileText, BookOpen,
-  Landmark, FileSignature, ListChecks, BarChart, HardHat, Percent,
-  Megaphone, Star, LogOut, Globe, Fingerprint, Coffee, ConciergeBell,
-  Clock, ClipboardList, CalendarDays, Shield, ChefHat, PartyPopper, Layers,
-  PanelLeftClose, PanelLeftOpen, ChevronRight, ExternalLink,
-  Armchair, KeyRound, HandCoins, Receipt, Wallet, AlertTriangle, Bot,
-  MessageSquare, DoorOpen, Send, Hourglass, PackageCheck, RotateCcw, ShoppingBag,
-  History as HistoryIcon, LifeBuoy, Paintbrush, Building2, Boxes, FlaskConical, Users2, PackageOpen, Gauge,
-  ShieldQuestion,
-} from 'lucide-react';
+import { AlertTriangle, Armchair, BarChart, BookOpen, Bot, Box, Boxes, Building2, Calendar, CalendarClock, CalendarDays, ChefHat, ChevronRight, ClipboardList, Clock, Coffee, ConciergeBell, DoorOpen, ExternalLink, FileSignature, FileText, Fingerprint, FlaskConical, Gauge, Globe, HandCoins, HardHat, History as HistoryIcon, Hourglass, KeyRound, Landmark, Layers, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Megaphone, MessageSquare, PackageCheck, PackageOpen, Paintbrush, PanelLeftClose, PanelLeftOpen, PartyPopper, Percent, Receipt, RotateCcw, Send, Settings, Shield, ShieldQuestion, ShoppingBag, Star, User, Users, Users2, Wallet } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
 import { ClientOnly } from './ClientOnly';
@@ -54,6 +44,9 @@ const DAILY_HUB = [
   { href: '/messages',    icon: MessageSquare,   label: 'Messages'       },
   { href: '/message-log', icon: Send,            label: 'Message Log'    },
   { href: '/my-schedule', icon: Clock,           label: 'My Schedule'    },
+  // Only rendered when approval mode is producing requests — see the filter
+  // at render time. A permanent link to an always-empty queue is clutter.
+  { href: '/appointments/requests', icon: CalendarClock, label: 'Requests' },
 ];
 
 const CLIENT_GROWTH = [
@@ -305,7 +298,26 @@ export function AppSidebar() {
     return () => { unsubClient(); unsubStaff(); };
   }, [firestore, tenantId, currentUser?.uid, isOwnerOrAdmin]);
 
-  const dailyBadges = messagesBadgeCount > 0 ? { '/messages': messagesBadgeCount } : undefined;
+  /* Booking requests waiting on an answer. Live-counted rather than derived
+   * from settings, so the badge is the truth even if the shop switches modes
+   * with requests still open — and the nav entry hides entirely when there is
+   * nothing to answer, so shops that never turn approval on never see it. */
+  const [requestBadgeCount, setRequestBadgeCount] = useState(0);
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const q = query(
+      collection(firestore, `tenants/${tenantId}/appointments`),
+      where('status', '==', 'requested'),
+    );
+    const unsub = onSnapshot(q, (snap) => setRequestBadgeCount(snap.size), () => { /* non-fatal */ });
+    return () => unsub();
+  }, [firestore, tenantId]);
+
+  const dailyItems = DAILY_HUB.filter((i) => i.href !== '/appointments/requests' || requestBadgeCount > 0);
+  const dailyBadges = {
+    ...(messagesBadgeCount > 0 ? { '/messages': messagesBadgeCount } : {}),
+    ...(requestBadgeCount > 0 ? { '/appointments/requests': requestBadgeCount } : {}),
+  };
 
   const handleLogout = async () => {
     if (auth) { await signOut(auth); router.push('/login'); }
@@ -357,7 +369,7 @@ export function AppSidebar() {
             </div>
           )}
 
-          <NavSection label="Daily" items={DAILY_HUB} badges={dailyBadges} />
+          <NavSection label="Daily" items={dailyItems} badges={Object.keys(dailyBadges).length > 0 ? dailyBadges : undefined} />
 
           {isOwner && (
             <>
