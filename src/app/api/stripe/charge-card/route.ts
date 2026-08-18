@@ -246,6 +246,8 @@ export async function POST(req: NextRequest) {
         ok: false,
         flagged:        mode === 'auto' && isArrearsKind,
         reason:         'No card on file',
+        code:           'no_card_on_file',
+        declineCode:    'no_card_on_file',
         parkedAsBalance: mode === 'auto' && isArrearsKind,
       });
     }
@@ -377,12 +379,22 @@ export async function POST(req: NextRequest) {
       );
     } catch (stripeErr: any) {
       const code = stripeErr?.code || stripeErr?.raw?.code || 'charge_failed';
-      if (isArrearsKind) await flagAndPark('stripe_error', code);
+      /* THE DECLINE CODE IS THE USEFUL HALF. `code` is almost always the
+       * generic 'card_declined'; decline_code is what distinguishes an
+       * expired card (never retry, replace it) from insufficient funds
+       * (retrying later can genuinely work). Callers were only ever given
+       * the generic one, so every failure looked identical to them. */
+      const declineCode = stripeErr?.decline_code
+        || stripeErr?.raw?.decline_code
+        || stripeErr?.payment_intent?.last_payment_error?.decline_code
+        || null;
+      if (isArrearsKind) await flagAndPark('stripe_error', declineCode || code);
       return NextResponse.json({
         ok:              false,
         flagged:         isArrearsKind,
         reason:          stripeErr?.message || 'Charge failed',
         code,
+        declineCode,
         parkedAsBalance: isArrearsKind,
       });
     }
@@ -394,6 +406,7 @@ export async function POST(req: NextRequest) {
         flagged:         isArrearsKind,
         reason:          `Charge ${intent.status}`,
         code:            intent.status,
+        declineCode:     (intent as any)?.last_payment_error?.decline_code || null,
         parkedAsBalance: isArrearsKind,
       });
     }
