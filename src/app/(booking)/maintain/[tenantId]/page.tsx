@@ -12,6 +12,7 @@
 // Auth = the token in the URL (?t=...). Rotating the worker's token in
 // the Booth Hub revokes this link instantly. No accounts, no passwords.
 
+import { downscaleImageToDataUrl } from '@/lib/client-image';
 import React, { useEffect, useMemo, useState } from 'react';
 
 function useIds(): { tenantId: string; token: string } {
@@ -156,14 +157,17 @@ export function MaintenancePortalPage() {
   const [milesDraft, setMilesDraft] = useState('');
   const [deadlineDraft, setDeadlineDraft] = useState('');
 
-  const pickPhoto = (file?: File | null) => {
+  const pickPhoto = async (file?: File | null) => {
     if (!file) return;
     if (!file.type.startsWith('image/')) { setError('That file isn\'t an image.'); return; }
-    if (file.size > 2_800_000) { setError('Photo too large — most phones can pick a smaller size, or screenshot it.'); return; }
-    const reader = new FileReader();
-    reader.onload = () => { setPhotoData(String(reader.result || '')); setPhotoName(file.name); setError(''); };
-    reader.onerror = () => setError('Could not read that photo — try another.');
-    reader.readAsDataURL(file);
+    /* Downscale instead of reject — telling a worker on a ladder to go
+     * change their camera settings was never going to happen. */
+    try {
+      const dataUrl = await downscaleImageToDataUrl(file, { maxDim: 1600 });
+      setPhotoData(dataUrl); setPhotoName(file.name); setError('');
+    } catch (e: any) {
+      setError(e?.message || 'Could not read that photo — try another.');
+    }
   };
 
   const load = async () => {
