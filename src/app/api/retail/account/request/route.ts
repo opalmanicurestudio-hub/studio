@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { brandedEmail, emailButton, getEmailBrand } from '@/lib/email-shell';
+
 import { accountUrl, normalizeEmail } from '@/lib/retail-account';
 
 // ─── POST /api/retail/account/request ─────────────────────────────────────────
@@ -76,14 +78,15 @@ export async function POST(req: NextRequest) {
         from: RESEND_FROM,
         to: [email],
         subject: `Your orders at ${shopName}`,
-        html: `<div style="font-family:-apple-system,Segoe UI,sans-serif;max-width:480px;margin:0 auto;padding:8px">
-          <p style="font-size:15px;color:#0f172a">Here is your secure sign-in link for <strong>${shopName}</strong>:</p>
-          <p style="text-align:center;margin:28px 0">
-            <a href="${link}" style="background:#111827;color:#ffffff;padding:14px 30px;border-radius:12px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block">View my orders</a>
-          </p>
-          <p style="color:#64748b;font-size:13px;line-height:1.5">Or paste this link into your browser:<br><span style="color:#0f172a">${link}</span></p>
-          <p style="color:#94a3b8;font-size:12px;margin-top:20px">This link works for 30 days. If you didn't request it, you can ignore this email.</p>
-        </div>`,
+        html: await (async () => {
+          const emailBrand = await getEmailBrand(db, tenantId);
+          return brandedEmail(emailBrand, `
+            <p style="font-size:14px;color:#0f172a;line-height:1.7;margin:0">Here is your secure sign-in link \u2014 your orders, messages, store credit, and downloads, all in one place.</p>
+            ${emailButton(link, 'View my orders', emailBrand)}
+            <p style="color:#64748b;font-size:12px;line-height:1.6;margin:0">Or paste this link into your browser:<br><span style="color:#0f172a;word-break:break-all">${link}</span></p>
+            <p style="color:#94a3b8;font-size:11px;margin:16px 0 0">This link works for 30 days. If you didn\u2019t request it, you can safely ignore this email.</p>`,
+            { preheader: 'Your secure sign-in link \u2014 works for 30 days', title: 'Your account link' });
+        })(),
       }),
     });
   } catch {
