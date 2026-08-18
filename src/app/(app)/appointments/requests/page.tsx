@@ -90,13 +90,13 @@ export default function BookingRequestsPage() {
     return [...rows].sort((a, b) => key(a) - key(b));
   }, [rows]);
 
-  const decide = async (r: Req, decision: 'accept' | 'decline', reason?: string) => {
+  const decide = async (r: Req, decision: 'accept' | 'decline', reason?: string, declineOutcome?: 'alternative' | 'final') => {
     if (busy) return;
     setBusy(`${r.id}-${decision}`);
     try {
       const res = await fetch('/api/appointments/decide', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, appointmentId: r.id, decision, staffName, reason: reason || '' }),
+        body: JSON.stringify({ tenantId, appointmentId: r.id, decision, staffName, reason: reason || '', declineOutcome: declineOutcome || 'alternative' }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -207,20 +207,32 @@ export default function BookingRequestsPage() {
                       onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDeclineReason(e.target.value)}
                       placeholder="Optional — what should they know? (Sent to them.)"
                       className="rounded-xl border-2 text-sm font-bold" />
-                    <div className="flex gap-2">
+                    {/* WHICH KIND of no is this? Inviting someone to pick
+                        another time when you are declining them as a client
+                        reads as a brush-off and invites a booking you will
+                        decline again. */}
+                    <div className="space-y-1.5">
                       <Button variant="destructive" disabled={busy === `${r.id}-decline`}
-                        onClick={() => void decide(r, 'decline', declineReason)}
-                        className="h-11 flex-1 rounded-2xl font-black uppercase text-[10px] tracking-widest">
-                        {busy === `${r.id}-decline` ? <Loader className="h-4 w-4 animate-spin" /> : 'Send decline'}
+                        onClick={() => void decide(r, 'decline', declineReason, 'alternative')}
+                        className="h-11 w-full rounded-2xl font-black uppercase text-[10px] tracking-widest">
+                        {busy === `${r.id}-decline` ? <Loader className="h-4 w-4 animate-spin" /> : 'This time does not work'}
                       </Button>
-                      <Button variant="outline" onClick={() => { setDeclineFor(null); setDeclineReason(''); }}
-                        className="h-11 rounded-2xl border-2 px-4 font-black uppercase text-[10px] tracking-widest">
+                      <p className="px-1 text-[10px] font-bold leading-relaxed text-muted-foreground">
+                        They are invited to choose another time.
+                      </p>
+                      <Button variant="outline" disabled={busy === `${r.id}-decline`}
+                        onClick={() => void decide(r, 'decline', declineReason, 'final')}
+                        className="h-11 w-full rounded-2xl border-2 border-destructive/40 font-black uppercase text-[10px] tracking-widest text-destructive">
+                        Not taking this booking
+                      </Button>
+                      <p className="px-1 text-[10px] font-bold leading-relaxed text-muted-foreground">
+                        For a service you do not offer, a client you are not taking on, or anything else that another time would not fix. No invitation to rebook.
+                      </p>
+                      <Button variant="ghost" onClick={() => { setDeclineFor(null); setDeclineReason(''); }}
+                        className="h-9 w-full rounded-2xl font-black uppercase text-[10px] tracking-widest text-muted-foreground">
                         Back
                       </Button>
                     </div>
-                    <p className="text-[10px] font-bold leading-relaxed text-muted-foreground">
-                      They will be told nothing was charged and invited to pick another time.
-                    </p>
                   </div>
                 ) : (
                   <div className="flex gap-2">
