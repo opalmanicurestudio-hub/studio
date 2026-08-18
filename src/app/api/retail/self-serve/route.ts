@@ -158,11 +158,33 @@ export async function POST(req: NextRequest) {
       });
 
       if (result.status !== 200) return NextResponse.json({ error: result.error }, { status: result.status });
+
+      /* AUTO-REFUND ON CANCEL. The returns desk already honors the shop's
+       * "refund automatically below $X" policy; a self-serve cancellation is
+       * the LESS ambiguous case — the shop has not even packed it — so it
+       * would be strange for the customer to wait longer for a smaller
+       * decision. Same route, same idempotency, same closure. A failure is
+       * silent to the customer: the refund is still queued on the board, and
+       * the message already told them it is coming. */
+      let refundedNow = false;
+      const autoBelowC = Math.max(0, Number(polC.refundAutoBelowCents) || 0);
+      if (result.pending > 0 && autoBelowC > 0 && result.pending <= autoBelowC) {
+        try {
+          const rr = await fetch(`${req.nextUrl.origin}/api/retail/refund`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tenantId, orderId, qrToken }),
+          });
+          refundedNow = rr.ok;
+        } catch { /* stays queued on the board */ }
+      }
+
       return NextResponse.json({
         ok: true,
-        message: result.pending > 0
-          ? 'Order cancelled. Your refund has been queued and the shop will process it shortly.'
-          : 'Order cancelled.',
+        message: refundedNow
+          ? 'Order cancelled and your refund is already on its way back to your card — most banks show it within 5–10 business days.'
+          : result.pending > 0
+            ? 'Order cancelled. Your refund has been queued and the shop will process it shortly.'
+            : 'Order cancelled.',
       });
     }
 
