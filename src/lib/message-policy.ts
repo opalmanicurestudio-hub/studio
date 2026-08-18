@@ -130,6 +130,22 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     timing: 'immediate',
   },
   {
+    /* A decline can mean two very different things, and sending "here are
+     * other times" to someone you are declining as a CLIENT is worse than
+     * saying nothing — it reads as a brush-off and invites a booking you will
+     * decline again. So the studio picks which one it is, and the wording
+     * follows. */
+    id: 'request_declined_final', group: 'Booking', label: 'Declined — not taking this booking',
+    when: 'You decline and do NOT want the client to try another time (not taking new clients, not a service you offer, not a fit).',
+    channels: ['email', 'sms'], canDisable: false,
+    mandatoryNote: 'They are holding time open for an answer. Saying nothing is worse than saying no.',
+    tokens: ['{{client_first}}', '{{when}}', '{{reason}}', '{{studio}}'],
+    requiredTokens: [],
+    defaultSubject: 'Your booking request',
+    defaultBody: '{{client_first}}, we are not able to take this booking.\n\n{{reason}}\n\nNothing has been charged. Thank you for your interest in {{studio}}.',
+    timing: 'immediate',
+  },
+  {
     id: 'appointment_reminder', group: 'Reminders', label: 'Appointment reminder',
     when: 'Ahead of the visit, on your reminder schedule.',
     channels: ['email', 'sms'], canDisable: true,
@@ -158,10 +174,10 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     when: 'A card on file is declined.',
     channels: ['email', 'sms'], canDisable: false,
     mandatoryNote: 'They think they are paid up. Only this message tells them otherwise.',
-    tokens: ['{{client_first}}', '{{amount}}', '{{when}}', '{{link}}', '{{studio}}'],
+    tokens: ['{{client_first}}', '{{amount}}', '{{when}}', '{{link}}', '{{studio}}', '{{card_issue}}', '{{hold_until}}'],
     requiredTokens: ['{{link}}'],
     defaultSubject: 'Payment required — {{amount}}',
-    defaultBody: '{{client_first}}, the {{amount}} deposit did not complete on the card we have on file.\n\nYour time is held. Pay here to confirm it: {{link}}',
+    defaultBody: '{{client_first}}, the {{amount}} deposit did not complete on the card we have on file.\n\n{{card_issue}}\n\nYour time is held until {{hold_until}}. Pay here to confirm it: {{link}}',
     timing: 'immediate',
   },
   {
@@ -545,4 +561,84 @@ export function tidyBody(body: string): string {
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CARD FAILURES — saying what happened without diagnosing someone's bank
+//
+// Stripe tells us WHY a card failed. That fact is useful to the client only
+// when it changes what they should DO, so the map below converts a decline
+// code into an action, not an explanation. "Your bank declined it" helps
+// nobody; "this card has expired — add another" is a next step.
+//
+// retryable marks failures where the SAME card might work later (a temporary
+// hold, a daily limit). An expired or reported card will never work again, so
+// retrying is just a second failure with the client's hope attached.
+
+export interface CardFailure {
+  code: string;
+  /** One sentence, actionable, no speculation about their finances. */
+  guidance: string;
+  retryable: boolean;
+  /** True when the card itself must be replaced, not just paid around. */
+  needsNewCard: boolean;
+}
+
+const CARD_FAILURES: Record<string, Omit<CardFailure, 'code'>> = {
+  expired_card:        { guidance: 'That card has expired. Please pay with a current card.', retryable: false, needsNewCard: true },
+  incorrect_cvc:       { guidance: 'The security code did not match. Please re-enter the card.', retryable: false, needsNewCard: true },
+  incorrect_number:    { guidance: 'The card number was not accepted. Please re-enter the card.', retryable: false, needsNewCard: true },
+  card_declined:       { guidance: 'The card was declined. Please pay with another card.', retryable: false, needsNewCard: true },
+  insufficient_funds:  { guidance: 'The card was declined for insufficient funds. You can pay with another card, or we can try this one again later.', retryable: true, needsNewCard: false },
+  withdrawal_count_limit_exceeded: { guidance: 'The card hit a limit set by the bank. Another card will work, or we can try again later.', retryable: true, needsNewCard: false },
+  processing_error:    { guidance: 'The payment could not be processed just now. We will try again shortly.', retryable: true, needsNewCard: false },
+  authentication_required: { guidance: 'Your bank needs you to approve this payment. Please complete it here.', retryable: false, needsNewCard: false },
+  lost_card:           { guidance: 'That card cannot be used. Please pay with another card.', retryable: false, needsNewCard: true },
+  stolen_card:         { guidance: 'That card cannot be used. Please pay with another card.', retryable: false, needsNewCard: true },
+  no_card_on_file:     { guidance: 'There is no card on file to charge.', retryable: false, needsNewCard: true },
+  network:             { guidance: 'We could not reach the payment processor. We will try again shortly.', retryable: true, needsNewCard: false },
+};
+
+export function classifyCardFailure(code?: string | null, declineCode?: string | null): CardFailure {
+  const c = String(declineCode || code || '').toLowerCase().trim();
+  const hit = CARD_FAILURES[c];
+  if (hit) return { code: c, ...hit };
+  return {
+    code: c || 'charge_failed',
+    guidance: 'The payment did not go through. Please pay with another card.',
+    retryable: false,
+    needsNewCard: true,
+  };
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// HOW LONG AN UNPAID-BUT-ACCEPTED APPOINTMENT KEEPS ITS TIME
+//
+// The 30-minute checkout hold is right for someone sitting at the payment
+// screen. It is wrong for a card that failed during an approval the client
+// was not present for — they may be at work, or asleep, and losing the slot
+// while they had no idea anything went wrong is not a policy, it is an
+// accident. So an accepted booking gets its own, longer, configurable grace.
+
+export function resolvePaymentGraceHours(tenant: any): number {
+  const v = Number((tenant && tenant.bookingMode || {}).paymentGraceHours);
+  return Number.isFinite(v) && v >= 0 ? v : 24;
+}
+
+/** The moment an unpaid accepted booking stops holding its slot. Never later
+ *  than the appointment itself — holding a slot past its own start time is
+ *  nonsense. Returns null when the shop grants unlimited grace. */
+export function paymentDueAt(
+  acceptedAtIso: string,
+  graceHours: number,
+  appointmentStartIso?: string | null,
+): string | null {
+  if (graceHours <= 0) return null;
+  const base = Date.parse(acceptedAtIso);
+  if (!Number.isFinite(base)) return null;
+  let due = base + graceHours * 3600000;
+  const start = appointmentStartIso ? Date.parse(appointmentStartIso) : NaN;
+  if (Number.isFinite(start) && start < due) due = start;
+  return new Date(due).toISOString();
 }
