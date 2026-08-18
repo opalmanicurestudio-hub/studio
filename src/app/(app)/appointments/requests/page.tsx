@@ -121,7 +121,7 @@ export default function BookingRequestsPage() {
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center gap-3">
           <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
-            <Link href="/appointments"><ArrowLeft className="h-4 w-4" /></Link>
+            <Link href="/schedule"><ArrowLeft className="h-4 w-4" /></Link>
           </Button>
           <div className="flex-1 min-w-0">
             <h1 className="font-black uppercase tracking-tighter text-xl leading-none">Booking requests</h1>
