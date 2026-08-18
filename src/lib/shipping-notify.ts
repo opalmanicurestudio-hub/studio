@@ -23,6 +23,8 @@
 // webhooks — and a customer who gets four "out for delivery" emails learns to
 // ignore all of them.
 
+import { brandedEmail, brandFromTenant, emailButton } from '@/lib/email-shell';
+
 export type CarrierStatus =
   | 'PRE_TRANSIT' | 'TRANSIT' | 'OUT_FOR_DELIVERY'
   | 'DELIVERED' | 'RETURNED' | 'FAILURE'
@@ -214,33 +216,22 @@ export async function sendCarrierUpdate(opts: {
   const esc = (s: any) => String(s ?? '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const paragraphs = copy.lines
-    .map((l) => `<p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#334155;">${esc(l)}</p>`)
+    .map((l) => `<p style="margin:0 0 12px;font-size:14px;line-height:1.7;color:#334155;">${esc(l)}</p>`)
     .join('');
   const cta = update.trackingUrl || orderUrl;
   const ctaLabel = update.trackingUrl ? 'Track my parcel' : 'View my order';
 
-  const html = `<!doctype html><html><body style="margin:0;padding:0;background:#f1f5f9;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:28px 12px;">
-    <tr><td align="center">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-             style="max-width:560px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-        <tr><td style="background:#0f172a;border-radius:20px 20px 0 0;padding:22px 28px;">
-          <p style="margin:0;font-size:11px;font-weight:800;letter-spacing:.25em;text-transform:uppercase;color:#94a3b8;">${esc(shopName)}${num ? ` &middot; ${esc(num)}` : ''}</p>
-          <p style="margin:6px 0 0;font-size:22px;font-weight:800;letter-spacing:-.02em;color:#ffffff;">${esc(copy.title)}</p>
-        </td></tr>
-        <tr><td style="background:#ffffff;border-radius:0 0 20px 20px;padding:26px 28px;border:1px solid #e2e8f0;border-top:none;">
-          ${paragraphs}
-          ${cta ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:20px auto 4px;">
-            <tr><td style="border-radius:12px;background:#0f172a;">
-              <a href="${esc(cta)}" target="_blank" style="display:inline-block;padding:14px 32px;font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#ffffff;text-decoration:none;border-radius:12px;">${esc(ctaLabel)}</a>
-            </td></tr></table>` : ''}
-        </td></tr>
-        <tr><td style="padding:16px 10px 0;text-align:center;">
-          <p style="margin:0;font-size:11px;line-height:1.6;color:#94a3b8;">${esc(contact || shopName)}</p>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table></body></html>`;
+  /* SAME CLOTHES AS EVERY OTHER EMAIL. Carrier updates are the most frequent
+   * mail a customer gets from the shop — they were the last still wearing a
+   * hardcoded slate header instead of the shop's own color. The shell's
+   * headline band carries the news ("Out for delivery today") in the brand
+   * color, over the same white card the receipt and every reply use. */
+  const emailBrand = brandFromTenant(tenant);
+  const html = brandedEmail(emailBrand, `
+    ${paragraphs}
+    ${cta ? emailButton(esc(cta), ctaLabel, emailBrand) : ''}
+    ${contact ? `<p style="margin:18px 0 0;padding-top:12px;border-top:1px solid #e2e8f0;font-size:11px;line-height:1.6;color:#94a3b8;text-align:center">${esc(contact)}</p>` : ''}`,
+    { preheader: copy.subject, title: esc(copy.title), tag: num ? esc(num) : undefined });
 
   let sent = false;
   try {
