@@ -14,7 +14,7 @@
 //     client's inbox.
 
 import { doc, updateDoc, type Firestore } from 'firebase/firestore';
-import { ArrowLeft, Lock, Mail, MessageSquare, Pencil, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Clock, Lock, Mail, MessageSquare, Moon, Pencil, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
 import React, { useMemo, useState } from 'react';
 
@@ -24,7 +24,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
-import { MESSAGE_KINDS, validateOverride, type MessageKindDef } from '@/lib/message-policy';
+import {
+  MESSAGE_KINDS, resolveQuietHours, validateOverride, type MessageKindDef,
+} from '@/lib/message-policy';
 import { cn } from '@/lib/utils';
 
 const GROUPS = ['Booking', 'Money', 'Reminders', 'Retail', 'Renters', 'Account'] as const;
@@ -42,10 +44,13 @@ export default function MessageSettingsPage() {
   const [group, setGroup] = useState<typeof GROUPS[number]>('Booking');
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const [offsetDraft, setOffsetDraft] = useState<Record<string, string>>({});
   const [draftBody, setDraftBody] = useState('');
   const [draftSubject, setDraftSubject] = useState('');
 
   const kinds = useMemo(() => MESSAGE_KINDS.filter((k) => k.group === group), [group]);
+  const qh = useMemo(() => resolveQuietHours(selectedTenant), [selectedTenant]);
+  const [qhDraft, setQhDraft] = useState<Record<string, string>>({});
 
   const save = async (key: string, field: string, value: any, label: string) => {
     if (!firestore || !tenantId || !isMgr || busy) return;
@@ -118,6 +123,56 @@ export default function MessageSettingsPage() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-6 space-y-3">
+        {/* Quiet hours protect every kind at once — one setting instead of a
+            per-message rule nobody would keep consistent. */}
+        <Card className="border-2 rounded-[2rem] bg-white">
+          <CardContent className="p-4 space-y-2">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="flex items-center gap-1.5 text-sm font-black"><Moon className="h-3.5 w-3.5" /> Quiet hours</p>
+                <p className="mt-0.5 text-[11px] font-bold leading-relaxed text-muted-foreground">
+                  Texts are held back overnight. Emails are unaffected — an email waits in an inbox, a text wakes someone up.
+                </p>
+              </div>
+              <button type="button" role="switch" aria-checked={qh.enabled} aria-label="Quiet hours"
+                disabled={!isMgr || busy === 'qh'}
+                onClick={() => void save('qh', 'messageQuietHours.enabled', !qh.enabled, 'Quiet hours')}
+                className={cn('relative h-6 w-11 shrink-0 rounded-full border-2 transition-all disabled:opacity-40',
+                  qh.enabled ? 'border-green-600 bg-green-500/20' : 'border-muted-foreground/30 bg-muted/40')}>
+                <span className={cn('absolute top-0.5 h-4 w-4 rounded-full transition-all',
+                  qh.enabled ? 'right-0.5 bg-green-600' : 'left-0.5 bg-muted-foreground/50')} />
+              </button>
+            </div>
+            {qh.enabled && (
+              <div className="flex items-center gap-2">
+                {(['startHour', 'endHour'] as const).map((f) => (
+                  <span key={f} className="flex items-center gap-1.5">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{f === 'startHour' ? 'From' : 'Until'}</span>
+                    <input inputMode="numeric" aria-label={f === 'startHour' ? 'Quiet hours start' : 'Quiet hours end'}
+                      value={qhDraft[f] !== undefined ? qhDraft[f] : String(qh[f])}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQhDraft((d) => ({ ...d, [f]: e.target.value.replace(/[^0-9]/g, '') }))}
+                      disabled={!isMgr}
+                      className="h-8 w-14 rounded-lg border-2 bg-white px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
+                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">:00</span>
+                  </span>
+                ))}
+                <Button size="sm" variant="outline" disabled={!isMgr || busy === 'qh-hours'}
+                  onClick={() => {
+                    const clamp = (v: string, d: number) => { const n = Number(v); return Number.isInteger(n) && n >= 0 && n <= 23 ? n : d; };
+                    void save('qh-hours', 'messageQuietHours', {
+                      enabled: true,
+                      startHour: clamp(qhDraft.startHour ?? String(qh.startHour), qh.startHour),
+                      endHour: clamp(qhDraft.endHour ?? String(qh.endHour), qh.endHour),
+                    }, 'Quiet hours');
+                  }}
+                  className="h-8 rounded-lg border-2 px-2.5 font-black uppercase text-[8px] tracking-widest">
+                  Set
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {kinds.map((k) => {
           const cfg = stored[k.id] || {};
           const emailOn = k.canDisable ? cfg.emailEnabled !== false : true;
@@ -166,6 +221,36 @@ export default function MessageSettingsPage() {
                   </p>
                 )}
 
+                {/* Timing — only where this kind actually has a schedule. */}
+                {k.timing !== 'immediate' && !k.timingOwnedElsewhere && (
+                  <div className="flex items-center justify-between gap-2 rounded-xl border-2 border-dashed px-2.5 py-2">
+                    <span className="flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground">
+                      <Clock className="h-3 w-3" /> Sends
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <input inputMode="numeric" aria-label={`${k.label} lead time in hours`}
+                        value={offsetDraft[k.id] !== undefined ? offsetDraft[k.id] : String(cfg.offsetHours ?? k.defaultOffsetHours ?? 0)}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setOffsetDraft((d) => ({ ...d, [k.id]: e.target.value.replace(/[^0-9]/g, '') }))}
+                        disabled={!isMgr}
+                        className="h-8 w-16 rounded-lg border-2 bg-white px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
+                      <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+                        hrs before {k.offsetAnchor}
+                      </span>
+                      <Button size="sm" variant="outline" disabled={!isMgr || busy === `${k.id}-offset`}
+                        onClick={() => void save(`${k.id}-offset`, `messagePolicy.${k.id}.offsetHours`,
+                          Math.max(0, Number(offsetDraft[k.id] ?? cfg.offsetHours ?? k.defaultOffsetHours ?? 0)), `${k.label} timing`)}
+                        className="h-8 rounded-lg border-2 px-2 font-black uppercase text-[8px] tracking-widest">
+                        Set
+                      </Button>
+                    </span>
+                  </div>
+                )}
+                {k.timingOwnedElsewhere && (
+                  <p className="flex items-start gap-1.5 text-[10px] font-bold leading-relaxed text-muted-foreground">
+                    <Clock className="mt-0.5 h-3 w-3 shrink-0" /> {k.timingOwnedElsewhere}
+                  </p>
+                )}
+
                 {isEditing ? (
                   <div className="space-y-2">
                     {k.channels.includes('email') && (
@@ -206,7 +291,15 @@ export default function MessageSettingsPage() {
                 ) : (
                   <div className="flex gap-2">
                     <Button variant="outline" disabled={!isMgr}
-                      onClick={() => { setEditing(k.id); setDraftBody(String(cfg.body || '')); setDraftSubject(String(cfg.subject || '')); }}
+                      onClick={() => {
+                        setEditing(k.id);
+                        // Prefill with what ACTUALLY goes out today — their own
+                        // wording if they wrote it, otherwise the shipped
+                        // default. Editing beats writing from a blank box, and
+                        // it means no sentence in the product is hidden.
+                        setDraftBody(String(cfg.body || k.defaultBody));
+                        setDraftSubject(String(cfg.subject || k.defaultSubject));
+                      }}
                       className="h-9 rounded-xl border-2 px-3 font-black uppercase text-[9px] tracking-widest">
                       <Pencil className="mr-1.5 h-3 w-3" /> {hasCustom ? 'Edit wording' : 'Write my own'}
                     </Button>
