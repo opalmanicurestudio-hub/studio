@@ -86,6 +86,7 @@ import { logAuditAdmin } from '@/lib/audit';
 import { generateShortCode } from '@/lib/short-code';
 import { nanoid } from 'nanoid';
 import { verifyBookable } from '@/lib/availability';
+import { resolveBookingPlan, shouldAutoApprove } from '@/lib/deposit-policy';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -378,10 +379,15 @@ export async function POST(req: NextRequest) {
       // ── Client: existing id, or match-by-contact, or create ──
       let clientId = String(body?.client?.id || '');
       let clientName = '';
+      // The client RECORD, when we have one — the booking plan reads their
+      // history (no-shows, trust flag, completed visits) to decide whether
+      // this booking needs a deposit, a card, or the studio's blessing.
+      let clientRecord: any = null;
       if (clientId) {
         const c = await tx.get(db.doc(`tenants/${tenantId}/clients/${clientId}`));
         if (!c.exists) return { conflict: 'Client not found.' };
-        clientName = (c.data() as any).name || '';
+        clientRecord = c.data() as any;
+        clientName = clientRecord.name || '';
       } else {
         clientName = String(body?.client?.name || '').slice(0, MAX_FIELD).trim();
         if (!clientName) return { conflict: 'Client name is required.' };
@@ -400,7 +406,8 @@ export async function POST(req: NextRequest) {
         }
         if (reused) {
           clientId = reused.id;
-          clientName = (reused.data() as any).name || clientName;
+          clientRecord = reused.data() as any;
+          clientName = clientRecord.name || clientName;
         } else {
           const newRef = db.collection(`tenants/${tenantId}/clients`).doc();
           clientId = newRef.id;
@@ -415,6 +422,30 @@ export async function POST(req: NextRequest) {
             createdVia: source,
           });
         }
+      }
+
+      /* ═══ THE BOOKING PLAN ═══════════════════════════════════════════════
+       * One resolver decides status, deposit, charge timing and card
+       * requirement from the shop's mode, the service's override, and this
+       * client's history. Two deliberate compatibility rules:
+       *   • an explicit holdOnly from an older caller still forces a hold —
+       *     callers that already knew what they wanted keep working;
+       *   • staff-side sources are never made to wait on studio approval.
+       * Auto-approval for proven regulars is applied here too, so a request
+       * that would have been rubber-stamped never reaches the queue. */
+      const staffSide = !['online', 'client', 'portal', 'web'].includes(String(source || '').toLowerCase());
+      let plan = resolveBookingPlan({
+        tenant, service: svc,
+        price: Number(body.price ?? svc.price ?? 0),
+        client: clientRecord,
+        byStaff: staffSide,
+      });
+      if (plan.status === 'requested' && shouldAutoApprove(tenant, clientRecord)) {
+        plan = { ...plan, status: 'confirmed', chargeTiming: plan.depositCents > 0 ? 'at_booking' : 'never',
+          reason: `${plan.reason} — auto-accepted (proven regular)` };
+      }
+      if (body.holdOnly === true && plan.status === 'confirmed') {
+        plan = { ...plan, status: 'pending_payment', reason: 'Caller requested a payment hold' };
       }
 
       // ── Write the appointment + scoped check-in (legacy mirror) ──
@@ -434,19 +465,33 @@ export async function POST(req: NextRequest) {
         // working for this booking even if the service definition changes later.
         requiredResourceIds: Array.isArray(svc.requiredResourceIds) && svc.requiredResourceIds.length > 0
           ? svc.requiredResourceIds : null,
-        status: body.holdOnly ? 'pending_payment' : 'confirmed',
+        status: plan.status,
         source,
         checkInToken: token, shortCode,
         checkInStatus: body.checkInStatus === 'arrived' ? 'arrived' : 'pending',
-        depositAmountCents: Number(body.depositCents) || 0,
+        depositAmountCents: plan.depositCents,
         // v14 — depositPaid:true = the caller is collecting the deposit at
         // booking time (card on file / terminal). Anything else that owes a
         // deposit starts 'pending'.
-        depositStatus: (Number(body.depositCents) || 0) > 0
+        depositStatus: plan.depositCents > 0
           ? (body.depositPaid === true ? 'paid' : 'pending')
           : 'none',
-        ...(body.depositPaid === true && (Number(body.depositCents) || 0) > 0
+        ...(body.depositPaid === true && plan.depositCents > 0
           ? { depositPaidAt: nowIso } : {}),
+        // ── Round V: the booking plan, recorded on the appointment itself ──
+        // Written down rather than recomputed, so the queue, the emails, and
+        // an owner looking at this six weeks from now all see the rule that
+        // actually applied at the moment of booking — not today's settings.
+        bookingMode: plan.mode,
+        bookingReason: plan.reason,
+        chargeTiming: plan.chargeTiming,
+        requiresCardOnFile: plan.requiresCardOnFile,
+        ...(plan.status === 'requested' ? {
+          requestedAt: nowIso,
+          requestExpiresAt: plan.approvalExpiryHours > 0
+            ? new Date(Date.now() + plan.approvalExpiryHours * 3600000).toISOString()
+            : null,
+        } : {}),
         notes: body.notes ? String(body.notes).slice(0, 500) : null,
         inspirationPhotoUrl: body.inspirationPhotoUrl ? String(body.inspirationPhotoUrl).slice(0, 500) : null,
         createdAt: nowIso,
@@ -459,7 +504,7 @@ export async function POST(req: NextRequest) {
       if (requestedStaffId === 'any') {
         tx.set(db.doc(`tenants/${tenantId}/staff/${staffId}`), { lastBookingAssignedAt: nowIso }, { merge: true });
       }
-      return { aptId, token, shortCode, staffId, clientId, clientName, placedStartIso: placedStart.toISOString(), placedEndIso: placedEnd.toISOString() };
+      return { aptId, token, shortCode, staffId, clientId, clientName, plan, placedStartIso: placedStart.toISOString(), placedEndIso: placedEnd.toISOString() };
     });
 
     if ((result as any).conflict) {
@@ -519,14 +564,32 @@ export async function POST(req: NextRequest) {
           : null;
         const portalUrl = `${base}/check-in/${r.token}`;
         const firstName = String(r.clientName || '').split(' ')[0] || 'there';
-        const isHold = !!body.holdOnly;
+        const isRequest = r.plan?.status === 'requested';
+        const isHold = r.plan?.status === 'pending_payment';
         const checkInUrl = portalUrl;
         const svcLabel = svc.name || 'appointment';
 
         // Email — branded either way; the CONTENT matches the state.
         if (email.includes('@')) {
           const { brandedEmailHtml } = await import('@/lib/email-template');
-          const html = isHold
+          const html = isRequest
+            ? brandedEmailHtml({
+              studioName,
+              /* A REQUEST is not a booking, and the email must never let
+               * someone believe otherwise — no confirmation code, no
+               * "you're booked", and the honest charge position up front. */
+              title: 'Request received',
+              bodyLines: [
+                `Hi ${firstName} — we have your request for ${svcLabel}${staffName ? ` with ${staffName}` : ''} on ${whenStr}.`,
+                'This time is not booked yet. We look at every request personally and you will hear back shortly — you do not need to do anything now.',
+                ...(r.plan?.depositCents > 0
+                  ? [`Nothing has been charged. If we accept, we will ask for the $${(r.plan.depositCents / 100).toFixed(2)} deposit to lock it in.`]
+                  : []),
+              ],
+              cta: { label: 'View my request', url: portalUrl },
+              footerNote: `We will confirm or suggest another time as soon as we can — ${studioName}.`,
+            })
+            : isHold
             ? brandedEmailHtml({
               studioName,
               title: 'Almost booked — one more step',
@@ -551,10 +614,12 @@ export async function POST(req: NextRequest) {
             });
           const er = await sendNotification(db, {
             tenantId, channel: 'email', to: email,
-            subject: isHold
-              ? `Action needed: finish booking your ${svcLabel}`
-              : `Confirmed: ${svcLabel} — ${whenStr}`,
-            html, kind: isHold ? 'booking_hold' : 'booking_confirmation',
+            subject: isRequest
+              ? `Request received: ${svcLabel} — ${whenStr}`
+              : isHold
+                ? `Action needed: finish booking your ${svcLabel}`
+                : `Confirmed: ${svcLabel} — ${whenStr}`,
+            html, kind: isRequest ? 'booking_request' : isHold ? 'booking_hold' : 'booking_confirmation',
             appointmentId: r.aptId, clientId: r.clientId || null, clientName: r.clientName || null,
           });
           sendStatus.emailSent = !!er.ok;
@@ -565,10 +630,12 @@ export async function POST(req: NextRequest) {
         if (phone) {
           const sr = await sendNotification(db, {
             tenantId, channel: 'sms', to: phone,
-            text: isHold
-              ? `We're holding ${whenStr} for your ${svcLabel}. Finish up here to lock it in: ${checkInUrl}`
-              : `You're confirmed — ${svcLabel}${staffName ? ` with ${staffName}` : ''} on ${whenStr}. Details & check-in: ${portalUrl}`,
-            kind: isHold ? 'booking_hold' : 'booking_confirmation',
+            text: isRequest
+              ? `Request received for ${svcLabel} on ${whenStr} — not booked yet, we'll confirm shortly. ${portalUrl}`
+              : isHold
+                ? `We're holding ${whenStr} for your ${svcLabel}. Finish up here to lock it in: ${checkInUrl}`
+                : `You're confirmed — ${svcLabel}${staffName ? ` with ${staffName}` : ''} on ${whenStr}. Details & check-in: ${portalUrl}`,
+            kind: isRequest ? 'booking_request' : isHold ? 'booking_hold' : 'booking_confirmation',
             appointmentId: r.aptId, clientId: r.clientId || null, clientName: r.clientName || null,
           });
           sendStatus.smsSent = !!sr.ok;
@@ -589,6 +656,15 @@ export async function POST(req: NextRequest) {
       startTime: r.placedStartIso,
       endTime: r.placedEndIso,
       sendStatus,
+      // The plan the server actually applied — so the booking sheet shows the
+      // client the same truth the server wrote, instead of guessing from what
+      // it asked for. `status` distinguishes booked from requested from held.
+      status: r.plan?.status || 'confirmed',
+      bookingMode: r.plan?.mode || 'instant',
+      depositCents: r.plan?.depositCents || 0,
+      chargeTiming: r.plan?.chargeTiming || 'never',
+      requiresCardOnFile: !!r.plan?.requiresCardOnFile,
+      clientNotice: r.plan?.clientNotice || '',
       // Non-empty only when a context collection could not be read, so a
       // support conversation can tell "we didn't check stations" apart from
       // "we checked and it was fine." Callers can ignore it.
