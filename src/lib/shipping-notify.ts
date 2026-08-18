@@ -226,6 +226,17 @@ export async function sendCarrierUpdate(opts: {
    * hardcoded slate header instead of the shop's own color. The shell's
    * headline band carries the news ("Out for delivery today") in the brand
    * color, over the same white card the receipt and every reply use. */
+  /* Policy gate — carrier mail is the highest-volume message a shop sends, so
+   * it is also the one an owner is most likely to want quieter. Delay notices
+   * and shipped/delivered notices are governed separately. */
+  try {
+    const { resolveMessagePolicy } = await import('@/lib/message-policy');
+    const kind = update.status === 'DELAYED' ? 'order_delayed' : 'order_shipped';
+    if (!resolveMessagePolicy(tenant, kind, 'email').enabled) {
+      return { ok: false, sent: false, reason: `${kind} is switched off in message settings` };
+    }
+  } catch { /* fail open — never lose a carrier update over a settings lookup */ }
+
   const emailBrand = brandFromTenant(tenant);
   const html = brandedEmail(emailBrand, `
     ${paragraphs}
