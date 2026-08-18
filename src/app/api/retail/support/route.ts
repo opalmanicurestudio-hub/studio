@@ -131,6 +131,15 @@ export async function POST(req: NextRequest) {
    * one consolidated chip; evidence (photos, substantive text) rides in
    * marked as such. A message that clearly names a DIFFERENT problem still
    * opens its own case — one order can honestly have two issues. */
+  /* Policy gate for the ACK EMAIL only. The ticket itself is always created —
+   * switching off "message received" means the shop does not want to send an
+   * auto-acknowledgement, not that it wants to lose the customer's message. */
+  let ackAllowed = true;
+  try {
+    const { gateMessage } = await import('@/lib/message-policy');
+    ackAllowed = (await gateMessage(db, tenantId, 'support_ack')).send;
+  } catch { /* fail open */ }
+
   const newCat = categoryOf(lower);
   const caseSnap = await db.collection(`tenants/${tenantId}/retailSupport`)
     .where('orderId', '==', orderId).get();
@@ -240,7 +249,7 @@ export async function POST(req: NextRequest) {
   // Acknowledgment email (+ instant answer when calm and we have one). Best-effort.
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
   const RESEND_FROM = process.env.RESEND_FROM;
-  if (RESEND_API_KEY && RESEND_FROM && order.customerEmail) {
+  if (ackAllowed && RESEND_API_KEY && RESEND_FROM && order.customerEmail) {
     const origin = req.nextUrl.origin;
     const link = `${origin}/shop/${tenantId}/order/${orderId}`;
     try {
