@@ -156,7 +156,12 @@ export function computeDepositCents(input: DepositAmountInput): number {
      * nothing changes until they configure it — but the settings screen tells
      * them plainly what they are leaving on the table. */
     const tenant = (input as any).tenant;
-    const floor = Number(tenant?.economics?.hourlyFloorCents) || 0;
+    /* The floor comes from TMHR — the number Foundation already computes and
+     * service pricing already uses — unless the shop set an explicit
+     * override. One source of truth, so a breakeven deposit and a breakeven
+     * price can never disagree. */
+    const floor = Number(tenant?.economics?.hourlyFloorCents)
+      || Math.round((Number(tenant?.tmhr) || 0) * 100);
     if (floor <= 0) return Math.round((service.cost || 0) * 100);
     const minutes = (Number(service.duration) || 0)
       + (Number(service.padBefore) || 0)
