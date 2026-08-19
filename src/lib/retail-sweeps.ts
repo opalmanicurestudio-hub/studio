@@ -598,3 +598,115 @@ export async function sweepUnpaidAccepted(
   }
   return res;
 }
+
+
+// ═══ 7. RENT — WARN BEFORE, CHASE AFTER ══════════════════════════════════════
+// The rent ledger already records what is due and when; nobody was ever told.
+// Two messages, on the cadence for that renter's lease:
+//
+//   BEFORE  a charge falls due — enough notice to move money, not so much
+//           that it is forgotten. An hourly renter gets none by design; a
+//           warning before an hourly charge is noise.
+//   AFTER   it goes past due — once, with the number of days, because a
+//           renter whose payment silently failed is a renter who thinks they
+//           are square with you until the day it becomes an argument.
+//
+// Both are marker-guarded per ledger entry, so a nightly re-run cannot nag.
+// Receipts are deliberately NOT sent here: the rent cycle records charges but
+// does not take payment, so there is nothing to receipt yet. Wiring rent to
+// the card on file is a separate piece of work and pretending otherwise would
+// send a receipt for money that never moved.
+
+export async function sweepRentNotices(
+  db: any,
+  tenantId: string,
+  opts?: { now?: number },
+): Promise<SweepResult> {
+  const res = empty();
+  const now = opts?.now ?? Date.now();
+  const DAYMS = 86400000;
+
+  try {
+    const tenantSnap = await db.collection('tenants').doc(tenantId).get();
+    if (!tenantSnap.exists) return res;
+    const tenant = tenantSnap.data() || {};
+    const brand = brandFromTenant(tenant);
+    const origin = originOf(tenant);
+    const { resolveMessage, tidyBody } = await import('./message-policy');
+    const { resolveCadence } = await import('./service-economics');
+
+    const [ledgerSnap, leaseSnap, renterSnap] = await Promise.all([
+      db.collection(`tenants/${tenantId}/rentLedger`).where('type', '==', 'rent_charge').get(),
+      db.collection(`tenants/${tenantId}/leases`).get(),
+      db.collection(`tenants/${tenantId}/renters`).get(),
+    ]);
+    const leases = new Map<string, any>();
+    leaseSnap.docs.forEach((d: any) => leases.set(d.id, d.data()));
+    const renters = new Map<string, any>();
+    renterSnap.docs.forEach((d: any) => renters.set(d.id, d.data()));
+
+    for (const d of ledgerSnap.docs) {
+      const entry = d.data() as any;
+      res.scanned += 1;
+      try {
+        if (entry.status === 'paid' || entry.paidAt) continue;
+        const due = Date.parse(String(entry.dueDate || ''));
+        if (!Number.isFinite(due)) continue;
+
+        const lease = leases.get(String(entry.leaseId)) || {};
+        const renter = renters.get(String(entry.renterId)) || {};
+        const email = String(renter.email || '').trim();
+        if (!email) continue;
+
+        const cadence = resolveCadence(tenant, lease.frequency || lease.cadence || 'monthly');
+        const first = String(renter.name || '').trim().split(/\s+/)[0];
+        const amount = `$${((Number(entry.amountCents) || 0) / 100).toFixed(2)}`;
+        const link = origin ? `${origin}/rent/${tenantId}` : '';
+        const dueLabel = new Date(due).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+
+        const send = async (kind: string, tokens: any, markerId: string) => {
+          const markerRef = db.collection(`tenants/${tenantId}/systemMarkers`).doc(markerId);
+          if ((await markerRef.get()).exists) return false;
+          const msg = resolveMessage(tenant, kind, tokens, 'email');
+          if (!msg.send) return false;
+          const paras = tidyBody(msg.body).split('\n\n')
+            .map((l) => `<p style="font-size:14px;color:#334155;line-height:1.7;margin:0 0 12px">${l.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`)
+            .join('');
+          const html = brandedEmail(brand, `${paras}${link ? emailButton(link, 'Open my portal', brand) : ''}`,
+            { preheader: msg.subject, title: msg.subject, tag: 'Rent' });
+          const sent = await sendEmail(email, `${brand.shopName} \u2014 ${msg.subject}`, html);
+          await markerRef.set({ at: new Date(now).toISOString(), ledgerEntryId: d.id, kind, emailed: sent });
+          if (sent) res.emailed += 1;
+          res.actioned += 1;
+          return sent;
+        };
+
+        // ── Overdue ──
+        if (now > due) {
+          const daysLate = Math.floor((now - due) / DAYMS);
+          const graceDays = Number(lease.lateFeePolicy?.graceDays) || 0;
+          if (daysLate > graceDays) {
+            await send('rent_overdue', {
+              renter_first: first, amount, days_late: String(daysLate),
+              link, studio: brand.shopName,
+            }, `rent-overdue-${d.id}`);
+          }
+          continue;
+        }
+
+        // ── Upcoming ──
+        if (cadence.warnHours <= 0) continue;               // hourly: receipt only
+        if (due - now > cadence.warnHours * 3600000) continue;
+        await send('rent_charge_upcoming', {
+          renter_first: first, amount, when: dueLabel,
+          link, studio: brand.shopName,
+        }, `rent-upcoming-${d.id}`);
+      } catch (e: any) {
+        res.errors.push(`rent ${d.id}: ${String(e?.message || e).slice(0, 120)}`);
+      }
+    }
+  } catch (e: any) {
+    res.errors.push(String(e?.message || e).slice(0, 160));
+  }
+  return res;
+}
