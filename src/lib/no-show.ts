@@ -131,10 +131,40 @@ export async function sweepNoShows(db: Db, tenantId: string, now: Date = new Dat
           });
         } catch (err: any) {
           intent = null;
+          const declineCode = err?.decline_code || err?.raw?.decline_code || null;
           update.noShowFeeStatus = 'declined';
           update.noShowFeeError = String(err?.raw?.message || err?.message || 'Card declined').slice(0, 160);
+          update.noShowFeeDeclineCode = declineCode;
           counts.feesDeclined++;
-          feeMsg = ` Fee ${money(feeCents)} could not be charged (card declined) — collect another way.`;
+
+          /* A DECLINED FEE IS STILL OWED. Previously this branch flagged the
+           * reservation and stopped, which quietly turned the shop's no-show
+           * policy into a suggestion: the money was never charged, never
+           * recorded, and never appeared anywhere an owner would look. It now
+           * lands on the renter's balance like any other debt, so it is
+           * visible at the next booking and the next checkout. */
+          try {
+            const owedClientId = r.clientId || r.renterId || null;
+            if (owedClientId) {
+              const { FieldValue } = require('firebase-admin/firestore');
+              await db.doc(`tenants/${tenantId}/clients/${owedClientId}`).update({
+                outstandingBalance: FieldValue.increment(feeCents / 100),
+                unpaidFees: FieldValue.arrayUnion({
+                  feeId: `no_show-${doc.id}`,
+                  appointmentId: doc.id,
+                  appointmentDate: nowIso,
+                  feeAmount: feeCents / 100,
+                  reason: `No-show fee — ${boothName} (${when})`,
+                }),
+              });
+              update.noShowFeeArrearsCents = feeCents;
+              feeMsg = ` Fee ${money(feeCents)} could not be charged and has been recorded as owing.`;
+            } else {
+              feeMsg = ` Fee ${money(feeCents)} could not be charged (card declined) — collect another way.`;
+            }
+          } catch {
+            feeMsg = ` Fee ${money(feeCents)} could not be charged (card declined) — collect another way.`;
+          }
         }
         if (intent) {
           const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
@@ -169,7 +199,25 @@ export async function sweepNoShows(db: Db, tenantId: string, now: Date = new Dat
       } else if (policyEnabled && feeCents > 0 && !hasCard) {
         update.noShowFeeStatus = 'no_card';
         counts.feesNoCard++;
-        feeMsg = ` No card on file — collect the ${money(feeCents)} no-show fee in person if you charge one.`;
+        // Same reasoning as a decline: no card is not a waiver.
+        try {
+          const owedClientId = r.clientId || r.renterId || null;
+          if (owedClientId) {
+            const { FieldValue } = require('firebase-admin/firestore');
+            await db.doc(`tenants/${tenantId}/clients/${owedClientId}`).update({
+              outstandingBalance: FieldValue.increment(feeCents / 100),
+              unpaidFees: FieldValue.arrayUnion({
+                feeId: `no_show-${doc.id}`,
+                appointmentId: doc.id,
+                appointmentDate: nowIso,
+                feeAmount: feeCents / 100,
+                reason: `No-show fee — ${boothName} (${when}) — no card on file`,
+              }),
+            });
+            update.noShowFeeArrearsCents = feeCents;
+          }
+        } catch { /* the flag below still tells the owner */ }
+        feeMsg = ` No card on file — ${money(feeCents)} recorded as owing.`;
       }
 
       await doc.ref.set(update, { merge: true });
