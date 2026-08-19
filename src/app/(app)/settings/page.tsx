@@ -606,6 +606,25 @@ function SettingsPageImpl() {
                       Open Messages <ArrowRight className="w-4 h-4" />
                     </a>
                   </div>
+                  {/* Fees — deliberately next to Booking, because a fee is
+                      only meaningful against what the slot costs you. */}
+                  <div className="mb-6 flex flex-col sm:flex-row items-center gap-6 p-8 rounded-[2rem] border-2 border-border bg-muted/5">
+                    <div className="w-14 h-14 rounded-2xl bg-foreground/5 border-2 border-border flex items-center justify-center shrink-0">
+                      <Percent className="w-7 h-7 text-foreground" />
+                    </div>
+                    <div className="flex-1 space-y-1.5 text-center sm:text-left">
+                      <p className="text-base font-black uppercase tracking-tight text-slate-900">Fees &amp; Profitability</p>
+                      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-70 leading-relaxed">
+                        What an hour of your time costs, and what you charge for late cancellations, no-shows and reschedules.
+                      </p>
+                    </div>
+                    <a
+                      href="/settings/fees"
+                      className="shrink-0 flex items-center gap-2 h-12 px-8 rounded-2xl bg-foreground text-background font-black uppercase text-[10px] tracking-widest shadow-lg hover:opacity-90 transition-all active:scale-95 whitespace-nowrap"
+                    >
+                      Open Fees <ArrowRight className="w-4 h-4" />
+                    </a>
+                  </div>
                   <div className="flex flex-col sm:flex-row items-center gap-6 p-8 rounded-[2rem] border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/[0.02] shadow-inner">
                     <div className="w-14 h-14 rounded-2xl bg-primary/10 border-2 border-primary/20 flex items-center justify-center shrink-0">
                       <Zap className="w-7 h-7 text-primary" />
