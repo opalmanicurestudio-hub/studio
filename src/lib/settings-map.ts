@@ -44,12 +44,31 @@ export const SETTING_GROUPS: SettingGroup[] = [
   { id: 'business', question: 'Who are we, and how do we operate?',  blurb: 'Identity, hours, staff, kiosk and hardware.' },
 ];
 
+/* An inline control, for the handful of settings people actually change.
+ *
+ * This deliberately reverses an earlier decision. The map started read-only
+ * on the reasoning that duplicate controls caused the settings mess — but
+ * that is not quite what happened. The mess was two engines writing DIFFERENT
+ * FIELDS for the same concept, so the screens genuinely disagreed. A control
+ * here writes the SAME field as the owning screen, which cannot disagree with
+ * itself; it is one field with two doors.
+ *
+ * Only the things owners touch often get a door here. Anything with real
+ * complexity — a whole cancellation matrix, a message rewrite — still links
+ * out, because a switch is a bad interface for a decision that needs context. */
+export type InlineControl =
+  | { kind: 'toggle'; field: string; on: (t: any) => boolean; onLabel: string; offLabel: string }
+  | { kind: 'choice'; field: string; value: (t: any) => string; options: { value: string; label: string }[] }
+  | { kind: 'number'; field: string; value: (t: any) => number; unit: string; max?: number; transform?: (n: number) => any };
+
 export interface SettingEntry {
   group: SettingGroupId;
   label: string;
   /** The single screen that OWNS this. Never two. */
   href: string;
   screen: string;
+  /** When present, the setting can be changed right here. */
+  control?: InlineControl;
   /** Reads current config and states the consequence in plain language. */
   summarise: (tenant: any) => string;
   /** True when this is unset in a way that silently disables something. */
@@ -72,7 +91,17 @@ const outcomeWord = (v: any) => (v === 'refund' ? 'refunded'
 export const SETTINGS_MAP: SettingEntry[] = [
   // ── How bookings arrive ──────────────────────────────────────────────────
   {
-    group: 'arrive', label: 'Booking mode', href: '/settings/booking', screen: 'Booking & Deposits',
+    group: 'arrive', label: 'How people book', href: '/settings/booking', screen: 'Booking & Deposits',
+    control: {
+      kind: 'choice', field: 'bookingMode.mode',
+      value: (t) => t?.bookingMode?.mode || 'instant',
+      options: [
+        { value: 'instant', label: 'They just book' },
+        { value: 'deposit_required', label: 'Pay to hold' },
+        { value: 'card_on_file', label: 'Leave a card' },
+        { value: 'approval', label: 'You approve' },
+      ],
+    },
     summarise: (t) => {
       const m = t?.bookingMode?.mode || 'instant';
       const card = t?.bookingMode?.requireCardOnFile === true;
@@ -84,7 +113,11 @@ export const SETTINGS_MAP: SettingEntry[] = [
     },
   },
   {
-    group: 'arrive', label: 'Unanswered requests', href: '/settings/booking', screen: 'Booking & Deposits',
+    group: 'arrive', label: 'If you do not answer a request', href: '/settings/booking', screen: 'Booking & Deposits',
+    control: {
+      kind: 'number', field: 'bookingMode.approvalExpiryHours',
+      value: (t) => Number(t?.bookingMode?.approvalExpiryHours ?? 24), unit: 'hours', max: 168,
+    },
     summarise: (t) => {
       if ((t?.bookingMode?.mode || 'instant') !== 'approval') return 'Not in use — you are not running approval mode.';
       const h = Number(t?.bookingMode?.approvalExpiryHours ?? 24);
@@ -96,7 +129,12 @@ export const SETTINGS_MAP: SettingEntry[] = [
     unconfiguredWarning: 'With no expiry, your silence can cost a client their day.',
   },
   {
-    group: 'arrive', label: 'Deposits switched on', href: '/settings', screen: 'Studio Settings',
+    group: 'arrive', label: 'Collect deposits at all', href: '/settings', screen: 'Studio Settings',
+    control: {
+      kind: 'toggle', field: 'depositsLive',
+      on: (t) => t?.depositsLive === true,
+      onLabel: 'Collecting deposits', offLabel: 'No deposits anywhere',
+    },
     summarise: (t) => (t?.depositsLive === true
       ? 'Deposits are being collected as each service specifies.'
       : 'No deposits are collected anywhere, whatever individual services say.'),
@@ -104,7 +142,12 @@ export const SETTINGS_MAP: SettingEntry[] = [
     unconfiguredWarning: 'Every deposit rule you have set is currently inactive.',
   },
   {
-    group: 'arrive', label: 'Booking-history shield', href: '/settings', screen: 'Studio Settings',
+    group: 'arrive', label: 'Protect against repeat no-shows', href: '/settings', screen: 'Studio Settings',
+    control: {
+      kind: 'toggle', field: 'guardianProtocolEnabled',
+      on: (t) => t?.guardianProtocolEnabled !== false,
+      onLabel: 'Repeat no-shows must pay up front', offLabel: 'History ignored',
+    },
     summarise: (t) => (t?.guardianProtocolEnabled !== false
       ? 'Clients with repeated no-shows are asked for a deposit even on services that normally need none.'
       : 'Off — booking history does not affect what anyone is asked to pay.'),
@@ -174,7 +217,12 @@ export const SETTINGS_MAP: SettingEntry[] = [
 
   // ── What we say ──────────────────────────────────────────────────────────
   {
-    group: 'say', label: 'Appointment reminders', href: '/settings', screen: 'Studio Settings',
+    group: 'say', label: 'Remind people before they come', href: '/settings', screen: 'Studio Settings',
+    control: {
+      kind: 'number', field: 'clientNotify.daysBefore',
+      value: (t) => (Number.isFinite(Number(t?.clientNotify?.daysBefore)) ? Number(t.clientNotify.daysBefore) : 1),
+      unit: 'days before', max: 7,
+    },
     summarise: (t) => {
       const c = t?.clientNotify || {};
       if (c.enabled === false) return 'No reminders are sent.';
@@ -200,7 +248,12 @@ export const SETTINGS_MAP: SettingEntry[] = [
     },
   },
   {
-    group: 'say', label: 'Quiet hours', href: '/settings/messages', screen: 'Messages',
+    group: 'say', label: 'Hold texts overnight', href: '/settings/messages', screen: 'Messages',
+    control: {
+      kind: 'toggle', field: 'messageQuietHours.enabled',
+      on: (t) => t?.messageQuietHours?.enabled === true,
+      onLabel: 'Texts held overnight', offLabel: 'Texts can send at any hour',
+    },
     summarise: (t) => {
       const q = t?.messageQuietHours || {};
       if (q.enabled !== true) return 'Texts can go out at any hour, including overnight.';
