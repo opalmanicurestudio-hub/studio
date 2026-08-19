@@ -303,9 +303,65 @@ export const onCancellationEvent = functions.firestore.onDocumentCreated(
         console.error('Stripe charge failed:', stripeErr);
         updates.chargeStatus = 'failed';
         updates.stripeErrorCode = stripeErr?.code || 'unknown';
+        updates.declineCode = stripeErr?.decline_code || stripeErr?.raw?.decline_code || null;
         updates.errorMessage = stripeErr?.message || 'Stripe charge failed';
 
-        // If card declined, notify staff so they can collect manually
+        /* ── A DECLINED FEE IS STILL OWED ────────────────────────────────
+         * This branch used to flag staff and stop. The no-card branch below
+         * does the right thing — records a `balance_owed` line and increments
+         * outstandingBalance — which left the two paths backwards from each
+         * other: a client with NO card correctly owed the fee, while a client
+         * whose card was EXPIRED owed nothing on record. The money quietly
+         * disappeared for exactly the clients most likely to have a payment
+         * problem.
+         *
+         * Both paths now record the debt. The only difference that remains is
+         * the reason attached to it, which is what staff actually need to
+         * know when they chase it. */
+        try {
+          const failTxRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+          await failTxRef.set({
+            id: failTxRef.id,
+            tenantId,
+            appointmentId: data.appointmentId,
+            clientId: data.clientId,
+            clientName: data.clientName,
+            clientOrVendor: data.clientName,
+            type: 'income',
+            context: 'Business',
+            category: 'Cancellation Fee',
+            taxBucket: 'revenue',
+            amount: data.feeAmount,
+            amountCents: Math.round(data.feeAmount * 100),
+            status: 'balance_owed',
+            reason: data.reason,
+            actorType: data.cancellationAudit?.actorType,
+            notes: `Card on file declined at cancellation time (${updates.declineCode || updates.stripeErrorCode}) — added to balance.`,
+            createdAt: new Date().toISOString(),
+          });
+          if (data.clientId) {
+            await db.doc(`tenants/${tenantId}/clients/${data.clientId}`).update({
+              outstandingBalance: admin.firestore.FieldValue.increment(data.feeAmount),
+              unpaidFees: admin.firestore.FieldValue.arrayUnion({
+                feeId: `cancel-${data.appointmentId || eventId}`,
+                appointmentId: data.appointmentId || null,
+                appointmentDate: new Date().toISOString(),
+                feeAmount: data.feeAmount,
+                reason: `Cancellation fee — card declined (${updates.declineCode || 'declined'})`,
+              }),
+            });
+          }
+          updates.arrearsRecorded = true;
+        } catch (arrearsErr: any) {
+          // The staff notification below is then the only trace, which is
+          // exactly the situation this block exists to prevent — so say so
+          // loudly rather than swallowing it.
+          console.error('Cancellation fee declined AND arrears write failed:', arrearsErr);
+          updates.arrearsWriteFailed = true;
+        }
+
+        // Notify staff either way — the balance is recorded, but a human
+        // still decides how to chase it.
         const staffNotifRef = db
           .collection(`tenants/${tenantId}/notifications`)
           .doc();
@@ -313,7 +369,7 @@ export const onCancellationEvent = functions.firestore.onDocumentCreated(
           id: staffNotifRef.id,
           userId: data.staffId || 'owner',
           type: 'charge_failed',
-          message: `Card charge failed for ${data.clientName} — collect $${data.feeAmount.toFixed(2)} manually`,
+          message: `Card declined for ${data.clientName} — $${data.feeAmount.toFixed(2)} cancellation fee added to their balance`,
           link: `/clients/${data.clientId}`,
           createdAt: new Date().toISOString(),
           read: false,
