@@ -363,8 +363,7 @@ export const appointmentReadinessCheck = functions
   .schedule('every 60 minutes')
   .timeZone('America/New_York')
   .onRun(async () => {
-    const now       = new Date();
-    const in72Hours = new Date(now.getTime() + 72 * 60 * 60 * 1000);
+    const now = new Date();
 
     console.log('[readiness-check] Starting run at', now.toISOString());
 
@@ -381,12 +380,29 @@ export const appointmentReadinessCheck = functions
         ...(tenant.appointmentAutomations || {}),
       };
 
+      /* THE LOOK-AHEAD WINDOW IS DERIVED, NOT HARDCODED.
+       * This query used to fetch a fixed 72 hours. Every window in the
+       * settings screen is configurable — the card-on-file trigger already
+       * DEFAULTS to 72 — so an owner who set any window beyond that had an
+       * automation that silently never fired: the appointment was simply
+       * never in the result set to be checked. Silent config failure is the
+       * worst kind, because the screen shows the rule as enabled.
+       *
+       * The window is now the largest window any ENABLED trigger asks for,
+       * plus an hour of headroom for the hourly schedule, with a floor of 72
+       * so behaviour never regresses for shops on the defaults. */
+      const enabledWindows = Object.values(automations)
+        .filter((t: any) => t && t.enabled)
+        .flatMap((t: any) => [Number(t.firstWindowHours) || 0, Number(t.secondWindowHours) || 0]);
+      const lookAheadHours = Math.max(72, ...enabledWindows) + 1;
+      const lookAheadUntil = new Date(now.getTime() + lookAheadHours * 60 * 60 * 1000);
+
       try {
         // Targeted query — only upcoming, only relevant statuses
         // This is the cost-efficient path: max ~10 reads per tenant
         const aptsSnap = await db.collection(`tenants/${tenantId}/appointments`)
           .where('startTime', '>=', now.toISOString())
-          .where('startTime', '<=', in72Hours.toISOString())
+          .where('startTime', '<=', lookAheadUntil.toISOString())
           .where('status', 'in', ['confirmed', 'deposit_pending'])
           .get();
 
