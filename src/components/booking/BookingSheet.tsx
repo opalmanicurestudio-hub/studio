@@ -617,7 +617,10 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         )}
       >
         {/* ── Header ─────────────────────────────────────────────────────── */}
-        <SheetHeader className="border-b bg-muted/5 flex-shrink-0 text-left p-5 pb-4">
+        <SheetHeader
+          className="border-b bg-muted/5 flex-shrink-0 text-left p-5 pb-4"
+          style={{ paddingTop: 'max(1.25rem, env(safe-area-inset-top))' }}
+        >
           <div className="flex items-center gap-2.5 mb-1 text-left">
             <Sparkles className="w-4 h-4 text-primary" />
             <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground">Booking</span>
@@ -1038,7 +1041,12 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
         {/* ── Footer ─────────────────────────────────────────────────────── */}
         {currentStep !== 'confirmation' && currentStep !== 'checkout' && (
-          <SheetFooter className="p-4 border-t bg-background/80 backdrop-blur-xl flex-shrink-0 z-20 shadow-xl">
+          <SheetFooter
+            className="p-4 border-t bg-background/95 backdrop-blur-xl flex-shrink-0 z-20 shadow-xl"
+            /* Safe-area padding: without it the primary button sits under the
+               iPhone home indicator and reads as unresponsive. */
+            style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+          >
             <div className="flex w-full gap-3">
               {currentStepIndex > 0 && (
                 <Button
@@ -1067,7 +1075,12 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         )}
 
         {currentStep === 'checkout' && (
-          <SheetFooter className="p-4 border-t bg-background/80 backdrop-blur-xl flex-shrink-0 z-20 shadow-xl">
+          <SheetFooter
+            className="p-4 border-t bg-background/95 backdrop-blur-xl flex-shrink-0 z-20 shadow-xl"
+            /* Safe-area padding: without it the primary button sits under the
+               iPhone home indicator and reads as unresponsive. */
+            style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+          >
             <Button
               variant="ghost"
               onClick={handlePrevStep}
