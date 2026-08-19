@@ -609,11 +609,31 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
-        side={isMobile ? 'bottom' : 'right'}
-        style={{ fontFamily: bodyFont }}
+        /* ── WHY THIS IS NOT `side={isMobile ? ...}` ───────────────────────
+         * useIsMobile returns undefined until its effect runs, so the FIRST
+         * render — the one that decides where the panel lands — always took
+         * the desktop branch, and the `bottom` variant in the Sheet primitive
+         * carries `inset-x-0 bottom-0` with NO height class at all. Layout
+         * that decides whether a customer can book must not wait on a JS
+         * effect. `side` is fixed and the breakpoint is pure CSS. */
+        side="bottom"
+        /* Surface colours are INLINE rather than left to `bg-background`.
+         * The public booking route injects the shop's own theme variables at
+         * runtime, and a semantic token that fails to resolve paints nothing
+         * — which looks exactly like a sheet that never opened: a dimmed page
+         * and a dead tap. The fallbacks make that impossible. */
+        style={{
+          fontFamily: bodyFont,
+          backgroundColor: 'hsl(var(--background, 240 6% 97%))',
+          color: 'hsl(var(--foreground, 240 10% 4%))',
+        }}
         className={cn(
-          isMobile ? 'h-[100dvh] w-full rounded-none border-0' : 'sm:max-w-md border-l-0 sm:border-l',
-          'flex flex-col p-0 bg-background overflow-hidden shadow-2xl'
+          // Phones: genuinely full-screen. dvh (not vh) so the collapsing iOS
+          // URL bar cannot crop the footer button out of reach.
+          'inset-0 h-[100dvh] max-h-[100dvh] w-full rounded-none border-0',
+          // sm and up: the right-hand panel, restored in CSS only.
+          'sm:inset-y-0 sm:inset-x-auto sm:right-0 sm:left-auto sm:h-full sm:w-full sm:max-w-md sm:border-l',
+          'flex flex-col p-0 gap-0 overflow-hidden shadow-2xl'
         )}
       >
         {/* ── Header ─────────────────────────────────────────────────────── */}
