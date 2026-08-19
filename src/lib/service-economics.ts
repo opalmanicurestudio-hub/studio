@@ -311,3 +311,32 @@ export function resolveCadence(tenant: any, cadence: string | null | undefined):
     chaseAfterHours: n(stored.chaseAfterHours, base.chaseAfterHours),
   };
 }
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PROFITABILITY VIEW
+//
+// One number the owner can act on: after a booking falls apart, are we up,
+// flat, or down? Stated plainly because "we charged a fee" and "we did not
+// lose money" are not the same sentence, and shops routinely confuse them.
+
+export interface OutcomeEconomics {
+  recoveredCents: number;
+  breakevenCents: number;
+  netCents: number;
+  verdict: 'covered' | 'partial' | 'uncovered';
+  summary: string;
+}
+
+export function outcomeEconomics(recoveredCents: number, breakevenCents: number): OutcomeEconomics {
+  const net = recoveredCents - breakevenCents;
+  const verdict = recoveredCents <= 0 ? 'uncovered' : net >= 0 ? 'covered' : 'partial';
+  return {
+    recoveredCents, breakevenCents, netCents: net, verdict,
+    summary: verdict === 'covered'
+      ? `${fmt(recoveredCents)} recovered against a ${fmt(breakevenCents)} floor — the slot paid for itself.`
+      : verdict === 'partial'
+        ? `${fmt(recoveredCents)} recovered against a ${fmt(breakevenCents)} floor — ${fmt(-net)} short.`
+        : `Nothing recovered against a ${fmt(breakevenCents)} floor.`,
+  };
+}
