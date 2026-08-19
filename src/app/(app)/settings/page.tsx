@@ -428,17 +428,27 @@ function SettingsPageImpl() {
     { value: 'locations',   label: 'Locations',                  icon: <MapPin className="w-4 h-4" />      },
     { value: 'hours',       label: 'Operating Window',           icon: <Clock className="w-4 h-4" />       },
     { value: 'experience',  label: 'Hospitality & Connectivity', icon: <Coffee className="w-4 h-4" />      },
-    { value: 'policies',    label: 'Operational Protocols',      icon: <ShieldCheck className="w-4 h-4" /> },
+    /* "Operational Protocols" and "Automations" were two tabs describing one
+     * subject: what the studio does when a booking goes wrong or arrives
+     * incomplete. An owner setting a cancellation rule and an owner setting
+     * the reminder that chases the unpaid deposit are the same person on the
+     * same errand, and splitting them meant neither screen told the whole
+     * story. Merged, and named for the question rather than the mechanism. */
+    { value: 'policies',    label: 'Rules & Automations',        icon: <ShieldCheck className="w-4 h-4" /> },
     { value: 'payments',    label: 'Payments & Payouts',         icon: <DollarSign className="w-4 h-4" />  },
     { value: 'terminal',    label: 'Terminal Reader',            icon: <Monitor className="w-4 h-4" />     },
-    { value: 'automations', label: 'Automations',                icon: <Zap className="w-4 h-4" />         },
     { value: 'builder',     label: 'Booking Architecture',       icon: <Globe className="w-4 h-4" />       },
     { value: 'kiosk',       label: 'Kiosk Orchestration',        icon: <Fingerprint className="w-4 h-4" /> },
     { value: 'timeclock',   label: 'Time Clock',                 icon: <Timer className="w-4 h-4" />       },
   ];
 
-  // Tabs that manage their own state — hide global save/cancel for these
-  const selfManagedTabs = ['terminal', 'automations', 'locations'];
+  /* Tabs that manage their own state — hide global save/cancel for these.
+   * 'automations' is gone from this list because that tab no longer exists;
+   * its controls now live inside 'policies'. Note the deliberate consequence:
+   * the policies tab keeps the global Save because the cancellation fields
+   * need it, while the automation switches inside it still save themselves on
+   * toggle. Both behaviours are correct for their own controls. */
+  const selfManagedTabs = ['terminal', 'locations'];
 
   if (isTenantContextLoading || isInventoryLoading) {
     return <div className="p-8 flex items-center justify-center h-full"><Loader className="animate-spin text-primary" /></div>;
@@ -558,7 +568,12 @@ function SettingsPageImpl() {
             </TabsContent>
 
             {/* ── AUTOMATIONS ── */}
-            <TabsContent value="automations" className="mt-0 animate-in fade-in duration-500 text-left">
+            {/* ── POLICIES ── */}
+            <TabsContent value="policies" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
+              {/* Merged in from the former Automations tab. Cancellation
+                  rules and pre-appointment chasing are one subject: what the
+                  studio does when a booking goes wrong or arrives incomplete.
+                  They sit together so an owner can see the whole story. */}
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                 <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
                   <SectionHeader icon={Zap} title="Automations" />
@@ -631,7 +646,7 @@ function SettingsPageImpl() {
                       <Zap className="w-7 h-7 text-primary" />
                     </div>
                     <div className="flex-1 space-y-1.5 text-center sm:text-left">
-                      <p className="text-base font-black uppercase tracking-tight text-slate-900">Automation Rules</p>
+                      <p className="text-base font-black uppercase tracking-tight text-slate-900">Chasing &amp; Reminders</p>
                       <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-70 leading-relaxed">
                         Set triggers for missing deposits, unsigned forms, no card on file, and more. Actions fire automatically on a schedule.
                       </p>
@@ -740,10 +755,7 @@ function SettingsPageImpl() {
                   </div>
                 </CardContent>
               </Card>
-            </TabsContent>
 
-            {/* ── POLICIES ── */}
-            <TabsContent value="policies" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
               <div className="flex justify-end mb-4">
                 {isEditing && (
                   <Button variant="outline" size="sm" onClick={handleLoadStrategicTemplates} className="h-9 px-4 rounded-xl border-2 border-primary/20 bg-primary/5 text-primary font-black uppercase text-[10px] tracking-widest shadow-sm hover:bg-primary/10">
