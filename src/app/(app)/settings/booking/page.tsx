@@ -28,26 +28,43 @@ import {
 } from '@/lib/deposit-policy';
 import { cn } from '@/lib/utils';
 
-const MODES: { id: BookingMode; label: string; icon: any; blurb: string; money: string }[] = [
+/* Each mode is described the way an owner decides between them: what the
+ * CLIENT experiences, what YOU have to do, and when money moves. The old
+ * copy described the mechanism; an owner choosing a setting needs the
+ * consequence, and needs it before they tap rather than after. */
+const MODES: {
+  id: BookingMode; label: string; icon: any;
+  clientSees: string; youDo: string; money: string; goodFor: string; watchOut?: string;
+}[] = [
   {
-    id: 'instant', label: 'Book instantly', icon: Sparkles,
-    blurb: 'The time is theirs the moment they tap. Fastest for the client, no work for you.',
-    money: 'A deposit is still collected if the service asks for one.',
+    id: 'instant', label: 'They just book', icon: Sparkles,
+    clientSees: 'They pick a time and it is theirs. Done in one tap.',
+    youDo: 'Nothing. It appears on your calendar.',
+    money: 'If the service has a deposit, they pay it now. If not, nothing is taken.',
+    goodFor: 'Regulars, repeat services, anything you are happy to have booked without looking.',
   },
   {
-    id: 'deposit_required', label: 'Deposit to confirm', icon: CreditCard,
-    blurb: 'The slot is held, not booked, until the deposit clears. Abandoned checkouts release the time automatically.',
-    money: 'Charged at booking. Services set to no deposit simply confirm.',
+    id: 'deposit_required', label: 'They pay to hold it', icon: CreditCard,
+    clientSees: '"Your slot is held for 30 minutes" — it becomes a real booking once they pay.',
+    youDo: 'Nothing. If they never pay, the time goes back on sale by itself.',
+    money: 'The deposit is taken straight away. It comes off their total on the day.',
+    goodFor: 'Long or expensive services where an empty chair really hurts.',
+    watchOut: 'Services with no deposit set just confirm normally — this only bites where a deposit exists.',
   },
   {
-    id: 'card_on_file', label: 'Card on file', icon: ShieldCheck,
-    blurb: 'Confirmed immediately and nothing is charged. Their card is saved so a no-show is not free.',
-    money: 'Charged only if they miss it or cancel late — under the rules below.',
+    id: 'card_on_file', label: 'They leave a card', icon: ShieldCheck,
+    clientSees: 'Booked immediately. They enter a card and are told plainly that nothing is charged today.',
+    youDo: 'Nothing.',
+    money: 'Nothing now. The card is only used if they no-show or cancel late — and only for the fee you set.',
+    goodFor: 'When you want no friction at booking but you are tired of no-shows costing you.',
   },
   {
-    id: 'approval', label: 'You approve each request', icon: UserCheck,
-    blurb: 'Requests arrive for you to accept or decline. Good for consultations, new clients, or work you want to see photos of first.',
-    money: 'Never charged at request time — the deposit is asked for once you accept.',
+    id: 'approval', label: 'You say yes or no first', icon: UserCheck,
+    clientSees: '"Request sent — this is not booked yet." They are told they will hear back.',
+    youDo: 'You get a text and email straight away, and a Requests list with Accept and Decline.',
+    money: 'Nothing at request time. If you accept and they have a card on file, the deposit charges itself.',
+    goodFor: 'Consultations, new clients, big work you want to see a photo of first.',
+    watchOut: 'Someone is holding their day open until you answer. Set an expiry below so your silence never costs them.',
   },
 ];
 
@@ -167,18 +184,67 @@ export default function BookingSettingsPage() {
                     active ? 'border-foreground bg-foreground/[0.04]' : 'bg-white hover:border-primary/40')}>
                   <span className="flex items-start gap-3">
                     <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', active ? 'text-foreground' : 'text-muted-foreground')} />
-                    <span className="min-w-0">
+                    <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-2">
                         <span className="text-sm font-black">{m.label}</span>
                         {active && <span className="rounded-full bg-foreground px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-background">On</span>}
                       </span>
-                      <span className="mt-0.5 block text-[11px] font-bold leading-relaxed text-muted-foreground">{m.blurb}</span>
-                      <span className="mt-1 block text-[10px] font-black uppercase tracking-widest text-primary/70">{m.money}</span>
+                      <span className="mt-0.5 block text-[11px] font-bold leading-relaxed text-muted-foreground">
+                        Good for {m.goodFor}
+                      </span>
+
+                      {/* The three questions an owner is actually weighing.
+                          Only opened up on the SELECTED mode, so the list
+                          stays scannable while you are choosing. */}
+                      {active && (
+                        <span className="mt-2.5 block space-y-1.5 rounded-2xl bg-background/60 p-3">
+                          {([
+                            ['They see', m.clientSees],
+                            ['You do', m.youDo],
+                            ['Money', m.money],
+                          ] as [string, string][]).map(([k, v]) => (
+                            <span key={k} className="block text-[11px] font-bold leading-relaxed">
+                              <span className="mr-1.5 inline-block min-w-[52px] text-[9px] font-black uppercase tracking-widest text-muted-foreground">{k}</span>
+                              {v}
+                            </span>
+                          ))}
+                          {m.watchOut && (
+                            <span className="block pt-1 text-[11px] font-bold leading-relaxed text-amber-700">
+                              <span className="mr-1.5 inline-block min-w-[52px] text-[9px] font-black uppercase tracking-widest">Note</span>
+                              {m.watchOut}
+                            </span>
+                          )}
+                        </span>
+                      )}
                     </span>
                   </span>
                 </button>
               );
             })}
+            {/* Card on file is orthogonal to the mode — "book instantly but we
+                keep a card" is a real and common house rule, and it had no
+                control at all until now. Hidden when the dedicated mode is
+                selected, because there it is already implied. */}
+            {bm.mode !== 'card_on_file' && (
+              <div className="flex items-start justify-between gap-3 rounded-2xl border-2 border-dashed p-3.5">
+                <div className="min-w-0">
+                  <p className="text-sm font-black">Also keep a card on file</p>
+                  <p className="mt-0.5 text-[11px] font-bold leading-relaxed text-muted-foreground">
+                    Whatever you picked above, ask for a card too. Nothing extra is charged at booking — it is there so a
+                    no-show or a late cancellation is not free. Individual services can require one even if you leave this off.
+                  </p>
+                </div>
+                <button type="button" role="switch" aria-checked={bm.requireCardOnFile} aria-label="Require a card on file"
+                  disabled={!isMgr || busy === 'card'}
+                  onClick={() => void save('card', 'bookingMode.requireCardOnFile', !bm.requireCardOnFile, 'Card on file')}
+                  className={cn('relative h-7 w-12 shrink-0 rounded-full border-2 transition-all disabled:opacity-40',
+                    bm.requireCardOnFile ? 'border-green-600 bg-green-500/20' : 'border-muted-foreground/30 bg-muted/40')}>
+                  <span className={cn('absolute top-0.5 h-5 w-5 rounded-full transition-all',
+                    bm.requireCardOnFile ? 'right-0.5 bg-green-600' : 'left-0.5 bg-muted-foreground/50')} />
+                </button>
+              </div>
+            )}
+
             {!depositsLive && (
               <p className="rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-2 text-[10px] font-bold leading-relaxed text-amber-800">
                 Deposits are currently switched off shop-wide, so no money is collected in any mode. Turn them on in payment settings when you are ready.
@@ -192,16 +258,26 @@ export default function BookingSettingsPage() {
 
         <Card className="border-2 rounded-[2rem] bg-white">
           <CardContent className="p-5 space-y-4">
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Timing</p>
-            <NumRow k="holdMinutes" field="bookingMode.holdMinutes" unit="min" label="Hold an unpaid slot for"
-              note="How long a started-but-unpaid booking keeps the time before the slot goes back on sale."
-              zeroMeans="release immediately" />
-            <NumRow k="approvalExpiryHours" field="bookingMode.approvalExpiryHours" unit="hours" label="Requests expire after"
-              note="Approval mode only. An unanswered request declines itself and frees the time, so your silence never costs the client their day."
-              zeroMeans="never expire" />
-            <NumRow k="autoApproveAfterVisits" field="bookingMode.autoApproveAfterVisits" unit="visits" label="Auto-accept regulars after"
-              note="Approval mode only. Clients with a clean record and at least this many completed visits skip the queue entirely."
-              zeroMeans="every request waits for you" />
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">What happens when</p>
+            <NumRow k="holdMinutes" field="bookingMode.holdMinutes" unit="min" label="Someone starts paying and wanders off"
+              note="We keep the slot for them this long, then put it back on sale so nobody else is blocked out."
+              zeroMeans="the slot is never held" />
+            {bm.mode === 'approval' && (
+              <>
+                <NumRow k="approvalExpiryHours" field="bookingMode.approvalExpiryHours" unit="hours" label="You do not answer a request"
+                  note="After this long it declines itself, the time goes back on sale, and the client is told rather than left waiting."
+                  zeroMeans="it waits forever, and so do they" />
+                <NumRow k="autoApproveAfterVisits" field="bookingMode.autoApproveAfterVisits" unit="visits" label="A proven regular requests a time"
+                  note="Once someone has this many completed visits and a clean record, their requests skip you entirely and just book."
+                  zeroMeans="everyone waits for you, every time" />
+              </>
+            )}
+            {bm.mode !== 'approval' && (
+              <p className="rounded-xl border-2 border-dashed px-3 py-2 text-[10px] font-bold leading-relaxed text-muted-foreground">
+                Request expiry and auto-accepting regulars only apply when you are approving each booking. Switch to
+                &ldquo;You say yes or no first&rdquo; above and they appear here.
+              </p>
+            )}
           </CardContent>
         </Card>
 
