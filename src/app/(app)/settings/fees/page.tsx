@@ -21,7 +21,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import {
-  hourlyFloorFrom, resolveFeePolicy, resolveShopEconomics, settleFee, type FeeEvent,
+  computeBreakeven, resolveFeePolicy, resolveShopEconomics, settleFee, type FeeEvent,
 } from '@/lib/service-economics';
 import { cn } from '@/lib/utils';
 
@@ -55,12 +55,10 @@ export default function FeeSettingsPage() {
 
   const [busy, setBusy] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
-  // Worked-example inputs for the floor calculator — local only, never stored.
-  const [fixed, setFixed] = useState('');
-  const [hours, setHours] = useState('');
   // The example booking every fee is scored against.
   const [examplePrice, setExamplePrice] = useState('200');
   const [exampleMins, setExampleMins] = useState('120');
+  const [exampleProducts, setExampleProducts] = useState('12');
 
   const val = (k: string, fallback: string) => (draft[k] !== undefined ? draft[k] : fallback);
   const num = (v: string) => Number(String(v).replace(/[^0-9.]/g, '')) || 0;
@@ -76,9 +74,15 @@ export default function FeeSettingsPage() {
     } finally { setBusy(null); }
   };
 
-  const previewFloorCents = hourlyFloorFrom(num(fixed) * 100, num(hours));
   const priceCents = Math.round(num(examplePrice) * 100);
-  const breakevenCents = Math.round((num(exampleMins) / 60) * econ.hourlyFloorCents);
+  /* FULL breakeven, not chair time alone — the same function the deposit
+   * engine uses, so a "breakeven deposit" and the number a fee is scored
+   * against are guaranteed to be the same figure. */
+  const be = useMemo(() => computeBreakeven({
+    tenant: selectedTenant,
+    service: { cost: num(exampleProducts), duration: num(exampleMins), price: num(examplePrice) },
+  }), [selectedTenant, exampleProducts, exampleMins, examplePrice]);
+  const breakevenCents = be.totalCents;
 
   const Money = ({ c }: { c: number }) => <>${(c / 100).toFixed(2)}</>;
 
@@ -112,46 +116,36 @@ export default function FeeSettingsPage() {
               </p>
             </div>
 
-            <div className="rounded-2xl border-2 border-dashed p-3 space-y-2">
-              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Work it out</p>
-              <div className="flex flex-wrap items-center gap-2 text-sm font-bold">
-                <span>Fixed costs $</span>
-                <input inputMode="decimal" aria-label="Monthly fixed costs" value={fixed}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFixed(e.target.value)}
-                  placeholder="4000"
-                  className="h-9 w-24 rounded-xl border-2 bg-white px-2 text-center font-mono outline-none focus:border-foreground/60" />
-                <span>a month, over</span>
-                <input inputMode="decimal" aria-label="Sellable hours per week" value={hours}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setHours(e.target.value)}
-                  placeholder="30"
-                  className="h-9 w-20 rounded-xl border-2 bg-white px-2 text-center font-mono outline-none focus:border-foreground/60" />
-                <span>sellable hours a week</span>
+            {/* The floor is NOT re-entered here. Foundation already computes
+                TMHR from your bills; typing it twice would guarantee the two
+                screens eventually disagree. */}
+            <div className="flex items-center justify-between gap-2 rounded-2xl border-2 border-dashed px-3 py-2.5">
+              <div className="min-w-0">
+                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+                  {econ.floorSource === 'override' ? 'Override in use'
+                    : econ.floorSource === 'tmhr' ? 'From Foundation (TMHR)'
+                      : 'Not calculated yet'}
+                </p>
+                <p className="text-2xl font-black leading-tight">
+                  {econ.hourlyFloorCents > 0 ? <><Money c={econ.hourlyFloorCents} /><span className="text-[10px] font-bold text-muted-foreground">/hr</span></> : '—'}
+                </p>
               </div>
-              {previewFloorCents > 0 && (
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-black">
-                    = <Money c={previewFloorCents} /> an hour
-                  </p>
-                  <Button size="sm" disabled={!isMgr || busy === 'floor'}
-                    onClick={() => void save('floor', 'economics.hourlyFloorCents', previewFloorCents, 'Hourly floor')}
-                    className="h-9 rounded-xl px-3 font-black uppercase text-[9px] tracking-widest">
-                    {busy === 'floor' ? <Loader className="h-3 w-3 animate-spin" /> : 'Use this'}
-                  </Button>
-                </div>
-              )}
+              <Button asChild variant="outline" size="sm"
+                className="h-9 shrink-0 rounded-xl border-2 px-3 font-black uppercase text-[9px] tracking-widest">
+                <Link href="/financials">{econ.hourlyFloorCents > 0 ? 'Adjust in Foundation' : 'Set it up'}</Link>
+              </Button>
             </div>
-
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Currently set to</p>
-              <p className="text-lg font-black">
-                {econ.hourlyFloorCents > 0 ? <Money c={econ.hourlyFloorCents} /> : 'Not set'}
-                <span className="ml-1 text-[10px] font-bold text-muted-foreground">/hr</span>
-              </p>
-            </div>
-            {econ.hourlyFloorCents === 0 && (
+            {econ.floorSource === 'unset' && (
               <p className="rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-2 text-[10px] font-bold leading-relaxed text-amber-800">
-                Until this is set, breakeven deposits collect your product cost only — often a small fraction of what the
-                slot is actually worth.
+                Your True Minimum Hourly Rate has not been calculated. Enter your lifestyle and overhead bills in
+                Foundation and it works itself out — until then, breakeven deposits collect product cost only, and the
+                fee checks below have nothing to measure against.
+              </p>
+            )}
+            {econ.floorSource === 'override' && (
+              <p className="rounded-xl border-2 border-dashed px-3 py-2 text-[10px] font-bold leading-relaxed text-muted-foreground">
+                Fees are being judged against a manual override rather than your TMHR. That is deliberate for shops that
+                recover overhead only — but service pricing still uses TMHR, so the two numbers differ on purpose.
               </p>
             )}
 
@@ -188,12 +182,18 @@ export default function FeeSettingsPage() {
               <input inputMode="numeric" aria-label="Example duration in minutes" value={exampleMins}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setExampleMins(e.target.value)}
                 className="h-9 w-16 rounded-xl border-2 border-background/30 bg-transparent px-2 text-center font-mono outline-none" />
-              <span>minutes</span>
+              <span>minutes, using $</span>
+              <input inputMode="decimal" aria-label="Example product cost" value={exampleProducts}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setExampleProducts(e.target.value)}
+                className="h-9 w-16 rounded-xl border-2 border-background/30 bg-transparent px-2 text-center font-mono outline-none" />
+              <span>of product</span>
             </div>
             <p className="text-[11px] font-bold opacity-80">
               {econ.hourlyFloorCents > 0
-                ? <>That slot costs you <strong><Money c={breakevenCents} /></strong> in chair time before products.</>
-                : <>Set your hourly floor above and this will show what the slot costs you.</>}
+                ? <>That slot costs you <strong><Money c={breakevenCents} /></strong> — <Money c={be.productCents} /> in
+                  products plus <Money c={be.timeCents} /> for {be.minutes} minutes at your hourly floor
+                  {be.labourCents > 0 ? <>, plus <Money c={be.labourCents} /> in labour</> : null}.</>
+                : <>Calculate your TMHR in Foundation and this will show what the slot costs you.</>}
             </p>
           </CardContent>
         </Card>
