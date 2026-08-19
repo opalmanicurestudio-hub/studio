@@ -205,21 +205,25 @@ export default function BookingSettingsPage() {
           </CardContent>
         </Card>
 
+        {/* The deposit-outcome rules (early cancel / late cancel / no-show /
+            studio cancel, the refund window and rollover expiry) deliberately
+            live in main Settings only. They were briefly duplicated here, and
+            two screens editing one policy means whichever you touched last is
+            the one you trust. */}
         <Card className="border-2 rounded-[2rem] bg-white">
-          <CardContent className="p-5 space-y-4">
+          <CardContent className="p-5 space-y-2">
             <p className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
               <Timer className="h-3 w-3" /> When plans change
             </p>
-            <NumRow k="refundWindowHours" field="depositPolicy.refundWindowHours" unit="hours" label="Late-cancel window"
-              note="Cancelling with more notice than this counts as early. Inside it counts as late."
-              zeroMeans="every cancellation is early" />
-            <OutcomeRow field="onEarlyCancel" label="They cancel early" current={dp.onEarlyCancel} note="good faith" />
-            <OutcomeRow field="onLateCancel" label="They cancel late" current={dp.onLateCancel} note="inside the window" />
-            <OutcomeRow field="onNoShow" label="They do not show" current={dp.onNoShow} note="no warning" />
-            <OutcomeRow field="onStudioCancel" label="You cancel" current={dp.onStudioCancel} note="not their fault" />
-            <NumRow k="rolloverExpiryDays" field="depositPolicy.rolloverExpiryDays" unit="days" label="Rolled-over credit lasts"
-              note="How long a credit stays usable on their next booking."
-              zeroMeans="never expires" transform={(n) => (n <= 0 ? null : n)} />
+            <p className="text-[11px] font-bold leading-relaxed text-muted-foreground">
+              What happens to a deposit on an early cancel, a late cancel, a no-show, or a cancellation of your own —
+              plus the notice window and how long rolled-over credit lasts — is set in Studio Settings, alongside your
+              cancellation fee.
+            </p>
+            <Button asChild variant="outline"
+              className="h-10 rounded-2xl border-2 font-black uppercase text-[9px] tracking-widest">
+              <Link href="/settings">Open Studio Settings</Link>
+            </Button>
           </CardContent>
         </Card>
 
