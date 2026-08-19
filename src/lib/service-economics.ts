@@ -23,8 +23,12 @@
 // and the settings preview all produce the same number.
 
 export interface ShopEconomics {
-  /** The chair-hour floor in cents: fixed monthly costs ÷ sellable hours. */
+  /** The chair-hour floor in cents. Comes from TMHR unless overridden. */
   hourlyFloorCents: number;
+  /** Where the floor came from, so the UI can be honest about it. */
+  floorSource: 'tmhr' | 'override' | 'unset';
+  /** Employer tax on top of labour — the same figure Foundation stores. */
+  employerTaxBurdenPct: number;
   /** Include staff pay in breakeven? True when you pay for the hour whether
    *  or not the client shows. */
   includeLabour: boolean;
@@ -32,16 +36,34 @@ export interface ShopEconomics {
   defaultLabourHourlyCents: number;
 }
 
+/**
+ * IMPORTANT: the hourly floor is NOT a new number this file invented. The
+ * shop already computes it in Foundation (TMHR) — the True Minimum Hourly
+ * Rate, derived from cadence-normalised lifestyle and overhead bills divided
+ * by billable hours. Service pricing already uses it. Asking the owner to
+ * type the same figure into a second screen would guarantee the two drift
+ * apart, and the fee screen would then score fees against a number the rest
+ * of the app disagrees with.
+ *
+ * So: TMHR is the source of truth. `economics.hourlyFloorCents` exists only
+ * as a deliberate OVERRIDE for a shop that wants fee maths judged against
+ * something other than its full TMHR (some owners price recovery against
+ * overhead alone, excluding their lifestyle target).
+ */
 export function resolveShopEconomics(tenant: any): ShopEconomics {
   const e = (tenant && tenant.economics) || {};
   const n = (v: any, d: number) => {
     const x = Number(v);
     return Number.isFinite(x) && x >= 0 ? x : d;
   };
+  // TMHR is stored in DOLLARS per hour on the tenant.
+  const tmhrCents = Math.round((Number(tenant?.tmhr) || 0) * 100);
   return {
-    hourlyFloorCents: n(e.hourlyFloorCents, 0),
+    hourlyFloorCents: n(e.hourlyFloorCents, tmhrCents),
+    floorSource: n(e.hourlyFloorCents, 0) > 0 ? 'override' : (tmhrCents > 0 ? 'tmhr' : 'unset'),
     includeLabour: e.includeLabour === true,
     defaultLabourHourlyCents: n(e.defaultLabourHourlyCents, 0),
+    employerTaxBurdenPct: n(tenant?.employerTaxBurdenPct, 0),
   };
 }
 
@@ -88,13 +110,21 @@ export function computeBreakeven(input: BreakevenInput): BreakevenBreakdown {
   const productCents = Math.round((Number(service?.cost) || 0) * 100);
   const timeCents = Math.round(hours * econ.hourlyFloorCents);
 
+  /* Labour mirrors the model the service pricing screen already uses: a
+   * commission earner costs a share of the PRICE, an hourly earner costs
+   * their rate for the time, and both carry the employer tax burden on top.
+   * Getting this wrong in either direction misprices every fee — commission
+   * staff earn nothing on a no-show, so counting their pay as a loss would
+   * overstate it. */
   let labourCents = 0;
-  if (econ.includeLabour) {
-    const staffHourly = Number(staff?.hourlyRateCents);
-    const rate = Number.isFinite(staffHourly) && staffHourly > 0
-      ? staffHourly
-      : econ.defaultLabourHourlyCents;
-    labourCents = Math.round(hours * rate);
+  if (econ.includeLabour && staff) {
+    const priceCents = Math.round((Number(service?.price) || 0) * 100);
+    const base = String(staff.payStructure) === 'commission'
+      ? Math.round(priceCents * ((Number(staff.commissionRate) || 0) / 100))
+      : Math.round(hours * ((Number(staff.hourlyRate) || 0) * 100 || econ.defaultLabourHourlyCents));
+    labourCents = Math.round(base * (1 + econ.employerTaxBurdenPct / 100));
+  } else if (econ.includeLabour) {
+    labourCents = Math.round(hours * econ.defaultLabourHourlyCents * (1 + econ.employerTaxBurdenPct / 100));
   }
 
   const totalCents = productCents + timeCents + labourCents;
