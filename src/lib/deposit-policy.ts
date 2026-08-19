@@ -127,6 +127,10 @@ export function isCreditExpired(expiresAt: any, now: Date = new Date()): boolean
 // sheet's logic so the phone-booking link and the online flow never disagree.
 // Returns integer CENTS. `depositsLive` gates the whole feature off when false.
 export interface DepositAmountInput {
+  /** Needed for true-breakeven pricing (the chair-hour floor). Optional so
+   *  every existing caller keeps working unchanged. */
+  tenant?: any;
+  staff?: any;
   service: any;          // expects depositType / depositSubType / depositAmount / price / cost
   price: number;         // resolved service price (tier/staff applied), in dollars
   depositsLive: boolean; // tenant.depositsLive === true
@@ -144,7 +148,33 @@ export function computeDepositCents(input: DepositAmountInput): number {
   if (type === 'none' && (!poorHistory || !guardianActive)) return 0;
   if (guardianActive && poorHistory && type === 'none') return Math.round(Math.ceil(price * 0.5) * 100);
   if (type === 'full')      return Math.round((price || 0) * 100);
-  if (type === 'breakeven') return Math.round((service.cost || 0) * 100);
+  if (type === 'breakeven') {
+    /* TRUE breakeven, not product cost. A two-hour appointment consumes two
+     * hours of a chair that could have been sold to somebody else, and the
+     * products are usually the smaller half. When the shop has not set a
+     * chair-hour floor this falls back to the old product-only number, so
+     * nothing changes until they configure it — but the settings screen tells
+     * them plainly what they are leaving on the table. */
+    const tenant = (input as any).tenant;
+    const floor = Number(tenant?.economics?.hourlyFloorCents) || 0;
+    if (floor <= 0) return Math.round((service.cost || 0) * 100);
+    const minutes = (Number(service.duration) || 0)
+      + (Number(service.padBefore) || 0)
+      + (Number(service.padAfter) || 0);
+    const timeCents = Math.round((minutes / 60) * floor);
+    let labourCents = 0;
+    if (tenant?.economics?.includeLabour === true) {
+      const rate = Number((input as any).staff?.hourlyRateCents)
+        || Number(tenant?.economics?.defaultLabourHourlyCents) || 0;
+      labourCents = Math.round((minutes / 60) * rate);
+    }
+    // Never demand more than the service is worth — a deposit larger than the
+    // price is a bug from the client's side of the counter.
+    return Math.min(
+      Math.round((price || 0) * 100),
+      Math.round((service.cost || 0) * 100) + timeCents + labourCents,
+    );
+  }
   if (type === 'deposit') {
     if (service.depositSubType === 'percentage') return Math.round(price * ((service.depositAmount || 0) / 100) * 100);
     return Math.round((service.depositAmount || 0) * 100);
@@ -287,7 +317,7 @@ export function resolveBookingPlan(input: BookingPlanInput): BookingPlan {
   const guardianActive = tenant?.guardianProtocolEnabled !== false;
 
   const depositCents = computeDepositCents({
-    service, price,
+    service, price, tenant,
     depositsLive: !!tenant?.depositsLive,
     poorHistory, guardianActive,
   });
