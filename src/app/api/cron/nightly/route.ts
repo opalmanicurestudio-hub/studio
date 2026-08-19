@@ -24,7 +24,7 @@ import { reconcileReservations } from '@/lib/stock-reconcile';
 import { sweepStaleCurbside } from '@/lib/stock-reconcile';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import {
-  sweepExpiredRequests, sweepPendingRequestNudge, sweepRecoveryDeadlines, sweepRentNotices, sweepUnpaidAccepted,
+  sweepExpiredRequests, sweepPendingRequestNudge, sweepRecoveryDeadlines, sweepUnpaidAccepted,
   sweepStalledShipments, sweepStaleCases,
 } from '@/lib/retail-sweeps';
 
@@ -535,10 +535,10 @@ export async function GET(req: NextRequest) {
   // A parcel that stopped scanning, a filed claim whose window is closing,
   // and a resolved case nobody has touched. Each is marker-guarded inside
   // the sweep, so a re-run of this cron sends nothing twice.
-  const retailTotals = { stalled: 0, stalledEmailed: 0, deadlines: 0, deadlineDigests: 0, casesClosed: 0, requestsExpired: 0, requestNudges: 0, unpaidHandled: 0, rentNotices: 0 };
+  const retailTotals = { stalled: 0, stalledEmailed: 0, deadlines: 0, deadlineDigests: 0, casesClosed: 0, requestsExpired: 0, requestNudges: 0, unpaidHandled: 0 };
   for (const tDoc of allTenantsSnap.docs) {
     try {
-      const [stall, deadlines, cases, expired, nudge, unpaid, rent] = await Promise.all([
+      const [stall, deadlines, cases, expired, nudge, unpaid] = await Promise.all([
         sweepStalledShipments(db, tDoc.id),
         sweepRecoveryDeadlines(db, tDoc.id),
         sweepStaleCases(db, tDoc.id),
@@ -547,8 +547,6 @@ export async function GET(req: NextRequest) {
         sweepPendingRequestNudge(db, tDoc.id),
         // Accepted bookings whose deposit never landed: retry, remind, release.
         sweepUnpaidAccepted(db, tDoc.id),
-        // Renters: warn before rent falls due, chase once it is late.
-        sweepRentNotices(db, tDoc.id),
       ]);
       retailTotals.stalled += stall.actioned;
       retailTotals.stalledEmailed += stall.emailed;
@@ -558,9 +556,8 @@ export async function GET(req: NextRequest) {
       retailTotals.requestsExpired += expired.actioned;
       retailTotals.requestNudges += nudge.emailed;
       retailTotals.unpaidHandled += unpaid.actioned;
-      retailTotals.rentNotices += rent.emailed;
-      if (stall.actioned || deadlines.actioned || cases.actioned || expired.actioned || nudge.emailed || unpaid.actioned || rent.actioned) {
-        results[`retail:${tDoc.id}`] = { stall, deadlines, cases, expired, nudge, unpaid, rent };
+      if (stall.actioned || deadlines.actioned || cases.actioned || expired.actioned || nudge.emailed || unpaid.actioned) {
+        results[`retail:${tDoc.id}`] = { stall, deadlines, cases, expired, nudge, unpaid };
       }
     } catch (e) {
       results[`retail:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
