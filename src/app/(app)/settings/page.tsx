@@ -582,64 +582,29 @@ function SettingsPageImpl() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="p-6 md:p-8">
-                  {/* Booking policy — the rules that decide what an online
-                      booking even becomes. Sits above automations because
-                      automations act on the states this page creates. */}
-                  <div className="mb-6 flex flex-col sm:flex-row items-center gap-6 p-8 rounded-[2rem] border-2 border-border bg-muted/5">
-                    <div className="w-14 h-14 rounded-2xl bg-foreground/5 border-2 border-border flex items-center justify-center shrink-0">
-                      <CalendarCheck className="w-7 h-7 text-foreground" />
-                    </div>
-                    <div className="flex-1 space-y-1.5 text-center sm:text-left">
-                      <p className="text-base font-black uppercase tracking-tight text-slate-900">Booking &amp; Deposits</p>
-                      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-70 leading-relaxed">
-                        Book instantly, hold for a deposit, save a card, or approve each request — plus what happens to deposits when plans change.
-                      </p>
-                    </div>
-                    <a
-                      href="/settings/booking"
-                      className="shrink-0 flex items-center gap-2 h-12 px-8 rounded-2xl bg-foreground text-background font-black uppercase text-[10px] tracking-widest shadow-lg hover:opacity-90 transition-all active:scale-95 whitespace-nowrap"
-                    >
-                      Open Booking Rules <ArrowRight className="w-4 h-4" />
-                    </a>
-                  </div>
-                  {/* The map goes FIRST — it is the only surface that answers
-                      "what is my configuration, and what have I left half-set?"
-                      Everything below it edits one thing; this reads all of it. */}
-                  <div className="mb-6 flex flex-col sm:flex-row items-center gap-6 p-8 rounded-[2rem] border-2 border-foreground/20 bg-foreground/[0.03]">
-                    <div className="w-14 h-14 rounded-2xl bg-foreground/5 border-2 border-border flex items-center justify-center shrink-0">
-                      <MapIcon className="w-7 h-7 text-foreground" />
-                    </div>
-                    <div className="flex-1 space-y-1.5 text-center sm:text-left">
-                      <p className="text-base font-black uppercase tracking-tight text-slate-900">How Your Studio Is Set Up</p>
-                      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-70 leading-relaxed">
-                        Every rule you have configured, written in plain words — plus anything switched on that is quietly doing nothing.
-                      </p>
-                    </div>
-                    <a
-                      href="/settings/map"
-                      className="shrink-0 flex items-center gap-2 h-12 px-8 rounded-2xl bg-foreground text-background font-black uppercase text-[10px] tracking-widest shadow-lg hover:opacity-90 transition-all active:scale-95 whitespace-nowrap"
-                    >
-                      Open the Map <ArrowRight className="w-4 h-4" />
-                    </a>
-                  </div>
-                  {/* Message centre — which of these automations actually reach
-                      a client, and in whose words. */}
-                  <div className="mb-6 flex flex-col sm:flex-row items-center gap-6 p-8 rounded-[2rem] border-2 border-border bg-muted/5">
-                    <div className="w-14 h-14 rounded-2xl bg-foreground/5 border-2 border-border flex items-center justify-center shrink-0">
-                      <Mail className="w-7 h-7 text-foreground" />
-                    </div>
-                    <div className="flex-1 space-y-1.5 text-center sm:text-left">
-                      <p className="text-base font-black uppercase tracking-tight text-slate-900">Messages</p>
-                      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-70 leading-relaxed">
-                        Every automatic email and text — switch the optional ones off, or rewrite any of them in your own voice.
-                      </p>
-                    </div>
-                    <a
-                      href="/settings/messages"
-                      className="shrink-0 flex items-center gap-2 h-12 px-8 rounded-2xl bg-foreground text-background font-black uppercase text-[10px] tracking-widest shadow-lg hover:opacity-90 transition-all active:scale-95 whitespace-nowrap"
-                    >
-                      Open Messages <ArrowRight className="w-4 h-4" />
-                    </a>
+                  {/* Three full-width hero cards used to sit here, each one a
+                      tap away from a different page. They are now a single
+                      compact row: the same destinations, a fifth of the
+                      scrolling, and Setup first because it answers most
+                      questions without leaving. */}
+                  <div className="mb-6 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    {[
+                      { href: '/settings/map',      icon: MapIcon,      title: 'Setup',    blurb: 'Everything in plain words — and change most of it here' },
+                      { href: '/settings/booking',  icon: CalendarCheck, title: 'Booking',  blurb: 'How bookings arrive, deposits, approvals' },
+                      { href: '/settings/messages', icon: Mail,          title: 'Messages', blurb: 'Every email and text — wording, timing, quiet hours' },
+                    ].map((c) => {
+                      const Icon = c.icon;
+                      return (
+                        <a key={c.href} href={c.href}
+                          className="flex items-start gap-3 p-4 rounded-2xl border-2 border-border bg-muted/5 transition-all hover:border-primary/40 active:scale-[0.98]">
+                          <Icon className="w-5 h-5 text-foreground shrink-0 mt-0.5" />
+                          <span className="min-w-0">
+                            <span className="block text-sm font-black uppercase tracking-tight text-slate-900">{c.title}</span>
+                            <span className="block text-[10px] font-bold text-muted-foreground leading-relaxed mt-0.5">{c.blurb}</span>
+                          </span>
+                        </a>
+                      );
+                    })}
                   </div>
                   <div className="flex flex-col sm:flex-row items-center gap-6 p-8 rounded-[2rem] border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/[0.02] shadow-inner">
                     <div className="w-14 h-14 rounded-2xl bg-primary/10 border-2 border-primary/20 flex items-center justify-center shrink-0">
