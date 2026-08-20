@@ -119,6 +119,22 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     timing: 'immediate',
   },
   {
+    /* The only cancel in the app that a MANAGER starts. Until this kind
+     * existed, resolveIssue() wrote status: 'cancelled' and sent nothing at
+     * all — somebody kept that time free and then turned up to a shop that
+     * was not expecting them. canDisable is false for the same reason the
+     * decline notice is. */
+    id: 'appointment_cancelled_no_cover', group: 'Booking', label: 'Cancelled — nobody could cover it',
+    when: 'A provider cannot take a booking and no one else is able to cover it, so the studio cancels.',
+    channels: ['email', 'sms'], canDisable: false,
+    mandatoryNote: 'This person has your time in their calendar. Not telling them is the one unforgivable version of this feature.',
+    tokens: ['{{client_first}}', '{{service}}', '{{when}}', '{{reason}}', '{{refund_line}}', '{{link}}', '{{studio}}'],
+    requiredTokens: [],
+    defaultSubject: 'About your appointment on {{when}}',
+    defaultBody: '{{client_first}}, we are very sorry — we have had to cancel {{service}} on {{when}} because nobody is available to take it.\n\n{{refund_line}}\n\nWe would love to get you back in. You can pick another time here: {{link}}',
+    timing: 'immediate',
+  },
+  {
     id: 'request_declined', group: 'Booking', label: 'Request declined',
     when: 'You decline a booking request, or it expires unanswered.',
     channels: ['email', 'sms'], canDisable: false,
