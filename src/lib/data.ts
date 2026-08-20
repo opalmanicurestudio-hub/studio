@@ -71,6 +71,15 @@ export type Staff = {
   pricingTierId?: string;
   avatarUrl: string;
   payStructure: 'commission' | 'hourly' | 'salary' | 'hourly_plus_commission';
+  /* How someone is PAID and what they ARE are different questions. A salon
+   * may pay a renter on commission for retail and still have no authority to
+   * assign them appointments. Left unset, nothing changes: authority falls
+   * back to today's behaviour. Recorded from what the business states —
+   * never inferred from payStructure. */
+  employmentModel?: 'employee' | 'commission' | 'contractor' | 'renter';
+  /* Overrides the default this employmentModel would give. Unset means "use
+   * the default for their arrangement". */
+  decisionAuthority?: 'none' | 'limited' | 'request_approval' | 'full';
   commissionRate: number;
   retailCommissionRate?: number;
   hourlyRate?: number;
@@ -1152,6 +1161,14 @@ export type Tenant = {
   noShowPolicy?: string;
   lateArrivalPolicy?: string;
   defaultCancellationMode?: 'matrix' | 'flat' | 'percentage';
+  /* Shop-wide ceiling on what providers may decide for themselves, plus which
+   * decline reasons they may resolve without a manager. Unset leaves every
+   * provider on their arrangement's default. */
+  appointmentAuthority?: {
+    maxProviderAuthority?: 'none' | 'limited' | 'request_approval' | 'full';
+    autoDeclineCodes?: string[];
+    requireDeclineReason?: boolean;
+  };
   defaultRescheduleMode?: 'matrix' | 'flat';
   allowGuestFeeDeferral?: boolean;
   // ── Reschedule fee policy — SEPARATE from cancellation. A reschedule is a
