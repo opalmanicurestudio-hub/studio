@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
+import { verifyStaffActor, mayDecide } from '@/lib/staff-auth';
 
 // ─── /api/appointments/decide ─────────────────────────────────────────────────
 // POST { tenantId, appointmentId, decision: 'accept' | 'decline',
@@ -44,12 +45,28 @@ export async function POST(req: NextRequest) {
    * will decline again, so the studio says which it is and the wording
    * follows. */
   const declineOutcome = body.declineOutcome === 'final' ? 'final' : 'alternative';
-  const staffName = String(body.staffName || 'The studio').slice(0, 80);
   const reason = String(body.reason || '').slice(0, 300);
+  const reasonCode = String(body.reasonCode || '').slice(0, 60) || null;
 
   if (!tenantId || !appointmentId || !['accept', 'decline'].includes(decision)) {
     return NextResponse.json({ ok: false, error: 'tenantId, appointmentId and a valid decision are required.' }, { status: 400 });
   }
+
+  /* WHO IS CALLING. Until this existed, anyone able to POST a tenantId and an
+   * appointmentId could accept a booking — which charges a card off-session —
+   * or decline one, and the audit line recorded whatever name they sent. */
+  const auth = await verifyStaffActor(req, tenantId);
+  if (!auth.ok) {
+    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+  }
+  const actor = auth.actor;
+  if (!mayDecide(actor, decision as 'accept' | 'decline')) {
+    return NextResponse.json({
+      ok: false,
+      error: 'Declining a booking needs a manager. Ask a manager to review it.',
+    }, { status: 403 });
+  }
+  const staffName = actor.name;
 
   const db = getAdminDb();
   const aptRef = db.doc(`tenants/${tenantId}/appointments/${appointmentId}`);
@@ -235,7 +252,7 @@ export async function POST(req: NextRequest) {
     action: accepted ? 'appointment.request_accepted' : 'appointment.request_declined',
     targetType: 'appointment', targetId: appointmentId,
     summary: `${staffName} ${accepted ? 'accepted' : 'declined'} ${apt.clientName || 'a client'}'s request for ${String(apt.startTime || '').slice(0, 16).replace('T', ' ')}${reason ? ` — ${reason}` : ''}`,
-    actor: { type: 'user', name: staffName, role: 'staff', via: 'requests' },
+    actor: { type: 'user', id: actor.uid, name: actor.name, role: actor.role, via: 'requests' },
   }).catch(() => {});
 
   // ── Tell the client. A decision nobody hears about is not a decision. ──
@@ -328,6 +345,46 @@ export async function POST(req: NextRequest) {
     }
   } catch (e) {
     console.error('[appointments/decide] notify failed (decision is safe)', e);
+  }
+
+  /* THE DECISION LEDGER. One row per answered request, written after the
+   * decision is safe. Metrics, response times and pattern review all read
+   * from here — and history cannot be backfilled, so it is written from the
+   * first day the endpoint can identify its caller. A failure here never
+   * unwinds a decision that already stands. */
+  try {
+    const requestedAtIso = String(apt.requestedAt || apt.createdAt || '');
+    const requestedMs = requestedAtIso ? Date.parse(requestedAtIso) : NaN;
+    await db.collection(`tenants/${tenantId}/appointmentDecisions`).add({
+      tenantId,
+      appointmentId,
+      clientId: apt.clientId || null,
+      clientName: apt.clientName || null,
+      serviceId: apt.serviceId || null,
+      staffId: apt.staffId || null,
+      startTime: apt.startTime || null,
+      source: apt.source || null,
+      channel: 'request',
+      action: accepted ? 'accepted' : 'declined',
+      declineOutcome: accepted ? null : declineOutcome,
+      reasonCode,
+      reason: reason || null,
+      priorStatus: 'requested',
+      resultStatus: outcome.status,
+      depositCents: outcome.depositCents || 0,
+      chargedOnFile: chargeResult.attempted && chargeResult.ok,
+      actorUid: actor.uid,
+      actorName: actor.name,
+      actorRole: actor.role,
+      actorIsManager: actor.isManager,
+      decidedAt: nowIso,
+      requestedAt: requestedAtIso || null,
+      responseSeconds: Number.isFinite(requestedMs)
+        ? Math.max(0, Math.round((Date.parse(nowIso) - requestedMs) / 1000))
+        : null,
+    });
+  } catch (e) {
+    console.error('[appointments/decide] decision record failed (decision stands)', e);
   }
 
   return NextResponse.json({
