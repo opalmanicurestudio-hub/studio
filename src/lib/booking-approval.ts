@@ -1,5 +1,6 @@
 import { addDoc, collection, doc, writeBatch, type Firestore } from 'firebase/firestore';
 import { findReason, type AuthorityPolicy } from '@/lib/appointment-authority';
+import { notifyStaff, managerIds } from '@/lib/staff-notify';
 import { getAuth } from 'firebase/auth';
 
 export type ApprovalResult =
@@ -286,6 +287,7 @@ export async function raiseIssue(
   note: string | null,
   actor: { uid?: string | null; name?: string | null; role?: string | null; isManager?: boolean },
   policy?: AuthorityPolicy | null,
+  staffForNotify?: any[],
 ): Promise<ApprovalResult> {
   if (!firestore || !tenantId || !apt?.id) return { ok: false, reason: 'Missing studio or booking' };
   const known = findReason(reasonCode, policy);
@@ -354,6 +356,14 @@ export async function raiseIssue(
   } catch {
     /* the issue is raised and visible; a missing ledger row is not worth failing over */
   }
+
+  await notifyStaff(firestore, tenantId, managerIds(staffForNotify || [], actor.uid).map(id => ({
+    userId: id,
+    type: 'appointment_issue_raised' as const,
+    message: `${actor.name || 'A provider'} raised "${known.label}" on ${apt.clientName || 'a booking'}.`,
+    link: '/planner',
+    appointmentId: apt.id,
+  })));
 
   return {
     ok: true,
@@ -481,6 +491,33 @@ export async function resolveIssue(
     /* the issue is closed and visible; a missing ledger row is not worth failing over */
   }
 
+  const raisedBy = String(apt.issue?.raisedByUid || '');
+  const tellRaiser = raisedBy && raisedBy !== String(actor.uid || '')
+    ? [{
+      userId: raisedBy,
+      type: 'appointment_issue_resolved' as const,
+      message: outcome === 'reassigned'
+        ? `${apt.clientName || 'That booking'} has been moved to ${opts?.newStaffName || 'someone else'}.`
+        : outcome === 'kept'
+          ? `${apt.clientName || 'That booking'} stays with you — a manager reviewed it.`
+          : outcome === 'declined'
+            ? `${apt.clientName || 'That booking'} was cancelled — no cover was available.`
+            : `Your issue on ${apt.clientName || 'a booking'} was closed.`,
+      link: '/planner',
+      appointmentId: apt.id,
+    }]
+    : [];
+  const tellNewOwner = outcome === 'reassigned' && opts?.newStaffId
+    ? [{
+      userId: String(opts.newStaffId),
+      type: 'appointment_assigned' as const,
+      message: `${apt.clientName || 'A booking'} has been moved to you.`,
+      link: '/planner',
+      appointmentId: apt.id,
+    }]
+    : [];
+  await notifyStaff(firestore, tenantId, [...tellRaiser, ...tellNewOwner]);
+
   const who = opts?.newStaffName || 'another provider';
   return {
     ok: true,
@@ -507,7 +544,18 @@ export async function approveBooking(
   const channel = approvalChannel(apt);
   if (channel === 'request') {
     const res = await decideViaRoute(tenantId, apt, 'accept', staffName || studioName);
-    if (res.ok) await sendCompletionLink(apt, studioName);
+    if (res.ok) {
+      await sendCompletionLink(apt, studioName);
+      if (firestore && apt.staffId && String(apt.staffId) !== String(actorStaffId || '')) {
+        await notifyStaff(firestore, tenantId, [{
+          userId: String(apt.staffId),
+          type: 'appointment_assigned',
+          message: `${apt.clientName || 'A booking'} was accepted and is on your schedule.`,
+          link: '/planner',
+          appointmentId: apt.id,
+        }]);
+      }
+    }
     return res;
   }
   if (channel === 'voice') {
