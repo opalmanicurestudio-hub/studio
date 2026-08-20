@@ -109,7 +109,22 @@ export const DayTimeline = ({
         
         for (const column of safeColumns) {
             const columnId = column.id;
-            const items = itemsByColumn.get(columnId) || [];
+            /* ── DROP UNDATEABLE ITEMS BEFORE ANY DATE MATHS ──────────────
+             * date-fns throws a RangeError on an Invalid Date, and the
+             * overlap test below is called for every pair of items in a
+             * column. One appointment with a malformed or missing start time
+             * therefore throws inside this useMemo and takes the entire
+             * timeline down — which is felt as the planner freezing the
+             * moment you switch to the provider who happens to own that
+             * appointment.
+             *
+             * An item we cannot place in time cannot be drawn on a time grid,
+             * so it is left out rather than allowed to kill the grid. */
+            const rawItems = itemsByColumn.get(columnId) || [];
+            const items = rawItems.filter((it: any) => {
+                const st = safeDate(it.startTime || it.dueDate);
+                return st instanceof Date && !Number.isNaN(st.getTime());
+            });
             let layoutInfo = items.map(item => ({ ...item, layout: { width: '100%', left: '0', cols: 1, col: 0 } }));
             
             function positionCluster(cluster: any[]) {
@@ -123,6 +138,15 @@ export const DayTimeline = ({
                         if (!cols[i].some(ex => {
                             const exStart = safeDate(ex.startTime || ex.dueDate);
                             const exEnd = safeDate(ex.endTime || (ex.itemType === 'bill' ? addMinutes(exStart, 60) : ex.endTime));
+                            /* Belt and braces: an end date can still be
+                             * invalid even when the start is fine (a missing
+                             * endTime on a non-bill). Treat anything we cannot
+                             * compare as "not overlapping" rather than letting
+                             * date-fns throw. */
+                            const ok = [start, end, exStart, exEnd].every(
+                                (d) => d instanceof Date && !Number.isNaN(d.getTime()),
+                            );
+                            if (!ok) return false;
                             return areIntervalsOverlapping({ start, end }, { start: exStart, end: exEnd }, { inclusive: false });
                         })) {
                             cols[i].push(item); item.layout.col = i; placed = true; break;
@@ -137,7 +161,10 @@ export const DayTimeline = ({
             let currentCluster: any[] = [];
             for (const item of layoutInfo) {
                 const start = safeDate(item.startTime || item.dueDate);
-                const end = safeDate(item.endTime || (item.itemType === 'bill' ? addMinutes(start, 60) : item.endTime));
+                let end = safeDate(item.endTime || (item.itemType === 'bill' ? addMinutes(start, 60) : item.endTime));
+                // A missing end is survivable — assume a nominal hour — where
+                // a NaN in the cluster maths is not.
+                if (!(end instanceof Date) || Number.isNaN(end.getTime())) end = addMinutes(start, 60);
                 if (lastEventEnd !== null && start.getTime() >= lastEventEnd.getTime()) { 
                     positionCluster(currentCluster); 
                     currentCluster = []; 
