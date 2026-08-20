@@ -43,6 +43,9 @@ import {
 } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useFirebase, useCollection, useMemoFirebase, useUser } from '@/firebase';
+import { useDoc } from '@/firebase/firestore/use-doc';
+import { PortalDecisionBar } from '@/components/staff-portal/PortalDecisionBar';
+import { isDeadAppointment } from '@/lib/booking-approval';
 import { collection, query, where, doc, getDoc, getDocs, writeBatch, updateDoc, arrayUnion, setDoc, orderBy } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useToast } from '@/hooks/use-toast';
@@ -3869,6 +3872,11 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   // v76 — renters don't get floor-wide subscriptions (client names, the
   // whole roster's shifts, walk-ins). Their tabs never used this data.
   const isRenterUser = staffMember.role === 'renter';
+  const portalTenantQ = useMemoFirebase(
+    () => (!firestore || !tenantId) ? null : doc(firestore, 'tenants', tenantId),
+    [firestore, tenantId],
+  );
+  const { data: portalTenant } = useDoc<any>(portalTenantQ);
   const today = new Date();
 
   // ── Queries ──
@@ -4003,7 +4011,10 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
         status: (ci?.status && apt.status === 'confirmed') ? ci.status : apt.status,
       };
     };
-    const primary = (myApptsRaw || []).map(mergeCheckIn);
+    /* The feed is filtered by staffId only, so every cancelled, declined and
+     * expired booking this provider ever had was still rendering in their day.
+     * Same fix the planner got: dead bookings leave. */
+    const primary = (myApptsRaw || []).filter((a: any) => !isDeadAppointment(a)).map(mergeCheckIn);
     const addon   = (myAddonAptsRaw || [])
       .filter((a: any) => !primary.find((p: any) => p.id === a.id))
       .map((a: any) => mergeCheckIn({ ...a, _viewingStaffId: staffMember.id }));
@@ -4419,6 +4430,30 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                     </div>
                   </div>
                 )}
+                {allMyApts
+                  .filter((a: any) => a.status === 'requested' || a.voiceApproval === 'pending' || a.issue?.status === 'open')
+                  .slice(0, 5)
+                  .map((a: any) => (
+                    <div key={`decide-${a.id}`} className="rounded-2xl border-2 border-primary/40 bg-primary/[0.03] p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-primary">
+                        {a.issue?.status === 'open' ? 'Raised with a manager' : 'Waiting on you'}
+                      </p>
+                      <p className="mt-0.5 truncate text-[13px] font-black tracking-tight text-foreground">
+                        {a.clientName || 'Guest'}
+                      </p>
+                      <p className="truncate text-[11px] font-bold text-muted-foreground">
+                        {(services || []).find((s: any) => s.id === a.serviceId)?.name || 'Service'}
+                        {a.startTime ? ` · ${format(safeDate(a.startTime), 'EEE d MMM, h:mm a')}` : ''}
+                      </p>
+                      <PortalDecisionBar
+                        appointment={a}
+                        staffMember={staffMember}
+                        tenant={portalTenant}
+                        tenantId={tenantId}
+                        firestore={firestore}
+                      />
+                    </div>
+                  ))}
                 <NextBanner appointments={allMyApts} services={services} />
                 <WalkInLeaderboard
                   allWalkIns={allWalkInsRaw || []}
