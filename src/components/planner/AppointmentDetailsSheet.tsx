@@ -203,7 +203,7 @@ const resolveProviders = (appointment: any, service: any, addOns: Service[], sta
     map.set(staffId, entry);
   };
 
-  addService(service.id, service.name, appointment.staffId);
+  if (service?.id) addService(service.id, service.name, appointment.staffId);
   const mainEntry = map.get(appointment.staffId);
   if (mainEntry) mainEntry.isMain = true;
 
@@ -1339,7 +1339,7 @@ const MidServiceHandoffDialog = ({
     if (!appointment || !service) return [];
     const overrides = appointment.checkoutState?.serviceStaffOverrides || {};
     return [
-      { id: service.id, name: service.name, currentStaffId: appointment.staffId, isLead: true },
+      { id: service?.id || '', name: service?.name || appointment.serviceName || 'Service', currentStaffId: appointment.staffId, isLead: true },
       ...(currentAddOns || []).map((s) => ({
         id: s.id,
         name: s.name,
@@ -1742,7 +1742,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
   const complianceInfo = useMemo(() => {
     if (!service || !consentForms) return { requiredForms: [], pendingForms: [], healthPendingForms: [], otherPendingForms: [], allCertified: true };
-    const requiredIds = service.requiredFormIds || [];
+    const requiredIds = service?.requiredFormIds || [];
     const requiredForms = (consentForms || []).filter(f => requiredIds.includes(f.id));
     const aptSignedIds = (appointment?.signedForms || []).map((f: any) => f.formId);
     // v2 — per-form override: `requiresEveryAppointment` (optional, defaults
@@ -1804,7 +1804,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         ? differenceInMinutes(end, start)
         : allServicesInApt.reduce((acc, s) => acc + (s?.duration || 0), 0);
 
-      const timeCost = ((actualDuration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * (tmhr || 0);
+      const timeCost = ((actualDuration + (service?.padBefore || 0) + (service?.padAfter || 0)) / 60) * (tmhr || 0);
       const breakEven = timeCost + productCost;
       const baseRevenue = allServicesInApt.reduce((acc, s) => {
         const tierPrice = s.serviceTiers?.find((t: any) => t.tierId === assignedStaffMember?.pricingTierId)?.price;
@@ -2008,7 +2008,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       // QuickBookForm. Now it's the same token, same /check-in/ link, for
       // the whole lifecycle of the appointment.
       const token = appointment.checkInToken;
-      const price = service.serviceTiers?.find((t: any) => t.tierId === (staff || []).find((s: any) => s.id === appointment.staffId)?.pricingTierId)?.price ?? service.price ?? 0;
+      const price = service?.serviceTiers?.find((t: any) => t.tierId === (staff || []).find((s: any) => s.id === appointment.staffId)?.pricingTierId)?.price ?? service?.price ?? 0;
       const depositCents = appointment.depositStatus === 'paid'
         ? 0 // v15 — already paid: the guest link must never re-request it
         : (() => { try { return computeDepositCents({ service, price, depositsLive: selectedTenant?.depositsLive === true }); } catch { return 0; } })();
@@ -2069,7 +2069,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       // every other batch.set/update in this file already does.
       batch.set(doc(firestore, `tenants/${tenantId}/bookingCompletions`, token), sanitizeForFirestore({
         token, tenantId, appointmentId: appointment.id, clientId: client.id, clientName: client.name,
-        clientEmail: String(client.email).toLowerCase().trim(), serviceId: service.id, serviceName: service.name,
+        clientEmail: String(client?.email || '').toLowerCase().trim(), serviceId: service?.id || appointment.serviceId || '', serviceName: service?.name || appointment.serviceName || 'Service',
         depositAmountCents: depositCents, requiredConsentFormIds: requiredFormIds,
         skipCardStep: hasUsableCard,
         cardAlreadyOnFile: hasUsableCard,
@@ -2132,9 +2132,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     }
     setIsCollectingDeposit(true);
     try {
-      const staffIdForPricing = appointment.checkoutState?.serviceStaffOverrides?.[service.id] || appointment.staffId;
+      const staffIdForPricing = appointment.checkoutState?.serviceStaffOverrides?.[service?.id ?? ''] || appointment.staffId;
       const staffForPricing = (staff || []).find((s: any) => s.id === staffIdForPricing);
-      const price = service.serviceTiers?.find((t: any) => t.tierId === staffForPricing?.pricingTierId)?.price ?? service.price ?? 0;
+      const price = service?.serviceTiers?.find((t: any) => t.tierId === staffForPricing?.pricingTierId)?.price ?? service?.price ?? 0;
       const depositCents = depositOwedCents > 0 ? depositOwedCents : (() => { try { return computeDepositCents({ service, price, depositsLive: selectedTenant?.depositsLive === true }); } catch { return 0; } })();
       if (!depositCents || depositCents <= 0) { toast({ variant: 'destructive', title: 'No deposit amount set' }); return; }
       const res = await fetch('/api/stripe/charge-card', {
