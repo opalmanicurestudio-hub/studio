@@ -1,14 +1,6 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-  SheetFooter,
-} from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
@@ -607,50 +599,52 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        /* ── WHY THIS IS NOT `side={isMobile ? ...}` ───────────────────────
-         * useIsMobile returns undefined until its effect runs, so the FIRST
-         * render — the one that decides where the panel lands — always took
-         * the desktop branch, and the `bottom` variant in the Sheet primitive
-         * carries `inset-x-0 bottom-0` with NO height class at all. Layout
-         * that decides whether a customer can book must not wait on a JS
-         * effect. `side` is fixed and the breakpoint is pure CSS. */
-        side="bottom"
-        /* Surface colours are INLINE rather than left to `bg-background`.
-         * The public booking route injects the shop's own theme variables at
-         * runtime, and a semantic token that fails to resolve paints nothing
-         * — which looks exactly like a sheet that never opened: a dimmed page
-         * and a dead tap. The fallbacks make that impossible. */
+    /* ── NO MODAL PRIMITIVE ───────────────────────────────────────────────
+     * This was a Radix Sheet. Three separate attempts to make it behave on a
+     * phone failed, and each failure came from the primitive rather than from
+     * this component: a `side` variant chosen by a JS hook that is undefined
+     * on first render, a bottom variant shipping no height, `inset-x-0
+     * bottom-0` fighting whatever height we set, a transform-based slide
+     * animation, and a portal whose stacking we do not control.
+     *
+     * None of that machinery earns its place here. A booking panel is a fixed
+     * box pinned to four edges with a scrolling middle. So that is what this
+     * is now — one div, no variants, no portal, no transform. There is
+     * nothing left to be undefined on first render and nothing to fight over
+     * the height.
+     *
+     * Everything inside is unchanged; only the container is different. */
+    !open ? null : (
+    <div
+      className="fixed inset-0 z-50"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Book an appointment"
+    >
+      {/* Backdrop. A plain sibling, so it cannot cover the panel. */}
+      <div
+        className="absolute inset-0 bg-black/60"
+        onClick={() => onOpenChange(false)}
+        aria-hidden="true"
+      />
+
+      <div
         style={{
           fontFamily: bodyFont,
           backgroundColor: 'hsl(var(--background, 240 6% 97%))',
           color: 'hsl(var(--foreground, 240 10% 4%))',
         }}
         className={cn(
-          /* Phones: PIN, do not MEASURE.
-           *
-           * The previous version set `h-[100dvh]` while the primitive's bottom
-           * variant also pins `bottom-0`. That is two sources of truth for one
-           * edge: a computed height and an anchored edge. Whenever iOS's
-           * dynamic viewport disagrees with the computed dvh — mid-scroll,
-           * with the keyboard up, during the URL-bar collapse — the box
-           * overflows by exactly that difference, which is the "slightly off
-           * screen" symptom.
-           *
-           * `!top-0 !bottom-0` with `h-auto` removes the arithmetic entirely:
-           * the panel is stretched between two pinned edges, so it is correct
-           * at every viewport size by construction rather than by
-           * calculation. The `!` matters — Tailwind emits `bottom-0` after
-           * `inset-0`, so without it the variant's own positioning wins. */
-          '!top-0 !bottom-0 !left-0 !right-0 h-auto w-full rounded-none border-0',
-          // sm and up: the right-hand panel, restored in CSS only.
-          'sm:!left-auto sm:!right-0 sm:!top-0 sm:!bottom-0 sm:h-auto sm:w-full sm:max-w-md sm:border-l',
-          'flex flex-col p-0 gap-0 overflow-hidden shadow-2xl'
+          // Pinned to all four edges on a phone: no computed height exists,
+          // so no viewport measurement can disagree with it.
+          'absolute top-0 bottom-0 left-0 right-0',
+          // From sm up it becomes a right-hand panel, in CSS only.
+          'sm:left-auto sm:w-full sm:max-w-md sm:border-l sm:shadow-2xl',
+          'flex flex-col overflow-hidden'
         )}
       >
         {/* ── Header ─────────────────────────────────────────────────────── */}
-        <SheetHeader
+        <div
           className="border-b bg-muted/5 flex-shrink-0 text-left p-5 pb-4"
           style={{ paddingTop: 'max(1.25rem, env(safe-area-inset-top))' }}
         >
@@ -658,15 +652,15 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             <Sparkles className="w-4 h-4 text-primary" />
             <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground">Booking</span>
           </div>
-          <SheetTitle style={{ fontFamily: headingFont }} className="text-xl font-black uppercase tracking-tighter text-left">
+          <h2 style={{ fontFamily: headingFont }} className="text-xl font-black uppercase tracking-tighter text-left">
             Reserve Session
-          </SheetTitle>
+          </h2>
           {currentStep !== 'confirmation' && (
             <div className="pt-4">
               <Progress value={progress} className="h-1 rounded-full bg-muted" />
             </div>
           )}
-        </SheetHeader>
+        </div>
 
         {/* ── Body ───────────────────────────────────────────────────────── */}
         {/* min-h-0 is load-bearing: a flex child defaults to min-height:auto,
@@ -1079,7 +1073,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
         {/* ── Footer ─────────────────────────────────────────────────────── */}
         {currentStep !== 'confirmation' && currentStep !== 'checkout' && (
-          <SheetFooter
+          <div
             className="p-4 border-t bg-background/95 backdrop-blur-xl flex-shrink-0 z-20 shadow-xl"
             /* Safe-area padding: without it the primary button sits under the
                iPhone home indicator and reads as unresponsive. */
@@ -1109,11 +1103,11 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                 <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
               </Button>
             </div>
-          </SheetFooter>
+          </div>
         )}
 
         {currentStep === 'checkout' && (
-          <SheetFooter
+          <div
             className="p-4 border-t bg-background/95 backdrop-blur-xl flex-shrink-0 z-20 shadow-xl"
             /* Safe-area padding: without it the primary button sits under the
                iPhone home indicator and reads as unresponsive. */
@@ -1127,9 +1121,10 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             >
               ← Back to Details
             </Button>
-          </SheetFooter>
+          </div>
         )}
-      </SheetContent>
-    </Sheet>
+      </div>
+    </div>
+    )
   );
 };
