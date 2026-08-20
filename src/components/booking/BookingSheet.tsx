@@ -628,11 +628,24 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
           color: 'hsl(var(--foreground, 240 10% 4%))',
         }}
         className={cn(
-          // Phones: genuinely full-screen. dvh (not vh) so the collapsing iOS
-          // URL bar cannot crop the footer button out of reach.
-          'inset-0 h-[100dvh] max-h-[100dvh] w-full rounded-none border-0',
+          /* Phones: PIN, do not MEASURE.
+           *
+           * The previous version set `h-[100dvh]` while the primitive's bottom
+           * variant also pins `bottom-0`. That is two sources of truth for one
+           * edge: a computed height and an anchored edge. Whenever iOS's
+           * dynamic viewport disagrees with the computed dvh — mid-scroll,
+           * with the keyboard up, during the URL-bar collapse — the box
+           * overflows by exactly that difference, which is the "slightly off
+           * screen" symptom.
+           *
+           * `!top-0 !bottom-0` with `h-auto` removes the arithmetic entirely:
+           * the panel is stretched between two pinned edges, so it is correct
+           * at every viewport size by construction rather than by
+           * calculation. The `!` matters — Tailwind emits `bottom-0` after
+           * `inset-0`, so without it the variant's own positioning wins. */
+          '!top-0 !bottom-0 !left-0 !right-0 h-auto w-full rounded-none border-0',
           // sm and up: the right-hand panel, restored in CSS only.
-          'sm:inset-y-0 sm:inset-x-auto sm:right-0 sm:left-auto sm:h-full sm:w-full sm:max-w-md sm:border-l',
+          'sm:!left-auto sm:!right-0 sm:!top-0 sm:!bottom-0 sm:h-auto sm:w-full sm:max-w-md sm:border-l',
           'flex flex-col p-0 gap-0 overflow-hidden shadow-2xl'
         )}
       >
@@ -656,7 +669,12 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         </SheetHeader>
 
         {/* ── Body ───────────────────────────────────────────────────────── */}
-        <ScrollArea className="flex-1 text-left">
+        {/* min-h-0 is load-bearing: a flex child defaults to min-height:auto,
+            which refuses to shrink below its content. Without it the scroll
+            area pushes the footer past the bottom edge as soon as the content
+            is tall — the footer button ends up off-screen and the sheet looks
+            mispositioned when the real problem is an unshrinkable middle. */}
+        <ScrollArea className="flex-1 min-h-0 text-left">
           <div className="p-5 space-y-8 pb-24 text-left">
             <AnimatePresence mode="wait">
 
