@@ -38,7 +38,9 @@ import { useInventory } from '@/context/InventoryContext';
 import { nanoid } from 'nanoid';
 import { type Transaction, type BillDefinition } from '@/lib/financial-data';
 import { DebugErrorBoundary } from '@/components/shared/DebugErrorBoundary';
-import { approveBooking, denyBooking, isAwaitingApproval, isDeadAppointment } from '@/lib/booking-approval';
+import { approveBooking, denyBooking, raiseIssue, isAwaitingApproval, isDeadAppointment } from '@/lib/booking-approval';
+import { resolveAuthority } from '@/lib/appointment-authority';
+import { ReportIssueDialog } from '@/components/planner/ReportIssueDialog';
 import { AlertCircle, XCircle } from 'lucide-react';
 
 const safeDate = (val: any): Date => {
@@ -98,6 +100,8 @@ function PlannerPageContent() {
 
   const [showCancelled, setShowCancelled] = useState(false);
   const [focusId, setFocusId] = useState<string | null>(null);
+  const [issueFor, setIssueFor] = useState<any | null>(null);
+  const [issueBusy, setIssueBusy] = useState(false);
   const [awaitingCursor, setAwaitingCursor] = useState(0);
   const [tmhr, setTmhr] = useState(0);
   useEffect(() => { setTmhr(selectedTenant?.tmhr || 50); }, [selectedTenant]);
@@ -871,6 +875,23 @@ function PlannerPageContent() {
     if (first) setFocusId(first.id);
   }, [showCancelled, appointments, currentDate]);
 
+  const authorityPolicy = useMemo(
+    () => (selectedTenant as any)?.appointmentAuthority || null,
+    [selectedTenant],
+  );
+
+  /* The same resolution the server runs, so the button says the right word
+   * before the round trip. The server is still the one that enforces it. */
+  const myAuthority = useMemo(() => {
+    const me = (allStaff || []).find((s: any) => s.id === currentUser?.uid || s.userId === currentUser?.uid);
+    return resolveAuthority({
+      isManager: role === 'owner' || role === 'admin' || (me as any)?.role === 'manager',
+      employmentModel: (me as any)?.employmentModel || null,
+      decisionAuthority: (me as any)?.decisionAuthority || null,
+      policy: authorityPolicy,
+    });
+  }, [allStaff, currentUser, role, authorityPolicy]);
+
   const decidingStaffName = useMemo(() => {
     const me = (allStaff || []).find((s: any) => s.id === currentUser?.uid || s.userId === currentUser?.uid);
     return me?.name || selectedTenant?.name || 'The studio';
@@ -890,6 +911,28 @@ function PlannerPageContent() {
     reportDecision(res, 'Request accepted');
     return res;
   }, [firestore, tenantId, currentUser, selectedTenant, decidingStaffName, reportDecision]);
+
+  const handleReportIssue = useCallback(async (code: string, note: string) => {
+    if (!issueFor) return;
+    setIssueBusy(true);
+    try {
+      const me = (allStaff || []).find((s: any) => s.id === currentUser?.uid || s.userId === currentUser?.uid);
+      const res = await raiseIssue(firestore, tenantId, issueFor, code, note, {
+        uid: currentUser?.uid,
+        name: decidingStaffName,
+        role: (me as any)?.role || role || null,
+        isManager: role === 'owner' || role === 'admin',
+      }, authorityPolicy);
+      if (res.ok) {
+        toast({ title: 'Sent to a manager', description: res.message });
+        setIssueFor(null);
+      } else {
+        toast({ variant: 'destructive', title: res.reason });
+      }
+    } finally {
+      setIssueBusy(false);
+    }
+  }, [issueFor, allStaff, currentUser, firestore, tenantId, decidingStaffName, role, authorityPolicy, toast]);
 
   const handleDeclineRequest = useCallback(async (apt: any) => {
     const res = await denyBooking(firestore, tenantId, apt, currentUser?.uid, decidingStaffName, 'alternative');
@@ -1115,6 +1158,7 @@ function PlannerPageContent() {
           onDeleteAppointmentFromDB={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))}
           onViewDetails={a => { setSelectedAppointment(a); setIsDetailsOpen(true); }}
           onApproveRequest={handleApproveRequest} onDeclineRequest={handleDeclineRequest}
+          onReportIssue={(a: any) => setIssueFor(a)} canDeclineDirectly={myAuthority === 'full'}
           focusId={focusId} onFocusSettled={() => setFocusId(null)}
           walkIns={walkIns} clients={clients} services={services} resources={resourcesData || []}
         />
@@ -1144,6 +1188,15 @@ function PlannerPageContent() {
           }}
         />
       </DebugErrorBoundary>
+
+      <ReportIssueDialog
+        open={!!issueFor}
+        onOpenChange={(v: boolean) => { if (!v) setIssueFor(null); }}
+        clientName={issueFor?.clientName}
+        policy={authorityPolicy}
+        busy={issueBusy}
+        onSubmit={handleReportIssue}
+      />
 
       <OverrideCancellationDialog open={isOverrideOpen} onOpenChange={setIsOverrideOpen} staff={allStaff || []} onConfirm={handleOverrideConfirm} />
 
