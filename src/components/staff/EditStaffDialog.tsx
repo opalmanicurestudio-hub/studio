@@ -90,6 +90,8 @@ const editStaffSchema = z.object({
   role: z.enum(['admin', 'staff', 'owner']),
   pricingTierId: z.string().optional(),
   payStructure: z.enum(['commission', 'hourly', 'salary', 'hourly_plus_commission']),
+  employmentModel: z.enum(['unset', 'employee', 'commission', 'contractor', 'renter']).optional(),
+  decisionAuthority: z.enum(['default', 'none', 'limited', 'request_approval', 'full']).optional(),
   payoutFrequency: z.enum(['weekly', 'bi-weekly']).optional(),
   commissionRate: z.coerce.number().min(0).max(100).optional(),
   retailCommissionRate: z.coerce.number().min(0).max(100).optional(),
@@ -158,12 +160,10 @@ const EditStaffFormInternal = ({
 
   return (
     <div className="space-y-12">
-      {/* STEP 1: IDENTITY */}
       <div className="space-y-8 text-left">
         <SectionHeader icon={Fingerprint} title="Identity & Security" step={1} />
         <div className="space-y-8">
 
-          {/* Avatar + name/email */}
           <div className="flex flex-col items-center gap-8 p-6 rounded-[2.5rem] border-2 bg-muted/5 shadow-inner">
             <Controller
               name="avatarUrl"
@@ -212,7 +212,6 @@ const EditStaffFormInternal = ({
             </div>
           </div>
 
-          {/* PIN */}
           <div className="p-6 bg-primary/5 rounded-[2.5rem] border-4 border-primary/10 space-y-4 shadow-inner">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -242,7 +241,6 @@ const EditStaffFormInternal = ({
             </div>
           </div>
 
-          {/* Password reset */}
           <div className="p-6 rounded-[2rem] border-2 bg-muted/5 space-y-4 text-left">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
               <ShieldCheck className="w-3.5 h-3.5 opacity-40" /> Authentication Control
@@ -262,7 +260,6 @@ const EditStaffFormInternal = ({
             </div>
           </div>
 
-          {/* Role + Tier */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-left">
             <div className="space-y-3">
               <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Studio Role</Label>
@@ -298,7 +295,6 @@ const EditStaffFormInternal = ({
             </div>
           </div>
 
-          {/* Public toggle */}
           <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5">
             <div className="space-y-1 text-left">
               <Label htmlFor="public-toggle-edit" className="text-base font-black uppercase tracking-tight">Public Registry</Label>
@@ -319,7 +315,6 @@ const EditStaffFormInternal = ({
 
       <Separator className="border-dashed" />
 
-      {/* STEP 2: PROFILE */}
       <div className="space-y-10">
         <SectionHeader icon={Sparkles} title="Profile & Mastery" step={2} />
         <div className="space-y-8 text-left">
@@ -347,7 +342,6 @@ const EditStaffFormInternal = ({
             />
           </div>
 
-          {/* Services */}
           <div className="space-y-4 pt-4 border-t border-dashed text-left">
             <div className="flex items-center justify-between px-1">
               <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
@@ -389,7 +383,6 @@ const EditStaffFormInternal = ({
             )}
           </div>
 
-          {/* Consent forms */}
           <div className="space-y-4 pt-4 border-t border-dashed text-left">
             <div className="flex items-center justify-between px-1 text-left">
               <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
@@ -435,7 +428,6 @@ const EditStaffFormInternal = ({
 
       <Separator className="border-dashed" />
 
-      {/* STEP 3: COMPENSATION */}
       <div className="space-y-10 text-left">
         <SectionHeader icon={Wallet} title="Compensation & Yield" step={3} />
         <div className="space-y-10 text-left">
@@ -456,6 +448,45 @@ const EditStaffFormInternal = ({
                 </Select>
               )} />
             </div>
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Working Relationship</Label>
+              <Controller name="employmentModel" control={control} render={({ field }) => (
+                <Select onValueChange={field.onChange} value={field.value || 'unset'}>
+                  <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest shadow-inner bg-muted/5">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl border-2 shadow-2xl">
+                    <SelectItem value="unset" className="font-bold uppercase text-[10px] tracking-widest">NOT SET</SelectItem>
+                    <SelectItem value="employee" className="font-bold uppercase text-[10px] tracking-widest">EMPLOYEE</SelectItem>
+                    <SelectItem value="commission" className="font-bold uppercase text-[10px] tracking-widest">COMMISSION</SelectItem>
+                    <SelectItem value="contractor" className="font-bold uppercase text-[10px] tracking-widest">CONTRACTOR</SelectItem>
+                    <SelectItem value="renter" className="font-bold uppercase text-[10px] tracking-widest">RENTER</SelectItem>
+                  </SelectContent>
+                </Select>
+              )} />
+              <p className="ml-1 text-[10px] font-bold leading-relaxed text-muted-foreground">
+                Not the same as how they are paid. This is what the business is, which decides what they may do with their own bookings.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Booking Authority</Label>
+              <Controller name="decisionAuthority" control={control} render={({ field }) => (
+                <Select onValueChange={field.onChange} value={field.value || 'default'}>
+                  <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest shadow-inner bg-muted/5">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl border-2 shadow-2xl">
+                    <SelectItem value="default" className="font-bold uppercase text-[10px] tracking-widest">USE THEIR ARRANGEMENT</SelectItem>
+                    <SelectItem value="none" className="font-bold uppercase text-[10px] tracking-widest">ASSIGNED — REPORTS ISSUES ONLY</SelectItem>
+                    <SelectItem value="limited" className="font-bold uppercase text-[10px] tracking-widest">MAY DECLINE FOR APPROVED REASONS</SelectItem>
+                    <SelectItem value="request_approval" className="font-bold uppercase text-[10px] tracking-widest">RAISES, A MANAGER DECIDES</SelectItem>
+                    <SelectItem value="full" className="font-bold uppercase text-[10px] tracking-widest">ANSWERS THEIR OWN BOOKINGS</SelectItem>
+                  </SelectContent>
+                </Select>
+              )} />
+            </div>
+
             {(payStructure === 'commission' || payStructure === 'hourly_plus_commission') && (
               <div className="space-y-2 text-left">
                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Payout Cadence</Label>
@@ -507,7 +538,6 @@ const EditStaffFormInternal = ({
 
       <Separator className="border-dashed" />
 
-      {/* STEP 4: GOVERNANCE */}
       <div className="space-y-10 text-left">
         <SectionHeader icon={Landmark} title="Governance & Compliance" step={4} />
         <div className="space-y-10 text-left">
@@ -610,6 +640,8 @@ export const EditStaffDialog: React.FC<any> = ({
         avatarUrl: staffMember.avatarUrl || '',
         pricingTierId: staffMember.pricingTierId || '',
         payoutFrequency: staffMember.payoutFrequency || 'weekly',
+        employmentModel: (staffMember as any).employmentModel || 'unset',
+        decisionAuthority: (staffMember as any).decisionAuthority || 'default',
         compliance: {
           ...staffMember.compliance,
           licenseExpiry: staffMember.compliance?.licenseExpiry
@@ -656,7 +688,11 @@ export const EditStaffDialog: React.FC<any> = ({
       compliance: (data.compliance?.licenseExpiry || data.compliance?.licenseNumber)
         ? { ...data.compliance, licenseExpiry: data.compliance.licenseExpiry?.toISOString() }
         : undefined,
-    };
+      employmentModel: data.employmentModel && data.employmentModel !== 'unset'
+        ? data.employmentModel : undefined,
+      decisionAuthority: data.decisionAuthority && data.decisionAuthority !== 'default'
+        ? data.decisionAuthority : undefined,
+    } as Staff;
     onSave(staffDataToSave);
     onOpenChange(false);
   };
@@ -732,12 +768,6 @@ export const EditStaffDialog: React.FC<any> = ({
   // Desktop Dialog ─────────────────────────────────────────────────────────
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/*
-        KEY FIX: h-[90dvh] gives the dialog a concrete height so the flex
-        children (header, ScrollArea, footer) can divide space correctly.
-        Without a concrete height, ScrollArea's flex-1 has nothing to grow into
-        and the dialog overflows the viewport instead of scrolling internally.
-      */}
       <DialogContent className="p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden sm:max-w-2xl h-[90dvh]">
         <FormProvider {...methods}>
           <form
@@ -760,11 +790,6 @@ export const EditStaffDialog: React.FC<any> = ({
               </DialogDescription>
             </DialogHeader>
 
-            {/*
-              min-h-0 is required on ScrollArea when used as a flex child.
-              Without it, the flex item cannot shrink below its content size,
-              so overflow never kicks in and the scroll never appears.
-            */}
             <ScrollArea className="flex-1 min-h-0">
               <div className="p-10 pb-8">
                 <EditStaffFormInternal
