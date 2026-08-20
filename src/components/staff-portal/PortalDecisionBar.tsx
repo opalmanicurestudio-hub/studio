@@ -108,7 +108,7 @@ export function PortalDecisionBar({
               type="button"
               disabled={busy}
               onClick={() => void run(
-                () => raiseIssue(firestore, tenantId, appointment, r.code, null, actor, policy, allStaff || []),
+                () => raiseIssue(firestore, tenantId, appointment, r.code, null, actor, policy, allStaff || [], tenant?.userId || null),
                 'Sent to a manager',
               )}
               className="w-full rounded-lg border-2 border-border bg-white px-2.5 py-2 text-left text-[11px] font-bold leading-snug text-foreground active:scale-[0.99] disabled:opacity-50"
