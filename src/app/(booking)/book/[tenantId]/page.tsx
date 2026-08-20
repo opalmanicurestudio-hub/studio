@@ -8,6 +8,7 @@ import { getApp } from 'firebase/app';
 import { doc, setDoc, getDoc, getDocs, addDoc, collection, query, orderBy, where } from 'firebase/firestore';
 import { type PageSection, type PageBuilderConfig } from '@/lib/data';
 import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
+import { resolveBookingPlan } from '@/lib/deposit-policy';
 import { X as XIcon, ArrowRight } from 'lucide-react';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import {
@@ -348,17 +349,47 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           }
         } catch { /* network never reached the route — fall through to the legacy write */ }
 
+        /* ── THE FALLBACK MUST OBEY THE SHOP'S BOOKING MODE ────────────────
+         * This path used to hardcode `status: 'confirmed'`. It runs whenever
+         * the route was unreachable OR the details lacked a serviceId/
+         * startTime — and in that case a studio running approval mode got a
+         * confirmed appointment dropped straight onto the calendar with no
+         * request to answer. The setting was on; the booking ignored it.
+         *
+         * resolveBookingPlan is a pure function, so the same decision the
+         * server makes can be made here. The legacy write is now a slower
+         * road to the same destination rather than a hole in the policy. */
+        const fallbackPlan = resolveBookingPlan({
+          tenant,
+          service: services.find((sv: any) => sv.id === restDetails?.serviceId) || {},
+          price: Number(restDetails?.price ?? 0),
+          client: null,
+          byStaff: false,
+        });
         const aptRef = doc(collection(db, `tenants/${tenantId}/appointments`));
         await setDoc(aptRef, sanitizeForFirestore({
           id: aptRef.id,
           tenantId,
           ...formData, ...restDetails, signedForms,
-          status: 'confirmed',
+          status: fallbackPlan.status,
+          bookingMode: fallbackPlan.mode,
+          bookingReason: `${fallbackPlan.reason} (offline path)`,
+          ...(fallbackPlan.status === 'requested' ? {
+            requestedAt: new Date().toISOString(),
+            requestExpiresAt: fallbackPlan.approvalExpiryHours > 0
+              ? new Date(Date.now() + fallbackPlan.approvalExpiryHours * 3600000).toISOString()
+              : null,
+          } : {}),
           depositAmountCents: 0,
           depositStatus: 'none',
           checkInStatus: 'pending',
           createdAt: new Date().toISOString(),
         }));
+        setBookingOutcome({
+          status: fallbackPlan.status,
+          notice: fallbackPlan.clientNotice,
+          depositCents: 0,
+        });
         setStep('confirmation');
         return { requiresPayment: false };
       }
