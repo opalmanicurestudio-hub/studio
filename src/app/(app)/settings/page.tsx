@@ -9,7 +9,16 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Activity, AlertTriangle, ArrowRight, Ban, Bell, Box, Building, Calendar, CalendarCheck, Check, CheckCircle2, ChevronDown, Clock, Coffee, Coffee as BreakIcon, CreditCard, DollarSign, Edit, Eye, FileText, FileWarning, Fingerprint, Flame, Globe, HeartHandshake, ImageIcon, Landmark, LayoutGrid, Loader, Mail, Map as MapIcon, MapPin, Monitor, Palette, Percent, PlusCircle, Printer, QrCode, RefreshCw, Save, Scale, Scale as ScaleIcon, Search, Settings as SettingsIcon, Shield, ShieldAlert, ShieldCheck, Smartphone, Sparkles, Star, Tag, Target, Timer, Trash2, TrendingUp, Unlock, Users, Wallet, Wifi, Workflow, Zap } from 'lucide-react';
+import {
+  Building, Clock, FileText, Edit, Check, Globe, Palette, Wifi, Coffee,
+  ShieldCheck, Zap, Fingerprint, Save, Loader, ShieldAlert, ArrowRight,
+  Smartphone, Calendar, ImageIcon, CheckCircle2, AlertTriangle, Settings as SettingsIcon,
+  Unlock, DollarSign, Scale, Percent, Target, Search, ChevronDown, Users, Box,
+  Activity, Tag, Shield, Star, Landmark, PlusCircle, LayoutGrid, Sparkles,
+  Flame, Workflow, Printer, QrCode, Scale as ScaleIcon, HeartHandshake, Trash2,
+  FileWarning, MapPin, Timer, TrendingUp, Bell, Coffee as BreakIcon, Eye,
+  Monitor, Wallet, RefreshCw, Ban, CreditCard,
+} from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
 import { useFirebase, updateDocumentNonBlocking, useMemoFirebase, useCollection } from '@/firebase';
@@ -428,27 +437,17 @@ function SettingsPageImpl() {
     { value: 'locations',   label: 'Locations',                  icon: <MapPin className="w-4 h-4" />      },
     { value: 'hours',       label: 'Operating Window',           icon: <Clock className="w-4 h-4" />       },
     { value: 'experience',  label: 'Hospitality & Connectivity', icon: <Coffee className="w-4 h-4" />      },
-    /* "Operational Protocols" and "Automations" were two tabs describing one
-     * subject: what the studio does when a booking goes wrong or arrives
-     * incomplete. An owner setting a cancellation rule and an owner setting
-     * the reminder that chases the unpaid deposit are the same person on the
-     * same errand, and splitting them meant neither screen told the whole
-     * story. Merged, and named for the question rather than the mechanism. */
-    { value: 'policies',    label: 'Rules & Automations',        icon: <ShieldCheck className="w-4 h-4" /> },
+    { value: 'policies',    label: 'Operational Protocols',      icon: <ShieldCheck className="w-4 h-4" /> },
     { value: 'payments',    label: 'Payments & Payouts',         icon: <DollarSign className="w-4 h-4" />  },
     { value: 'terminal',    label: 'Terminal Reader',            icon: <Monitor className="w-4 h-4" />     },
+    { value: 'automations', label: 'Automations',                icon: <Zap className="w-4 h-4" />         },
     { value: 'builder',     label: 'Booking Architecture',       icon: <Globe className="w-4 h-4" />       },
     { value: 'kiosk',       label: 'Kiosk Orchestration',        icon: <Fingerprint className="w-4 h-4" /> },
     { value: 'timeclock',   label: 'Time Clock',                 icon: <Timer className="w-4 h-4" />       },
   ];
 
-  /* Tabs that manage their own state — hide global save/cancel for these.
-   * 'automations' is gone from this list because that tab no longer exists;
-   * its controls now live inside 'policies'. Note the deliberate consequence:
-   * the policies tab keeps the global Save because the cancellation fields
-   * need it, while the automation switches inside it still save themselves on
-   * toggle. Both behaviours are correct for their own controls. */
-  const selfManagedTabs = ['terminal', 'locations'];
+  // Tabs that manage their own state — hide global save/cancel for these
+  const selfManagedTabs = ['terminal', 'automations', 'locations'];
 
   if (isTenantContextLoading || isInventoryLoading) {
     return <div className="p-8 flex items-center justify-center h-full"><Loader className="animate-spin text-primary" /></div>;
@@ -568,12 +567,7 @@ function SettingsPageImpl() {
             </TabsContent>
 
             {/* ── AUTOMATIONS ── */}
-            {/* ── POLICIES ── */}
-            <TabsContent value="policies" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
-              {/* Merged in from the former Automations tab. Cancellation
-                  rules and pre-appointment chasing are one subject: what the
-                  studio does when a booking goes wrong or arrives incomplete.
-                  They sit together so an owner can see the whole story. */}
+            <TabsContent value="automations" className="mt-0 animate-in fade-in duration-500 text-left">
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                 <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
                   <SectionHeader icon={Zap} title="Automations" />
@@ -582,36 +576,12 @@ function SettingsPageImpl() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="p-6 md:p-8">
-                  {/* Three full-width hero cards used to sit here, each one a
-                      tap away from a different page. They are now a single
-                      compact row: the same destinations, a fifth of the
-                      scrolling, and Setup first because it answers most
-                      questions without leaving. */}
-                  <div className="mb-6 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    {[
-                      { href: '/settings/map',      icon: MapIcon,      title: 'Setup',    blurb: 'Everything in plain words — and change most of it here' },
-                      { href: '/settings/booking',  icon: CalendarCheck, title: 'Booking',  blurb: 'How bookings arrive, deposits, approvals' },
-                      { href: '/settings/messages', icon: Mail,          title: 'Messages', blurb: 'Every email and text — wording, timing, quiet hours' },
-                    ].map((c) => {
-                      const Icon = c.icon;
-                      return (
-                        <a key={c.href} href={c.href}
-                          className="flex items-start gap-3 p-4 rounded-2xl border-2 border-border bg-muted/5 transition-all hover:border-primary/40 active:scale-[0.98]">
-                          <Icon className="w-5 h-5 text-foreground shrink-0 mt-0.5" />
-                          <span className="min-w-0">
-                            <span className="block text-sm font-black uppercase tracking-tight text-slate-900">{c.title}</span>
-                            <span className="block text-[10px] font-bold text-muted-foreground leading-relaxed mt-0.5">{c.blurb}</span>
-                          </span>
-                        </a>
-                      );
-                    })}
-                  </div>
                   <div className="flex flex-col sm:flex-row items-center gap-6 p-8 rounded-[2rem] border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/[0.02] shadow-inner">
                     <div className="w-14 h-14 rounded-2xl bg-primary/10 border-2 border-primary/20 flex items-center justify-center shrink-0">
                       <Zap className="w-7 h-7 text-primary" />
                     </div>
                     <div className="flex-1 space-y-1.5 text-center sm:text-left">
-                      <p className="text-base font-black uppercase tracking-tight text-slate-900">Chasing &amp; Reminders</p>
+                      <p className="text-base font-black uppercase tracking-tight text-slate-900">Automation Rules</p>
                       <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-70 leading-relaxed">
                         Set triggers for missing deposits, unsigned forms, no card on file, and more. Actions fire automatically on a schedule.
                       </p>
@@ -720,7 +690,10 @@ function SettingsPageImpl() {
                   </div>
                 </CardContent>
               </Card>
+            </TabsContent>
 
+            {/* ── POLICIES ── */}
+            <TabsContent value="policies" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
               <div className="flex justify-end mb-4">
                 {isEditing && (
                   <Button variant="outline" size="sm" onClick={handleLoadStrategicTemplates} className="h-9 px-4 rounded-xl border-2 border-primary/20 bg-primary/5 text-primary font-black uppercase text-[10px] tracking-widest shadow-sm hover:bg-primary/10">
