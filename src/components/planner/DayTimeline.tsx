@@ -85,7 +85,9 @@ export const DayTimeline = ({
     onApproveRequest,
     onDeclineRequest,
     onReportIssue,
+    onResolveIssue,
     canDeclineDirectly,
+    canResolveIssues,
     focusId,
     onFocusSettled,
     walkIns,
@@ -402,6 +404,7 @@ export const DayTimeline = ({
                     onBookNewForClient={onBookNewForClient} onViewDetails={onViewDetails}
                     onApproveRequest={onApproveRequest} onDeclineRequest={onDeclineRequest}
                     onReportIssue={onReportIssue} canDeclineDirectly={canDeclineDirectly}
+                    onResolveIssue={onResolveIssue} canResolveIssues={canResolveIssues}
                     resources={resources} transactions={allTransactions}
                 />
             </div>
