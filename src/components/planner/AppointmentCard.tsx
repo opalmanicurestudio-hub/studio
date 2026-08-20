@@ -58,7 +58,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn, safeNumber } from '@/lib/utils';
-import { isAwaitingApproval, downgradeReasonLabel } from '@/lib/booking-approval';
+import { isAwaitingApproval, approvalChannel, holdReasonLabel, acceptConsequenceLabel, isDeadAppointment } from '@/lib/booking-approval';
 import { type Appointment, type Client, type Service, Staff } from '@/lib/data';
 import { appointmentReadiness } from '@/lib/appointment-requirements';
 import { useInventory } from '@/context/InventoryContext';
@@ -176,18 +176,20 @@ export function AppointmentCard({
     cancelled: { text: 'Cancelled', className: 'border-red-500/20 text-red-800 bg-red-500/[0.03] grayscale', bgClassName: 'bg-red-500/5', dotColor: 'bg-red-500' },
     deposit_pending: { text: 'Deposit Due', className: 'border-amber-500/20 text-amber-800 bg-amber-500/[0.03]', bgClassName: 'bg-amber-500/5', dotColor: 'bg-amber-500' },
     ready_for_checkout: { text: 'Checkout', className: 'border-orange-500/20 text-orange-800 bg-orange-500/[0.03] shadow-lg', bgClassName: 'bg-orange-500/5', dotColor: 'bg-orange-500' },
+    pending_payment: { text: 'Awaiting Payment', className: 'border-amber-500/40 text-amber-800 bg-amber-500/[0.04]', bgClassName: 'bg-amber-500/5', dotColor: 'bg-amber-500' },
+    declined: { text: 'Declined', className: 'border-red-500/20 text-red-800 bg-red-500/[0.03] grayscale', bgClassName: 'bg-red-500/5', dotColor: 'bg-red-500' },
     requested: { text: 'Requested', className: 'border-dashed border-violet-500/60 text-violet-800 bg-violet-500/[0.04]', bgClassName: 'bg-violet-500/5', dotColor: 'bg-violet-500' },
   };
 
   const awaitingDecision = isAwaitingApproval(appointment);
+  const decisionChannel = approvalChannel(appointment);
   const canDecide = awaitingDecision
     && typeof onApproveRequest === 'function'
     && typeof onDeclineRequest === 'function';
-  const holdReason = awaitingDecision
-    ? downgradeReasonLabel(appointment.voiceMeta?.downgradedFromInstant)
-    : null;
+  const holdReason = awaitingDecision ? holdReasonLabel(appointment) : null;
+  const acceptConsequence = awaitingDecision ? acceptConsequenceLabel(appointment) : null;
 
-  const cardStatus = appointment.checkInStatus === 'auto_cancelled'
+  const cardStatus = isDeadAppointment(appointment) && appointment.status !== 'declined'
     ? 'cancelled'
     : awaitingDecision
       ? 'requested'
@@ -395,6 +397,9 @@ export function AppointmentCard({
                 {holdReason && tier === 'full' && (
                   <p className="text-[8px] font-bold text-violet-700 uppercase tracking-widest truncate">{holdReason}</p>
                 )}
+                {acceptConsequence && tier === 'full' && (
+                  <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest truncate">{acceptConsequence}</p>
+                )}
             </div>
             <div className="flex flex-col items-end gap-1 shrink-0">
                 <DropdownMenu>
@@ -481,7 +486,7 @@ export function AppointmentCard({
             )}
             {canDecide && confirmingDecline && (
                 <div className="flex items-center gap-1">
-                    <span className="text-[8px] font-black uppercase tracking-widest text-destructive">Release it?</span>
+                    <span className="text-[8px] font-black uppercase tracking-widest text-destructive">{decisionChannel === 'request' ? 'Tell them no?' : 'Release it?'}</span>
                     <Button size="xs" disabled={decisionBusy} aria-label={`Confirm declining ${client.name}`} className="h-6 px-2 bg-destructive text-white border-none font-black text-[8px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); runDecision('decline'); }}>Yes</Button>
                     <Button size="xs" variant="outline" aria-label="Keep the request" className="h-6 px-2 border-2 font-black text-[8px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); setConfirmingDecline(false); }}>Keep</Button>
                 </div>
