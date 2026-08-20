@@ -892,6 +892,7 @@ function PlannerPageContent() {
       isManager: role === 'owner' || role === 'admin' || (me as any)?.role === 'manager',
       employmentModel: (me as any)?.employmentModel || null,
       decisionAuthority: (me as any)?.decisionAuthority || null,
+      role: (me as any)?.role || null,
       policy: authorityPolicy,
     });
   }, [allStaff, currentUser, role, authorityPolicy]);
