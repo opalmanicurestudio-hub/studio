@@ -28,14 +28,20 @@ type AppointmentAutomations = {
 
 // ─── Firebase Admin init ───────────────────────────────────────────────────
 function getAdminApp(): App {
-  if (getApps().length) return getApps()[0];
+  /* Named, like every other route here. `getApps()[0]` returns whichever app
+   * a previously-run route happened to create, which is a different set of
+   * credentials and options depending only on traffic order — a source of
+   * failures that appear and disappear with no code change. */
+  const APP_NAME = 'admin-check-automations';
+  const existing = getApps().find((a: any) => a.name === APP_NAME);
+  if (existing) return existing;
   return initializeApp({
     credential: cert({
       projectId: process.env.FIREBASE_ADMIN_PROJECT_ID,
       clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
       privateKey: (process.env.FIREBASE_ADMIN_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
     }),
-  });
+  }, APP_NAME);
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
