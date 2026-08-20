@@ -108,13 +108,13 @@ export function AppointmentCard({
         const displayMins = mins % 60;
         const displaySecs = diff % 60;
         setElapsedTime(hours > 0 ? `${hours}:${String(displayMins).padStart(2, '0')}:${String(displaySecs).padStart(2, '0')}` : `${displayMins}:${String(displaySecs).padStart(2, '0')}`);
-        setIsRunningOver(mins > service.duration);
+        setIsRunningOver(mins > (service?.duration ?? Infinity));
       };
       updateTimer();
       timer = setInterval(updateTimer, 1000);
     }
     return () => { if (timer) clearInterval(timer); };
-  }, [appointment.status, appointment.actualStartTime, service.duration]);
+  }, [appointment.status, appointment.actualStartTime, service?.duration]);
 
   const isBirthdayToday = useMemo(() => {
     if (!client?.birthday) return false;
@@ -127,7 +127,7 @@ export function AppointmentCard({
     if (!showProfitability) return null;
     if (appointment.status === 'cancelled') return null;
     const assignedStaff = (staff || []).find((s: Staff) => s.id === appointment.staffId);
-    const price = service.price || 0;
+    const price = service?.price || 0;
     if (price <= 0) return null;
     const result = computeServiceProfitability(
       service,
@@ -220,8 +220,18 @@ export function AppointmentCard({
     }
   }, [appointment.checkInStatus, appointment.lateTimeMinutes, appointment.status, estimatedArrival]);
 
-  const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
-  const totalDuration = service.duration + totalPadding;
+  const totalPadding = (service?.padBefore || 0) + (service?.padAfter || 0);
+  /* ── A CARD MUST RENDER EVEN WHEN ITS SERVICE IS GONE ──────────────────
+   * `service` is looked up by id from the current service list, so it comes
+   * back undefined for any appointment whose service was renamed, deleted, or
+   * written by a path that did not stamp a matching serviceId. Every
+   * dereference below then threw DURING RENDER — and a card that throws takes
+   * the timeline with it, which is felt as taps doing nothing at all.
+   *
+   * The appointment itself always carries enough to draw a card. Falling back
+   * to its own duration keeps the row honest instead of blank. */
+  const safeDuration = Number(service?.duration ?? appointment.durationMinutes ?? 60) || 60;
+  const totalDuration = safeDuration + totalPadding;
 
   const isMember = !!(client?.activeMembershipId || client?.subscription);
   const hasPackage = (client?.activePackages?.length || 0) > 0;
@@ -236,8 +246,8 @@ export function AppointmentCard({
 
   return (
     <div className="flex flex-col h-full w-full group">
-      {service.padBefore > 0 && <div style={{ height: `${(service.padBefore / totalDuration) * 100}%` }} className="bg-muted/10 rounded-t-xl bg-[repeating-linear-gradient(-45deg,transparent,transparent_4px,rgba(0,0,0,0.05)_4px,rgba(0,0,0,0.05)_5px)]" />}
-      <div style={{ height: `${(service.duration / totalDuration) * 100}%` }} className="min-h-fit flex-1">
+      {(service?.padBefore ?? 0) > 0 && <div style={{ height: `${((service?.padBefore ?? 0) / totalDuration) * 100}%` }} className="bg-muted/10 rounded-t-xl bg-[repeating-linear-gradient(-45deg,transparent,transparent_4px,rgba(0,0,0,0.05)_4px,rgba(0,0,0,0.05)_5px)]" />}
+      <div style={{ height: `${(safeDuration / totalDuration) * 100}%` }} className="min-h-fit flex-1">
         <Card 
           className={cn(
             'p-1.5 sm:p-2.5 border-2 w-full h-full flex flex-col transition-all duration-300 hover:shadow-2xl relative rounded-xl overflow-hidden', 
@@ -328,7 +338,7 @@ export function AppointmentCard({
                     )}
                 </div>
                 <p className="font-black uppercase tracking-tight text-[10px] sm:text-[11px] text-slate-900 truncate leading-none mb-0.5 sm:mb-1">{client.name}</p>
-                <p className="text-[8px] sm:text-[9px] font-bold text-muted-foreground uppercase tracking-widest truncate opacity-60">{service.name}</p>
+                <p className="text-[8px] sm:text-[9px] font-bold text-muted-foreground uppercase tracking-widest truncate opacity-60">{service?.name || appointment.serviceName || 'Service'}</p>
             </div>
             <div className="flex flex-col items-end gap-1 shrink-0">
                 <DropdownMenu>
