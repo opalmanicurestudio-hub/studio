@@ -255,6 +255,21 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     pricingTiers, consentForms,
   };
 
+  /* ── THIS HOOK MUST STAY ABOVE EVERY `return` ─────────────────────────
+   * It was placed further down, below the loading-spinner early return. On
+   * the first render — while config is still loading — that return fires and
+   * this hook never runs, so React sees a different number of hooks between
+   * renders and throws. The whole booking site died with "a client-side
+   * exception has occurred", which is the generic face of exactly this
+   * mistake.
+   *
+   * Opening the flow scrolls to the top: without it the page keeps whatever
+   * offset the service list had, and the flow's first screen starts halfway
+   * down looking like a blank panel. */
+  useEffect(() => {
+    if (dialogOpen) window.scrollTo({ top: 0, behavior: 'auto' });
+  }, [dialogOpen]);
+
   // Loading spinner
   if (!configReady) {
     return (
@@ -431,13 +446,6 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       return { requiresPayment: true, error: `Booking error: ${detail}` };
     }
   };
-
-  /* Opening the flow scrolls to the top. Without this the booking page keeps
-   * whatever scroll offset the service list had, so the flow's first screen
-   * starts halfway down and looks like a blank panel. */
-  useEffect(() => {
-    if (dialogOpen) window.scrollTo({ top: 0, behavior: 'auto' });
-  }, [dialogOpen]);
 
   /* When the flow is open it OWNS the screen — the marketing page underneath
    * is not rendered at all. Leaving it mounted meant the customer could
