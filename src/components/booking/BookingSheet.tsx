@@ -16,14 +16,7 @@ import {
 } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
-import {
-  Clock, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone,
-  CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star,
-  Info, ListChecks, ChevronDown, MapPin, Wallet, AlertTriangle, ArrowDown,
-  Fingerprint, CalendarCheck, CheckCircle2, Zap, Check, Loader, Lock,
-  ArrowRight, Sparkles, Users, FileImage, Flame, MessageSquare, Ban,
-  RefreshCw,
-} from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, Award, Ban, Calendar, CalendarCheck, Check, CheckCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Clock, CreditCard, FileImage, FileSignature, Fingerprint, Flame, Info, ListChecks, Loader, Lock, Mail, MapPin, MessageSquare, Phone, RefreshCw, ShieldCheck, Sparkles, Star, User, Users, Wallet, X as XIcon, Zap } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
@@ -196,6 +189,19 @@ interface BookingSheetProps {
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
+/* Step names the client would use, not the ones the code uses. "dateTime" is
+ * a variable; "Pick a time" is what the person is doing. The header shows this
+ * so someone who put their phone down mid-booking knows where they are. */
+const STEP_TITLES: Record<string, string> = {
+  staff: 'Choose who',
+  dateTime: 'Pick a time',
+  details: 'Your details',
+  consents: 'Before we start',
+  checkout: 'Pay your deposit',
+  summary: 'Check and confirm',
+  confirmation: 'Done',
+};
+
 export const BookingSheet: React.FC<BookingSheetProps> = ({
   open, onOpenChange, service, staff, pricingTiers, initialStaffId,
   appointments, events, scheduleProfiles, services, consentForms, tenant, onConfirm,
@@ -367,8 +373,32 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     return flow;
   }, [requiredForms.length, depositAmount]);
 
+  /* The pinned bars are measured rather than estimated. Their height changes
+   * with the safe-area inset, the step rail, and how long the service name
+   * wraps — a hardcoded padding would be wrong on some phones and clip the
+   * first or last control. ResizeObserver keeps the body's clearance exact. */
+  const headerRef = useRef<HTMLDivElement | null>(null);
+  const footerRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const currentStep = steps[currentStepIndex];
+
+  useEffect(() => {
+    if (!open) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const sync = () => {
+      panel.style.setProperty('--sheet-header-h', `${headerRef.current?.offsetHeight ?? 108}px`);
+      panel.style.setProperty('--sheet-footer-h', `${footerRef.current?.offsetHeight ?? 104}px`);
+    };
+    sync();
+    const ro = new ResizeObserver(sync);
+    if (headerRef.current) ro.observe(headerRef.current);
+    if (footerRef.current) ro.observe(footerRef.current);
+    window.addEventListener('resize', sync);
+    return () => { ro.disconnect(); window.removeEventListener('resize', sync); };
+  }, [open, currentStep, steps.length]);
   const progress    = useMemo(() => ((currentStepIndex) / (steps.length - 1)) * 100, [currentStepIndex, steps.length]);
 
   useEffect(() => {
@@ -629,6 +659,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       />
 
       <div
+        ref={panelRef}
         style={{
           fontFamily: bodyFont,
           backgroundColor: 'hsl(var(--background, 240 6% 97%))',
@@ -640,36 +671,94 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
           'absolute top-0 bottom-0 left-0 right-0',
           // From sm up it becomes a right-hand panel, in CSS only.
           'sm:left-auto sm:w-full sm:max-w-md sm:border-l sm:shadow-2xl',
-          'flex flex-col overflow-hidden'
+          /* THREE PINNED ZONES, NOT A FLEX COLUMN.
+           * A flex column asks the middle to shrink so the footer fits, and
+           * every browser has its own opinion about when it will. That is how
+           * the Continue button ended up off-screen. Here the header is
+           * pinned to the top, the footer to the bottom, and the scrolling
+           * body fills what is left — so the button's position is not a
+           * consequence of the content's height at all. It cannot be pushed
+           * anywhere, because nothing is pushing. */
+          'overflow-hidden'
         )}
       >
         {/* ── Header ─────────────────────────────────────────────────────── */}
         <div
-          className="border-b bg-muted/5 flex-shrink-0 text-left p-5 pb-4"
-          style={{ paddingTop: 'max(1.25rem, env(safe-area-inset-top))' }}
+          ref={headerRef}
+          className="absolute top-0 left-0 right-0 z-10 border-b bg-background/95 backdrop-blur-xl text-left px-4 pb-3"
+          style={{ paddingTop: 'max(0.875rem, env(safe-area-inset-top))' }}
         >
-          <div className="flex items-center gap-2.5 mb-1 text-left">
-            <Sparkles className="w-4 h-4 text-primary" />
-            <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground">Booking</span>
+          {/* Back lives up here, not in the footer. It is a secondary action
+              and it was competing with the primary one for the only reachable
+              row on the screen. Moving it frees the footer for a single
+              full-width target. */}
+          <div className="flex items-center gap-2">
+            {currentStepIndex > 0 && currentStep !== 'confirmation' ? (
+              <button
+                type="button"
+                onClick={handlePrevStep}
+                aria-label="Go back a step"
+                className="-ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted active:scale-95"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+            ) : (
+              <span className="w-1" />
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[10px] font-black uppercase tracking-[0.18em] text-muted-foreground">
+                {service?.name || 'Booking'}
+              </p>
+              <h2 style={{ fontFamily: headingFont }} className="truncate text-lg font-black uppercase tracking-tighter leading-tight">
+                {STEP_TITLES[currentStep] || 'Book'}
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => onOpenChange(false)}
+              aria-label="Close booking"
+              className="-mr-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted active:scale-95"
+            >
+              <XIcon className="h-5 w-5" />
+            </button>
           </div>
-          <h2 style={{ fontFamily: headingFont }} className="text-xl font-black uppercase tracking-tighter text-left">
-            Reserve Session
-          </h2>
+
+          {/* A rail of segments rather than a percentage bar: a percentage
+              tells you how far along you are, a rail tells you how much is
+              left and what it is called. Only shown while there are steps
+              left to take. */}
           {currentStep !== 'confirmation' && (
-            <div className="pt-4">
-              <Progress value={progress} className="h-1 rounded-full bg-muted" />
+            <div className="mt-2.5 flex items-center gap-1.5" aria-hidden="true">
+              {steps.slice(0, -1).map((st, i) => (
+                <span
+                  key={st}
+                  className={cn(
+                    'h-1 flex-1 rounded-full transition-colors duration-300',
+                    i < currentStepIndex ? 'bg-primary'
+                      : i === currentStepIndex ? 'bg-primary/50'
+                        : 'bg-muted'
+                  )}
+                />
+              ))}
             </div>
           )}
+          <p className="sr-only" aria-live="polite">
+            Step {currentStepIndex + 1} of {steps.length - 1}: {STEP_TITLES[currentStep]}
+          </p>
         </div>
 
-        {/* ── Body ───────────────────────────────────────────────────────── */}
-        {/* min-h-0 is load-bearing: a flex child defaults to min-height:auto,
-            which refuses to shrink below its content. Without it the scroll
-            area pushes the footer past the bottom edge as soon as the content
-            is tall — the footer button ends up off-screen and the sheet looks
-            mispositioned when the real problem is an unshrinkable middle. */}
-        <ScrollArea className="flex-1 min-h-0 text-left">
-          <div className="p-5 space-y-8 pb-24 text-left">
+        {/* ── Body ─────────────────────────────────────────────────────────
+         * Absolutely filling the panel and scrolling itself. The generous
+         * bottom padding is not decoration: it guarantees the last control in
+         * any step can be scrolled clear of the pinned footer, so nothing is
+         * ever hidden behind the button that acts on it.
+         *
+         * A plain div rather than ScrollArea — the custom scroller adds a
+         * wrapper whose height it wants to compute, and computed heights are
+         * exactly what kept breaking this panel. Native overflow needs no
+         * measurement and gets momentum scrolling on iOS for free. */}
+        <div className="absolute inset-0 overflow-y-auto overscroll-contain text-left" style={{ paddingTop: 'var(--sheet-header-h, 7.5rem)', paddingBottom: 'var(--sheet-footer-h, 6.5rem)', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+          <div className="p-5 pt-3 space-y-8 text-left">
             <AnimatePresence mode="wait">
 
               {/* Confirmation */}
@@ -1069,46 +1158,43 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
               )}
             </AnimatePresence>
           </div>
-        </ScrollArea>
+        </div>
 
         {/* ── Footer ─────────────────────────────────────────────────────── */}
         {currentStep !== 'confirmation' && currentStep !== 'checkout' && (
           <div
-            className="p-4 border-t bg-background/95 backdrop-blur-xl flex-shrink-0 z-20 shadow-xl"
+            ref={footerRef}
+            className="absolute bottom-0 left-0 right-0 z-10 p-4 border-t bg-background/95 backdrop-blur-xl shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.25)]"
             /* Safe-area padding: without it the primary button sits under the
                iPhone home indicator and reads as unresponsive. */
             style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
           >
-            <div className="flex w-full gap-3">
-              {currentStepIndex > 0 && (
-                <Button
-                  variant="ghost"
-                  onClick={handlePrevStep}
-                  style={{ borderRadius: r3 }}
-                  className="flex-1 h-12 font-black uppercase tracking-tighter text-[10px] text-muted-foreground"
-                >
-                  Back
-                </Button>
-              )}
-              <Button
-                onClick={handleNextStep}
-                disabled={currentStep === 'details' && (!!existingClientWithBalance || !!bannedClient || isResolvingIdentity)}
-                style={{ borderRadius: r3, fontFamily: headingFont }}
-                className={cn(
-                  'h-12 font-black uppercase tracking-widest text-[11px] shadow-xl shadow-primary/30 group transition-all',
-                  currentStepIndex === 0 ? 'w-full' : 'flex-[2.5]'
-                )}
-              >
-                {currentStep === 'summary' ? 'Finalize Booking' : 'Continue'}
-                <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
-              </Button>
-            </div>
+            {/* One full-width target, 56px tall. The previous version split
+                this row between Back and Continue, which made the primary
+                action a fraction of the only comfortably reachable strip on a
+                phone. Back now lives in the header. */}
+            <Button
+              onClick={handleNextStep}
+              disabled={currentStep === 'details' && (!!existingClientWithBalance || !!bannedClient || isResolvingIdentity)}
+              style={{ borderRadius: r3, fontFamily: headingFont }}
+              className="group h-14 w-full font-black uppercase tracking-widest text-[12px] shadow-xl shadow-primary/25 transition-all active:scale-[0.99]"
+            >
+              {/* The button names what happens next, and keeps that name all
+                  the way through the flow. */}
+              {currentStep === 'summary' ? 'Confirm booking'
+                : currentStep === 'staff' ? 'Choose a time'
+                  : currentStep === 'dateTime' ? 'Add your details'
+                    : currentStep === 'consents' ? 'Agree and continue'
+                      : 'Continue'}
+              <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
+            </Button>
           </div>
         )}
 
         {currentStep === 'checkout' && (
           <div
-            className="p-4 border-t bg-background/95 backdrop-blur-xl flex-shrink-0 z-20 shadow-xl"
+            ref={footerRef}
+            className="absolute bottom-0 left-0 right-0 z-10 p-4 border-t bg-background/95 backdrop-blur-xl shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.25)]"
             /* Safe-area padding: without it the primary button sits under the
                iPhone home indicator and reads as unresponsive. */
             style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
