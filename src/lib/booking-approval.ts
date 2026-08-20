@@ -1,7 +1,7 @@
 import { doc, writeBatch, type Firestore } from 'firebase/firestore';
 
 export type ApprovalResult =
-  | { ok: true; message: string }
+  | { ok: true; message: string; nextStatus?: string | null }
   | { ok: false; reason: string; alreadyStatus?: string | null };
 
 export type ApprovableAppointment = {
@@ -79,6 +79,27 @@ export function acceptConsequenceLabel(apt: any, client?: any): string | null {
     : `Accepting sends a $${(cents / 100).toFixed(0)} pay link`;
 }
 
+async function sendCompletionLink(apt: ApprovableAppointment, studioName?: string | null): Promise<boolean> {
+  const link = apt.voiceMeta?.link;
+  if (!link) return false;
+  try {
+    await fetch('/api/notifications/send-completion-link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        link,
+        clientName: apt.clientName,
+        clientEmail: apt.voiceMeta?.clientEmail || '',
+        clientPhone: apt.voiceMeta?.clientPhone || '',
+        studioName: studioName || undefined,
+      }),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function decideViaRoute(
   tenantId: string,
   apt: ApprovableAppointment,
@@ -106,7 +127,11 @@ async function decideViaRoute(
         alreadyStatus: (data && data.alreadyStatus) || null,
       };
     }
-    return { ok: true, message: data.message || (decision === 'accept' ? 'Accepted' : 'Declined') };
+    return {
+      ok: true,
+      message: data.message || (decision === 'accept' ? 'Accepted' : 'Declined'),
+      nextStatus: data.status || (decision === 'accept' ? 'confirmed' : 'declined'),
+    };
   } catch {
     return { ok: false, reason: 'No connection - nothing changed' };
   }
@@ -119,26 +144,7 @@ async function approveVoiceBooking(
   actorStaffId?: string | null,
   studioName?: string | null,
 ): Promise<ApprovalResult> {
-  let sentLink = false;
-  const link = apt.voiceMeta?.link;
-  if (link) {
-    try {
-      await fetch('/api/notifications/send-completion-link', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          link,
-          clientName: apt.clientName,
-          clientEmail: apt.voiceMeta?.clientEmail || '',
-          clientPhone: apt.voiceMeta?.clientPhone || '',
-          studioName: studioName || undefined,
-        }),
-      });
-      sentLink = true;
-    } catch {
-      sentLink = false;
-    }
-  }
+  const sentLink = await sendCompletionLink(apt, studioName);
   try {
     const batch = writeBatch(firestore);
     batch.set(
@@ -153,6 +159,7 @@ async function approveVoiceBooking(
     await batch.commit();
     return {
       ok: true,
+      nextStatus: apt.status || 'confirmed',
       message: sentLink
         ? 'Accepted - secure link sent to the client.'
         : `Accepted - ${apt.clientName || 'the client'} is confirmed.`,
@@ -195,7 +202,7 @@ async function denyVoiceBooking(
       );
     }
     await batch.commit();
-    return { ok: true, message: 'Declined - the time is free again. Give them a quick call.' };
+    return { ok: true, nextStatus: 'cancelled', message: 'Declined - the time is free again. Give them a quick call.' };
   } catch {
     return { ok: false, reason: 'Could not release the slot' };
   }
@@ -211,7 +218,11 @@ export async function approveBooking(
 ): Promise<ApprovalResult> {
   if (!tenantId || !apt?.id) return { ok: false, reason: 'Missing studio or booking' };
   const channel = approvalChannel(apt);
-  if (channel === 'request') return decideViaRoute(tenantId, apt, 'accept', staffName || studioName);
+  if (channel === 'request') {
+    const res = await decideViaRoute(tenantId, apt, 'accept', staffName || studioName);
+    if (res.ok) await sendCompletionLink(apt, studioName);
+    return res;
+  }
   if (channel === 'voice') {
     if (!firestore) return { ok: false, reason: 'Missing studio or booking' };
     return approveVoiceBooking(firestore, tenantId, apt, actorStaffId, studioName);
