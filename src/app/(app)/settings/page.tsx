@@ -9,16 +9,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Building, Clock, FileText, Edit, Check, Globe, Palette, Wifi, Coffee,
-  ShieldCheck, Zap, Fingerprint, Save, Loader, ShieldAlert, ArrowRight,
-  Smartphone, Calendar, ImageIcon, CheckCircle2, AlertTriangle, Settings as SettingsIcon,
-  Unlock, DollarSign, Scale, Percent, Target, Search, ChevronDown, Users, Box,
-  Activity, Tag, Shield, Star, Landmark, PlusCircle, LayoutGrid, Sparkles,
-  Flame, Workflow, Printer, QrCode, Scale as ScaleIcon, HeartHandshake, Trash2,
-  FileWarning, MapPin, Timer, TrendingUp, Bell, Coffee as BreakIcon, Eye,
-  Monitor, Wallet, RefreshCw, Ban, CreditCard,
-} from 'lucide-react';
+import { Activity, AlertTriangle, ArrowRight, Ban, Bell, Box, Building, Calendar, CalendarCheck, Check, CheckCircle2, ChevronDown, Clock, Coffee, Coffee as BreakIcon, CreditCard, DollarSign, Edit, Eye, FileText, FileWarning, Fingerprint, Flame, Globe, HeartHandshake, ImageIcon, Landmark, LayoutGrid, Loader, Mail, Map as MapIcon, MapPin, Monitor, Palette, Percent, PlusCircle, Printer, QrCode, RefreshCw, Save, Scale, Scale as ScaleIcon, Search, Settings as SettingsIcon, Shield, ShieldAlert, ShieldCheck, Smartphone, Sparkles, Star, Tag, Target, Timer, Trash2, TrendingUp, Unlock, Users, Wallet, Wifi, Workflow, Zap } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
 import { useFirebase, updateDocumentNonBlocking, useMemoFirebase, useCollection } from '@/firebase';
@@ -576,6 +567,36 @@ function SettingsPageImpl() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="p-6 md:p-8">
+                  {/* Doorways to the three screens that live outside this page.
+                      A previous version of this block was three full-width hero
+                      cards; one compact row costs a fraction of the scrolling
+                      and reaches the same places. Setup is first because it
+                      answers most questions without leaving at all.
+
+                      Deliberately a plain sibling <div>: an earlier attempt to
+                      reorganise this file moved TabsContent blocks around and
+                      a stray closing tag silently swallowed half the policies
+                      tab into its neighbour. Nothing here opens or closes a
+                      tab, so that failure mode is impossible. */}
+                  <div className="mb-6 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    {[
+                      { href: '/settings/map',      icon: MapIcon,       title: 'Setup',    blurb: 'Everything in plain words — change most of it right there' },
+                      { href: '/settings/booking',  icon: CalendarCheck, title: 'Booking',  blurb: 'How bookings arrive, deposits, approvals' },
+                      { href: '/settings/messages', icon: Mail,          title: 'Messages', blurb: 'Every email and text — wording, timing, quiet hours' },
+                    ].map((c) => {
+                      const Icon = c.icon;
+                      return (
+                        <a key={c.href} href={c.href}
+                          className="flex items-start gap-3 p-4 rounded-2xl border-2 border-border bg-muted/5 transition-all hover:border-primary/40 active:scale-[0.98]">
+                          <Icon className="w-5 h-5 text-foreground shrink-0 mt-0.5" />
+                          <span className="min-w-0">
+                            <span className="block text-sm font-black uppercase tracking-tight text-slate-900">{c.title}</span>
+                            <span className="block text-[10px] font-bold text-muted-foreground leading-relaxed mt-0.5">{c.blurb}</span>
+                          </span>
+                        </a>
+                      );
+                    })}
+                  </div>
                   <div className="flex flex-col sm:flex-row items-center gap-6 p-8 rounded-[2rem] border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/[0.02] shadow-inner">
                     <div className="w-14 h-14 rounded-2xl bg-primary/10 border-2 border-primary/20 flex items-center justify-center shrink-0">
                       <Zap className="w-7 h-7 text-primary" />
