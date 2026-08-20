@@ -120,8 +120,15 @@ export function VoiceBookingApprovalsPanel({
     setBusyId(apt.id);
     try {
       const res = await approveBooking(firestore, tenantId, apt as any, currentStaffId, tenant?.name);
-      if (res.ok) toast({ title: 'Booking approved', description: res.message });
-      else toast({ variant: 'destructive', title: res.reason });
+      if (res.ok) {
+        setPending(prev => prev.filter(p => p.id !== apt.id));
+        toast({ title: 'Booking approved', description: res.message });
+      } else if (res.alreadyStatus) {
+        setPending(prev => prev.filter(p => p.id !== apt.id));
+        toast({ title: 'Already answered', description: `Nothing changed — this one is ${String(res.alreadyStatus).replace(/_/g, ' ')}.` });
+      } else {
+        toast({ variant: 'destructive', title: res.reason });
+      }
     } finally {
       setBusyId(null);
     }
@@ -133,6 +140,7 @@ export function VoiceBookingApprovalsPanel({
     try {
       const res = await denyBooking(firestore, tenantId, apt as any, currentStaffId);
       if (res.ok) {
+        setPending(prev => prev.filter(p => p.id !== apt.id));
         setConfirmDenyId(null);
         toast({
           title: 'Booking denied — slot released',
