@@ -103,9 +103,10 @@ export type CreateBookingResult =
       clientId: string;
       checkInToken: string;
       shortCode: string;
-      status: 'deposit_pending' | 'confirmed';
+      status: 'requested' | 'deposit_pending' | 'confirmed';
       mode: 'instant' | 'approval';
       depositCents: number;
+      depositCharged: boolean;
       link: string | null; // completion link (sent in instant mode; staged in approval)
       linkSent: boolean;
       spoken: string; // what happened, ready to relay
@@ -344,8 +345,15 @@ export async function createBooking(
   const endUtc = new Date(startUtc.getTime() + (service.duration ?? 60) * 60_000);
   // v10 — a successfully charged deposit means the appointment is fully
   // confirmed immediately, not deposit_pending, even though depositCents > 0.
-  const status: 'deposit_pending' | 'confirmed' =
-    depositCents > 0 && !depositCharged ? 'deposit_pending' : 'confirmed';
+  const approvalExpiryHours = (() => {
+    const v = Number((tenant as any)?.bookingMode?.approvalExpiryHours ?? 24);
+    return Number.isFinite(v) && v >= 0 ? v : 24;
+  })();
+
+  const status: 'requested' | 'deposit_pending' | 'confirmed' =
+    effectiveMode === 'approval'
+      ? 'requested'
+      : depositCents > 0 && !depositCharged ? 'deposit_pending' : 'confirmed';
 
   const link = needsLink ? `${appUrl}/check-in/${checkInToken}` : null;
 
@@ -376,7 +384,25 @@ export async function createBooking(
     depositPaymentIntentId: depositChargeIntentId,
     depositChargedViaVoice: depositCharged || undefined,
     completionStatus: needsLink ? 'pending' : undefined,
+    // Kept alongside the status so anything still querying the old field —
+    // the voice command centre's counter, release-stale — keeps working
+    // while in-flight bookings drain. The status is what decides now.
     voiceApproval: effectiveMode === 'approval' ? 'pending' : undefined,
+    ...(effectiveMode === 'approval' ? {
+      requestedAt: nowISO,
+      requestExpiresAt: approvalExpiryHours > 0
+        ? new Date(Date.now() + approvalExpiryHours * 3600000).toISOString()
+        : null,
+      bookingMode: 'approval',
+      bookingReason: poorHistory
+        ? 'Booking history requires the deposit up front'
+        : hasOutstandingBalance
+          ? 'An outstanding balance is owed'
+          : serviceForcesApproval
+            ? `${service.name} overrides the shop rule (approval)`
+            : 'Shop default: approval',
+      hasCardOnFile: hasUsableCard,
+    } : {}),
     retellCallId: input.retellCallId || undefined,
     // Self-describing metadata so review surfaces need no joins:
     voiceMeta: stripUndefined({
