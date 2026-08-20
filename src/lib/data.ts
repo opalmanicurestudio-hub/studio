@@ -1192,6 +1192,9 @@ export type Tenant = {
     customReasons?: { code: string; label: string; group?: string; resolution: 'auto' | 'manager' }[];
     reasonLabels?: Record<string, string>;
     hiddenReasonCodes?: string[];
+    /* How long a provider has to answer a booking. Distinct from
+     * approvalExpiryHours, which is the promise made to the client. */
+    providerResponseHours?: number;
   };
   defaultRescheduleMode?: 'matrix' | 'flat';
   allowGuestFeeDeferral?: boolean;
