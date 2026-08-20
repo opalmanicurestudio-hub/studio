@@ -43,10 +43,20 @@ interface ImageUploadProps {
   enableMarkup?: boolean;
   /** Storage folder under tenants/{tid}/ — defaults to 'uploads'. */
   storageFolder?: string;
+  /** Explicit tenant, for surfaces OUTSIDE the app shell.
+   *
+   * This component read the tenant from app context only. The public booking
+   * site and the client portal have no such context, so tenantId came back
+   * undefined there, the Storage upload was skipped entirely, and every photo
+   * fell back to an inline data-URL — which then hit request-size limits and
+   * looked to the customer like the image simply would not attach. Public
+   * surfaces pass the tenant explicitly. */
+  tenantId?: string;
 }
 
 export const ImageUpload: React.FC<ImageUploadProps> = ({
   onImageUploaded,
+  tenantId: tenantIdProp,
   initialImage = null,
   maxSizeMB = 2,
   maxWidthOrHeight = 600,
@@ -64,7 +74,7 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
   const localDataUrlRef = useRef<string | null>(null);
   const { toast } = useToast();
   const { selectedTenant } = useTenant();
-  const tenantId = selectedTenant?.id;
+  const tenantId = tenantIdProp || selectedTenant?.id;
 
   useEffect(() => {
     setImagePreview(initialImage);
