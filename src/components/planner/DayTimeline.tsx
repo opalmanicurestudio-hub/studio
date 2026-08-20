@@ -34,7 +34,7 @@ const LiveTimer = ({ startIso, bookedEndIso, overageRateCentsPerHour }: { startI
         const overMin = (now - endMs) / 60000;
         let est = 0;
         if (overageRateCentsPerHour && overMin > 10) est = overageRateCentsPerHour * (Math.ceil(overMin / 15) * 15) / 60;
-        return <span className="tabular-nums font-black text-red-600">OVER +{fmt(now - endMs)}{est > 0 ? ` · ~$${(est / 100).toFixed(0)}` : ''}</span>;
+        return <span className="tabular-nums font-black text-destructive">OVER +{fmt(now - endMs)}{est > 0 ? ` · ~$${(est / 100).toFixed(0)}` : ''}</span>;
     }
     return <span className="tabular-nums font-black">{fmt(now - start)}</span>;
 };
@@ -234,14 +234,14 @@ export const DayTimeline = ({
         
         return (
             <div key={item.id} className="absolute pr-2 z-10" style={style}>
-                <Card className="h-full border-2 border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 transition-colors cursor-pointer overflow-hidden shadow-none rounded-xl sm:rounded-2xl">
+                <Card className="h-full border-2 border-amber-600/40 bg-amber-500/[0.07] hover:bg-amber-500/[0.12] transition-colors cursor-pointer overflow-hidden shadow-none rounded-xl sm:rounded-2xl">
                     <CardContent className="p-2 sm:p-3 flex flex-col justify-center h-full gap-0.5 sm:gap-1 text-left">
                         <div className="flex items-center gap-1.5 sm:gap-2">
-                            <Landmark className="w-3 h-3 sm:w-4 sm:h-4 text-orange-600" />
-                            <p className="text-[8px] sm:text-[10px] font-black uppercase text-orange-700 tracking-widest truncate">{item.definition?.name || 'Bill'}</p>
+                            <Landmark className="w-3 h-3 sm:w-4 sm:h-4 text-amber-700" />
+                            <p className="text-[8px] sm:text-[10px] font-black uppercase text-amber-800 tracking-widest truncate">{item.definition?.name || 'Bill'}</p>
                         </div>
-                        <p className="font-black text-sm sm:text-lg text-orange-800 tracking-tighter">${item.definition?.amount?.toFixed(2) || '0.00'}</p>
-                        <Badge variant="outline" className="w-fit h-4 sm:h-5 px-1 sm:px-1.5 text-[8px] sm:text-[9px] border-orange-500/20 text-orange-600 uppercase font-black">Due Today</Badge>
+                        <p className="font-black text-sm sm:text-lg text-amber-900 tracking-tighter">${item.definition?.amount?.toFixed(2) || '0.00'}</p>
+                        <Badge variant="outline" className="w-fit h-4 sm:h-5 px-1 sm:px-1.5 text-[8px] sm:text-[9px] border-amber-600/30 text-amber-800 uppercase font-black">Due Today</Badge>
                     </CardContent>
                 </Card>
             </div>
@@ -380,7 +380,7 @@ export const DayTimeline = ({
                         title={group.label}
                         className={cn(
                             'absolute -top-1 left-1 z-20 pointer-events-none inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[8px] sm:text-[8px] font-black uppercase tracking-widest text-white shadow-sm max-w-[calc(100%-0.75rem)]',
-                            group.kind === 'party' ? 'bg-violet-600' : 'bg-indigo-600',
+                            'bg-foreground/80',
                         )}
                     >
                         {group.kind === 'party' ? <Users className="w-2 h-2 shrink-0" /> : <Link2 className="w-2 h-2 shrink-0" />}
@@ -436,10 +436,10 @@ export const DayTimeline = ({
         const med = height > 58;
         const tall = height > 104;
         const scheme = live
-            ? { bg: 'bg-emerald-500/10', border: 'border-emerald-500/50', text: 'text-emerald-800', badge: 'bg-emerald-500' }
+            ? { bg: 'bg-emerald-500/[0.07]', border: 'border-emerald-600/50', text: 'text-emerald-900', badge: 'bg-emerald-600' }
             : isTour
-            ? { bg: 'bg-sky-500/10', border: 'border-sky-400/60 border-dashed', text: 'text-sky-800', badge: 'bg-sky-500' }
-            : { bg: 'bg-amber-500/10', border: 'border-amber-500/50', text: 'text-amber-800', badge: 'bg-amber-500' };
+            ? { bg: 'bg-white', border: 'border-foreground/30 border-dashed', text: 'text-foreground', badge: 'bg-foreground/70' }
+            : { bg: 'bg-white', border: 'border-border', text: 'text-foreground', badge: 'bg-foreground/70' };
         const label = isTour ? 'Tour' : (item.bookingType === 'hourly' ? 'Hourly' : 'Day rental');
         return (
             <div key={item.id} className="absolute pr-2 z-10" style={style}>
@@ -454,17 +454,17 @@ export const DayTimeline = ({
                             {isTour ? <Eye className="w-2 h-2" /> : <DollarSign className="w-2 h-2" />}{label}
                         </span>
                         {live ? (
-                            <span className="inline-flex items-center gap-1 text-[8px] sm:text-[9px] text-emerald-700"><span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /><LiveTimer startIso={item.checkedInAt} bookedEndIso={item.bookedEndIso} overageRateCentsPerHour={item.overageRateCentsPerHour} /></span>
+                            <span className="inline-flex items-center gap-1 text-[8px] sm:text-[9px] text-emerald-800"><span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" /><LiveTimer startIso={item.checkedInAt} bookedEndIso={item.bookedEndIso} overageRateCentsPerHour={item.overageRateCentsPerHour} /></span>
                         ) : (
                             <span className={cn('text-[8px] sm:text-[8px] font-black uppercase tracking-widest', scheme.text)}>{item.tourTimeTBD ? 'Time TBD' : fmtT(startTime)}</span>
                         )}
                     </div>
                     <p className={cn('relative z-10 pointer-events-none font-black text-[11px] sm:text-sm tracking-tight truncate mt-0.5', scheme.text)}>{item.guestName || item.name || 'Guest'}</p>
-                    {med && <p className="relative z-10 pointer-events-none text-[8px] sm:text-[10px] font-bold text-slate-500 truncate">{item.boothName || item.location || ''}{!live && !isTour ? ` · ${fmtT(startTime)}–${fmtT(endTime)}` : ''}</p>}
+                    {med && <p className="relative z-10 pointer-events-none text-[8px] sm:text-[10px] font-bold text-muted-foreground truncate">{item.boothName || item.location || ''}{!live && !isTour ? ` · ${fmtT(startTime)}–${fmtT(endTime)}` : ''}</p>}
                     {(overageDue || balanceDue) && (
                         <div className="relative z-10 pointer-events-none flex flex-wrap gap-1 mt-1">
-                            {overageDue && <span className="text-[8px] font-black uppercase tracking-widest bg-red-500 text-white rounded-full px-1.5 py-0.5">Overage due</span>}
-                            {balanceDue && <span className="text-[8px] font-black uppercase tracking-widest bg-amber-600 text-white rounded-full px-1.5 py-0.5">Balance ${(item.balanceDueCents / 100).toFixed(0)}</span>}
+                            {overageDue && <span className="text-[8px] font-black uppercase tracking-widest bg-destructive text-white rounded-full px-1.5 py-0.5">Overage due</span>}
+                            {balanceDue && <span className="text-[8px] font-black uppercase tracking-widest bg-amber-700 text-white rounded-full px-1.5 py-0.5">Balance ${(item.balanceDueCents / 100).toFixed(0)}</span>}
                         </div>
                     )}
                     {tall && item.phone && (
@@ -566,17 +566,17 @@ export const DayTimeline = ({
                 </div>
                 <div className={cn("sticky left-0 z-10 bg-background", isMobile ? "w-10" : "w-16")}>
                     {hours.map(hour => (
-                        <div key={hour} className="border-r border-b border-slate-200 text-right pr-1.5 sm:pr-3 pt-1 flex justify-end items-start" style={{ height: `${PX_PER_HOUR}px` }}>
+                        <div key={hour} className="border-r border-b border-border text-right pr-1.5 sm:pr-3 pt-1 flex justify-end items-start" style={{ height: `${PX_PER_HOUR}px` }}>
                             <span className="text-[10px] font-black uppercase text-muted-foreground -mt-2 sm:-mt-2.5 opacity-60 tracking-widest">{format(new Date(0, 0, 0, hour), 'ha')}</span>
                         </div>
                     ))}
                 </div>
                 <div className="col-start-2 grid relative bg-white/30" style={gridStyle}>
                     {displayedColumns.map(column => (
-                        <div key={column.id} className="relative border-r border-slate-200">
+                        <div key={column.id} className="relative border-r border-border">
                             {hours.map(hour => (
-                                <div key={hour} className="border-b border-slate-200" style={{ height: `${PX_PER_HOUR}px` }}>
-                                    <div className="h-1/2 border-b border-dashed border-slate-100" />
+                                <div key={hour} className="border-b border-border" style={{ height: `${PX_PER_HOUR}px` }}>
+                                    <div className="h-1/2 border-b border-dashed border-border/50" />
                                 </div>
                             ))}
                             {(positionedItemsByColumn.get(column.id) || []).map(item => {
