@@ -88,6 +88,9 @@ export function AppointmentCard({
   onReschedule,
   onViewDetails,
   onFinishService,
+  onStartService,
+  onPrintTicket,
+  heightPx,
 }: any) {
   const { staff, inventory } = useInventory();
   const { selectedTenant } = useTenant();
@@ -200,12 +203,12 @@ export function AppointmentCard({
   const checkInIndicator = useMemo(() => {
     if (appointment.status === 'servicing' || appointment.status === 'completed') return null;
     switch (appointment.checkInStatus) {
-        case 'arrived': return <Badge className="bg-green-500 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm"><MapPin className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />HERE</Badge>;
+        case 'arrived': return <Badge className="bg-green-500 text-white border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm"><MapPin className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />HERE</Badge>;
         case 'running_late': return (
             <TooltipProvider>
                 <Tooltip>
                     <TooltipTrigger asChild>
-                        <Badge className="bg-amber-500 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm animate-pulse cursor-help">
+                        <Badge className="bg-amber-500 text-white border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm animate-pulse cursor-help">
                             <Clock className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />+{appointment.lateTimeMinutes}M
                         </Badge>
                     </TooltipTrigger>
@@ -215,7 +218,7 @@ export function AppointmentCard({
                 </Tooltip>
             </TooltipProvider>
         );
-        case 'on_my_way': return <Badge className="bg-blue-500 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm"><Car className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />EN ROUTE</Badge>;
+        case 'on_my_way': return <Badge className="bg-blue-500 text-white border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm"><Car className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />EN ROUTE</Badge>;
         default: return null;
     }
   }, [appointment.checkInStatus, appointment.lateTimeMinutes, appointment.status, estimatedArrival]);
@@ -244,10 +247,19 @@ export function AppointmentCard({
     return staff.filter((s: Staff) => ids.has(s.id));
   }, [appointment, staff]);
 
+  const measuredHeight = Number(heightPx);
+  const tier = !Number.isFinite(measuredHeight) || measuredHeight >= 104
+    ? 'full'
+    : measuredHeight < 56
+      ? 'compact'
+      : 'medium';
+
+  const openDetails = () => onViewDetails(appointment);
+
   return (
     <div className="flex flex-col h-full w-full group">
       {(service?.padBefore ?? 0) > 0 && <div style={{ height: `${((service?.padBefore ?? 0) / totalDuration) * 100}%` }} className="bg-muted/10 rounded-t-xl bg-[repeating-linear-gradient(-45deg,transparent,transparent_4px,rgba(0,0,0,0.05)_4px,rgba(0,0,0,0.05)_5px)]" />}
-      <div style={{ height: `${(safeDuration / totalDuration) * 100}%` }} className="min-h-fit flex-1">
+      <div style={{ height: `${(safeDuration / totalDuration) * 100}%` }} className="flex-1 min-h-0 overflow-hidden">
         <Card 
           className={cn(
             'p-1.5 sm:p-2.5 border-2 w-full h-full flex flex-col transition-all duration-300 hover:shadow-2xl relative rounded-xl overflow-hidden', 
@@ -255,26 +267,35 @@ export function AppointmentCard({
             (isRunningOver || appointment.isEscalated) && 'border-destructive ring-2 sm:ring-4 ring-destructive/20 animate-pulse bg-destructive/10',
             profitTier && profitStyles[profitTier].edgeClass
           )}
-          onClick={() => onViewDetails(appointment)}
+          role="button"
+          tabIndex={0}
+          aria-label={`Open details for ${client.name}`}
+          onClick={openDetails}
+          onKeyDown={(e: any) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetails(); }
+          }}
         >
           <div className="flex items-start justify-between gap-1.5 sm:gap-2 min-w-0">
             <div className="min-w-0 flex-1 text-left">
-                <div className="flex items-center gap-1.5 sm:gap-2 mb-0.5 sm:mb-1 flex-wrap">
+                <div className={cn(
+                    "items-center gap-1.5 sm:gap-2 mb-0.5 sm:mb-1",
+                    tier === 'compact' ? "hidden" : tier === 'medium' ? "flex flex-nowrap overflow-hidden" : "flex flex-wrap",
+                )}>
                     {appointment.isEscalated && (
-                        <Badge variant="destructive" className="animate-pulse h-3.5 sm:h-4 px-1.5 text-[7px] sm:text-[8px] font-black uppercase border-none shadow-lg">
+                        <Badge variant="destructive" className="animate-pulse h-3.5 sm:h-4 px-1.5 text-[8px] sm:text-[8px] font-black uppercase border-none shadow-lg">
                             <ShieldAlert className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" /> MANAGER REQ
                         </Badge>
                     )}
                     {isBirthdayToday && <Cake className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-pink-500 animate-bounce shrink-0" />}
                     {checkInIndicator}
-                    {appointment.status === 'servicing' && <Badge className="bg-primary text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 animate-pulse">LIVE</Badge>}
-                    {isMember && <Badge className="bg-indigo-600 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm"><Award className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />MEM</Badge>}
-                    {hasPackage && <Badge className="bg-teal-600 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm"><Repeat className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />PKG</Badge>}
+                    {appointment.status === 'servicing' && <Badge className="bg-primary text-white border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 animate-pulse">LIVE</Badge>}
+                    {isMember && <Badge className="bg-indigo-600 text-white border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm"><Award className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />MEM</Badge>}
+                    {hasPackage && <Badge className="bg-teal-600 text-white border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm"><Repeat className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />PKG</Badge>}
                     {hasDeferredFee && (
                         <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger asChild>
-                                    <Badge className="bg-amber-600 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm">
+                                    <Badge className="bg-amber-600 text-white border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm">
                                         <Scale className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />FEE
                                     </Badge>
                                 </TooltipTrigger>
@@ -286,7 +307,7 @@ export function AppointmentCard({
                         <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger asChild>
-                                    <Badge className="bg-primary text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm">
+                                    <Badge className="bg-primary text-white border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm">
                                         <FileImage className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />REF
                                     </Badge>
                                 </TooltipTrigger>
@@ -298,7 +319,7 @@ export function AppointmentCard({
                         <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger asChild>
-                                    <Badge className="bg-amber-500 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm">
+                                    <Badge className="bg-amber-500 text-white border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm">
                                         <AlertTriangle className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />PREP
                                     </Badge>
                                 </TooltipTrigger>
@@ -310,7 +331,7 @@ export function AppointmentCard({
                         <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger asChild>
-                                    <Badge className="bg-violet-600 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm">
+                                    <Badge className="bg-violet-600 text-white border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm">
                                         <FileImage className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />REVIEW
                                     </Badge>
                                 </TooltipTrigger>
@@ -318,14 +339,13 @@ export function AppointmentCard({
                             </Tooltip>
                         </TooltipProvider>
                     )}
-                    {appointment.isSecondary && <Badge className="bg-primary/10 text-primary border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1"><Sparkles className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />PART</Badge>}
+                    {appointment.isSecondary && <Badge className="bg-primary/10 text-primary border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1"><Sparkles className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />PART</Badge>}
                     {appointment.isWalkIn && <Users className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-muted-foreground opacity-40" />}
-                    {/* FIX #1: ProfitIcon used as the tag here, not the indexed expression */}
                     {profitTier && ProfitIcon && (
                         <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger asChild>
-                                    <Badge className={cn("text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm", profitStyles[profitTier].badgeClass)}>
+                                    <Badge className={cn("text-white border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm", profitStyles[profitTier].badgeClass)}>
                                         <ProfitIcon className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />
                                         {profitStyles[profitTier].label}
                                     </Badge>
@@ -338,18 +358,41 @@ export function AppointmentCard({
                     )}
                 </div>
                 <p className="font-black uppercase tracking-tight text-[10px] sm:text-[11px] text-slate-900 truncate leading-none mb-0.5 sm:mb-1">{client.name}</p>
-                <p className="text-[8px] sm:text-[9px] font-bold text-muted-foreground uppercase tracking-widest truncate opacity-60">{service?.name || appointment.serviceName || 'Service'}</p>
+                {tier !== 'compact' && (
+                  <p className="text-[8px] sm:text-[9px] font-bold text-muted-foreground uppercase tracking-widest truncate opacity-60">{service?.name || appointment.serviceName || 'Service'}</p>
+                )}
             </div>
             <div className="flex flex-col items-end gap-1 shrink-0">
                 <DropdownMenu>
-                <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-6 w-6 sm:h-7 sm:w-7 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}><MoreHorizontal className="h-3.5 w-3.5 sm:h-4 sm:w-4" /></Button></DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1">
-                    {appointment.status === 'servicing' && <DropdownMenuItem onClick={() => onFinishService(appointment)} className="font-bold text-[10px] uppercase tracking-widest"><Square className="mr-2 h-3.5 w-3.5" /> End Session</DropdownMenuItem>}
-                    {appointment.status === 'ready_for_checkout' && <DropdownMenuItem onClick={() => onCompleteClick(appointment)} className="font-bold text-[10px] uppercase tracking-widest text-primary"><CheckCircle className="mr-2 h-3.5 w-3.5" /> Open Checkout</DropdownMenuItem>}
-                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onReschedule(appointment); }} className="font-bold text-[10px] uppercase tracking-widest"><Undo2 className="mr-2 h-3.5 w-3.5" /> Reschedule</DropdownMenuItem>
-                    <DropdownMenuItem onClick={handleCopyCheckInLink} className="font-bold text-[10px] uppercase tracking-widest"><LinkIcon className="mr-2 h-3.5 w-3.5" /> Copy Link</DropdownMenuItem>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title="Appointment actions"
+                    aria-label={`Actions for ${client.name}`}
+                    className="h-7 w-7 sm:h-8 sm:w-8 rounded-lg bg-white/70 border shadow-sm hover:bg-white active:scale-95"
+                    onClick={e => e.stopPropagation()}
+                    onKeyDown={e => e.stopPropagation()}
+                  >
+                    <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1 min-w-[11rem]">
+                    <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); openDetails(); }} className="font-bold text-[10px] uppercase tracking-widest"><FileText className="mr-2 h-3.5 w-3.5" /> View Details</DropdownMenuItem>
+                    <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); onEdit(appointment); }} className="font-bold text-[10px] uppercase tracking-widest"><Calendar className="mr-2 h-3.5 w-3.5" /> Edit</DropdownMenuItem>
+                    {typeof onPrintTicket === 'function' && (
+                      <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); onPrintTicket(appointment); }} className="font-bold text-[10px] uppercase tracking-widest"><FileText className="mr-2 h-3.5 w-3.5" /> Print Ticket</DropdownMenuItem>
+                    )}
+                    {typeof onStartService === 'function' && appointment.status !== 'servicing' && appointment.status !== 'ready_for_checkout' && (
+                      <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); onStartService(appointment); }} className="font-bold text-[10px] uppercase tracking-widest text-primary"><Clock className="mr-2 h-3.5 w-3.5" /> Start Session</DropdownMenuItem>
+                    )}
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => onDelete(appointment.id)} className="text-destructive font-bold text-[10px] uppercase tracking-widest"><Trash2 className="mr-2 h-3.5 w-3.5" /> Delete</DropdownMenuItem>
+                    {appointment.status === 'servicing' && <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); onFinishService(appointment); }} className="font-bold text-[10px] uppercase tracking-widest"><Square className="mr-2 h-3.5 w-3.5" /> End Session</DropdownMenuItem>}
+                    {appointment.status === 'ready_for_checkout' && <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); onCompleteClick(appointment); }} className="font-bold text-[10px] uppercase tracking-widest text-primary"><CheckCircle className="mr-2 h-3.5 w-3.5" /> Open Checkout</DropdownMenuItem>}
+                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onReschedule(appointment); }} className="font-bold text-[10px] uppercase tracking-widest"><Undo2 className="mr-2 h-3.5 w-3.5" /> Reschedule</DropdownMenuItem>
+                    <DropdownMenuItem onClick={(e: any) => { handleCopyCheckInLink(e); }} className="font-bold text-[10px] uppercase tracking-widest"><LinkIcon className="mr-2 h-3.5 w-3.5" /> Copy Link</DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); onDelete(appointment.id); }} className="text-destructive font-bold text-[10px] uppercase tracking-widest"><Trash2 className="mr-2 h-3.5 w-3.5" /> Delete</DropdownMenuItem>
                 </DropdownMenuContent>
                 </DropdownMenu>
                 
@@ -361,7 +404,7 @@ export function AppointmentCard({
                                     <TooltipTrigger asChild>
                                         <Avatar className="h-4 w-4 sm:h-5 sm:w-5 border-2 border-background shadow-sm">
                                             <AvatarImage src={s.avatarUrl} className="object-cover" />
-                                            <AvatarFallback className="text-[6px] sm:text-[7px] font-black">{(s.name || 'S')[0]}</AvatarFallback>
+                                            <AvatarFallback className="text-[8px] sm:text-[8px] font-black">{(s.name || 'S')[0]}</AvatarFallback>
                                         </Avatar>
                                     </TooltipTrigger>
                                     <TooltipContent className="rounded-xl border-2 font-black uppercase text-[8px] tracking-widest">{s.name}</TooltipContent>
@@ -373,7 +416,7 @@ export function AppointmentCard({
             </div>
           </div>
 
-          {appointment.status === 'servicing' && elapsedTime && (
+          {appointment.status === 'servicing' && elapsedTime && tier === 'full' && (
             <div className="flex-1 flex items-center justify-center py-0.5 sm:py-1">
                 <p className={cn("text-lg sm:text-2xl font-black font-mono tracking-tighter leading-none", isRunningOver ? "text-destructive" : "text-primary")}>{elapsedTime}</p>
             </div>
@@ -390,7 +433,7 @@ export function AppointmentCard({
                 </p>
             </div>
             {appointment.status === 'ready_for_checkout' && (
-                <Button size="xs" className="h-4 sm:h-5 px-1.5 sm:px-2 bg-primary text-white border-none font-black text-[7px] sm:text-[8px] uppercase tracking-widest shadow-lg shadow-primary/20 rounded-lg animate-bounce" onClick={e => { e.stopPropagation(); onCompleteClick(appointment); }}>PAY</Button>
+                <Button size="xs" aria-label={`Take payment for ${client.name}`} className="h-6 px-2.5 bg-primary text-white border-none font-black text-[8px] uppercase tracking-widest shadow-sm rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); onCompleteClick(appointment); }}>PAY</Button>
             )}
           </div>
         </Card>
