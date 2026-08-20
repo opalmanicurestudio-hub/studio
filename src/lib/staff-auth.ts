@@ -17,6 +17,14 @@
 
 import type { NextRequest } from 'next/server';
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
+import {
+  evaluateDecision,
+  resolveAuthority,
+  type AuthorityPolicy,
+  type DecisionAuthority,
+  type DecisionVerdict,
+  type EmploymentModel,
+} from '@/lib/appointment-authority';
 
 export const MANAGER_ROLES = ['owner', 'admin', 'manager'] as const;
 
@@ -26,10 +34,12 @@ export type StaffActor = {
   role: string;
   isManager: boolean;
   isTenantOwner: boolean;
+  employmentModel: EmploymentModel | null;
+  decisionAuthority: DecisionAuthority | null;
 };
 
 export type StaffAuthResult =
-  | { ok: true; actor: StaffActor }
+  | { ok: true; actor: StaffActor; tenant: any }
   | { ok: false; error: string; status: number };
 
 export async function verifyStaffActor(
@@ -67,12 +77,15 @@ export async function verifyStaffActor(
   const role = String(staff?.role || (isTenantOwner ? 'owner' : 'staff'));
   return {
     ok: true,
+    tenant: (tenantSnap.data() as any) || {},
     actor: {
       uid,
       name: String(staff?.name || (isTenantOwner ? 'The owner' : 'A team member')).slice(0, 80),
       role,
       isManager: isTenantOwner || (MANAGER_ROLES as readonly string[]).includes(role),
       isTenantOwner,
+      employmentModel: (staff?.employmentModel as EmploymentModel) || null,
+      decisionAuthority: (staff?.decisionAuthority as DecisionAuthority) || null,
     },
   };
 }
@@ -80,13 +93,41 @@ export async function verifyStaffActor(
 /**
  * Who may answer a booking request.
  *
- * Accepting fills the calendar and can charge a card the client already
- * agreed to; declining releases a slot and sends the client a no. The
- * destructive one needs a manager. This is the platform default until the
- * per-provider authority model lands — change these two lines, not the
- * call sites.
+ * With no authority configured anywhere this resolves exactly as it did
+ * before: anyone may accept, only a manager may decline.
  */
-export function mayDecide(actor: StaffActor, decision: 'accept' | 'decline'): boolean {
-  if (decision === 'accept') return true;
-  return actor.isManager;
+export function decisionVerdict(
+  actor: StaffActor,
+  decision: 'accept' | 'decline',
+  opts?: { reasonCode?: string | null; policy?: AuthorityPolicy | null },
+): DecisionVerdict {
+  return evaluateDecision({
+    decision,
+    isManager: actor.isManager,
+    employmentModel: actor.employmentModel,
+    decisionAuthority: actor.decisionAuthority,
+    reasonCode: opts?.reasonCode ?? null,
+    policy: opts?.policy ?? null,
+  });
+}
+
+export function mayDecide(
+  actor: StaffActor,
+  decision: 'accept' | 'decline',
+  opts?: { reasonCode?: string | null; policy?: AuthorityPolicy | null },
+): boolean {
+  return decisionVerdict(actor, decision, opts).allowed;
+}
+
+/** What this person may do with their own book, after every rule is applied. */
+export function actorAuthority(
+  actor: StaffActor,
+  policy?: AuthorityPolicy | null,
+): DecisionAuthority {
+  return resolveAuthority({
+    isManager: actor.isManager,
+    employmentModel: actor.employmentModel,
+    decisionAuthority: actor.decisionAuthority,
+    policy: policy ?? null,
+  });
 }
