@@ -48,7 +48,6 @@ import {
   Minus,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -149,9 +148,9 @@ export function AppointmentCard({
   }, [showProfitability, appointment, service, staff, inventory, selectedTenant?.tmhr]);
 
   const profitStyles: Record<ProfitabilityTier, { edgeClass: string; badgeClass: string; Icon: any; label: string }> = {
-    healthy: { edgeClass: 'border-l-4 border-l-green-500', badgeClass: 'bg-green-600', Icon: TrendingUp, label: 'Healthy' },
-    thin: { edgeClass: 'border-l-4 border-l-amber-500', badgeClass: 'bg-amber-600', Icon: Minus, label: 'Thin' },
-    negative: { edgeClass: 'border-l-4 border-l-red-500', badgeClass: 'bg-red-600', Icon: TrendingDown, label: 'Below cost' },
+    healthy: { edgeClass: '', badgeClass: '', Icon: TrendingUp, label: 'Healthy' },
+    thin: { edgeClass: 'border-l-4 border-l-foreground/25', badgeClass: '', Icon: Minus, label: 'Thin' },
+    negative: { edgeClass: 'border-l-4 border-l-destructive', badgeClass: '', Icon: TrendingDown, label: 'Below cost' },
   };
 
   // FIX #1: pull the icon component reference out into its own variable BEFORE
@@ -170,15 +169,15 @@ export function AppointmentCard({
   };
 
   const statusDisplay: Record<string, { text: string; className: string; bgClassName: string; dotColor: string }> = {
-    confirmed: { text: 'Confirmed', className: 'border-blue-500/20 text-blue-800 bg-blue-500/[0.03]', bgClassName: 'bg-blue-500/5', dotColor: 'bg-blue-500' },
-    servicing: { text: 'Live', className: 'border-primary ring-2 sm:ring-4 ring-primary/10 text-primary bg-primary/[0.02]', bgClassName: 'bg-primary/5', dotColor: 'bg-primary' },
-    completed: { text: 'Finished', className: 'border-green-500/20 text-green-800 bg-green-500/[0.03]', bgClassName: 'bg-green-500/5', dotColor: 'bg-green-500' },
-    cancelled: { text: 'Cancelled', className: 'border-red-500/20 text-red-800 bg-red-500/[0.03] grayscale', bgClassName: 'bg-red-500/5', dotColor: 'bg-red-500' },
-    deposit_pending: { text: 'Deposit Due', className: 'border-amber-500/20 text-amber-800 bg-amber-500/[0.03]', bgClassName: 'bg-amber-500/5', dotColor: 'bg-amber-500' },
-    ready_for_checkout: { text: 'Checkout', className: 'border-orange-500/20 text-orange-800 bg-orange-500/[0.03] shadow-lg', bgClassName: 'bg-orange-500/5', dotColor: 'bg-orange-500' },
-    pending_payment: { text: 'Awaiting Payment', className: 'border-amber-500/40 text-amber-800 bg-amber-500/[0.04]', bgClassName: 'bg-amber-500/5', dotColor: 'bg-amber-500' },
-    declined: { text: 'Declined', className: 'border-red-500/20 text-red-800 bg-red-500/[0.03] grayscale', bgClassName: 'bg-red-500/5', dotColor: 'bg-red-500' },
-    requested: { text: 'Requested', className: 'border-dashed border-violet-500/60 text-violet-800 bg-violet-500/[0.04]', bgClassName: 'bg-violet-500/5', dotColor: 'bg-violet-500' },
+    confirmed: { text: 'Confirmed', className: 'border-border text-foreground bg-white', bgClassName: 'bg-white', dotColor: 'bg-foreground/40' },
+    servicing: { text: 'Live', className: 'border-primary ring-2 sm:ring-4 ring-primary/10 text-primary bg-primary/[0.03]', bgClassName: 'bg-primary/5', dotColor: 'bg-primary' },
+    completed: { text: 'Finished', className: 'border-border text-muted-foreground bg-muted/30', bgClassName: 'bg-muted/30', dotColor: 'bg-emerald-600' },
+    cancelled: { text: 'Cancelled', className: 'border-border text-muted-foreground bg-muted/20 grayscale opacity-70', bgClassName: 'bg-muted/20', dotColor: 'bg-foreground/30' },
+    deposit_pending: { text: 'Deposit Due', className: 'border-amber-600/40 text-amber-900 bg-amber-500/[0.05]', bgClassName: 'bg-amber-500/5', dotColor: 'bg-amber-600' },
+    ready_for_checkout: { text: 'Checkout', className: 'border-emerald-600/40 text-emerald-900 bg-emerald-500/[0.05]', bgClassName: 'bg-emerald-500/5', dotColor: 'bg-emerald-600' },
+    pending_payment: { text: 'Awaiting Payment', className: 'border-amber-600/40 text-amber-900 bg-amber-500/[0.05]', bgClassName: 'bg-amber-500/5', dotColor: 'bg-amber-600' },
+    declined: { text: 'Declined', className: 'border-border text-muted-foreground bg-muted/20 grayscale opacity-70', bgClassName: 'bg-muted/20', dotColor: 'bg-foreground/30' },
+    requested: { text: 'Requested', className: 'border-dashed border-primary/50 text-foreground bg-primary/[0.03]', bgClassName: 'bg-primary/5', dotColor: 'bg-primary/60' },
   };
 
   const awaitingDecision = isAwaitingApproval(appointment);
@@ -220,28 +219,12 @@ export function AppointmentCard({
   const setupPending = appointment.completionStatus === 'pending' || (reqReadiness ? reqReadiness.confirmationBlocking > 0 : false);
   const awaitingReview = (reqReadiness?.awaitingReview || 0) > 0;
 
-  const checkInIndicator = useMemo(() => {
-    if (appointment.status === 'servicing' || appointment.status === 'completed') return null;
-    switch (appointment.checkInStatus) {
-        case 'arrived': return <Badge className="bg-green-500 text-white border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm"><MapPin className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />HERE</Badge>;
-        case 'running_late': return (
-            <TooltipProvider>
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <Badge className="bg-amber-500 text-white border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm animate-pulse cursor-help">
-                            <Clock className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />+{appointment.lateTimeMinutes}M
-                        </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
-                        Est. Arrival: {estimatedArrival}
-                    </TooltipContent>
-                </Tooltip>
-            </TooltipProvider>
-        );
-        case 'on_my_way': return <Badge className="bg-blue-500 text-white border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm"><Car className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />EN ROUTE</Badge>;
-        default: return null;
-    }
-  }, [appointment.checkInStatus, appointment.lateTimeMinutes, appointment.status, estimatedArrival]);
+  const CHIP_TONES: Record<string, string> = {
+    alert: 'bg-destructive text-white',
+    live: 'bg-primary text-white',
+    good: 'bg-emerald-600 text-white',
+    info: 'bg-foreground/[0.08] text-foreground',
+  };
 
   const totalPadding = (service?.padBefore || 0) + (service?.padAfter || 0);
   /* ── A CARD MUST RENDER EVEN WHEN ITS SERVICE IS GONE ──────────────────
@@ -259,6 +242,30 @@ export function AppointmentCard({
   const isMember = !!(client?.activeMembershipId || client?.subscription);
   const hasPackage = (client?.activePackages?.length || 0) > 0;
 
+  const chips = useMemo(() => {
+    const out: Array<{ key: string; tone: string; Icon: any; label: string }> = [];
+    const push = (key: string, tone: string, Icon: any, label: string) => out.push({ key, tone, Icon, label });
+
+    if (appointment.isEscalated) push('esc', 'alert', ShieldAlert, 'Manager');
+    if (appointment.status !== 'servicing' && appointment.status !== 'completed') {
+      if (appointment.checkInStatus === 'running_late') push('late', 'alert', Clock, `+${appointment.lateTimeMinutes}m`);
+      if (appointment.checkInStatus === 'arrived') push('here', 'good', MapPin, 'Here');
+      if (appointment.checkInStatus === 'on_my_way') push('otw', 'info', Car, 'En route');
+    }
+    if (setupPending) push('prep', 'alert', AlertTriangle, 'Prep');
+    if (profitTier === 'negative') push('cost', 'alert', TrendingDown, 'Below cost');
+    if (appointment.status === 'servicing') push('live', 'live', Sparkles, 'Live');
+    if (awaitingReview) push('rev', 'info', FileImage, 'Review');
+    if (hasDeferredFee) push('fee', 'info', Scale, 'Fee');
+    if (isMember) push('mem', 'info', Award, 'Member');
+    if (hasPackage) push('pkg', 'info', Repeat, 'Package');
+    if (hasInspiration) push('ref', 'info', FileImage, 'Photo');
+    if (appointment.isSecondary) push('part', 'info', Sparkles, 'Part');
+    if (appointment.isWalkIn) push('walk', 'info', Users, 'Walk-in');
+    if (isBirthdayToday) push('bday', 'info', Cake, 'Birthday');
+    return out;
+  }, [appointment, setupPending, profitTier, awaitingReview, hasDeferredFee, isMember, hasPackage, hasInspiration, isBirthdayToday]);
+
   const involvedStaff = useMemo(() => {
     const ids = new Set<string>();
     if (appointment.staffId) ids.add(appointment.staffId);
@@ -273,6 +280,8 @@ export function AppointmentCard({
     : measuredHeight < 56
       ? 'compact'
       : 'medium';
+
+  const chipCap = tier === 'full' ? 3 : 2;
 
   const openDetails = () => onViewDetails(appointment);
 
@@ -297,7 +306,7 @@ export function AppointmentCard({
             'p-1.5 sm:p-2.5 border-2 w-full h-full flex flex-col transition-all duration-300 hover:shadow-2xl relative rounded-xl overflow-hidden', 
             currentStatus?.className,
             (isRunningOver || appointment.isEscalated) && 'border-destructive ring-2 sm:ring-4 ring-destructive/20 animate-pulse bg-destructive/10',
-            awaitingDecision && 'bg-[repeating-linear-gradient(-45deg,transparent,transparent_5px,rgba(83,74,183,0.07)_5px,rgba(83,74,183,0.07)_7px)]',
+            awaitingDecision && 'bg-[repeating-linear-gradient(-45deg,transparent,transparent_5px,rgba(22,23,26,0.06)_5px,rgba(22,23,26,0.06)_7px)]',
             profitTier && profitStyles[profitTier].edgeClass
           )}
           role="button"
@@ -311,91 +320,37 @@ export function AppointmentCard({
           <div className="flex items-start justify-between gap-1.5 sm:gap-2 min-w-0">
             <div className="min-w-0 flex-1 text-left">
                 <div className={cn(
-                    "items-center gap-1.5 sm:gap-2 mb-0.5 sm:mb-1",
-                    tier === 'compact' ? "hidden" : tier === 'medium' ? "flex flex-nowrap overflow-hidden" : "flex flex-wrap",
+                    "items-center gap-1 mb-0.5 sm:mb-1",
+                    tier === 'compact' ? "hidden" : "flex flex-nowrap overflow-hidden",
                 )}>
-                    {appointment.isEscalated && (
-                        <Badge variant="destructive" className="animate-pulse h-3.5 sm:h-4 px-1.5 text-[8px] sm:text-[8px] font-black uppercase border-none shadow-lg">
-                            <ShieldAlert className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" /> MANAGER REQ
-                        </Badge>
-                    )}
-                    {isBirthdayToday && <Cake className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-pink-500 animate-bounce shrink-0" />}
-                    {checkInIndicator}
-                    {appointment.status === 'servicing' && <Badge className="bg-primary text-white border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 animate-pulse">LIVE</Badge>}
-                    {isMember && <Badge className="bg-indigo-600 text-white border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm"><Award className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />MEM</Badge>}
-                    {hasPackage && <Badge className="bg-teal-600 text-white border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm"><Repeat className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />PKG</Badge>}
-                    {hasDeferredFee && (
-                        <TooltipProvider>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Badge className="bg-amber-600 text-white border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm">
-                                        <Scale className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />FEE
-                                    </Badge>
-                                </TooltipTrigger>
-                                <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Deferred Protocol Fee Attached</TooltipContent>
-                            </Tooltip>
-                        </TooltipProvider>
-                    )}
-                    {hasInspiration && (
-                        <TooltipProvider>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Badge className="bg-primary text-white border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm">
-                                        <FileImage className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />REF
-                                    </Badge>
-                                </TooltipTrigger>
-                                <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Inspiration Photo Attached</TooltipContent>
-                            </Tooltip>
-                        </TooltipProvider>
-                    )}
-                    {setupPending && (
-                        <TooltipProvider>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Badge className="bg-amber-500 text-white border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm">
-                                        <AlertTriangle className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />PREP
-                                    </Badge>
-                                </TooltipTrigger>
-                                <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Client setup incomplete — deposit, card, forms or photos outstanding</TooltipContent>
-                            </Tooltip>
-                        </TooltipProvider>
-                    )}
-                    {awaitingReview && (
-                        <TooltipProvider>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Badge className="bg-violet-600 text-white border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm">
-                                        <FileImage className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />REVIEW
-                                    </Badge>
-                                </TooltipTrigger>
-                                <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Photos / files submitted — awaiting your review</TooltipContent>
-                            </Tooltip>
-                        </TooltipProvider>
-                    )}
-                    {appointment.isSecondary && <Badge className="bg-primary/10 text-primary border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1"><Sparkles className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />PART</Badge>}
-                    {appointment.isWalkIn && <Users className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-muted-foreground opacity-40" />}
-                    {profitTier && ProfitIcon && (
-                        <TooltipProvider>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Badge className={cn("text-white border-none text-[8px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm", profitStyles[profitTier].badgeClass)}>
-                                        <ProfitIcon className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />
-                                        {profitStyles[profitTier].label}
-                                    </Badge>
-                                </TooltipTrigger>
-                                <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
-                                    {profitTier === 'negative' ? 'Estimated cost exceeds price' : profitTier === 'thin' ? 'Margin below target threshold' : 'Margin within healthy range'}
-                                </TooltipContent>
-                            </Tooltip>
-                        </TooltipProvider>
+                    {chips.slice(0, chipCap).map(chip => {
+                      const ChipIcon = chip.Icon;
+                      return (
+                        <span
+                          key={chip.key}
+                          className={cn(
+                            "inline-flex shrink-0 items-center gap-0.5 rounded-md px-1 h-4 text-[8px] font-black uppercase tracking-widest",
+                            CHIP_TONES[chip.tone] || CHIP_TONES.info,
+                            chip.key === 'live' && 'animate-pulse',
+                          )}
+                        >
+                          <ChipIcon className="w-2 h-2 shrink-0" aria-hidden="true" />
+                          {chip.label}
+                        </span>
+                      );
+                    })}
+                    {chips.length > chipCap && (
+                      <span className="inline-flex shrink-0 items-center rounded-md px-1 h-4 text-[8px] font-black uppercase tracking-widest bg-foreground/[0.08] text-foreground/70">
+                        +{chips.length - chipCap}
+                      </span>
                     )}
                 </div>
-                <p className="font-black uppercase tracking-tight text-[10px] sm:text-[11px] text-slate-900 truncate leading-none mb-0.5 sm:mb-1">{client.name}</p>
+                <p className="font-black uppercase tracking-tight text-[10px] sm:text-[11px] text-foreground truncate leading-none mb-0.5 sm:mb-1">{client.name}</p>
                 {tier !== 'compact' && (
                   <p className="text-[8px] sm:text-[9px] font-bold text-muted-foreground uppercase tracking-widest truncate opacity-60">{service?.name || appointment.serviceName || 'Service'}</p>
                 )}
                 {holdReason && tier === 'full' && (
-                  <p className="text-[8px] font-bold text-violet-700 uppercase tracking-widest truncate">{holdReason}</p>
+                  <p className="text-[8px] font-bold text-foreground/70 uppercase tracking-widest truncate">{holdReason}</p>
                 )}
                 {acceptConsequence && tier === 'full' && (
                   <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest truncate">{acceptConsequence}</p>
@@ -419,7 +374,7 @@ export function AppointmentCard({
                 <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1 min-w-[11rem]">
                     {canDecide && (
                       <>
-                        <DropdownMenuItem disabled={decisionBusy} onSelect={() => { void runDecision('approve'); }} className="font-bold text-[10px] uppercase tracking-widest text-green-700"><CheckCircle className="mr-2 h-3.5 w-3.5" /> Accept Request</DropdownMenuItem>
+                        <DropdownMenuItem disabled={decisionBusy} onSelect={() => { void runDecision('approve'); }} className="font-bold text-[10px] uppercase tracking-widest text-emerald-700"><CheckCircle className="mr-2 h-3.5 w-3.5" /> Accept Request</DropdownMenuItem>
                         <DropdownMenuItem disabled={decisionBusy} onSelect={() => { setConfirmingDecline(true); }} className="font-bold text-[10px] uppercase tracking-widest text-destructive"><ShieldAlert className="mr-2 h-3.5 w-3.5" /> Decline Request</DropdownMenuItem>
                         <DropdownMenuSeparator />
                       </>
@@ -480,7 +435,7 @@ export function AppointmentCard({
             </div>
             {canDecide && tier !== 'compact' && !confirmingDecline && (
                 <div className="flex items-center gap-1">
-                    <Button size="xs" disabled={decisionBusy} aria-label={`Accept the request from ${client.name}`} className="h-6 px-2 bg-green-600 text-white border-none font-black text-[8px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); runDecision('approve'); }}>Accept</Button>
+                    <Button size="xs" disabled={decisionBusy} aria-label={`Accept the request from ${client.name}`} className="h-6 px-2 bg-emerald-600 text-white border-none font-black text-[8px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); runDecision('approve'); }}>Accept</Button>
                     <Button size="xs" variant="outline" disabled={decisionBusy} aria-label={`Decline the request from ${client.name}`} className="h-6 px-2 border-2 font-black text-[8px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); setConfirmingDecline(true); }}>Decline</Button>
                 </div>
             )}
