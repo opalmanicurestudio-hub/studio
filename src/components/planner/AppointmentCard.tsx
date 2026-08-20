@@ -187,7 +187,7 @@ export function AppointmentCard({
     && typeof onApproveRequest === 'function'
     && typeof onDeclineRequest === 'function';
   const holdReason = awaitingDecision ? holdReasonLabel(appointment) : null;
-  const acceptConsequence = awaitingDecision ? acceptConsequenceLabel(appointment) : null;
+  const acceptConsequence = awaitingDecision ? acceptConsequenceLabel(appointment, client) : null;
 
   const cardStatus = isDeadAppointment(appointment) && appointment.status !== 'declined'
     ? 'cancelled'
@@ -419,26 +419,26 @@ export function AppointmentCard({
                 <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1 min-w-[11rem]">
                     {canDecide && (
                       <>
-                        <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); runDecision('approve'); }} className="font-bold text-[10px] uppercase tracking-widest text-green-700"><CheckCircle className="mr-2 h-3.5 w-3.5" /> Accept Request</DropdownMenuItem>
-                        <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); setConfirmingDecline(true); }} className="font-bold text-[10px] uppercase tracking-widest text-destructive"><ShieldAlert className="mr-2 h-3.5 w-3.5" /> Decline Request</DropdownMenuItem>
+                        <DropdownMenuItem disabled={decisionBusy} onSelect={() => { void runDecision('approve'); }} className="font-bold text-[10px] uppercase tracking-widest text-green-700"><CheckCircle className="mr-2 h-3.5 w-3.5" /> Accept Request</DropdownMenuItem>
+                        <DropdownMenuItem disabled={decisionBusy} onSelect={() => { setConfirmingDecline(true); }} className="font-bold text-[10px] uppercase tracking-widest text-destructive"><ShieldAlert className="mr-2 h-3.5 w-3.5" /> Decline Request</DropdownMenuItem>
                         <DropdownMenuSeparator />
                       </>
                     )}
-                    <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); openDetails(); }} className="font-bold text-[10px] uppercase tracking-widest"><FileText className="mr-2 h-3.5 w-3.5" /> View Details</DropdownMenuItem>
-                    <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); onEdit(appointment); }} className="font-bold text-[10px] uppercase tracking-widest"><Calendar className="mr-2 h-3.5 w-3.5" /> Edit</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => { openDetails(); }} className="font-bold text-[10px] uppercase tracking-widest"><FileText className="mr-2 h-3.5 w-3.5" /> View Details</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => { onEdit(appointment); }} className="font-bold text-[10px] uppercase tracking-widest"><Calendar className="mr-2 h-3.5 w-3.5" /> Edit</DropdownMenuItem>
                     {typeof onPrintTicket === 'function' && (
-                      <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); onPrintTicket(appointment); }} className="font-bold text-[10px] uppercase tracking-widest"><FileText className="mr-2 h-3.5 w-3.5" /> Print Ticket</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => { onPrintTicket(appointment); }} className="font-bold text-[10px] uppercase tracking-widest"><FileText className="mr-2 h-3.5 w-3.5" /> Print Ticket</DropdownMenuItem>
                     )}
                     {typeof onStartService === 'function' && appointment.status !== 'servicing' && appointment.status !== 'ready_for_checkout' && (
-                      <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); onStartService(appointment); }} className="font-bold text-[10px] uppercase tracking-widest text-primary"><Clock className="mr-2 h-3.5 w-3.5" /> Start Session</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => { onStartService(appointment); }} className="font-bold text-[10px] uppercase tracking-widest text-primary"><Clock className="mr-2 h-3.5 w-3.5" /> Start Session</DropdownMenuItem>
                     )}
                     <DropdownMenuSeparator />
-                    {appointment.status === 'servicing' && <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); onFinishService(appointment); }} className="font-bold text-[10px] uppercase tracking-widest"><Square className="mr-2 h-3.5 w-3.5" /> End Session</DropdownMenuItem>}
-                    {appointment.status === 'ready_for_checkout' && <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); onCompleteClick(appointment); }} className="font-bold text-[10px] uppercase tracking-widest text-primary"><CheckCircle className="mr-2 h-3.5 w-3.5" /> Open Checkout</DropdownMenuItem>}
-                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onReschedule(appointment); }} className="font-bold text-[10px] uppercase tracking-widest"><Undo2 className="mr-2 h-3.5 w-3.5" /> Reschedule</DropdownMenuItem>
-                    <DropdownMenuItem onClick={(e: any) => { handleCopyCheckInLink(e); }} className="font-bold text-[10px] uppercase tracking-widest"><LinkIcon className="mr-2 h-3.5 w-3.5" /> Copy Link</DropdownMenuItem>
+                    {appointment.status === 'servicing' && <DropdownMenuItem onSelect={() => { onFinishService(appointment); }} className="font-bold text-[10px] uppercase tracking-widest"><Square className="mr-2 h-3.5 w-3.5" /> End Session</DropdownMenuItem>}
+                    {appointment.status === 'ready_for_checkout' && <DropdownMenuItem onSelect={() => { onCompleteClick(appointment); }} className="font-bold text-[10px] uppercase tracking-widest text-primary"><CheckCircle className="mr-2 h-3.5 w-3.5" /> Open Checkout</DropdownMenuItem>}
+                    <DropdownMenuItem onSelect={() => { onReschedule(appointment); }} className="font-bold text-[10px] uppercase tracking-widest"><Undo2 className="mr-2 h-3.5 w-3.5" /> Reschedule</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => { handleCopyCheckInLink({ stopPropagation: () => {} } as any); }} className="font-bold text-[10px] uppercase tracking-widest"><LinkIcon className="mr-2 h-3.5 w-3.5" /> Copy Link</DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); onDelete(appointment.id); }} className="text-destructive font-bold text-[10px] uppercase tracking-widest"><Trash2 className="mr-2 h-3.5 w-3.5" /> Delete</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => { onDelete(appointment.id); }} className="text-destructive font-bold text-[10px] uppercase tracking-widest"><Trash2 className="mr-2 h-3.5 w-3.5" /> Delete</DropdownMenuItem>
                 </DropdownMenuContent>
                 </DropdownMenu>
                 
