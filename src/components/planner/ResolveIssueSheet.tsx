@@ -35,6 +35,9 @@ export function ResolveIssueSheet({
   const [confirmDecline, setConfirmDecline] = useState(false);
 
   const issue = appointment?.issue || null;
+  const depositCents = Number(appointment?.depositAmountCents || 0);
+  const depositPaid = String(appointment?.depositStatus || '') === 'paid' && depositCents > 0;
+  const isConfirmed = ['confirmed', 'servicing', 'pending_payment'].includes(String(appointment?.status || ''));
   const picked = coverage.find(c => c.id === pickedStaff) || null;
 
   const close = (v: boolean) => {
@@ -146,7 +149,14 @@ export function ResolveIssueSheet({
               No cover — cancel the client
             </Button>
           ) : (
-            <div className="flex w-full items-center gap-2">
+            <div className="w-full space-y-2">
+              <p className="text-[11px] font-bold leading-snug text-destructive">
+                {isConfirmed
+                  ? `${appointment?.clientName || 'This client'} has this in their calendar. They will be emailed and texted.`
+                  : `${appointment?.clientName || 'This client'} will be told the time is not available.`}
+                {depositPaid ? ` Their $${(depositCents / 100).toFixed(2)} deposit will be marked owed back.` : ''}
+              </p>
+              <div className="flex w-full items-center gap-2">
               <span className="flex-1 text-[11px] font-black uppercase tracking-widest text-destructive">
                 Cancel {appointment?.clientName || 'the client'}?
               </span>
@@ -164,6 +174,7 @@ export function ResolveIssueSheet({
               >
                 Keep
               </Button>
+              </div>
             </div>
           )}
         </DialogFooter>
