@@ -38,7 +38,9 @@ import { useInventory } from '@/context/InventoryContext';
 import { nanoid } from 'nanoid';
 import { type Transaction, type BillDefinition } from '@/lib/financial-data';
 import { DebugErrorBoundary } from '@/components/shared/DebugErrorBoundary';
-import { approveBooking, denyBooking, raiseIssue, isAwaitingApproval, isDeadAppointment } from '@/lib/booking-approval';
+import { approveBooking, denyBooking, raiseIssue, resolveIssue, isAwaitingApproval, isDeadAppointment, type IssueOutcome } from '@/lib/booking-approval';
+import { findCoverageOptions } from '@/lib/appointment-coverage';
+import { ResolveIssueSheet } from '@/components/planner/ResolveIssueSheet';
 import { resolveAuthority } from '@/lib/appointment-authority';
 import { ReportIssueDialog } from '@/components/planner/ReportIssueDialog';
 import { AlertCircle, XCircle } from 'lucide-react';
@@ -102,6 +104,8 @@ function PlannerPageContent() {
   const [focusId, setFocusId] = useState<string | null>(null);
   const [issueFor, setIssueFor] = useState<any | null>(null);
   const [issueBusy, setIssueBusy] = useState(false);
+  const [resolveFor, setResolveFor] = useState<any | null>(null);
+  const [resolveBusy, setResolveBusy] = useState(false);
   const [awaitingCursor, setAwaitingCursor] = useState(0);
   const [tmhr, setTmhr] = useState(0);
   useEffect(() => { setTmhr(selectedTenant?.tmhr || 50); }, [selectedTenant]);
@@ -934,6 +938,45 @@ function PlannerPageContent() {
     }
   }, [issueFor, allStaff, currentUser, firestore, tenantId, decidingStaffName, role, authorityPolicy, toast]);
 
+  const isManagerHere = role === 'owner' || role === 'admin';
+
+  /* Recomputed only while the sheet is open — a shortlist for one decision,
+   * not a background job scanning every card on the day. */
+  const coverageOptions = useMemo(() => {
+    if (!resolveFor) return [];
+    return findCoverageOptions({
+      appointment: resolveFor,
+      service: (services || []).find((s: any) => s.id === resolveFor.serviceId) || null,
+      staff: allStaff || [],
+      appointments: appointments || [],
+    });
+  }, [resolveFor, services, allStaff, appointments]);
+
+  const handleResolveIssue = useCallback(async (
+    outcome: IssueOutcome,
+    opts: { newStaffId?: string; newStaffName?: string; note?: string },
+  ) => {
+    if (!resolveFor) return;
+    setResolveBusy(true);
+    try {
+      const me = (allStaff || []).find((s: any) => s.id === currentUser?.uid || s.userId === currentUser?.uid);
+      const res = await resolveIssue(firestore, tenantId, resolveFor, outcome, {
+        uid: currentUser?.uid,
+        name: decidingStaffName,
+        role: (me as any)?.role || role || null,
+        isManager: isManagerHere,
+      }, opts);
+      if (res.ok) {
+        toast({ title: 'Issue closed', description: res.message });
+        setResolveFor(null);
+      } else {
+        toast({ variant: 'destructive', title: res.reason });
+      }
+    } finally {
+      setResolveBusy(false);
+    }
+  }, [resolveFor, allStaff, currentUser, firestore, tenantId, decidingStaffName, role, isManagerHere, toast]);
+
   const handleDeclineRequest = useCallback(async (apt: any) => {
     const res = await denyBooking(firestore, tenantId, apt, currentUser?.uid, decidingStaffName, 'alternative');
     reportDecision(res, 'Request declined');
@@ -1159,6 +1202,7 @@ function PlannerPageContent() {
           onViewDetails={a => { setSelectedAppointment(a); setIsDetailsOpen(true); }}
           onApproveRequest={handleApproveRequest} onDeclineRequest={handleDeclineRequest}
           onReportIssue={(a: any) => setIssueFor(a)} canDeclineDirectly={myAuthority === 'full'}
+          onResolveIssue={(a: any) => setResolveFor(a)} canResolveIssues={isManagerHere}
           focusId={focusId} onFocusSettled={() => setFocusId(null)}
           walkIns={walkIns} clients={clients} services={services} resources={resourcesData || []}
         />
@@ -1188,6 +1232,16 @@ function PlannerPageContent() {
           }}
         />
       </DebugErrorBoundary>
+
+      <ResolveIssueSheet
+        open={!!resolveFor}
+        onOpenChange={(v: boolean) => { if (!v) setResolveFor(null); }}
+        appointment={resolveFor}
+        raisedByName={resolveFor?.issue?.raisedByName}
+        coverage={coverageOptions}
+        busy={resolveBusy}
+        onResolve={handleResolveIssue}
+      />
 
       <ReportIssueDialog
         open={!!issueFor}
