@@ -656,7 +656,17 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
    *
    * Page mode exists because every mobile failure this flow had came from
    * being a floating box on a phone. A page is what phones are for. */
-  const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  /* ── WHY THIS IS A FUNCTION AND NOT A COMPONENT ───────────────────────────
+   * This was `const Shell: React.FC = ({children}) => ...`, declared inside
+   * the render body. A component defined during render is a BRAND NEW
+   * component type on every render, so React cannot match it to the previous
+   * tree — it unmounts everything inside and mounts it again. In a form, that
+   * means the focused input is destroyed and recreated after every keystroke,
+   * which is felt as being able to type only one character at a time.
+   *
+   * A plain function that returns elements has no such identity: the elements
+   * it returns are reconciled normally, and the inputs keep their focus. */
+  const wrapInShell = (children: React.ReactNode) => {
     if (asPage) {
       return (
         <div
@@ -709,7 +719,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
      *
      * Everything inside is unchanged; only the container is different. */
     !open || (!asPage && !mounted) ? null : (
-    <Shell>
+    wrapInShell(<>
         {/* ── Header ─────────────────────────────────────────────────────── */}
         <div
           ref={headerRef}
@@ -1282,7 +1292,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             </Button>
           </div>
         )}
-    </Shell>
+    </>)
     )
   );
 };
