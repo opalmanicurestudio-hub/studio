@@ -58,6 +58,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn, safeNumber } from '@/lib/utils';
+import { isAwaitingApproval, downgradeReasonLabel } from '@/lib/booking-approval';
 import { type Appointment, type Client, type Service, Staff } from '@/lib/data';
 import { appointmentReadiness } from '@/lib/appointment-requirements';
 import { useInventory } from '@/context/InventoryContext';
@@ -90,6 +91,8 @@ export function AppointmentCard({
   onFinishService,
   onStartService,
   onPrintTicket,
+  onApproveRequest,
+  onDeclineRequest,
   heightPx,
 }: any) {
   const { staff, inventory } = useInventory();
@@ -98,6 +101,8 @@ export function AppointmentCard({
   const { showProfitability } = useProfitabilityVisibility();
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
   const [isRunningOver, setIsRunningOver] = useState(false);
+  const [confirmingDecline, setConfirmingDecline] = useState(false);
+  const [decisionBusy, setDecisionBusy] = useState(false);
 
   useEffect(() => {
     let timer: NodeJS.Timeout | undefined;
@@ -171,9 +176,22 @@ export function AppointmentCard({
     cancelled: { text: 'Cancelled', className: 'border-red-500/20 text-red-800 bg-red-500/[0.03] grayscale', bgClassName: 'bg-red-500/5', dotColor: 'bg-red-500' },
     deposit_pending: { text: 'Deposit Due', className: 'border-amber-500/20 text-amber-800 bg-amber-500/[0.03]', bgClassName: 'bg-amber-500/5', dotColor: 'bg-amber-500' },
     ready_for_checkout: { text: 'Checkout', className: 'border-orange-500/20 text-orange-800 bg-orange-500/[0.03] shadow-lg', bgClassName: 'bg-orange-500/5', dotColor: 'bg-orange-500' },
+    requested: { text: 'Requested', className: 'border-dashed border-violet-500/60 text-violet-800 bg-violet-500/[0.04]', bgClassName: 'bg-violet-500/5', dotColor: 'bg-violet-500' },
   };
 
-  const cardStatus = appointment.checkInStatus === 'auto_cancelled' ? 'cancelled' : appointment.status;
+  const awaitingDecision = isAwaitingApproval(appointment);
+  const canDecide = awaitingDecision
+    && typeof onApproveRequest === 'function'
+    && typeof onDeclineRequest === 'function';
+  const holdReason = awaitingDecision
+    ? downgradeReasonLabel(appointment.voiceMeta?.downgradedFromInstant)
+    : null;
+
+  const cardStatus = appointment.checkInStatus === 'auto_cancelled'
+    ? 'cancelled'
+    : awaitingDecision
+      ? 'requested'
+      : appointment.status;
   const currentStatus = statusDisplay[cardStatus];
 
   // FIX #2: removed the self-reference to `estimatedArrival` from this memo's
@@ -256,6 +274,18 @@ export function AppointmentCard({
 
   const openDetails = () => onViewDetails(appointment);
 
+  const runDecision = async (kind: 'approve' | 'decline') => {
+    if (decisionBusy) return;
+    setDecisionBusy(true);
+    try {
+      if (kind === 'approve') await onApproveRequest(appointment);
+      else await onDeclineRequest(appointment);
+    } finally {
+      setDecisionBusy(false);
+      setConfirmingDecline(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full w-full group">
       {(service?.padBefore ?? 0) > 0 && <div style={{ height: `${((service?.padBefore ?? 0) / totalDuration) * 100}%` }} className="bg-muted/10 rounded-t-xl bg-[repeating-linear-gradient(-45deg,transparent,transparent_4px,rgba(0,0,0,0.05)_4px,rgba(0,0,0,0.05)_5px)]" />}
@@ -265,6 +295,7 @@ export function AppointmentCard({
             'p-1.5 sm:p-2.5 border-2 w-full h-full flex flex-col transition-all duration-300 hover:shadow-2xl relative rounded-xl overflow-hidden', 
             currentStatus?.className,
             (isRunningOver || appointment.isEscalated) && 'border-destructive ring-2 sm:ring-4 ring-destructive/20 animate-pulse bg-destructive/10',
+            awaitingDecision && 'bg-[repeating-linear-gradient(-45deg,transparent,transparent_5px,rgba(83,74,183,0.07)_5px,rgba(83,74,183,0.07)_7px)]',
             profitTier && profitStyles[profitTier].edgeClass
           )}
           role="button"
@@ -361,6 +392,9 @@ export function AppointmentCard({
                 {tier !== 'compact' && (
                   <p className="text-[8px] sm:text-[9px] font-bold text-muted-foreground uppercase tracking-widest truncate opacity-60">{service?.name || appointment.serviceName || 'Service'}</p>
                 )}
+                {holdReason && tier === 'full' && (
+                  <p className="text-[8px] font-bold text-violet-700 uppercase tracking-widest truncate">{holdReason}</p>
+                )}
             </div>
             <div className="flex flex-col items-end gap-1 shrink-0">
                 <DropdownMenu>
@@ -378,6 +412,13 @@ export function AppointmentCard({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1 min-w-[11rem]">
+                    {canDecide && (
+                      <>
+                        <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); runDecision('approve'); }} className="font-bold text-[10px] uppercase tracking-widest text-green-700"><CheckCircle className="mr-2 h-3.5 w-3.5" /> Accept Request</DropdownMenuItem>
+                        <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); setConfirmingDecline(true); }} className="font-bold text-[10px] uppercase tracking-widest text-destructive"><ShieldAlert className="mr-2 h-3.5 w-3.5" /> Decline Request</DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                      </>
+                    )}
                     <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); openDetails(); }} className="font-bold text-[10px] uppercase tracking-widest"><FileText className="mr-2 h-3.5 w-3.5" /> View Details</DropdownMenuItem>
                     <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); onEdit(appointment); }} className="font-bold text-[10px] uppercase tracking-widest"><Calendar className="mr-2 h-3.5 w-3.5" /> Edit</DropdownMenuItem>
                     {typeof onPrintTicket === 'function' && (
@@ -432,6 +473,19 @@ export function AppointmentCard({
                     }
                 </p>
             </div>
+            {canDecide && tier !== 'compact' && !confirmingDecline && (
+                <div className="flex items-center gap-1">
+                    <Button size="xs" disabled={decisionBusy} aria-label={`Accept the request from ${client.name}`} className="h-6 px-2 bg-green-600 text-white border-none font-black text-[8px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); runDecision('approve'); }}>Accept</Button>
+                    <Button size="xs" variant="outline" disabled={decisionBusy} aria-label={`Decline the request from ${client.name}`} className="h-6 px-2 border-2 font-black text-[8px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); setConfirmingDecline(true); }}>Decline</Button>
+                </div>
+            )}
+            {canDecide && confirmingDecline && (
+                <div className="flex items-center gap-1">
+                    <span className="text-[8px] font-black uppercase tracking-widest text-destructive">Release it?</span>
+                    <Button size="xs" disabled={decisionBusy} aria-label={`Confirm declining ${client.name}`} className="h-6 px-2 bg-destructive text-white border-none font-black text-[8px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); runDecision('decline'); }}>Yes</Button>
+                    <Button size="xs" variant="outline" aria-label="Keep the request" className="h-6 px-2 border-2 font-black text-[8px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); setConfirmingDecline(false); }}>Keep</Button>
+                </div>
+            )}
             {appointment.status === 'ready_for_checkout' && (
                 <Button size="xs" aria-label={`Take payment for ${client.name}`} className="h-6 px-2.5 bg-primary text-white border-none font-black text-[8px] uppercase tracking-widest shadow-sm rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); onCompleteClick(appointment); }}>PAY</Button>
             )}
