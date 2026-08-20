@@ -106,6 +106,7 @@ export function decisionVerdict(
     isManager: actor.isManager,
     employmentModel: actor.employmentModel,
     decisionAuthority: actor.decisionAuthority,
+    role: actor.role,
     reasonCode: opts?.reasonCode ?? null,
     policy: opts?.policy ?? null,
   });
@@ -128,6 +129,7 @@ export function actorAuthority(
     isManager: actor.isManager,
     employmentModel: actor.employmentModel,
     decisionAuthority: actor.decisionAuthority,
+    role: actor.role,
     policy: policy ?? null,
   });
 }
