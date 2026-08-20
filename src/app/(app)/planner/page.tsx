@@ -927,7 +927,7 @@ function PlannerPageContent() {
         name: decidingStaffName,
         role: (me as any)?.role || role || null,
         isManager: role === 'owner' || role === 'admin',
-      }, authorityPolicy, allStaff || []);
+      }, authorityPolicy, allStaff || [], (selectedTenant as any)?.userId || null);
       if (res.ok) {
         toast({ title: 'Sent to a manager', description: res.message });
         setIssueFor(null);
@@ -966,7 +966,7 @@ function PlannerPageContent() {
         name: decidingStaffName,
         role: (me as any)?.role || role || null,
         isManager: isManagerHere,
-      }, opts);
+      }, opts, { staff: allStaff || [], ownerUid: (selectedTenant as any)?.userId || null });
       if (res.ok) {
         toast({ title: 'Issue closed', description: res.message });
         setResolveFor(null);
