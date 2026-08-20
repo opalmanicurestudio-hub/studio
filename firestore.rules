@@ -32,7 +32,8 @@ service cloud.firestore {
         request.auth.uid == tenantDoc(tenantId).data.userId ||
         (hasStaffDoc(tenantId) && (
           staffDoc(tenantId).data.role == 'owner' ||
-          staffDoc(tenantId).data.role == 'admin'
+          staffDoc(tenantId).data.role == 'admin' ||
+          staffDoc(tenantId).data.role == 'manager'
         ))
       );
     }
@@ -73,6 +74,17 @@ service cloud.firestore {
     }
     match /tenants/{tenantId}/appointments/{appointmentId} {
       allow read, write: if isStaff(tenantId);
+    }
+
+    // The decision ledger. Any staff surface may add a row (the voice queue
+    // writes one client-side; the decide route writes one with the Admin
+    // SDK). Nothing may edit or delete one — a record you can rewrite is not
+    // a record, and these are what appointment-decision metrics will be read
+    // from. Reading stays managers-only: this is people's decision history.
+    match /tenants/{tenantId}/appointmentDecisions/{decisionId} {
+      allow read: if isManager(tenantId);
+      allow create: if isStaff(tenantId);
+      allow update, delete: if false;
     }
 
     // ── Inventory exceptions — the loss & recovery spine. Append-mostly
