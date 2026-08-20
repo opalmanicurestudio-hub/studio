@@ -92,6 +92,8 @@ export function AppointmentCard({
   onPrintTicket,
   onApproveRequest,
   onDeclineRequest,
+  onReportIssue,
+  canDeclineDirectly,
   heightPx,
 }: any) {
   const { staff, inventory } = useInventory();
@@ -191,6 +193,12 @@ export function AppointmentCard({
   const canDecide = awaitingDecision
     && typeof onApproveRequest === 'function'
     && typeof onDeclineRequest === 'function';
+  /* Someone who may not decline is not told "no" — they are given the path
+   * that actually solves it. The server enforces the same rule; this only
+   * decides which word appears on the button. */
+  const declinesDirectly = canDeclineDirectly !== false;
+  const canReport = typeof onReportIssue === 'function';
+  const openIssue = appointment.issue && appointment.issue.status === 'open' ? appointment.issue : null;
   const holdReason = awaitingDecision ? holdReasonLabel(appointment) : null;
   const acceptConsequence = awaitingDecision ? acceptConsequenceLabel(appointment, client) : null;
 
@@ -254,6 +262,7 @@ export function AppointmentCard({
     const push = (key: string, tone: string, Icon: any, label: string) => out.push({ key, tone, Icon, label });
 
     if (appointment.isEscalated) push('esc', 'alert', ShieldAlert, 'Manager');
+    if (appointment.issue && appointment.issue.status === 'open') push('issue', 'alert', AlertTriangle, 'Issue');
     if (appointment.status !== 'servicing' && appointment.status !== 'completed') {
       if (appointment.checkInStatus === 'running_late') push('late', 'alert', Clock, `+${appointment.lateTimeMinutes}m`);
       if (appointment.checkInStatus === 'arrived') push('here', 'good', MapPin, 'Here');
@@ -272,6 +281,7 @@ export function AppointmentCard({
     if (isBirthdayToday) push('bday', 'info', Cake, 'Birthday');
     return out;
   }, [appointment, setupPending, profitTier, awaitingReview, hasDeferredFee, isMember, hasPackage, hasInspiration, isBirthdayToday]);
+
 
   const involvedStaff = useMemo(() => {
     const ids = new Set<string>();
@@ -365,6 +375,9 @@ export function AppointmentCard({
                 {holdReason && tier === 'full' && (
                   <p className="text-[8px] font-bold text-foreground/70 uppercase tracking-widest truncate">{holdReason}</p>
                 )}
+                {openIssue && tier !== 'compact' && (
+                  <p className="text-[8px] font-bold text-destructive uppercase tracking-widest truncate">{openIssue.label}</p>
+                )}
                 {acceptConsequence && tier === 'full' && (
                   <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest truncate">{acceptConsequence}</p>
                 )}
@@ -388,7 +401,11 @@ export function AppointmentCard({
                     {canDecide && (
                       <>
                         <DropdownMenuItem disabled={decisionBusy} onSelect={() => { void runDecision('approve'); }} className="font-bold text-[10px] uppercase tracking-widest text-emerald-700"><CheckCircle className="mr-2 h-3.5 w-3.5" /> Accept Request</DropdownMenuItem>
-                        <DropdownMenuItem disabled={decisionBusy} onSelect={() => { setConfirmingDecline(true); }} className="font-bold text-[10px] uppercase tracking-widest text-destructive"><ShieldAlert className="mr-2 h-3.5 w-3.5" /> Decline Request</DropdownMenuItem>
+                        {declinesDirectly
+                          ? <DropdownMenuItem disabled={decisionBusy} onSelect={() => { setConfirmingDecline(true); }} className="font-bold text-[10px] uppercase tracking-widest text-destructive"><ShieldAlert className="mr-2 h-3.5 w-3.5" /> Decline Request</DropdownMenuItem>
+                          : canReport
+                            ? <DropdownMenuItem disabled={decisionBusy} onSelect={() => { onReportIssue(appointment); }} className="font-bold text-[10px] uppercase tracking-widest"><AlertTriangle className="mr-2 h-3.5 w-3.5" /> Report an Issue</DropdownMenuItem>
+                            : null}
                         <DropdownMenuSeparator />
                       </>
                     )}
@@ -449,7 +466,11 @@ export function AppointmentCard({
             {canDecide && tier !== 'compact' && !confirmingDecline && (
                 <div className="flex items-center gap-1">
                     <Button size="xs" disabled={decisionBusy} aria-label={`Accept the request from ${client.name}`} className="h-6 px-2 bg-emerald-600 text-white border-none font-black text-[8px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); runDecision('approve'); }}>Accept</Button>
-                    <Button size="xs" variant="outline" disabled={decisionBusy} aria-label={`Decline the request from ${client.name}`} className="h-6 px-2 border-2 font-black text-[8px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); setConfirmingDecline(true); }}>Decline</Button>
+                    {declinesDirectly
+                      ? <Button size="xs" variant="outline" disabled={decisionBusy} aria-label={`Decline the request from ${client.name}`} className="h-6 px-2 border-2 font-black text-[8px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); setConfirmingDecline(true); }}>Decline</Button>
+                      : canReport
+                        ? <Button size="xs" variant="outline" disabled={decisionBusy} aria-label={`Report an issue with ${client.name}'s booking`} className="h-6 px-2 border-2 font-black text-[8px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); onReportIssue(appointment); }}>Report</Button>
+                        : null}
                 </div>
             )}
             {canDecide && confirmingDecline && (
