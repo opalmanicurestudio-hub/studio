@@ -81,6 +81,32 @@ export function AppointmentAuthoritySettings({
             A ceiling for employees and commission staff. Renters and contractors run their own book and are never
             capped here — and a manager is never capped at all.
           </p>
+          <div className="space-y-2 rounded-2xl border-2 border-dashed px-4 py-3">
+            <Label htmlFor="respond-hours" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+              How long they have to answer
+            </Label>
+            <p className="text-[11px] font-bold leading-relaxed text-muted-foreground">
+              A booking should not sit unanswered on someone&apos;s screen all day. This is separate from the window you
+              promise the client — leave it at 0 for no deadline.
+            </p>
+            <div className="flex items-center gap-2">
+              <Input
+                id="respond-hours"
+                type="number" min={0} max={168} inputMode="numeric"
+                defaultValue={String(p.providerResponseHours ?? 0)}
+                disabled={!canEdit || !!busy}
+                onBlur={(e) => {
+                  const v = Math.max(0, Math.min(168, Number(e.target.value) || 0));
+                  if (v !== Number(p.providerResponseHours ?? 0)) {
+                    void write({ providerResponseHours: v || undefined }, 'respond-hours', 'Response window');
+                  }
+                }}
+                className="h-10 w-24 rounded-xl border-2 text-[13px]"
+              />
+              <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">hours</span>
+            </div>
+          </div>
+
           <div className="grid gap-2">
             {CEILINGS.map(c => {
               const active = ceiling === c.id;
