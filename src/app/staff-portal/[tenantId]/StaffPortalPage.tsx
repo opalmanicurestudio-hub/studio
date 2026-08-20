@@ -4451,6 +4451,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                         tenant={portalTenant}
                         tenantId={tenantId}
                         firestore={firestore}
+                        allStaff={allStaff || []}
                       />
                     </div>
                   ))}
