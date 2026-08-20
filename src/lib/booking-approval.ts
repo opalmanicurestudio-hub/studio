@@ -1,6 +1,8 @@
 import { doc, writeBatch, type Firestore } from 'firebase/firestore';
 
-export type ApprovalResult = { ok: true; message: string } | { ok: false; reason: string };
+export type ApprovalResult =
+  | { ok: true; message: string }
+  | { ok: false; reason: string; alreadyStatus?: string | null };
 
 export type ApprovableAppointment = {
   id: string;
@@ -45,8 +47,12 @@ export function holdReasonLabel(apt: any): string | null {
   if (!apt) return null;
   if (apt.status === 'requested') {
     const r = String(apt.bookingReason || '').trim();
-    if (r) return r.length > 64 ? `${r.slice(0, 61)}...` : r;
-    return 'Waiting on your yes';
+    if (!r) return 'Waiting on your yes';
+    const low = r.toLowerCase();
+    if (low.startsWith('shop default')) return 'Your shop reviews every booking';
+    if (low.includes('overrides the shop rule')) return 'This service always needs a yes';
+    if (low.includes('booking history')) return 'Held back - booking history';
+    return r.length > 44 ? `${r.slice(0, 41)}...` : r;
   }
   const code = apt.voiceMeta?.downgradedFromInstant;
   if (!code) return apt.voiceApproval === 'pending' ? 'Waiting on your yes' : null;
@@ -56,11 +62,19 @@ export function holdReasonLabel(apt: any): string | null {
   return 'Held back for review';
 }
 
-export function acceptConsequenceLabel(apt: any): string | null {
+export function hasUsableCardOnFile(apt: any, client?: any): boolean {
+  if (client && typeof client === 'object' && 'cardOnFile' in client) {
+    const live = client.cardOnFile;
+    return !!(live && live.customerId && live.paymentMethodId);
+  }
+  return apt?.hasCardOnFile === true;
+}
+
+export function acceptConsequenceLabel(apt: any, client?: any): string | null {
   if (!apt || apt.status !== 'requested') return null;
   const cents = Number(apt.depositAmountCents || 0);
   if (cents <= 0) return 'Accepting confirms it outright';
-  return apt.hasCardOnFile
+  return hasUsableCardOnFile(apt, client)
     ? `Accepting charges $${(cents / 100).toFixed(0)} to their card`
     : `Accepting sends a $${(cents / 100).toFixed(0)} pay link`;
 }
@@ -86,7 +100,11 @@ async function decideViaRoute(
     });
     const data = await res.json().catch(() => null);
     if (!res.ok || !data || data.ok !== true) {
-      return { ok: false, reason: (data && data.error) || 'Could not record that decision' };
+      return {
+        ok: false,
+        reason: (data && data.error) || 'Could not record that decision',
+        alreadyStatus: (data && data.alreadyStatus) || null,
+      };
     }
     return { ok: true, message: data.message || (decision === 'accept' ? 'Accepted' : 'Declined') };
   } catch {
@@ -198,7 +216,7 @@ export async function approveBooking(
     if (!firestore) return { ok: false, reason: 'Missing studio or booking' };
     return approveVoiceBooking(firestore, tenantId, apt, actorStaffId, studioName);
   }
-  return { ok: false, reason: 'That booking is not waiting on a decision' };
+  return { ok: false, reason: 'That booking is not waiting on a decision', alreadyStatus: String(apt.status || '') };
 }
 
 export async function denyBooking(
@@ -216,5 +234,5 @@ export async function denyBooking(
     if (!firestore) return { ok: false, reason: 'Missing studio or booking' };
     return denyVoiceBooking(firestore, tenantId, apt, actorStaffId);
   }
-  return { ok: false, reason: 'That booking is not waiting on a decision' };
+  return { ok: false, reason: 'That booking is not waiting on a decision', alreadyStatus: String(apt.status || '') };
 }
