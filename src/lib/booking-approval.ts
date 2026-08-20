@@ -288,6 +288,7 @@ export async function raiseIssue(
   actor: { uid?: string | null; name?: string | null; role?: string | null; isManager?: boolean },
   policy?: AuthorityPolicy | null,
   staffForNotify?: any[],
+  ownerUid?: string | null,
 ): Promise<ApprovalResult> {
   if (!firestore || !tenantId || !apt?.id) return { ok: false, reason: 'Missing studio or booking' };
   const known = findReason(reasonCode, policy);
@@ -357,7 +358,7 @@ export async function raiseIssue(
     /* the issue is raised and visible; a missing ledger row is not worth failing over */
   }
 
-  await notifyStaff(firestore, tenantId, managerIds(staffForNotify || [], actor.uid).map(id => ({
+  await notifyStaff(firestore, tenantId, managerIds(staffForNotify || [], actor.uid, ownerUid).map(id => ({
     userId: id,
     type: 'appointment_issue_raised' as const,
     message: `${actor.name || 'A provider'} raised "${known.label}" on ${apt.clientName || 'a booking'}.`,
@@ -395,7 +396,8 @@ export async function resolveIssue(
   outcome: IssueOutcome,
   actor: { uid?: string | null; name?: string | null; role?: string | null; isManager?: boolean },
   opts?: { newStaffId?: string | null; newStaffName?: string | null; note?: string | null },
-): Promise<ApprovalResult> {
+  ctx?: { staff?: any[]; ownerUid?: string | null },
+): Promise<ApprovalResult & { clientNotified?: boolean; depositOwedCents?: number }> {
   if (!firestore || !tenantId || !apt?.id) return { ok: false, reason: 'Missing studio or booking' };
   /* The client SDK cannot enforce this on its own — appointment writes are
    * open to any staff member in the rules — so this is a guard, not a wall.
@@ -426,10 +428,22 @@ export async function resolveIssue(
     patch.reassignedAt = nowIso;
     patch.reassignedBy = actor.uid || null;
   }
+  /* A deposit that was already taken does not evaporate because the shop
+   * could not staff the booking. The amount is stamped on the cancellation so
+   * the money owed is visible on the record itself, not only in a report
+   * somebody has to think to run. */
+  const depositCents = Number(apt.depositAmountCents || 0);
+  const depositPaid = String(apt.depositStatus || '') === 'paid' && depositCents > 0;
+
   if (outcome === 'declined') {
     patch.status = 'cancelled';
     patch.cancelledAt = nowIso;
     patch.cancellationReason = 'no_coverage_available';
+    if (depositPaid) {
+      patch.depositRefundPending = true;
+      patch.depositRefundOwedCents = depositCents;
+      patch.depositRefundReason = 'studio_cancelled_no_cover';
+    }
     patch.cancellationAudit = {
       actorType: 'studio',
       actorId: actor.uid || null,
@@ -491,6 +505,35 @@ export async function resolveIssue(
     /* the issue is closed and visible; a missing ledger row is not worth failing over */
   }
 
+  /* THE CLIENT HEARS ABOUT IT. resolveIssue cannot send anything itself — it
+   * runs on the client SDK and has no access to the client's contact details
+   * — so the server route does the reading and the sending. If it fails, the
+   * manager is told so a person can pick up the phone. */
+  let clientNotified = false;
+  if (outcome === 'declined') {
+    try {
+      const res = await fetch('/api/appointments/notify-cancellation', {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify({ tenantId, appointmentId: apt.id, reason: closed.resolutionNote || '' }),
+      });
+      const data = await res.json().catch(() => null);
+      clientNotified = !!(data && data.ok && data.reachable);
+    } catch {
+      clientNotified = false;
+    }
+  }
+
+  if (outcome === 'declined' && depositPaid) {
+    await notifyStaff(firestore, tenantId, managerIds(ctx?.staff || [], null, ctx?.ownerUid).map(id => ({
+      userId: id,
+      type: 'appointment_issue_resolved' as const,
+      message: `$${(depositCents / 100).toFixed(2)} deposit is owed back to ${apt.clientName || 'a client'} — the studio cancelled.`,
+      link: '/planner',
+      appointmentId: apt.id,
+    })));
+  }
+
   const raisedBy = String(apt.issue?.raisedByUid || '');
   const tellRaiser = raisedBy && raisedBy !== String(actor.uid || '')
     ? [{
@@ -521,13 +564,17 @@ export async function resolveIssue(
   const who = opts?.newStaffName || 'another provider';
   return {
     ok: true,
+    clientNotified,
+    depositOwedCents: outcome === 'declined' && depositPaid ? depositCents : 0,
     nextStatus: outcome === 'declined' ? 'cancelled' : apt.status || null,
     message: outcome === 'reassigned'
       ? `Moved to ${who}. ${apt.clientName || 'The client'} keeps their time.`
       : outcome === 'kept'
         ? 'Kept as it stands — the provider has been told.'
         : outcome === 'declined'
-          ? `No cover was available, so ${apt.clientName || 'the client'} has been cancelled. Give them a call.`
+          ? (clientNotified
+            ? `No cover was available. ${apt.clientName || 'The client'} has been told.`
+            : `No cover was available and we could not reach ${apt.clientName || 'the client'} — please call them.`)
           : 'Closed — handled outside the app.',
   };
 }
