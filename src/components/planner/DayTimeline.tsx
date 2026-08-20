@@ -9,7 +9,7 @@ import { AppointmentCard } from '@/components/planner/AppointmentCard';
 import { EventCard } from '@/components/planner/EventCard';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Building, HardHat, Lock, Users, Landmark, Briefcase, Eye, DollarSign, Link2 } from 'lucide-react';
+import { Building, HardHat, Lock, Users, Landmark, Briefcase, Eye, DollarSign, Link2, ChevronsUpDown, Phone, MessageSquare } from 'lucide-react';
 
 // Live elapsed timer for a checked-in reservation — ticks itself so only the
 // timer re-renders, not the whole timeline. Turns red + "OVER" past booked end.
@@ -92,10 +92,53 @@ export const DayTimeline = ({
     mobileSelectedColumnId,
     onMobileColumnChange,
 }: any) => {
-    const START_HOUR = 0;
-    const hours = Array.from({ length: 24 }, (_, i) => i);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const safeColumns = columns || [];
+    const [showFullDay, setShowFullDay] = useState(false);
+
+    const PX_PER_HOUR = isMobile ? 96 : 160;
+    const PX_PER_MIN = PX_PER_HOUR / 60;
+
+    const dayWindow = useMemo(() => {
+        const dayZero = startOfDay(date);
+        let firstMin = 9 * 60;
+        let lastMin = 19 * 60;
+        const consider = (v: any, isEnd: boolean) => {
+            const d = safeDate(v);
+            if (!(d instanceof Date) || Number.isNaN(d.getTime())) return;
+            const m = differenceInMinutes(d, dayZero);
+            if (m < 0) return;
+            if (isEnd) lastMin = Math.max(lastMin, m);
+            else firstMin = Math.min(firstMin, m);
+        };
+        if (itemsByColumn) {
+            for (const items of Array.from(itemsByColumn.values()) as any[]) {
+                for (const it of (items || [])) {
+                    if (!it) continue;
+                    consider(it.startTime || it.dueDate, false);
+                    consider(it.endTime || it.startTime || it.dueDate, true);
+                }
+            }
+        }
+        if (isToday(date)) {
+            const nowMin = differenceInMinutes(new Date(), startOfDay(new Date()));
+            firstMin = Math.min(firstMin, nowMin);
+            lastMin = Math.max(lastMin, nowMin);
+        }
+        firstMin = Math.min(Math.max(firstMin, 0), 1439);
+        lastMin = Math.min(Math.max(lastMin, firstMin + 60), 1440);
+        const start = Math.max(0, Math.floor(firstMin / 60) - 1);
+        const end = Math.min(24, Math.max(Math.ceil(lastMin / 60) + 1, start + 4));
+        return { start, end };
+    }, [itemsByColumn, date]);
+
+    const START_HOUR = showFullDay ? 0 : dayWindow.start;
+    const END_HOUR = showFullDay ? 24 : dayWindow.end;
+    const hours = useMemo(
+        () => Array.from({ length: Math.max(1, END_HOUR - START_HOUR) }, (_, i) => START_HOUR + i),
+        [START_HOUR, END_HOUR],
+    );
+    const hoursHidden = 24 - (END_HOUR - START_HOUR);
 
     const displayedColumns = useMemo(() => {
         if (!isMobile) return safeColumns;
@@ -181,20 +224,20 @@ export const DayTimeline = ({
     const renderBill = (item: any) => {
         const dayStart = setHours(startOfDay(date), START_HOUR);
         const dueDate = safeDate(item.dueDate);
-        const top = differenceInMinutes(dueDate, dayStart) * (160/60);
-        const height = 60 * (160/60);
+        const top = differenceInMinutes(dueDate, dayStart) * PX_PER_MIN;
+        const height = 60 * PX_PER_MIN;
         const style = { top: `${top}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.5rem)`, left: item.layout.left };
         
         return (
             <div key={item.id} className="absolute pr-2 z-10" style={style}>
-                <Card className="h-full border-2 sm:border-4 border-orange-500/30 bg-orange-500/10 hover:bg-orange-500/20 transition-all cursor-pointer overflow-hidden shadow-xl rounded-xl sm:rounded-2xl">
+                <Card className="h-full border-2 border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 transition-colors cursor-pointer overflow-hidden shadow-none rounded-xl sm:rounded-2xl">
                     <CardContent className="p-2 sm:p-3 flex flex-col justify-center h-full gap-0.5 sm:gap-1 text-left">
                         <div className="flex items-center gap-1.5 sm:gap-2">
                             <Landmark className="w-3 h-3 sm:w-4 sm:h-4 text-orange-600" />
                             <p className="text-[8px] sm:text-[10px] font-black uppercase text-orange-700 tracking-widest truncate">{item.definition?.name || 'Bill'}</p>
                         </div>
                         <p className="font-black text-sm sm:text-lg text-orange-800 tracking-tighter">${item.definition?.amount?.toFixed(2) || '0.00'}</p>
-                        <Badge variant="outline" className="w-fit h-4 sm:h-5 px-1 sm:px-1.5 text-[7px] sm:text-[9px] border-orange-500/20 text-orange-600 uppercase font-black">Due Today</Badge>
+                        <Badge variant="outline" className="w-fit h-4 sm:h-5 px-1 sm:px-1.5 text-[8px] sm:text-[9px] border-orange-500/20 text-orange-600 uppercase font-black">Due Today</Badge>
                     </CardContent>
                 </Card>
             </div>
@@ -310,19 +353,20 @@ export const DayTimeline = ({
         // Never draw a zero-height card. 10 minutes is the floor, which is still
         // tall enough to click.
         const totalDuration = Math.max(10, differenceInMinutes(endTime, startTime) + padBefore + padAfter);
-        const top = minsFromTop * (160/60);
-        const height = totalDuration * (160/60);
+        const MIN_CARD_PX = 44;
+        const top = minsFromTop * PX_PER_MIN;
+        const height = Math.max(MIN_CARD_PX, totalDuration * PX_PER_MIN);
         const style = { top: `${top}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.25rem)`, left: item.layout.left };
        
         const group = visitIndex.get(item.id);
 
         return (
-            <div key={`${item.id}-${item.isSecondary ? 'sec' : 'pri'}`} className={cn("absolute pr-1 z-10", item.isSecondary && "opacity-80")} style={style}>
+            <div key={`${item.id}-${item.isSecondary ? 'sec' : 'pri'}`} className={cn("absolute pr-1 z-10 overflow-hidden", item.isSecondary && "opacity-80")} style={style}>
                 {group && height > 44 && (
                     <div
                         title={group.label}
                         className={cn(
-                            'absolute -top-1 left-1 z-20 pointer-events-none inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[7px] sm:text-[8px] font-black uppercase tracking-widest text-white shadow-sm max-w-[calc(100%-0.75rem)]',
+                            'absolute -top-1 left-1 z-20 pointer-events-none inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[8px] sm:text-[8px] font-black uppercase tracking-widest text-white shadow-sm max-w-[calc(100%-0.75rem)]',
                             group.kind === 'party' ? 'bg-violet-600' : 'bg-indigo-600',
                         )}
                     >
@@ -335,7 +379,7 @@ export const DayTimeline = ({
                     </div>
                 )}
                 <AppointmentCard
-                    appointment={item} client={client} service={service} style={{ height: '100%'}}
+                    appointment={item} client={client} service={service} style={{ height: '100%'}} heightPx={height}
                     onUpdateStatus={onUpdateStatus} onDelete={onDeleteAppointment}
                     onCompleteClick={onCompleteClick} onPrintReceipt={onPrintReceipt} onPrintTicket={onPrintTicket}
                     onEdit={onEditAppointment} onReschedule={onReschedule} onRebook={onRebook}
@@ -353,7 +397,7 @@ export const DayTimeline = ({
         const endTime = safeDate(item.endTime);
         const mins = differenceInMinutes(startTime, dayStart);
         if (mins < 0) return null;
-        const style = { top: `${mins * (160/60)}px`, height: `${differenceInMinutes(endTime, startTime) * (160/60)}px`, width: `calc(${item.layout.width} - 0.5rem)`, left: item.layout.left };
+        const style = { top: `${mins * PX_PER_MIN}px`, height: `${differenceInMinutes(endTime, startTime) * PX_PER_MIN}px`, width: `calc(${item.layout.width} - 0.5rem)`, left: item.layout.left };
         return (
              <div key={item.id} className="absolute pr-2 z-10" style={style}>
                 <EventCard event={item} transactions={dailyTransactions?.filter(t => t.relatedEventId === item.id) || []} onChecklistItemToggle={onChecklistItemToggle} onUpdateEvent={onUpdateEvent} onEditEvent={onEditEvent} onAddTransaction={() => {}} onDeleteEvent={onDeleteEvent} />
@@ -368,8 +412,8 @@ export const DayTimeline = ({
         const endTime = safeDate(item.endTime);
         const mins = differenceInMinutes(startTime, dayStart);
         if (mins < 0) return null;
-        const height = Math.max(30, differenceInMinutes(endTime, startTime) * (160 / 60));
-        const style = { top: `${mins * (160 / 60)}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.5rem)`, left: item.layout.left };
+        const height = Math.max(30, differenceInMinutes(endTime, startTime) * PX_PER_MIN);
+        const style = { top: `${mins * PX_PER_MIN}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.5rem)`, left: item.layout.left };
         const fmtT = (d: Date) => { try { return format(d, 'h:mma').toLowerCase(); } catch { return ''; } };
         const isTour = item.type === 'tour';
         const live = item.status === 'checked_in';
@@ -385,42 +429,47 @@ export const DayTimeline = ({
         const label = isTour ? 'Tour' : (item.bookingType === 'hourly' ? 'Hourly' : 'Day rental');
         return (
             <div key={item.id} className="absolute pr-2 z-10" style={style}>
-                <a href={(item.phone || item.email) ? `/booths?contact=${encodeURIComponent(item.phone || item.email)}` : '/booths'} className={cn('block h-full rounded-xl sm:rounded-2xl border-2 overflow-hidden shadow-md hover:shadow-lg transition-all p-1.5 sm:p-2', scheme.bg, scheme.border)}>
-                    <div className="flex items-center justify-between gap-1">
-                        <span className={cn('inline-flex items-center gap-0.5 text-[7px] sm:text-[8px] font-black uppercase tracking-widest text-white rounded-full px-1.5 py-0.5', scheme.badge)}>
+                <div className={cn('relative h-full rounded-xl sm:rounded-2xl border-2 overflow-hidden shadow-none transition-colors p-1.5 sm:p-2', scheme.bg, scheme.border)}>
+                    <a
+                        href={(item.phone || item.email) ? `/booths?contact=${encodeURIComponent(item.phone || item.email)}` : '/booths'}
+                        aria-label={`Open ${label.toLowerCase()} for ${item.guestName || item.name || 'guest'}`}
+                        className="absolute inset-0 z-0"
+                    />
+                    <div className="relative z-10 flex items-center justify-between gap-1 pointer-events-none">
+                        <span className={cn('inline-flex items-center gap-0.5 text-[8px] sm:text-[8px] font-black uppercase tracking-widest text-white rounded-full px-1.5 py-0.5', scheme.badge)}>
                             {isTour ? <Eye className="w-2 h-2" /> : <DollarSign className="w-2 h-2" />}{label}
                         </span>
                         {live ? (
                             <span className="inline-flex items-center gap-1 text-[8px] sm:text-[9px] text-emerald-700"><span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /><LiveTimer startIso={item.checkedInAt} bookedEndIso={item.bookedEndIso} overageRateCentsPerHour={item.overageRateCentsPerHour} /></span>
                         ) : (
-                            <span className={cn('text-[7px] sm:text-[8px] font-black uppercase tracking-widest', scheme.text)}>{item.tourTimeTBD ? 'Time TBD' : fmtT(startTime)}</span>
+                            <span className={cn('text-[8px] sm:text-[8px] font-black uppercase tracking-widest', scheme.text)}>{item.tourTimeTBD ? 'Time TBD' : fmtT(startTime)}</span>
                         )}
                     </div>
-                    <p className={cn('font-black text-[11px] sm:text-sm tracking-tight truncate mt-0.5', scheme.text)}>{item.guestName || item.name || 'Guest'}</p>
-                    {med && <p className="text-[8px] sm:text-[10px] font-bold text-slate-500 truncate">{item.boothName || item.location || ''}{!live && !isTour ? ` · ${fmtT(startTime)}–${fmtT(endTime)}` : ''}</p>}
+                    <p className={cn('relative z-10 pointer-events-none font-black text-[11px] sm:text-sm tracking-tight truncate mt-0.5', scheme.text)}>{item.guestName || item.name || 'Guest'}</p>
+                    {med && <p className="relative z-10 pointer-events-none text-[8px] sm:text-[10px] font-bold text-slate-500 truncate">{item.boothName || item.location || ''}{!live && !isTour ? ` · ${fmtT(startTime)}–${fmtT(endTime)}` : ''}</p>}
                     {(overageDue || balanceDue) && (
-                        <div className="flex flex-wrap gap-1 mt-1">
-                            {overageDue && <span className="text-[7px] font-black uppercase tracking-widest bg-red-500 text-white rounded-full px-1.5 py-0.5">Overage due</span>}
-                            {balanceDue && <span className="text-[7px] font-black uppercase tracking-widest bg-amber-600 text-white rounded-full px-1.5 py-0.5">Balance ${(item.balanceDueCents / 100).toFixed(0)}</span>}
+                        <div className="relative z-10 pointer-events-none flex flex-wrap gap-1 mt-1">
+                            {overageDue && <span className="text-[8px] font-black uppercase tracking-widest bg-red-500 text-white rounded-full px-1.5 py-0.5">Overage due</span>}
+                            {balanceDue && <span className="text-[8px] font-black uppercase tracking-widest bg-amber-600 text-white rounded-full px-1.5 py-0.5">Balance ${(item.balanceDueCents / 100).toFixed(0)}</span>}
                         </div>
                     )}
                     {tall && item.phone && (
-                        <div className="flex gap-1 mt-1.5">
-                            <span onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.location.href = `tel:${item.phone}`; }} className="flex-1 text-center text-[7px] font-black uppercase tracking-widest rounded-md bg-white/70 border py-1">Call</span>
-                            <span onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.location.href = `sms:${item.phone}`; }} className="flex-1 text-center text-[7px] font-black uppercase tracking-widest rounded-md bg-white/70 border py-1">Text</span>
+                        <div className="relative z-20 flex gap-1 mt-1.5">
+                            <a href={`tel:${item.phone}`} aria-label={`Call ${item.guestName || item.name || 'guest'}`} className="flex-1 inline-flex items-center justify-center gap-1 text-[8px] font-black uppercase tracking-widest rounded-md bg-white/80 border py-1 active:scale-95"><Phone className="w-2.5 h-2.5 shrink-0" aria-hidden="true" />Call</a>
+                            <a href={`sms:${item.phone}`} aria-label={`Text ${item.guestName || item.name || 'guest'}`} className="flex-1 inline-flex items-center justify-center gap-1 text-[8px] font-black uppercase tracking-widest rounded-md bg-white/80 border py-1 active:scale-95"><MessageSquare className="w-2.5 h-2.5 shrink-0" aria-hidden="true" />Text</a>
                         </div>
                     )}
-                </a>
+                </div>
             </div>
         );
     };
 
     useEffect(() => {
         if (isToday(date) && scrollContainerRef.current) {
-            const pos = (differenceInMinutes(new Date(), setHours(startOfDay(new Date()), START_HOUR)) * (160/60)) - (scrollContainerRef.current.clientHeight / 4);
+            const pos = (differenceInMinutes(new Date(), setHours(startOfDay(new Date()), START_HOUR)) * PX_PER_MIN) - (scrollContainerRef.current.clientHeight / 3);
             scrollContainerRef.current.scrollTo({ top: Math.max(0, pos), behavior: 'smooth' });
         }
-    }, [date, columns]);
+    }, [date, columns, START_HOUR, PX_PER_MIN]);
 
     const gridStyle = { gridTemplateColumns: `repeat(${displayedColumns.length}, minmax(${isMobile ? '0' : '280px'}, 1fr))` };
 
@@ -438,13 +487,26 @@ export const DayTimeline = ({
     return (
         <div className="flex-1 relative overflow-auto" ref={scrollContainerRef}>
             <div className="grid grid-cols-[auto,1fr] min-w-max md:min-w-full">
-                <div className="sticky top-0 z-30 bg-background/80 backdrop-blur-md h-12 sm:h-16 border-b border-r" style={{ width: isMobile ? '32px' : '64px' }} />
+                <button
+                    type="button"
+                    onClick={() => setShowFullDay(v => !v)}
+                    title={showFullDay ? 'Show working hours only' : 'Show the full 24 hours'}
+                    aria-label={showFullDay ? 'Show working hours only' : `Show the full 24 hours (${hoursHidden} hidden)`}
+                    aria-pressed={showFullDay}
+                    className="sticky top-0 left-0 z-30 bg-background/90 backdrop-blur-md h-12 sm:h-16 border-b border-r flex flex-col items-center justify-center gap-0.5 hover:bg-muted transition-colors"
+                    style={{ width: isMobile ? '40px' : '64px' }}
+                >
+                    <ChevronsUpDown className="w-3.5 h-3.5 text-muted-foreground" aria-hidden="true" />
+                    {hoursHidden > 0 && !showFullDay && (
+                        <span className="text-[8px] font-black tabular-nums text-muted-foreground leading-none">+{hoursHidden}</span>
+                    )}
+                </button>
                 <div className="sticky top-0 z-20 grid col-start-2 bg-background/80 backdrop-blur-md" style={gridStyle}>
                     {displayedColumns.map(column => (
                         <div key={column.id} className="p-2 sm:p-3 h-12 sm:h-16 border-b border-r text-center flex items-center justify-center">
                             {isMobile ? (
                                 <Select value={mobileSelectedColumnId} onValueChange={onMobileColumnChange}>
-                                    <SelectTrigger className="border-none h-full p-0 focus:ring-0 w-full bg-transparent">
+                                    <SelectTrigger aria-label="Choose which column to show" className="border-none h-full p-0 focus:ring-0 w-full bg-transparent">
                                         <div className="flex items-center justify-center gap-1.5 h-full w-full">
                                             <SelectValue />
                                         </div>
@@ -453,7 +515,7 @@ export const DayTimeline = ({
                                         {safeColumns.map((c: any) => (
                                             <SelectItem key={c.id} value={c.id}>
                                                 <div className="flex items-center gap-2">
-                                                    {'isBusiness' in c ? <Briefcase className="w-3.5 h-3.5 text-primary" /> : 'role' in c ? <Avatar className="w-5 h-5"><AvatarImage src={(c as Staff).avatarUrl} /><AvatarFallback className="font-black text-[7px] bg-primary/10 text-primary">{(c.name || '?').charAt(0)}</AvatarFallback></Avatar> : ((c as Resource).type === 'room' ? <Building className="w-3.5 h-3.5" /> : <HardHat className="w-3.5 h-3.5" />)}
+                                                    {'isBusiness' in c ? <Briefcase className="w-3.5 h-3.5 text-primary" /> : 'role' in c ? <Avatar className="w-5 h-5"><AvatarImage src={(c as Staff).avatarUrl} /><AvatarFallback className="font-black text-[8px] bg-primary/10 text-primary">{(c.name || '?').charAt(0)}</AvatarFallback></Avatar> : ((c as Resource).type === 'room' ? <Building className="w-3.5 h-3.5" /> : <HardHat className="w-3.5 h-3.5" />)}
                                                     <span className="font-black uppercase text-[9px] tracking-widest">{c.name || 'Unnamed'}</span>
                                                 </div>
                                             </SelectItem>
@@ -478,13 +540,21 @@ export const DayTimeline = ({
                         </div>
                     ))}
                 </div>
-                <div className={cn("sticky left-0 z-10 bg-background", isMobile ? "w-8" : "w-16")}>
-                    {hours.map(hour => (<div key={hour} className="h-40 border-r border-b text-right pr-1.5 sm:pr-3 pt-1 flex justify-end items-start"><span className="text-[7px] sm:text-[10px] font-black uppercase text-muted-foreground -mt-2 sm:-mt-2.5 opacity-40 tracking-widest">{format(new Date(0, 0, 0, hour), 'ha')}</span></div>))}
+                <div className={cn("sticky left-0 z-10 bg-background", isMobile ? "w-10" : "w-16")}>
+                    {hours.map(hour => (
+                        <div key={hour} className="border-r border-b border-slate-200 text-right pr-1.5 sm:pr-3 pt-1 flex justify-end items-start" style={{ height: `${PX_PER_HOUR}px` }}>
+                            <span className="text-[10px] font-black uppercase text-muted-foreground -mt-2 sm:-mt-2.5 opacity-60 tracking-widest">{format(new Date(0, 0, 0, hour), 'ha')}</span>
+                        </div>
+                    ))}
                 </div>
                 <div className="col-start-2 grid relative bg-white/30" style={gridStyle}>
                     {displayedColumns.map(column => (
                         <div key={column.id} className="relative border-r border-slate-200">
-                            {hours.map(hour => (<div key={hour} className="h-40 border-b border-dashed border-slate-100" />))}
+                            {hours.map(hour => (
+                                <div key={hour} className="border-b border-slate-200" style={{ height: `${PX_PER_HOUR}px` }}>
+                                    <div className="h-1/2 border-b border-dashed border-slate-100" />
+                                </div>
+                            ))}
                             {(positionedItemsByColumn.get(column.id) || []).map(item => {
                                 if (item.itemType === 'bill') return renderBill(item);
                                 if (item.itemType === 'event') {
@@ -498,9 +568,9 @@ export const DayTimeline = ({
                     {isToday(date) && (
                         <div 
                             className="absolute w-full flex items-center z-20 pointer-events-none" 
-                            style={{ top: `${(differenceInMinutes(new Date(), setHours(startOfDay(new Date()), START_HOUR)) * (160 / 60))}px` }}
+                            style={{ top: `${(differenceInMinutes(new Date(), setHours(startOfDay(new Date()), START_HOUR)) * PX_PER_MIN)}px` }}
                         >
-                            <div className="h-2 w-2 sm:h-3 sm:w-3 rounded-full bg-red-500 -ml-1 sm:-ml-1.5 border-2 sm:border-4 border-white shadow-[0_0_15px_rgba(239,68,68,0.5)]"></div>
+                            <span className="-ml-1 shrink-0 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-black tabular-nums leading-none text-white shadow-[0_0_12px_rgba(239,68,68,0.45)]">{format(new Date(), 'h:mm')}</span>
                             <div className="h-0.5 w-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.3)]"></div>
                         </div>
                     )}
