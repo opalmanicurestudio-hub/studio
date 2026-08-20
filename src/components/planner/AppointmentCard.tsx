@@ -395,7 +395,7 @@ export function AppointmentCard({
           </div>
         </Card>
       </div>
-      {service.padAfter > 0 && <div style={{ height: `${(service.padAfter / totalDuration) * 100}%` }} className="bg-muted/10 rounded-b-xl bg-[repeating-linear-gradient(-45deg,transparent,transparent_4px,rgba(0,0,0,0.05)_4px,rgba(0,0,0,0.05)_5px)]" />}
+      {(service?.padAfter ?? 0) > 0 && <div style={{ height: `${((service?.padAfter ?? 0) / totalDuration) * 100}%` }} className="bg-muted/10 rounded-b-xl bg-[repeating-linear-gradient(-45deg,transparent,transparent_4px,rgba(0,0,0,0.05)_4px,rgba(0,0,0,0.05)_5px)]" />}
     </div>
   );
 }
