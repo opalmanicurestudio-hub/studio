@@ -38,6 +38,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { nanoid } from 'nanoid';
 import { type Transaction, type BillDefinition } from '@/lib/financial-data';
 import { DebugErrorBoundary } from '@/components/shared/DebugErrorBoundary';
+import { approveBooking, denyBooking, isAwaitingApproval } from '@/lib/booking-approval';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -94,6 +95,7 @@ function PlannerPageContent() {
       walkIns, billDefinitions, billInstances, transactions, memberships, packages, isLoading
   } = useInventory();
 
+  const [showCancelled, setShowCancelled] = useState(false);
   const [tmhr, setTmhr] = useState(0);
   useEffect(() => { setTmhr(selectedTenant?.tmhr || 50); }, [selectedTenant]);
 
@@ -297,7 +299,11 @@ function PlannerPageContent() {
     (columns || []).forEach(c => map.set(c.id, []));
     const targetDateStart = startOfDay(currentDate);
 
-    appointments?.filter(a => isSameDay(safeDate(a.startTime), targetDateStart)).forEach(a => {
+    const isDead = (a: any) => a?.status === 'cancelled' || a?.checkInStatus === 'auto_cancelled';
+
+    appointments?.filter(a => isSameDay(safeDate(a.startTime), targetDateStart))
+      .filter(a => showCancelled || !isDead(a))
+      .forEach(a => {
         if (activeView === 'staff') {
             const involvedIds = new Set<string>();
             if (a.staffId) involvedIds.add(a.staffId);
@@ -830,6 +836,37 @@ function PlannerPageContent() {
     batch.commit().then(() => { toast({ title: allComplete ? "Service Finished" : "Part Completed", description: allComplete ? "Ready for checkout." : "Hand-off confirmed." }); setIsTechnicianReviewOpen(false); setIsDetailsOpen(false); });
   };
 
+  const cancelledToday = useMemo(
+    () => (appointments || []).filter(a =>
+      isSameDay(safeDate(a.startTime), startOfDay(currentDate))
+      && (a.status === 'cancelled' || a.checkInStatus === 'auto_cancelled')).length,
+    [appointments, currentDate],
+  );
+
+  const awaitingToday = useMemo(
+    () => (appointments || []).filter(a =>
+      isSameDay(safeDate(a.startTime), startOfDay(currentDate)) && isAwaitingApproval(a)).length,
+    [appointments, currentDate],
+  );
+
+  const handleApproveRequest = useCallback(async (apt: any) => {
+    const res = await approveBooking(firestore, tenantId, apt, currentUser?.uid, selectedTenant?.name);
+    if (res.ok) {
+      toast({ title: 'Request accepted', description: res.sentLink ? 'Secure link sent to the client.' : `${apt.clientName || 'Client'} is confirmed.` });
+    } else {
+      toast({ variant: 'destructive', title: res.reason });
+    }
+  }, [firestore, tenantId, currentUser, selectedTenant, toast]);
+
+  const handleDeclineRequest = useCallback(async (apt: any) => {
+    const res = await denyBooking(firestore, tenantId, apt, currentUser?.uid);
+    if (res.ok) {
+      toast({ title: 'Request declined — slot released', description: `Give ${apt.clientName || 'the client'} a quick call so they are not left waiting.` });
+    } else {
+      toast({ variant: 'destructive', title: res.reason });
+    }
+  }, [firestore, tenantId, currentUser, toast]);
+
   const billInstancesWithDefinitions = useMemo(() => {
     if (!billInstances || !billDefinitions) return [];
     const today = startOfDay(new Date());
@@ -953,6 +990,23 @@ function PlannerPageContent() {
             <div className="min-w-0">
               <p className="text-[10px] font-black uppercase tracking-widest text-primary leading-none mb-0.5">{format(currentDate, 'MMMM yyyy')}</p>
               <p className="text-sm sm:text-base font-black text-slate-900 leading-none truncate">{format(currentDate, 'EEEE, do')}</p>
+              {(awaitingToday > 0 || cancelledToday > 0) && (
+                <div className="flex items-center gap-2 mt-1">
+                  {awaitingToday > 0 && (
+                    <span className="text-[10px] font-black uppercase tracking-widest text-violet-700">{awaitingToday} awaiting you</span>
+                  )}
+                  {cancelledToday > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowCancelled(v => !v)}
+                      aria-pressed={showCancelled}
+                      className="text-[10px] font-black uppercase tracking-widest text-muted-foreground underline underline-offset-2"
+                    >
+                      {cancelledToday} cancelled · {showCancelled ? 'hide' : 'show'}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-9 sm:h-10 px-3 sm:px-4 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 shadow-sm shrink-0">Today</Button>
@@ -1019,6 +1073,7 @@ function PlannerPageContent() {
           onDeleteEvent={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'events', id))}
           onDeleteAppointmentFromDB={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))}
           onViewDetails={a => { setSelectedAppointment(a); setIsDetailsOpen(true); }}
+          onApproveRequest={handleApproveRequest} onDeclineRequest={handleDeclineRequest}
           walkIns={walkIns} clients={clients} services={services} resources={resourcesData || []}
         />
       </main>
