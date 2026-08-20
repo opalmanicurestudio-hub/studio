@@ -313,7 +313,15 @@ export function AppSidebar() {
     return () => unsub();
   }, [firestore, tenantId]);
 
-  const dailyItems = DAILY_HUB.filter((i) => i.href !== '/appointments/requests' || requestBadgeCount > 0);
+  /* Show Requests whenever the shop RUNS approval mode, not only when the
+   * queue is non-empty. Hiding it at zero seemed tidy, but it means an owner
+   * who has just switched approval on has no way to find the screen, cannot
+   * confirm it works, and has nowhere to look when a client says "I sent a
+   * request". An empty queue is information; an invisible one is not. */
+  const approvalMode = String((selectedTenant as any)?.bookingMode?.mode || 'instant') === 'approval';
+  const dailyItems = DAILY_HUB.filter(
+    (i) => i.href !== '/appointments/requests' || approvalMode || requestBadgeCount > 0,
+  );
   const dailyBadges = {
     ...(messagesBadgeCount > 0 ? { '/messages': messagesBadgeCount } : {}),
     ...(requestBadgeCount > 0 ? { '/appointments/requests': requestBadgeCount } : {}),
