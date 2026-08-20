@@ -855,10 +855,10 @@ function PlannerPageContent() {
   if (isLoading) return <div className="flex h-screen w-full items-center justify-center bg-background"><Loader className="h-8 w-8 animate-spin text-primary" /></div>;
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-white">
+    <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-white">
       <AppHeader />
-      <div className="p-3 sm:p-4 md:py-3 md:px-8 border-b bg-white/50 backdrop-blur-xl">
-        <div className="max-w-7xl mx-auto space-y-4 text-left">
+      <div className="shrink-0 px-3 py-2.5 sm:p-4 md:py-3 md:px-8 border-b bg-white/50 backdrop-blur-xl">
+        <div className="max-w-7xl mx-auto space-y-2.5 sm:space-y-4 text-left">
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
               <h1 className="text-xl sm:text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Studio Planner</h1>
@@ -867,21 +867,18 @@ function PlannerPageContent() {
             <div className="flex items-center gap-2 sm:gap-3">
               {(role === 'owner' || role === 'admin') && (
                 <div className="flex gap-1.5 sm:gap-2">
-                  <Button variant="outline" size="icon" className="relative h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border-2" onClick={() => setIsBillsSheetOpen(true)}>
+                  <Button variant="outline" size="icon" title="Bills due" aria-label="Bills due" className="relative h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border-2" onClick={() => setIsBillsSheetOpen(true)}>
                     <CreditCard className="h-4 w-4 sm:h-5 sm:w-5" />
                     {billInstancesWithDefinitions.length > 0 && <span className="absolute -top-1 -right-1 flex h-4 w-4 sm:h-5 sm:w-5 items-center justify-center rounded-full bg-destructive text-[8px] sm:text-[10px] font-black text-white shadow-lg border-2 border-white">{billInstancesWithDefinitions.length}</span>}
                   </Button>
-                  <Button variant="outline" size="icon" className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border-2" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="h-4 w-4 sm:h-5 sm:w-5" /></Button>
+                  <Button variant="outline" size="icon" title="Weekly numbers" aria-label="Weekly numbers" className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border-2" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="h-4 w-4 sm:h-5 sm:w-5" /></Button>
                 </div>
               )}
-              {/* Outside the owner/admin gate on purpose — the waiting list is a
-                  front-desk tool, and the person who can act on it fastest is
-                  whoever is standing at the desk when a chair frees up. */}
               <Button variant="outline" size="icon" title="Waiting list" aria-label="Waiting list" className="relative h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border-2" onClick={() => setIsWaitlistSheetOpen(true)}>
                 <Hourglass className="h-4 w-4 sm:h-5 sm:w-5" />
                 {openWaitlistCount > 0 && <span className="absolute -top-1 -right-1 flex h-4 w-4 sm:h-5 sm:w-5 items-center justify-center rounded-full bg-amber-500 text-[8px] sm:text-[10px] font-black text-white shadow-lg border-2 border-white">{openWaitlistCount}</span>}
               </Button>
-              <Button variant="outline" size="icon" className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border-2" onClick={() => setIsScannerOpen(true)}><QrCode className="h-4 w-4 sm:h-5 sm:w-5" /></Button>
+              <Button variant="outline" size="icon" title="Scan check-in code" aria-label="Scan check-in code" className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border-2" onClick={() => setIsScannerOpen(true)}><QrCode className="h-4 w-4 sm:h-5 sm:w-5" /></Button>
             </div>
           </div>
 
@@ -892,7 +889,7 @@ function PlannerPageContent() {
                   key={se.id}
                   onClick={() => router.push(`/events/${se.id}/manifest`)}
                   className={cn(
-                    'flex items-center gap-2 px-3 py-2 rounded-xl border-2 whitespace-nowrap shrink-0 transition-all hover:scale-105',
+                    'flex items-center gap-2 px-3 py-2 rounded-xl border-2 whitespace-nowrap shrink-0 transition-all active:scale-95',
                     se.status === 'active'
                       ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
                       : se.status === 'completed'
@@ -915,50 +912,61 @@ function PlannerPageContent() {
             </div>
           )}
 
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4 sm:gap-6">
-            <div className="flex items-center gap-2 sm:gap-3 p-1 sm:py-1 bg-muted/30 rounded-2xl sm:rounded-3xl border-2 border-muted shadow-inner w-full md:w-auto overflow-x-auto scrollbar-hide justify-between sm:justify-start">
-              <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl sm:rounded-2xl hover:bg-white shadow-sm shrink-0" onClick={() => setCurrentDate(subDays(currentDate, 1))}><ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5"/></Button>
-              <div className="px-2 sm:px-2 text-center min-w-[110px] sm:min-w-[140px]">
-                <p className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-primary leading-none mb-0.5 sm:mb-1">{format(currentDate, 'MMMM yyyy')}</p>
-                <p className="text-sm sm:text-base font-black text-slate-900 leading-none truncate">{format(currentDate, 'EEEE, do')}</p>
+          <div className="flex items-center gap-1 sm:gap-2">
+            <Button variant="ghost" size="icon" title="Previous day" aria-label="Previous day" className="h-9 w-9 sm:h-10 sm:w-10 rounded-xl shrink-0 hover:bg-muted" onClick={() => setCurrentDate(subDays(currentDate, 1))}><ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5"/></Button>
+            <ScrollArea className="flex-1 min-w-0">
+              <div className="flex w-full gap-1.5 sm:gap-2 px-0.5 pb-1">
+                {weekDays.map(day => {
+                  const isSelected = isSameDay(day, currentDate);
+                  const hasStudioEvent = studioEventsRaw?.some(se => {
+                    const d = se.date ? safeDate(se.date) : se.startTime ? safeDate(se.startTime) : null;
+                    return d && isSameDay(d, day);
+                  });
+                  return (
+                    <button
+                      key={day.toISOString()}
+                      onClick={() => setCurrentDate(day)}
+                      aria-pressed={isSelected}
+                      aria-label={format(day, 'EEEE, MMMM d')}
+                      className={cn(
+                        "flex-1 py-1.5 sm:py-2 min-w-[44px] sm:min-w-[80px] rounded-xl sm:rounded-2xl transition-colors border-2 flex flex-col items-center gap-0.5 active:scale-95",
+                        isSelected
+                          ? "bg-primary border-primary shadow-lg shadow-primary/20"
+                          : "bg-muted/50 border-transparent hover:bg-muted"
+                      )}
+                    >
+                      <p className={cn("text-[10px] font-black uppercase tracking-widest", isSelected ? "text-white/70" : "text-muted-foreground/70")}>{format(day, 'EEE')}</p>
+                      <p className={cn("text-base sm:text-2xl font-black tracking-tighter leading-none", isSelected ? "text-white" : "text-slate-900")}>{format(day, 'd')}</p>
+                      {hasStudioEvent && (
+                        <span className={cn('w-1.5 h-1.5 rounded-full', isSelected ? 'bg-white/70' : 'bg-violet-400')} />
+                      )}
+                    </button>
+                  );
+                })}
               </div>
-              <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl sm:rounded-2xl hover:bg-white shadow-sm shrink-0" onClick={() => setCurrentDate(addDays(currentDate, 1))}><ChevronRight className="w-4 h-4 sm:w-5 sm:h-5"/></Button>
-              <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-8 sm:h-10 px-2 sm:px-4 rounded-xl sm:rounded-2xl text-[8px] sm:text-[10px] font-black uppercase tracking-widest border-2 border-white shadow-sm bg-white/50 shrink-0">Today</Button>
+              <ScrollBar orientation="horizontal" className="hidden" />
+            </ScrollArea>
+            <Button variant="ghost" size="icon" title="Next day" aria-label="Next day" className="h-9 w-9 sm:h-10 sm:w-10 rounded-xl shrink-0 hover:bg-muted" onClick={() => setCurrentDate(addDays(currentDate, 1))}><ChevronRight className="w-4 h-4 sm:w-5 sm:h-5"/></Button>
+          </div>
+
+          <div className="flex items-center justify-between gap-2 sm:gap-6">
+            <div className="min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-widest text-primary leading-none mb-0.5">{format(currentDate, 'MMMM yyyy')}</p>
+              <p className="text-sm sm:text-base font-black text-slate-900 leading-none truncate">{format(currentDate, 'EEEE, do')}</p>
             </div>
-            <div className="flex items-center gap-3 w-full md:w-auto md:justify-end">
-              <RadioGroup value={activeView} onValueChange={(v: any) => setActiveView(v)} className="flex gap-1.5 sm:gap-2 p-1.5 sm:p-2 bg-muted/30 rounded-xl sm:rounded-2xl border-2 border-muted shadow-inner w-full md:w-auto justify-center">
-                <Label htmlFor="staff-v" className={cn("flex items-center justify-center gap-1.5 sm:gap-2 h-8 sm:h-10 px-2 sm:px-4 rounded-lg sm:rounded-xl cursor-pointer font-black text-[8px] sm:text-[10px] uppercase tracking-widest transition-all flex-1", activeView === 'staff' ? "bg-white text-primary shadow-md" : "text-muted-foreground hover:bg-white/50")}><User className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Providers <RadioGroupItem value="staff" id="staff-v" className="sr-only" /></Label>
-                <Label htmlFor="res-v" className={cn("flex items-center justify-center gap-1.5 sm:gap-2 h-8 sm:h-10 px-2 sm:px-4 rounded-lg sm:rounded-xl cursor-pointer font-black text-[8px] sm:text-[10px] uppercase tracking-widest transition-all flex-1", activeView === 'resources' ? "bg-white text-primary shadow-md" : "text-muted-foreground hover:bg-white/50")}><Building className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Resources <RadioGroupItem value="resources" id="res-v" className="sr-only" /></Label>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-9 sm:h-10 px-3 sm:px-4 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 shadow-sm shrink-0">Today</Button>
+              <RadioGroup value={activeView} onValueChange={(v: any) => setActiveView(v)} className="flex gap-1 p-1 bg-muted/30 rounded-xl border-2 border-muted shadow-inner shrink-0">
+                <Label htmlFor="staff-v" className={cn("flex items-center justify-center gap-1.5 h-7 sm:h-8 px-2.5 sm:px-4 rounded-lg cursor-pointer font-black text-[10px] uppercase tracking-widest transition-colors", activeView === 'staff' ? "bg-white text-primary shadow-sm" : "text-muted-foreground hover:bg-white/50")}><User className="w-3.5 h-3.5 shrink-0" /> Providers <RadioGroupItem value="staff" id="staff-v" className="sr-only" /></Label>
+                <Label htmlFor="res-v" className={cn("flex items-center justify-center gap-1.5 h-7 sm:h-8 px-2.5 sm:px-4 rounded-lg cursor-pointer font-black text-[10px] uppercase tracking-widest transition-colors", activeView === 'resources' ? "bg-white text-primary shadow-sm" : "text-muted-foreground hover:bg-white/50")}><Building className="w-3.5 h-3.5 shrink-0" /> Resources <RadioGroupItem value="resources" id="res-v" className="sr-only" /></Label>
               </RadioGroup>
             </div>
           </div>
-
-          <ScrollArea className="w-full">
-            <div className="flex w-full gap-1.5 sm:gap-2 px-1 pb-2">
-              {weekDays.map(day => {
-                const hasStudioEvent = studioEventsRaw?.some(se => {
-                  const d = se.date ? safeDate(se.date) : se.startTime ? safeDate(se.startTime) : null;
-                  return d && isSameDay(d, day);
-                });
-                return (
-                  <button key={day.toISOString()} onClick={() => setCurrentDate(day)} className={cn("flex-1 py-2 sm:py-2 min-w-[48px] sm:min-w-[80px] rounded-2xl sm:rounded-3xl transition-all border-2 sm:border-2 flex flex-col items-center gap-0.5 sm:gap-1", isSameDay(day, currentDate) ? "bg-primary border-primary shadow-2xl shadow-primary/20 -translate-y-0.5 sm:-translate-y-1" : "bg-muted/50 border-transparent hover:bg-muted hover:scale-105")}>
-                    <p className={cn("text-[8px] sm:text-[10px] font-black uppercase tracking-widest", isSameDay(day, currentDate) ? "text-white/60" : "text-muted-foreground/60")}>{format(day, 'EEE')}</p>
-                    <p className={cn("text-base sm:text-2xl font-black tracking-tighter", isSameDay(day, currentDate) ? "text-white" : "text-slate-900")}>{format(day, 'd')}</p>
-                    {hasStudioEvent && (
-                      <span className={cn('w-1.5 h-1.5 rounded-full', isSameDay(day, currentDate) ? 'bg-white/60' : 'bg-violet-400')} />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-            <ScrollBar orientation="horizontal" className="hidden" />
-          </ScrollArea>
         </div>
       </div>
 
-      {/* ── Stuck appointments banner ── */}
       {stuckAppointments.length > 0 && (
-        <div className="px-4 py-2 bg-amber-50 border-b-2 border-amber-200">
+        <div className="shrink-0 px-4 py-2 bg-amber-50 border-b-2 border-amber-200">
           <div className="max-w-7xl mx-auto space-y-2">
             <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 flex items-center gap-2">
               <AlertTriangle className="w-3 h-3" />
@@ -1080,8 +1088,6 @@ function PlannerPageContent() {
         staff={allStaff || []}
       />
 
-      {/* The QR button in the header opens this. Before now that button set the
-          state to true and nothing ever rendered or closed it. */}
       <ScanCheckInDialog
         open={isScannerOpen}
         onOpenChange={setIsScannerOpen}
