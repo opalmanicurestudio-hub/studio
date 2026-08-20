@@ -62,33 +62,42 @@ export async function POST(req: NextRequest) {
     const snap = await db
       .collection(`tenants/${tenantId}/appointments`)
       .where('source', '==', 'ai_receptionist')
-      .where('status', '==', 'deposit_pending')
+      .where('status', 'in', ['deposit_pending', 'requested'])
       .get();
 
     const stale = snap.docs
       .map((d) => ({ id: d.id, ...(d.data() as any) }))
-      .filter(
-        (a) =>
-          a.depositStatus === 'pending' &&
-          typeof a.createdAt === 'string' &&
-          a.createdAt < cutoffISO &&
-          a.voiceApproval !== 'denied',
-      );
+      .filter((a) => {
+        if (a.voiceApproval === 'denied') return false;
+        /* An unanswered request expires on its own clock — the shop's
+         * approvalExpiryHours, stamped at booking — not on the deposit-hold
+         * cutoff, which is a different promise to a different person. */
+        if (a.status === 'requested') {
+          return typeof a.requestExpiresAt === 'string'
+            && a.requestExpiresAt !== ''
+            && a.requestExpiresAt < nowISO;
+        }
+        return a.depositStatus === 'pending'
+          && typeof a.createdAt === 'string'
+          && a.createdAt < cutoffISO;
+      });
 
     if (stale.length === 0) return NextResponse.json({ released: 0 });
 
     const batch = db.batch();
     for (const apt of stale) {
+      const wasRequest = apt.status === 'requested';
       const cancelPatch = {
-        status: 'cancelled',
+        status: wasRequest ? 'declined' : 'cancelled',
         cancelledAt: nowISO,
-        cancellationReason: 'deposit_hold_expired',
+        cancellationReason: wasRequest ? 'request_expired' : 'deposit_hold_expired',
         autoCancelledNoShow: false,
         cancellationAudit: {
           actorType: 'system',
-          reason: 'deposit_hold_expired',
+          reason: wasRequest ? 'request_expired' : 'deposit_hold_expired',
           timestamp: nowISO,
         },
+        ...(wasRequest ? { voiceApproval: 'denied', decidedAt: nowISO, decidedBy: 'system' } : {}),
       };
       batch.set(
         db.doc(`tenants/${tenantId}/appointments/${apt.id}`),
