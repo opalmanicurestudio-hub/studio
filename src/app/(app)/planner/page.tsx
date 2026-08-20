@@ -479,7 +479,7 @@ function PlannerPageContent() {
 
     map.forEach(items => items.sort((a, b) => safeDate(a.startTime || a.dueDate).getTime() - safeDate(b.startTime || b.dueDate).getTime()));
     return map;
-  }, [currentDate, appointments, columns, activeView, billInstances, billDefinitions, events, studioEventsToday, toursToday, reservationsToday, maintenanceToday]);
+  }, [currentDate, appointments, columns, activeView, showCancelled, billInstances, billDefinitions, events, studioEventsToday, toursToday, reservationsToday, maintenanceToday]);
 
   const kpis = useMemo(() => {
     if (!transactions || !appointments || !services || !selectedTenant) return { weeklyRevenue: 0, projectedRevenue: 0, weeklyBreakEven: 0, weeklyNetProfit: 0, absorbedCosts: 0 };
@@ -888,11 +888,13 @@ function PlannerPageContent() {
   const handleApproveRequest = useCallback(async (apt: any) => {
     const res = await approveBooking(firestore, tenantId, apt, currentUser?.uid, selectedTenant?.name, decidingStaffName);
     reportDecision(res, 'Request accepted');
+    return res;
   }, [firestore, tenantId, currentUser, selectedTenant, decidingStaffName, reportDecision]);
 
   const handleDeclineRequest = useCallback(async (apt: any) => {
     const res = await denyBooking(firestore, tenantId, apt, currentUser?.uid, decidingStaffName, 'alternative');
     reportDecision(res, 'Request declined');
+    return res;
   }, [firestore, tenantId, currentUser, decidingStaffName, reportDecision]);
 
   const billInstancesWithDefinitions = useMemo(() => {
