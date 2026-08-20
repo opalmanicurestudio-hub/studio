@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { AlertTriangle, ArrowRightLeft, Check, Loader, UserX } from 'lucide-react';
+import { AlertTriangle, ArrowRightLeft, CalendarClock, Check, Loader, UserX } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
@@ -98,7 +98,7 @@ export function ResolveIssueSheet({
             </div>
           ) : (
             <p className="rounded-xl border-2 border-dashed px-3 py-2.5 text-[12px] font-bold leading-snug text-muted-foreground">
-              No qualified provider is free at this time. Moving the appointment or calling the client is likely the better answer before cancelling.
+              No qualified provider is free at this time. Moving it to another time is almost always better than losing the booking.
             </p>
           )}
         </div>
@@ -126,6 +126,16 @@ export function ResolveIssueSheet({
           >
             {busy ? <Loader className="h-4 w-4 animate-spin" aria-hidden="true" />
               : <><ArrowRightLeft className="mr-2 h-3.5 w-3.5" aria-hidden="true" />Move to {picked ? picked.name : 'someone else'}</>}
+          </Button>
+
+          <Button
+            variant="outline"
+            disabled={!!busy}
+            className="h-11 w-full rounded-xl border-2 font-black uppercase text-[10px] tracking-widest"
+            onClick={() => onResolve('rescheduled', { note })}
+          >
+            <CalendarClock className="mr-2 h-3.5 w-3.5" aria-hidden="true" />
+            Move it to another time
           </Button>
 
           <Button
