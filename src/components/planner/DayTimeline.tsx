@@ -267,8 +267,13 @@ export const DayTimeline = ({
         // endTime, so adding them again made the card too tall by 2x(pad) AND
         // shifted it UP by padBefore — which is how a guest who checked in at 2:05
         // ended up floating ABOVE the red now-line, looking like a 1:50 booking.
-        const padBefore = isWalkIn ? 0 : (service.padBefore || 0);
-        const padAfter = isWalkIn ? 0 : (service.padAfter || 0);
+        /* Optional-chained for the same reason as AppointmentCard: `service`
+         * is a lookup by id and comes back undefined whenever the service was
+         * renamed, deleted, or never matched. Throwing here kills the whole
+         * timeline render, which the user experiences as cards that cannot be
+         * tapped at all. */
+        const padBefore = isWalkIn ? 0 : (service?.padBefore || 0);
+        const padAfter = isWalkIn ? 0 : (service?.padAfter || 0);
         const cardStart = subMinutes(startTime, padBefore);
         const minsFromTop = differenceInMinutes(cardStart, dayStart);
         // renderEvent and renderBooking have both had this guard for ages;
