@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
-import { verifyStaffActor, mayDecide } from '@/lib/staff-auth';
+import { verifyStaffActor, decisionVerdict, actorAuthority } from '@/lib/staff-auth';
+import { REASONS_BY_CODE } from '@/lib/appointment-authority';
 
 // ─── /api/appointments/decide ─────────────────────────────────────────────────
 // POST { tenantId, appointmentId, decision: 'accept' | 'decline',
@@ -60,11 +61,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
   }
   const actor = auth.actor;
-  if (!mayDecide(actor, decision as 'accept' | 'decline')) {
+  const tenantDoc = auth.tenant || {};
+  const authorityPolicy = (tenantDoc?.appointmentAuthority as any) || null;
+  const verdict = decisionVerdict(actor, decision as 'accept' | 'decline', {
+    reasonCode,
+    policy: authorityPolicy,
+  });
+  if (!verdict.allowed) {
+    /* A refusal is not a dead end. raiseRequest tells the caller the honest
+     * next step is a manager, which is the difference between "you may not"
+     * and "here is how this gets solved." */
     return NextResponse.json({
       ok: false,
-      error: 'Declining a booking needs a manager. Ask a manager to review it.',
+      error: verdict.reason,
+      raiseRequest: verdict.raiseRequest,
+      authority: actorAuthority(actor, authorityPolicy),
     }, { status: 403 });
+  }
+  if (authorityPolicy?.requireDeclineReason && decision === 'decline' && !reasonCode) {
+    return NextResponse.json({
+      ok: false,
+      error: 'Pick a reason for declining — your shop records one on every decline.',
+      raiseRequest: false,
+    }, { status: 400 });
   }
   const staffName = actor.name;
 
@@ -73,7 +92,7 @@ export async function POST(req: NextRequest) {
   const nowIso = new Date().toISOString();
   // Read once up front: the transaction needs the grace window, and the
   // notification block below needs the shop's branding and message policy.
-  const tenantForGrace = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+  const tenantForGrace = tenantDoc;
 
   let outcome: any;
   try {
@@ -258,8 +277,7 @@ export async function POST(req: NextRequest) {
   // ── Tell the client. A decision nobody hears about is not a decision. ──
   const sendStatus = { emailSent: false, smsSent: false };
   try {
-    const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
-    const tenant = (tenantSnap.data() as any) || {};
+    const tenant = tenantDoc;
     const studioName = tenant.name || tenant.businessName || 'Your studio';
     const base = String(
       tenant.publicOrigin
@@ -368,7 +386,10 @@ export async function POST(req: NextRequest) {
       action: accepted ? 'accepted' : 'declined',
       declineOutcome: accepted ? null : declineOutcome,
       reasonCode,
+      reasonLabel: reasonCode ? (REASONS_BY_CODE[reasonCode]?.label || null) : null,
       reason: reason || null,
+      decidedVia: verdict.allowed ? verdict.via : null,
+      actorAuthority: actorAuthority(actor, authorityPolicy),
       priorStatus: 'requested',
       resultStatus: outcome.status,
       depositCents: outcome.depositCents || 0,
