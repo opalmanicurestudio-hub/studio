@@ -22,6 +22,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
+import { AppointmentAuthoritySettings } from '@/components/settings/AppointmentAuthoritySettings';
 import {
   DEFAULT_BOOKING_MODE, resolveBookingMode, resolveDepositPolicy,
   type BookingMode, type DepositOutcome,
@@ -193,9 +194,6 @@ export default function BookingSettingsPage() {
                         Good for {m.goodFor}
                       </span>
 
-                      {/* The three questions an owner is actually weighing.
-                          Only opened up on the SELECTED mode, so the list
-                          stays scannable while you are choosing. */}
                       {active && (
                         <span className="mt-2.5 block space-y-1.5 rounded-2xl bg-background/60 p-3">
                           {([
@@ -221,10 +219,6 @@ export default function BookingSettingsPage() {
                 </button>
               );
             })}
-            {/* Card on file is orthogonal to the mode — "book instantly but we
-                keep a card" is a real and common house rule, and it had no
-                control at all until now. Hidden when the dedicated mode is
-                selected, because there it is already implied. */}
             {bm.mode !== 'card_on_file' && (
               <div className="flex items-start justify-between gap-3 rounded-2xl border-2 border-dashed p-3.5">
                 <div className="min-w-0">
@@ -281,11 +275,13 @@ export default function BookingSettingsPage() {
           </CardContent>
         </Card>
 
-        {/* The deposit-outcome rules (early cancel / late cancel / no-show /
-            studio cancel, the refund window and rollover expiry) deliberately
-            live in main Settings only. They were briefly duplicated here, and
-            two screens editing one policy means whichever you touched last is
-            the one you trust. */}
+        <AppointmentAuthoritySettings
+          policy={(selectedTenant as any)?.appointmentAuthority || null}
+          canEdit={isMgr}
+          busy={busy}
+          onSave={save}
+        />
+
         <Card className="border-2 rounded-[2rem] bg-white">
           <CardContent className="p-5 space-y-2">
             <p className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
