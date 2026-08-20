@@ -29,12 +29,13 @@
 
 import React from 'react';
 import {
-  collection, query, where, onSnapshot, doc, writeBatch,
+  collection, query, where, onSnapshot,
 } from 'firebase/firestore';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
+import { approveBooking, denyBooking } from '@/lib/booking-approval';
 import {
   CalendarCheck, Check, X, Loader, Phone, Wallet, FileText, Bot,
 } from 'lucide-react';
@@ -118,43 +119,9 @@ export function VoiceBookingApprovalsPanel({
     if (!firestore || !tenantId) return;
     setBusyId(apt.id);
     try {
-      const link = apt.voiceMeta?.link;
-      if (link) {
-        try {
-          await fetch('/api/notifications/send-completion-link', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              link,
-              clientName: apt.clientName,
-              clientEmail: apt.voiceMeta?.clientEmail || '',
-              clientPhone: apt.voiceMeta?.clientPhone || '',
-              studioName: tenant?.name,
-            }),
-          });
-        } catch {
-          /* link stays available in voiceMeta; approval still proceeds */
-        }
-      }
-      const batch = writeBatch(firestore);
-      batch.set(
-        doc(firestore, `tenants/${tenantId}/appointments`, apt.id),
-        {
-          voiceApproval: 'approved',
-          voiceApprovalAt: new Date().toISOString(),
-          voiceApprovalBy: currentStaffId || null,
-        },
-        { merge: true },
-      );
-      await batch.commit();
-      toast({
-        title: 'Booking approved',
-        description: link
-          ? `Secure link sent to ${apt.clientName || 'the client'}.`
-          : `${apt.clientName || 'Client'} is confirmed.`,
-      });
-    } catch {
-      toast({ variant: 'destructive', title: 'Could not approve — try again' });
+      const res = await approveBooking(firestore, tenantId, apt as any, currentStaffId, tenant?.name);
+      if (res.ok) toast({ title: 'Booking approved', description: res.message });
+      else toast({ variant: 'destructive', title: res.reason });
     } finally {
       setBusyId(null);
     }
@@ -164,44 +131,20 @@ export function VoiceBookingApprovalsPanel({
     if (!firestore || !tenantId) return;
     setBusyId(apt.id);
     try {
-      const nowISO = new Date().toISOString();
-      const cancelPatch = {
-        status: 'cancelled',
-        cancelledAt: nowISO,
-        cancellationReason: 'voice_booking_denied',
-        cancellationAudit: {
-          actorType: 'studio',
-          actorId: currentStaffId || null,
-          reason: 'voice_booking_denied',
-          timestamp: nowISO,
-        },
-        voiceApproval: 'denied',
-        voiceApprovalAt: nowISO,
-        voiceApprovalBy: currentStaffId || null,
-      };
-      const batch = writeBatch(firestore);
-      batch.set(doc(firestore, `tenants/${tenantId}/appointments`, apt.id), cancelPatch, { merge: true });
-      if (apt.checkInToken) {
-        batch.set(doc(firestore, 'appointmentCheckIns', apt.checkInToken), cancelPatch, { merge: true });
-        batch.set(
-          doc(firestore, `tenants/${tenantId}/bookingCompletions`, apt.checkInToken),
-          { status: 'void' },
-          { merge: true },
-        );
+      const res = await denyBooking(firestore, tenantId, apt as any, currentStaffId);
+      if (res.ok) {
+        setConfirmDenyId(null);
+        toast({
+          title: 'Booking denied — slot released',
+          description: `Give ${apt.clientName || 'the client'} a quick call${apt.voiceMeta?.clientPhone ? ` at ${apt.voiceMeta.clientPhone}` : ''} so they're not left waiting.`,
+        });
+      } else {
+        toast({ variant: 'destructive', title: res.reason });
       }
-      await batch.commit();
-      setConfirmDenyId(null);
-      toast({
-        title: 'Booking denied — slot released',
-        description: `Give ${apt.clientName || 'the client'} a quick call${apt.voiceMeta?.clientPhone ? ` at ${apt.voiceMeta.clientPhone}` : ''} so they're not left waiting.`,
-      });
-    } catch {
-      toast({ variant: 'destructive', title: 'Could not deny — try again' });
     } finally {
       setBusyId(null);
     }
   };
-
   if (pending.length === 0) return null;
 
   return (
