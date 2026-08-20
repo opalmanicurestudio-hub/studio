@@ -1,4 +1,5 @@
-import { doc, writeBatch, type Firestore } from 'firebase/firestore';
+import { addDoc, collection, doc, writeBatch, type Firestore } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 
 export type ApprovalResult =
   | { ok: true; message: string; nextStatus?: string | null }
@@ -100,6 +101,21 @@ async function sendCompletionLink(apt: ApprovableAppointment, studioName?: strin
   }
 }
 
+/* The route now refuses anonymous callers, so every request carries the
+ * signed-in staff member's ID token. The server reads the actor's NAME from
+ * their staff document — what we send is proof of identity, not a claim. */
+async function authHeaders(): Promise<Record<string, string>> {
+  const base: Record<string, string> = { 'Content-Type': 'application/json' };
+  try {
+    const user = getAuth().currentUser;
+    if (!user) return base;
+    const token = await user.getIdToken();
+    return token ? { ...base, Authorization: `Bearer ${token}` } : base;
+  } catch {
+    return base;
+  }
+}
+
 async function decideViaRoute(
   tenantId: string,
   apt: ApprovableAppointment,
@@ -110,12 +126,11 @@ async function decideViaRoute(
   try {
     const res = await fetch('/api/appointments/decide', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await authHeaders(),
       body: JSON.stringify({
         tenantId,
         appointmentId: apt.id,
         decision,
-        staffName: staffName || 'The studio',
         ...(decision === 'decline' ? { declineOutcome: declineOutcome || 'alternative' } : {}),
       }),
     });
@@ -208,6 +223,53 @@ async function denyVoiceBooking(
   }
 }
 
+/* Field-for-field the same row the decide route writes server-side, so a
+ * report can read one collection and not care which channel answered. */
+async function recordVoiceDecision(
+  firestore: Firestore,
+  tenantId: string,
+  apt: ApprovableAppointment,
+  action: 'accepted' | 'declined',
+  resultStatus: string,
+  actor: { uid?: string | null; name?: string | null; role?: string | null; isManager?: boolean },
+): Promise<void> {
+  try {
+    const nowIso = new Date().toISOString();
+    const requestedAtIso = String(apt.requestedAt || apt.createdAt || '');
+    const requestedMs = requestedAtIso ? Date.parse(requestedAtIso) : NaN;
+    await addDoc(collection(firestore, `tenants/${tenantId}/appointmentDecisions`), {
+      tenantId,
+      appointmentId: apt.id,
+      clientId: apt.clientId || null,
+      clientName: apt.clientName || null,
+      serviceId: apt.serviceId || null,
+      staffId: apt.staffId || null,
+      startTime: apt.startTime || null,
+      source: apt.source || null,
+      channel: 'voice',
+      action,
+      declineOutcome: null,
+      reasonCode: null,
+      reason: null,
+      priorStatus: apt.status || null,
+      resultStatus,
+      depositCents: Number(apt.depositAmountCents || 0),
+      chargedOnFile: false,
+      actorUid: actor.uid || null,
+      actorName: actor.name || null,
+      actorRole: actor.role || null,
+      actorIsManager: !!actor.isManager,
+      decidedAt: nowIso,
+      requestedAt: requestedAtIso || null,
+      responseSeconds: Number.isFinite(requestedMs)
+        ? Math.max(0, Math.round((Date.parse(nowIso) - requestedMs) / 1000))
+        : null,
+    });
+  } catch {
+    /* the decision already stands; a missing row is not worth failing over */
+  }
+}
+
 export async function approveBooking(
   firestore: Firestore | null | undefined,
   tenantId: string | null | undefined,
@@ -225,7 +287,12 @@ export async function approveBooking(
   }
   if (channel === 'voice') {
     if (!firestore) return { ok: false, reason: 'Missing studio or booking' };
-    return approveVoiceBooking(firestore, tenantId, apt, actorStaffId, studioName);
+    const res = await approveVoiceBooking(firestore, tenantId, apt, actorStaffId, studioName);
+    if (res.ok) {
+      await recordVoiceDecision(firestore, tenantId, apt, 'accepted', res.nextStatus || 'confirmed',
+        { uid: actorStaffId, name: staffName || studioName, role: null, isManager: false });
+    }
+    return res;
   }
   return { ok: false, reason: 'That booking is not waiting on a decision', alreadyStatus: String(apt.status || '') };
 }
@@ -243,7 +310,12 @@ export async function denyBooking(
   if (channel === 'request') return decideViaRoute(tenantId, apt, 'decline', staffName, declineOutcome);
   if (channel === 'voice') {
     if (!firestore) return { ok: false, reason: 'Missing studio or booking' };
-    return denyVoiceBooking(firestore, tenantId, apt, actorStaffId);
+    const res = await denyVoiceBooking(firestore, tenantId, apt, actorStaffId);
+    if (res.ok) {
+      await recordVoiceDecision(firestore, tenantId, apt, 'declined', 'cancelled',
+        { uid: actorStaffId, name: staffName, role: null, isManager: false });
+    }
+    return res;
   }
   return { ok: false, reason: 'That booking is not waiting on a decision', alreadyStatus: String(apt.status || '') };
 }
