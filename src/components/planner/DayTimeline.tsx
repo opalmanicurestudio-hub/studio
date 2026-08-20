@@ -82,6 +82,8 @@ export const DayTimeline = ({
     onBookNewForClient,
     onDeleteEvent,
     onViewDetails,
+    onApproveRequest,
+    onDeclineRequest,
     walkIns,
     clients,
     services,
@@ -385,6 +387,7 @@ export const DayTimeline = ({
                     onEdit={onEditAppointment} onReschedule={onReschedule} onRebook={onRebook}
                     onStartService={onStartService} onFinishService={onFinishService}
                     onBookNewForClient={onBookNewForClient} onViewDetails={onViewDetails}
+                    onApproveRequest={onApproveRequest} onDeclineRequest={onDeclineRequest}
                     resources={resources} transactions={allTransactions}
                 />
             </div>
