@@ -102,6 +102,7 @@ export function AppointmentCard({
   const [isRunningOver, setIsRunningOver] = useState(false);
   const [confirmingDecline, setConfirmingDecline] = useState(false);
   const [decisionBusy, setDecisionBusy] = useState(false);
+  const [settledStatus, setSettledStatus] = useState<string | null>(null);
 
   useEffect(() => {
     let timer: NodeJS.Timeout | undefined;
@@ -180,7 +181,12 @@ export function AppointmentCard({
     requested: { text: 'Requested', className: 'border-dashed border-primary/50 text-foreground bg-primary/[0.03]', bgClassName: 'bg-primary/5', dotColor: 'bg-primary/60' },
   };
 
-  const awaitingDecision = isAwaitingApproval(appointment);
+  useEffect(() => {
+    if (settledStatus && appointment.status === settledStatus) setSettledStatus(null);
+  }, [appointment.status, settledStatus]);
+
+  const settled = !!settledStatus;
+  const awaitingDecision = !settled && isAwaitingApproval(appointment);
   const decisionChannel = approvalChannel(appointment);
   const canDecide = awaitingDecision
     && typeof onApproveRequest === 'function'
@@ -188,11 +194,12 @@ export function AppointmentCard({
   const holdReason = awaitingDecision ? holdReasonLabel(appointment) : null;
   const acceptConsequence = awaitingDecision ? acceptConsequenceLabel(appointment, client) : null;
 
-  const cardStatus = isDeadAppointment(appointment) && appointment.status !== 'declined'
+  const effectiveStatus = settledStatus || appointment.status;
+  const cardStatus = isDeadAppointment({ ...appointment, status: effectiveStatus }) && effectiveStatus !== 'declined'
     ? 'cancelled'
     : awaitingDecision
       ? 'requested'
-      : appointment.status;
+      : effectiveStatus;
   const currentStatus = statusDisplay[cardStatus];
 
   // FIX #2: removed the self-reference to `estimatedArrival` from this memo's
@@ -289,8 +296,14 @@ export function AppointmentCard({
     if (decisionBusy) return;
     setDecisionBusy(true);
     try {
-      if (kind === 'approve') await onApproveRequest(appointment);
-      else await onDeclineRequest(appointment);
+      const res = kind === 'approve'
+        ? await onApproveRequest(appointment)
+        : await onDeclineRequest(appointment);
+      if (res && res.ok) {
+        setSettledStatus(res.nextStatus || (kind === 'approve' ? 'confirmed' : 'declined'));
+      } else if (res && res.alreadyStatus) {
+        setSettledStatus(String(res.alreadyStatus));
+      }
     } finally {
       setDecisionBusy(false);
       setConfirmingDecline(false);
