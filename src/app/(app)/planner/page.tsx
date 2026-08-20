@@ -927,7 +927,7 @@ function PlannerPageContent() {
         name: decidingStaffName,
         role: (me as any)?.role || role || null,
         isManager: role === 'owner' || role === 'admin',
-      }, authorityPolicy);
+      }, authorityPolicy, allStaff || []);
       if (res.ok) {
         toast({ title: 'Sent to a manager', description: res.message });
         setIssueFor(null);
