@@ -13,13 +13,26 @@
  */
 
 import { addDoc, collection, type Firestore } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 
 export type StaffNotificationKind =
   | 'appointment_assigned'
   | 'appointment_released'
   | 'appointment_issue_raised'
   | 'appointment_issue_resolved'
-  | 'appointment_awaiting_you';
+  | 'appointment_awaiting_you'
+  | 'appointment_overdue';
+
+/**
+ * The only two kinds that reach past the app into someone's pocket. Everything
+ * else writes a row and waits to be seen, which is the right default: a
+ * channel that pings on routine events is a channel muted in week one, and
+ * then the one message that mattered is muted too.
+ */
+export const ESCALATING_KINDS: StaffNotificationKind[] = [
+  'appointment_issue_raised',
+  'appointment_overdue',
+];
 
 export type StaffNotification = {
   userId: string;
@@ -46,18 +59,59 @@ export function buildStaffNotification(n: StaffNotification) {
  * unwind a decision that already stands — the decision is the fact, this is
  * the courtesy.
  */
+async function escalate(
+  tenantId: string,
+  notifications: StaffNotification[],
+): Promise<void> {
+  const worth = notifications.filter(n => ESCALATING_KINDS.includes(n.type));
+  if (worth.length === 0) return;
+  /* Grouped by message so five managers hearing the same thing is one call,
+   * not five. */
+  const groups = new Map<string, StaffNotification[]>();
+  worth.forEach(n => {
+    const key = `${n.type}|${n.message}|${n.link || ''}`;
+    groups.set(key, [...(groups.get(key) || []), n]);
+  });
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  try {
+    const user = getAuth().currentUser;
+    const token = user ? await user.getIdToken() : null;
+    if (token) headers.Authorization = `Bearer ${token}`;
+  } catch {
+    /* the route answers 401 and the in-app rows still stand */
+  }
+
+  await Promise.all(Array.from(groups.values()).map(group => fetch('/api/notifications/staff', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      tenantId,
+      kind: group[0].type,
+      message: group[0].message,
+      link: group[0].link || '/planner',
+      userIds: group.map(g => g.userId),
+    }),
+  }).catch(() => undefined)));
+}
+
 export async function notifyStaff(
   firestore: Firestore | null | undefined,
   tenantId: string | null | undefined,
   notifications: StaffNotification[],
 ): Promise<void> {
   if (!firestore || !tenantId || !notifications?.length) return;
-  await Promise.all(notifications
-    .filter(n => n && n.userId)
-    .map(n => addDoc(
-      collection(firestore, `tenants/${tenantId}/notifications`),
-      buildStaffNotification(n),
-    ).catch(() => undefined)));
+  const valid = notifications.filter(n => n && n.userId);
+  if (valid.length === 0) return;
+
+  await Promise.all(valid.map(n => addDoc(
+    collection(firestore, `tenants/${tenantId}/notifications`),
+    buildStaffNotification(n),
+  ).catch(() => undefined)));
+
+  /* The in-app row is the record; the text is the courtesy. A failure to
+   * interrupt someone must never undo the row that already exists. */
+  await escalate(tenantId, valid).catch(() => undefined);
 }
 
 /**
