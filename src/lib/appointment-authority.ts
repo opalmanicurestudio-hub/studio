@@ -62,11 +62,54 @@ export const DEFAULT_AUTHORITY: Record<EmploymentModel, DecisionAuthority> = {
 
 export type ReasonResolution = 'auto' | 'manager';
 
+export type ReasonGroup = 'service' | 'schedule' | 'client' | 'operational' | 'personal';
+
 export type DeclineReason = {
   code: string;
   label: string;
-  group: 'service' | 'schedule' | 'client' | 'operational' | 'personal';
+  group: ReasonGroup;
   /** 'auto' may release the booking without a manager; 'manager' raises a request. */
+  resolution: ReasonResolution;
+  /** Built-in codes are stable across every shop; custom ones belong to one. */
+  source?: 'builtin' | 'custom';
+};
+
+/**
+ * CUSTOM REASONS, AND WHY THE CODE IS NOT THE LABEL
+ *
+ * This runs salons today and other trades tomorrow, so the wording below is
+ * wrong somewhere by definition — "consultation" and "specialty" mean nothing
+ * to a kitchen, and "client" is "guest" or "customer" depending on the room.
+ * So a shop can rename any built-in, hide the ones that do not apply, and add
+ * its own.
+ *
+ * What a shop cannot do is change what a CODE means. Built-in codes are the
+ * stable spine: they are what a year of decision history is aggregated by, and
+ * what the platform can reason about across tenants. Renaming
+ * 'consultation_missing' to "Tasting not booked" keeps every past row
+ * comparable; inventing a new meaning for that code would silently corrupt it.
+ *
+ * Custom codes are therefore namespaced. A shop's own reason is always
+ * 'custom:<slug>' and can never collide with a built-in or be mistaken for one
+ * in a report.
+ */
+export const CUSTOM_PREFIX = 'custom:';
+
+export const isCustomReasonCode = (code: string): boolean =>
+  String(code || '').startsWith(CUSTOM_PREFIX);
+
+export const customReasonCode = (slug: string): string =>
+  CUSTOM_PREFIX + String(slug || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40);
+
+export type TenantReason = {
+  /** Stored with the custom: prefix. customReasonCode() puts it there. */
+  code: string;
+  label: string;
+  group?: ReasonGroup;
   resolution: ReasonResolution;
 };
 
@@ -90,7 +133,38 @@ export const DECLINE_REASONS: DeclineReason[] = [
 ];
 
 export const REASONS_BY_CODE: Record<string, DeclineReason> =
-  DECLINE_REASONS.reduce((acc, r) => { acc[r.code] = r; return acc; }, {} as Record<string, DeclineReason>);
+  DECLINE_REASONS.reduce((acc, r) => { acc[r.code] = { ...r, source: 'builtin' }; return acc; }, {} as Record<string, DeclineReason>);
+
+/**
+ * The list this shop actually shows: built-ins minus anything hidden, renamed
+ * where the shop has its own words, plus its own reasons. A custom reason with
+ * no valid namespaced code is dropped rather than guessed at.
+ */
+export function resolveReasonList(policy?: AuthorityPolicy | null): DeclineReason[] {
+  const hidden = new Set(policy?.hiddenReasonCodes || []);
+  const labels = policy?.reasonLabels || {};
+
+  const builtins: DeclineReason[] = DECLINE_REASONS
+    .filter(r => !hidden.has(r.code))
+    .map(r => ({ ...r, label: labels[r.code] || r.label, source: 'builtin' as const }));
+
+  const custom: DeclineReason[] = (policy?.customReasons || [])
+    .filter(r => r && isCustomReasonCode(r.code) && String(r.label || '').trim())
+    .filter(r => !hidden.has(r.code))
+    .map(r => ({
+      code: r.code,
+      label: String(r.label).trim().slice(0, 80),
+      group: r.group || 'personal',
+      resolution: r.resolution === 'auto' ? 'auto' : 'manager',
+      source: 'custom' as const,
+    }));
+
+  return [...builtins, ...custom];
+}
+
+export function findReason(code: string, policy?: AuthorityPolicy | null): DeclineReason | null {
+  return resolveReasonList(policy).find(r => r.code === code) || null;
+}
 
 /** Codes a shop may hand to providers for self-service decline, out of the box. */
 export const DEFAULT_AUTO_CODES: string[] =
@@ -103,6 +177,12 @@ export type AuthorityPolicy = {
   autoDeclineCodes?: string[];
   /** Require a reason on every decline, including a manager's. */
   requireDeclineReason?: boolean;
+  /** The shop's own reasons. Codes must be namespaced with custom:. */
+  customReasons?: TenantReason[];
+  /** Rename a built-in without changing what its code means. */
+  reasonLabels?: Record<string, string>;
+  /** Built-in or custom codes this trade has no use for. */
+  hiddenReasonCodes?: string[];
 };
 
 export type AuthorityInput = {
@@ -131,6 +211,20 @@ export function resolveAuthority(input: AuthorityInput): DecisionAuthority {
   if (!capped && ceiling && !authorityAtLeast(ceiling, base)) return ceiling;
   return base;
 }
+
+export type AppointmentIssue = {
+  code: string;
+  label: string;
+  note?: string | null;
+  raisedByUid: string;
+  raisedByName: string;
+  raisedAt: string;
+  status: 'open' | 'resolved' | 'dismissed';
+  resolvedByUid?: string | null;
+  resolvedByName?: string | null;
+  resolvedAt?: string | null;
+  outcome?: 'reassigned' | 'declined' | 'kept' | 'other' | null;
+};
 
 export type DecisionVerdict =
   | { allowed: true; via: 'manager' | 'authority' | 'approved_reason' }
@@ -172,7 +266,10 @@ export function evaluateDecision(
 
   const allowedCodes = input.policy?.autoDeclineCodes || DEFAULT_AUTO_CODES;
   const code = String(input.reasonCode || '');
-  const known = REASONS_BY_CODE[code];
+  /* A shop's own reason resolves exactly like a built-in: the SHOP decides
+   * whether it is self-service, and a custom reason marked auto must also be
+   * on the approved list, so adding one is never enough on its own. */
+  const known = findReason(code, input.policy);
   if (!code || !known) {
     return { allowed: false, raiseRequest: true, reason: 'Pick a reason so this can be handled properly.' };
   }
