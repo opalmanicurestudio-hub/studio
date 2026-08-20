@@ -1048,7 +1048,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                           <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-1.5">
                             <FileImage className="w-3 h-3 opacity-40" />Inspiration photo (optional)
                           </Label>
-                          <ImageUpload onImageUploaded={setInspirationPhotoUrl} initialImage={inspirationPhotoUrl} />
+                          <ImageUpload onImageUploaded={setInspirationPhotoUrl} initialImage={inspirationPhotoUrl} tenantId={tenant?.id} storageFolder="booking-inspiration" />
                         </div>
                         <AnimatePresence>
                           {isResolvingIdentity && (
