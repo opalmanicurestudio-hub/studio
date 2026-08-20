@@ -181,6 +181,15 @@ interface BookingSheetProps {
   /** What the SERVER made of the booking. Absent = an older caller, in
    *  which case the sheet keeps its original confirmed wording. */
   bookingOutcome?: { status: string; notice: string; depositCents: number } | null;
+  /** 'page' renders the flow as an ordinary page instead of a floating panel.
+   *
+   * Every mobile failure this component had came from being a floating box:
+   * fixed positioning defeated by transformed ancestors, heights computed
+   * against a viewport that changes as the URL bar collapses, a footer that
+   * had to be kept on screen by arithmetic. A page has none of those
+   * problems, because the browser is already very good at laying out pages.
+   * Sticky bars in normal document flow simply work. */
+  variant?: 'overlay' | 'page';
   onConfirm: (
     formData: { clientName: string; clientEmail: string; clientPhone?: string; notes?: string },
     appointmentDetails: Omit<Appointment, 'id' | 'clientId' | 'clientName' | 'clientEmail' | 'clientPhone'> & { depositAmount?: number; depositStatus?: string },
@@ -208,7 +217,9 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   appointments, events, scheduleProfiles, services, consentForms, tenant, onConfirm,
   shifts, staffBlocks, dayOffBlocks, resources, tickets, maintenancePlans, calendarEvents,
   bookingOutcome,
+  variant = 'overlay',
 }) => {
+  const asPage = variant === 'page';
   const isMobile = useIsMobile();
   const { headingFont, bodyFont, r, r2, r3 } = useThemeStyles();
 
@@ -632,6 +643,54 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const bookedStaff   = useMemo(() => staff.find(s => s.id === bookedStaffId), [staff, bookedStaffId]);
   const selectedStaff = useMemo(() => staff.find(s => s.id === selectedStaffId), [staff, selectedStaffId]);
 
+  /* ── ONE CHROME, TWO SHELLS ───────────────────────────────────────────────
+   * The header, body and action bar are written once. Where they live is the
+   * only difference between the two variants:
+   *
+   *   page     ordinary document flow. Sticky bars, browser-managed
+   *            scrolling, nothing fixed, no portal, no height arithmetic.
+   *            Immune to transformed ancestors and to the iOS URL bar.
+   *   overlay  the floating panel, portalled to <body> so `fixed` is
+   *            viewport-relative rather than trapped inside an animated
+   *            section.
+   *
+   * Page mode exists because every mobile failure this flow had came from
+   * being a floating box on a phone. A page is what phones are for. */
+  const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    if (asPage) {
+      return (
+        <div
+          ref={panelRef}
+          style={{
+            fontFamily: bodyFont,
+            backgroundColor: 'hsl(var(--background, 240 6% 97%))',
+            color: 'hsl(var(--foreground, 240 10% 4%))',
+          }}
+          className="min-h-[100dvh] w-full"
+        >
+          {children}
+        </div>
+      );
+    }
+    return createPortal(
+      <div className="fixed inset-0 z-[100]" role="dialog" aria-modal="true" aria-label="Book an appointment">
+        <div className="absolute inset-0 bg-black/60" onClick={() => onOpenChange(false)} aria-hidden="true" />
+        <div
+          ref={panelRef}
+          style={{
+            fontFamily: bodyFont,
+            backgroundColor: 'hsl(var(--background, 240 6% 97%))',
+            color: 'hsl(var(--foreground, 240 10% 4%))',
+          }}
+          className="absolute top-0 bottom-0 left-0 right-0 sm:left-auto sm:w-full sm:max-w-md sm:border-l sm:shadow-2xl overflow-hidden"
+        >
+          {children}
+        </div>
+      </div>,
+      document.body,
+    );
+  };
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     /* ── NO MODAL PRIMITIVE ───────────────────────────────────────────────
@@ -649,63 +708,16 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
      * the height.
      *
      * Everything inside is unchanged; only the container is different. */
-    !open || !mounted ? null : createPortal(
-    /* ── PORTALLED TO <body> ──────────────────────────────────────────────
-     * This is the one thing the Radix Sheet was doing that genuinely had to
-     * be kept, and dropping it is what broke the panel.
-     *
-     * `position: fixed` is only viewport-relative while no ancestor has a
-     * transform. The booking page's sections animate — there are dozens of
-     * transformed wrappers — and a transformed ancestor silently becomes the
-     * containing block for anything fixed inside it. The panel was therefore
-     * sized against the whole scrolling page rather than the screen: far too
-     * tall, with its footer parked hundreds of pixels below the visible area,
-     * which is exactly why the Continue button could not be reached.
-     *
-     * Rendering into <body> puts the panel outside every transform, so fixed
-     * means fixed again. Note this is ONLY the portal — none of the variant,
-     * animation or side-picking machinery came back with it. */
-    <div
-      className="fixed inset-0 z-[100]"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Book an appointment"
-    >
-      {/* Backdrop. A plain sibling, so it cannot cover the panel. */}
-      <div
-        className="absolute inset-0 bg-black/60"
-        onClick={() => onOpenChange(false)}
-        aria-hidden="true"
-      />
-
-      <div
-        ref={panelRef}
-        style={{
-          fontFamily: bodyFont,
-          backgroundColor: 'hsl(var(--background, 240 6% 97%))',
-          color: 'hsl(var(--foreground, 240 10% 4%))',
-        }}
-        className={cn(
-          // Pinned to all four edges on a phone: no computed height exists,
-          // so no viewport measurement can disagree with it.
-          'absolute top-0 bottom-0 left-0 right-0',
-          // From sm up it becomes a right-hand panel, in CSS only.
-          'sm:left-auto sm:w-full sm:max-w-md sm:border-l sm:shadow-2xl',
-          /* THREE PINNED ZONES, NOT A FLEX COLUMN.
-           * A flex column asks the middle to shrink so the footer fits, and
-           * every browser has its own opinion about when it will. That is how
-           * the Continue button ended up off-screen. Here the header is
-           * pinned to the top, the footer to the bottom, and the scrolling
-           * body fills what is left — so the button's position is not a
-           * consequence of the content's height at all. It cannot be pushed
-           * anywhere, because nothing is pushing. */
-          'overflow-hidden'
-        )}
-      >
+    !open || (!asPage && !mounted) ? null : (
+    <Shell>
         {/* ── Header ─────────────────────────────────────────────────────── */}
         <div
           ref={headerRef}
-          className="absolute top-0 left-0 right-0 z-10 border-b bg-background/95 backdrop-blur-xl text-left px-4 pb-3"
+          className={cn(
+            'z-20 border-b bg-background/95 backdrop-blur-xl text-left px-4 pb-3',
+            // Sticky in a page, pinned in a panel. Sticky needs no measuring.
+            asPage ? 'sticky top-0' : 'absolute top-0 left-0 right-0',
+          )}
           style={{ paddingTop: 'max(0.875rem, env(safe-area-inset-top))' }}
         >
           {/* Back lives up here, not in the footer. It is a secondary action
@@ -777,7 +789,17 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
          * wrapper whose height it wants to compute, and computed heights are
          * exactly what kept breaking this panel. Native overflow needs no
          * measurement and gets momentum scrolling on iOS for free. */}
-        <div className="absolute inset-0 overflow-y-auto overscroll-contain text-left" style={{ paddingTop: 'var(--sheet-header-h, 7.5rem)', paddingBottom: 'var(--sheet-footer-h, 6.5rem)', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+        <div
+          className={cn(
+            'text-left',
+            asPage
+              // Page: just content. The browser scrolls the document; there
+              // is nothing to size and nothing to keep in view by hand.
+              ? ''
+              : 'absolute inset-0 overflow-y-auto overscroll-contain',
+          )}
+          style={asPage ? undefined : ({ paddingTop: 'var(--sheet-header-h, 7.5rem)', paddingBottom: 'var(--sheet-footer-h, 6.5rem)', WebkitOverflowScrolling: 'touch' } as React.CSSProperties)}
+        >
           <div className="px-4 pt-2 pb-2 space-y-5 text-left">
             {/* ── NO EXIT ANIMATION BETWEEN STEPS ────────────────────────
              * This was <AnimatePresence mode="wait">. That mode holds the
@@ -1209,7 +1231,10 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         {currentStep !== 'confirmation' && currentStep !== 'checkout' && (
           <div
             ref={footerRef}
-            className="absolute bottom-0 left-0 right-0 z-10 px-4 pt-3 border-t bg-background/95 backdrop-blur-xl shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.25)]"
+            className={cn(
+              'z-20 px-4 pt-3 border-t bg-background/95 backdrop-blur-xl shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.25)]',
+              asPage ? 'sticky bottom-0' : 'absolute bottom-0 left-0 right-0',
+            )}
             /* Safe-area padding: without it the primary button sits under the
                iPhone home indicator and reads as unresponsive. */
             style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
@@ -1239,7 +1264,10 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         {currentStep === 'checkout' && (
           <div
             ref={footerRef}
-            className="absolute bottom-0 left-0 right-0 z-10 px-4 pt-3 border-t bg-background/95 backdrop-blur-xl shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.25)]"
+            className={cn(
+              'z-20 px-4 pt-3 border-t bg-background/95 backdrop-blur-xl shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.25)]',
+              asPage ? 'sticky bottom-0' : 'absolute bottom-0 left-0 right-0',
+            )}
             /* Safe-area padding: without it the primary button sits under the
                iPhone home indicator and reads as unresponsive. */
             style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
@@ -1254,9 +1282,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             </Button>
           </div>
         )}
-      </div>
-    </div>,
-    document.body,
+    </Shell>
     )
   );
 };
