@@ -4,7 +4,7 @@ import React, { useMemo, useState } from 'react';
 import { AlertTriangle, Check, Loader } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
-import { approveBooking, denyBooking, raiseIssue, isAwaitingApproval } from '@/lib/booking-approval';
+import { approveBooking, denyBooking, raiseIssue, isAwaitingApproval, canRaiseIssue } from '@/lib/booking-approval';
 import {
   resolveAuthority, resolveReasonList, responseClock,
   type AuthorityPolicy,
@@ -95,7 +95,10 @@ export function PortalDecisionBar({
     );
   }
 
-  if (!awaiting) return null;
+  /* An exception can happen to any booking, not only one nobody has answered
+   * yet. Accept and Decline still depend on there being something to decide. */
+  const raisable = canRaiseIssue(appointment);
+  if (!awaiting && !raisable) return null;
 
   if (picking) {
     return (
@@ -125,6 +128,20 @@ export function PortalDecisionBar({
           Back
         </button>
       </div>
+    );
+  }
+
+  if (!awaiting) {
+    return (
+      <button
+        type="button"
+        disabled={busy}
+        aria-label={`Report an issue with ${appointment?.clientName || 'this booking'}`}
+        onClick={() => setPicking(true)}
+        className="mt-2 h-8 w-full rounded-xl border-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground active:scale-95 disabled:opacity-50"
+      >
+        Report an issue
+      </button>
     );
   }
 
