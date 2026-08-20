@@ -373,7 +373,24 @@ export async function raiseIssue(
   };
 }
 
-export type IssueOutcome = 'reassigned' | 'declined' | 'kept' | 'other';
+export type IssueOutcome = 'reassigned' | 'rescheduled' | 'declined' | 'kept' | 'other';
+
+/**
+ * CAN THIS PERSON RAISE AN EXCEPTION ON THIS BOOKING?
+ *
+ * Deliberately NOT the same question as "is this booking waiting on a
+ * decision". An earlier version tied the two together, which meant a shop on
+ * instant booking — most shops — had no way for anyone to raise anything at
+ * all: bookings simply landed and the provider's only option was to work it or
+ * not turn up. Something goes wrong with confirmed appointments far more often
+ * than with unanswered ones.
+ */
+export function canRaiseIssue(apt: any): boolean {
+  if (!apt || !apt.id) return false;
+  if (isDeadAppointment(apt)) return false;
+  if (apt.issue && apt.issue.status === 'open') return false;
+  return !['completed', 'servicing'].includes(String(apt.status || ''));
+}
 
 /**
  * A manager closes an issue. Four ways out, in the order that protects the
@@ -422,6 +439,15 @@ export async function resolveIssue(
   };
 
   const patch: Record<string, any> = { issue: closed };
+  /* Moving the time is usually the better answer than losing the booking, and
+   * the sheet already says so when nobody can cover. This closes the issue and
+   * flags the booking; the actual move happens in the reschedule flow that
+   * already exists, because two ways to move an appointment is one too many. */
+  if (outcome === 'rescheduled') {
+    patch.rescheduleRequested = true;
+    patch.rescheduleRequestedAt = nowIso;
+    patch.rescheduleRequestedBy = actor.uid || null;
+  }
   if (outcome === 'reassigned') {
     patch.staffId = opts?.newStaffId;
     patch.reassignedFromStaffId = apt.staffId || null;
@@ -541,11 +567,13 @@ export async function resolveIssue(
       type: 'appointment_issue_resolved' as const,
       message: outcome === 'reassigned'
         ? `${apt.clientName || 'That booking'} has been moved to ${opts?.newStaffName || 'someone else'}.`
-        : outcome === 'kept'
-          ? `${apt.clientName || 'That booking'} stays with you — a manager reviewed it.`
-          : outcome === 'declined'
-            ? `${apt.clientName || 'That booking'} was cancelled — no cover was available.`
-            : `Your issue on ${apt.clientName || 'a booking'} was closed.`,
+        : outcome === 'rescheduled'
+          ? `${apt.clientName || 'That booking'} is being moved to another time.`
+          : outcome === 'kept'
+            ? `${apt.clientName || 'That booking'} stays with you — a manager reviewed it.`
+            : outcome === 'declined'
+              ? `${apt.clientName || 'That booking'} was cancelled — no cover was available.`
+              : `Your issue on ${apt.clientName || 'a booking'} was closed.`,
       link: '/planner',
       appointmentId: apt.id,
     }]
@@ -569,13 +597,15 @@ export async function resolveIssue(
     nextStatus: outcome === 'declined' ? 'cancelled' : apt.status || null,
     message: outcome === 'reassigned'
       ? `Moved to ${who}. ${apt.clientName || 'The client'} keeps their time.`
-      : outcome === 'kept'
-        ? 'Kept as it stands — the provider has been told.'
+      : outcome === 'rescheduled'
+        ? `Flagged to move. Open ${apt.clientName || 'the booking'} and pick a new time.`
+        : outcome === 'kept'
+          ? 'Kept as it stands — the provider has been told.'
         : outcome === 'declined'
-          ? (clientNotified
-            ? `No cover was available. ${apt.clientName || 'The client'} has been told.`
-            : `No cover was available and we could not reach ${apt.clientName || 'the client'} — please call them.`)
-          : 'Closed — handled outside the app.',
+            ? (clientNotified
+              ? `No cover was available. ${apt.clientName || 'The client'} has been told.`
+              : `No cover was available and we could not reach ${apt.clientName || 'the client'} — please call them.`)
+            : 'Closed — handled outside the app.',
   };
 }
 
