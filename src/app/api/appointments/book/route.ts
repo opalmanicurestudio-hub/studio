@@ -433,7 +433,23 @@ export async function POST(req: NextRequest) {
        *   • staff-side sources are never made to wait on studio approval.
        * Auto-approval for proven regulars is applied here too, so a request
        * that would have been rubber-stamped never reaches the queue. */
-      const staffSide = !['online', 'client', 'portal', 'web'].includes(String(source || '').toLowerCase());
+      /* ── WHO IS DOING THE BOOKING? ────────────────────────────────────
+       * This was an allow-list of CLIENT sources — 'online', 'client',
+       * 'portal', 'web' — and anything else counted as staff. The public
+       * booking page sends 'booking-page', which is on neither list, so every
+       * single online booking was treated as staff-made and skipped approval
+       * entirely. Approval mode looked switched on and did nothing.
+       *
+       * Inverted deliberately: name the STAFF surfaces, and treat everything
+       * else as a client. Getting it wrong in this direction sends a staff
+       * booking through the approval queue, which is visible and annoying.
+       * The old direction silently confirmed appointments the shop wanted to
+       * vet — invisible, and exactly the failure that happened. */
+      const STAFF_SOURCES = [
+        'manual', 'front-desk', 'terminal', 'walk-in', 'walkin-kiosk', 'lounge',
+        'foundation', 'recovery', 'goodwill', 'starter', 'event', 'retell', 'waitlist',
+      ];
+      const staffSide = STAFF_SOURCES.includes(String(source || '').toLowerCase());
       let plan = resolveBookingPlan({
         tenant, service: svc,
         price: Number(body.price ?? svc.price ?? 0),
