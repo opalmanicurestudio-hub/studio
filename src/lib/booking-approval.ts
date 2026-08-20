@@ -1,4 +1,5 @@
 import { addDoc, collection, doc, writeBatch, type Firestore } from 'firebase/firestore';
+import { findReason, type AuthorityPolicy } from '@/lib/appointment-authority';
 import { getAuth } from 'firebase/auth';
 
 export type ApprovalResult =
@@ -268,6 +269,97 @@ async function recordVoiceDecision(
   } catch {
     /* the decision already stands; a missing row is not worth failing over */
   }
+}
+
+/**
+ * A provider who cannot take a booking raises an issue. It does NOT cancel the
+ * client's appointment — the first job is to solve the exception, not to lose
+ * the booking. The flag rides on the appointment so a manager sees it in
+ * context, and the same row goes to the decision ledger so raising an issue is
+ * as measurable as answering a request.
+ */
+export async function raiseIssue(
+  firestore: Firestore | null | undefined,
+  tenantId: string | null | undefined,
+  apt: ApprovableAppointment,
+  reasonCode: string,
+  note: string | null,
+  actor: { uid?: string | null; name?: string | null; role?: string | null; isManager?: boolean },
+  policy?: AuthorityPolicy | null,
+): Promise<ApprovalResult> {
+  if (!firestore || !tenantId || !apt?.id) return { ok: false, reason: 'Missing studio or booking' };
+  const known = findReason(reasonCode, policy);
+  if (!known) return { ok: false, reason: 'Pick a reason so this can be handled properly.' };
+  if (apt.issue && apt.issue.status === 'open') {
+    return { ok: false, reason: 'An issue is already open on this booking.', alreadyStatus: 'issue_open' };
+  }
+
+  const nowIso = new Date().toISOString();
+  const issue = {
+    code: known.code,
+    label: known.label,
+    note: (note || '').trim().slice(0, 300) || null,
+    raisedByUid: actor.uid || null,
+    raisedByName: actor.name || null,
+    raisedAt: nowIso,
+    status: 'open' as const,
+    resolvedByUid: null,
+    resolvedByName: null,
+    resolvedAt: null,
+    outcome: null,
+  };
+
+  try {
+    const batch = writeBatch(firestore);
+    batch.set(doc(firestore, `tenants/${tenantId}/appointments`, apt.id), { issue }, { merge: true });
+    await batch.commit();
+  } catch {
+    return { ok: false, reason: 'Could not raise that — try again.' };
+  }
+
+  try {
+    const requestedAtIso = String(apt.requestedAt || apt.createdAt || '');
+    const requestedMs = requestedAtIso ? Date.parse(requestedAtIso) : NaN;
+    await addDoc(collection(firestore, `tenants/${tenantId}/appointmentDecisions`), {
+      tenantId,
+      appointmentId: apt.id,
+      clientId: apt.clientId || null,
+      clientName: apt.clientName || null,
+      serviceId: apt.serviceId || null,
+      staffId: apt.staffId || null,
+      startTime: apt.startTime || null,
+      source: apt.source || null,
+      channel: 'issue',
+      action: 'issue_raised',
+      declineOutcome: null,
+      reasonCode: known.code,
+      reasonLabel: known.label,
+      reasonSource: known.source || 'builtin',
+      reason: issue.note,
+      priorStatus: apt.status || null,
+      resultStatus: apt.status || null,
+      depositCents: Number(apt.depositAmountCents || 0),
+      chargedOnFile: false,
+      decidedVia: null,
+      actorUid: actor.uid || null,
+      actorName: actor.name || null,
+      actorRole: actor.role || null,
+      actorIsManager: !!actor.isManager,
+      decidedAt: nowIso,
+      requestedAt: requestedAtIso || null,
+      responseSeconds: Number.isFinite(requestedMs)
+        ? Math.max(0, Math.round((Date.parse(nowIso) - requestedMs) / 1000))
+        : null,
+    });
+  } catch {
+    /* the issue is raised and visible; a missing ledger row is not worth failing over */
+  }
+
+  return {
+    ok: true,
+    nextStatus: apt.status || null,
+    message: `Raised with a manager — ${apt.clientName || 'the client'} keeps their time for now.`,
+  };
 }
 
 export async function approveBooking(
