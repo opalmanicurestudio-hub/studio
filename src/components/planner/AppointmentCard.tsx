@@ -93,7 +93,9 @@ export function AppointmentCard({
   onApproveRequest,
   onDeclineRequest,
   onReportIssue,
+  onResolveIssue,
   canDeclineDirectly,
+  canResolveIssues,
   heightPx,
 }: any) {
   const { staff, inventory } = useInventory();
@@ -199,6 +201,7 @@ export function AppointmentCard({
   const declinesDirectly = canDeclineDirectly !== false;
   const canReport = typeof onReportIssue === 'function';
   const openIssue = appointment.issue && appointment.issue.status === 'open' ? appointment.issue : null;
+  const canResolve = !!openIssue && canResolveIssues === true && typeof onResolveIssue === 'function';
   const holdReason = awaitingDecision ? holdReasonLabel(appointment) : null;
   const acceptConsequence = awaitingDecision ? acceptConsequenceLabel(appointment, client) : null;
 
@@ -398,6 +401,12 @@ export function AppointmentCard({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1 min-w-[11rem]">
+                    {canResolve && (
+                      <>
+                        <DropdownMenuItem onSelect={() => { onResolveIssue(appointment); }} className="font-bold text-[10px] uppercase tracking-widest text-destructive"><AlertTriangle className="mr-2 h-3.5 w-3.5" /> Resolve Issue</DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                      </>
+                    )}
                     {canDecide && (
                       <>
                         <DropdownMenuItem disabled={decisionBusy} onSelect={() => { void runDecision('approve'); }} className="font-bold text-[10px] uppercase tracking-widest text-emerald-700"><CheckCircle className="mr-2 h-3.5 w-3.5" /> Accept Request</DropdownMenuItem>
@@ -463,6 +472,9 @@ export function AppointmentCard({
                     }
                 </p>
             </div>
+            {canResolve && !canDecide && tier !== 'compact' && (
+                <Button size="xs" aria-label={`Resolve the issue on ${client.name}'s booking`} className="h-6 px-2 bg-destructive text-white border-none font-black text-[8px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); onResolveIssue(appointment); }}>Resolve</Button>
+            )}
             {canDecide && tier !== 'compact' && !confirmingDecline && (
                 <div className="flex items-center gap-1">
                     <Button size="xs" disabled={decisionBusy} aria-label={`Accept the request from ${client.name}`} className="h-6 px-2 bg-emerald-600 text-white border-none font-black text-[8px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); runDecision('approve'); }}>Accept</Button>
