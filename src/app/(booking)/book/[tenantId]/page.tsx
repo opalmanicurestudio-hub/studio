@@ -432,6 +432,48 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     }
   };
 
+  /* Opening the flow scrolls to the top. Without this the booking page keeps
+   * whatever scroll offset the service list had, so the flow's first screen
+   * starts halfway down and looks like a blank panel. */
+  useEffect(() => {
+    if (dialogOpen) window.scrollTo({ top: 0, behavior: 'auto' });
+  }, [dialogOpen]);
+
+  /* When the flow is open it OWNS the screen — the marketing page underneath
+   * is not rendered at all. Leaving it mounted meant the customer could
+   * scroll past the end of the booking form into the studio's hero section,
+   * which reads as the form having ended prematurely. */
+  if (dialogOpen && dialogService) {
+    return (
+      <div className="w-full min-h-dvh overflow-x-hidden"
+           style={{ background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
+        <BookingSheet
+          open
+          onOpenChange={o => { if (!o) { setDialogOpen(false); setDialogService(null); } }}
+          service={dialogService}
+          staff={staff}
+          pricingTiers={pricingTiers}
+          appointments={appointments}
+          events={events}
+          scheduleProfiles={scheduleProfiles}
+          services={services}
+          consentForms={consentForms}
+          tenant={tenant}
+          shifts={shifts}
+          staffBlocks={staffBlocks}
+          dayOffBlocks={dayOffBlocks}
+          resources={resources}
+          tickets={maintTickets}
+          maintenancePlans={maintenancePlans}
+          calendarEvents={calendarEvents}
+          onConfirm={handleConfirm}
+          bookingOutcome={bookingOutcome}
+          variant="page"
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="w-full min-h-dvh overflow-x-hidden"
          style={{ background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
@@ -483,30 +525,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
         context; without them the sheet would offer times the booking route
         then refuses, which the guest just experiences as a failure.
       */}
-      {dialogOpen && dialogService && (
-        <BookingSheet
-          open={dialogOpen}
-          onOpenChange={o => { if (!o) { setDialogOpen(false); setDialogService(null); } }}
-          service={dialogService}
-          staff={staff}
-          pricingTiers={pricingTiers}
-          appointments={appointments}
-          events={events}
-          scheduleProfiles={scheduleProfiles}
-          services={services}
-          consentForms={consentForms}
-          tenant={tenant}
-          shifts={shifts}
-          staffBlocks={staffBlocks}
-          dayOffBlocks={dayOffBlocks}
-          resources={resources}
-          tickets={maintTickets}
-          maintenancePlans={maintenancePlans}
-          calendarEvents={calendarEvents}
-          onConfirm={handleConfirm}
-          bookingOutcome={bookingOutcome}
-        />
-      )}
+
 
       {/* Sections — enabled and visible to visitors */}
       {activeSections.map(section => (
