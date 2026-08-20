@@ -57,7 +57,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn, safeNumber } from '@/lib/utils';
-import { isAwaitingApproval, approvalChannel, holdReasonLabel, acceptConsequenceLabel, isDeadAppointment } from '@/lib/booking-approval';
+import { isAwaitingApproval, approvalChannel, holdReasonLabel, acceptConsequenceLabel, isDeadAppointment, canRaiseIssue } from '@/lib/booking-approval';
 import { type Appointment, type Client, type Service, Staff } from '@/lib/data';
 import { appointmentReadiness } from '@/lib/appointment-requirements';
 import { useInventory } from '@/context/InventoryContext';
@@ -199,7 +199,7 @@ export function AppointmentCard({
    * that actually solves it. The server enforces the same rule; this only
    * decides which word appears on the button. */
   const declinesDirectly = canDeclineDirectly !== false;
-  const canReport = typeof onReportIssue === 'function';
+  const canReport = typeof onReportIssue === 'function' && canRaiseIssue(appointment);
   const openIssue = appointment.issue && appointment.issue.status === 'open' ? appointment.issue : null;
   const canResolve = !!openIssue && canResolveIssues === true && typeof onResolveIssue === 'function';
   const holdReason = awaitingDecision ? holdReasonLabel(appointment) : null;
@@ -401,6 +401,12 @@ export function AppointmentCard({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1 min-w-[11rem]">
+                    {!canDecide && canReport && (
+                      <>
+                        <DropdownMenuItem onSelect={() => { onReportIssue(appointment); }} className="font-bold text-[10px] uppercase tracking-widest"><AlertTriangle className="mr-2 h-3.5 w-3.5" /> Report an Issue</DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                      </>
+                    )}
                     {canResolve && (
                       <>
                         <DropdownMenuItem onSelect={() => { onResolveIssue(appointment); }} className="font-bold text-[10px] uppercase tracking-widest text-destructive"><AlertTriangle className="mr-2 h-3.5 w-3.5" /> Resolve Issue</DropdownMenuItem>
