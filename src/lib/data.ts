@@ -717,6 +717,22 @@ export type Appointment = {
   automatedRescheduleOffered?: boolean;
   requiredResourceIds?: string[];
   recurrenceId?: string;
+  /* A provider who cannot take a booking they were assigned raises this
+   * rather than cancelling a client's appointment. It sits ON the appointment
+   * so the planner shows it in context and a manager needs no second query. */
+  issue?: {
+    code: string;
+    label: string;
+    note?: string | null;
+    raisedByUid: string;
+    raisedByName: string;
+    raisedAt: string;
+    status: 'open' | 'resolved' | 'dismissed';
+    resolvedByUid?: string | null;
+    resolvedByName?: string | null;
+    resolvedAt?: string | null;
+    outcome?: 'reassigned' | 'declined' | 'kept' | 'other' | null;
+  };
   cancellationReason?: 'late' | 'no-show' | 'client_request' | 'other' | 'automation';
   // Fine-grained, actor-scoped reason — only one is populated, matching who cancelled.
   cancellationStudioReason?: StudioCancellationReason;
@@ -1168,6 +1184,14 @@ export type Tenant = {
     maxProviderAuthority?: 'none' | 'limited' | 'request_approval' | 'full';
     autoDeclineCodes?: string[];
     requireDeclineReason?: boolean;
+    /* This platform runs more than one trade, so the wording of a reason is
+     * the shop's and the CODE is the platform's. A shop may rename a built-in,
+     * hide the ones its trade has no use for, and add its own — but a custom
+     * code is always namespaced 'custom:' so a year of history stays
+     * comparable and nothing can be mistaken for a built-in. */
+    customReasons?: { code: string; label: string; group?: string; resolution: 'auto' | 'manager' }[];
+    reasonLabels?: Record<string, string>;
+    hiddenReasonCodes?: string[];
   };
   defaultRescheduleMode?: 'matrix' | 'flat';
   allowGuestFeeDeferral?: boolean;
