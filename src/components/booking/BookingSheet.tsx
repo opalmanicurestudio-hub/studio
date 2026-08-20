@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
@@ -381,6 +382,10 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const footerRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
+  /* Portalling needs document, which does not exist during SSR. */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const currentStep = steps[currentStepIndex];
 
@@ -644,9 +649,24 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
      * the height.
      *
      * Everything inside is unchanged; only the container is different. */
-    !open ? null : (
+    !open || !mounted ? null : createPortal(
+    /* ── PORTALLED TO <body> ──────────────────────────────────────────────
+     * This is the one thing the Radix Sheet was doing that genuinely had to
+     * be kept, and dropping it is what broke the panel.
+     *
+     * `position: fixed` is only viewport-relative while no ancestor has a
+     * transform. The booking page's sections animate — there are dozens of
+     * transformed wrappers — and a transformed ancestor silently becomes the
+     * containing block for anything fixed inside it. The panel was therefore
+     * sized against the whole scrolling page rather than the screen: far too
+     * tall, with its footer parked hundreds of pixels below the visible area,
+     * which is exactly why the Continue button could not be reached.
+     *
+     * Rendering into <body> puts the panel outside every transform, so fixed
+     * means fixed again. Note this is ONLY the portal — none of the variant,
+     * animation or side-picking machinery came back with it. */
     <div
-      className="fixed inset-0 z-50"
+      className="fixed inset-0 z-[100]"
       role="dialog"
       aria-modal="true"
       aria-label="Book an appointment"
@@ -709,7 +729,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
               <p className="truncate text-[10px] font-black uppercase tracking-[0.18em] text-muted-foreground">
                 {service?.name || 'Booking'}
               </p>
-              <h2 style={{ fontFamily: headingFont }} className="truncate text-lg font-black uppercase tracking-tighter leading-tight">
+              <h2 style={{ fontFamily: headingFont }} className="truncate text-base font-black uppercase tracking-tighter leading-tight">
                 {STEP_TITLES[currentStep] || 'Book'}
               </h2>
             </div>
@@ -758,7 +778,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
          * exactly what kept breaking this panel. Native overflow needs no
          * measurement and gets momentum scrolling on iOS for free. */}
         <div className="absolute inset-0 overflow-y-auto overscroll-contain text-left" style={{ paddingTop: 'var(--sheet-header-h, 7.5rem)', paddingBottom: 'var(--sheet-footer-h, 6.5rem)', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
-          <div className="p-5 pt-3 space-y-8 text-left">
+          <div className="px-4 pt-2 pb-2 space-y-5 text-left">
             <AnimatePresence mode="wait">
 
               {/* Confirmation */}
@@ -943,10 +963,23 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                               <Button
                                 key={time}
                                 variant={selectedTime === time ? 'default' : 'outline'}
-                                onClick={() => setSelectedTime(time)}
+                                /* Choosing a time IS the decision — the extra
+                                 * Continue tap afterwards added nothing, and
+                                 * on a small screen where the button sits far
+                                 * from the slot you just tapped it reads as
+                                 * "nothing happened". The brief pause lets the
+                                 * selected state register before the step
+                                 * changes, so the tap still feels acknowledged
+                                 * rather than teleporting you. */
+                                onClick={() => {
+                                  setSelectedTime(time);
+                                  window.setTimeout(() => {
+                                    setCurrentStepIndex((i) => Math.min(i + 1, steps.length - 1));
+                                  }, 180);
+                                }}
                                 style={{ borderRadius: r }}
                                 className={cn(
-                                  'h-11 font-black uppercase text-[10px] tracking-widest border-2 transition-all relative overflow-hidden',
+                                  'h-12 font-black uppercase text-[10px] tracking-widest border-2 transition-all relative overflow-hidden active:scale-95',
                                   selectedTime === time ? 'shadow-lg shadow-primary/20' : 'bg-background',
                                   isHotSlot && 'border-amber-500/50 bg-amber-500/5 text-amber-700'
                                 )}
@@ -1164,7 +1197,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         {currentStep !== 'confirmation' && currentStep !== 'checkout' && (
           <div
             ref={footerRef}
-            className="absolute bottom-0 left-0 right-0 z-10 p-4 border-t bg-background/95 backdrop-blur-xl shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.25)]"
+            className="absolute bottom-0 left-0 right-0 z-10 px-4 pt-3 border-t bg-background/95 backdrop-blur-xl shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.25)]"
             /* Safe-area padding: without it the primary button sits under the
                iPhone home indicator and reads as unresponsive. */
             style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
@@ -1177,13 +1210,13 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
               onClick={handleNextStep}
               disabled={currentStep === 'details' && (!!existingClientWithBalance || !!bannedClient || isResolvingIdentity)}
               style={{ borderRadius: r3, fontFamily: headingFont }}
-              className="group h-14 w-full font-black uppercase tracking-widest text-[12px] shadow-xl shadow-primary/25 transition-all active:scale-[0.99]"
+              className="group h-[52px] w-full font-black uppercase tracking-widest text-[11px] shadow-lg shadow-primary/20 transition-all active:scale-[0.99]"
             >
               {/* The button names what happens next, and keeps that name all
                   the way through the flow. */}
               {currentStep === 'summary' ? 'Confirm booking'
                 : currentStep === 'staff' ? 'Choose a time'
-                  : currentStep === 'dateTime' ? 'Add your details'
+                  : currentStep === 'dateTime' ? (selectedTime ? 'Add your details' : 'Pick a time above')
                     : currentStep === 'consents' ? 'Agree and continue'
                       : 'Continue'}
               <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
@@ -1194,7 +1227,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         {currentStep === 'checkout' && (
           <div
             ref={footerRef}
-            className="absolute bottom-0 left-0 right-0 z-10 p-4 border-t bg-background/95 backdrop-blur-xl shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.25)]"
+            className="absolute bottom-0 left-0 right-0 z-10 px-4 pt-3 border-t bg-background/95 backdrop-blur-xl shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.25)]"
             /* Safe-area padding: without it the primary button sits under the
                iPhone home indicator and reads as unresponsive. */
             style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
@@ -1210,7 +1243,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
     )
   );
 };
