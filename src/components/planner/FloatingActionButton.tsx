@@ -72,7 +72,15 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
         )}
       </AnimatePresence>
 
-      <div className="fixed bottom-8 right-8 z-50 flex flex-col items-end gap-4">
+      {/* bottom-8 was measured from the true bottom of the viewport, which on
+          a phone sits behind Safari's toolbar and the home indicator — the
+          button was there, just underneath them. Safe-area padding lifts it
+          clear, and z-[60] keeps it above sheets and sticky bars that also
+          claim z-50. */}
+      <div
+        className="fixed right-5 z-[60] flex flex-col items-end gap-4"
+        style={{ bottom: 'calc(1.5rem + env(safe-area-inset-bottom))' }}
+      >
         <AnimatePresence>
           {isOpen && (
             <motion.div
