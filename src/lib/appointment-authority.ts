@@ -183,7 +183,44 @@ export type AuthorityPolicy = {
   reasonLabels?: Record<string, string>;
   /** Built-in or custom codes this trade has no use for. */
   hiddenReasonCodes?: string[];
+  /** How long a provider has to answer a booking put in front of them. */
+  providerResponseHours?: number;
 };
+
+/**
+ * THE PROVIDER'S CLOCK IS NOT THE CLIENT'S CLOCK.
+ *
+ * requestExpiresAt is a promise to the CLIENT: you will hear back within so
+ * many hours or the time is released. This is a promise to the SHOP: this
+ * booking will not sit unanswered on someone's screen all day. They run at
+ * different lengths for different reasons, so this is derived from when the
+ * request arrived rather than stored — one setting changes every open request
+ * at once, and no document has to be rewritten.
+ *
+ * Zero or unset means no deadline, which is exactly today's behaviour.
+ */
+export function providerRespondBy(apt: any, policy?: AuthorityPolicy | null): Date | null {
+  const hours = Number(policy?.providerResponseHours ?? 0);
+  if (!Number.isFinite(hours) || hours <= 0) return null;
+  const from = String(apt?.requestedAt || apt?.createdAt || '');
+  const ms = from ? Date.parse(from) : NaN;
+  if (!Number.isFinite(ms)) return null;
+  const due = new Date(ms + hours * 3600000);
+  /* Never ask someone to answer after the appointment has already started. */
+  const startMs = apt?.startTime ? Date.parse(String(apt.startTime)) : NaN;
+  if (Number.isFinite(startMs) && startMs < due.getTime()) return new Date(startMs);
+  return due;
+}
+
+export type ResponseClock = { due: Date; overdue: boolean; minutesLeft: number } | null;
+
+export function responseClock(apt: any, policy?: AuthorityPolicy | null, now?: Date): ResponseClock {
+  const due = providerRespondBy(apt, policy);
+  if (!due) return null;
+  const ref = (now || new Date()).getTime();
+  const minutesLeft = Math.round((due.getTime() - ref) / 60000);
+  return { due, overdue: minutesLeft < 0, minutesLeft };
+}
 
 export type AuthorityInput = {
   isManager?: boolean;
