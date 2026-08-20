@@ -60,11 +60,29 @@ export async function notifyStaff(
     ).catch(() => undefined)));
 }
 
-/** Everyone who should hear about something needing a manager. */
-export function managerIds(staff: any[], exceptUid?: string | null): string[] {
-  return (staff || [])
+/**
+ * Everyone who should hear about something needing a manager.
+ *
+ * THE OWNER MIGHT NOT BE IN THE STAFF LIST. verifyStaffActor explicitly
+ * handles a tenant owner with no staff document, which is proof that case is
+ * real — and for that shop this used to return an empty array, so an issue was
+ * raised into the void and nobody was ever told. A solo owner is exactly the
+ * person who cannot afford to miss it.
+ */
+export function managerIds(
+  staff: any[],
+  exceptUid?: string | null,
+  ownerUid?: string | null,
+): string[] {
+  const found = (staff || [])
     .filter((s: any) => s && s.id && s.active !== false)
     .filter((s: any) => ['owner', 'admin', 'manager'].includes(String(s.role || '')))
-    .map((s: any) => String(s.id))
-    .filter((id: string) => id !== String(exceptUid || ''));
+    .map((s: any) => String(s.id));
+
+  const owner = String(ownerUid || '');
+  if (owner && !found.includes(owner)) found.push(owner);
+
+  const except = String(exceptUid || '');
+  const out = found.filter(id => id && id !== except);
+  return Array.from(new Set(out));
 }
