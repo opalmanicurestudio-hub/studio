@@ -6,16 +6,32 @@ import Stripe from 'stripe';
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
   const { getFirestore } = require('firebase-admin/firestore');
-  if (!getApps().length) {
-    initializeApp({
+  /* NAMED app, and the firestore instance is taken FROM it.
+   *
+   * This was `if (!getApps().length) initializeApp(...)` followed by a bare
+   * `getFirestore()`. Both halves are wrong together: the guard asks "does
+   * ANY app exist", but other routes in this codebase create their own NAMED
+   * apps — so as soon as one of those had run in the same warm serverless
+   * instance, this route decided initialisation was already done and then
+   * asked for the DEFAULT app, which nobody had created. The result was a
+   * checkout that failed with "The default Firebase app does not exist",
+   * intermittently, depending purely on which route ran first.
+   *
+   * Naming the app and passing it to getFirestore removes the shared global
+   * entirely — this route's initialisation no longer depends on what any
+   * other route did. */
+  const APP_NAME = 'admin-connect-callback';
+  let app = getApps().find((a: any) => a.name === APP_NAME);
+  if (!app) {
+    app = initializeApp({
       credential: cert({
         projectId:   process.env.FIREBASE_ADMIN_PROJECT_ID,
         clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
         privateKey:  process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n'),
       }),
-    });
+    }, APP_NAME);
   }
-  return getFirestore();
+  return getFirestore(app);
 }
 
 function getStripe() {
