@@ -77,9 +77,14 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
           button was there, just underneath them. Safe-area padding lifts it
           clear, and z-[60] keeps it above sheets and sticky bars that also
           claim z-50. */}
+      {/* Raised well clear of the mobile bottom bar. `bottom-8` measured from
+          the true viewport bottom, which on a phone is behind Safari's toolbar
+          AND behind the app's own bottom navigation — so the button existed
+          but nothing could reach it. 6rem clears both; z-[60] keeps it above
+          sticky bars and sheets that also claim z-50. */}
       <div
         className="fixed right-5 z-[60] flex flex-col items-end gap-4"
-        style={{ bottom: 'calc(1.5rem + env(safe-area-inset-bottom))' }}
+        style={{ bottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
       >
         <AnimatePresence>
           {isOpen && (
