@@ -21,6 +21,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase } from '@/firebase';
+import { getAuth } from 'firebase/auth';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 
@@ -94,9 +95,17 @@ export default function BookingRequestsPage() {
     if (busy) return;
     setBusy(`${r.id}-${decision}`);
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      try {
+        const user = getAuth().currentUser;
+        const token = user ? await user.getIdToken() : null;
+        if (token) headers.Authorization = `Bearer ${token}`;
+      } catch {
+        /* the route will answer 401 and the toast below says so */
+      }
       const res = await fetch('/api/appointments/decide', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, appointmentId: r.id, decision, staffName, reason: reason || '', declineOutcome: declineOutcome || 'alternative' }),
+        method: 'POST', headers,
+        body: JSON.stringify({ tenantId, appointmentId: r.id, decision, reason: reason || '', declineOutcome: declineOutcome || 'alternative' }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -195,7 +204,6 @@ export default function BookingRequestsPage() {
                 )}
                 {r.inspirationPhotoUrl && (
                   <a href={r.inspirationPhotoUrl} target="_blank" rel="noreferrer" className="block">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={r.inspirationPhotoUrl} alt="Inspiration from the client"
                       className="h-28 w-28 rounded-xl border-2 object-cover" />
                   </a>
@@ -207,10 +215,6 @@ export default function BookingRequestsPage() {
                       onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDeclineReason(e.target.value)}
                       placeholder="Optional — what should they know? (Sent to them.)"
                       className="rounded-xl border-2 text-sm font-bold" />
-                    {/* WHICH KIND of no is this? Inviting someone to pick
-                        another time when you are declining them as a client
-                        reads as a brush-off and invites a booking you will
-                        decline again. */}
                     <div className="space-y-1.5">
                       <Button variant="destructive" disabled={busy === `${r.id}-decline`}
                         onClick={() => void decide(r, 'decline', declineReason, 'alternative')}
