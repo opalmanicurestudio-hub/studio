@@ -779,7 +779,19 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
          * measurement and gets momentum scrolling on iOS for free. */}
         <div className="absolute inset-0 overflow-y-auto overscroll-contain text-left" style={{ paddingTop: 'var(--sheet-header-h, 7.5rem)', paddingBottom: 'var(--sheet-footer-h, 6.5rem)', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
           <div className="px-4 pt-2 pb-2 space-y-5 text-left">
-            <AnimatePresence mode="wait">
+            {/* ── NO EXIT ANIMATION BETWEEN STEPS ────────────────────────
+             * This was <AnimatePresence mode="wait">. That mode holds the
+             * NEW step off the screen until the OLD one has finished exiting,
+             * so any interruption — a step changed programmatically, a
+             * re-render mid-exit, a device that throttles animation — leaves
+             * the body showing nothing at all while the header and footer
+             * carry on as normal. A blank panel with a working button is
+             * exactly that failure.
+             *
+             * The fade was worth very little and could cost the whole screen.
+             * Steps now swap instantly; each still fades IN on mount, which
+             * needs no coordination and cannot strand the view. */}
+            <React.Fragment>
 
               {/* Confirmation */}
               {currentStep === 'confirmation' ? (
@@ -843,7 +855,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                 </motion.div>
 
               ) : (
-                <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -16 }} key={currentStep} className="space-y-8">
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} key={currentStep} className="space-y-8">
 
                   {/* Active service card — compact, shown on every step except checkout (room is tight there) */}
                   {currentStep !== 'checkout' && (
@@ -1189,7 +1201,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
                 </motion.div>
               )}
-            </AnimatePresence>
+            </React.Fragment>
           </div>
         </div>
 
