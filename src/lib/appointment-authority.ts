@@ -189,8 +189,27 @@ export type AuthorityInput = {
   isManager?: boolean;
   employmentModel?: EmploymentModel | null;
   decisionAuthority?: DecisionAuthority | null;
+  /** The staff document's role. 'renter' predates employmentModel — see below. */
+  role?: string | null;
   policy?: AuthorityPolicy | null;
 };
+
+/**
+ * The staff portal has been reading `staffMember.role === 'renter'` since long
+ * before employmentModel existed, and that value is live in real staff
+ * documents today. Two fields meaning the same thing is how a person ends up
+ * a renter on one screen and an employee on another, so employmentModel wins
+ * where it is set and role fills the gap where it is not. Nothing has to be
+ * migrated for the two to agree.
+ */
+export function effectiveEmploymentModel(input: {
+  employmentModel?: EmploymentModel | null;
+  role?: string | null;
+}): EmploymentModel | null {
+  if (input.employmentModel) return input.employmentModel;
+  if (String(input.role || '') === 'renter') return 'renter';
+  return null;
+}
 
 /**
  * The resolution order from the spec, top wins:
@@ -202,7 +221,7 @@ export type AuthorityInput = {
 export function resolveAuthority(input: AuthorityInput): DecisionAuthority {
   if (input.isManager) return 'full';
 
-  const model = input.employmentModel || null;
+  const model = effectiveEmploymentModel(input);
   const base: DecisionAuthority = input.decisionAuthority
     || (model ? DEFAULT_AUTHORITY[model] : 'full');
 
