@@ -84,6 +84,8 @@ export const DayTimeline = ({
     onViewDetails,
     onApproveRequest,
     onDeclineRequest,
+    focusId,
+    onFocusSettled,
     walkIns,
     clients,
     services,
@@ -363,7 +365,16 @@ export const DayTimeline = ({
         const group = visitIndex.get(item.id);
 
         return (
-            <div key={`${item.id}-${item.isSecondary ? 'sec' : 'pri'}`} className={cn("absolute pr-1 z-10 overflow-hidden", item.isSecondary && "opacity-80")} style={style}>
+            <div
+                key={`${item.id}-${item.isSecondary ? 'sec' : 'pri'}`}
+                data-apt-id={item.id}
+                className={cn(
+                    "absolute pr-1 z-10 overflow-hidden rounded-xl",
+                    item.isSecondary && "opacity-80",
+                    focusId === item.id && "ring-4 ring-primary/60 z-20",
+                )}
+                style={style}
+            >
                 {group && height > 44 && (
                     <div
                         title={group.label}
@@ -466,6 +477,16 @@ export const DayTimeline = ({
             </div>
         );
     };
+
+    useEffect(() => {
+        if (!focusId || !scrollContainerRef.current) return;
+        const el = scrollContainerRef.current.querySelector(`[data-apt-id="${focusId}"]`) as HTMLElement | null;
+        if (!el) return;
+        const top = el.offsetTop - (scrollContainerRef.current.clientHeight / 3);
+        scrollContainerRef.current.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+        const timer = setTimeout(() => { if (typeof onFocusSettled === 'function') onFocusSettled(); }, 2200);
+        return () => clearTimeout(timer);
+    }, [focusId, date, columns, onFocusSettled]);
 
     useEffect(() => {
         if (isToday(date) && scrollContainerRef.current) {
