@@ -33,7 +33,19 @@ async function getAdminStorage() {
         const { initializeApp, getApps, cert } = await import('firebase-admin/app');
         const { getStorage } = await import('firebase-admin/storage');
 
-        if (!getApps().length) {
+        /* Look for OUR app by name and create it if absent — never fall back
+         * to "whatever app happens to exist".
+         *
+         * The old `else` branch did exactly that: `getApps()[0]`. Other routes
+         * in this codebase create their own named apps for Firestore, and
+         * none of them configure a storageBucket. So in a warm serverless
+         * instance where one of those ran first, this route would silently
+         * hand back an app with no bucket, and every upload failed — which
+         * from the customer's side looks like a photo that simply will not
+         * attach. Matching on the name makes the outcome independent of
+         * whatever else has run. */
+        adminApp = getApps().find((a: any) => a.name === 'admin') || null;
+        if (!adminApp) {
             adminApp = initializeApp({
                 credential: cert({
                     projectId:   process.env.FIREBASE_ADMIN_PROJECT_ID,
@@ -42,9 +54,6 @@ async function getAdminStorage() {
                 }),
                 storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
             }, 'admin');
-        } else {
-            // Find existing admin app or use first app
-            adminApp = getApps().find(a => a.name === 'admin') || getApps()[0];
         }
 
         adminStorage = getStorage(adminApp);
