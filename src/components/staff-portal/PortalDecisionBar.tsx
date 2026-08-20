@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { approveBooking, denyBooking, raiseIssue, isAwaitingApproval } from '@/lib/booking-approval';
 import {
-  resolveAuthority, resolveReasonList,
+  resolveAuthority, resolveReasonList, responseClock,
   type AuthorityPolicy,
 } from '@/lib/appointment-authority';
 
@@ -26,6 +26,7 @@ export function PortalDecisionBar({
   tenant,
   tenantId,
   firestore,
+  allStaff,
   onDone,
 }: {
   appointment: any;
@@ -33,6 +34,7 @@ export function PortalDecisionBar({
   tenant: any;
   tenantId: string;
   firestore: any;
+  allStaff?: any[];
   onDone?: () => void;
 }) {
   const { toast } = useToast();
@@ -51,6 +53,7 @@ export function PortalDecisionBar({
 
   const reasons = useMemo(() => resolveReasonList(policy), [policy]);
   const awaiting = isAwaitingApproval(appointment);
+  const clock = useMemo(() => responseClock(appointment, policy), [appointment, policy]);
   const openIssue = appointment?.issue?.status === 'open' ? appointment.issue : null;
 
   const actor = {
@@ -105,7 +108,7 @@ export function PortalDecisionBar({
               type="button"
               disabled={busy}
               onClick={() => void run(
-                () => raiseIssue(firestore, tenantId, appointment, r.code, null, actor, policy),
+                () => raiseIssue(firestore, tenantId, appointment, r.code, null, actor, policy, allStaff || []),
                 'Sent to a manager',
               )}
               className="w-full rounded-lg border-2 border-border bg-white px-2.5 py-2 text-left text-[11px] font-bold leading-snug text-foreground active:scale-[0.99] disabled:opacity-50"
@@ -126,7 +129,20 @@ export function PortalDecisionBar({
   }
 
   return (
-    <div className="mt-2 flex items-center gap-1.5">
+    <div className="mt-2 space-y-1.5">
+      {clock && (
+        <p className={cn(
+          'text-[11px] font-black uppercase tracking-widest',
+          clock.overdue ? 'text-destructive' : 'text-muted-foreground',
+        )}>
+          {clock.overdue
+            ? 'Overdue — a manager can see this'
+            : clock.minutesLeft < 60
+              ? `Respond within ${Math.max(1, clock.minutesLeft)} min`
+              : `Respond by ${clock.due.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}
+        </p>
+      )}
+      <div className="flex items-center gap-1.5">
       <button
         type="button"
         disabled={busy}
@@ -184,6 +200,7 @@ export function PortalDecisionBar({
           Report issue
         </button>
       )}
+      </div>
     </div>
   );
 }
