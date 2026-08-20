@@ -67,7 +67,7 @@ export type Staff = {
   name: string;
   email: string;
   phone?: string;
-  role: 'admin' | 'staff' | 'owner';
+  role: 'admin' | 'manager' | 'staff' | 'owner';
   pricingTierId?: string;
   avatarUrl: string;
   payStructure: 'commission' | 'hourly' | 'salary' | 'hourly_plus_commission';
