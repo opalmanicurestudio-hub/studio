@@ -39,6 +39,7 @@ import { nanoid } from 'nanoid';
 import { type Transaction, type BillDefinition } from '@/lib/financial-data';
 import { DebugErrorBoundary } from '@/components/shared/DebugErrorBoundary';
 import { approveBooking, denyBooking, isAwaitingApproval, isDeadAppointment } from '@/lib/booking-approval';
+import { AlertCircle, XCircle } from 'lucide-react';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -96,6 +97,8 @@ function PlannerPageContent() {
   } = useInventory();
 
   const [showCancelled, setShowCancelled] = useState(false);
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const [awaitingCursor, setAwaitingCursor] = useState(0);
   const [tmhr, setTmhr] = useState(0);
   useEffect(() => { setTmhr(selectedTenant?.tmhr || 50); }, [selectedTenant]);
 
@@ -840,28 +843,57 @@ function PlannerPageContent() {
     [appointments, currentDate],
   );
 
-  const awaitingToday = useMemo(
-    () => (appointments || []).filter(a =>
-      isSameDay(safeDate(a.startTime), startOfDay(currentDate)) && isAwaitingApproval(a)).length,
-    [appointments, currentDate],
-  );
+  const awaitingUpcoming = useMemo(() => {
+    const floor = startOfDay(new Date()).getTime();
+    return (appointments || [])
+      .filter(a => isAwaitingApproval(a) && safeDate(a.startTime).getTime() >= floor)
+      .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime());
+  }, [appointments]);
+
+  const jumpToNextAwaiting = useCallback(() => {
+    if (awaitingUpcoming.length === 0) return;
+    const idx = awaitingCursor % awaitingUpcoming.length;
+    const target = awaitingUpcoming[idx];
+    setAwaitingCursor(idx + 1);
+    const when = safeDate(target.startTime);
+    if (!isSameDay(when, currentDate)) setCurrentDate(when);
+    if (activeView === 'staff' && target.staffId) setMobileSelectedColumnId(target.staffId);
+    setFocusId(target.id);
+  }, [awaitingUpcoming, awaitingCursor, currentDate, activeView]);
+
+  const revealCancelled = useCallback(() => {
+    const next = !showCancelled;
+    setShowCancelled(next);
+    if (!next) { setFocusId(null); return; }
+    const first = (appointments || [])
+      .filter(a => isSameDay(safeDate(a.startTime), startOfDay(currentDate)) && isDeadAppointment(a))
+      .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime())[0];
+    if (first) setFocusId(first.id);
+  }, [showCancelled, appointments, currentDate]);
 
   const decidingStaffName = useMemo(() => {
     const me = (allStaff || []).find((s: any) => s.id === currentUser?.uid || s.userId === currentUser?.uid);
     return me?.name || selectedTenant?.name || 'The studio';
   }, [allStaff, currentUser, selectedTenant]);
 
+  const reportDecision = useCallback((res: any, okTitle: string) => {
+    if (res.ok) { toast({ title: okTitle, description: res.message }); return; }
+    if (res.alreadyStatus) {
+      toast({ title: 'Already answered', description: `Nothing changed — this one is ${String(res.alreadyStatus).replace(/_/g, ' ')}.` });
+      return;
+    }
+    toast({ variant: 'destructive', title: res.reason });
+  }, [toast]);
+
   const handleApproveRequest = useCallback(async (apt: any) => {
     const res = await approveBooking(firestore, tenantId, apt, currentUser?.uid, selectedTenant?.name, decidingStaffName);
-    if (res.ok) toast({ title: 'Request accepted', description: res.message });
-    else toast({ variant: 'destructive', title: res.reason });
-  }, [firestore, tenantId, currentUser, selectedTenant, decidingStaffName, toast]);
+    reportDecision(res, 'Request accepted');
+  }, [firestore, tenantId, currentUser, selectedTenant, decidingStaffName, reportDecision]);
 
   const handleDeclineRequest = useCallback(async (apt: any) => {
     const res = await denyBooking(firestore, tenantId, apt, currentUser?.uid, decidingStaffName, 'alternative');
-    if (res.ok) toast({ title: 'Request declined', description: res.message });
-    else toast({ variant: 'destructive', title: res.reason });
-  }, [firestore, tenantId, currentUser, decidingStaffName, toast]);
+    reportDecision(res, 'Request declined');
+  }, [firestore, tenantId, currentUser, decidingStaffName, reportDecision]);
 
   const billInstancesWithDefinitions = useMemo(() => {
     if (!billInstances || !billDefinitions) return [];
@@ -945,6 +977,34 @@ function PlannerPageContent() {
             </div>
           )}
 
+          {(awaitingUpcoming.length > 0 || cancelledToday > 0) && (
+            <div className="flex w-full items-center gap-2 overflow-x-auto scrollbar-hide">
+              {awaitingUpcoming.length > 0 && (
+                <button
+                  type="button"
+                  onClick={jumpToNextAwaiting}
+                  aria-label={`Go to the next of ${awaitingUpcoming.length} bookings awaiting your answer`}
+                  className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border-2 border-violet-300 bg-violet-50 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-violet-800 active:scale-95"
+                >
+                  <AlertCircle className="h-3 w-3 shrink-0" aria-hidden="true" />
+                  {awaitingUpcoming.length} awaiting you
+                </button>
+              )}
+              {cancelledToday > 0 && (
+                <button
+                  type="button"
+                  onClick={revealCancelled}
+                  aria-pressed={showCancelled}
+                  aria-label={`${showCancelled ? 'Hide' : 'Show'} ${cancelledToday} cancelled bookings on this day`}
+                  className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border-2 border-muted bg-muted/40 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground active:scale-95"
+                >
+                  <XCircle className="h-3 w-3 shrink-0" aria-hidden="true" />
+                  {cancelledToday} cancelled · {showCancelled ? 'hide' : 'show'}
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center gap-1 sm:gap-2">
             <Button variant="ghost" size="icon" title="Previous day" aria-label="Previous day" className="h-9 w-9 sm:h-10 sm:w-10 rounded-xl shrink-0 hover:bg-muted" onClick={() => setCurrentDate(subDays(currentDate, 1))}><ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5"/></Button>
             <ScrollArea className="flex-1 min-w-0">
@@ -986,23 +1046,6 @@ function PlannerPageContent() {
             <div className="min-w-0">
               <p className="text-[10px] font-black uppercase tracking-widest text-primary leading-none mb-0.5">{format(currentDate, 'MMMM yyyy')}</p>
               <p className="text-sm sm:text-base font-black text-slate-900 leading-none truncate">{format(currentDate, 'EEEE, do')}</p>
-              {(awaitingToday > 0 || cancelledToday > 0) && (
-                <div className="flex items-center gap-2 mt-1">
-                  {awaitingToday > 0 && (
-                    <span className="text-[10px] font-black uppercase tracking-widest text-violet-700">{awaitingToday} awaiting you</span>
-                  )}
-                  {cancelledToday > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setShowCancelled(v => !v)}
-                      aria-pressed={showCancelled}
-                      className="text-[10px] font-black uppercase tracking-widest text-muted-foreground underline underline-offset-2"
-                    >
-                      {cancelledToday} cancelled · {showCancelled ? 'hide' : 'show'}
-                    </button>
-                  )}
-                </div>
-              )}
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-9 sm:h-10 px-3 sm:px-4 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 shadow-sm shrink-0">Today</Button>
@@ -1070,6 +1113,7 @@ function PlannerPageContent() {
           onDeleteAppointmentFromDB={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))}
           onViewDetails={a => { setSelectedAppointment(a); setIsDetailsOpen(true); }}
           onApproveRequest={handleApproveRequest} onDeclineRequest={handleDeclineRequest}
+          focusId={focusId} onFocusSettled={() => setFocusId(null)}
           walkIns={walkIns} clients={clients} services={services} resources={resourcesData || []}
         />
       </main>
