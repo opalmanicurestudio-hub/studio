@@ -362,6 +362,139 @@ export async function raiseIssue(
   };
 }
 
+export type IssueOutcome = 'reassigned' | 'declined' | 'kept' | 'other';
+
+/**
+ * A manager closes an issue. Four ways out, in the order that protects the
+ * client relationship best:
+ *
+ *   reassigned — someone else takes it. The client keeps their time and never
+ *                needs to hear about any of this.
+ *   kept       — the provider keeps it after all. The issue is recorded as
+ *                dismissed rather than deleted, because "raised and overruled"
+ *                is a different fact from "never raised."
+ *   declined   — no coverage exists. This is the only path that costs the
+ *                client their appointment, which is why it is last and why it
+ *                writes a real cancellation rather than just closing a flag.
+ *   other      — handled off-platform. Still recorded, still measurable.
+ */
+export async function resolveIssue(
+  firestore: Firestore | null | undefined,
+  tenantId: string | null | undefined,
+  apt: ApprovableAppointment,
+  outcome: IssueOutcome,
+  actor: { uid?: string | null; name?: string | null; role?: string | null; isManager?: boolean },
+  opts?: { newStaffId?: string | null; newStaffName?: string | null; note?: string | null },
+): Promise<ApprovalResult> {
+  if (!firestore || !tenantId || !apt?.id) return { ok: false, reason: 'Missing studio or booking' };
+  /* The client SDK cannot enforce this on its own — appointment writes are
+   * open to any staff member in the rules — so this is a guard, not a wall.
+   * The rules should follow once issue resolution has settled. */
+  if (!actor.isManager) return { ok: false, reason: 'Only a manager can close an issue.' };
+  if (!apt.issue || apt.issue.status !== 'open') {
+    return { ok: false, reason: 'There is no open issue on this booking.', alreadyStatus: apt.issue?.status || 'none' };
+  }
+  if (outcome === 'reassigned' && !opts?.newStaffId) {
+    return { ok: false, reason: 'Pick who is taking it.' };
+  }
+
+  const nowIso = new Date().toISOString();
+  const closed = {
+    ...apt.issue,
+    status: outcome === 'kept' ? 'dismissed' : 'resolved',
+    resolvedByUid: actor.uid || null,
+    resolvedByName: actor.name || null,
+    resolvedAt: nowIso,
+    outcome,
+    resolutionNote: (opts?.note || '').trim().slice(0, 300) || null,
+  };
+
+  const patch: Record<string, any> = { issue: closed };
+  if (outcome === 'reassigned') {
+    patch.staffId = opts?.newStaffId;
+    patch.reassignedFromStaffId = apt.staffId || null;
+    patch.reassignedAt = nowIso;
+    patch.reassignedBy = actor.uid || null;
+  }
+  if (outcome === 'declined') {
+    patch.status = 'cancelled';
+    patch.cancelledAt = nowIso;
+    patch.cancellationReason = 'no_coverage_available';
+    patch.cancellationAudit = {
+      actorType: 'studio',
+      actorId: actor.uid || null,
+      reason: 'no_coverage_available',
+      timestamp: nowIso,
+    };
+  }
+
+  try {
+    const batch = writeBatch(firestore);
+    batch.set(doc(firestore, `tenants/${tenantId}/appointments`, apt.id), patch, { merge: true });
+    if (outcome === 'declined' && apt.checkInToken) {
+      batch.set(doc(firestore, 'appointmentCheckIns', apt.checkInToken), {
+        status: 'cancelled',
+        cancellationReason: 'no_coverage_available',
+        tenantId,
+      }, { merge: true });
+    }
+    await batch.commit();
+  } catch {
+    return { ok: false, reason: 'Could not save that — try again.' };
+  }
+
+  try {
+    await addDoc(collection(firestore, `tenants/${tenantId}/appointmentDecisions`), {
+      tenantId,
+      appointmentId: apt.id,
+      clientId: apt.clientId || null,
+      clientName: apt.clientName || null,
+      serviceId: apt.serviceId || null,
+      staffId: outcome === 'reassigned' ? opts?.newStaffId || null : apt.staffId || null,
+      previousStaffId: outcome === 'reassigned' ? apt.staffId || null : null,
+      startTime: apt.startTime || null,
+      source: apt.source || null,
+      channel: 'issue',
+      action: 'issue_resolved',
+      declineOutcome: null,
+      reasonCode: apt.issue.code || null,
+      reasonLabel: apt.issue.label || null,
+      reasonSource: null,
+      reason: closed.resolutionNote,
+      issueOutcome: outcome,
+      priorStatus: apt.status || null,
+      resultStatus: outcome === 'declined' ? 'cancelled' : apt.status || null,
+      depositCents: Number(apt.depositAmountCents || 0),
+      chargedOnFile: false,
+      decidedVia: 'manager',
+      actorUid: actor.uid || null,
+      actorName: actor.name || null,
+      actorRole: actor.role || null,
+      actorIsManager: true,
+      decidedAt: nowIso,
+      requestedAt: apt.issue.raisedAt || null,
+      responseSeconds: apt.issue.raisedAt
+        ? Math.max(0, Math.round((Date.parse(nowIso) - Date.parse(String(apt.issue.raisedAt))) / 1000))
+        : null,
+    });
+  } catch {
+    /* the issue is closed and visible; a missing ledger row is not worth failing over */
+  }
+
+  const who = opts?.newStaffName || 'another provider';
+  return {
+    ok: true,
+    nextStatus: outcome === 'declined' ? 'cancelled' : apt.status || null,
+    message: outcome === 'reassigned'
+      ? `Moved to ${who}. ${apt.clientName || 'The client'} keeps their time.`
+      : outcome === 'kept'
+        ? 'Kept as it stands — the provider has been told.'
+        : outcome === 'declined'
+          ? `No cover was available, so ${apt.clientName || 'the client'} has been cancelled. Give them a call.`
+          : 'Closed — handled outside the app.',
+  };
+}
+
 export async function approveBooking(
   firestore: Firestore | null | undefined,
   tenantId: string | null | undefined,
