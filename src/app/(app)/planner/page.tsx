@@ -38,7 +38,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { nanoid } from 'nanoid';
 import { type Transaction, type BillDefinition } from '@/lib/financial-data';
 import { DebugErrorBoundary } from '@/components/shared/DebugErrorBoundary';
-import { approveBooking, denyBooking, isAwaitingApproval } from '@/lib/booking-approval';
+import { approveBooking, denyBooking, isAwaitingApproval, isDeadAppointment } from '@/lib/booking-approval';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -299,10 +299,8 @@ function PlannerPageContent() {
     (columns || []).forEach(c => map.set(c.id, []));
     const targetDateStart = startOfDay(currentDate);
 
-    const isDead = (a: any) => a?.status === 'cancelled' || a?.checkInStatus === 'auto_cancelled';
-
     appointments?.filter(a => isSameDay(safeDate(a.startTime), targetDateStart))
-      .filter(a => showCancelled || !isDead(a))
+      .filter(a => showCancelled || !isDeadAppointment(a))
       .forEach(a => {
         if (activeView === 'staff') {
             const involvedIds = new Set<string>();
@@ -838,8 +836,7 @@ function PlannerPageContent() {
 
   const cancelledToday = useMemo(
     () => (appointments || []).filter(a =>
-      isSameDay(safeDate(a.startTime), startOfDay(currentDate))
-      && (a.status === 'cancelled' || a.checkInStatus === 'auto_cancelled')).length,
+      isSameDay(safeDate(a.startTime), startOfDay(currentDate)) && isDeadAppointment(a)).length,
     [appointments, currentDate],
   );
 
@@ -849,23 +846,22 @@ function PlannerPageContent() {
     [appointments, currentDate],
   );
 
+  const decidingStaffName = useMemo(() => {
+    const me = (allStaff || []).find((s: any) => s.id === currentUser?.uid || s.userId === currentUser?.uid);
+    return me?.name || selectedTenant?.name || 'The studio';
+  }, [allStaff, currentUser, selectedTenant]);
+
   const handleApproveRequest = useCallback(async (apt: any) => {
-    const res = await approveBooking(firestore, tenantId, apt, currentUser?.uid, selectedTenant?.name);
-    if (res.ok) {
-      toast({ title: 'Request accepted', description: res.sentLink ? 'Secure link sent to the client.' : `${apt.clientName || 'Client'} is confirmed.` });
-    } else {
-      toast({ variant: 'destructive', title: res.reason });
-    }
-  }, [firestore, tenantId, currentUser, selectedTenant, toast]);
+    const res = await approveBooking(firestore, tenantId, apt, currentUser?.uid, selectedTenant?.name, decidingStaffName);
+    if (res.ok) toast({ title: 'Request accepted', description: res.message });
+    else toast({ variant: 'destructive', title: res.reason });
+  }, [firestore, tenantId, currentUser, selectedTenant, decidingStaffName, toast]);
 
   const handleDeclineRequest = useCallback(async (apt: any) => {
-    const res = await denyBooking(firestore, tenantId, apt, currentUser?.uid);
-    if (res.ok) {
-      toast({ title: 'Request declined — slot released', description: `Give ${apt.clientName || 'the client'} a quick call so they are not left waiting.` });
-    } else {
-      toast({ variant: 'destructive', title: res.reason });
-    }
-  }, [firestore, tenantId, currentUser, toast]);
+    const res = await denyBooking(firestore, tenantId, apt, currentUser?.uid, decidingStaffName, 'alternative');
+    if (res.ok) toast({ title: 'Request declined', description: res.message });
+    else toast({ variant: 'destructive', title: res.reason });
+  }, [firestore, tenantId, currentUser, decidingStaffName, toast]);
 
   const billInstancesWithDefinitions = useMemo(() => {
     if (!billInstances || !billDefinitions) return [];
