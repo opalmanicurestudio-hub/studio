@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { cn } from '@/lib/utils';
 import {
   Dialog,
   DialogContent,
@@ -32,6 +34,7 @@ export const SelectServicesDialog: React.FC<SelectServicesDialogProps> = ({
   allServices,
   initialSelected,
 }) => {
+  const isMobile = useIsMobile();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -63,7 +66,12 @@ export const SelectServicesDialog: React.FC<SelectServicesDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md max-h-[85dvh] overflow-y-auto overscroll-contain">
+      <DialogContent className={cn(
+        'overflow-y-auto overscroll-contain',
+        isMobile
+          ? 'left-0 bottom-0 top-auto w-full max-w-none translate-x-0 translate-y-0 max-h-[85dvh] rounded-t-[1.75rem] rounded-b-none data-[state=open]:slide-in-from-bottom-full data-[state=closed]:slide-out-to-bottom-full'
+          : 'sm:max-w-md max-h-[85dvh]',
+      )}>
         <DialogHeader>
           <DialogTitle>Select Services</DialogTitle>
           <DialogDescription>Choose the services this staff member can perform.</DialogDescription>
