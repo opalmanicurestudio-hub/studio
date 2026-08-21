@@ -91,6 +91,7 @@ const editStaffSchema = z.object({
   pricingTierId: z.string().optional(),
   payStructure: z.enum(['commission', 'hourly', 'salary', 'hourly_plus_commission']),
   employmentModel: z.enum(['unset', 'employee', 'commission', 'contractor', 'renter']).optional(),
+  showProfitability: z.boolean().optional(),
   decisionAuthority: z.enum(['default', 'none', 'limited', 'request_approval', 'full']).optional(),
   payoutFrequency: z.enum(['weekly', 'bi-weekly']).optional(),
   commissionRate: z.coerce.number().min(0).max(100).optional(),
@@ -470,6 +471,33 @@ const EditStaffFormInternal = ({
             </div>
 
             <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Sees Money</Label>
+              <Controller name="showProfitability" control={control} render={({ field }) => (
+                <button
+                  type="button" role="switch" aria-checked={field.value === true}
+                  aria-label="Show ticket values, margin and the day's totals to this person"
+                  onClick={() => field.onChange(field.value !== true)}
+                  className={cn(
+                    'flex h-12 w-full items-center justify-between rounded-xl border-2 px-4 text-left transition-colors',
+                    field.value === true ? 'border-primary bg-primary/[0.05]' : 'border-muted bg-muted/5',
+                  )}
+                >
+                  <span className="text-[10px] font-black uppercase tracking-widest text-foreground">
+                    {field.value === true ? 'Ticket, margin and day totals' : 'No money on screen'}
+                  </span>
+                  <span className={cn(
+                    'h-5 w-9 shrink-0 rounded-full border-2 transition-colors',
+                    field.value === true ? 'border-primary bg-primary/30' : 'border-muted-foreground/30 bg-muted/40',
+                  )} />
+                </button>
+              )} />
+              <p className="ml-1 text-[10px] font-bold leading-relaxed text-muted-foreground">
+                Gates the price on every appointment card and the day&apos;s booked, net and chair figures. Off for
+                anyone whose job is not to decide — appointment acceptance should not become a bidding system.
+              </p>
+            </div>
+
+            <div className="space-y-2">
               <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Booking Authority</Label>
               <Controller name="decisionAuthority" control={control} render={({ field }) => (
                 <Select onValueChange={field.onChange} value={field.value || 'default'}>
@@ -641,6 +669,7 @@ export const EditStaffDialog: React.FC<any> = ({
         pricingTierId: staffMember.pricingTierId || '',
         payoutFrequency: staffMember.payoutFrequency || 'weekly',
         employmentModel: (staffMember as any).employmentModel || 'unset',
+        showProfitability: (staffMember as any).showProfitability === true,
         decisionAuthority: (staffMember as any).decisionAuthority || 'default',
         compliance: {
           ...staffMember.compliance,
@@ -690,6 +719,7 @@ export const EditStaffDialog: React.FC<any> = ({
         : undefined,
       employmentModel: data.employmentModel && data.employmentModel !== 'unset'
         ? data.employmentModel : undefined,
+      showProfitability: data.showProfitability === true,
       decisionAuthority: data.decisionAuthority && data.decisionAuthority !== 'default'
         ? data.decisionAuthority : undefined,
     } as Staff;
