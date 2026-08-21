@@ -201,6 +201,10 @@ export type OneTimePerk = {
 };
 
 export type Client = {
+  /* Providers this client should not be matched with. Manager-set, no reason
+   * stored — the booking engine only needs to know not to pair them, and the
+   * why belongs somewhere private rather than on a shared record. */
+  excludedStaffIds?: string[];
   id: string;
   name: string;
   email: string;
