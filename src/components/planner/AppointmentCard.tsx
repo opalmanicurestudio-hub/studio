@@ -80,6 +80,7 @@ export function AppointmentCard({
   appointment,
   client,
   service,
+  allServices,
   style,
   onUpdateStatus,
   onDelete,
@@ -151,6 +152,28 @@ export function AppointmentCard({
     );
     return classifyProfitability(result.marginPct);
   }, [showProfitability, appointment, service, staff, inventory, selectedTenant?.tmhr]);
+
+  /**
+   * THE NUMBER AN OWNER IS ACTUALLY LOOKING FOR.
+   *
+   * Round 6 stripped the ticket value off the card along with the badge
+   * rainbow, which was right for a provider — appointment acceptance should
+   * not become a bidding system — and wrong for whoever is reading the day to
+   * see how it is going. The rule is not "hide money", it is "money follows
+   * authority": the same useProfitabilityVisibility flag that already gates
+   * the margin now also gates the ticket. Someone who cannot decline does not
+   * need the number to make a decision; someone running the shop does.
+   */
+  const ticket = useMemo(() => {
+    if (!showProfitability) return null;
+    if (isDeadAppointment(appointment)) return null;
+    const base = Number(service?.price || 0);
+    const addOns = (appointment.addOnIds || [])
+      .map((id: string) => (allServices || []).find((s: any) => s.id === id))
+      .reduce((sum: number, s: any) => sum + Number(s?.price || 0), 0);
+    const total = base + addOns;
+    return total > 0 ? total : null;
+  }, [showProfitability, appointment, service, allServices]);
 
   const profitStyles: Record<ProfitabilityTier, { edgeClass: string; badgeClass: string; Icon: any; label: string }> = {
     healthy: { edgeClass: '', badgeClass: '', Icon: TrendingUp, label: 'Healthy' },
@@ -371,7 +394,17 @@ export function AppointmentCard({
                       </span>
                     )}
                 </div>
-                <p className="font-black uppercase tracking-tight text-[10px] sm:text-[11px] text-foreground truncate leading-none mb-0.5 sm:mb-1">{client.name}</p>
+                <div className="flex items-baseline gap-1.5 mb-0.5 sm:mb-1">
+                  <p className="font-black uppercase tracking-tight text-[10px] sm:text-[11px] text-foreground truncate leading-none flex-1 min-w-0">{client.name}</p>
+                  {ticket !== null && tier !== 'compact' && (
+                    <span className={cn(
+                      'shrink-0 tabular-nums font-black tracking-tight leading-none text-[10px] sm:text-[11px]',
+                      profitTier === 'negative' ? 'text-destructive' : 'text-foreground/70',
+                    )}>
+                      ${ticket.toFixed(0)}
+                    </span>
+                  )}
+                </div>
                 {tier !== 'compact' && (
                   <p className="text-[8px] sm:text-[9px] font-bold text-muted-foreground uppercase tracking-widest truncate opacity-60">{service?.name || appointment.serviceName || 'Service'}</p>
                 )}
