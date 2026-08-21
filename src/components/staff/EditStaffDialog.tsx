@@ -735,7 +735,8 @@ export const EditStaffDialog: React.FC<any> = ({
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent
           side="bottom"
-          className="p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden h-[92dvh] rounded-t-[1.75rem]"
+          className="p-0 border-none flex flex-col shadow-3xl overflow-hidden inset-x-0 bottom-0 top-auto h-[92dvh] rounded-t-[1.75rem]"
+         style={{ backdropFilter: 'none', WebkitBackdropFilter: 'none', backgroundColor: 'hsl(var(--background))' }}
         >
           <FormProvider {...methods}>
             <form
