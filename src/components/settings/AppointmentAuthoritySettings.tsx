@@ -16,6 +16,12 @@ import {
   type DecisionAuthority,
 } from '@/lib/appointment-authority';
 
+const OVERDUE_ACTIONS: Array<{ id: 'escalate' | 'auto_accept' | 'raise_issue'; label: string; blurb: string }> = [
+  { id: 'escalate', label: 'Tell a manager', blurb: 'Somebody picks up the phone. The booking is untouched.' },
+  { id: 'raise_issue', label: 'Put it in the issue queue', blurb: 'Handled the same way every other exception is.' },
+  { id: 'auto_accept', label: 'Accept it for them', blurb: 'Only for people who could have declined it — everyone else falls back to telling a manager.' },
+];
+
 const CEILINGS: Array<{ id: DecisionAuthority | 'unset'; label: string; blurb: string }> = [
   { id: 'unset', label: 'No ceiling', blurb: 'Everyone stays on whatever their working relationship gives them.' },
   { id: 'none', label: 'Assigned only', blurb: 'Eligible bookings simply appear. Employees report issues rather than decline.' },
@@ -105,6 +111,57 @@ export function AppointmentAuthoritySettings({
               />
               <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">hours</span>
             </div>
+          </div>
+
+          <div className="space-y-2 rounded-2xl border-2 border-dashed px-4 py-3">
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+              When nobody answers in time
+            </p>
+            <div className="grid gap-1.5">
+              {OVERDUE_ACTIONS.map(a => {
+                const active = (p.overdueAction || 'escalate') === a.id;
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    disabled={!canEdit || !!busy}
+                    aria-pressed={active}
+                    onClick={() => write({ overdueAction: a.id }, `overdue-${a.id}`, 'Overdue handling')}
+                    className={cn(
+                      'rounded-xl border-2 px-3 py-2 text-left transition-colors disabled:opacity-40',
+                      active ? 'border-primary bg-primary/[0.05]' : 'border-border bg-white hover:bg-muted/30',
+                    )}
+                  >
+                    <span className="block text-[12px] font-black tracking-tight text-foreground">{a.label}</span>
+                    <span className="mt-0.5 block text-[11px] font-bold leading-relaxed text-muted-foreground">{a.blurb}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <Label htmlFor="nudge-min" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+              Nudge them first
+            </Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="nudge-min"
+                type="number" min={0} max={720} inputMode="numeric"
+                defaultValue={String(p.overdueReminderMinutes ?? 0)}
+                disabled={!canEdit || !!busy}
+                onBlur={(e) => {
+                  const v = Math.max(0, Math.min(720, Number(e.target.value) || 0));
+                  if (v !== Number(p.overdueReminderMinutes ?? 0)) {
+                    void write({ overdueReminderMinutes: v || undefined }, 'nudge-min', 'Reminder');
+                  }
+                }}
+                className="h-10 w-24 rounded-xl border-2 text-[13px]"
+              />
+              <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                min before the deadline
+              </span>
+            </div>
+            <p className="text-[11px] font-bold leading-relaxed text-muted-foreground">
+              A nudge is what stops most of these becoming anybody&apos;s problem. 0 turns it off.
+            </p>
           </div>
 
           <div className="grid gap-2">
