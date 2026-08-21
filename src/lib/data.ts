@@ -864,9 +864,20 @@ export type Event = {
   lineItems?: any[];
   travelExpenses?: number;
   projectFee?: number;
+  /* The named kind of block, separate from `type` which predates this and is
+   * still used for its own purposes. Absent on everything created before the
+   * block policy landed, which is why every reader falls back to `type`. */
+  blockType?: 'break' | 'lunch' | 'training' | 'meeting' | 'emergency' | 'administrative' | 'personal';
+  /* 'pending' means a manager has not answered yet — and availability.ts
+   * deliberately does NOT treat a pending block as blocking, or approval
+   * would be a formality with the slot already gone. */
   status?: 'pending' | 'approved';
   approvedBy?: string;
   approvedAt?: string;
+  requestedBy?: string;
+  requestedAt?: string;
+  declinedBy?: string;
+  declinedAt?: string;
 };
 
 export type Order = {
@@ -1199,6 +1210,9 @@ export type Tenant = {
     /* How long a provider has to answer a booking. Distinct from
      * approvalExpiryHours, which is the promise made to the client. */
     providerResponseHours?: number;
+    /* Who may block their own calendar, and how. Unset means the defaults in
+     * block-policy.ts, which gate exactly one type: personal. */
+    blockPolicy?: Record<string, { permission: 'free' | 'notify' | 'approval'; dailyCapMinutes?: number }>;
     /* Two different causes hide behind "nobody answered", so the shop says
      * which one it has. Escalating is the default because it is the only
      * option that cannot silently do something unintended. */
