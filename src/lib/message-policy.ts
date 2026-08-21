@@ -195,7 +195,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     when: 'A deposit is taken from a card on file.',
     channels: ['email', 'sms'], canDisable: false,
     mandatoryNote: 'You moved money. A charge nobody was told about is how chargebacks start.',
-    tokens: ['{{client_first}}', '{{amount}}', '{{when}}', '{{service}}', '{{link}}', '{{studio}}'],
+    tokens: ['{{client_first}}', '{{amount}}', '{{when}}', '{{service}}', '{{paid_at}}', '{{reference}}', '{{link}}', '{{studio}}'],
     requiredTokens: ['{{amount}}'],
     defaultSubject: 'Deposit received — {{amount}}',
     defaultBody: '{{client_first}}, we have charged {{amount}} to your card on file as the deposit for {{service}} on {{when}}.\n\nIt will be applied to your total. {{link}}',
