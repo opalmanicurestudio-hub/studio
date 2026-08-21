@@ -1195,6 +1195,12 @@ export type Tenant = {
     /* How long a provider has to answer a booking. Distinct from
      * approvalExpiryHours, which is the promise made to the client. */
     providerResponseHours?: number;
+    /* Two different causes hide behind "nobody answered", so the shop says
+     * which one it has. Escalating is the default because it is the only
+     * option that cannot silently do something unintended. */
+    overdueAction?: 'escalate' | 'auto_accept' | 'raise_issue';
+    overdueReminderMinutes?: number;
+    autoAcceptMinAuthority?: 'none' | 'limited' | 'request_approval' | 'full';
   };
   defaultRescheduleMode?: 'matrix' | 'flat';
   allowGuestFeeDeferral?: boolean;
