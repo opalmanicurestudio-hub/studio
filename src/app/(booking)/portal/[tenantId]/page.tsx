@@ -87,6 +87,7 @@ import { GuestRescheduleDialog } from '@/components/booking/GuestRescheduleDialo
 import { nanoid } from 'nanoid';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { BookingSheet } from '@/components/booking/BookingSheet';
+import { resolveBookingPlan } from '@/lib/deposit-policy';
 import { BookingServices } from '@/components/booking/BookingServices';
 
 const safeDate = (val: any): Date => {
@@ -116,6 +117,7 @@ export default function ClientPortalPage() {
     const [appointmentToReschedule, setAppointmentToReschedule] = useState<Appointment | null>(null);
     const [isSettlementOpen, setIsSettlementOpen] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [bookingOutcome, setBookingOutcome] = useState<{ status: string; notice: string; depositCents: number } | null>(null);
     const [settlementSuccess, setSettlementSuccess] = useState(false);
     const [expandedImage, setExpandedImage] = useState<string | null>(null);
     
@@ -545,6 +547,26 @@ export default function ClientPortalPage() {
             const newAppointmentId = appointmentRef.id;
             const checkInToken = nanoid(16);
 
+            /* ── THIS WRITE MUST OBEY THE SHOP'S BOOKING MODE ──────────────
+             * appointmentDetails arrives from BookingSheet with a hardcoded
+             * status: 'confirmed'. This surface writes straight to Firestore
+             * rather than through /api/appointments/book, so a studio running
+             * approval mode got a confirmed appointment on the calendar with
+             * no request to answer — the setting was on and the booking
+             * ignored it, on this one screen only.
+             *
+             * resolveBookingPlan is a pure function, so the same decision the
+             * server makes is made here. Same fix, same reasoning, as the
+             * public page's offline path. */
+            const planService = (services || []).find((sv: any) => sv.id === (appointmentDetails as any)?.serviceId) || {};
+            const plan = resolveBookingPlan({
+                tenant: tenant as any,
+                service: planService as any,
+                price: Number((appointmentDetails as any)?.price ?? 0),
+                client: client as any,
+                byStaff: false,
+            });
+
             const newAppointment = {
                 ...appointmentDetails,
                 id: newAppointmentId,
@@ -554,6 +576,16 @@ export default function ClientPortalPage() {
                 clientEmail: client.email,
                 clientPhone: client.phone,
                 checkInToken: checkInToken,
+                status: plan.status,
+                bookingMode: plan.mode,
+                bookingReason: plan.reason,
+                requiresCardOnFile: !!plan.requiresCardOnFile,
+                ...(plan.status === 'requested' ? {
+                    requestedAt: now,
+                    requestExpiresAt: plan.approvalExpiryHours > 0
+                        ? new Date(Date.now() + plan.approvalExpiryHours * 3600000).toISOString()
+                        : null,
+                } : {}),
             };
 
             batch.set(appointmentRef, newAppointment);
@@ -583,7 +615,15 @@ export default function ClientPortalPage() {
             }
             
             await batch.commit();
-            toast({ title: 'Booking Confirmed!' });
+            setBookingOutcome({
+                status: plan.status,
+                notice: plan.clientNotice || '',
+                depositCents: plan.depositCents || 0,
+            });
+            toast({
+                title: plan.status === 'requested' ? 'Request sent'
+                    : plan.status === 'pending_payment' ? 'Time held' : 'Booking confirmed',
+            });
             setBookingStep('confirmation');
         } catch (error) {
             console.error(error);
@@ -1115,6 +1155,7 @@ export default function ClientPortalPage() {
                     consentForms={[]}
                     tenant={tenant || null}
                     onConfirm={handleConfirmDirectBooking}
+                    bookingOutcome={bookingOutcome}
                 />
             )}
 
