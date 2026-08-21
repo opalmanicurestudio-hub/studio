@@ -46,13 +46,16 @@ import {
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { useInventory } from '@/context/InventoryContext';
+import { computeServiceProfitability } from '@/lib/service-cost';
+import { useProfitabilityVisibility } from '@/hooks/useProfitabilityVisibility';
+import { isDeadAppointment } from '@/lib/booking-approval';
 import { type Staff, type Appointment, type Service, ActivityLog, type PricingTier } from '@/lib/data';
 import { AddStaffDialog, type AddStaffFormData } from '@/components/staff/AddStaffDialog';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { nanoid } from 'nanoid';
 import { Separator } from '@/components/ui/separator';
 import { DateRange } from 'react-day-picker';
-import { format, subDays, startOfDay, endOfDay, parseISO, isPast, differenceInDays, differenceInMinutes, startOfMonth, endOfMonth, subMonths } from 'date-fns';
+import { format, subDays, startOfDay, endOfDay, parseISO, isPast, isSameDay, differenceInDays, differenceInMinutes, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
 import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking, useCollection, useMemoFirebase, deleteDocumentNonBlocking } from '@/firebase';
@@ -169,6 +172,7 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
      *    same grammar the appointment card uses: green on the floor, amber
      *    on break, ink clocked out, dashed not yet onboarded.
      */
+    const { showProfitability } = useProfitabilityVisibility();
     const onboarded = (member as any).onboardingComplete === true;
     const edgeClass = !onboarded
         ? 'border-l-foreground/25 border-dashed'
@@ -237,6 +241,28 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                                 Sees money
                             </span>
                         )}
+                    </div>
+                )}
+
+                {showProfitability && Number(member.stats.todayCount || 0) > 0 && (
+                    <div className="flex items-start gap-5 border-t pt-3">
+                        <div className="min-w-0">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Today</p>
+                            <p className="mt-0.5 tabular-nums text-[15px] font-black tracking-tight text-foreground leading-none">${Math.round(member.stats.todayBooked).toLocaleString()}</p>
+                        </div>
+                        <div className="min-w-0">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Net</p>
+                            <p className={cn(
+                                "mt-0.5 tabular-nums text-[15px] font-black tracking-tight leading-none",
+                                Number(member.stats.todayNet || 0) < 0 ? "text-destructive" : "text-foreground",
+                            )}>
+                                {Number(member.stats.todayNet || 0) < 0 ? '-' : ''}${Math.round(Math.abs(Number(member.stats.todayNet || 0))).toLocaleString()}
+                            </p>
+                        </div>
+                        <div className="min-w-0">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Booked</p>
+                            <p className="mt-0.5 tabular-nums text-[15px] font-black tracking-tight text-foreground leading-none">{member.stats.todayCount}</p>
+                        </div>
                     </div>
                 )}
 
@@ -589,6 +615,43 @@ export default function StaffPage() {
         
         const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);
         earnings += tips + retailCommission; 
+
+        /* TODAY, alongside the range totals. Sales and payout answer "how has
+         * this person been doing"; a roster at 9am is asking "what is on them
+         * today". Same cost model the planner's day strip uses, so the two
+         * screens cannot disagree about the same appointment. */
+        const dayStart = startOfDay(new Date());
+        const mine = (appointments || []).filter((a: any) =>
+            a.staffId === staffMember.id
+            && isSameDay(safeDate(a.startTime), dayStart)
+            && !isDeadAppointment(a));
+
+        let todayBooked = 0;
+        let todayNet = 0;
+        let todayMinutes = 0;
+
+        mine.forEach((a: any) => {
+            const svc = (services || []).find((s: any) => s.id === a.serviceId);
+            const addOns = (a.addOnIds || [])
+                .map((id: string) => (services || []).find((s: any) => s.id === id))
+                .filter(Boolean);
+            const price = Number(svc?.price || 0)
+                + addOns.reduce((sum: number, s: any) => sum + Number(s?.price || 0), 0);
+            todayBooked += price;
+
+            const st = safeDate(a.startTime);
+            const en = safeDate(a.endTime);
+            if (st && en) todayMinutes += Math.max(0, Math.round((en.getTime() - st.getTime()) / 60000));
+
+            if (price > 0 && svc) {
+                try {
+                    const r = computeServiceProfitability(svc, a, staffMember, inventory || [], selectedTenant?.tmhr || 50, price);
+                    todayNet += Number(r.margin || 0);
+                } catch {
+                    /* one unpriceable service must not blank the row */
+                }
+            }
+        });
         
         return {
             ...staffMember,
@@ -604,10 +667,14 @@ export default function StaffPage() {
                 totalSales,
                 tips,
                 totalHours: totalMinutesWorked / 60,
+                todayBooked,
+                todayNet,
+                todayCount: mine.length,
+                todayMinutes,
             }
         };
     });
-  }, [staff, transactions, dateRange, appointments, stockCorrections, inventory, activityLogs, services]);
+  }, [staff, transactions, dateRange, appointments, stockCorrections, inventory, activityLogs, services, selectedTenant?.tmhr]);
 
 
   const handleViewActivity = (member: Staff & { stats: any }) => {
