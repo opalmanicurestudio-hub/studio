@@ -24,6 +24,7 @@ import {
   RefreshCw,
   EyeOff,
   BarChart,
+  CalendarX,
   Pencil,
   Check,
   Loader,
@@ -48,7 +49,9 @@ import { Badge } from '@/components/ui/badge';
 import { useInventory } from '@/context/InventoryContext';
 import { computeServiceProfitability } from '@/lib/service-cost';
 import { useProfitabilityVisibility } from '@/hooks/useProfitabilityVisibility';
-import { isDeadAppointment } from '@/lib/booking-approval';
+import { isDeadAppointment, applyCoverageDecision } from '@/lib/booking-approval';
+import { CoveragePlanSheet } from '@/components/staff/CoveragePlanSheet';
+import type { CoverageOutcome } from '@/lib/coverage-plan';
 import { type Staff, type Appointment, type Service, ActivityLog, type PricingTier } from '@/lib/data';
 import { AddStaffDialog, type AddStaffFormData } from '@/components/staff/AddStaffDialog';
 import { ClientOnly } from '@/components/shared/ClientOnly';
@@ -107,7 +110,7 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, pricingTiers, onForceIdle, onDelete, onOnboard, canManage }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void, pricingTiers: PricingTier[], onForceIdle: (id: string) => void, onDelete: (member: Staff) => void, onOnboard: (member: Staff) => void, canManage: boolean }) => {
+const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, pricingTiers, onForceIdle, onDelete, onOnboard, onCoverage, canManage }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void, pricingTiers: PricingTier[], onForceIdle: (id: string) => void, onDelete: (member: Staff) => void, onOnboard: (member: Staff) => void, onCoverage: (member: Staff) => void, canManage: boolean }) => {
     const [licenseInfo, setLicenseInfo] = useState<{
         isExpired: boolean;
         isExpiringSoon: boolean;
@@ -316,6 +319,9 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                                     </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end" className="rounded-xl border-2">
+                                    <DropdownMenuItem onSelect={() => onCoverage(member)} className="font-bold text-[11px] uppercase tracking-widest">
+                                        <CalendarX className="mr-2 h-3.5 w-3.5" aria-hidden="true" /> Can&apos;t work today
+                                    </DropdownMenuItem>
                                     <DropdownMenuItem onSelect={() => onViewActivity(member)} className="font-bold text-[11px] uppercase tracking-widest">
                                         <BarChart className="mr-2 h-3.5 w-3.5" aria-hidden="true" /> Performance
                                     </DropdownMenuItem>
@@ -467,6 +473,8 @@ export default function StaffPage() {
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false);
   const [selectedStaffMember, setSelectedStaffMember] = useState<(Staff & { stats: any }) | null>(null);
+  const [coverageFor, setCoverageFor] = useState<any | null>(null);
+  const [coverageBusyId, setCoverageBusyId] = useState<string | null>(null);
   const [isPinAuthOpen, setIsPinAuthOpen] = useState(false);
   const [authPin, setAuthPin] = useState('');
   const [pendingStatusAction, setPendingStatusAction] = useState<{ staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end' } | null>(null);
@@ -676,6 +684,36 @@ export default function StaffPage() {
     });
   }, [staff, transactions, dateRange, appointments, stockCorrections, inventory, activityLogs, services, selectedTenant?.tmhr]);
 
+
+  /* A call-out is one problem with six consequences. Each row is applied on
+   * its own so a manager can work down the list and stop halfway if the
+   * provider calls back — nothing is committed as a batch that has to
+   * succeed or fail together. */
+  const handleCoverageApply = useCallback(async (
+    apt: any,
+    outcome: CoverageOutcome,
+    pick: { id: string; name: string } | null,
+  ) => {
+    if (!firestore || !tenantId) return;
+    setCoverageBusyId(apt.id);
+    try {
+      const mapped = outcome === 'reassign' ? 'reassigned' : outcome === 'move' ? 'rescheduled' : 'declined';
+      const res = await applyCoverageDecision(firestore, tenantId, apt, mapped as any, {
+        uid: user?.uid,
+        name: (staff || []).find((s: any) => s.id === user?.uid)?.name || 'A manager',
+        role: role || null,
+        isManager: canManage,
+      }, {
+        newStaffId: pick?.id || null,
+        newStaffName: pick?.name || null,
+        reason: 'provider_unavailable',
+      });
+      if (res.ok) uiToast({ title: 'Cover updated', description: res.message });
+      else uiToast({ variant: 'destructive', title: res.reason });
+    } finally {
+      setCoverageBusyId(null);
+    }
+  }, [firestore, tenantId, user, staff, role, canManage, uiToast]);
 
   const handleViewActivity = (member: Staff & { stats: any }) => {
     setSelectedStaffMember(member);
@@ -946,7 +984,7 @@ export default function StaffPage() {
                         {(staff || []).length > 0 ? (
                             <div className="grid gap-6 md:grid-cols-1 xl:grid-cols-2">
                                 {staffWithStats.map((member) => (
-                                <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithAuth} pricingTiers={pricingTiers || []} onForceIdle={handleForceIdle} onDelete={handleDeleteStaffClick} onOnboard={(m) => setOnboardingStaff(m)} canManage={canManage} />
+                                <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithAuth} pricingTiers={pricingTiers || []} onForceIdle={handleForceIdle} onDelete={handleDeleteStaffClick} onOnboard={(m) => setOnboardingStaff(m)} onCoverage={(m) => setCoverageFor(m)} canManage={canManage} />
                                 ))}
                             </div>
                             ) : (
@@ -983,6 +1021,18 @@ export default function StaffPage() {
         pricingTiers={pricingTiers || []}
         existingStaff={staff || []}
       />
+      <CoveragePlanSheet
+        open={!!coverageFor}
+        onOpenChange={(v: boolean) => { if (!v) setCoverageFor(null); }}
+        provider={coverageFor}
+        date={new Date()}
+        appointments={appointments || []}
+        services={services || []}
+        staff={staff || []}
+        busyId={coverageBusyId}
+        onApply={handleCoverageApply}
+      />
+
       {onboardingStaff && (
         <StaffOnboardingDialog
           open={!!onboardingStaff}
