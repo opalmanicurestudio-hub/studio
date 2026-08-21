@@ -569,12 +569,27 @@ const DEFAULT_BLOCKING_EVENT_TYPES = [
   'unavailable',
   'class',
   'training',
+  /* The named block types. Anything on somebody's calendar with a start and
+   * an end makes them unavailable, whatever it is called. */
+  'break',
+  'lunch',
+  'meeting',
+  'emergency',
+  'administrative',
 ];
 
 function isBlockingEvent(evt: any, allowed: string[]): boolean {
   const status = String(evt?.status || '').toLowerCase();
   if (status === 'cancelled' || status === 'canceled' || status === 'deleted') return false;
-  const t = String(evt?.type ?? 'blocked').toLowerCase().replace(/[\s-]/g, '_');
+  /* A BLOCK WAITING ON APPROVAL DOES NOT BLOCK.
+   *
+   * Event already carried status: 'pending' | 'approved' and nothing checked
+   * it here, so a provider could create a block that needed a manager's yes
+   * and have their calendar cleared the moment they pressed save. That is the
+   * loophole with extra steps: the approval exists, and the slot is gone
+   * either way. The time stays bookable until somebody actually approves it. */
+  if (status === 'pending') return false;
+  const t = String(evt?.blockType ?? evt?.type ?? 'blocked').toLowerCase().replace(/[\s-]/g, '_');
   return allowed.includes(t);
 }
 
