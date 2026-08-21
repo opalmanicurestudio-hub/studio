@@ -137,6 +137,17 @@ export async function POST(req: NextRequest) {
           })()
           : null;
         tx.update(aptRef, {
+          /* THE LEGACY FLAG HAS TO BE ANSWERED TOO. A converged voice
+             * booking carries BOTH status: 'requested' and the older
+           * voiceApproval: 'pending' — the second kept deliberately so
+           * anything still querying it keeps working while in-flight
+           * bookings drain. This route only ever set the status, so
+           * approvalChannel() fell through to the voice check and the
+           * booking stayed "awaiting you" on the planner and in the voice
+           * queue after it had already been answered here. */
+          voiceApproval: accepted ? 'approved' : 'denied',
+          voiceApprovalAt: nowIso,
+          voiceApprovalBy: actor.uid || null,
           status: nextStatus,
           decidedAt: nowIso,
           decidedBy: staffName,
