@@ -376,6 +376,151 @@ export async function raiseIssue(
 export type IssueOutcome = 'reassigned' | 'rescheduled' | 'declined' | 'kept' | 'other';
 
 /**
+ * One row of a coverage plan, applied.
+ *
+ * resolveIssue() closes an issue a provider RAISED. A call-out has no raised
+ * issue — the provider is not at work to raise one — so this is its sibling:
+ * the same writes, the same ledger row, without the open-issue guard that
+ * resolveIssue rightly keeps. Sharing that guard would have meant weakening
+ * it, and a guard you weaken for one caller is a guard you no longer have.
+ */
+export async function applyCoverageDecision(
+  firestore: Firestore | null | undefined,
+  tenantId: string | null | undefined,
+  apt: ApprovableAppointment,
+  outcome: 'reassigned' | 'rescheduled' | 'declined',
+  actor: { uid?: string | null; name?: string | null; role?: string | null; isManager?: boolean },
+  opts?: { newStaffId?: string | null; newStaffName?: string | null; reason?: string | null },
+): Promise<ApprovalResult & { clientNotified?: boolean }> {
+  if (!firestore || !tenantId || !apt?.id) return { ok: false, reason: 'Missing studio or booking' };
+  if (!actor.isManager) return { ok: false, reason: 'Only a manager can rearrange cover.' };
+  if (outcome === 'reassigned' && !opts?.newStaffId) return { ok: false, reason: 'Pick who is taking it.' };
+
+  const nowIso = new Date().toISOString();
+  const depositCents = Number(apt.depositAmountCents || 0);
+  const depositPaid = String(apt.depositStatus || '') === 'paid' && depositCents > 0;
+  const patch: Record<string, any> = {
+    coverageHandledAt: nowIso,
+    coverageReason: (opts?.reason || 'provider_unavailable').slice(0, 60),
+  };
+
+  if (outcome === 'reassigned') {
+    patch.staffId = opts?.newStaffId;
+    patch.reassignedFromStaffId = apt.staffId || null;
+    patch.reassignedAt = nowIso;
+    patch.reassignedBy = actor.uid || null;
+  }
+  if (outcome === 'rescheduled') {
+    patch.rescheduleRequested = true;
+    patch.rescheduleRequestedAt = nowIso;
+    patch.rescheduleRequestedBy = actor.uid || null;
+  }
+  if (outcome === 'declined') {
+    patch.status = 'cancelled';
+    patch.cancelledAt = nowIso;
+    patch.cancellationReason = 'no_coverage_available';
+    patch.cancellationAudit = {
+      actorType: 'studio',
+      actorId: actor.uid || null,
+      reason: 'no_coverage_available',
+      timestamp: nowIso,
+    };
+    if (depositPaid) {
+      patch.depositRefundPending = true;
+      patch.depositRefundOwedCents = depositCents;
+      patch.depositRefundReason = 'studio_cancelled_no_cover';
+    }
+  }
+
+  try {
+    const batch = writeBatch(firestore);
+    batch.set(doc(firestore, `tenants/${tenantId}/appointments`, apt.id), patch, { merge: true });
+    if (outcome === 'declined' && apt.checkInToken) {
+      batch.set(doc(firestore, 'appointmentCheckIns', apt.checkInToken), {
+        status: 'cancelled', cancellationReason: 'no_coverage_available', tenantId,
+      }, { merge: true });
+    }
+    await batch.commit();
+  } catch {
+    return { ok: false, reason: 'Could not save that — try again.' };
+  }
+
+  let clientNotified = false;
+  if (outcome === 'declined') {
+    try {
+      const res = await fetch('/api/appointments/notify-cancellation', {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify({ tenantId, appointmentId: apt.id, reason: opts?.reason || '' }),
+      });
+      const data = await res.json().catch(() => null);
+      clientNotified = !!(data && data.ok && data.reachable);
+    } catch {
+      clientNotified = false;
+    }
+  }
+
+  if (outcome === 'reassigned' && opts?.newStaffId) {
+    await notifyStaff(firestore, tenantId, [{
+      userId: String(opts.newStaffId),
+      type: 'appointment_assigned',
+      message: `${apt.clientName || 'A booking'} has been moved to you — cover for a call-out.`,
+      link: '/planner',
+      appointmentId: apt.id,
+    }]);
+  }
+
+  try {
+    await addDoc(collection(firestore, `tenants/${tenantId}/appointmentDecisions`), {
+      tenantId,
+      appointmentId: apt.id,
+      clientId: apt.clientId || null,
+      clientName: apt.clientName || null,
+      serviceId: apt.serviceId || null,
+      staffId: outcome === 'reassigned' ? opts?.newStaffId || null : apt.staffId || null,
+      previousStaffId: outcome === 'reassigned' ? apt.staffId || null : null,
+      startTime: apt.startTime || null,
+      source: apt.source || null,
+      channel: 'coverage',
+      action: 'coverage_applied',
+      declineOutcome: null,
+      reasonCode: null,
+      reasonLabel: null,
+      reasonSource: null,
+      reason: opts?.reason || null,
+      issueOutcome: outcome,
+      priorStatus: apt.status || null,
+      resultStatus: outcome === 'declined' ? 'cancelled' : apt.status || null,
+      depositCents,
+      chargedOnFile: false,
+      decidedVia: 'manager',
+      actorUid: actor.uid || null,
+      actorName: actor.name || null,
+      actorRole: actor.role || null,
+      actorIsManager: true,
+      decidedAt: nowIso,
+      requestedAt: null,
+      responseSeconds: null,
+    });
+  } catch {
+    /* the change stands; a missing ledger row is not worth failing over */
+  }
+
+  return {
+    ok: true,
+    clientNotified,
+    nextStatus: outcome === 'declined' ? 'cancelled' : apt.status || null,
+    message: outcome === 'reassigned'
+      ? `Moved to ${opts?.newStaffName || 'another provider'}.`
+      : outcome === 'rescheduled'
+        ? 'Flagged to move — pick a new time when you are ready.'
+        : clientNotified
+          ? `Cancelled. ${apt.clientName || 'The client'} has been told.`
+          : `Cancelled — we could not reach ${apt.clientName || 'the client'}, please call.`,
+  };
+}
+
+/**
  * CAN THIS PERSON RAISE AN EXCEPTION ON THIS BOOKING?
  *
  * Deliberately NOT the same question as "is this booking waiting on a
