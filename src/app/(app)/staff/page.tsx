@@ -444,9 +444,9 @@ const PricingTierCard = ({
                 </CardContent>
             </Card>
             <AlertDialog open={!!tierToDelete} onOpenChange={() => setTierToDelete(null)}>
-                <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
-                    <AlertDialogHeader className="p-6 pb-0">
-                        <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Confirm Deletion</AlertDialogTitle>
+                <AlertDialogContent className="rounded-2xl border-2 shadow-2xl max-h-[85dvh] overflow-y-auto">
+                    <AlertDialogHeader className="p-5 pb-0">
+                        <AlertDialogTitle className="text-[17px] font-black tracking-tight">Delete this tier?</AlertDialogTitle>
                         <AlertDialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">
                             Tier: "{tierToDelete?.name}"
                         </AlertDialogDescription>
