@@ -459,6 +459,31 @@ export function qualifiedFor(service: any, staff: any[]): any[] {
   return staff.filter((s) => required.every((skill) => (s?.skillSet || []).includes(skill)));
 }
 
+/**
+ * A provider and a client who should not be matched.
+ *
+ * Sometimes there is a real reason a particular provider should not serve a
+ * particular client, and it is not the kind of reason anybody should have to
+ * type into a shared appointment note. The 'client_conflict' reason code has
+ * existed since the reason taxonomy landed, but nothing acted on it — a
+ * manager could record the exception and the booking engine would cheerfully
+ * pair them again next week.
+ *
+ * The list lives on the CLIENT record, is manager-readable only, and carries
+ * no explanation: the engine only needs to know not to match, and the reason
+ * stays wherever the manager chose to keep it.
+ */
+export function isExcludedPairing(client: any, staffId: string): boolean {
+  const excluded: string[] = client?.excludedStaffIds || [];
+  if (excluded.length === 0) return false;
+  return excluded.includes(String(staffId));
+}
+
+/** qualifiedFor, with the pairing exclusion applied. */
+export function eligibleFor(service: any, staff: any[], client?: any): any[] {
+  return qualifiedFor(service, staff).filter((s) => !isExcludedPairing(client, s?.id));
+}
+
 /** Certification gate — mirrors the 409 the booking route returns. */
 export function isCertified(service: any, staffId: string): boolean {
   const certified: string[] = service?.certifiedStaffIds || [];
