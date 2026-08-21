@@ -19,6 +19,7 @@ export function ResolveIssueSheet({
   appointment,
   raisedByName,
   coverage,
+  impact,
   busy,
   onResolve,
 }: {
@@ -27,6 +28,7 @@ export function ResolveIssueSheet({
   appointment: any;
   raisedByName?: string;
   coverage: CoverageCandidate[];
+  impact?: { ticketCents?: number; chairMinutes?: number } | null;
   busy?: boolean;
   onResolve: (outcome: IssueOutcome, opts: { newStaffId?: string; newStaffName?: string; note?: string }) => void | Promise<void>;
 }) {
@@ -164,8 +166,24 @@ export function ResolveIssueSheet({
                 {isConfirmed
                   ? `${appointment?.clientName || 'This client'} has this in their calendar. They will be emailed and texted.`
                   : `${appointment?.clientName || 'This client'} will be told the time is not available.`}
-                {depositPaid ? ` Their $${(depositCents / 100).toFixed(2)} deposit will be marked owed back.` : ''}
               </p>
+              <div className="flex flex-wrap gap-1.5">
+                {Number(impact?.ticketCents || 0) > 0 && (
+                  <span className="rounded-lg border-2 border-destructive/30 bg-destructive/[0.05] px-2 py-1 text-[10px] font-black uppercase tracking-widest text-destructive">
+                    ${(Number(impact?.ticketCents) / 100).toFixed(0)} ticket lost
+                  </span>
+                )}
+                {depositPaid && (
+                  <span className="rounded-lg border-2 border-amber-600/40 bg-amber-500/[0.07] px-2 py-1 text-[10px] font-black uppercase tracking-widest text-amber-900">
+                    ${(depositCents / 100).toFixed(2)} owed back
+                  </span>
+                )}
+                {Number(impact?.chairMinutes || 0) > 0 && (
+                  <span className="rounded-lg border-2 border-border bg-muted/30 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                    {impact?.chairMinutes} min empty
+                  </span>
+                )}
+              </div>
               <div className="flex w-full items-center gap-2">
               <span className="flex-1 text-[11px] font-black uppercase tracking-widest text-destructive">
                 Cancel {appointment?.clientName || 'the client'}?
