@@ -342,6 +342,39 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
                   notice: String(out.clientNotice || ''),
                   depositCents: Number(out.depositCents) || 0,
                 });
+
+                /* THE CARD IS COLLECTED AGAINST A REAL CLIENT RECORD, so the
+                 * booking is written first and the card step runs against the
+                 * clientId the server just returned. The existing connect
+                 * webhook vaults on client_reference_id, so there is no second
+                 * write path to keep in step with this one. */
+                if (out.requiresCardOnFile && out.clientId) {
+                  try {
+                    const cardRes = await fetch('/api/stripe/booking-card', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        tenantId,
+                        clientId: out.clientId,
+                        clientEmail: formData.clientEmail,
+                        clientName: formData.clientName,
+                        serviceName: restDetails?.serviceName || '',
+                      }),
+                    });
+                    const cardOut = await cardRes.json().catch(() => null);
+                    if (cardOut?.clientSecret) {
+                      return {
+                        requiresPayment: true,
+                        clientSecret: cardOut.clientSecret,
+                        stripeAccountId: cardOut.stripeAccountId,
+                      };
+                    }
+                  } catch {
+                    /* The booking stands. Accepting it will send a pay link
+                     * instead of charging — worse, but never lost. */
+                  }
+                }
+
                 setStep('confirmation');
                 return { requiresPayment: false };
               }
@@ -432,6 +465,23 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       const out = await res.json().catch(() => null);
 
       if (out?.clientSecret) {
+        /* setBookingOutcome lived only in the no-deposit branches, so a
+         * booking that went through checkout reached the confirmation screen
+         * with the outcome still null — and null renders "You're All Set!"
+         * for a request the studio has not answered. Resolved here so the
+         * screen says the same thing the server wrote, whichever way the
+         * client got there. */
+        const paidPlan = resolveBookingPlan({
+          tenant: tenant as any,
+          service: (services || []).find((sv: any) => sv.id === apptDetails?.serviceId) as any,
+          price: Number(apptDetails?.price ?? 0),
+          byStaff: false,
+        });
+        setBookingOutcome({
+          status: paidPlan.status,
+          notice: paidPlan.clientNotice || '',
+          depositCents: paidPlan.depositCents || 0,
+        });
         return { requiresPayment: true, clientSecret: out.clientSecret, stripeAccountId: out.stripeAccountId };
       }
 
