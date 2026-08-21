@@ -87,6 +87,7 @@ import { GuestRescheduleDialog } from '@/components/booking/GuestRescheduleDialo
 import { nanoid } from 'nanoid';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { BookingSheet } from '@/components/booking/BookingSheet';
+import { resolveBookingPlan } from '@/lib/deposit-policy';
 import { BookingServices } from '@/components/booking/BookingServices';
 
 const safeDate = (val: any): Date => {
@@ -116,6 +117,7 @@ export default function ClientPortalPage() {
     const [appointmentToReschedule, setAppointmentToReschedule] = useState<Appointment | null>(null);
     const [isSettlementOpen, setIsSettlementOpen] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [bookingOutcome, setBookingOutcome] = useState<{ status: string; notice: string; depositCents: number } | null>(null);
     const [settlementSuccess, setSettlementSuccess] = useState(false);
     const [expandedImage, setExpandedImage] = useState<string | null>(null);
     
@@ -586,7 +588,20 @@ export default function ClientPortalPage() {
                             });
                         }
                         await sideBatch.commit().catch(() => { /* side-writes are secondary */ });
-                        toast({ title: 'Booking Confirmed!' });
+                        /* The SERVER decides what this became. This screen used
+                         * to say "Booking Confirmed!" for every outcome — so a
+                         * shop in approval mode told the client they were
+                         * booked while the planner showed the request still
+                         * waiting on a yes. */
+                        setBookingOutcome({
+                            status: String(out.status || 'confirmed'),
+                            notice: String(out.clientNotice || ''),
+                            depositCents: Number(out.depositCents) || 0,
+                        });
+                        toast({
+                            title: out.status === 'requested' ? 'Request sent'
+                                : out.status === 'pending_payment' ? 'Time held' : 'Booking confirmed',
+                        });
                         setBookingStep('confirmation');
                         setIsProcessing(false);
                         return;
@@ -603,6 +618,14 @@ export default function ClientPortalPage() {
             const newAppointmentId = appointmentRef.id;
             const checkInToken = nanoid(16);
 
+            const fallbackPlan = resolveBookingPlan({
+                tenant: tenant as any,
+                service: ((services || []).find((sv: any) => sv.id === (appointmentDetails as any)?.serviceId) || {}) as any,
+                price: Number((appointmentDetails as any)?.price ?? 0),
+                client: client as any,
+                byStaff: false,
+            });
+
             const newAppointment = {
                 ...appointmentDetails,
                 id: newAppointmentId,
@@ -612,6 +635,16 @@ export default function ClientPortalPage() {
                 clientEmail: client.email,
                 clientPhone: client.phone,
                 checkInToken: checkInToken,
+                status: fallbackPlan.status,
+                bookingMode: fallbackPlan.mode,
+                bookingReason: `${fallbackPlan.reason} (offline path)`,
+                requiresCardOnFile: !!fallbackPlan.requiresCardOnFile,
+                ...(fallbackPlan.status === 'requested' ? {
+                    requestedAt: now,
+                    requestExpiresAt: fallbackPlan.approvalExpiryHours > 0
+                        ? new Date(Date.now() + fallbackPlan.approvalExpiryHours * 3600000).toISOString()
+                        : null,
+                } : {}),
             };
 
             batch.set(appointmentRef, newAppointment);
@@ -641,7 +674,15 @@ export default function ClientPortalPage() {
             }
             
             await batch.commit();
-            toast({ title: 'Booking Confirmed!' });
+            setBookingOutcome({
+                status: fallbackPlan.status,
+                notice: fallbackPlan.clientNotice || '',
+                depositCents: fallbackPlan.depositCents || 0,
+            });
+            toast({
+                title: fallbackPlan.status === 'requested' ? 'Request sent'
+                    : fallbackPlan.status === 'pending_payment' ? 'Time held' : 'Booking confirmed',
+            });
             setBookingStep('confirmation');
         } catch (error) {
             console.error(error);
@@ -1173,6 +1214,7 @@ export default function ClientPortalPage() {
                     consentForms={[]}
                     tenant={tenant || null}
                     onConfirm={handleConfirmDirectBooking}
+                    bookingOutcome={bookingOutcome}
                 />
             )}
 
