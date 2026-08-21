@@ -43,6 +43,9 @@ import { findCoverageOptions } from '@/lib/appointment-coverage';
 import { ResolveIssueSheet } from '@/components/planner/ResolveIssueSheet';
 import { resolveAuthority } from '@/lib/appointment-authority';
 import { ReportIssueDialog } from '@/components/planner/ReportIssueDialog';
+import { DayPulse } from '@/components/planner/DayPulse';
+import { computeServiceProfitability } from '@/lib/service-cost';
+import { useProfitabilityVisibility } from '@/hooks/useProfitabilityVisibility';
 import { AlertCircle, XCircle } from 'lucide-react';
 
 const safeDate = (val: any): Date => {
@@ -488,6 +491,56 @@ function PlannerPageContent() {
     map.forEach(items => items.sort((a, b) => safeDate(a.startTime || a.dueDate).getTime() - safeDate(b.startTime || b.dueDate).getTime()));
     return map;
   }, [currentDate, appointments, columns, activeView, showCancelled, billInstances, billDefinitions, events, studioEventsToday, toursToday, reservationsToday, maintenanceToday]);
+
+  const { showProfitability } = useProfitabilityVisibility();
+
+  /* TODAY, not this week. The weekly sheet answers "how is the week going";
+   * somebody staring at a day wants "is this day worth what it looks like",
+   * and should not have to open anything to find out. Same visibility flag as
+   * the ticket on the card — money follows authority, consistently. */
+  const dayPulse = useMemo(() => {
+    if (!showProfitability) return null;
+    const dayStart = startOfDay(currentDate);
+    const live = (appointments || []).filter(a =>
+      isSameDay(safeDate(a.startTime), dayStart) && !isDeadAppointment(a));
+    if (live.length === 0) return null;
+
+    let booked = 0;
+    let net = 0;
+    let bookedMinutes = 0;
+
+    live.forEach((a: any) => {
+      const svc = (services || []).find((s: any) => s.id === a.serviceId);
+      const addOns = (a.addOnIds || [])
+        .map((id: string) => (services || []).find((s: any) => s.id === id))
+        .filter(Boolean);
+      const price = Number(svc?.price || 0)
+        + addOns.reduce((sum: number, s: any) => sum + Number(s?.price || 0), 0);
+      booked += price;
+
+      const start = safeDate(a.startTime);
+      const end = safeDate(a.endTime);
+      if (start && end) bookedMinutes += Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
+
+      if (price > 0 && svc) {
+        const assigned = (allStaff || []).find((s: any) => s.id === a.staffId);
+        try {
+          const r = computeServiceProfitability(svc, a, assigned, inventory || [], selectedTenant?.tmhr || 50, price);
+          net += Number(r.margin || 0);
+        } catch {
+          /* one unpriceable service must not blank the whole strip */
+        }
+      }
+    });
+
+    /* Capacity is the columns actually on the floor today, not a fixed
+     * number of hours — a day with two providers cannot be judged against a
+     * day with five. */
+    const providerCount = Math.max(1, (columns || []).filter((c: any) => !c.isBusiness).length);
+    const availableMinutes = providerCount * 8 * 60;
+
+    return { booked, net, bookedMinutes, availableMinutes };
+  }, [showProfitability, appointments, services, allStaff, inventory, selectedTenant, currentDate, columns]);
 
   const kpis = useMemo(() => {
     if (!transactions || !appointments || !services || !selectedTenant) return { weeklyRevenue: 0, projectedRevenue: 0, weeklyBreakEven: 0, weeklyNetProfit: 0, absorbedCosts: 0 };
@@ -1080,6 +1133,15 @@ function PlannerPageContent() {
                 </button>
               ))}
             </div>
+          )}
+
+          {dayPulse && (
+            <DayPulse
+              booked={dayPulse.booked}
+              net={dayPulse.net}
+              bookedMinutes={dayPulse.bookedMinutes}
+              availableMinutes={dayPulse.availableMinutes}
+            />
           )}
 
           {(awaitingUpcoming.length > 0 || cancelledToday > 0) && (
