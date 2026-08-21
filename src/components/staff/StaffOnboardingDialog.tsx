@@ -241,7 +241,7 @@ export function StaffOnboardingDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) reset(); }}>
-      <DialogContent className="sm:max-w-lg rounded-[2rem] border-2 shadow-2xl p-0 overflow-hidden max-h-[92vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-lg rounded-[2rem] border-2 shadow-2xl p-0 max-h-[85dvh] overflow-y-auto overscroll-contain">
         <DialogHeader className="p-6 pb-3 border-b bg-muted/5 text-left">
           <DialogTitle className="text-xl font-black uppercase tracking-tighter">Onboard {name}</DialogTitle>
           <DialogDescription className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
