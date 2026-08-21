@@ -528,7 +528,7 @@ export const StaffDetailsSheet = ({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side={isMobile ? 'bottom' : 'right'} className={cn("p-0 border-none bg-background flex flex-col", isMobile ? "h-[92dvh] rounded-t-[3rem] shadow-2xl" : "sm:max-w-2xl")}>
+      <SheetContent side={isMobile ? 'bottom' : 'right'} className={cn("p-0 border-none bg-background flex flex-col", isMobile ? "h-[92dvh] rounded-t-[1.75rem] shadow-2xl" : "sm:max-w-2xl")}>
         <div className="flex flex-col h-full overflow-hidden">
             <SheetHeader className={cn("border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-4" : "p-8 pb-6")}>
                 <div className="flex items-center gap-4">
