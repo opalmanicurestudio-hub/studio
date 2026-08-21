@@ -403,13 +403,35 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     }
   }, [depositAmount, tenant, service, price]);
 
+  /**
+   * A CARD IS REQUIRED, SO IT IS COLLECTED — not stamped and hoped for.
+   *
+   * requireCardOnFile used to write requiresCardOnFile onto the appointment
+   * and collect nothing. A card only ever arrived as a side effect of paying
+   * a deposit, so the two timings that take no money at booking produced
+   * bookings with no card at all, and accepting one could only send a pay
+   * link. When the shop says a card is required, the flow now asks for one —
+   * in setup mode, so the issuer authorises it and nothing is charged.
+   *
+   * Never both screens: paying already vaults the card.
+   */
+  const cardSetupDueNow = useMemo(() => {
+    if (chargeDueNow) return false;
+    if (!tenant || !service) return false;
+    try {
+      return resolveBookingPlan({ tenant, service, price: price || 0 } as any).requiresCardOnFile === true;
+    } catch {
+      return false;
+    }
+  }, [chargeDueNow, tenant, service, price]);
+
   const steps = useMemo(() => {
     const flow = ['staff', 'dateTime', 'details'];
     if (requiredForms.length > 0) flow.push('consents');
-    flow.push(chargeDueNow ? 'checkout' : 'summary');
+    flow.push(chargeDueNow || cardSetupDueNow ? 'checkout' : 'summary');
     flow.push('confirmation');
     return flow;
-  }, [requiredForms.length, chargeDueNow]);
+  }, [requiredForms.length, chargeDueNow, cardSetupDueNow]);
 
   /* The pinned bars are measured rather than estimated. Their height changes
    * with the safe-area inset, the step rail, and how long the service name
@@ -1278,10 +1300,16 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                           </div>
                           <Separator className="bg-primary/10 border-dashed" />
                           <div className="flex justify-between items-center">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-amber-700">Deposit Due Today</span>
+                            <span className="text-[10px] font-black uppercase tracking-widest text-amber-700">
+                              {cardSetupDueNow ? 'Card On File Required' : 'Deposit Due Today'}
+                            </span>
                             <span style={{ fontFamily: headingFont }} className="text-2xl font-black text-primary tracking-tighter">${depositAmount.toFixed(2)}</span>
                           </div>
-                          <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight opacity-60">Applied to your final total at checkout</p>
+                          <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight opacity-60">
+                            {cardSetupDueNow
+                              ? 'Nothing is charged today — your card is only kept on file'
+                              : 'Applied to your final total at checkout'}
+                          </p>
                         </CardContent>
                       </Card>
 
