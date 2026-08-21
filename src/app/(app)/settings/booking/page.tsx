@@ -23,6 +23,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { AppointmentAuthoritySettings } from '@/components/settings/AppointmentAuthoritySettings';
+import { BlockPolicySettings } from '@/components/settings/BlockPolicySettings';
 import {
   DEFAULT_BOOKING_MODE, resolveBookingMode, resolveDepositPolicy,
   type BookingMode, type DepositOutcome,
@@ -280,6 +281,13 @@ export default function BookingSettingsPage() {
 
         <AppointmentAuthoritySettings
           policy={(selectedTenant as any)?.appointmentAuthority || null}
+          canEdit={isMgr}
+          busy={busy}
+          onSave={save}
+        />
+
+        <BlockPolicySettings
+          policy={(selectedTenant as any)?.blockPolicy || null}
           canEdit={isMgr}
           busy={busy}
           onSave={save}
