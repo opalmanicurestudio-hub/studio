@@ -953,6 +953,22 @@ function PlannerPageContent() {
     });
   }, [resolveFor, services, allStaff, appointments]);
 
+  /* Only while the sheet is open. The ticket is what the shop will not now
+   * take; the deposit is separate money it has to hand back. */
+  const resolveImpact = useMemo(() => {
+    if (!resolveFor) return null;
+    const svc = (services || []).find((s: any) => s.id === resolveFor.serviceId);
+    const addOns = (resolveFor.addOnIds || [])
+      .map((id: string) => (services || []).find((s: any) => s.id === id))
+      .filter(Boolean);
+    const dollars = Number(svc?.price || 0)
+      + addOns.reduce((sum: number, a: any) => sum + Number(a?.price || 0), 0);
+    const start = safeDate(resolveFor.startTime);
+    const end = safeDate(resolveFor.endTime);
+    const chairMinutes = start && end ? Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000)) : 0;
+    return { ticketCents: Math.round(dollars * 100), chairMinutes };
+  }, [resolveFor, services]);
+
   const handleResolveIssue = useCallback(async (
     outcome: IssueOutcome,
     opts: { newStaffId?: string; newStaffName?: string; note?: string },
@@ -1240,6 +1256,7 @@ function PlannerPageContent() {
         appointment={resolveFor}
         raisedByName={resolveFor?.issue?.raisedByName}
         coverage={coverageOptions}
+        impact={resolveImpact}
         busy={resolveBusy}
         onResolve={handleResolveIssue}
       />
