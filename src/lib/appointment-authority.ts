@@ -185,7 +185,70 @@ export type AuthorityPolicy = {
   hiddenReasonCodes?: string[];
   /** How long a provider has to answer a booking put in front of them. */
   providerResponseHours?: number;
+  /** What the shop wants done when that runs out. Default: escalate. */
+  overdueAction?: OverdueAction;
+  /** Nudge this many minutes BEFORE the deadline. 0 = no nudge. */
+  overdueReminderMinutes?: number;
+  /** Auto-accept only for people at or above this authority. */
+  autoAcceptMinAuthority?: DecisionAuthority;
 };
+
+/**
+ * "Nobody answered" has two entirely different causes and one setting cannot
+ * serve both.
+ *
+ *   escalate    — a provider has not looked at their phone. A person should
+ *                 pick it up. This is the default because it is the only
+ *                 option that cannot silently do something the shop did not
+ *                 intend.
+ *   auto_accept — the shop never really wanted a decision; approval is on for
+ *                 deposit reasons and the acceptance step is ceremony.
+ *   raise_issue — put it in the queue the shop already works from, so it is
+ *                 handled the same way every other exception is.
+ */
+export type OverdueAction = 'escalate' | 'auto_accept' | 'raise_issue';
+
+export const DEFAULT_OVERDUE_ACTION: OverdueAction = 'escalate';
+export const DEFAULT_AUTO_ACCEPT_FLOOR: DecisionAuthority = 'limited';
+
+export type OverduePlan =
+  | { state: 'ok' }
+  | { state: 'remind'; minutesLeft: number }
+  | { state: 'act'; action: OverdueAction; downgraded: boolean };
+
+/**
+ * Auto-accepting on behalf of somebody who could never have declined is just
+ * an assignment with extra steps, and it quietly turns the shop's own
+ * authority model off. So a shop that asks for auto-accept gets it only for
+ * people who had a real choice; everyone else escalates instead, which is the
+ * safe direction to fail in.
+ */
+export function overduePlan(
+  apt: any,
+  policy: AuthorityPolicy | null | undefined,
+  providerAuthority: DecisionAuthority,
+  now?: Date,
+): OverduePlan {
+  const clock = responseClock(apt, policy, now);
+  if (!clock) return { state: 'ok' };
+
+  if (!clock.overdue) {
+    const nudge = Number(policy?.overdueReminderMinutes ?? 0);
+    if (nudge > 0 && clock.minutesLeft <= nudge) {
+      return { state: 'remind', minutesLeft: clock.minutesLeft };
+    }
+    return { state: 'ok' };
+  }
+
+  const wanted = (policy?.overdueAction || DEFAULT_OVERDUE_ACTION) as OverdueAction;
+  if (wanted !== 'auto_accept') return { state: 'act', action: wanted, downgraded: false };
+
+  const floor = (policy?.autoAcceptMinAuthority || DEFAULT_AUTO_ACCEPT_FLOOR) as DecisionAuthority;
+  if (authorityAtLeast(providerAuthority, floor)) {
+    return { state: 'act', action: 'auto_accept', downgraded: false };
+  }
+  return { state: 'act', action: 'escalate', downgraded: true };
+}
 
 /**
  * THE PROVIDER'S CLOCK IS NOT THE CLIENT'S CLOCK.
