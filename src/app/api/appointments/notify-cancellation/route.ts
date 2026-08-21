@@ -105,6 +105,7 @@ export async function POST(req: NextRequest) {
         tenantId, channel: 'email', to: email,
         subject: msg.subject, html, kind: 'appointment_cancelled_no_cover',
         appointmentId, clientId: apt.clientId || null, clientName: apt.clientName || null,
+        recipientType: 'client', recipientId: apt.clientId || null, recipientName: apt.clientName || null,
       });
       sent.emailSent = !!er.ok;
     }
@@ -113,6 +114,7 @@ export async function POST(req: NextRequest) {
         tenantId, channel: 'sms', to: phone,
         text: tidyBody(smsMsg.body), kind: 'appointment_cancelled_no_cover',
         appointmentId, clientId: apt.clientId || null, clientName: apt.clientName || null,
+        recipientType: 'client', recipientId: apt.clientId || null, recipientName: apt.clientName || null,
       });
       sent.smsSent = !!sr.ok;
     }
