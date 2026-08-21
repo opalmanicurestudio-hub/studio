@@ -735,7 +735,7 @@ export const EditStaffDialog: React.FC<any> = ({
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent
           side="bottom"
-          className="p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden h-[92dvh] rounded-t-[3rem]"
+          className="p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden h-[92dvh] rounded-t-[1.75rem]"
         >
           <FormProvider {...methods}>
             <form
@@ -743,18 +743,12 @@ export const EditStaffDialog: React.FC<any> = ({
               onSubmit={methods.handleSubmit(handleSave)}
               className="flex flex-col flex-1 min-h-0"
             >
-              <DialogHeader className="flex-shrink-0 text-left border-b bg-muted/5 p-8 pb-6">
-                <div className="flex items-center gap-3 mb-2">
-                  <Edit className="w-5 h-5 text-primary" />
-                  <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">
-                    Strategic Refinement
-                  </span>
-                </div>
-                <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">
-                  Modify Provider
+              <DialogHeader className="flex-shrink-0 space-y-0.5 text-left border-b bg-muted/5 px-5 py-4">
+                <DialogTitle className="text-[17px] font-black tracking-tight text-foreground leading-tight">
+                  Edit {staffMember.name}
                 </DialogTitle>
-                <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
-                  Refining record ID: {staffMember.id.slice(-8).toUpperCase()}
+                <DialogDescription className="text-[12px] font-bold text-muted-foreground">
+                  Record {staffMember.id.slice(-6).toUpperCase()}
                 </DialogDescription>
               </DialogHeader>
 
@@ -770,21 +764,23 @@ export const EditStaffDialog: React.FC<any> = ({
                 </div>
               </ScrollArea>
 
-              <DialogFooter className="border-t bg-background flex-shrink-0 shadow-2xl p-6 pt-4">
-                <div className="flex w-full gap-4 items-center">
+              {/* pb picks up the home indicator so the save button is not
+                  sitting under it on a gesture-bar phone. */}
+              <DialogFooter className="border-t bg-background flex-shrink-0 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+                <div className="flex w-full items-center gap-2">
                   <Button
-                    variant="ghost"
+                    variant="outline"
                     onClick={() => onOpenChange(false)}
                     type="button"
-                    className="h-14 font-black uppercase tracking-tighter text-[11px] text-slate-500"
+                    className="h-12 flex-1 rounded-xl border-2 font-black uppercase tracking-widest text-[11px]"
                   >
                     Cancel
                   </Button>
                   <Button
                     type="submit"
-                    className="flex-[2.5] h-16 rounded-[2rem] font-black uppercase tracking-widest text-sm shadow-2xl shadow-primary/30 active:scale-95 transition-all group"
+                    className="h-12 flex-[2] rounded-xl font-black uppercase tracking-widest text-[11px] active:scale-95 transition-transform"
                   >
-                    Commit Changes <ArrowRight className="ml-2 w-5 h-5 transition-transform group-hover:translate-x-1" />
+                    Save <ArrowRight className="ml-1.5 w-4 h-4" aria-hidden="true" />
                   </Button>
                 </div>
               </DialogFooter>
