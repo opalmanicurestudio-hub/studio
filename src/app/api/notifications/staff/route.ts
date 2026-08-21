@@ -24,8 +24,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 
-/** The only things worth a buzz in someone's pocket. */
-export const ESCALATING_KINDS = ['appointment_issue_raised', 'appointment_overdue'] as const;
+/* The only things worth a buzz in someone's pocket. Not exported: Next.js
+ * restricts which names a route file may export, and staff-notify.ts already
+ * owns the canonical list for callers. */
+const ESCALATING_KINDS = ['appointment_issue_raised', 'appointment_overdue'] as const;
 
 function isWithinBusinessHours(tenant: any): boolean {
   /* Mirrors the voice escalation route's rule so a shop cannot be "open" for
@@ -114,8 +116,21 @@ export async function POST(req: NextRequest) {
       const { brandedEmailHtml } = await import('@/lib/email-template');
       const body = `${message}\n\n${base}${link}`;
 
+      /* RECIPIENT LINKAGE. sendNotification already writes every send to
+       * tenants/{id}/messageLog with deliveredAt / openedAt / clickedAt /
+       * bouncedAt filled in later by the Resend and Twilio webhooks — and the
+       * Message Log screen already has a 'staff' audience filter. It has just
+       * never had anything to show, because nothing passed recipientType. An
+       * owner can now see what went to their team, whether it landed, and
+       * whether it was opened. */
+      const linkage = {
+        recipientType: 'staff' as const,
+        recipientId: uid,
+        recipientName: String(staff.name || '').slice(0, 80) || null,
+      };
+
       if (phone) {
-        const r = await sendNotification(db, { tenantId, channel: 'sms', to: phone, text: body, kind });
+        const r = await sendNotification(db, { tenantId, channel: 'sms', to: phone, text: body, kind, ...linkage });
         sms = !!r.ok;
       }
       /* Email only when there is no phone. Two copies of the same sentence is
@@ -128,7 +143,7 @@ export async function POST(req: NextRequest) {
           cta: { label: 'Open', url: `${base}${link}` },
         });
         const r = await sendNotification(db, {
-          tenantId, channel: 'email', to: email, subject: `${studioName} — action needed`, html, kind,
+          tenantId, channel: 'email', to: email, subject: `${studioName} — action needed`, html, kind, ...linkage,
         });
         mail = !!r.ok;
       }
