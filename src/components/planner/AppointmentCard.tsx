@@ -197,15 +197,30 @@ export function AppointmentCard({
   };
 
   const statusDisplay: Record<string, { text: string; className: string; bgClassName: string; dotColor: string }> = {
-    confirmed: { text: 'Confirmed', className: 'border-border text-foreground bg-white', bgClassName: 'bg-white', dotColor: 'bg-foreground/40' },
-    servicing: { text: 'Live', className: 'border-primary ring-2 sm:ring-4 ring-primary/10 text-primary bg-primary/[0.03]', bgClassName: 'bg-primary/5', dotColor: 'bg-primary' },
-    completed: { text: 'Finished', className: 'border-border text-muted-foreground bg-muted/30', bgClassName: 'bg-muted/30', dotColor: 'bg-emerald-600' },
-    cancelled: { text: 'Cancelled', className: 'border-border text-muted-foreground bg-muted/20 grayscale opacity-70', bgClassName: 'bg-muted/20', dotColor: 'bg-foreground/30' },
-    deposit_pending: { text: 'Deposit Due', className: 'border-amber-600/40 text-amber-900 bg-amber-500/[0.05]', bgClassName: 'bg-amber-500/5', dotColor: 'bg-amber-600' },
-    ready_for_checkout: { text: 'Checkout', className: 'border-emerald-600/40 text-emerald-900 bg-emerald-500/[0.05]', bgClassName: 'bg-emerald-500/5', dotColor: 'bg-emerald-600' },
-    pending_payment: { text: 'Awaiting Payment', className: 'border-amber-600/40 text-amber-900 bg-amber-500/[0.05]', bgClassName: 'bg-amber-500/5', dotColor: 'bg-amber-600' },
-    declined: { text: 'Declined', className: 'border-border text-muted-foreground bg-muted/20 grayscale opacity-70', bgClassName: 'bg-muted/20', dotColor: 'bg-foreground/30' },
-    requested: { text: 'Requested', className: 'border-dashed border-primary/50 text-foreground bg-primary/[0.03]', bgClassName: 'bg-primary/5', dotColor: 'bg-primary/60' },
+    /* THE LEFT EDGE HAS TO CARRY A STATE OR IT CARRIES NOTHING.
+     *
+     * Round 6 collapsed every status to an ink hairline, which was right when
+     * the card was outlined all round — the border was structure, not signal.
+     * Round 24 turned the left border into a 3px accent, and an accent that is
+     * the same neutral for every state is just a thicker line. So the EDGE now
+     * carries the status and the rest of the border stays quiet:
+     *
+     *   primary   this is agreed and happening (confirmed, live)
+     *   amber     money is owed
+     *   emerald   ready to take payment
+     *   ink       nothing is required of you (finished, cancelled)
+     *   dashed    nobody has answered it yet
+     *
+     * Five meanings, four hues, scannable down a column at arm's length. */
+    confirmed: { text: 'Confirmed', className: 'border-border border-l-primary text-foreground bg-white', bgClassName: 'bg-white', dotColor: 'bg-primary' },
+    servicing: { text: 'Live', className: 'border-primary/30 border-l-primary ring-2 sm:ring-4 ring-primary/10 text-primary bg-primary/[0.04]', bgClassName: 'bg-primary/5', dotColor: 'bg-primary' },
+    completed: { text: 'Finished', className: 'border-border border-l-foreground/25 text-muted-foreground bg-muted/30', bgClassName: 'bg-muted/30', dotColor: 'bg-emerald-600' },
+    cancelled: { text: 'Cancelled', className: 'border-border border-l-foreground/20 text-muted-foreground bg-muted/20 grayscale opacity-70', bgClassName: 'bg-muted/20', dotColor: 'bg-foreground/30' },
+    deposit_pending: { text: 'Deposit Due', className: 'border-amber-600/25 border-l-amber-600 text-amber-900 bg-amber-500/[0.05]', bgClassName: 'bg-amber-500/5', dotColor: 'bg-amber-600' },
+    ready_for_checkout: { text: 'Checkout', className: 'border-emerald-600/25 border-l-emerald-600 text-emerald-900 bg-emerald-500/[0.05]', bgClassName: 'bg-emerald-500/5', dotColor: 'bg-emerald-600' },
+    pending_payment: { text: 'Awaiting Payment', className: 'border-amber-600/25 border-l-amber-600 text-amber-900 bg-amber-500/[0.05]', bgClassName: 'bg-amber-500/5', dotColor: 'bg-amber-600' },
+    declined: { text: 'Declined', className: 'border-border border-l-foreground/20 text-muted-foreground bg-muted/20 grayscale opacity-70', bgClassName: 'bg-muted/20', dotColor: 'bg-foreground/30' },
+    requested: { text: 'Requested', className: 'border-dashed border-primary/30 border-l-primary/70 text-foreground bg-primary/[0.03]', bgClassName: 'bg-primary/5', dotColor: 'bg-primary/60' },
   };
 
   useEffect(() => {
@@ -507,10 +522,10 @@ export function AppointmentCard({
           <div className="mt-auto pt-1 sm:pt-2 flex items-center justify-between">
             <div className="flex items-center gap-1.5 sm:gap-1.5">
                 <div className={cn("w-1.5 h-1.5 rounded-full shadow-sm", currentStatus?.dotColor)} />
-                <p className="text-[8px] sm:text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60 text-left">
-                    {appointment.checkInStatus === 'running_late' && estimatedArrival 
-                        ? `EST: ${estimatedArrival}` 
-                        : format(safeDate(appointment.startTime), 'h:mm a')
+                <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest text-left">
+                    {appointment.checkInStatus === 'running_late' && estimatedArrival
+                        ? `Est ${estimatedArrival}`
+                        : currentStatus?.text || ''
                     }
                 </p>
             </div>
