@@ -352,7 +352,7 @@ export function AppointmentCard({
       <div style={{ height: `${(safeDuration / totalDuration) * 100}%` }} className="flex-1 min-h-0 overflow-hidden">
         <Card 
           className={cn(
-            'p-1.5 sm:p-2.5 border-2 w-full h-full flex flex-col transition-all duration-300 hover:shadow-2xl relative rounded-xl overflow-hidden', 
+            'p-1.5 sm:p-2.5 border-2 border-l-[3px] w-full h-full flex flex-col transition-all duration-300 hover:shadow-2xl relative rounded-r-xl overflow-hidden', 
             currentStatus?.className,
             (isRunningOver || appointment.isEscalated) && 'border-destructive ring-2 sm:ring-4 ring-destructive/20 animate-pulse bg-destructive/10',
             awaitingDecision && 'bg-[repeating-linear-gradient(-45deg,transparent,transparent_5px,rgba(22,23,26,0.06)_5px,rgba(22,23,26,0.06)_7px)]',
@@ -378,35 +378,38 @@ export function AppointmentCard({
                         <span
                           key={chip.key}
                           className={cn(
-                            "inline-flex shrink-0 items-center gap-0.5 rounded-md px-1 h-4 text-[8px] font-black uppercase tracking-widest",
+                            "inline-flex shrink-0 items-center gap-1 rounded-lg px-1.5 h-5 text-[10px] font-black uppercase tracking-widest",
                             CHIP_TONES[chip.tone] || CHIP_TONES.info,
                             chip.key === 'live' && 'animate-pulse',
                           )}
                         >
-                          <ChipIcon className="w-2 h-2 shrink-0" aria-hidden="true" />
+                          <ChipIcon className="w-2.5 h-2.5 shrink-0" aria-hidden="true" />
                           {chip.label}
                         </span>
                       );
                     })}
                     {chips.length > chipCap && (
-                      <span className="inline-flex shrink-0 items-center rounded-md px-1 h-4 text-[8px] font-black uppercase tracking-widest bg-foreground/[0.08] text-foreground/70">
+                      <span className="inline-flex shrink-0 items-center rounded-lg px-1.5 h-5 text-[10px] font-black uppercase tracking-widest bg-foreground/[0.08] text-foreground/70">
                         +{chips.length - chipCap}
                       </span>
                     )}
                 </div>
-                <div className="flex items-baseline gap-1.5 mb-0.5 sm:mb-1">
-                  <p className="font-black uppercase tracking-tight text-[10px] sm:text-[11px] text-foreground truncate leading-none flex-1 min-w-0">{client.name}</p>
-                  {ticket !== null && tier !== 'compact' && (
+                <div className="flex items-baseline gap-2 mb-1">
+                  <span className="shrink-0 tabular-nums font-black tracking-tight leading-none text-[11px] sm:text-[12px] text-foreground">
+                    {format(safeDate(appointment.startTime), 'h:mm')}
+                  </span>
+                  <p className="font-black tracking-tight text-[13px] sm:text-[14px] text-foreground truncate leading-none flex-1 min-w-0">{client.name}</p>
+                  {ticket !== null && tier !== 'compact' && appointment.status !== 'servicing' && (
                     <span className={cn(
-                      'shrink-0 tabular-nums font-black tracking-tight leading-none text-[10px] sm:text-[11px]',
-                      profitTier === 'negative' ? 'text-destructive' : 'text-foreground/70',
+                      'shrink-0 tabular-nums font-black tracking-tight leading-none text-[12px] sm:text-[13px]',
+                      profitTier === 'negative' ? 'text-destructive' : 'text-foreground',
                     )}>
                       ${ticket.toFixed(0)}
                     </span>
                   )}
                 </div>
                 {tier !== 'compact' && (
-                  <p className="text-[8px] sm:text-[9px] font-bold text-muted-foreground uppercase tracking-widest truncate opacity-60">{service?.name || appointment.serviceName || 'Service'}</p>
+                  <p className="text-[11px] sm:text-[12px] font-bold text-muted-foreground truncate leading-snug">{service?.name || appointment.serviceName || 'Service'}</p>
                 )}
                 {holdReason && tier === 'full' && (
                   <p className="text-[8px] font-bold text-foreground/70 uppercase tracking-widest truncate">{holdReason}</p>
@@ -516,11 +519,11 @@ export function AppointmentCard({
             )}
             {canDecide && tier !== 'compact' && !confirmingDecline && (
                 <div className="flex items-center gap-1">
-                    <Button size="xs" disabled={decisionBusy} aria-label={`Accept the request from ${client.name}`} className="h-6 px-2 bg-emerald-600 text-white border-none font-black text-[8px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); runDecision('approve'); }}>Accept</Button>
+                    <Button size="xs" disabled={decisionBusy} aria-label={`Accept the request from ${client.name}`} className="h-8 px-4 bg-emerald-600 text-white border-none font-black text-[11px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); runDecision('approve'); }}>Accept</Button>
                     {declinesDirectly
-                      ? <Button size="xs" variant="outline" disabled={decisionBusy} aria-label={`Decline the request from ${client.name}`} className="h-6 px-2 border-2 font-black text-[8px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); setConfirmingDecline(true); }}>Decline</Button>
+                      ? <Button size="xs" variant="outline" disabled={decisionBusy} aria-label={`Decline the request from ${client.name}`} className="h-8 px-4 border-2 font-black text-[11px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); setConfirmingDecline(true); }}>Decline</Button>
                       : canReport
-                        ? <Button size="xs" variant="outline" disabled={decisionBusy} aria-label={`Report an issue with ${client.name}'s booking`} className="h-6 px-2 border-2 font-black text-[8px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); onReportIssue(appointment); }}>Report</Button>
+                        ? <Button size="xs" variant="outline" disabled={decisionBusy} aria-label={`Report an issue with ${client.name}'s booking`} className="h-8 px-4 border-2 font-black text-[11px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); onReportIssue(appointment); }}>Report</Button>
                         : null}
                 </div>
             )}
