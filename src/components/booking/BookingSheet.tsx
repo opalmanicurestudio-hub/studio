@@ -50,6 +50,7 @@ import { Textarea } from '../ui/textarea';
 import { Checkbox } from '../ui/checkbox';
 import { useSmartAvailability } from '@/hooks/useSmartAvailability';
 import { pickStaffForSlot } from '@/lib/availability';
+import { resolveBookingPlan } from '@/lib/deposit-policy';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const safeDate = (val: any): Date => {
@@ -495,6 +496,53 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       },
     };
   }, [service, selectedTime, dateKey, date, selectedStaffId, selectedTierId, qualifiedStaff, services, appointments, calendarEvents, scheduleProfiles, tenant, shifts, staffBlocks, dayOffBlocks, resources, tickets, maintenancePlans, methods, requiredForms, formAnswers, inspirationPhotoUrl, depositAmount]);
+
+  /**
+   * WHAT PRESSING THE BUTTON WILL ACTUALLY DO.
+   *
+   * The same resolver the booking route runs, run here so the client is told
+   * before they commit rather than after. Until this existed the flow asked
+   * for a decision and only explained it on the confirmation screen — a shop
+   * requiring a card on file collected the slot first and mentioned the card
+   * afterwards, which is exactly the order that produces a dead card and an
+   * argument.
+   *
+   * The client record is unknown at this point on a public booking, and the
+   * only thing it can change is to make the plan STRICTER (a poor history
+   * forces the deposit up front). So this can under-promise and never
+   * over-promise, and the server's own notice still shows at the end.
+   */
+  const bookingPreview = useMemo(() => {
+    if (!tenant || !service) return null;
+    try {
+      return resolveBookingPlan({ tenant, service, price: price || 0 } as any);
+    } catch {
+      return null;
+    }
+  }, [tenant, service, price]);
+
+  const previewLines = useMemo(() => {
+    if (!bookingPreview) return [] as string[];
+    const out: string[] = [];
+    const money = `$${(Number(bookingPreview.depositCents || 0) / 100).toFixed(2)}`;
+
+    if (bookingPreview.status === 'requested') {
+      out.push('This sends a request. The studio confirms before it is booked.');
+    }
+    if (Number(bookingPreview.depositCents || 0) > 0) {
+      if (bookingPreview.chargeTiming === 'at_booking') {
+        out.push(`${money} is taken now and comes off your final total.`);
+      } else if (bookingPreview.chargeTiming === 'on_approval') {
+        out.push(`${money} is taken only once the studio accepts.`);
+      } else if (bookingPreview.chargeTiming === 'on_penalty') {
+        out.push(`Nothing is taken now. ${money} only applies if you no-show or cancel late.`);
+      }
+    }
+    if (bookingPreview.requiresCardOnFile) {
+      out.push('A card is kept on file. You will add it right after booking — nothing is charged to it today.');
+    }
+    return out;
+  }, [bookingPreview]);
 
   // ── No-deposit finalize (used at the 'summary' step) ────────────────────────
   const handleConfirmBooking = () => {
@@ -1178,6 +1226,15 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                           </div>
                         </CardContent>
                       </Card>
+
+                      {previewLines.length > 0 && (
+                        <div style={{ borderRadius: r2 }} className="border-2 border-dashed p-4 space-y-1.5">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">What happens next</p>
+                          {previewLines.map((line, i) => (
+                            <p key={i} className="text-[11px] font-bold leading-relaxed text-foreground">{line}</p>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -1202,6 +1259,15 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                           <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight opacity-60">Applied to your final total at checkout</p>
                         </CardContent>
                       </Card>
+
+                      {previewLines.length > 0 && (
+                        <div style={{ borderRadius: r2 }} className="border-2 border-dashed p-4 space-y-1.5">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">What happens next</p>
+                          {previewLines.map((line, i) => (
+                            <p key={i} className="text-[11px] font-bold leading-relaxed text-foreground">{line}</p>
+                          ))}
+                        </div>
+                      )}
 
                       {depositError ? (
                         <Alert variant="destructive" style={{ borderRadius: r2 }} className="p-5 border-2">
