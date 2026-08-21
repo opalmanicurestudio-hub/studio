@@ -44,6 +44,7 @@ import { ResolveIssueSheet } from '@/components/planner/ResolveIssueSheet';
 import { resolveAuthority } from '@/lib/appointment-authority';
 import { ReportIssueDialog } from '@/components/planner/ReportIssueDialog';
 import { DayPulse } from '@/components/planner/DayPulse';
+import { submitCalendarBlock } from '@/lib/block-submit';
 import { computeServiceProfitability } from '@/lib/service-cost';
 import { useProfitabilityVisibility } from '@/hooks/useProfitabilityVisibility';
 import { AlertCircle, XCircle } from 'lucide-react';
@@ -1364,6 +1365,37 @@ function PlannerPageContent() {
         onOpenChange={setIsAddEventOpen}
         onConfirm={async (data: any) => {
           if (!firestore || !tenantId) return;
+          /* A BLOCK GOES THROUGH THE POLICY, an event does not. Blocking a
+           * calendar is a decline made in advance, so it answers to the same
+           * authority model as declining a booking; a business event on the
+           * shop's own calendar answers to nobody. */
+          if (data.type === 'blocked' && (data.staffIds || []).length > 0) {
+            const subjectId = String(data.staffIds[0]);
+            const subject = (allStaff || []).find((s: any) => s.id === subjectId);
+            const res = await submitCalendarBlock(firestore, tenantId, {
+              blockType: data.blockType || 'personal',
+              title: data.title,
+              startTime: data.startTime,
+              endTime: data.endTime,
+              allDay: !!data.allDay,
+              notes: data.notes,
+              staffIds: data.staffIds,
+              subject: {
+                id: subjectId,
+                name: (subject as any)?.name || null,
+                employmentModel: (subject as any)?.employmentModel || null,
+                role: (subject as any)?.role || null,
+              },
+              actor: { uid: currentUser?.uid, name: decidingStaffName, isManager: role === 'owner' || role === 'admin' },
+              policy: (selectedTenant as any)?.blockPolicy || null,
+              events: events || [],
+              staff: allStaff || [],
+              ownerUid: (selectedTenant as any)?.userId || null,
+            });
+            if (res.ok) { setIsAddEventOpen(false); toast({ title: res.outcome === 'requested' ? 'Sent for approval' : 'Blocked', description: res.message }); }
+            else { toast({ variant: 'destructive', title: res.reason }); }
+            return;
+          }
           const id = nanoid();
           await setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'events', id), { ...data, id, tenantId, startTime: data.startTime.toISOString(), endTime: data.endTime.toISOString() }, {});
           setIsAddEventOpen(false);
