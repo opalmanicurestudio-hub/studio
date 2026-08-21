@@ -22,6 +22,29 @@ const OVERDUE_ACTIONS: Array<{ id: 'escalate' | 'auto_accept' | 'raise_issue'; l
   { id: 'auto_accept', label: 'Accept it for them', blurb: 'Only for people who could have declined it — everyone else falls back to telling a manager.' },
 ];
 
+/**
+ * EVERY CONTROL BELOW IS DOWNSTREAM OF A DECISION ALREADY MADE.
+ *
+ * The response window, the overdue behaviour, the nudge, the auto-accept floor
+ * and the self-serve ticks were all rendered unconditionally, so a shop that
+ * had set none of it still scrolled past six controls that could not do
+ * anything. A setting that cannot take effect yet is not information — it is
+ * noise that makes the settings that DO matter harder to find.
+ *
+ * So each one appears only once its prerequisite is on:
+ *   response window > 0        → what to do when it elapses, and the nudge
+ *   overdue action = accept    → who that is allowed to happen for
+ *   ceiling = approved reasons → which reasons a provider may settle alone
+ *
+ * Turning a prerequisite back off hides its dependants but never clears them,
+ * so a shop that experiments does not lose what it configured.
+ */
+const AUTO_ACCEPT_FLOORS: Array<{ id: DecisionAuthority; label: string }> = [
+  { id: 'limited', label: 'Anyone who may decline for approved reasons' },
+  { id: 'request_approval', label: 'Anyone who may raise it with a manager' },
+  { id: 'full', label: 'Only people who answer their own bookings' },
+];
+
 const CEILINGS: Array<{ id: DecisionAuthority | 'unset'; label: string; blurb: string }> = [
   { id: 'unset', label: 'No ceiling', blurb: 'Everyone stays on whatever their working relationship gives them.' },
   { id: 'none', label: 'Assigned only', blurb: 'Eligible bookings simply appear. Employees report issues rather than decline.' },
@@ -47,6 +70,12 @@ export function AppointmentAuthoritySettings({
   const custom = p.customReasons || [];
   const hidden = p.hiddenReasonCodes || [];
   const shown = useMemo(() => resolveReasonList(p), [p]);
+  const responseHours = Number(p.providerResponseHours ?? 0);
+  /* The self-serve tick only means something when the shop has said providers
+   * may decline for approved reasons. At every other ceiling the answer is
+   * already "a manager decides", so offering the tick invites someone to set
+   * a rule that will never fire. */
+  const selfServeApplies = ceiling === 'limited';
 
   const write = (patch: Partial<AuthorityPolicy>, key: string, label: string) =>
     onSave(key, 'appointmentAuthority', { ...p, ...patch }, label);
@@ -87,6 +116,18 @@ export function AppointmentAuthoritySettings({
             A ceiling for employees and commission staff. Renters and contractors run their own book and are never
             capped here — and a manager is never capped at all.
           </p>
+          <p className="rounded-xl border-2 border-dashed px-3 py-2 text-[11px] font-bold leading-relaxed text-foreground">
+            {ceiling === 'unset'
+              ? 'Right now nothing here is capped. Everyone answers their own bookings unless their working relationship says otherwise.'
+              : ceiling === 'none'
+                ? 'Employees and commission staff report issues instead of declining. A manager handles every one.'
+                : ceiling === 'limited'
+                  ? `They may settle ${autoCodes.length} of ${shown.length} reasons themselves. Everything else comes to a manager.`
+                  : 'They may raise anything, and a manager makes every call.'}
+            {responseHours > 0
+              ? ` They have ${responseHours} ${responseHours === 1 ? 'hour' : 'hours'} to answer.`
+              : ' There is no answer deadline.'}
+          </p>
           <div className="space-y-2 rounded-2xl border-2 border-dashed px-4 py-3">
             <Label htmlFor="respond-hours" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
               How long they have to answer
@@ -113,6 +154,7 @@ export function AppointmentAuthoritySettings({
             </div>
           </div>
 
+          {responseHours > 0 && (
           <div className="space-y-2 rounded-2xl border-2 border-dashed px-4 py-3">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
               When nobody answers in time
@@ -162,7 +204,40 @@ export function AppointmentAuthoritySettings({
             <p className="text-[11px] font-bold leading-relaxed text-muted-foreground">
               A nudge is what stops most of these becoming anybody&apos;s problem. 0 turns it off.
             </p>
+
+            {p.overdueAction === 'auto_accept' && (
+              <div className="space-y-1.5 border-t-2 border-dashed pt-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                  Accept it for whom
+                </p>
+                <p className="text-[11px] font-bold leading-relaxed text-muted-foreground">
+                  Accepting on behalf of somebody who could never have declined is just an assignment with extra
+                  steps. Anyone below this falls back to telling a manager.
+                </p>
+                <div className="grid gap-1.5">
+                  {AUTO_ACCEPT_FLOORS.map(fl => {
+                    const active = (p.autoAcceptMinAuthority || 'limited') === fl.id;
+                    return (
+                      <button
+                        key={fl.id}
+                        type="button"
+                        disabled={!canEdit || !!busy}
+                        aria-pressed={active}
+                        onClick={() => write({ autoAcceptMinAuthority: fl.id }, `floor-${fl.id}`, 'Auto-accept floor')}
+                        className={cn(
+                          'rounded-xl border-2 px-3 py-2 text-left text-[12px] font-bold transition-colors disabled:opacity-40',
+                          active ? 'border-primary bg-primary/[0.05] text-foreground' : 'border-border bg-white text-muted-foreground hover:bg-muted/30',
+                        )}
+                      >
+                        {fl.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
+          )}
 
           <div className="grid gap-2">
             {CEILINGS.map(c => {
@@ -217,21 +292,23 @@ export function AppointmentAuthoritySettings({
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[12px] font-bold text-foreground">{r.label}</span>
                     <span className="block text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                      {isHidden ? 'Hidden' : isAuto ? 'They can settle it' : 'Comes to a manager'}
+                      {isHidden ? 'Hidden' : !selfServeApplies ? 'Comes to a manager' : isAuto ? 'They can settle it' : 'Comes to a manager'}
                     </span>
                   </span>
-                  <Button
-                    variant="outline" disabled={!canEdit || !!busy || isHidden}
-                    aria-pressed={isAuto}
-                    aria-label={`${isAuto ? 'Stop letting' : 'Let'} providers settle "${r.label}" themselves`}
-                    onClick={() => toggleAuto(r.code)}
-                    className={cn(
-                      'h-8 shrink-0 rounded-lg border-2 px-2.5 text-[9px] font-black uppercase tracking-widest',
-                      isAuto && 'border-primary bg-primary/[0.06] text-primary',
-                    )}
-                  >
-                    {isAuto ? 'Self-serve' : 'Manager'}
-                  </Button>
+                  {selfServeApplies && (
+                    <Button
+                      variant="outline" disabled={!canEdit || !!busy || isHidden}
+                      aria-pressed={isAuto}
+                      aria-label={`${isAuto ? 'Stop letting' : 'Let'} providers settle "${r.label}" themselves`}
+                      onClick={() => toggleAuto(r.code)}
+                      className={cn(
+                        'h-8 shrink-0 rounded-lg border-2 px-2.5 text-[9px] font-black uppercase tracking-widest',
+                        isAuto && 'border-primary bg-primary/[0.06] text-primary',
+                      )}
+                    >
+                      {isAuto ? 'Self-serve' : 'Manager'}
+                    </Button>
+                  )}
                   <Button
                     variant="ghost" disabled={!canEdit || !!busy}
                     aria-label={`${isHidden ? 'Show' : 'Hide'} "${r.label}"`}
@@ -258,17 +335,19 @@ export function AppointmentAuthoritySettings({
                   <span className="block truncate text-[12px] font-bold text-foreground">{c.label}</span>
                   <span className="block truncate text-[10px] font-black uppercase tracking-widest text-muted-foreground">{c.code}</span>
                 </span>
-                <Button
-                  variant="outline" disabled={!canEdit || !!busy}
-                  aria-pressed={autoCodes.includes(c.code)}
-                  onClick={() => toggleAuto(c.code)}
-                  className={cn(
-                    'h-8 shrink-0 rounded-lg border-2 px-2.5 text-[9px] font-black uppercase tracking-widest',
-                    autoCodes.includes(c.code) && 'border-primary bg-primary/[0.06] text-primary',
-                  )}
-                >
-                  {autoCodes.includes(c.code) ? 'Self-serve' : 'Manager'}
-                </Button>
+                {selfServeApplies && (
+                  <Button
+                    variant="outline" disabled={!canEdit || !!busy}
+                    aria-pressed={autoCodes.includes(c.code)}
+                    onClick={() => toggleAuto(c.code)}
+                    className={cn(
+                      'h-8 shrink-0 rounded-lg border-2 px-2.5 text-[9px] font-black uppercase tracking-widest',
+                      autoCodes.includes(c.code) && 'border-primary bg-primary/[0.06] text-primary',
+                    )}
+                  >
+                    {autoCodes.includes(c.code) ? 'Self-serve' : 'Manager'}
+                  </Button>
+                )}
                 <Button
                   variant="ghost" disabled={!canEdit || !!busy}
                   aria-label={`Remove "${c.label}"`}
