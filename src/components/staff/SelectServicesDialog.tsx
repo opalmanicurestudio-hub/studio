@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -64,7 +63,7 @@ export const SelectServicesDialog: React.FC<SelectServicesDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md max-h-[85dvh] overflow-y-auto overscroll-contain">
         <DialogHeader>
           <DialogTitle>Select Services</DialogTitle>
           <DialogDescription>Choose the services this staff member can perform.</DialogDescription>
