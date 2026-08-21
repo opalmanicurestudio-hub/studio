@@ -375,16 +375,41 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     return cents / 100;
   }, [service, price, matchedClient, tenant]);
 
-  // ── Streamlined step flow ───────────────────────────────────────────────────
-  // Deposit bookings get ONE combined review+payment screen ('checkout')
-  // instead of a separate summary step followed by a separate payment step.
+  /**
+   * A DEPOSIT EXISTING IS NOT THE SAME AS A DEPOSIT BEING DUE NOW.
+   *
+   * This used to route into checkout whenever the service had a deposit, which
+   * is right for a shop taking money at booking and wrong for every other
+   * timing. In approval mode the plan says chargeTiming: 'on_approval' — the
+   * deposit is taken WHEN THE STUDIO ACCEPTS — and the client was charged at
+   * booking anyway. They paid for an appointment the studio had not yet agreed
+   * to, and would have had to be refunded if it were declined.
+   *
+   * The plan decides now. Money is collected here only when the plan says
+   * at_booking; on_approval and on_penalty book without payment, and the
+   * decide route charges the card or sends a pay link at the moment it
+   * becomes real.
+   */
+  const chargeDueNow = useMemo(() => {
+    if (depositAmount <= 0) return false;
+    /* No plan resolvable (a service or tenant we could not read) → fall back
+     * to the old behaviour rather than silently skipping a payment the shop
+     * expects. */
+    if (!tenant || !service) return true;
+    try {
+      return resolveBookingPlan({ tenant, service, price: price || 0 } as any).chargeTiming === 'at_booking';
+    } catch {
+      return true;
+    }
+  }, [depositAmount, tenant, service, price]);
+
   const steps = useMemo(() => {
     const flow = ['staff', 'dateTime', 'details'];
     if (requiredForms.length > 0) flow.push('consents');
-    flow.push(depositAmount > 0 ? 'checkout' : 'summary');
+    flow.push(chargeDueNow ? 'checkout' : 'summary');
     flow.push('confirmation');
     return flow;
-  }, [requiredForms.length, depositAmount]);
+  }, [requiredForms.length, chargeDueNow]);
 
   /* The pinned bars are measured rather than estimated. Their height changes
    * with the safe-area inset, the step rail, and how long the service name
@@ -485,7 +510,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         status: 'confirmed', isWalkIn: false, source: 'online',
         inspirationPhotoUrl: inspirationPhotoUrl || undefined, notes: formValues.notes,
         depositAmount,
-        depositStatus: depositAmount > 0 ? 'pending' : 'none',
+        depositStatus: chargeDueNow ? 'pending' : 'none',
         // Written-out proof of consent. Storing the wording alongside the flag
         // is the part that actually matters if the carrier ever asks how the
         // number was collected.
