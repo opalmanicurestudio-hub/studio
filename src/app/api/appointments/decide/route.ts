@@ -184,6 +184,7 @@ export async function POST(req: NextRequest) {
    * silent confirm, no silent cancel, a real reason code on the row, and a
    * client email that says what to do next. */
   let chargeResult: { attempted: boolean; ok: boolean; reason?: string; code?: string; guidance?: string } = { attempted: false, ok: false };
+  let chargeReference = '';
   if (accepted && outcome.needsCharge && outcome.depositCents > 0 && apt.clientId) {
     try {
       const clientSnap = await db.doc(`tenants/${tenantId}/clients/${apt.clientId}`).get();
@@ -215,6 +216,11 @@ export async function POST(req: NextRequest) {
         );
         const cd = cr.data || {};
         chargeResult.ok = cr.ok && cd.ok === true;
+        if (chargeResult.ok && cd.paymentIntentId) {
+          /* The tail is what a client reads back over the phone — the whole
+           * intent id is noise to them and to whoever answers. */
+          chargeReference = String(cd.paymentIntentId).slice(-8).toUpperCase();
+        }
         if (cr.transportError) {
           // Distinguish "the card said no" from "we never got to ask" — they
           // need different words and different retry behaviour.
@@ -324,6 +330,14 @@ export async function POST(req: NextRequest) {
       reason,
       card_issue: chargeResult.guidance || '',
       hold_until: holdUntil,
+      /* A confirmation says money left; a receipt says which money, when, and
+       * what to quote if they ring up about it. Empty strings when there was
+       * no charge, so a shop that puts them in its own wording never renders
+       * "paid at undefined". */
+      paid_at: chargeResult.ok
+        ? new Date(nowIso).toLocaleString('en-US', { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+        : '',
+      reference: chargeResult.ok && chargeReference ? chargeReference : '',
       link: portalUrl,
       code: apt.shortCode ? String(apt.shortCode).toUpperCase() : '',
       studio: studioName,
