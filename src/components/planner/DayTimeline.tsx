@@ -404,6 +404,7 @@ export const DayTimeline = ({
                     onBookNewForClient={onBookNewForClient} onViewDetails={onViewDetails}
                     onApproveRequest={onApproveRequest} onDeclineRequest={onDeclineRequest}
                     onReportIssue={onReportIssue} canDeclineDirectly={canDeclineDirectly}
+                    allServices={services}
                     onResolveIssue={onResolveIssue} canResolveIssues={canResolveIssues}
                     resources={resources} transactions={allTransactions}
                 />
