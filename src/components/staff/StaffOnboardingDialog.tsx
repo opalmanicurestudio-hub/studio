@@ -53,6 +53,8 @@
 
 import React, { useState, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { ESignAgreement } from '@/components/shared/ESignAgreement';
 import { AGREEMENT_TEMPLATES, fillTemplate, saveSignedDocument, type SignedDocumentKind } from '@/lib/esign';
@@ -108,6 +110,7 @@ export function StaffOnboardingDialog({
   // If the caller forced a kind, or we already know the type, skip step 1.
   const needsClassify = !agreementKind && !savedType;
 
+  const isMobile = useIsMobile();
   const [step, setStep] = useState<Step>(needsClassify ? 'classify' : 'agreement');
   const [choice, setChoice] = useState<EmploymentType | null>(savedType);
   const [busy, setBusy] = useState(false);
@@ -241,28 +244,32 @@ export function StaffOnboardingDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) reset(); }}>
-      <DialogContent className="sm:max-w-lg rounded-[2rem] border-2 shadow-2xl p-0 max-h-[85dvh] overflow-y-auto overscroll-contain">
-        <DialogHeader className="p-6 pb-3 border-b bg-muted/5 text-left">
-          <DialogTitle className="text-xl font-black uppercase tracking-tighter">Onboard {name}</DialogTitle>
-          <DialogDescription className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
+      <DialogContent className={cn(
+        'border-2 shadow-2xl p-0 flex flex-col overflow-hidden gap-0',
+        isMobile
+          ? 'left-0 bottom-0 top-auto w-full max-w-none translate-x-0 translate-y-0 h-[92dvh] rounded-t-[2rem] rounded-b-none data-[state=open]:slide-in-from-bottom-full data-[state=closed]:slide-out-to-bottom-full'
+          : 'sm:max-w-lg rounded-[2rem] h-[min(85dvh,44rem)]',
+      )}>
+        <DialogHeader className="shrink-0 p-5 pb-4 border-b bg-muted/5 text-left space-y-1">
+          <DialogTitle className="text-[17px] font-black tracking-tight">Onboard {name}</DialogTitle>
+          <DialogDescription className="text-[12px] font-bold text-muted-foreground">
             {headerLabel}
           </DialogDescription>
           {/* progress */}
-          <div className="mt-3 flex gap-1.5">
+          <div className="flex gap-1.5 pt-1" role="progressbar" aria-valuenow={step === 'done' ? totalSteps : stepIndex + 1} aria-valuemin={1} aria-valuemax={totalSteps} aria-label="Onboarding progress">
             {Array.from({ length: totalSteps }).map((_, i) => (
               <div
                 key={i}
-                className={`h-1.5 rounded-full transition-all ${
-                  step === 'done' || i < stepIndex ? 'bg-primary w-8'
-                    : i === stepIndex ? 'bg-primary w-8'
-                    : 'bg-muted w-4'
-                }`}
+                className={cn(
+                  'h-1.5 flex-1 rounded-full transition-colors',
+                  step === 'done' || i <= stepIndex ? 'bg-primary' : 'bg-muted',
+                )}
               />
             ))}
           </div>
         </DialogHeader>
 
-        <div className="p-6">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5">
           {error && (
             <div className="mb-4 rounded-xl border-2 border-destructive/30 bg-destructive/5 px-3 py-2 text-[11px] font-bold text-destructive">
               {error}
@@ -273,7 +280,7 @@ export function StaffOnboardingDialog({
           {step === 'classify' && (
             <div className="flex flex-col gap-4">
               <div>
-                <h3 className="text-base font-black uppercase tracking-tight text-slate-900 leading-tight">
+                <h3 className="text-[16px] font-black tracking-tight text-foreground leading-tight">
                   How is {name.split(' ')[0]} classified?
                 </h3>
                 <p className="mt-1.5 text-[12px] font-medium leading-relaxed text-muted-foreground">
@@ -308,22 +315,24 @@ export function StaffOnboardingDialog({
                       type="button"
                       onClick={() => setChoice(opt.id)}
                       aria-pressed={active}
-                      className={`w-full text-left rounded-2xl border-2 p-4 transition-colors ${
-                        active ? 'border-primary bg-primary/5' : 'border-slate-200 hover:border-slate-300'
-                      }`}
+                      className={cn(
+                        'w-full text-left rounded-2xl border-2 p-4 transition-colors active:scale-[0.99]',
+                        active ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/30',
+                      )}
                     >
                       <div className="flex items-start gap-3">
-                        <span className={`mt-0.5 h-9 w-9 shrink-0 rounded-xl flex items-center justify-center ${
-                          active ? 'bg-primary text-primary-foreground' : 'bg-muted text-slate-500'
-                        }`}>
+                        <span className={cn(
+                          'mt-0.5 h-9 w-9 shrink-0 rounded-xl flex items-center justify-center',
+                          active ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
+                        )}>
                           <Icon className="h-4 w-4" />
                         </span>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="text-[13px] font-black uppercase tracking-tight text-slate-900">{opt.label}</span>
+                            <span className="text-[14px] font-black tracking-tight text-foreground">{opt.label}</span>
                             {active && <Check className="h-4 w-4 shrink-0 text-primary" />}
                           </div>
-                          <p className="mt-1 text-[12px] font-medium leading-snug text-slate-600">{opt.blurb}</p>
+                          <p className="mt-1 text-[12px] font-medium leading-snug text-muted-foreground">{opt.blurb}</p>
                           <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground">{opt.doc}</p>
                         </div>
                       </div>
@@ -348,10 +357,10 @@ export function StaffOnboardingDialog({
 
               {/* Correction notice — a bad record already exists. */}
               {isCorrection && (
-                <div className="rounded-2xl border-2 border-slate-300 bg-slate-50 p-3.5">
+                <div className="rounded-2xl border-2 border-border bg-muted/30 p-3.5">
                   <div className="flex items-start gap-2.5">
-                    <Info className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
-                    <p className="text-[12px] font-semibold leading-snug text-slate-700">
+                    <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    <p className="text-[12px] font-semibold leading-snug text-foreground">
                       {name.split(' ')[0]} previously signed an Independent Contractor Agreement. Signed
                       documents are permanent and can't be deleted, so that record stays. Signing the
                       Employment Agreement now supersedes it, and the new document will reference the old
@@ -372,7 +381,7 @@ export function StaffOnboardingDialog({
                   variant="ghost"
                   onClick={() => onOpenChange(false)}
                   disabled={busy}
-                  className="flex-1 h-12 rounded-2xl font-black uppercase tracking-widest text-[10px] text-slate-400"
+                  className="flex-1 h-12 rounded-2xl font-black uppercase tracking-widest text-[10px] text-muted-foreground"
                 >
                   Cancel
                 </Button>
@@ -392,8 +401,8 @@ export function StaffOnboardingDialog({
           {step === 'agreement' && (
             <div className="flex flex-col gap-4">
               {isCorrection && (
-                <div className="rounded-2xl border-2 border-slate-300 bg-slate-50 px-3.5 py-3">
-                  <p className="text-[11px] font-bold leading-snug text-slate-700">
+                <div className="rounded-2xl border-2 border-border bg-muted/30 px-3.5 py-3">
+                  <p className="text-[11px] font-bold leading-snug text-foreground">
                     This supersedes a previously signed Independent Contractor Agreement.
                   </p>
                 </div>
@@ -429,7 +438,7 @@ export function StaffOnboardingDialog({
                 <PartyPopper className="h-8 w-8 text-emerald-600" />
               </span>
               <div className="space-y-1">
-                <h3 className="text-lg font-black uppercase tracking-tight text-slate-900">{name} is onboarded</h3>
+                <h3 className="text-[17px] font-black tracking-tight text-foreground">{name} is onboarded</h3>
                 <p className="text-[12px] font-medium text-muted-foreground max-w-xs">
                   Both documents are signed and stored. They're cleared to be scheduled and to work.
                 </p>
@@ -437,7 +446,7 @@ export function StaffOnboardingDialog({
 
               <div className="w-full space-y-1.5 pt-2 text-left">
                 {[AGREEMENT_TEMPLATES[kind].title, AGREEMENT_TEMPLATES.house_rules.title].map(t => (
-                  <div key={t} className="flex items-center gap-2 text-[11px] font-bold text-slate-600">
+                  <div key={t} className="flex items-center gap-2 text-[11px] font-bold text-muted-foreground">
                     <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" /> {t} — signed
                   </div>
                 ))}
@@ -447,12 +456,12 @@ export function StaffOnboardingDialog({
                   Saying so is better than letting the owner assume onboarding
                   is legally finished. */}
               {employmentType === 'w2_employee' && (
-                <div className="w-full rounded-2xl border-2 border-slate-300 bg-slate-50 p-3.5 text-left">
+                <div className="w-full rounded-2xl border-2 border-border bg-muted/30 p-3.5 text-left">
                   <div className="flex items-start gap-2.5">
-                    <Info className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
+                    <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                     <div>
-                      <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Still needed for a W-2 hire</p>
-                      <p className="mt-1 text-[12px] font-semibold leading-snug text-slate-700">
+                      <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Still needed for a W-2 hire</p>
+                      <p className="mt-1 text-[12px] font-semibold leading-snug text-foreground">
                         Form W-4 and Form I-9 are required for every employee. ClarityFlow doesn't collect
                         those yet — handle them outside the app and keep them in your own personnel file.
                       </p>
