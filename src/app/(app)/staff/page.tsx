@@ -153,119 +153,159 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
         )
     }
 
+    /* ── THE ROSTER CARD ──────────────────────────────────────────────────
+     * Rebuilt for three reasons.
+     *
+     * 1. Four ghost icon buttons with tooltips. Tooltips do not exist on
+     *    touch, so on a phone this was four unlabelled squares — the same
+     *    failure the planner's menu button and the toast close button had.
+     *    Two labelled buttons and an overflow menu instead.
+     * 2. The authority set in the edit dialog — working relationship,
+     *    booking authority, whether they see money — was invisible from the
+     *    roster, so there was no way to scan who is configured how and catch
+     *    the one you forgot.
+     * 3. Status was a badge competing with everything else in the header
+     *    row. It is now a coloured left edge and a dot on the avatar, the
+     *    same grammar the appointment card uses: green on the floor, amber
+     *    on break, ink clocked out, dashed not yet onboarded.
+     */
+    const onboarded = (member as any).onboardingComplete === true;
+    const edgeClass = !onboarded
+        ? 'border-l-foreground/25 border-dashed'
+        : !member.active
+            ? 'border-l-foreground/20'
+            : member.onBreak
+                ? 'border-l-amber-600'
+                : 'border-l-emerald-600';
+    const stateLine = !onboarded
+        ? 'Not onboarded yet'
+        : !member.active
+            ? 'Clocked out'
+            : member.onBreak
+                ? 'On break'
+                : 'On the floor';
+    const dotClass = !member.active || !onboarded
+        ? 'bg-foreground/30'
+        : member.onBreak ? 'bg-amber-600' : 'bg-emerald-600';
+
+    const authorityChips: string[] = [];
+    const em = (member as any).employmentModel;
+    if (em) authorityChips.push(em === 'request_approval' ? 'Contractor' : em.charAt(0).toUpperCase() + em.slice(1));
+    const da = (member as any).decisionAuthority;
+    if (da === 'none') authorityChips.push('Reports issues');
+    else if (da === 'limited') authorityChips.push('Limited decline');
+    else if (da === 'request_approval') authorityChips.push('Manager decides');
+    else if (da === 'full') authorityChips.push('Answers own');
+    if (member.pricingTierId) {
+        const tierName = pricingTiers.find(pt => pt.id === member.pricingTierId)?.name;
+        if (tierName) authorityChips.push(tierName);
+    }
+    if (member.showOnPublicPage === false) authorityChips.push('Hidden online');
+
     return (
-        <Card className={cn("text-center flex flex-col border-2 shadow-sm rounded-[2rem] overflow-hidden", !member.active && "opacity-60 grayscale-[0.5]")}>
-            <CardHeader className="p-4 bg-muted/5 border-b">
-                 <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2">
-                        <Badge variant={member.active ? (member.onBreak ? 'secondary' : 'default') : 'outline'} className={cn("capitalize font-black text-[9px] tracking-widest px-3 h-6 border-2", {
-                            'bg-green-50 text-white border-none': member.active && !member.onBreak,
-                            'bg-amber-500 text-white border-none': member.active && member.onBreak,
-                        })}>
-                            {member.active ? (member.onBreak ? 'On Break' : 'Clocked In') : 'Clocked Out'}
-                        </Badge>
-                        {member.showOnPublicPage === false && (
-                            <TooltipProvider>
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <div className="p-1 bg-muted rounded-full">
-                                            <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />
-                                        </div>
-                                    </TooltipTrigger>
-                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Hidden from Public Booking</TooltipContent>
-                                </Tooltip>
-                            </TooltipProvider>
+        <Card className={cn(
+            "flex flex-col border-2 border-l-[3px] shadow-sm rounded-r-[1.5rem] overflow-hidden text-left",
+            edgeClass,
+            !member.active && "opacity-70",
+        )}>
+            <CardContent className="p-4 flex-1 flex flex-col gap-3">
+                <div className="flex items-center gap-3">
+                    <div className="relative shrink-0">
+                        <Avatar className="w-12 h-12 rounded-2xl border-2 border-background shadow-sm">
+                            <AvatarImage src={member.avatarUrl} alt={member.name} data-ai-hint="person portrait" className="object-cover" />
+                            <AvatarFallback className="font-black bg-primary/10 text-primary text-[13px]">{getInitials(member.name)}</AvatarFallback>
+                        </Avatar>
+                        <span className={cn("absolute -right-0.5 -bottom-0.5 h-3.5 w-3.5 rounded-full border-2 border-background", dotClass)} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <h3 className="text-[15px] font-black tracking-tight text-foreground truncate leading-tight">{member.name}</h3>
+                        <p className="text-[12px] font-bold text-muted-foreground truncate leading-snug">
+                            {member.role}{stateLine ? ` · ${stateLine}` : ''}
+                        </p>
+                    </div>
+                </div>
+
+                {authorityChips.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                        {authorityChips.map(chip => (
+                            <span key={chip} className="inline-flex items-center rounded-lg bg-foreground/[0.06] px-2 h-5 text-[10px] font-black uppercase tracking-widest text-foreground">
+                                {chip}
+                            </span>
+                        ))}
+                        {(member as any).showProfitability === true && (
+                            <span className="inline-flex items-center rounded-lg bg-primary/10 px-2 h-5 text-[10px] font-black uppercase tracking-widest text-primary">
+                                Sees money
+                            </span>
                         )}
                     </div>
-                    <div className="flex items-center gap-1.5">
-                        <TooltipProvider>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-primary/5 text-primary" onClick={() => onViewActivity(member)}>
-                                        <BarChart className="h-4 w-4" />
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent className="font-black uppercase text-[10px] tracking-widest border-2">Performance Activity</TooltipContent>
-                            </Tooltip>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-primary/5 text-primary" onClick={() => onEdit(member)}>
-                                        <Pencil className="h-4 w-4" />
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent className="font-black uppercase text-[10px] tracking-widest border-2">Modify Profile</TooltipContent>
-                            </Tooltip>
-                            {canManage && (
-                                <>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-amber-50 text-amber-600" onClick={() => onForceIdle(member.id)}>
-                                                <RefreshCw className="h-4 w-4" />
-                                            </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent className="font-black uppercase text-[10px] tracking-widest border-2">Force Idle</TooltipContent>
-                                    </Tooltip>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-destructive/5 text-destructive" onClick={() => onDelete(member)}>
-                                                <Trash2 className="h-4 w-4" />
-                                            </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent className="font-black uppercase text-[10px] tracking-widest border-2">Terminate Profile</TooltipContent>
-                                    </Tooltip>
-                                </>
-                            )}
-                        </TooltipProvider>
+                )}
+
+                <div className="flex items-start gap-5 border-t pt-3">
+                    <div className="min-w-0">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Sales</p>
+                        <p className="mt-0.5 tabular-nums text-[15px] font-black tracking-tight text-foreground leading-none">${member.stats.totalSales.toFixed(0)}</p>
                     </div>
-                </div>
-            </CardHeader>
-            <CardContent className="p-6 flex-1 flex flex-col items-center">
-                <Avatar className="w-24 h-24 mx-auto mb-4 border-4 border-background shadow-xl rounded-3xl">
-                    <AvatarImage src={member.avatarUrl} alt={member.name} data-ai-hint="person portrait" className="object-cover" />
-                    <AvatarFallback className="font-black bg-primary/10 text-primary">{getInitials(member.name)}</AvatarFallback>
-                </Avatar>
-                <h3 className="text-lg font-black uppercase tracking-tight text-slate-900">{member.name}</h3>
-                <div className="flex items-center justify-center gap-2 mt-1">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">{member.role}</p>
-                    {member.pricingTierId && <Badge variant="secondary" className="h-5 px-2 text-[8px] font-black uppercase tracking-widest bg-primary/10 text-primary border-none">{pricingTiers.find(pt => pt.id === member.pricingTierId)?.name}</Badge>}
-                </div>
-                
-                <Separator className="my-6" />
-                
-                <div className="w-full text-left space-y-3">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground text-center mb-2">Performance activity</p>
-                    <div className="flex justify-between items-center"><span className="text-[10px] font-bold text-muted-foreground uppercase">Total Sales</span><span className="font-black text-sm text-slate-900 tracking-tighter font-mono">${member.stats.totalSales.toFixed(2)}</span></div>
-                    <div className="flex justify-between items-center"><span className="text-[10px] font-bold text-muted-foreground uppercase">Tips Earned</span><span className="font-black text-sm text-green-600 tracking-tighter font-mono">${member.stats.tips.toFixed(2)}</span></div>
-                    <div className="flex justify-between items-center pt-2 border-t border-dashed border-border/50 font-black"><span className="text-[10px] uppercase text-primary">Est. Payout</span><span className="text-lg text-primary tracking-tighter font-mono">${member.stats.earnings.toFixed(2)}</span></div>
+                    <div className="min-w-0">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tips</p>
+                        <p className="mt-0.5 tabular-nums text-[15px] font-black tracking-tight text-emerald-700 leading-none">${member.stats.tips.toFixed(0)}</p>
+                    </div>
+                    <div className="min-w-0">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Payout</p>
+                        <p className="mt-0.5 tabular-nums text-[15px] font-black tracking-tight text-primary leading-none">${member.stats.earnings.toFixed(0)}</p>
+                    </div>
                 </div>
 
                 {licenseInfo && (licenseInfo.isExpired || licenseInfo.isExpiringSoon) && (
-                    <div className={cn("mt-6 text-left p-4 rounded-2xl border-2 w-full flex items-start gap-3", licenseInfo.isExpired ? "bg-destructive/5 border-destructive/10 text-destructive" : "bg-amber-50 border-amber-100 text-amber-700")}>
-                        <ShieldAlert className="h-5 w-5 shrink-0" />
-                        <div className="space-y-0.5 min-w-0">
-                            <p className="font-black uppercase tracking-tight text-[10px]">{licenseInfo.isExpired ? 'License Expired' : 'License Expiring'}</p>
-                            <p className="text-[10px] font-medium leading-relaxed">
-                                {licenseInfo.isExpired 
-                                ? `Action required. Expired on ${format(licenseInfo.expiryDate!, 'MMM d')}.`
-                                : `Renewal due. Expires in ${licenseInfo.daysUntilExpiry} days.`
-                                }
+                    <div className={cn("rounded-xl border-2 p-3 flex items-start gap-2.5", licenseInfo.isExpired ? "bg-destructive/5 border-destructive/20 text-destructive" : "bg-amber-50 border-amber-200 text-amber-800")}>
+                        <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
+                        <div className="min-w-0">
+                            <p className="font-black uppercase tracking-widest text-[10px]">{licenseInfo.isExpired ? 'License expired' : 'License expiring'}</p>
+                            <p className="text-[11px] font-bold leading-snug">
+                                {licenseInfo.isExpired
+                                    ? `Expired on ${format(licenseInfo.expiryDate!, 'MMM d')}.`
+                                    : `Expires in ${licenseInfo.daysUntilExpiry} days.`}
                             </p>
                         </div>
                     </div>
                 )}
             </CardContent>
-            <CardFooter className="p-4 border-t mt-auto flex flex-col gap-3 bg-muted/5">
-                {canManage && !(member as any).onboardingComplete && (
-                    <Button variant="outline" onClick={() => onOnboard(member)} className="w-full h-11 rounded-2xl font-black uppercase tracking-widest text-[10px] border-2 border-amber-300 text-amber-700 hover:bg-amber-50">
-                        <FileSignature className="mr-2 h-4 w-4" /> Onboard — Sign Documents
+
+            <CardFooter className="p-4 pt-0 mt-auto flex flex-col gap-2">
+                {canManage && !onboarded && (
+                    <Button variant="outline" onClick={() => onOnboard(member)} className="w-full h-10 rounded-xl font-black uppercase tracking-widest text-[11px] border-2 border-amber-300 text-amber-700 hover:bg-amber-50">
+                        <FileSignature className="mr-2 h-4 w-4" aria-hidden="true" /> Finish onboarding
                     </Button>
                 )}
-                {canManage && (member as any).onboardingComplete && (
-                    <div className="flex items-center justify-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-emerald-600">
-                        <Check className="h-3.5 w-3.5" /> Onboarding complete
-                    </div>
-                )}
-                {renderActionButtons()}
+                <div className="flex w-full items-center gap-2">
+                    <div className="flex-1 min-w-0">{renderActionButtons()}</div>
+                    {canManage && (
+                        <>
+                            <Button variant="outline" aria-label={`Edit ${member.name}`} onClick={() => onEdit(member)} className="h-10 shrink-0 rounded-xl border-2 px-3 font-black uppercase tracking-widest text-[11px]">
+                                <Pencil className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" /> Edit
+                            </Button>
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="outline" size="icon" aria-label={`More actions for ${member.name}`} className="h-10 w-10 shrink-0 rounded-xl border-2">
+                                        <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="rounded-xl border-2">
+                                    <DropdownMenuItem onSelect={() => onViewActivity(member)} className="font-bold text-[11px] uppercase tracking-widest">
+                                        <BarChart className="mr-2 h-3.5 w-3.5" aria-hidden="true" /> Performance
+                                    </DropdownMenuItem>
+                                    {member.active && (
+                                        <DropdownMenuItem onSelect={() => onForceIdle(member.id)} className="font-bold text-[11px] uppercase tracking-widest text-amber-700">
+                                            <RefreshCw className="mr-2 h-3.5 w-3.5" aria-hidden="true" /> Force idle
+                                        </DropdownMenuItem>
+                                    )}
+                                    <DropdownMenuItem onSelect={() => onDelete(member)} className="font-bold text-[11px] uppercase tracking-widest text-destructive">
+                                        <Trash2 className="mr-2 h-3.5 w-3.5" aria-hidden="true" /> Remove
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        </>
+                    )}
+                </div>
             </CardFooter>
         </Card>
     )
