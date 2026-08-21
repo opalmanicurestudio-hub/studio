@@ -16,7 +16,7 @@
  * shortlist exists to stop a manager phoning around, not to replace the check.
  */
 
-import { qualifiedFor, isCertified } from '@/lib/availability';
+import { qualifiedFor, isCertified, isExcludedPairing } from '@/lib/availability';
 
 export type CoverageCandidate = {
   id: string;
@@ -44,8 +44,10 @@ export function findCoverageOptions(input: {
   service: any;
   staff: any[];
   appointments: any[];
+  /** Optional. When given, anyone this client should not be paired with is dropped. */
+  client?: any;
 }): CoverageCandidate[] {
-  const { appointment, service, staff, appointments } = input;
+  const { appointment, service, staff, appointments, client } = input;
   if (!appointment) return [];
 
   const start = toMs(appointment.startTime);
@@ -55,7 +57,11 @@ export function findCoverageOptions(input: {
   const active = (staff || []).filter((s: any) => s && s.id && s.active !== false && s.id !== currentId);
   /* The engine's own gates, in the engine's own order. Anyone it would refuse
    * never reaches the manager as an option. */
-  const eligible = qualifiedFor(service, active).filter((s: any) => isCertified(service, s.id));
+  /* A pairing the shop has already ruled out must never be offered as cover
+   * — suggesting it puts a manager one tap from undoing their own decision. */
+  const eligible = qualifiedFor(service, active)
+    .filter((s: any) => isCertified(service, s.id))
+    .filter((s: any) => !isExcludedPairing(client, s?.id));
 
   const out: CoverageCandidate[] = [];
   for (const s of eligible) {
