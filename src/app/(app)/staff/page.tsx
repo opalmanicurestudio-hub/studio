@@ -31,12 +31,6 @@ import {
   FileSignature
 } from 'lucide-react';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -106,6 +100,7 @@ const safeDate = (val: any): Date => {
 };
 
 const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, pricingTiers, onForceIdle, onDelete, onOnboard, onCoverage, onPrintReview, canManage }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void, pricingTiers: PricingTier[], onForceIdle: (id: string) => void, onDelete: (member: Staff) => void, onOnboard: (member: Staff) => void, onCoverage: (member: Staff) => void, onPrintReview: (member: Staff & { stats: any }) => void, canManage: boolean }) => {
+    const [actionsOpen, setActionsOpen] = useState(false);
     const [licenseInfo, setLicenseInfo] = useState<{
         isExpired: boolean;
         isExpiringSoon: boolean;
@@ -307,35 +302,40 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                             <Button variant="outline" aria-label={`Edit ${member.name}`} onClick={() => onEdit(member)} className="h-10 shrink-0 rounded-xl border-2 px-3 font-black uppercase tracking-widest text-[11px]">
                                 <Pencil className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" /> Edit
                             </Button>
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button variant="outline" size="icon" aria-label={`More actions for ${member.name}`} className="h-10 w-10 shrink-0 rounded-xl border-2">
-                                        <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="rounded-xl border-2">
-                                    <DropdownMenuItem onSelect={() => onCoverage(member)} className="font-bold text-[11px] uppercase tracking-widest">
-                                        <CalendarX className="mr-2 h-3.5 w-3.5" aria-hidden="true" /> Can&apos;t work today
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onSelect={() => onViewActivity(member)} className="font-bold text-[11px] uppercase tracking-widest">
-                                        <BarChart className="mr-2 h-3.5 w-3.5" aria-hidden="true" /> Performance
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onSelect={() => onPrintReview(member)} className="font-bold text-[11px] uppercase tracking-widest">
-                                        <Printer className="mr-2 h-3.5 w-3.5" aria-hidden="true" /> Print review
-                                    </DropdownMenuItem>
-                                    {member.active && (
-                                        <DropdownMenuItem onSelect={() => onForceIdle(member.id)} className="font-bold text-[11px] uppercase tracking-widest text-amber-700">
-                                            <RefreshCw className="mr-2 h-3.5 w-3.5" aria-hidden="true" /> Force idle
-                                        </DropdownMenuItem>
-                                    )}
-                                    <DropdownMenuItem onSelect={() => onDelete(member)} className="font-bold text-[11px] uppercase tracking-widest text-destructive">
-                                        <Trash2 className="mr-2 h-3.5 w-3.5" aria-hidden="true" /> Remove
-                                    </DropdownMenuItem>
-                                </DropdownMenuContent>
-                            </DropdownMenu>
+                            <Button
+                                variant="outline"
+                                size="icon"
+                                aria-label={`More actions for ${member.name}`}
+                                aria-expanded={actionsOpen}
+                                onClick={() => setActionsOpen(v => !v)}
+                                className={cn("h-10 w-10 shrink-0 rounded-xl border-2", actionsOpen && "bg-primary text-primary-foreground border-primary")}
+                            >
+                                <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+                            </Button>
                         </>
                     )}
                 </div>
+                {canManage && actionsOpen && (
+                    <div className="w-full grid grid-cols-2 gap-2 pt-1">
+                        <Button variant="outline" onClick={() => { setActionsOpen(false); onCoverage(member); }} className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-[11px] justify-start px-3">
+                            <CalendarX className="mr-2 h-3.5 w-3.5 shrink-0" aria-hidden="true" /> Can&apos;t work
+                        </Button>
+                        <Button variant="outline" onClick={() => { setActionsOpen(false); onViewActivity(member); }} className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-[11px] justify-start px-3">
+                            <BarChart className="mr-2 h-3.5 w-3.5 shrink-0" aria-hidden="true" /> Performance
+                        </Button>
+                        <Button variant="outline" onClick={() => { setActionsOpen(false); onPrintReview(member); }} className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-[11px] justify-start px-3">
+                            <Printer className="mr-2 h-3.5 w-3.5 shrink-0" aria-hidden="true" /> Print review
+                        </Button>
+                        {member.active && (
+                            <Button variant="outline" onClick={() => { setActionsOpen(false); onForceIdle(member.id); }} className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-[11px] justify-start px-3 text-amber-700 border-amber-300 hover:bg-amber-50">
+                                <RefreshCw className="mr-2 h-3.5 w-3.5 shrink-0" aria-hidden="true" /> Force idle
+                            </Button>
+                        )}
+                        <Button variant="outline" onClick={() => { setActionsOpen(false); onDelete(member); }} className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-[11px] justify-start px-3 text-destructive border-destructive/30 hover:bg-destructive/5">
+                            <Trash2 className="mr-2 h-3.5 w-3.5 shrink-0" aria-hidden="true" /> Remove
+                        </Button>
+                    </div>
+                )}
             </CardFooter>
         </Card>
     )
@@ -480,6 +480,8 @@ export default function StaffPage() {
   const [staffToDelete, setStaffToDelete] = useState<Staff | null>(null);
   const [onboardingStaff, setOnboardingStaff] = useState<Staff | null>(null);
   const [reviewFor, setReviewFor] = useState<(Staff & { stats: any }) | null>(null);
+  const [rosterQuery, setRosterQuery] = useState('');
+  const [rosterFilter, setRosterFilter] = useState<'all' | 'in' | 'break' | 'off'>('all');
 
   const { firestore, user } = useFirebase();
   const isMobile = useIsMobile();
@@ -703,6 +705,19 @@ export default function StaffPage() {
         };
     });
   }, [staff, transactions, dateRange, appointments, inventory, activityLogs, services, selectedTenant?.tmhr]);
+
+  const visibleStaff = useMemo(() => {
+    const q = rosterQuery.trim().toLowerCase();
+    return staffWithStats
+      .filter((m) => {
+        if (rosterFilter === 'in' && !(m.active && !m.onBreak)) return false;
+        if (rosterFilter === 'break' && !m.onBreak) return false;
+        if (rosterFilter === 'off' && m.active) return false;
+        if (!q) return true;
+        return `${m.name || ''} ${m.email || ''} ${m.role || ''}`.toLowerCase().includes(q);
+      })
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [staffWithStats, rosterQuery, rosterFilter]);
 
 
   /* A call-out is one problem with six consequences. Each row is applied on
@@ -1017,11 +1032,55 @@ export default function StaffPage() {
 
                     <div className="lg:col-span-2 xl:col-span-3">
                         {(staff || []).length > 0 ? (
+                            <>
+                            <div className="mb-4 space-y-2">
+                                <div className="relative">
+                                    <Input
+                                        value={rosterQuery}
+                                        onChange={(e) => setRosterQuery(e.target.value)}
+                                        aria-label="Search team members"
+                                        placeholder="Search by name, email, or role"
+                                        className="h-12 rounded-2xl border-2 bg-white pl-4 pr-10 font-bold text-sm"
+                                    />
+                                    {rosterQuery && (
+                                        <button type="button" aria-label="Clear search" onClick={() => setRosterQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground font-black text-sm px-1">
+                                            ×
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    {([['all','Everyone'],['in','Clocked in'],['break','On break'],['off','Off']] as const).map(([key, label]) => (
+                                        <button
+                                            key={key}
+                                            type="button"
+                                            aria-pressed={rosterFilter === key}
+                                            onClick={() => setRosterFilter(key)}
+                                            className={cn(
+                                                "h-9 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest",
+                                                rosterFilter === key ? "bg-primary text-primary-foreground border-primary" : "bg-white text-muted-foreground"
+                                            )}
+                                        >
+                                            {label}
+                                        </button>
+                                    ))}
+                                    <span className="ml-auto text-[11px] font-black uppercase tracking-widest text-muted-foreground">
+                                        {visibleStaff.length} of {staffWithStats.length}
+                                    </span>
+                                </div>
+                            </div>
+                            {visibleStaff.length > 0 ? (
                             <div className="grid gap-6 md:grid-cols-1 xl:grid-cols-2">
-                                {staffWithStats.map((member) => (
+                                {visibleStaff.map((member) => (
                                 <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithAuth} pricingTiers={pricingTiers || []} onForceIdle={handleForceIdle} onDelete={handleDeleteStaffClick} onOnboard={(m) => setOnboardingStaff(m)} onCoverage={(m) => setCoverageFor(m)} onPrintReview={(m) => setReviewFor(m)} canManage={canManage} />
                                 ))}
                             </div>
+                            ) : (
+                            <div className="rounded-[2rem] border-2 border-dashed bg-white/50 py-14 text-center">
+                                <p className="text-sm font-black uppercase tracking-widest text-slate-900">No one matches</p>
+                                <p className="mt-1 text-[12px] font-bold text-muted-foreground">Try a different name or switch the filter back to Everyone.</p>
+                            </div>
+                            )}
+                            </>
                             ) : (
                             <Card className="border-4 border-dashed rounded-[3rem] opacity-40">
                                 <CardContent className="py-24 flex flex-col items-center justify-center text-center text-muted-foreground">
