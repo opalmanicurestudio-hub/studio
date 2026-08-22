@@ -405,6 +405,12 @@ service cloud.firestore {
         ]);
     }
 
+    // Job listings — public applicants read them on /apply; managers post them.
+    match /tenants/{tenantId}/jobListings/{listingId} {
+      allow get, list: if true;
+      allow create, update, delete: if isManager(tenantId);
+    }
+
     // Job applications — the public /apply/{tenantId} page creates these
     // unauthenticated; only managers can read or work them. Field checks
     // keep the public create from being used as free-form storage.
@@ -415,6 +421,7 @@ service cloud.firestore {
         && request.resource.data.name.size() <= 120
         && request.resource.data.experience.size() <= 2000
         && request.resource.data.message.size() <= 2000
+        && (!('answers' in request.resource.data) || request.resource.data.answers.size() <= 8)
         && request.resource.data.createdAt == request.time;
       allow read, list, update, delete: if isManager(tenantId);
     }
