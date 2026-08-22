@@ -17,16 +17,13 @@ import {
   Users, 
   Clock, 
   Coffee, 
-  Mail, 
   Phone, 
   Trash2, 
   KeyRound, 
   RefreshCw,
-  EyeOff,
   BarChart,
   CalendarX,
   Pencil,
-  Check,
   Loader,
   MoreHorizontal,
   ShieldAlert,
@@ -54,9 +51,7 @@ import { CoveragePlanSheet } from '@/components/staff/CoveragePlanSheet';
 import type { CoverageOutcome } from '@/lib/coverage-plan';
 import { type Staff, type Appointment, type Service, ActivityLog, type PricingTier } from '@/lib/data';
 import { AddStaffDialog, type AddStaffFormData } from '@/components/staff/AddStaffDialog';
-import { ClientOnly } from '@/components/shared/ClientOnly';
 import { nanoid } from 'nanoid';
-import { Separator } from '@/components/ui/separator';
 import { DateRange } from 'react-day-picker';
 import { format, subDays, startOfDay, endOfDay, parseISO, isPast, isSameDay, differenceInDays, differenceInMinutes, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -86,11 +81,8 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
 import { useTenant } from '@/context/TenantContext';
-import { formatPhoneNumber } from 'react-phone-number-input';
 import { useToast } from '@/hooks/use-toast';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const safeDate = (val: any): Date => {
@@ -424,14 +416,15 @@ const PricingTierCard = ({
                                 value={tier.name}
                                 onChange={(e) => handleTierChange(index, 'name', e.target.value)}
                                 disabled={!isEditing}
+                                aria-label={`Tier ${index + 1} name`}
                                 className={cn(
                                     "h-11 rounded-xl font-bold uppercase tracking-tight border-2",
                                     !isEditing && "border-transparent bg-muted/20 px-4"
                                 )}
                             />
                             {isEditing && (
-                                <Button variant="ghost" size="icon" className="h-11 w-11 rounded-xl text-destructive hover:bg-destructive/5" onClick={() => handleDeleteClick(tier)}>
-                                    <Trash2 className="w-4 h-4" />
+                                <Button variant="ghost" size="icon" aria-label={`Delete tier ${tier.name || index + 1}`} className="h-11 w-11 rounded-xl text-destructive hover:bg-destructive/5" onClick={() => handleDeleteClick(tier)}>
+                                    <Trash2 className="w-4 h-4" aria-hidden="true" />
                                 </Button>
                             )}
                         </div>
@@ -493,7 +486,6 @@ export default function StaffPage() {
     transactions,
     appointments,
     activityLogs,
-    stockCorrections,
     consentForms,
     inventory,
     isLoading,
@@ -530,10 +522,25 @@ export default function StaffPage() {
   }, [periodPreset]);
 
   const staffWithStats = useMemo(() => {
-    if (!staff || !transactions || !appointments || !stockCorrections || !activityLogs || !services || !inventory) return [];
+    if (!staff || !transactions || !appointments || !activityLogs || !services || !inventory) return [];
     
     const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
+
+    const serviceById = new Map(services.map(s => [s.id, s]));
+    const groupByStaff = <T extends { staffId?: string | null }>(items: T[]) => {
+        const m = new Map<string, T[]>();
+        for (const item of items) {
+            if (!item.staffId) continue;
+            const list = m.get(item.staffId);
+            if (list) list.push(item);
+            else m.set(item.staffId, [item]);
+        }
+        return m;
+    };
+    const appointmentsByStaff = groupByStaff(appointments);
+    const transactionsByStaff = groupByStaff(transactions);
+    const logsByStaff = groupByStaff(activityLogs);
 
     return staff.map(staffMember => {
         const filterByDate = (date: Date) => {
@@ -543,14 +550,15 @@ export default function StaffPage() {
             return true;
         };
 
-        const staffAppointments = appointments.filter(apt => apt.staffId === staffMember.id && filterByDate(safeDate(apt.startTime)));
+        const myAppointments = appointmentsByStaff.get(staffMember.id) || [];
+        const staffAppointments = myAppointments.filter(apt => filterByDate(safeDate(apt.startTime)));
         const completedAppointments = staffAppointments.filter(apt => apt.status === 'completed');
         const completedAppointmentsCount = completedAppointments.length;
       
         let totalMinutesVariance = 0;
         let totalInServiceMinutes = 0;
         completedAppointments.forEach(apt => {
-            const service = services.find(s => s.id === apt.serviceId);
+            const service = serviceById.get(apt.serviceId);
             if (apt.actualStartTime && apt.actualEndTime && service) {
                 const actualDuration = differenceInMinutes(safeDate(apt.actualEndTime), safeDate(apt.actualStartTime));
                 totalMinutesVariance += actualDuration - service.duration;
@@ -561,7 +569,7 @@ export default function StaffPage() {
         });
         const avgVariance = completedAppointmentsCount > 0 ? totalMinutesVariance / completedAppointmentsCount : 0;
 
-        const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && filterByDate(safeDate(t.date)));
+        const staffTransactions = (transactionsByStaff.get(staffMember.id) || []).filter(t => filterByDate(safeDate(t.date)));
         
         const serviceRevenue = staffTransactions
             .filter(t => t.category === 'Service Revenue')
@@ -583,7 +591,7 @@ export default function StaffPage() {
         }, 0);
 
         let totalMinutesWorked = 0;
-        const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(safeDate(log.timestamp)));
+        const staffLogs = (logsByStaff.get(staffMember.id) || []).filter(log => filterByDate(safeDate(log.timestamp)));
         const sortedLogs = staffLogs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
         let clockInTime: Date | null = null;
         let totalBreakMinutes = 0;
@@ -629,9 +637,8 @@ export default function StaffPage() {
          * today". Same cost model the planner's day strip uses, so the two
          * screens cannot disagree about the same appointment. */
         const dayStart = startOfDay(new Date());
-        const mine = (appointments || []).filter((a: any) =>
-            a.staffId === staffMember.id
-            && isSameDay(safeDate(a.startTime), dayStart)
+        const mine = myAppointments.filter((a: any) =>
+            isSameDay(safeDate(a.startTime), dayStart)
             && !isDeadAppointment(a));
 
         let todayBooked = 0;
@@ -639,9 +646,9 @@ export default function StaffPage() {
         let todayMinutes = 0;
 
         mine.forEach((a: any) => {
-            const svc = (services || []).find((s: any) => s.id === a.serviceId);
+            const svc = serviceById.get(a.serviceId);
             const addOns = (a.addOnIds || [])
-                .map((id: string) => (services || []).find((s: any) => s.id === id))
+                .map((id: string) => serviceById.get(id))
                 .filter(Boolean);
             const price = Number(svc?.price || 0)
                 + addOns.reduce((sum: number, s: any) => sum + Number(s?.price || 0), 0);
@@ -682,7 +689,7 @@ export default function StaffPage() {
             }
         };
     });
-  }, [staff, transactions, dateRange, appointments, stockCorrections, inventory, activityLogs, services, selectedTenant?.tmhr]);
+  }, [staff, transactions, dateRange, appointments, inventory, activityLogs, services, selectedTenant?.tmhr]);
 
 
   /* A call-out is one problem with six consequences. Each row is applied on
@@ -942,8 +949,9 @@ export default function StaffPage() {
                             {periodPreset === 'custom' && (
                                 <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="flex-[2] grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
                                     <div className="space-y-2 text-left">
-                                        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">Start Date</Label>
+                                        <Label htmlFor="staff-range-start" className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">Start Date</Label>
                                         <input 
+                                            id="staff-range-start"
                                             type="date" 
                                             value={dateRange?.from ? format(dateRange.from, 'yyyy-MM-dd') : ''}
                                             onChange={(e) => {
@@ -954,8 +962,9 @@ export default function StaffPage() {
                                         />
                                     </div>
                                     <div className="space-y-2 text-left">
-                                        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">End Date</Label>
+                                        <Label htmlFor="staff-range-end" className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">End Date</Label>
                                         <input 
+                                            id="staff-range-end"
                                             type="date" 
                                             value={dateRange?.to ? format(dateRange.to, 'yyyy-MM-dd') : ''}
                                             onChange={(e) => {
@@ -998,6 +1007,45 @@ export default function StaffPage() {
                         )}
                     </div>
                 </div>
+
+                {canManage && staff && staff.length > 0 && (
+                  <Card className="border-2 rounded-[2rem] overflow-hidden bg-white mt-10">
+                    <CardContent className="p-5 space-y-3">
+                      <div>
+                        <p className="text-[11px] font-black uppercase tracking-widest">Fulfilment access</p>
+                        <p className="text-[11px] font-bold text-muted-foreground mt-0.5">
+                          Who can pick, pack, buy shipping labels and cancel orders. Blank follows their staff role.
+                        </p>
+                      </div>
+                      {staff.map((m: any) => {
+                        const current = String(m.fulfilmentRole || '');
+                        const effective = permissionsFor(m);
+                        return (
+                          <div key={m.id} className="flex items-center justify-between gap-3 rounded-2xl border-2 p-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-xs font-black uppercase tracking-tight">{m.name}</p>
+                              <p className="truncate text-[11px] font-bold text-muted-foreground">
+                                {current ? describeRole(current as FulfilmentRole) : `Follows ${m.role} — ${describeRole(effective.canManage ? 'manager' : effective.canShip ? 'shipper' : effective.canPack ? 'packer' : effective.canPick ? 'picker' : 'none')}`}
+                              </p>
+                            </div>
+                            <select
+                              aria-label={`Fulfilment role for ${m.name}`}
+                              value={current}
+                              onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                                handleUpdateStaff({ ...(m as any), fulfilmentRole: e.target.value || null } as any)}
+                              className="h-10 shrink-0 rounded-xl border-2 bg-white px-2 text-[11px] font-black uppercase tracking-widest"
+                            >
+                              <option value="">Follow role</option>
+                              {FULFILMENT_ROLES.map((r) => (
+                                <option key={r} value={r}>{r}</option>
+                              ))}
+                            </select>
+                          </div>
+                        );
+                      })}
+                    </CardContent>
+                  </Card>
+                )}
             </>
         )}
       </main>
@@ -1044,44 +1092,6 @@ export default function StaffPage() {
           onComplete={() => uiToast({ title: 'Onboarding complete', description: `${onboardingStaff?.name} is cleared to work.` })}
         />
       )}
-      {canManage && staff && staff.length > 0 && (
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white mb-6">
-          <CardContent className="p-5 space-y-3">
-            <div>
-              <p className="text-[11px] font-black uppercase tracking-widest">Fulfilment access</p>
-              <p className="text-[11px] font-bold text-muted-foreground mt-0.5">
-                Who can pick, pack, buy shipping labels and cancel orders. Blank follows their staff role.
-              </p>
-            </div>
-            {staff.map((m: any) => {
-              const current = String(m.fulfilmentRole || '');
-              const effective = permissionsFor(m);
-              return (
-                <div key={m.id} className="flex items-center justify-between gap-3 rounded-2xl border-2 p-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-xs font-black uppercase tracking-tight">{m.name}</p>
-                    <p className="truncate text-[11px] font-bold text-muted-foreground">
-                      {current ? describeRole(current as FulfilmentRole) : `Follows ${m.role} — ${describeRole(effective.canManage ? 'manager' : effective.canShip ? 'shipper' : effective.canPack ? 'packer' : effective.canPick ? 'picker' : 'none')}`}
-                    </p>
-                  </div>
-                  <select
-                    aria-label={`Fulfilment role for ${m.name}`}
-                    value={current}
-                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                      handleUpdateStaff({ ...(m as any), fulfilmentRole: e.target.value || null } as any)}
-                    className="h-10 shrink-0 rounded-xl border-2 bg-white px-2 text-[11px] font-black uppercase tracking-widest"
-                  >
-                    <option value="">Follow role</option>
-                    {FULFILMENT_ROLES.map((r) => (
-                      <option key={r} value={r}>{r}</option>
-                    ))}
-                  </select>
-                </div>
-              );
-            })}
-          </CardContent>
-        </Card>
-      )}
 
       {selectedStaffMember && (
           <StaffDetailsSheet
@@ -1109,10 +1119,13 @@ export default function StaffPage() {
                 </DialogDescription>
             </DialogHeader>
             <div className="py-10 flex flex-col items-center space-y-6">
-                <Label className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground">Verification PIN</Label>
+                <Label htmlFor="staff-verify-pin" className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground">Verification PIN</Label>
                 <div className="relative w-48">
                     <input 
+                        id="staff-verify-pin"
                         type="password" 
+                        inputMode="numeric" 
+                        autoComplete="one-time-code" 
                         maxLength={4} 
                         className="text-center text-4xl font-black h-20 w-full tracking-[0.5em] bg-muted/30 border-4 rounded-3xl focus-visible:ring-primary/20 shadow-inner outline-none" 
                         value={authPin} 
