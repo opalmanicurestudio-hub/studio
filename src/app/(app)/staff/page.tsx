@@ -85,6 +85,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const safeDate = (val: any): Date => {
@@ -481,6 +482,12 @@ export default function StaffPage() {
   const [reviewFor, setReviewFor] = useState<(Staff & { stats: any }) | null>(null);
 
   const { firestore, user } = useFirebase();
+  const isMobile = useIsMobile();
+  const editingInline = Boolean(isMobile && isEditStaffOpen && editingStaff);
+
+  useEffect(() => {
+    if (editingInline) window.scrollTo({ top: 0 });
+  }, [editingInline]);
   const { selectedTenant, role } = useTenant();
   const tenantId = selectedTenant?.id;
   const studioName = selectedTenant?.name || 'the studio';
@@ -921,6 +928,18 @@ export default function StaffPage() {
             <div className="flex flex-col items-center justify-center min-h-[400px]">
                 <Loader className="h-8 w-8 animate-spin text-primary" />
             </div>
+        ) : editingInline ? (
+            <EditStaffDialog
+              inline
+              open
+              onOpenChange={setIsEditStaffOpen}
+              onSave={handleUpdateStaff}
+              staffMember={editingStaff}
+              services={services || []}
+              consentForms={consentForms || []}
+              pricingTiers={pricingTiers || []}
+              existingStaff={staff || []}
+            />
         ) : (
             <>
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-6 md:mb-10">
@@ -1066,16 +1085,18 @@ export default function StaffPage() {
         pricingTiers={pricingTiers || []}
         existingStaff={staff || []}
       />
-      <EditStaffDialog 
-        open={isEditStaffOpen} 
-        onOpenChange={setIsEditStaffOpen} 
-        onSave={handleUpdateStaff}
-        staffMember={editingStaff}
-        services={services || []}
-        consentForms={consentForms || []}
-        pricingTiers={pricingTiers || []}
-        existingStaff={staff || []}
-      />
+      {!isMobile && (
+        <EditStaffDialog 
+          open={isEditStaffOpen} 
+          onOpenChange={setIsEditStaffOpen} 
+          onSave={handleUpdateStaff}
+          staffMember={editingStaff}
+          services={services || []}
+          consentForms={consentForms || []}
+          pricingTiers={pricingTiers || []}
+          existingStaff={staff || []}
+        />
+      )}
       <CoveragePlanSheet
         open={!!coverageFor}
         onOpenChange={(v: boolean) => { if (!v) setCoverageFor(null); }}
