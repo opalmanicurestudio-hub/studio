@@ -58,10 +58,8 @@ import {
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { SelectServicesDialog } from './SelectServicesDialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Switch } from '../ui/switch';
-import { BrowseConsentFormsDialog } from '../services/BrowseConsentFormsDialog';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { getAuth, sendPasswordResetEmail } from 'firebase/auth';
@@ -141,8 +139,10 @@ const EditStaffFormInternal = ({
   const selectedServiceIds = watch('services') || [];
   const assignedFormIds = watch('assignedFormIds') || [];
 
-  const [isServicesDialogOpen, setIsServicesDialogOpen] = useState(false);
-  const [isConsentFormDialogOpen, setIsConsentFormDialogOpen] = useState(false);
+  const [servicesOpen, setServicesOpen] = useState(false);
+  const [formsOpen, setFormsOpen] = useState(false);
+  const [serviceQuery, setServiceQuery] = useState('');
+  const [formQuery, setFormQuery] = useState('');
 
   const selectedServices = useMemo(
     () => services.filter(s => selectedServiceIds.includes(s.id)),
@@ -152,6 +152,32 @@ const EditStaffFormInternal = ({
     () => consentForms.filter(f => assignedFormIds.includes(f.id)),
     [assignedFormIds, consentForms]
   );
+
+  const filteredServices = useMemo(() => {
+    const q = serviceQuery.trim().toLowerCase();
+    const list = q ? services.filter(s => (s.name || '').toLowerCase().includes(q)) : services;
+    return [...list].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [services, serviceQuery]);
+
+  const filteredForms = useMemo(() => {
+    const q = formQuery.trim().toLowerCase();
+    const list = q ? consentForms.filter(f => (f.title || '').toLowerCase().includes(q)) : consentForms;
+    return [...list].sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+  }, [consentForms, formQuery]);
+
+  const toggleService = (id: string) =>
+    setValue(
+      'services',
+      selectedServiceIds.includes(id) ? selectedServiceIds.filter(x => x !== id) : [...selectedServiceIds, id],
+      { shouldDirty: true }
+    );
+
+  const toggleForm = (id: string) =>
+    setValue(
+      'assignedFormIds',
+      assignedFormIds.includes(id) ? assignedFormIds.filter(x => x !== id) : [...assignedFormIds, id],
+      { shouldDirty: true }
+    );
 
   return (
     <div className="space-y-12">
@@ -346,12 +372,46 @@ const EditStaffFormInternal = ({
                 variant="ghost"
                 size="sm"
                 type="button"
-                onClick={() => setIsServicesDialogOpen(true)}
+                aria-expanded={servicesOpen}
+                onClick={() => setServicesOpen(v => !v)}
                 className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm"
               >
-                <PlusCircle className="w-3 h-3 mr-1.5" /> Define Skills
+                <PlusCircle className="w-3 h-3 mr-1.5" /> {servicesOpen ? 'Done' : 'Choose services'}
               </Button>
             </div>
+            {servicesOpen && (
+              <div className="rounded-2xl border-2 bg-muted/10 p-3 space-y-2">
+                <Input
+                  value={serviceQuery}
+                  onChange={(e) => setServiceQuery(e.target.value)}
+                  aria-label="Search services"
+                  placeholder="Search services"
+                  className="h-11 rounded-xl border-2 bg-white font-bold text-sm"
+                />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-72 overflow-y-auto overscroll-contain pr-1">
+                  {filteredServices.map(service => {
+                    const on = selectedServiceIds.includes(service.id);
+                    return (
+                      <button
+                        key={service.id}
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() => toggleService(service.id)}
+                        className={cn(
+                          "rounded-xl border-2 p-2.5 text-left text-[10px] font-black uppercase tracking-tight truncate",
+                          on ? "bg-primary text-primary-foreground border-primary" : "bg-white text-slate-900"
+                        )}
+                      >
+                        {service.name}
+                      </button>
+                    );
+                  })}
+                  {filteredServices.length === 0 && (
+                    <p className="col-span-full py-6 text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">No matches</p>
+                  )}
+                </div>
+              </div>
+            )}
             {selectedServices.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
                 {selectedServices.map(service => (
@@ -362,10 +422,11 @@ const EditStaffFormInternal = ({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                      aria-label={`Remove ${service.name}`}
+                      className="h-7 w-7 shrink-0 text-destructive"
                       onClick={() => setValue('services', selectedServiceIds.filter(id => id !== service.id), { shouldDirty: true })}
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                     </Button>
                   </div>
                 ))}
@@ -387,12 +448,46 @@ const EditStaffFormInternal = ({
                 variant="ghost"
                 size="sm"
                 type="button"
-                onClick={() => setIsConsentFormDialogOpen(true)}
+                aria-expanded={formsOpen}
+                onClick={() => setFormsOpen(v => !v)}
                 className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm"
               >
-                <PlusCircle className="w-3 h-3 mr-1.5" /> Assign Forms
+                <PlusCircle className="w-3 h-3 mr-1.5" /> {formsOpen ? 'Done' : 'Choose forms'}
               </Button>
             </div>
+            {formsOpen && (
+              <div className="rounded-2xl border-2 bg-muted/10 p-3 space-y-2">
+                <Input
+                  value={formQuery}
+                  onChange={(e) => setFormQuery(e.target.value)}
+                  aria-label="Search forms"
+                  placeholder="Search forms"
+                  className="h-11 rounded-xl border-2 bg-white font-bold text-sm"
+                />
+                <div className="grid grid-cols-1 gap-1.5 max-h-72 overflow-y-auto overscroll-contain pr-1">
+                  {filteredForms.map(form => {
+                    const on = assignedFormIds.includes(form.id);
+                    return (
+                      <button
+                        key={form.id}
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() => toggleForm(form.id)}
+                        className={cn(
+                          "rounded-xl border-2 p-2.5 text-left text-[10px] font-black uppercase tracking-tight truncate",
+                          on ? "bg-primary text-primary-foreground border-primary" : "bg-white text-slate-900"
+                        )}
+                      >
+                        {form.title}
+                      </button>
+                    );
+                  })}
+                  {filteredForms.length === 0 && (
+                    <p className="py-6 text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">No matches</p>
+                  )}
+                </div>
+              </div>
+            )}
             {assignedForms.length > 0 ? (
               <div className="grid grid-cols-1 gap-2 text-left">
                 {assignedForms.map(form => (
@@ -403,10 +498,11 @@ const EditStaffFormInternal = ({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7 text-destructive group-hover:opacity-100 transition-opacity"
+                      aria-label={`Remove ${form.title}`}
+                      className="h-7 w-7 shrink-0 text-destructive"
                       onClick={() => setValue('assignedFormIds', assignedFormIds.filter(id => id !== form.id), { shouldDirty: true })}
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                     </Button>
                   </div>
                 ))}
@@ -623,21 +719,6 @@ const EditStaffFormInternal = ({
           </div>
         </div>
       </div>
-
-      <SelectServicesDialog
-        open={isServicesDialogOpen}
-        onOpenChange={setIsServicesDialogOpen}
-        allServices={services}
-        initialSelected={selectedServices}
-        onSelect={(newSelection) => setValue('services', newSelection.map(s => s.id), { shouldDirty: true })}
-      />
-      <BrowseConsentFormsDialog
-        open={isConsentFormDialogOpen}
-        onOpenChange={setIsConsentFormDialogOpen}
-        onSelect={(forms) => setValue('assignedFormIds', forms.map(f => f.id), { shouldDirty: true })}
-        allForms={consentForms}
-        initialSelected={assignedForms}
-      />
     </div>
   );
 };
