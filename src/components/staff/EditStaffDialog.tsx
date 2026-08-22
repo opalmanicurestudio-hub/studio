@@ -28,7 +28,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { PhoneInput } from '@/components/ui/phone-input';
 import { type Staff, type Service, type ConsentForm, type PricingTier } from '@/lib/data';
-import { useIsMobile } from '@/hooks/use-mobile';
 import {
   User,
   CalendarIcon,
@@ -644,9 +643,8 @@ const EditStaffFormInternal = ({
 };
 
 export const EditStaffDialog: React.FC<any> = ({
-  open, onOpenChange, onSave, staffMember, services, consentForms, pricingTiers, existingStaff,
+  open, onOpenChange, onSave, staffMember, services, consentForms, pricingTiers, existingStaff, inline,
 }) => {
-  const isMobile = useIsMobile();
   const { toast: uiToast } = useToast();
   const methods = useForm<EditStaffFormData>({
     resolver: zodResolver(editStaffSchema),
@@ -724,39 +722,46 @@ export const EditStaffDialog: React.FC<any> = ({
 
   if (!staffMember) return null;
 
-  // ── Desktop: centered dialog. Mobile: bottom sheet (Dialog primitive). ───
-  if (isMobile) {
+  // ── Inline: rendered in normal page flow (mobile). Desktop: centered dialog. ──
+  if (inline) {
     return (
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="p-0 border-none flex flex-col overflow-hidden gap-0 shadow-3xl bg-background left-0 bottom-0 top-auto w-full max-w-none translate-x-0 translate-y-0 h-[92dvh] rounded-t-[1.75rem] rounded-b-none data-[state=open]:slide-in-from-bottom-full data-[state=closed]:slide-out-to-bottom-full">
+      <div className="w-full max-w-2xl mx-auto">
+        <div className="rounded-[2rem] border-2 bg-white overflow-hidden">
+          <div className="border-b bg-muted/5 px-5 py-4 text-left">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-[17px] font-black tracking-tight text-foreground leading-tight truncate">
+                  Edit {staffMember.name}
+                </h2>
+                <p className="text-[12px] font-bold text-muted-foreground">
+                  Record {staffMember.id.slice(-6).toUpperCase()}
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                type="button"
+                onClick={() => onOpenChange(false)}
+                className="h-10 shrink-0 rounded-xl font-black uppercase tracking-widest text-[11px]"
+              >
+                Back
+              </Button>
+            </div>
+          </div>
           <FormProvider {...methods}>
             <form
               id="edit-staff-strategic-form"
               onSubmit={methods.handleSubmit(handleSave)}
-              className="flex flex-col flex-1 min-h-0"
             >
-              <DialogHeader className="flex-shrink-0 space-y-0.5 text-left border-b bg-muted/5 px-5 py-4">
-                <DialogTitle className="text-[17px] font-black tracking-tight text-foreground leading-tight">
-                  Edit {staffMember.name}
-                </DialogTitle>
-                <DialogDescription className="text-[12px] font-bold text-muted-foreground">
-                  Record {staffMember.id.slice(-6).toUpperCase()}
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
-                <div className="p-6 pb-8">
-                  <EditStaffFormInternal
-                    services={services}
-                    consentForms={consentForms}
-                    pricingTiers={pricingTiers}
-                    onSendPasswordReset={handleSendPasswordReset}
-                    onRegeneratePin={handleRegeneratePin}
-                  />
-                </div>
+              <div className="p-5 pb-8">
+                <EditStaffFormInternal
+                  services={services}
+                  consentForms={consentForms}
+                  pricingTiers={pricingTiers}
+                  onSendPasswordReset={handleSendPasswordReset}
+                  onRegeneratePin={handleRegeneratePin}
+                />
               </div>
-
-              <DialogFooter className="border-t bg-background flex-shrink-0 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+              <div className="border-t bg-background px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
                 <div className="flex w-full items-center gap-2">
                   <Button
                     variant="outline"
@@ -768,16 +773,16 @@ export const EditStaffDialog: React.FC<any> = ({
                   </Button>
                   <Button
                     type="submit"
-                    className="h-12 flex-[2] rounded-xl font-black uppercase tracking-widest text-[11px] active:scale-95 transition-transform"
+                    className="h-12 flex-[2] rounded-xl font-black uppercase tracking-widest text-[11px]"
                   >
                     Save <ArrowRight className="ml-1.5 w-4 h-4" aria-hidden="true" />
                   </Button>
                 </div>
-              </DialogFooter>
+              </div>
             </form>
           </FormProvider>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </div>
     );
   }
 
