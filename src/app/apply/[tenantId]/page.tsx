@@ -9,7 +9,7 @@
  * managers read it on the Applicants view).
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { initializeApp, getApps } from 'firebase/app';
 import { getFirestore, doc, getDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
@@ -61,6 +61,7 @@ export default function ApplyPage() {
   const [message, setMessage] = useState('');
   const [agreed, setAgreed] = useState(false);
   const [website, setWebsite] = useState('');
+  const [customAnswers, setCustomAnswers] = useState<Record<string, string>>({});
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -97,6 +98,13 @@ export default function ApplyPage() {
   const businessName = tenant?.name || 'this business';
   const logoUrl = tenant?.kioskSettings?.logoUrl;
 
+  const questions = useMemo(
+    () => (Array.isArray(tenant?.applicationQuestions) ? tenant.applicationQuestions.slice(0, 8) : []),
+    [tenant]
+  );
+  const setAnswer = (id: string, value: string) =>
+    setCustomAnswers(prev => ({ ...prev, [id]: value }));
+
   const toggleAvailability = (a: string) =>
     setAvailability(prev => prev.includes(a) ? prev.filter(x => x !== a) : [...prev, a]);
 
@@ -106,6 +114,9 @@ export default function ApplyPage() {
     if (!email.trim() && !phone.trim()) e.contact = 'Add an email or a phone number so we can reach you.';
     if (email.trim() && !/^\S+@\S+\.\S+$/.test(email.trim())) e.email = 'That email doesn\u2019t look right.';
     if (!position.trim()) e.position = 'Tell us what role you\u2019re applying for.';
+    for (const q of questions) {
+      if (q?.required && !(customAnswers[q.id] || '').trim()) e[`q_${q.id}`] = 'This one\u2019s required.';
+    }
     if (!agreed) e.agreed = 'Please agree so we\u2019re allowed to contact you.';
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -136,6 +147,13 @@ export default function ApplyPage() {
         experience: experience.trim().slice(0, 2000),
         license: license.trim().slice(0, 160),
         message: message.trim().slice(0, 2000),
+        answers: questions
+          .map((q: any) => ({
+            id: String(q.id || ''),
+            label: String(q.label || '').slice(0, 140),
+            value: (customAnswers[q.id] || '').trim().slice(0, 1000),
+          }))
+          .filter((a: any) => a.value),
         status: 'new',
         source: 'link',
         createdAt: serverTimestamp(),
@@ -300,6 +318,45 @@ export default function ApplyPage() {
               <textarea id="apply-message" value={message} onChange={e => setMessage(e.target.value)} maxLength={2000} rows={3} className="w-full rounded-xl border-2 bg-white p-4 font-bold text-sm text-slate-900 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900" placeholder="Optional" />
             </div>
           </div>
+
+          {questions.length > 0 && (
+            <div className="rounded-[2rem] border-2 bg-white p-5 space-y-4">
+              <p className={fieldLabel}>A few more questions from {businessName}</p>
+              {questions.map((q: any) => {
+                const val = customAnswers[q.id] || '';
+                const err = errors[`q_${q.id}`];
+                return (
+                  <div key={q.id} className="space-y-1.5">
+                    <label htmlFor={`q-${q.id}`} className={fieldLabel}>
+                      {q.label}{q.required ? ' *' : ''}
+                    </label>
+                    {q.type === 'paragraph' ? (
+                      <textarea id={`q-${q.id}`} value={val} onChange={e => setAnswer(q.id, e.target.value)} maxLength={1000} rows={3} className={cn("w-full rounded-xl border-2 bg-white p-4 font-bold text-sm text-slate-900 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900", err && 'border-destructive')} />
+                    ) : q.type === 'choice' ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {(q.options || []).map((opt: string) => (
+                          <button key={opt} type="button" aria-pressed={val === opt} onClick={() => setAnswer(q.id, val === opt ? '' : opt)} className={cn(chipBase, val === opt ? chipOn : chipOff, err && !val && 'border-destructive')}>
+                            {opt}
+                          </button>
+                        ))}
+                      </div>
+                    ) : q.type === 'yesno' ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {['Yes', 'No'].map(opt => (
+                          <button key={opt} type="button" aria-pressed={val === opt} onClick={() => setAnswer(q.id, val === opt ? '' : opt)} className={cn(chipBase, val === opt ? chipOn : chipOff, err && !val && 'border-destructive')}>
+                            {opt}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <input id={`q-${q.id}`} value={val} onChange={e => setAnswer(q.id, e.target.value)} maxLength={1000} className={cn(fieldInput, err && 'border-destructive')} />
+                    )}
+                    {err && <p className="text-[11px] font-bold text-destructive">{err}</p>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           <div ref={errorRef} className="rounded-[2rem] border-2 bg-white p-5 space-y-4">
             <label className="flex items-start gap-3">
