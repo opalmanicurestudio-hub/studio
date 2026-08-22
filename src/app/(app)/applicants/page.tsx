@@ -139,6 +139,19 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails }: { app: any; onStat
                 <p className="mt-0.5 whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-slate-800">{app.message}</p>
               </div>
             )}
+            {Array.isArray(app.answers) && app.answers.length > 0 && (
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Their answers</p>
+                <div className="mt-1 space-y-2">
+                  {app.answers.map((a: any, i: number) => (
+                    <div key={a.id || i}>
+                      <p className="text-[11px] font-bold text-muted-foreground">{a.label}</p>
+                      <p className="whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-slate-800">{a.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {(app.email || app.phone) && (
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Contact</p>
@@ -232,6 +245,167 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails }: { app: any; onStat
     </Card>
   );
 };
+
+const QUESTION_TYPES = [
+  ['text', 'Short answer'],
+  ['paragraph', 'Paragraph'],
+  ['choice', 'Multiple choice'],
+  ['yesno', 'Yes / no'],
+] as const;
+
+const MAX_QUESTIONS = 8;
+
+const QuestionBuilder = ({ questions, onSave }: { questions: any[]; onSave: (list: any[]) => void }) => {
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<number | null>(null);
+  const [label, setLabel] = useState('');
+  const [qType, setQType] = useState<'text' | 'paragraph' | 'choice' | 'yesno'>('text');
+  const [required, setRequired] = useState(false);
+  const [optionsText, setOptionsText] = useState('');
+  const [editError, setEditError] = useState('');
+
+  const startNew = () => {
+    setEditing(-1);
+    setLabel('');
+    setQType('text');
+    setRequired(false);
+    setOptionsText('');
+    setEditError('');
+  };
+
+  const startEdit = (i: number) => {
+    const q = questions[i];
+    setEditing(i);
+    setLabel(q.label || '');
+    setQType(q.type || 'text');
+    setRequired(Boolean(q.required));
+    setOptionsText((q.options || []).join('\n'));
+    setEditError('');
+  };
+
+  const saveDraft = () => {
+    const cleanLabel = label.trim().slice(0, 140);
+    if (!cleanLabel) { setEditError('The question needs wording.'); return; }
+    const options = qType === 'choice'
+      ? optionsText.split('\n').map(o => o.trim().slice(0, 60)).filter(Boolean).slice(0, 8)
+      : [];
+    if (qType === 'choice' && options.length < 2) { setEditError('Multiple choice needs at least two options, one per line.'); return; }
+    const q = {
+      id: editing !== null && editing >= 0 ? questions[editing].id : nanoid(),
+      label: cleanLabel,
+      type: qType,
+      required,
+      options,
+    };
+    const next = [...questions];
+    if (editing !== null && editing >= 0) next[editing] = q; else next.push(q);
+    onSave(next);
+    setEditing(null);
+  };
+
+  const move = (i: number, dir: -1 | 1) => {
+    const j = i + dir;
+    if (j < 0 || j >= questions.length) return;
+    const next = [...questions];
+    [next[i], next[j]] = [next[j], next[i]];
+    onSave(next);
+  };
+
+  const remove = (i: number) => onSave(questions.filter((_, x) => x !== i));
+
+  return (
+    <Card className="rounded-[2rem] border-2 bg-white overflow-hidden">
+      <CardContent className="p-5 space-y-3">
+        <button type="button" onClick={() => setOpen(v => !v)} aria-expanded={open} className="flex w-full items-center justify-between gap-3 text-left">
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-widest text-slate-900">Application questions</p>
+            <p className="mt-0.5 text-[12px] font-bold text-muted-foreground">
+              {questions.length > 0 ? `${questions.length} custom question${questions.length === 1 ? '' : 's'} added` : 'Add your own questions to the application'}
+            </p>
+          </div>
+          <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} aria-hidden="true" />
+        </button>
+
+        {open && (
+          <div className="space-y-3 border-t-2 border-dashed pt-3">
+            <p className="text-[11px] font-bold text-muted-foreground">
+              Name, contact, role, availability, and experience are always asked. Your questions appear after those.
+            </p>
+
+            {questions.map((q, i) => (
+              <div key={q.id} className="rounded-2xl border-2 p-3">
+                {editing === i ? null : (
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-black tracking-tight text-slate-900">{q.label}</p>
+                      <p className="mt-0.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                        {(QUESTION_TYPES.find(t => t[0] === q.type)?.[1]) || 'Short answer'}{q.required ? ' · required' : ''}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 gap-1">
+                      <Button type="button" variant="outline" aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)} className="h-9 w-9 rounded-lg border-2 p-0 text-xs font-black">↑</Button>
+                      <Button type="button" variant="outline" aria-label="Move down" disabled={i === questions.length - 1} onClick={() => move(i, 1)} className="h-9 w-9 rounded-lg border-2 p-0 text-xs font-black">↓</Button>
+                      <Button type="button" variant="outline" onClick={() => startEdit(i)} className="h-9 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest">Edit</Button>
+                      <Button type="button" variant="outline" aria-label={`Remove question: ${q.label}`} onClick={() => remove(i)} className="h-9 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest text-destructive border-destructive/30">✕</Button>
+                    </div>
+                  </div>
+                )}
+                {editing === i && (
+                  <QuestionEditorFields {...{ label, setLabel, qType, setQType, required, setRequired, optionsText, setOptionsText, editError, saveDraft, cancel: () => setEditing(null) }} />
+                )}
+              </div>
+            ))}
+
+            {editing === -1 ? (
+              <div className="rounded-2xl border-2 p-3">
+                <QuestionEditorFields {...{ label, setLabel, qType, setQType, required, setRequired, optionsText, setOptionsText, editError, saveDraft, cancel: () => setEditing(null) }} />
+              </div>
+            ) : questions.length < MAX_QUESTIONS ? (
+              <Button type="button" variant="outline" onClick={startNew} className="h-11 w-full rounded-xl border-2 border-dashed text-[11px] font-black uppercase tracking-widest">
+                + Add a question
+              </Button>
+            ) : (
+              <p className="text-center text-[11px] font-bold text-muted-foreground">That&apos;s the limit — {MAX_QUESTIONS} questions keeps applying quick.</p>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
+const QuestionEditorFields = ({ label, setLabel, qType, setQType, required, setRequired, optionsText, setOptionsText, editError, saveDraft, cancel }: any) => (
+  <div className="space-y-3">
+    <div className="space-y-1.5">
+      <label htmlFor="qb-label" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Question</label>
+      <Input id="qb-label" value={label} onChange={(e) => setLabel(e.target.value)} maxLength={140} placeholder="e.g. Do you have weekend availability?" className="h-11 rounded-xl border-2 bg-white font-bold text-sm" />
+    </div>
+    <div className="space-y-1.5">
+      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Answer type</p>
+      <div className="flex flex-wrap gap-1.5">
+        {QUESTION_TYPES.map(([v, l]) => (
+          <button key={v} type="button" aria-pressed={qType === v} onClick={() => setQType(v)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', qType === v ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+            {l}
+          </button>
+        ))}
+      </div>
+    </div>
+    {qType === 'choice' && (
+      <div className="space-y-1.5">
+        <label htmlFor="qb-options" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Options — one per line</label>
+        <textarea id="qb-options" value={optionsText} onChange={(e) => setOptionsText(e.target.value)} rows={3} className="w-full rounded-xl border-2 bg-white p-3 font-bold text-sm" placeholder={'Morning\nAfternoon\nEvening'} />
+      </div>
+    )}
+    <button type="button" aria-pressed={required} onClick={() => setRequired((r: boolean) => !r)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', required ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+      {required ? 'Required ✓' : 'Optional'}
+    </button>
+    {editError && <p className="text-[11px] font-bold text-destructive">{editError}</p>}
+    <div className="flex gap-2">
+      <Button type="button" variant="outline" onClick={cancel} className="h-11 flex-1 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest">Cancel</Button>
+      <Button type="button" onClick={saveDraft} className="h-11 flex-[2] rounded-xl bg-slate-900 text-[11px] font-black uppercase tracking-widest text-white">Save question</Button>
+    </div>
+  </div>
+);
 
 export default function ApplicantsPage() {
   const { firestore } = useFirebase();
@@ -385,6 +559,16 @@ export default function ApplicantsPage() {
             <p className="text-[11px] font-bold text-slate-400">Put it in your bio, a job post, or a QR by the register — applications land here.</p>
           </CardContent>
         </Card>
+
+        {role === 'owner' && (
+          <QuestionBuilder
+            questions={((selectedTenant as any)?.applicationQuestions || []) as any[]}
+            onSave={(list) => {
+              if (!tenantId) return;
+              updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}`), { applicationQuestions: list });
+            }}
+          />
+        )}
 
         <div className="space-y-2">
           <Input
