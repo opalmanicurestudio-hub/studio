@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
-import { useFirebase, updateDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
+import { useFirebase, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
-import { Loader, Copy, Check, Share2, Send, Mail, Phone, ChevronDown, UserPlus, RefreshCw, ArrowRight } from 'lucide-react';
+import { Loader, Copy, Check, Share2, Send, Mail, Phone, ChevronDown, UserPlus, RefreshCw, ArrowRight, Briefcase } from 'lucide-react';
 
 const STATUSES = ['new', 'reviewing', 'interview', 'offer', 'hired', 'declined'] as const;
 type AppStatus = typeof STATUSES[number];
@@ -34,6 +34,9 @@ const STATUS_TONE: Record<AppStatus, string> = {
   declined: 'bg-slate-100 text-slate-500 border-slate-300',
 };
 
+const GRID_DAYS = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']] as const;
+const GRID_SLOT_LABEL: Record<string, string> = { am: 'AM', pm: 'PM', eve: 'Eve' };
+
 const safeDate = (val: any): Date | null => {
   if (!val) return null;
   if (val instanceof Date) return val;
@@ -45,12 +48,13 @@ const safeDate = (val: any): Date | null => {
 
 const makePin = () => String(Math.floor(1000 + Math.random() * 9000));
 
-const ApplicantCard = ({ app, onStatus, onHire, teamEmails }: { app: any; onStatus: (id: string, status: AppStatus) => void; onHire: (app: any, opts: { role: 'staff' | 'admin'; payStructure: string; pin: string }) => Promise<void>; teamEmails: Set<string> }) => {
+const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms }: { app: any; onStatus: (id: string, status: AppStatus) => void; onHire: (app: any, opts: { role: 'staff' | 'admin'; payStructure: string; pin: string; assignedFormIds: string[] }) => Promise<void>; teamEmails: Set<string>; consentForms: any[] }) => {
   const [open, setOpen] = useState(false);
   const [hireOpen, setHireOpen] = useState(false);
   const [hireRole, setHireRole] = useState<'staff' | 'admin'>('staff');
   const [payStructure, setPayStructure] = useState('commission');
   const [pin, setPin] = useState(makePin);
+  const [formIds, setFormIds] = useState<string[]>([]);
   const [hiring, setHiring] = useState(false);
   const [hireError, setHireError] = useState('');
   const applied = safeDate(app.createdAt);
@@ -62,7 +66,7 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails }: { app: any; onStat
     setHireError('');
     setHiring(true);
     try {
-      await onHire(app, { role: hireRole, payStructure, pin });
+      await onHire(app, { role: hireRole, payStructure, pin, assignedFormIds: formIds });
     } catch (e: any) {
       console.error(e);
       setHireError('Could not add them to the team. Nothing was saved — please try again.');
@@ -95,6 +99,9 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails }: { app: any; onStat
         </button>
 
         <div className="flex flex-wrap gap-1.5">
+          {app.listingTitle && (
+            <span className="flex items-center gap-1 rounded-lg border-2 bg-slate-900 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-white"><Briefcase className="h-3 w-3" aria-hidden="true" /> {app.listingTitle}</span>
+          )}
           {app.experienceLevel && (
             <span className="rounded-lg border-2 bg-slate-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-slate-700">{app.experienceLevel}</span>
           )}
@@ -137,6 +144,18 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails }: { app: any; onStat
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Anything else</p>
                 <p className="mt-0.5 whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-slate-800">{app.message}</p>
+              </div>
+            )}
+            {app.availabilityGrid && Object.keys(app.availabilityGrid).length > 0 && (
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Can work</p>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {GRID_DAYS.filter(([k]) => (app.availabilityGrid[k] || []).length > 0).map(([k, label]) => (
+                    <span key={k} className="rounded-lg border-2 bg-slate-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-slate-700">
+                      {label} {(app.availabilityGrid[k] || []).map((sl: string) => GRID_SLOT_LABEL[sl] || sl).join('·')}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
             {Array.isArray(app.answers) && app.answers.length > 0 && (
@@ -224,6 +243,22 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails }: { app: any; onStat
                     </Button>
                   </div>
                 </div>
+                {consentForms.length > 0 && (
+                  <div>
+                    <p className="mb-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Forms to sign during onboarding</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {consentForms.map((f: any) => {
+                        const on = formIds.includes(f.id);
+                        return (
+                          <button key={f.id} type="button" aria-pressed={on} onClick={() => setFormIds(prev => on ? prev.filter(x => x !== f.id) : [...prev, f.id])} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', on ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                            {f.title || 'Untitled form'}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="mt-1 text-[11px] font-bold text-muted-foreground">Selected forms are assigned now and collected in their onboarding.</p>
+                  </div>
+                )}
                 {hireError && (
                   <div className="rounded-xl border-2 border-destructive/40 bg-destructive/5 p-3">
                     <p className="text-[11px] font-bold text-destructive">{hireError}</p>
@@ -238,6 +273,132 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails }: { app: any; onStat
                   </Button>
                 </div>
               </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
+const ListingsManager = ({ listings, applyBase, onCreate, onUpdate, onDelete }: { listings: any[]; applyBase: string; onCreate: (l: any) => void; onUpdate: (id: string, patch: any) => void; onDelete: (id: string) => void }) => {
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [payRange, setPayRange] = useState('');
+  const [scheduleNote, setScheduleNote] = useState('');
+  const [requirements, setRequirements] = useState('');
+  const [err, setErr] = useState('');
+  const [copiedId, setCopiedId] = useState('');
+
+  const startNew = () => { setEditing('new'); setTitle(''); setDescription(''); setPayRange(''); setScheduleNote(''); setRequirements(''); setErr(''); };
+  const startEdit = (l: any) => { setEditing(l.id); setTitle(l.title || ''); setDescription(l.description || ''); setPayRange(l.payRange || ''); setScheduleNote(l.scheduleNote || ''); setRequirements(l.requirements || ''); setErr(''); };
+
+  const save = () => {
+    const t = title.trim().slice(0, 120);
+    if (!t) { setErr('The role needs a title.'); return; }
+    const body = {
+      title: t,
+      description: description.trim().slice(0, 2000),
+      payRange: payRange.trim().slice(0, 80),
+      scheduleNote: scheduleNote.trim().slice(0, 80),
+      requirements: requirements.trim().slice(0, 2000),
+    };
+    if (editing === 'new') onCreate(body); else if (editing) onUpdate(editing, body);
+    setEditing(null);
+  };
+
+  const copyLink = async (id: string) => {
+    const url = `${applyBase}?job=${id}`;
+    try { await navigator.clipboard.writeText(url); setCopiedId(id); setTimeout(() => setCopiedId(''), 2000); }
+    catch { window.prompt('Copy this link:', url); }
+  };
+
+  const sorted = [...listings].sort((a, b) => String(a.title || '').localeCompare(String(b.title || '')));
+
+  const editorFields = (
+    <div className="space-y-3">
+      <div className="space-y-1.5">
+        <label htmlFor="jl-title" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Role title</label>
+        <Input id="jl-title" value={title} onChange={e => setTitle(e.target.value)} maxLength={120} placeholder="e.g. Front desk, weekend technician" className="h-11 rounded-xl border-2 bg-white font-bold text-sm" />
+      </div>
+      <div className="space-y-1.5">
+        <label htmlFor="jl-desc" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Description</label>
+        <textarea id="jl-desc" value={description} onChange={e => setDescription(e.target.value)} maxLength={2000} rows={3} className="w-full rounded-xl border-2 bg-white p-3 font-bold text-sm" placeholder="What the job is, day to day" />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1.5">
+          <label htmlFor="jl-pay" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Pay</label>
+          <Input id="jl-pay" value={payRange} onChange={e => setPayRange(e.target.value)} maxLength={80} placeholder="e.g. $18–22/hr" className="h-11 rounded-xl border-2 bg-white font-bold text-sm" />
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor="jl-sched" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Schedule</label>
+          <Input id="jl-sched" value={scheduleNote} onChange={e => setScheduleNote(e.target.value)} maxLength={80} placeholder="e.g. Part-time, weekends" className="h-11 rounded-xl border-2 bg-white font-bold text-sm" />
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <label htmlFor="jl-req" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">What you&apos;re looking for</label>
+        <textarea id="jl-req" value={requirements} onChange={e => setRequirements(e.target.value)} maxLength={2000} rows={2} className="w-full rounded-xl border-2 bg-white p-3 font-bold text-sm" placeholder="Experience, certifications, must-haves" />
+      </div>
+      {err && <p className="text-[11px] font-bold text-destructive">{err}</p>}
+      <div className="flex gap-2">
+        <Button type="button" variant="outline" onClick={() => setEditing(null)} className="h-11 flex-1 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest">Cancel</Button>
+        <Button type="button" onClick={save} className="h-11 flex-[2] rounded-xl bg-slate-900 text-[11px] font-black uppercase tracking-widest text-white">Save role</Button>
+      </div>
+    </div>
+  );
+
+  return (
+    <Card className="rounded-[2rem] border-2 bg-white overflow-hidden">
+      <CardContent className="p-5 space-y-3">
+        <button type="button" onClick={() => setOpen(v => !v)} aria-expanded={open} className="flex w-full items-center justify-between gap-3 text-left">
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-widest text-slate-900">Open roles</p>
+            <p className="mt-0.5 text-[12px] font-bold text-muted-foreground">
+              {listings.length > 0 ? `${listings.filter((l: any) => l.status === 'open').length} open · ${listings.length} total` : 'Post the roles you\u2019re hiring for'}
+            </p>
+          </div>
+          <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} aria-hidden="true" />
+        </button>
+
+        {open && (
+          <div className="space-y-3 border-t-2 border-dashed pt-3">
+            <p className="text-[11px] font-bold text-muted-foreground">
+              With roles posted, your application link opens with the list — applicants pick one and apply to it. No roles means the general application, as now.
+            </p>
+            {sorted.map((l: any) => (
+              <div key={l.id} className="rounded-2xl border-2 p-3 space-y-2">
+                {editing === l.id ? editorFields : (
+                  <>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-[13px] font-black tracking-tight text-slate-900">{l.title}</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                          {l.status === 'open' ? 'Open' : 'Closed'}{l.payRange ? ` · ${l.payRange}` : ''}{l.scheduleNote ? ` · ${l.scheduleNote}` : ''}
+                        </p>
+                      </div>
+                      <button type="button" aria-pressed={l.status === 'open'} onClick={() => onUpdate(l.id, { status: l.status === 'open' ? 'closed' : 'open' })} className={cn('h-9 shrink-0 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest', l.status === 'open' ? 'bg-emerald-100 text-emerald-900 border-emerald-300' : 'bg-slate-100 text-slate-500')}>
+                        {l.status === 'open' ? 'Open' : 'Closed'}
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Button type="button" variant="outline" onClick={() => copyLink(l.id)} className="h-9 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest">
+                        {copiedId === l.id ? 'Copied' : 'Copy link'}
+                      </Button>
+                      <Button type="button" variant="outline" onClick={() => startEdit(l)} className="h-9 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest">Edit</Button>
+                      <Button type="button" variant="outline" aria-label={`Remove role ${l.title}`} onClick={() => onDelete(l.id)} className="h-9 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest text-destructive border-destructive/30">Remove</Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+            {editing === 'new' ? (
+              <div className="rounded-2xl border-2 p-3">{editorFields}</div>
+            ) : (
+              <Button type="button" variant="outline" onClick={startNew} className="h-11 w-full rounded-xl border-2 border-dashed text-[11px] font-black uppercase tracking-widest">
+                + Post a role
+              </Button>
             )}
           </div>
         )}
@@ -432,6 +593,18 @@ export default function ApplicantsPage() {
   );
   const { data: staff } = useCollection(staffQuery);
 
+  const consentFormsQuery = useMemoFirebase(
+    () => (tenantId && canManage) ? collection(firestore, `tenants/${tenantId}/consentForms`) : null,
+    [firestore, tenantId, canManage]
+  );
+  const { data: consentForms } = useCollection(consentFormsQuery);
+
+  const listingsQuery = useMemoFirebase(
+    () => (tenantId && canManage) ? collection(firestore, `tenants/${tenantId}/jobListings`) : null,
+    [firestore, tenantId, canManage]
+  );
+  const { data: listings } = useCollection(listingsQuery);
+
   const teamEmails = useMemo(() => {
     const s = new Set<string>();
     for (const m of (staff || []) as any[]) {
@@ -440,7 +613,7 @@ export default function ApplicantsPage() {
     return s;
   }, [staff]);
 
-  const handleHire = async (app: any, opts: { role: 'staff' | 'admin'; payStructure: string; pin: string }) => {
+  const handleHire = async (app: any, opts: { role: 'staff' | 'admin'; payStructure: string; pin: string; assignedFormIds: string[] }) => {
     if (!tenantId) throw new Error('No tenant');
     const staffId = nanoid();
     const record = {
@@ -458,7 +631,7 @@ export default function ApplicantsPage() {
       status: 'idle',
       specialties: [],
       services: [],
-      assignedFormIds: [],
+      assignedFormIds: opts.assignedFormIds || [],
       commissionRate: 40,
       retailCommissionRate: 10,
       showOnPublicPage: true,
@@ -523,7 +696,7 @@ export default function ApplicantsPage() {
         const s = STATUSES.includes(a.status) ? a.status : 'new';
         if (lane === 'active' ? (s === 'hired' || s === 'declined') : s !== lane) return false;
         if (!needle) return true;
-        return `${a.name || ''} ${a.position || ''} ${a.email || ''} ${a.phone || ''}`.toLowerCase().includes(needle);
+        return `${a.name || ''} ${a.position || ''} ${a.listingTitle || ''} ${a.email || ''} ${a.phone || ''}`.toLowerCase().includes(needle);
       })
       .sort((a, b) => (safeDate(b.createdAt)?.getTime() || 0) - (safeDate(a.createdAt)?.getTime() || 0));
   }, [applications, lane, q]);
@@ -559,6 +732,24 @@ export default function ApplicantsPage() {
             <p className="text-[11px] font-bold text-slate-400">Put it in your bio, a job post, or a QR by the register — applications land here.</p>
           </CardContent>
         </Card>
+
+        <ListingsManager
+          listings={(listings || []) as any[]}
+          applyBase={applyUrl}
+          onCreate={(body) => {
+            if (!tenantId) return;
+            const id = nanoid();
+            setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/jobListings/${id}`), { ...body, id, status: 'open', createdAt: serverTimestamp() }, { merge: false });
+          }}
+          onUpdate={(id, patch) => {
+            if (!tenantId) return;
+            updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/jobListings/${id}`), patch);
+          }}
+          onDelete={(id) => {
+            if (!tenantId) return;
+            deleteDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/jobListings/${id}`));
+          }}
+        />
 
         {role === 'owner' && (
           <QuestionBuilder
@@ -608,7 +799,7 @@ export default function ApplicantsPage() {
         ) : visible.length > 0 ? (
           <div className="space-y-4">
             {visible.map((app: any) => (
-              <ApplicantCard key={app.id} app={app} onStatus={handleStatus} onHire={handleHire} teamEmails={teamEmails} />
+              <ApplicantCard key={app.id} app={app} onStatus={handleStatus} onHire={handleHire} teamEmails={teamEmails} consentForms={(consentForms || []) as any[]} />
             ))}
           </div>
         ) : (
