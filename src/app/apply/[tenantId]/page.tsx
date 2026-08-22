@@ -12,7 +12,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { initializeApp, getApps } from 'firebase/app';
-import { getFirestore, doc, getDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, getDocs, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { Loader, CheckCircle2, AlertTriangle, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -30,7 +30,8 @@ const getDb = () => {
   return getFirestore();
 };
 
-const AVAILABILITY = ['Weekdays', 'Evenings', 'Weekends', 'Flexible'] as const;
+const DAYS = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']] as const;
+const SLOTS = [['am', 'Morning'], ['pm', 'Afternoon'], ['eve', 'Evening']] as const;
 const START_OPTIONS = ['Right away', 'Within 2 weeks', 'In a month or more'] as const;
 const EXPERIENCE_LEVELS = ['Just starting', '1–3 years', '3–5 years', '5+ years'] as const;
 
@@ -48,13 +49,15 @@ export default function ApplyPage() {
 
   const [loading, setLoading] = useState(true);
   const [tenant, setTenant] = useState<any>(null);
+  const [listings, setListings] = useState<any[]>([]);
+  const [selectedListing, setSelectedListing] = useState<any>(null);
+  const [availabilityGrid, setAvailabilityGrid] = useState<Record<string, string[]>>({});
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [position, setPosition] = useState('');
   const [experienceLevel, setExperienceLevel] = useState('');
-  const [availability, setAvailability] = useState<string[]>([]);
   const [startWhen, setStartWhen] = useState('');
   const [experience, setExperience] = useState('');
   const [license, setLicense] = useState('');
@@ -62,6 +65,13 @@ export default function ApplyPage() {
   const [agreed, setAgreed] = useState(false);
   const [website, setWebsite] = useState('');
   const [customAnswers, setCustomAnswers] = useState<Record<string, string>>({});
+  const [skipListings, setSkipListings] = useState(false);
+
+  const chooseListing = (l: any) => {
+    setSelectedListing(l);
+    setPosition(String(l?.title || ''));
+    window.scrollTo({ top: 0 });
+  };
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -79,6 +89,19 @@ export default function ApplyPage() {
         const db = getDb();
         const snap = await getDoc(doc(db, `tenants/${tenantId}`));
         if (snap.exists()) setTenant(snap.data());
+        try {
+          const listingSnap = await getDocs(collection(db, `tenants/${tenantId}/jobListings`));
+          const open = listingSnap.docs
+            .map(d => ({ id: d.id, ...d.data() } as any))
+            .filter(l => l.status === 'open')
+            .sort((a, b) => String(a.title || '').localeCompare(String(b.title || '')));
+          setListings(open);
+          const wanted = new URLSearchParams(window.location.search).get('job');
+          if (wanted) {
+            const hit = open.find(l => l.id === wanted);
+            if (hit) setSelectedListing(hit);
+          }
+        } catch { /* listings unreadable — general form still works */ }
       } catch (e) {
         console.error(e);
       } finally {
@@ -87,6 +110,15 @@ export default function ApplyPage() {
     };
     load();
   }, [tenantId]);
+
+  const toggleSlot = (day: string, slot: string) =>
+    setAvailabilityGrid(prev => {
+      const cur = prev[day] || [];
+      const next = cur.includes(slot) ? cur.filter(s => s !== slot) : [...cur, slot];
+      const out = { ...prev, [day]: next };
+      if (next.length === 0) delete out[day];
+      return out;
+    });
 
   useEffect(() => {
     try {
@@ -104,9 +136,6 @@ export default function ApplyPage() {
   );
   const setAnswer = (id: string, value: string) =>
     setCustomAnswers(prev => ({ ...prev, [id]: value }));
-
-  const toggleAvailability = (a: string) =>
-    setAvailability(prev => prev.includes(a) ? prev.filter(x => x !== a) : [...prev, a]);
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -142,7 +171,10 @@ export default function ApplyPage() {
         phone: phone.trim().slice(0, 40),
         position: position.trim().slice(0, 120),
         experienceLevel: experienceLevel.slice(0, 40),
-        availability: availability.slice(0, 4),
+        availability: [],
+        availabilityGrid,
+        listingId: selectedListing ? String(selectedListing.id) : '',
+        listingTitle: selectedListing ? String(selectedListing.title || '').slice(0, 120) : '',
         startWhen: startWhen.slice(0, 40),
         experience: experience.trim().slice(0, 2000),
         license: license.trim().slice(0, 160),
@@ -236,7 +268,46 @@ export default function ApplyPage() {
       </header>
 
       <main className="mx-auto w-full max-w-md px-4 -mt-8">
+        {listings.length > 0 && !selectedListing && !skipListings ? (
+          <div className="space-y-4">
+            <p className="px-1 text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">Open roles</p>
+            {listings.map((l: any) => (
+              <div key={l.id} className="rounded-[2rem] border-2 bg-white p-5 space-y-2">
+                <p className="text-[16px] font-black tracking-tight text-slate-900">{l.title}</p>
+                {(l.payRange || l.scheduleNote) && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {l.payRange && <span className="rounded-lg border-2 bg-slate-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-slate-700">{l.payRange}</span>}
+                    {l.scheduleNote && <span className="rounded-lg border-2 bg-slate-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-slate-700">{l.scheduleNote}</span>}
+                  </div>
+                )}
+                {l.description && <p className="whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-slate-700">{l.description}</p>}
+                {l.requirements && (
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">What we&apos;re looking for</p>
+                    <p className="mt-0.5 whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-slate-700">{l.requirements}</p>
+                  </div>
+                )}
+                <button type="button" onClick={() => chooseListing(l)} className="mt-1 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 text-[11px] font-black uppercase tracking-widest text-white">
+                  Apply for this role <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
+            ))}
+            <button type="button" onClick={() => { setSkipListings(true); window.scrollTo({ top: 0 }); }} className="h-12 w-full rounded-xl border-2 border-dashed bg-white/60 text-[11px] font-black uppercase tracking-widest text-slate-700">
+              Something else? Send a general application
+            </button>
+          </div>
+        ) : (
         <form onSubmit={handleSubmit} noValidate className="space-y-4">
+          {(selectedListing || (skipListings && listings.length > 0)) && (
+            <div className="flex items-center justify-between gap-3 rounded-2xl border-2 bg-white p-3">
+              <p className="min-w-0 truncate text-[12px] font-black uppercase tracking-widest text-slate-900">
+                {selectedListing ? `Applying: ${selectedListing.title}` : 'General application'}
+              </p>
+              <button type="button" onClick={() => { setSelectedListing(null); setSkipListings(false); if (selectedListing) setPosition(''); }} className="shrink-0 text-[11px] font-black uppercase tracking-widest text-muted-foreground underline">
+                Change
+              </button>
+            </div>
+          )}
           <div className="relative rounded-[2rem] border-2 bg-white p-5 space-y-4">
             <p className={fieldLabel}>About you</p>
             <div className="space-y-1.5">
@@ -262,11 +333,13 @@ export default function ApplyPage() {
 
           <div className="rounded-[2rem] border-2 bg-white p-5 space-y-4">
             <p className={fieldLabel}>The role</p>
+            {!selectedListing && (
             <div className="space-y-1.5">
               <label htmlFor="apply-position" className={fieldLabel}>What role are you applying for?</label>
               <input id="apply-position" value={position} onChange={e => setPosition(e.target.value)} maxLength={120} className={cn(fieldInput, errors.position && 'border-destructive')} placeholder="e.g. front desk, technician, server" />
               {errors.position && <p className="text-[11px] font-bold text-destructive">{errors.position}</p>}
             </div>
+            )}
             <div className="space-y-1.5">
               <p className={fieldLabel}>Experience level</p>
               <div className="flex flex-wrap gap-1.5">
@@ -286,14 +359,30 @@ export default function ApplyPage() {
           <div className="rounded-[2rem] border-2 bg-white p-5 space-y-4">
             <p className={fieldLabel}>Availability</p>
             <div className="space-y-1.5">
-              <p className={fieldLabel}>When can you work?</p>
-              <div className="flex flex-wrap gap-1.5">
-                {AVAILABILITY.map(a => (
-                  <button key={a} type="button" aria-pressed={availability.includes(a)} onClick={() => toggleAvailability(a)} className={cn(chipBase, availability.includes(a) ? chipOn : chipOff)}>
-                    {a}
-                  </button>
+              <p className={fieldLabel}>Tap the times you can work</p>
+              <div className="space-y-1.5">
+                {DAYS.map(([dayKey, dayLabel]) => (
+                  <div key={dayKey} className="flex items-center gap-1.5">
+                    <span className="w-10 shrink-0 text-[11px] font-black uppercase tracking-widest text-slate-700">{dayLabel}</span>
+                    {SLOTS.map(([slotKey, slotLabel]) => {
+                      const on = (availabilityGrid[dayKey] || []).includes(slotKey);
+                      return (
+                        <button
+                          key={slotKey}
+                          type="button"
+                          aria-pressed={on}
+                          aria-label={`${dayLabel} ${slotLabel}`}
+                          onClick={() => toggleSlot(dayKey, slotKey)}
+                          className={cn('h-10 flex-1 rounded-lg border-2 text-[10px] font-black uppercase tracking-wider', on ? chipOn : chipOff)}
+                        >
+                          {slotLabel.slice(0, 3)}
+                        </button>
+                      );
+                    })}
+                  </div>
                 ))}
               </div>
+              <p className="text-[11px] font-bold text-muted-foreground">Leave a day blank if you can&apos;t work it.</p>
             </div>
             <div className="space-y-1.5">
               <p className={fieldLabel}>When could you start?</p>
@@ -376,6 +465,7 @@ export default function ApplyPage() {
             </button>
           </div>
         </form>
+        )}
       </main>
     </div>
   );
