@@ -9,9 +9,6 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
   DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  Sheet, SheetContent,
-} from '@/components/ui/sheet';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -23,7 +20,6 @@ import { ImageUpload } from '@/components/shared/ImageUpload';
 import { PhoneInput } from '@/components/ui/phone-input';
 import { type Staff, type Service, type ConsentForm, type PricingTier } from '@/lib/data';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { ScrollArea } from '../ui/scroll-area';
 import {
   User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2,
   BookText, Instagram, Link as LinkIcon, Facebook, Twitter, Film,
@@ -160,7 +156,6 @@ const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
           <PhoneInput name="phone" label="" />
         </div>
 
-        {/* PIN block */}
         <div className="p-6 bg-primary/5 rounded-[2.5rem] border-4 border-primary/10 space-y-4 shadow-inner">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -533,7 +528,7 @@ const Step3 = () => {
 };
 
 // ─── SHARED FORM BODY ─────────────────────────────────────────────────────────
-// Extracted so it renders identically inside both Dialog and Sheet containers.
+// Shared by the mobile bottom sheet and the desktop dialog.
 const WizardFormBody = ({
   step,
   totalSteps,
@@ -572,20 +567,15 @@ const WizardFormBody = ({
       </div>
     </DialogHeader>
 
-    {/*
-      KEY FIX: min-h-0 on ScrollArea is required for scroll to work inside
-      a flex column. Without it the flex item won't shrink below its content
-      height, so overflow is never triggered and the scroll never appears.
-    */}
-    <ScrollArea className="flex-1 min-h-0">
+    <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
       <div className={cn('pb-8', isMobile ? 'p-6' : 'p-8')}>
         {step === 1 && <Step1 pricingTiers={pricingTiers} />}
         {step === 2 && <Step2 services={services} consentForms={consentForms} />}
         {step === 3 && <Step3 />}
       </div>
-    </ScrollArea>
+    </div>
 
-    <DialogFooter className={cn('border-t bg-background flex-shrink-0 shadow-2xl', isMobile ? 'p-4' : 'p-6 sm:p-8 pt-4')}>
+    <DialogFooter className={cn('border-t bg-background flex-shrink-0 shadow-2xl', isMobile ? 'px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]' : 'p-6 sm:p-8 pt-4')}>
       <div className="flex w-full gap-4">
         {step > 1 && (
           <Button
@@ -723,14 +713,11 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
     onClose: () => onOpenChange(false),
   };
 
-  // ── Mobile: Sheet from bottom ──────────────────────────────────────────────
+  // ── Mobile: bottom sheet (Dialog primitive) ───────────────────────────────
   if (isMobile) {
     return (
-      <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent
-          side="bottom"
-          className="p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden h-[92dvh] rounded-t-[2.5rem]"
-        >
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="p-0 border-none bg-background flex flex-col overflow-hidden gap-0 shadow-3xl left-0 bottom-0 top-auto w-full max-w-none translate-x-0 translate-y-0 h-[92dvh] rounded-t-[2.5rem] rounded-b-none data-[state=open]:slide-in-from-bottom-full data-[state=closed]:slide-out-to-bottom-full">
           <FormProvider {...methods}>
             <form
               id="add-staff-wizard-form"
@@ -740,19 +727,13 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
               <WizardFormBody {...sharedProps} />
             </form>
           </FormProvider>
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
     );
   }
 
-  // ── Desktop: Dialog ────────────────────────────────────────────────────────
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/*
-        KEY FIX: h-[90dvh] gives DialogContent a concrete height so the flex
-        children can divide space. ScrollArea's flex-1 only works when its
-        parent has a defined height — max-h alone doesn't provide that.
-      */}
       <DialogContent className="p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden sm:max-w-4xl h-[90dvh]">
         <FormProvider {...methods}>
           <form
