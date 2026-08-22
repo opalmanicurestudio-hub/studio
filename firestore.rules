@@ -405,6 +405,20 @@ service cloud.firestore {
         ]);
     }
 
+    // Job applications — the public /apply/{tenantId} page creates these
+    // unauthenticated; only managers can read or work them. Field checks
+    // keep the public create from being used as free-form storage.
+    match /tenants/{tenantId}/applications/{applicationId} {
+      allow create: if request.resource.data.status == 'new'
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 120
+        && request.resource.data.experience.size() <= 2000
+        && request.resource.data.message.size() <= 2000
+        && request.resource.data.createdAt == request.time;
+      allow read, list, update, delete: if isManager(tenantId);
+    }
+
     // v79 — LEGACY, compatibility window only. /api/checkins now writes
     // the scoped tenants/{id}/appointmentCheckIns (rules above) and
     // mirrors here so old readers keep working. TO CLOSE THIS HOLE:
