@@ -85,12 +85,14 @@ const COMMERCE = [
 
 const TEAM_FULL = [
   { href: '/staff',      icon: Users,        label: 'Pro Team'       },
+  { href: '/applicants', icon: Send,         label: 'Applicants'     },
   { href: '/schedule',   icon: CalendarDays, label: 'Shift Schedule' },
   { href: '/timesheets', icon: ClipboardList,label: 'Timesheets'     },
 ];
 
 const TEAM_ADMIN = [
   { href: '/staff',      icon: Users,        label: 'Pro Team'       },
+  { href: '/applicants', icon: Send,         label: 'Applicants'     },
   { href: '/schedule',   icon: CalendarDays, label: 'Shift Schedule' },
   { href: '/timesheets', icon: ClipboardList,label: 'Timesheets'     },
 ];
