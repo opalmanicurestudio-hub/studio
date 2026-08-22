@@ -486,10 +486,11 @@ export default function StaffPage() {
   const { firestore, user } = useFirebase();
   const isMobile = useIsMobile();
   const editingInline = Boolean(isMobile && isEditStaffOpen && editingStaff);
+  const addingInline = Boolean(isMobile && isAddStaffOpen);
 
   useEffect(() => {
-    if (editingInline) window.scrollTo({ top: 0 });
-  }, [editingInline]);
+    if (editingInline || addingInline) window.scrollTo({ top: 0 });
+  }, [editingInline, addingInline]);
   const { selectedTenant, role } = useTenant();
   const tenantId = selectedTenant?.id;
   const studioName = selectedTenant?.name || 'the studio';
@@ -955,6 +956,17 @@ export default function StaffPage() {
               pricingTiers={pricingTiers || []}
               existingStaff={staff || []}
             />
+        ) : addingInline ? (
+            <AddStaffDialog
+              inline
+              open
+              onOpenChange={setIsAddStaffOpen}
+              onSave={handleAddStaff}
+              services={services || []}
+              consentForms={consentForms || []}
+              pricingTiers={pricingTiers || []}
+              existingStaff={staff || []}
+            />
         ) : (
             <>
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-6 md:mb-10">
@@ -1135,15 +1147,17 @@ export default function StaffPage() {
         )}
       </main>
 
-      <AddStaffDialog 
-        open={isAddStaffOpen} 
-        onOpenChange={setIsAddStaffOpen} 
-        onSave={handleAddStaff}
-        services={services || []}
-        consentForms={consentForms || []}
-        pricingTiers={pricingTiers || []}
-        existingStaff={staff || []}
-      />
+      {!isMobile && (
+        <AddStaffDialog 
+          open={isAddStaffOpen} 
+          onOpenChange={setIsAddStaffOpen} 
+          onSave={handleAddStaff}
+          services={services || []}
+          consentForms={consentForms || []}
+          pricingTiers={pricingTiers || []}
+          existingStaff={staff || []}
+        />
+      )}
       {!isMobile && (
         <EditStaffDialog 
           open={isEditStaffOpen} 
