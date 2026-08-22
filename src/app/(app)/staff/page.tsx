@@ -24,6 +24,7 @@ import {
   BarChart,
   CalendarX,
   Pencil,
+  Printer,
   Loader,
   MoreHorizontal,
   ShieldAlert,
@@ -60,6 +61,7 @@ import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocu
 import { FULFILMENT_ROLES, describeRole, permissionsFor, type FulfilmentRole } from '@/lib/fulfilment-access';
 import { collection, doc, writeBatch, deleteField, setDoc } from 'firebase/firestore';
 import { EditStaffDialog } from '@/components/staff/EditStaffDialog';
+import { PrintableStaffReport } from '@/components/staff/PrintableStaffReport';
 import { StaffOnboardingDialog } from '@/components/staff/StaffOnboardingDialog';
 import {
   AlertDialog,
@@ -102,7 +104,7 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, pricingTiers, onForceIdle, onDelete, onOnboard, onCoverage, canManage }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void, pricingTiers: PricingTier[], onForceIdle: (id: string) => void, onDelete: (member: Staff) => void, onOnboard: (member: Staff) => void, onCoverage: (member: Staff) => void, canManage: boolean }) => {
+const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, pricingTiers, onForceIdle, onDelete, onOnboard, onCoverage, onPrintReview, canManage }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void, pricingTiers: PricingTier[], onForceIdle: (id: string) => void, onDelete: (member: Staff) => void, onOnboard: (member: Staff) => void, onCoverage: (member: Staff) => void, onPrintReview: (member: Staff & { stats: any }) => void, canManage: boolean }) => {
     const [licenseInfo, setLicenseInfo] = useState<{
         isExpired: boolean;
         isExpiringSoon: boolean;
@@ -317,6 +319,9 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                                     <DropdownMenuItem onSelect={() => onViewActivity(member)} className="font-bold text-[11px] uppercase tracking-widest">
                                         <BarChart className="mr-2 h-3.5 w-3.5" aria-hidden="true" /> Performance
                                     </DropdownMenuItem>
+                                    <DropdownMenuItem onSelect={() => onPrintReview(member)} className="font-bold text-[11px] uppercase tracking-widest">
+                                        <Printer className="mr-2 h-3.5 w-3.5" aria-hidden="true" /> Print review
+                                    </DropdownMenuItem>
                                     {member.active && (
                                         <DropdownMenuItem onSelect={() => onForceIdle(member.id)} className="font-bold text-[11px] uppercase tracking-widest text-amber-700">
                                             <RefreshCw className="mr-2 h-3.5 w-3.5" aria-hidden="true" /> Force idle
@@ -473,6 +478,7 @@ export default function StaffPage() {
   const [pendingStatusAction, setPendingStatusAction] = useState<{ staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end' } | null>(null);
   const [staffToDelete, setStaffToDelete] = useState<Staff | null>(null);
   const [onboardingStaff, setOnboardingStaff] = useState<Staff | null>(null);
+  const [reviewFor, setReviewFor] = useState<(Staff & { stats: any }) | null>(null);
 
   const { firestore, user } = useFirebase();
   const { selectedTenant, role } = useTenant();
@@ -907,7 +913,8 @@ export default function StaffPage() {
   };
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+    <>
+    <div className={cn("flex min-h-screen w-full flex-col bg-slate-50/50", reviewFor && "print:hidden")}>
       <AppHeader title="Team Intelligence" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0">
         {isLoading || staffLoading || pricingTiersLoading ? (
@@ -993,7 +1000,7 @@ export default function StaffPage() {
                         {(staff || []).length > 0 ? (
                             <div className="grid gap-6 md:grid-cols-1 xl:grid-cols-2">
                                 {staffWithStats.map((member) => (
-                                <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithAuth} pricingTiers={pricingTiers || []} onForceIdle={handleForceIdle} onDelete={handleDeleteStaffClick} onOnboard={(m) => setOnboardingStaff(m)} onCoverage={(m) => setCoverageFor(m)} canManage={canManage} />
+                                <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithAuth} pricingTiers={pricingTiers || []} onForceIdle={handleForceIdle} onDelete={handleDeleteStaffClick} onOnboard={(m) => setOnboardingStaff(m)} onCoverage={(m) => setCoverageFor(m)} onPrintReview={(m) => setReviewFor(m)} canManage={canManage} />
                                 ))}
                             </div>
                             ) : (
@@ -1160,5 +1167,16 @@ export default function StaffPage() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+    {reviewFor && (
+      <PrintableStaffReport
+        member={reviewFor}
+        businessName={studioName}
+        dateRange={dateRange}
+        activityLogs={activityLogs || []}
+        transactions={transactions || []}
+        onDone={() => setReviewFor(null)}
+      />
+    )}
+    </>
   );
 }
