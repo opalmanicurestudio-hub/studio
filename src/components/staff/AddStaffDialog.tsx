@@ -100,6 +100,7 @@ interface AddStaffDialogProps {
   consentForms: ConsentForm[];
   pricingTiers: PricingTier[];
   existingStaff?: Staff[];
+  inline?: boolean;
 }
 
 const SectionHeader = ({ icon: Icon, title, step }: { icon: any; title: string; step: number | string }) => (
@@ -620,7 +621,7 @@ const WizardFormBody = ({
 
 // ─── MAIN DIALOG ──────────────────────────────────────────────────────────────
 export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
-  open, onOpenChange, onSave, services, consentForms, pricingTiers, existingStaff,
+  open, onOpenChange, onSave, services, consentForms, pricingTiers, existingStaff, inline,
 }) => {
   const [step, setStep] = useState(1);
   const totalSteps = 3;
@@ -713,22 +714,22 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
     onClose: () => onOpenChange(false),
   };
 
-  // ── Mobile: bottom sheet (Dialog primitive) ───────────────────────────────
-  if (isMobile) {
+  // ── Inline: rendered in normal page flow (mobile). Desktop: centered dialog. ──
+  if (inline) {
     return (
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="p-0 border-none bg-background flex flex-col overflow-hidden gap-0 shadow-3xl left-0 bottom-0 top-auto w-full max-w-none translate-x-0 translate-y-0 h-[92dvh] rounded-t-[2.5rem] rounded-b-none data-[state=open]:slide-in-from-bottom-full data-[state=closed]:slide-out-to-bottom-full">
+      <div className="w-full max-w-2xl mx-auto">
+        <div className="rounded-[2rem] border-2 bg-white overflow-hidden">
           <FormProvider {...methods}>
             <form
               id="add-staff-wizard-form"
               onSubmit={handleFormSubmit}
-              className="flex flex-col flex-1 min-h-0"
+              className="flex flex-col"
             >
               <WizardFormBody {...sharedProps} />
             </form>
           </FormProvider>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </div>
     );
   }
 
