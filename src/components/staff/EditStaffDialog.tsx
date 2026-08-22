@@ -13,10 +13,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  Sheet,
-  SheetContent,
-} from '@/components/ui/sheet';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -33,7 +29,6 @@ import { ImageUpload } from '@/components/shared/ImageUpload';
 import { PhoneInput } from '@/components/ui/phone-input';
 import { type Staff, type Service, type ConsentForm, type PricingTier } from '@/lib/data';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   User,
   CalendarIcon,
@@ -729,15 +724,11 @@ export const EditStaffDialog: React.FC<any> = ({
 
   if (!staffMember) return null;
 
-  // ── Desktop: Dialog. Mobile: Sheet from bottom. ──────────────────────────
+  // ── Desktop: centered dialog. Mobile: bottom sheet (Dialog primitive). ───
   if (isMobile) {
     return (
-      <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent
-          side="bottom"
-          className="p-0 border-none flex flex-col shadow-3xl overflow-hidden inset-x-0 bottom-0 top-auto h-[92dvh] rounded-t-[1.75rem]"
-         style={{ backdropFilter: 'none', WebkitBackdropFilter: 'none', backgroundColor: 'hsl(var(--background))' }}
-        >
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="p-0 border-none flex flex-col overflow-hidden gap-0 shadow-3xl bg-background left-0 bottom-0 top-auto w-full max-w-none translate-x-0 translate-y-0 h-[92dvh] rounded-t-[1.75rem] rounded-b-none data-[state=open]:slide-in-from-bottom-full data-[state=closed]:slide-out-to-bottom-full">
           <FormProvider {...methods}>
             <form
               id="edit-staff-strategic-form"
@@ -753,7 +744,7 @@ export const EditStaffDialog: React.FC<any> = ({
                 </DialogDescription>
               </DialogHeader>
 
-              <ScrollArea className="flex-1 min-h-0">
+              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
                 <div className="p-6 pb-8">
                   <EditStaffFormInternal
                     services={services}
@@ -763,10 +754,8 @@ export const EditStaffDialog: React.FC<any> = ({
                     onRegeneratePin={handleRegeneratePin}
                   />
                 </div>
-              </ScrollArea>
+              </div>
 
-              {/* pb picks up the home indicator so the save button is not
-                  sitting under it on a gesture-bar phone. */}
               <DialogFooter className="border-t bg-background flex-shrink-0 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
                 <div className="flex w-full items-center gap-2">
                   <Button
@@ -787,8 +776,8 @@ export const EditStaffDialog: React.FC<any> = ({
               </DialogFooter>
             </form>
           </FormProvider>
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
     );
   }
 
@@ -817,7 +806,7 @@ export const EditStaffDialog: React.FC<any> = ({
               </DialogDescription>
             </DialogHeader>
 
-            <ScrollArea className="flex-1 min-h-0">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
               <div className="p-10 pb-8">
                 <EditStaffFormInternal
                   services={services}
@@ -827,7 +816,7 @@ export const EditStaffDialog: React.FC<any> = ({
                   onRegeneratePin={handleRegeneratePin}
                 />
               </div>
-            </ScrollArea>
+            </div>
 
             <DialogFooter className="border-t bg-background flex-shrink-0 shadow-2xl p-6 sm:p-10 pt-4">
               <div className="flex w-full gap-4 items-center">
