@@ -514,8 +514,13 @@ service cloud.firestore {
       allow create, delete: if isManager(tenantId);
       allow update: if isManager(tenantId)
         || (resource.data.status == 'pending'
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'chosenSlot', 'respondedAt'])
-            && (request.resource.data.status == 'accepted' || request.resource.data.status == 'needs_new_times'));
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'chosenSlot', 'respondedAt', 'proposedSlots', 'applicantNote'])
+            && (request.resource.data.status == 'accepted'
+                || request.resource.data.status == 'needs_new_times'
+                || request.resource.data.status == 'countered')
+            && (!('proposedSlots' in request.resource.data) || request.resource.data.proposedSlots.size() <= 5)
+            && (!('applicantNote' in request.resource.data)
+                || (request.resource.data.applicantNote is string && request.resource.data.applicantNote.size() <= 500)));
     }
 
     // v79 — LEGACY, compatibility window only. /api/checkins now writes
