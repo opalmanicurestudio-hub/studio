@@ -111,28 +111,28 @@ const BusinessPulse = ({ tenantId }: { tenantId: string }) => {
     const tk = (tasks || []) as any[];
 
     for (const a of apps.filter(x => x.status === 'new')) {
-      out.push({ key: `app-${a.id}`, icon: '🧑\u200d💼', text: `New application — ${a.name || 'Someone'}${a.position ? ` (${a.position})` : ''}`, href: '/applicants', tone: 'urgent' });
+      out.push({ key: `app-${a.id}`, icon: '🧑\u200d💼', text: `New application — ${a.name || 'Someone'}${a.position ? ` (${a.position})` : ''}`, href: `/applicants?app=${a.id}`, tone: 'urgent' });
     }
     for (const i of inv.filter(x => x.status === 'countered')) {
-      out.push({ key: `cnt-${i.id}`, icon: '📅', text: `${i.firstName || 'An applicant'} sent their availability — pick a time`, href: '/applicants', tone: 'urgent' });
+      out.push({ key: `cnt-${i.id}`, icon: '📅', text: `${i.firstName || 'An applicant'} sent their availability — pick a time`, href: i.applicationId ? `/applicants?app=${i.applicationId}` : '/applicants', tone: 'urgent' });
     }
     for (const i of inv.filter(x => x.status === 'needs_new_times')) {
-      out.push({ key: `nnt-${i.id}`, icon: '🔁', text: `${i.firstName || 'An applicant'} needs different interview times`, href: '/applicants', tone: 'urgent' });
+      out.push({ key: `nnt-${i.id}`, icon: '🔁', text: `${i.firstName || 'An applicant'} needs different interview times`, href: i.applicationId ? `/applicants?app=${i.applicationId}` : '/applicants', tone: 'urgent' });
     }
     for (const i of inv.filter(x => x.status === 'accepted' && x.chosenSlot)) {
       try {
         const d = new Date(i.chosenSlot);
         if (!isNaN(d.getTime()) && format(d, 'yyyy-MM-dd') === todayStr) {
-          out.push({ key: `int-${i.id}`, icon: '🤝', text: `Interview today ${format(d, 'h:mm a')} — ${i.firstName || 'applicant'}${i.roleTitle ? ` (${i.roleTitle})` : ''}`, href: '/applicants', tone: 'info' });
+          out.push({ key: `int-${i.id}`, icon: '🤝', text: `Interview today ${format(d, 'h:mm a')} — ${i.firstName || 'applicant'}${i.roleTitle ? ` (${i.roleTitle})` : ''}`, href: i.applicationId ? `/applicants?app=${i.applicationId}` : '/applicants', tone: 'info' });
         }
       } catch { /* skip malformed */ }
     }
     for (const t of tk.filter(x => x.status !== 'done' && x.dueDate && x.dueDate < todayStr)) {
-      out.push({ key: `od-${t.id}`, icon: '⏰', text: `Task overdue — ${t.title} (due ${t.dueDate})`, href: '/documents', tone: 'urgent' });
+      out.push({ key: `od-${t.id}`, icon: '⏰', text: `Task overdue — ${t.title} (due ${t.dueDate})`, href: `/documents?tab=tasks&task=${t.id}`, tone: 'urgent' });
     }
     const doneToday = tk.filter(x => x.status === 'done' && String(x.completedAt || '').slice(0, 10) === todayStr);
     if (doneToday.length > 0) {
-      out.push({ key: 'done-today', icon: '✅', text: `${doneToday.length} task${doneToday.length === 1 ? '' : 's'} completed today — see the audit trail`, href: '/documents', tone: 'good' });
+      out.push({ key: 'done-today', icon: '✅', text: `${doneToday.length} task${doneToday.length === 1 ? '' : 's'} completed today — see the audit trail`, href: '/documents?tab=audit', tone: 'good' });
     }
     return out;
   }, [applications, invites, tasks, todayStr]);
