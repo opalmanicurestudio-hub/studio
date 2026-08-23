@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
-import { useFirebase, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
+import { useFirebase, useUser, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
@@ -64,6 +64,16 @@ ${v.business}`,
     body: v => `Hi ${v.first},
 
 We'd like to offer you${v.role ? ` the ${v.role} position` : ' a position with us'}. Reply here or call us and we'll walk through the details together.
+
+${v.business}`,
+  },
+  {
+    key: 'newopening',
+    label: 'New opening',
+    subject: v => `A new opening at ${v.business}`,
+    body: v => `Hi ${v.first},
+
+You applied with us a while back and we kept your application on file — a new opening just came up${v.role ? ` that fits what you were looking for` : ''} and we thought of you. If you're still interested, reply here and we'll take it from there.
 
 ${v.business}`,
   },
@@ -367,8 +377,9 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
                       <div key={ev.id} className="flex items-start justify-between gap-2 rounded-xl border-2 border-dashed bg-slate-50/60 px-3 py-2">
                         <p className="min-w-0 text-[12px] font-bold text-slate-700">
                           {ev.type === 'status'
-                            ? `Moved to ${STATUS_LABEL[(ev.toStatus as AppStatus)] || ev.toStatus}`
+                            ? `${ev.note ? ev.note : `Moved to ${STATUS_LABEL[(ev.toStatus as AppStatus)] || ev.toStatus}`}`
                             : `Email: ${ev.subject || '(no subject)'}${ev.status === 'failed' ? ' — failed to send' : ev.status === 'queued' ? ' — sending…' : ''}`}
+                          {ev.by ? <span className="text-muted-foreground font-bold"> · {ev.by}</span> : null}
                         </p>
                         <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-muted-foreground">{when ? format(when, 'MMM d, h:mm a') : ''}</span>
                       </div>
@@ -806,7 +817,9 @@ const ApplicantCardWithData = (props: any) => {
 
 export default function ApplicantsPage() {
   const { firestore } = useFirebase();
+  const { user: currentUser } = useUser();
   const { selectedTenant, role } = useTenant();
+  const actorName = currentUser?.displayName || currentUser?.email || 'A manager';
   const tenantId = selectedTenant?.id;
   const canManage = role === 'owner' || role === 'admin';
 
@@ -914,7 +927,7 @@ export default function ApplicantsPage() {
     updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/applications/${id}`), { status });
     const evId = nanoid();
     setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/applications/${id}/messages/${evId}`), {
-      id: evId, type: 'status', toStatus: status, createdAt: new Date().toISOString(),
+      id: evId, type: 'status', toStatus: status, by: actorName, createdAt: new Date().toISOString(),
     }, { merge: false });
   };
 
@@ -939,7 +952,7 @@ export default function ApplicantsPage() {
     });
     const evId = nanoid();
     setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/applications/${app.id}/messages/${evId}`), {
-      id: evId, type: 'status', toStatus: 'declined', note: [reason, talentPool ? 'kept in talent pool' : ''].filter(Boolean).join(' · '), createdAt: new Date().toISOString(),
+      id: evId, type: 'status', toStatus: 'declined', note: [reason, talentPool ? 'kept in talent pool' : ''].filter(Boolean).join(' · '), by: actorName, createdAt: new Date().toISOString(),
     }, { merge: false });
   };
 
@@ -969,7 +982,7 @@ If none of them work, the page lets us know and we'll offer others.
 ${selectedTenant?.name || ''}`);
     const evId = nanoid();
     setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/applications/${app.id}/messages/${evId}`), {
-      id: evId, type: 'status', toStatus: 'interview', note: 'interview times offered', createdAt: new Date().toISOString(),
+      id: evId, type: 'status', toStatus: 'interview', note: 'interview times offered', by: actorName, createdAt: new Date().toISOString(),
     }, { merge: false });
     updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/applications/${app.id}`), { status: 'interview' });
   };
@@ -985,6 +998,7 @@ ${selectedTenant?.name || ''}`);
       to: String(app.email).trim(),
       subject: subject.slice(0, 200),
       body: body.slice(0, 5000),
+      by: actorName,
       createdAt: new Date().toISOString(),
     });
   };
@@ -1063,6 +1077,30 @@ ${selectedTenant?.name || ''}`);
             deleteDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/jobListings/${id}`));
           }}
         />
+
+        {role === 'owner' && (
+          <Card className="rounded-[2rem] border-2 bg-white overflow-hidden">
+            <CardContent className="p-5 space-y-2">
+              <p className="text-[11px] font-black uppercase tracking-widest text-slate-900">Confirmation email note</p>
+              <p className="text-[12px] font-bold text-muted-foreground">Every applicant gets an instant "we got it" email. This note rides along — introduce the business, the vibe, what working here is like. The role's own description is included automatically.</p>
+              <textarea
+                aria-label="Confirmation email note"
+                defaultValue={(selectedTenant as any)?.applicationWelcome || ''}
+                maxLength={2000}
+                rows={4}
+                onBlur={(e) => {
+                  if (!tenantId) return;
+                  const v = e.target.value.trim().slice(0, 2000);
+                  if (v === ((selectedTenant as any)?.applicationWelcome || '')) return;
+                  updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}`), { applicationWelcome: v });
+                }}
+                className="w-full rounded-xl border-2 bg-white p-3 font-bold text-sm"
+                placeholder="e.g. We're a small team that cares about craft and kindness. Most of us started exactly where you are…"
+              />
+              <p className="text-[11px] font-bold text-muted-foreground">Saves when you tap away.</p>
+            </CardContent>
+          </Card>
+        )}
 
         {role === 'owner' && (
           <QuestionBuilder
