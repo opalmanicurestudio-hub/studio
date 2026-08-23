@@ -432,6 +432,13 @@ service cloud.firestore {
       allow read, list, create, update, delete: if isManager(tenantId);
     }
 
+    // Operating documents — SOPs, handbooks, policies. Whole team can read
+    // (the staff view filters to published + assigned); only managers author.
+    match /tenants/{tenantId}/documents/{documentId} {
+      allow get, list: if isStaff(tenantId);
+      allow create, update, delete: if isManager(tenantId);
+    }
+
     // Interview invites — capability URLs. The token IS the doc id
     // (unguessable), the doc holds only first name + role + slots. Public
     // may read one by id and may respond exactly once: only the response
