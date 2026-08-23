@@ -498,10 +498,11 @@ export default function StaffPage() {
   const isMobile = useIsMobile();
   const editingInline = Boolean(isMobile && isEditStaffOpen && editingStaff);
   const addingInline = Boolean(isMobile && isAddStaffOpen);
+  const viewingInline = Boolean(isMobile && isDetailsSheetOpen && selectedStaffMember);
 
   useEffect(() => {
-    if (editingInline || addingInline) window.scrollTo({ top: 0 });
-  }, [editingInline, addingInline]);
+    if (editingInline || addingInline || viewingInline) window.scrollTo({ top: 0 });
+  }, [editingInline, addingInline, viewingInline]);
   const { selectedTenant, role } = useTenant();
   const tenantId = selectedTenant?.id;
   const studioName = selectedTenant?.name || 'the studio';
@@ -985,6 +986,19 @@ export default function StaffPage() {
               pricingTiers={pricingTiers || []}
               existingStaff={staff || []}
             />
+        ) : viewingInline ? (
+            <StaffDetailsSheet
+              inline
+              open
+              onOpenChange={setIsDetailsSheetOpen}
+              staffMember={selectedStaffMember}
+              dateRange={dateRange}
+              transactions={transactions || []}
+              services={services || []}
+              appointments={appointments || []}
+              activityLogs={activityLogs || []}
+              consentForms={consentForms || []}
+            />
         ) : addingInline ? (
             <AddStaffDialog
               inline
@@ -1223,7 +1237,7 @@ export default function StaffPage() {
         />
       )}
 
-      {selectedStaffMember && (
+      {!isMobile && selectedStaffMember && (
           <StaffDetailsSheet
             open={isDetailsSheetOpen}
             onOpenChange={setIsDetailsSheetOpen}
