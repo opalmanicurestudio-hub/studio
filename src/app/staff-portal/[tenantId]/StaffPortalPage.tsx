@@ -5,7 +5,54 @@ import { FulfilmentPanel } from '@/components/fulfilment/FulfilmentPanel';
 import { permissionsFor } from '@/lib/fulfilment-access';
 import { useRouter } from 'next/navigation';
 import { setActiveStaffId, clearActiveStaffId } from '@/lib/staff-identity';
-import { uploadImage } from '@/lib/upload-image';
+import { uploadImageBlob } from '@/lib/upload-image';
+
+/**
+ * Evidence-photo compressor, hardened for iPhone camera output.
+ *
+ * The shared uploadImage() relies on createImageBitmap(file), which on some
+ * iOS Safari versions cannot decode HEIC — its catch then uploads the
+ * ORIGINAL file, and a modern iPhone HEIC can exceed the storage rules'
+ * size cap, surfacing as a "blocked by permissions" failure. This path
+ * decodes via <img> when bitmap decode fails (Safari renders HEIC in <img>
+ * natively), always re-encodes to JPEG, and steps down dimensions until
+ * the result is comfortably under the cap.
+ */
+async function compressEvidencePhoto(file: File): Promise<Blob> {
+  const draw = (w: number, h: number, source: CanvasImageSource, maxDim: number, quality: number): Promise<Blob | null> => {
+    const scale = Math.min(1, maxDim / Math.max(w, h));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(w * scale));
+    canvas.height = Math.max(1, Math.round(h * scale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return Promise.resolve(null);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+    return new Promise(res => canvas.toBlob(res, 'image/jpeg', quality));
+  };
+
+  const decode = async (): Promise<{ source: CanvasImageSource; w: number; h: number } | null> => {
+    try {
+      const bmp = await createImageBitmap(file);
+      return { source: bmp, w: bmp.width, h: bmp.height };
+    } catch {
+      return await new Promise(resolve => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => resolve({ source: img, w: img.naturalWidth, h: img.naturalHeight });
+        img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+        img.src = url;
+      });
+    }
+  };
+
+  const d = await decode();
+  if (!d) return file;
+  let blob = await draw(d.w, d.h, d.source, 1280, 0.72);
+  if (blob && blob.size > 3 * 1024 * 1024) blob = await draw(d.w, d.h, d.source, 900, 0.6);
+  return blob || file;
+}
 import { registerPushForStaff } from '@/lib/push-notifications';
 import { AvatarUpload } from '@/components/shared/AvatarUpload';
 import { GifPicker, GIF_ENABLED } from '@/components/shared/GifPicker';
@@ -187,7 +234,8 @@ const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: st
     setUploadErr('');
     try {
       const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, '_');
-      const url = await uploadImage(`tenants/${tenantId}/evidence/${d.id}/${todayStr}/${staffMember.id}_${safeKey}.jpg`, file, 1280);
+      const blob = await compressEvidencePhoto(file);
+      const url = await uploadImageBlob(`tenants/${tenantId}/evidence/${d.id}/${todayStr}/${staffMember.id}_${safeKey}.jpg`, blob);
       writeRun({ ...runItems, [key]: true }, { ...runPhotos, [key]: url });
     } catch (err: any) {
       console.error('evidence upload failed', err);
@@ -491,7 +539,8 @@ const TasksForYou = ({ tenantId, staffMember }: { tenantId: string; staffMember:
     setUploadingId(taskId);
     setTaskUploadErr('');
     try {
-      const url = await uploadImage(`tenants/${tenantId}/evidence/tasks/${taskId}/${staffMember.id}.jpg`, file, 1280);
+      const blob = await compressEvidencePhoto(file);
+      const url = await uploadImageBlob(`tenants/${tenantId}/evidence/tasks/${taskId}/${staffMember.id}.jpg`, blob);
       completeTask(t, url);
     } catch (err: any) {
       console.error('task evidence upload failed', err);
