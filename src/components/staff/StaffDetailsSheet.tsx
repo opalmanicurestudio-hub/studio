@@ -10,7 +10,6 @@ import {
   SheetFooter
 } from '@/components/ui/sheet';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { type Staff, type Transaction, type Service, type Appointment, type ActivityLog, type ConsentForm } from '@/lib/data';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
@@ -143,6 +142,7 @@ export const StaffDetailsSheet = ({
   appointments,
   activityLogs,
   consentForms,
+  inline,
 }: any) => {
   const isMobile = useIsMobile();
   const router = useRouter();
@@ -407,15 +407,14 @@ export const StaffDetailsSheet = ({
           </div>
 
            <Tabs defaultValue="activity" className="w-full">
-              <ScrollArea className="w-full">
+              <div className="w-full overflow-x-auto overscroll-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   <TabsList className="bg-muted/50 p-1 rounded-2xl mb-6">
                       <TabsTrigger value="activity" className="rounded-xl font-black uppercase text-[10px] tracking-widest h-9">Activity</TabsTrigger>
                       <TabsTrigger value="transactions" className="rounded-xl font-black uppercase text-[10px] tracking-widest h-9">Ledger</TabsTrigger>
                       <TabsTrigger value="effectiveness" className="rounded-xl font-black uppercase text-[10px] tracking-widest h-9">Metrics</TabsTrigger>
                       <TabsTrigger value="profile" className="rounded-xl font-black uppercase text-[10px] tracking-widest h-9">Dossier</TabsTrigger>
                   </TabsList>
-                  <ScrollBar orientation="horizontal" className="hidden" />
-              </ScrollArea>
+              </div>
               
               <TabsContent value="activity" className="mt-0 space-y-4">
                   <div className="relative">
@@ -526,6 +525,47 @@ export const StaffDetailsSheet = ({
     router.push(`/messages/team/${threadId}`);
   };
 
+  if (inline) {
+    return (
+      <div className="w-full max-w-2xl mx-auto">
+        <div className="rounded-[2rem] border-2 bg-white overflow-hidden">
+          <div className="border-b bg-muted/5 p-4 text-left">
+            <div className="flex items-center gap-4">
+              <AvatarUpload
+                url={staffMember.avatarUrl}
+                name={staffMember.name}
+                storagePath={`tenants/${tenantId}/avatars/staff_${staffMember.id}.jpg`}
+                onUploaded={async (newUrl) => {
+                  if (!firestore || !tenantId) return;
+                  await setDoc(doc(firestore, `tenants/${tenantId}/staff`, staffMember.id), { avatarUrl: newUrl }, { merge: true });
+                }}
+                className="h-10 w-10 border-4 border-background shadow-xl rounded-2xl"
+                fallbackClassName="font-black text-lg bg-primary/10 text-primary"
+              />
+              <div className="min-w-0 flex-1 text-left">
+                <h2 className="mb-1 truncate text-lg font-black uppercase tracking-tighter leading-none text-slate-900">{staffMember.name}</h2>
+                <p className="text-[9px] font-black uppercase tracking-widest opacity-60">Performance</p>
+              </div>
+              {currentUser?.uid !== staffMember?.id && (
+                <Button size="sm" variant="outline" onClick={handleMessage} className="h-9 shrink-0 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest">
+                  <MessageCircle className="mr-1.5 h-3.5 w-3.5" /> Message
+                </Button>
+              )}
+            </div>
+          </div>
+          <div className="p-4">
+            {content}
+          </div>
+          <div className="border-t bg-background px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            <Button onClick={() => onOpenChange(false)} className="h-12 w-full rounded-2xl text-xs font-black uppercase tracking-tight">
+              Back to team
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side={isMobile ? 'bottom' : 'right'} className={cn("p-0 border-none bg-background flex flex-col", isMobile ? "h-[92dvh] rounded-t-[1.75rem] shadow-2xl" : "sm:max-w-2xl")}>
@@ -560,11 +600,11 @@ export const StaffDetailsSheet = ({
                 </div>
             </SheetHeader>
 
-            <ScrollArea className="flex-1 min-h-0">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
                 <div className={cn(isMobile ? "p-4" : "p-8")}>
                     {content}
                 </div>
-            </ScrollArea>
+            </div>
             
             <SheetFooter className={cn("border-t bg-background flex-shrink-0", isMobile ? "p-3" : "p-8 pt-4")}>
                 <Button onClick={() => onOpenChange(false)} className={cn("w-full rounded-2xl font-black uppercase tracking-tight shadow-2xl shadow-primary/20 transition-all active:scale-95", isMobile ? "h-11 text-xs" : "h-16 text-xl")}>Close Dashboard</Button>
