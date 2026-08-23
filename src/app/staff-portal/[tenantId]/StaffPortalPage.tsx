@@ -124,6 +124,43 @@ const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: st
     [firestore, tenantId, d.id]
   );
   const { data: acks } = useCollection<any>(acksQ);
+
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const runId = `${staffMember.id}_${todayStr}`;
+  const hasChecklists = (d.sections || []).some((x: any) => x.type === 'checklist');
+  const runsQ = useMemoFirebase(
+    () => (firestore && tenantId && hasChecklists) ? query(collection(firestore, `tenants/${tenantId}/documents/${d.id}/runs`), where('date', '==', todayStr)) : null,
+    [firestore, tenantId, d.id, hasChecklists, todayStr]
+  );
+  const { data: todayRuns } = useCollection<any>(runsQ);
+  const myRun = ((todayRuns || []) as any[]).find(r => r.id === runId) || null;
+  const runItems: Record<string, boolean> = myRun?.items || {};
+
+  const totalItems = useMemo(() => (d.sections || []).reduce((acc: number, sec: any) => {
+    if (sec.type !== 'checklist') return acc;
+    return acc + String(sec.body || '').split('\n').map((x: string) => x.trim()).filter(Boolean).length;
+  }, 0), [d.sections]);
+
+  const checkedCount = Object.values(runItems).filter(Boolean).length;
+
+  const toggleItem = (key: string) => {
+    if (!firestore || !tenantId) return;
+    const next = { ...runItems, [key]: !runItems[key] };
+    const nextChecked = Object.values(next).filter(Boolean).length;
+    const full = totalItems > 0 && nextChecked >= totalItems;
+    setDoc(doc(firestore, `tenants/${tenantId}/documents/${d.id}/runs/${runId}`), {
+      id: runId,
+      staffId: staffMember.id,
+      staffName: staffMember.name || 'Team member',
+      date: todayStr,
+      docVersion: Number(d.version || 1),
+      items: next,
+      checkedCount: nextChecked,
+      totalItems,
+      startedAt: myRun?.startedAt || new Date().toISOString(),
+      completedAt: full ? (myRun?.completedAt || new Date().toISOString()) : null,
+    }, { merge: true }).catch(err => console.error('run write failed', err));
+  };
   const myAck = ((acks || []) as any[]).find(a => a.id === staffMember.id) || null;
   const version = Number(d.version || 1);
   const ackCurrent = myAck && Number(myAck.version) === version;
@@ -161,8 +198,40 @@ const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: st
               <p className="text-[11px] font-bold text-amber-900">This changed since you last read it (you read v{myAck.version}, this is v{version}). Please read again and confirm below.</p>
             </div>
           )}
+          {hasChecklists && totalItems > 0 && (
+            <div className="rounded-xl border-2 bg-slate-50 p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-700">Today&apos;s run · {format(new Date(), 'EEE, MMM d')}</p>
+                <p className={cn('text-[11px] font-black', checkedCount >= totalItems ? 'text-emerald-700' : 'text-slate-700')}>{checkedCount}/{totalItems}{checkedCount >= totalItems ? ' ✓' : ''}</p>
+              </div>
+              <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                <div className="h-full rounded-full bg-slate-900 transition-all" style={{ width: `${totalItems ? Math.round((checkedCount / totalItems) * 100) : 0}%` }} />
+              </div>
+              <p className="mt-1 text-[10px] font-bold text-muted-foreground">Tap the boxes below as you go — progress saves as you tap.</p>
+            </div>
+          )}
           {(() => { let n = 0; return (d.sections || []).map((sec: any) => {
             const stepNumber = (sec.type === 'step') ? ++n : null;
+            if (sec.type === 'checklist') {
+              const items = String(sec.body || '').split('\n').map((x: string) => x.trim()).filter(Boolean);
+              return (
+                <div key={sec.id} className="rounded-2xl border-2 p-3">
+                  {sec.heading && <p className="text-[12px] font-black uppercase tracking-widest text-slate-900">{sec.heading}</p>}
+                  <div className="mt-1.5 space-y-1.5">
+                    {items.map((item: string, i: number) => {
+                      const key = `${sec.id}:${i}`;
+                      const on = !!runItems[key];
+                      return (
+                        <button key={i} type="button" aria-pressed={on} onClick={() => toggleItem(key)} className={cn('flex w-full items-start gap-2 rounded-xl border-2 p-2.5 text-left transition-all active:scale-[0.99]', on ? 'border-emerald-300 bg-emerald-50' : 'bg-white')}>
+                          {on ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : <Square className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />}
+                          <p className={cn('text-[13px] font-bold leading-relaxed', on ? 'text-emerald-900' : 'text-slate-700')}>{item}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            }
             return <PortalSectionRenderer key={sec.id} sec={sec} stepNumber={stepNumber} />;
           }); })()}
           {ackCurrent ? (
