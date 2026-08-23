@@ -463,6 +463,21 @@ service cloud.firestore {
       allow delete: if isManager(tenantId);
     }
 
+    // Daily checklist runs, keyed `{staffId}_{yyyy-mm-dd}`. Portal members
+    // write only runs stamped with their own staffId; managers see all.
+    match /tenants/{tenantId}/documents/{documentId}/runs/{runId} {
+      allow get, list: if isStaff(tenantId) || isPortalMember(tenantId);
+      allow create, update: if (
+          isStaff(tenantId)
+          || (isPortalMember(tenantId) && request.resource.data.staffId == request.auth.token.staffId)
+        )
+        && request.resource.data.checkedCount is number
+        && request.resource.data.totalItems is number
+        && request.resource.data.staffName is string
+        && request.resource.data.staffName.size() <= 140;
+      allow delete: if isManager(tenantId);
+    }
+
     // Interview invites — capability URLs. The token IS the doc id
     // (unguessable), the doc holds only first name + role + slots. Public
     // may read one by id and may respond exactly once: only the response
