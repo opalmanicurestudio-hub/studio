@@ -49,3 +49,4 @@ export { appointmentReadinessCheck } from './appointmentReadinessCheck';
 export { onApplicantMessageCreate } from './onApplicantMessageCreate';
 export { onApplicationCreate } from './onApplicationCreate';
 export { onInterviewInviteUpdate } from './onInterviewInviteUpdate';
+export { onDocumentPublish } from './onDocumentPublish';
