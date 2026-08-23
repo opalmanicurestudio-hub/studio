@@ -2655,6 +2655,16 @@ function PinEntry({ onSuccess, tenantId, firestore }: any) {
       if (res.status === 404) throw new Error('__legacy__');   // API not deployed yet
       const d = await res.json();
       if (d.ok && d.staff) {
+        if (d.customToken) {
+          try {
+            const { getAuth, signInWithCustomToken } = await import('firebase/auth');
+            await signInWithCustomToken(getAuth(), d.customToken);
+          } catch (tokenErr) {
+            console.error('portal token sign-in failed', tokenErr);
+          }
+        } else {
+          console.warn('portal auth: no customToken in response — Firestore reads will be unauthenticated');
+        }
         onSuccess(d.staff);
       } else {
         setError(d.error || 'Incorrect PIN. Try again.');
@@ -5485,5 +5495,5 @@ export default function StaffPortalPage({ params }: { params: { tenantId: string
 
   if (!signedInStaff) return <PinEntry firestore={firestore} tenantId={tenantId} onSuccess={(s: any) => { setActiveStaffId(s.id); setSignedInStaff(s); registerPushForStaff(firestore, tenantId, s.id).catch(() => {}); }} />;
 
-  return <ErrorBoundary><StaffDashboard staffMember={signedInStaff} tenantId={tenantId} firestore={firestore} onSignOut={() => { clearActiveStaffId(); setSignedInStaff(null); }} /></ErrorBoundary>;
+  return <ErrorBoundary><StaffDashboard staffMember={signedInStaff} tenantId={tenantId} firestore={firestore} onSignOut={() => { clearActiveStaffId(); setSignedInStaff(null); import('firebase/auth').then(({ getAuth, signOut }) => signOut(getAuth()).catch(() => {})); }} /></ErrorBoundary>;
 }
