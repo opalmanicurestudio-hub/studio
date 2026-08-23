@@ -432,6 +432,20 @@ service cloud.firestore {
       allow read, list, create, update, delete: if isManager(tenantId);
     }
 
+    // Interview invites — capability URLs. The token IS the doc id
+    // (unguessable), the doc holds only first name + role + slots. Public
+    // may read one by id and may respond exactly once: only the response
+    // fields, only while still pending.
+    match /tenants/{tenantId}/interviewInvites/{inviteId} {
+      allow get: if true;
+      allow list: if isManager(tenantId);
+      allow create, delete: if isManager(tenantId);
+      allow update: if isManager(tenantId)
+        || (resource.data.status == 'pending'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'chosenSlot', 'respondedAt'])
+            && (request.resource.data.status == 'accepted' || request.resource.data.status == 'needs_new_times'));
+    }
+
     // v79 — LEGACY, compatibility window only. /api/checkins now writes
     // the scoped tenants/{id}/appointmentCheckIns (rules above) and
     // mirrors here so old readers keep working. TO CLOSE THIS HOLE:
