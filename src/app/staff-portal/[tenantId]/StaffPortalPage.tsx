@@ -293,6 +293,90 @@ const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: st
   );
 };
 
+const TasksForYou = ({ tenantId, staffMember }: { tenantId: string; staffMember: any }) => {
+  const { firestore } = useFirebase();
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
+  const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
+  const taskFileRef = useRef<HTMLInputElement>(null);
+
+  const tasksQ = useMemoFirebase(
+    () => firestore && tenantId ? collection(firestore, `tenants/${tenantId}/tasks`) : null,
+    [firestore, tenantId]
+  );
+  const { data: tasks } = useCollection<any>(tasksQ);
+
+  const mine = useMemo(() => ((tasks || []) as any[])
+    .filter(t => t.status !== 'done' && (t.assignedStaffIds || []).includes(staffMember.id))
+    .sort((a, b) => String(a.dueDate || '9999').localeCompare(String(b.dueDate || '9999'))), [tasks, staffMember.id]);
+
+  const completeTask = (t: any, photoUrl?: string) => {
+    if (!firestore || !tenantId) return;
+    setDoc(doc(firestore, `tenants/${tenantId}/tasks/${t.id}`), {
+      status: 'done',
+      completedBy: staffMember.id,
+      completedByName: staffMember.name || 'Team member',
+      completedAt: new Date().toISOString(),
+      ...(photoUrl ? { photoUrl } : {}),
+    }, { merge: true }).catch(err => console.error('task complete failed', err));
+  };
+
+  const handleTap = (t: any) => {
+    if (t.requirePhoto) {
+      setPendingTaskId(t.id);
+      taskFileRef.current?.click();
+      return;
+    }
+    completeTask(t);
+  };
+
+  const handleTaskPhoto = async (file: File | null) => {
+    const taskId = pendingTaskId;
+    setPendingTaskId(null);
+    if (!file || !taskId || !tenantId) return;
+    const t = mine.find(x => x.id === taskId);
+    if (!t) return;
+    setUploadingId(taskId);
+    try {
+      const url = await uploadImage(`tenants/${tenantId}/evidence/tasks/${taskId}/${staffMember.id}.jpg`, file, 1280);
+      completeTask(t, url);
+    } catch (err) {
+      console.error('task evidence upload failed', err);
+    } finally {
+      setUploadingId(null);
+      if (taskFileRef.current) taskFileRef.current.value = '';
+    }
+  };
+
+  if (mine.length === 0) return null;
+
+  return (
+    <div className="rounded-2xl border-2 bg-white p-4 space-y-2">
+      <p className="text-[10px] font-black uppercase tracking-widest text-slate-900">Tasks for you</p>
+      <input ref={taskFileRef} type="file" accept="image/*" capture="environment" className="hidden" aria-hidden="true" tabIndex={-1} onChange={(e) => handleTaskPhoto(e.target.files?.[0] || null)} />
+      {mine.map((t: any) => {
+        const uploading = uploadingId === t.id;
+        return (
+          <div key={t.id} className="rounded-xl border-2 p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-[13px] font-black tracking-tight text-slate-900">{t.title}</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                  {t.dueDate ? `Due ${t.dueDate}` : 'No due date'}{t.requirePhoto ? ' · 📷 photo required' : ''}
+                </p>
+                {t.notes && <p className="mt-1 text-[12px] font-bold text-slate-600">{t.notes}</p>}
+              </div>
+              <button type="button" disabled={uploading} onClick={() => handleTap(t)} className={cn('flex h-10 shrink-0 items-center gap-1.5 rounded-xl px-3 text-[10px] font-black uppercase tracking-widest', uploading ? 'bg-slate-100 text-slate-400' : 'bg-slate-900 text-white')}>
+                {uploading ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                {uploading ? 'Uploading…' : t.requirePhoto ? 'Photo + done' : 'Done'}
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 const TeamDocumentsSection = ({ tenantId, staffMember }: { tenantId: string; staffMember: any }) => {
   const { firestore } = useFirebase();
   const docsQ = useMemoFirebase(
@@ -4662,6 +4746,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           {activeTab==='today' && (
             isLoadingToday ? <TabSkeleton /> : (
               <div className="space-y-4">
+<TasksForYou tenantId={tenantId} staffMember={staffMember} />
 {stuckApts.length > 0 && (
                   <div className="rounded-[2rem] border-2 border-amber-300 bg-amber-50 overflow-hidden">
                     <div className="px-4 py-3 border-b border-amber-200 flex items-center gap-2 bg-amber-100/60">
