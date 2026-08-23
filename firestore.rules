@@ -478,6 +478,18 @@ service cloud.firestore {
       allow delete: if isManager(tenantId);
     }
 
+    // One-off tasks. Managers create/remove; assignees complete from the
+    // portal, touching only the completion fields.
+    match /tenants/{tenantId}/tasks/{taskId} {
+      allow get, list: if isStaff(tenantId) || isPortalMember(tenantId);
+      allow create, delete: if isManager(tenantId);
+      allow update: if isManager(tenantId)
+        || (isPortalMember(tenantId)
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['status', 'completedBy', 'completedByName', 'completedAt', 'photoUrl'])
+            && request.resource.data.completedBy == request.auth.token.staffId);
+    }
+
     // Interview invites — capability URLs. The token IS the doc id
     // (unguessable), the doc holds only first name + role + slots. Public
     // may read one by id and may respond exactly once: only the response
