@@ -247,7 +247,14 @@ const DocumentEditor = ({ docItem, staff, onSave, onPublish, onDelete, onClose }
     const cleanTitle = title.trim().slice(0, 140);
     if (!cleanTitle) { setErr('Give the document a title.'); return null; }
     const cleanSections = sections
-      .map(x => ({ id: x.id, type: x.type || 'text', heading: String(x.heading || '').trim().slice(0, 140), body: String(x.body || '').trim().slice(0, 8000) }))
+      .map(x => {
+        const body = String(x.body || '').trim().slice(0, 8000);
+        const lineCount = body.split('\n').map(l => l.trim()).filter(Boolean).length;
+        const photoLines = (x.type === 'checklist' && Array.isArray(x.photoLines))
+          ? x.photoLines.filter((n: number) => Number.isInteger(n) && n >= 0 && n < lineCount)
+          : [];
+        return { id: x.id, type: x.type || 'text', heading: String(x.heading || '').trim().slice(0, 140), body, photoLines };
+      })
       .filter(x => x.heading || x.body);
     if (cleanSections.length === 0) { setErr('Add at least one section with content.'); return null; }
     setErr('');
@@ -297,6 +304,25 @@ const DocumentEditor = ({ docItem, staff, onSave, onPublish, onDelete, onClose }
             </div>
             <label htmlFor={`sec-b-${sec.id}`} className="sr-only">Section content</label>
             <textarea id={`sec-b-${sec.id}`} value={sec.body} onChange={e => patchSection(sec.id, { body: e.target.value })} maxLength={8000} rows={secType === 'checklist' ? 5 : 4} placeholder={ph.body} className="w-full rounded-xl border-2 bg-white p-3 font-bold text-sm" />
+            {secType === 'checklist' && String(sec.body || '').split('\n').map((x: string) => x.trim()).filter(Boolean).length > 0 && (
+              <div>
+                <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-muted-foreground">📷 Require a photo for…</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {String(sec.body || '').split('\n').map((x: string) => x.trim()).filter(Boolean).map((line: string, i: number) => {
+                    const on = Array.isArray(sec.photoLines) && sec.photoLines.includes(i);
+                    return (
+                      <button key={i} type="button" aria-pressed={on} onClick={() => {
+                        const cur = Array.isArray(sec.photoLines) ? sec.photoLines : [];
+                        patchSection(sec.id, { photoLines: on ? cur.filter((x: number) => x !== i) : [...cur, i] });
+                      }} className={cn('h-9 max-w-[220px] truncate rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest', on ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                        {on ? '📷 ' : ''}{line.slice(0, 26)}{line.length > 26 ? '…' : ''}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-1 text-[11px] font-bold text-muted-foreground">Tapped items can&apos;t be checked off in the portal without taking a photo.</p>
+              </div>
+            )}
           </div>
           );
         })}
@@ -368,6 +394,8 @@ const DocumentCardWithAcks = ({ d, tenantId, canManage, myStaffId, actorName, st
     () => ([...((runs || []) as any[])]).sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))).slice(0, 6),
     [runs]
   );
+  const [openRunId, setOpenRunId] = useState<string | null>(null);
+  const openRun = recentRuns.find((r: any) => r.id === openRunId) || null;
   const hasChecklists = (d.sections || []).some((x: any) => x.type === 'checklist');
   const myAck = ackList.find((a: any) => a.id === myStaffId) || null;
 
@@ -457,9 +485,42 @@ const DocumentCardWithAcks = ({ d, tenantId, canManage, myStaffId, actorName, st
                     {recentRuns.map((r: any) => {
                       const full = r.totalItems > 0 && Number(r.checkedCount) >= Number(r.totalItems);
                       return (
-                        <span key={r.id} className={cn('rounded-lg border-2 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest', full ? 'bg-emerald-100 text-emerald-900 border-emerald-300' : 'bg-amber-50 text-amber-900 border-amber-300')}>
+                        <button key={r.id} type="button" aria-pressed={openRunId === r.id} onClick={() => setOpenRunId(openRunId === r.id ? null : r.id)} className={cn('rounded-lg border-2 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest', full ? 'bg-emerald-100 text-emerald-900 border-emerald-300' : 'bg-amber-50 text-amber-900 border-amber-300', openRunId === r.id && 'ring-2 ring-slate-900')}>
                           {r.staffName || 'Team member'} · {r.date ? format(safeDate(r.date) as Date, 'MMM d') : ''} · {r.checkedCount}/{r.totalItems}{full ? ' ✓' : ''}
-                        </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {openRun && (
+                  <div className="space-y-1.5 rounded-xl border-2 bg-white p-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-900">
+                      {openRun.staffName} · {openRun.date ? format(safeDate(openRun.date) as Date, 'EEEE, MMM d') : ''}
+                      {openRun.completedAt ? ` · finished ${format(safeDate(openRun.completedAt) as Date, 'h:mm a')}` : ' · not finished'}
+                    </p>
+                    {(d.sections || []).filter((sec: any) => sec.type === 'checklist').map((sec: any) => {
+                      const items = String(sec.body || '').split('\n').map((x: string) => x.trim()).filter(Boolean);
+                      return (
+                        <div key={sec.id}>
+                          {sec.heading && <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-muted-foreground">{sec.heading}</p>}
+                          {items.map((item: string, i: number) => {
+                            const key = `${sec.id}:${i}`;
+                            const on = !!(openRun.items || {})[key];
+                            const photo = (openRun.photos || {})[key];
+                            return (
+                              <div key={i} className="flex items-center justify-between gap-2 py-1">
+                                <p className={cn('min-w-0 flex-1 text-[12px] font-bold', on ? 'text-slate-800' : 'text-slate-400 line-through decoration-transparent')}>
+                                  {on ? '✓' : '·'} {item}
+                                </p>
+                                {photo && (
+                                  <a href={photo} target="_blank" rel="noreferrer">
+                                    <img src={photo} alt={`Evidence: ${item}`} className="h-12 w-12 shrink-0 rounded-lg border-2 object-cover" />
+                                  </a>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       );
                     })}
                   </div>
