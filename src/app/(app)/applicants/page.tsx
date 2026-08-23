@@ -34,6 +34,50 @@ const STATUS_TONE: Record<AppStatus, string> = {
   declined: 'bg-slate-100 text-slate-500 border-slate-300',
 };
 
+const MESSAGE_TEMPLATES: Array<{ key: string; label: string; subject: (v: any) => string; body: (v: any) => string }> = [
+  {
+    key: 'forward',
+    label: 'Moving forward',
+    subject: v => `Your application to ${v.business}`,
+    body: v => `Hi ${v.first},
+
+Thanks for applying${v.role ? ` for ${v.role}` : ''} — we liked what we saw and we're moving your application forward. We'll be in touch soon with next steps.
+
+${v.business}`,
+  },
+  {
+    key: 'interview',
+    label: 'Interview invite',
+    subject: v => `Interview — ${v.business}`,
+    body: v => `Hi ${v.first},
+
+We'd love to meet you about${v.role ? ` the ${v.role} role` : ' your application'}. Reply to this email with a couple of days and times that work for you this week, and we'll confirm one.
+
+${v.business}`,
+  },
+  {
+    key: 'offer',
+    label: 'Offer',
+    subject: v => `Good news from ${v.business}`,
+    body: v => `Hi ${v.first},
+
+We'd like to offer you${v.role ? ` the ${v.role} position` : ' a position with us'}. Reply here or call us and we'll walk through the details together.
+
+${v.business}`,
+  },
+  {
+    key: 'decline',
+    label: 'Kind decline',
+    subject: v => `Your application to ${v.business}`,
+    body: v => `Hi ${v.first},
+
+Thank you for taking the time to apply. We've decided to go a different direction for now, but we were glad to meet you through your application and we'll keep it on file.
+
+Wishing you the best,
+${v.business}`,
+  },
+];
+
 const GRID_DAYS = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']] as const;
 const GRID_SLOT_LABEL: Record<string, string> = { am: 'AM', pm: 'PM', eve: 'Eve' };
 
@@ -48,7 +92,7 @@ const safeDate = (val: any): Date | null => {
 
 const makePin = () => String(Math.floor(1000 + Math.random() * 9000));
 
-const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms }: { app: any; onStatus: (id: string, status: AppStatus) => void; onHire: (app: any, opts: { role: 'staff' | 'admin'; payStructure: string; pin: string; assignedFormIds: string[] }) => Promise<void>; teamEmails: Set<string>; consentForms: any[] }) => {
+const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, businessName, onSendMessage, timeline }: { app: any; onStatus: (id: string, status: AppStatus) => void; onHire: (app: any, opts: { role: 'staff' | 'admin'; payStructure: string; pin: string; assignedFormIds: string[] }) => Promise<void>; teamEmails: Set<string>; consentForms: any[]; businessName: string; onSendMessage: (app: any, subject: string, body: string) => Promise<void>; timeline: any[] }) => {
   const [open, setOpen] = useState(false);
   const [hireOpen, setHireOpen] = useState(false);
   const [hireRole, setHireRole] = useState<'staff' | 'admin'>('staff');
@@ -57,6 +101,37 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms }: { ap
   const [formIds, setFormIds] = useState<string[]>([]);
   const [hiring, setHiring] = useState(false);
   const [hireError, setHireError] = useState('');
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [msgSubject, setMsgSubject] = useState('');
+  const [msgBody, setMsgBody] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sendState, setSendState] = useState<'' | 'sent' | 'error'>('');
+
+  const templateVars = { first: String(app.name || 'there').split(' ')[0], business: businessName, role: app.listingTitle || app.position || '' };
+
+  const applyTemplate = (key: string) => {
+    const t = MESSAGE_TEMPLATES.find(x => x.key === key);
+    if (!t) return;
+    setMsgSubject(t.subject(templateVars));
+    setMsgBody(t.body(templateVars));
+  };
+
+  const handleSend = async () => {
+    if (!msgBody.trim()) return;
+    setSending(true);
+    setSendState('');
+    try {
+      await onSendMessage(app, msgSubject.trim(), msgBody.trim());
+      setSendState('sent');
+      setComposeOpen(false);
+      setMsgSubject('');
+      setMsgBody('');
+    } catch {
+      setSendState('error');
+    } finally {
+      setSending(false);
+    }
+  };
   const applied = safeDate(app.createdAt);
   const status: AppStatus = STATUSES.includes(app.status) ? app.status : 'new';
   const alreadyOnTeam = Boolean(app.staffId);
@@ -177,6 +252,60 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms }: { ap
                 <p className="mt-0.5 text-[13px] font-bold text-slate-800">{[app.email, app.phone].filter(Boolean).join(' · ')}</p>
               </div>
             )}
+            {app.email ? (
+              <div className="space-y-2">
+                {!composeOpen ? (
+                  <Button type="button" variant="outline" onClick={() => setComposeOpen(true)} className="h-11 w-full rounded-xl border-2 text-[11px] font-black uppercase tracking-widest">
+                    <Mail className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" /> Send a message
+                  </Button>
+                ) : (
+                  <div className="space-y-2 rounded-2xl border-2 bg-muted/10 p-3">
+                    <div className="flex flex-wrap gap-1.5">
+                      {MESSAGE_TEMPLATES.map(t => (
+                        <button key={t.key} type="button" onClick={() => applyTemplate(t.key)} className="h-9 rounded-lg border-2 bg-white px-2.5 text-[10px] font-black uppercase tracking-widest text-slate-700">
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                    <label htmlFor={`msg-subj-${app.id}`} className="sr-only">Subject</label>
+                    <Input id={`msg-subj-${app.id}`} value={msgSubject} onChange={e => setMsgSubject(e.target.value)} maxLength={200} placeholder="Subject" className="h-11 rounded-xl border-2 bg-white font-bold text-sm" />
+                    <label htmlFor={`msg-body-${app.id}`} className="sr-only">Message</label>
+                    <textarea id={`msg-body-${app.id}`} value={msgBody} onChange={e => setMsgBody(e.target.value)} maxLength={5000} rows={6} placeholder="Pick a template above or write your own" className="w-full rounded-xl border-2 bg-white p-3 font-bold text-sm" />
+                    {sendState === 'error' && <p className="text-[11px] font-bold text-destructive">Couldn&apos;t queue the message — try again.</p>}
+                    <div className="flex gap-2">
+                      <Button type="button" variant="outline" onClick={() => setComposeOpen(false)} className="h-11 flex-1 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest">Cancel</Button>
+                      <Button type="button" disabled={sending || !msgBody.trim()} onClick={handleSend} className="h-11 flex-[2] rounded-xl bg-slate-900 text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-60">
+                        {sending ? <Loader className="h-4 w-4 animate-spin" aria-hidden="true" /> : 'Send email'}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-[11px] font-bold text-muted-foreground">No email on this application — use the phone number to reach them.</p>
+            )}
+
+            {timeline.length > 0 && (
+              <div>
+                <p className="mb-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">History</p>
+                <div className="space-y-1.5">
+                  {timeline.map((ev: any) => {
+                    const when = safeDate(ev.createdAt);
+                    return (
+                      <div key={ev.id} className="flex items-start justify-between gap-2 rounded-xl border-2 border-dashed bg-slate-50/60 px-3 py-2">
+                        <p className="min-w-0 text-[12px] font-bold text-slate-700">
+                          {ev.type === 'status'
+                            ? `Moved to ${STATUS_LABEL[(ev.toStatus as AppStatus)] || ev.toStatus}`
+                            : `Email: ${ev.subject || '(no subject)'}${ev.status === 'failed' ? ' — failed to send' : ev.status === 'queued' ? ' — sending…' : ''}`}
+                        </p>
+                        <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-muted-foreground">{when ? format(when, 'MMM d, h:mm a') : ''}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div>
               <p className="mb-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Move to</p>
               <div className="flex flex-wrap gap-1.5">
@@ -568,6 +697,21 @@ const QuestionEditorFields = ({ label, setLabel, qType, setQType, required, setR
   </div>
 );
 
+const ApplicantCardWithData = (props: any) => {
+  const { firestore } = useFirebase();
+  const { app, tenantId } = props;
+  const msgsQuery = useMemoFirebase(
+    () => (tenantId ? collection(firestore, `tenants/${tenantId}/applications/${app.id}/messages`) : null),
+    [firestore, tenantId, app.id]
+  );
+  const { data: events } = useCollection(msgsQuery);
+  const timeline = useMemo(
+    () => ([...((events || []) as any[])]).sort((a, b) => (safeDate(b.createdAt)?.getTime() || 0) - (safeDate(a.createdAt)?.getTime() || 0)).slice(0, 20),
+    [events]
+  );
+  return <ApplicantCard {...props} timeline={timeline} />;
+};
+
 export default function ApplicantsPage() {
   const { firestore } = useFirebase();
   const { selectedTenant, role } = useTenant();
@@ -676,6 +820,25 @@ export default function ApplicantsPage() {
   const handleStatus = (id: string, status: AppStatus) => {
     if (!tenantId) return;
     updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/applications/${id}`), { status });
+    const evId = nanoid();
+    setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/applications/${id}/messages/${evId}`), {
+      id: evId, type: 'status', toStatus: status, createdAt: new Date().toISOString(),
+    }, { merge: false });
+  };
+
+  const handleSendMessage = async (app: any, subject: string, body: string) => {
+    if (!tenantId || !app?.email) throw new Error('No recipient');
+    const msgId = nanoid();
+    const { setDoc } = await import('firebase/firestore');
+    await setDoc(doc(firestore, `tenants/${tenantId}/applications/${app.id}/messages/${msgId}`), {
+      id: msgId,
+      type: 'email',
+      status: 'queued',
+      to: String(app.email).trim(),
+      subject: subject.slice(0, 200),
+      body: body.slice(0, 5000),
+      createdAt: new Date().toISOString(),
+    });
   };
 
   const counts = useMemo(() => {
@@ -799,7 +962,7 @@ export default function ApplicantsPage() {
         ) : visible.length > 0 ? (
           <div className="space-y-4">
             {visible.map((app: any) => (
-              <ApplicantCard key={app.id} app={app} onStatus={handleStatus} onHire={handleHire} teamEmails={teamEmails} consentForms={(consentForms || []) as any[]} />
+              <ApplicantCardWithData key={app.id} app={app} tenantId={tenantId} onStatus={handleStatus} onHire={handleHire} teamEmails={teamEmails} consentForms={(consentForms || []) as any[]} businessName={selectedTenant?.name || "our team"} onSendMessage={handleSendMessage} />
             ))}
           </div>
         ) : (
