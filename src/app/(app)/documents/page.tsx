@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
-import { Loader, FileText, ChevronDown, Plus, CheckCircle2 } from 'lucide-react';
+import { Loader, FileText, ChevronDown, Plus, CheckCircle2, AlertTriangle, Lightbulb, Square } from 'lucide-react';
 import { resolveActiveStaffId } from '@/lib/staff-identity';
 
 const CATEGORIES = [
@@ -23,17 +23,94 @@ const CATEGORIES = [
 
 const MAX_SECTIONS = 20;
 
-const TEMPLATES: Array<{ key: string; title: string; category: string; blurb: string; sections: Array<{ heading: string; body: string }> }> = [
+const SECTION_TYPES = [
+  ['text', 'Text'],
+  ['step', 'Step'],
+  ['checklist', 'Checklist'],
+  ['warning', 'Warning'],
+  ['tip', 'Tip'],
+] as const;
+
+const SECTION_PLACEHOLDER: Record<string, { heading: string; body: string }> = {
+  text: { heading: 'Section heading', body: 'Write the rules or guidance for this section' },
+  step: { heading: 'What this step does (e.g. Disinfect the station)', body: 'Exactly how to do it, and what done-right looks like' },
+  checklist: { heading: 'Checklist name (e.g. Before unlocking)', body: 'One item per line — each line becomes a checkbox' },
+  warning: { heading: 'Warning title (optional)', body: 'What can go wrong and what to never do' },
+  tip: { heading: 'Tip title (optional)', body: 'The shortcut or judgment call experienced people know' },
+};
+
+const SectionRenderer = ({ sec, stepNumber }: { sec: any; stepNumber: number | null }) => {
+  const type = sec.type || 'text';
+  if (type === 'step') {
+    return (
+      <div className="rounded-2xl border-2 border-l-8 border-l-slate-900 p-3">
+        <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">Step {stepNumber}</p>
+        {sec.heading && <p className="mt-0.5 text-[13px] font-black tracking-tight text-slate-900">{sec.heading}</p>}
+        {sec.body && <p className="mt-1 whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-slate-700">{sec.body}</p>}
+      </div>
+    );
+  }
+  if (type === 'checklist') {
+    const items = String(sec.body || '').split('\n').map((x: string) => x.trim()).filter(Boolean);
+    return (
+      <div className="rounded-2xl border-2 p-3">
+        {sec.heading && <p className="text-[12px] font-black uppercase tracking-widest text-slate-900">{sec.heading}</p>}
+        <div className="mt-1.5 space-y-1.5">
+          {items.map((item: string, i: number) => (
+            <div key={i} className="flex items-start gap-2">
+              <Square className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
+              <p className="text-[13px] font-bold leading-relaxed text-slate-700">{item}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  if (type === 'warning') {
+    return (
+      <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-3">
+        <div className="flex items-start gap-2">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
+          <div>
+            {sec.heading && <p className="text-[12px] font-black uppercase tracking-widest text-amber-900">{sec.heading}</p>}
+            {sec.body && <p className="mt-0.5 whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-amber-900">{sec.body}</p>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (type === 'tip') {
+    return (
+      <div className="rounded-2xl border-2 border-dashed bg-slate-50 p-3">
+        <div className="flex items-start gap-2">
+          <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />
+          <div>
+            {sec.heading && <p className="text-[12px] font-black uppercase tracking-widest text-slate-700">{sec.heading}</p>}
+            {sec.body && <p className="mt-0.5 whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-slate-600">{sec.body}</p>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div>
+      {sec.heading && <p className="text-[12px] font-black uppercase tracking-widest text-slate-900">{sec.heading}</p>}
+      {sec.body && <p className="mt-1 whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-slate-700">{sec.body}</p>}
+    </div>
+  );
+};
+
+const TEMPLATES: Array<{ key: string; title: string; category: string; blurb: string; sections: Array<{ heading: string; body: string; type?: string }> }> = [
   {
     key: 'opening',
     title: 'Opening checklist',
     category: 'sop',
     blurb: 'Start-of-day routine so any team member can open alone.',
     sections: [
-      { heading: 'Before unlocking', body: 'Arrive 15 minutes before open. Check the exterior — signage on, entry clear and safe. Disarm the alarm and turn on lights.' },
-      { heading: 'Set up the space', body: 'Turn on all equipment and let it reach working temperature. Wipe down stations and shared surfaces. Restock anything below par level and note shortages for the manager.' },
-      { heading: 'Systems check', body: 'Open the register or point of sale and count the float. Review today\u2019s schedule for special notes. Confirm the booking page and phone line are live.' },
-      { heading: 'Ready to open', body: 'Unlock the door at the posted time. First impression standard: music on, space tidy, team ready to greet.' },
+      { type: 'checklist', heading: 'Before unlocking', body: 'Arrive 15 minutes before open\nCheck the exterior — signage on, entry clear and safe\nDisarm the alarm\nTurn on lights' },
+      { type: 'checklist', heading: 'Set up the space', body: 'Turn on all equipment and let it reach working temperature\nWipe down stations and shared surfaces\nRestock anything below par level\nNote shortages for the manager' },
+      { type: 'checklist', heading: 'Systems check', body: 'Open the point of sale and count the float\nReview today\u2019s schedule for special notes\nConfirm the booking page and phone line are live' },
+      { type: 'step', heading: 'Ready to open', body: 'Unlock the door at the posted time. First impression standard: music on, space tidy, team ready to greet.' },
     ],
   },
   {
@@ -42,10 +119,10 @@ const TEMPLATES: Array<{ key: string; title: string; category: string; blurb: st
     category: 'sop',
     blurb: 'End-of-day shutdown that protects cash, equipment, and tomorrow.',
     sections: [
-      { heading: 'Last client through', body: 'No new walk-ins after the posted cutoff. Finish every client with the full standard — closing time never shortens service quality.' },
-      { heading: 'Clean and reset', body: 'Sanitize all stations and tools per the sanitation standard. Empty bins. Reset each station so tomorrow starts clean.' },
-      { heading: 'Cash and records', body: 'Count the drawer with a second person when possible. Record totals. Prepare the deposit and secure it as trained.' },
-      { heading: 'Lock up', body: 'Equipment off, lights off, thermostat set. Arm the alarm and confirm the door is locked behind you. Report anything unusual to the manager tonight, not tomorrow.' },
+      { type: 'step', heading: 'Last client through', body: 'No new walk-ins after the posted cutoff. Finish every client with the full standard — closing time never shortens service quality.' },
+      { type: 'checklist', heading: 'Clean and reset', body: 'Sanitize all stations and tools per the sanitation standard\nEmpty bins\nReset each station so tomorrow starts clean' },
+      { type: 'step', heading: 'Cash and records', body: 'Count the drawer with a second person when possible. Record totals. Prepare the deposit and secure it as trained.' },
+      { type: 'checklist', heading: 'Lock up', body: 'Equipment off, lights off, thermostat set\nArm the alarm\nConfirm the door is locked behind you\nReport anything unusual to the manager tonight, not tomorrow' },
     ],
   },
   {
@@ -67,10 +144,10 @@ const TEMPLATES: Array<{ key: string; title: string; category: string; blurb: st
     category: 'policy',
     blurb: 'How complaints get handled the same way every time.',
     sections: [
-      { heading: 'First response', body: 'Listen fully without interrupting. Thank them for telling us. Never argue in front of other clients — move the conversation somewhere calm.' },
-      { heading: 'What you can offer', body: 'Team members may offer a redo of the service. Anything involving a refund or beyond goes to a manager — say: \u201cI want to make this right, let me get my manager.\u201d' },
-      { heading: 'Escalation', body: 'Manager decides refund or resolution and records what happened and what was offered in the client\u2019s notes the same day.' },
-      { heading: 'After', body: 'If the complaint involves safety or a reaction, follow the incident procedure and notify the owner immediately.' },
+      { type: 'step', heading: 'First response', body: 'Listen fully without interrupting. Thank them for telling us. Never argue in front of other clients — move the conversation somewhere calm.' },
+      { type: 'step', heading: 'What you can offer', body: 'Team members may offer a redo of the service. Anything involving a refund or beyond goes to a manager — say: \u201cI want to make this right, let me get my manager.\u201d' },
+      { type: 'step', heading: 'Escalation', body: 'Manager decides refund or resolution and records what happened and what was offered in the client\u2019s notes the same day.' },
+      { type: 'warning', heading: 'Safety incidents', body: 'If the complaint involves safety or a reaction, follow the incident procedure and notify the owner immediately.' },
     ],
   },
 ];
@@ -115,12 +192,10 @@ const DocumentReadView = ({ docItem, myAck, onAck }: { docItem: any; myAck: any;
                 <p className="text-[11px] font-bold text-amber-900">This document changed since you last read it (you read v{myAck.version}, this is v{version}). Please read it again and confirm below.</p>
               </div>
             )}
-            {(docItem.sections || []).map((sec: any) => (
-              <div key={sec.id}>
-                {sec.heading && <p className="text-[12px] font-black uppercase tracking-widest text-slate-900">{sec.heading}</p>}
-                <p className="mt-1 whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-slate-700">{sec.body}</p>
-              </div>
-            ))}
+            {(() => { let n = 0; return (docItem.sections || []).map((sec: any) => {
+              const stepNumber = (sec.type === 'step') ? ++n : null;
+              return <SectionRenderer key={sec.id} sec={sec} stepNumber={stepNumber} />;
+            }); })()}
             {ackCurrent ? (
               <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-3">
                 <p className="text-[11px] font-black uppercase tracking-widest text-emerald-900">
@@ -172,7 +247,7 @@ const DocumentEditor = ({ docItem, staff, onSave, onPublish, onDelete, onClose }
     const cleanTitle = title.trim().slice(0, 140);
     if (!cleanTitle) { setErr('Give the document a title.'); return null; }
     const cleanSections = sections
-      .map(x => ({ id: x.id, heading: String(x.heading || '').trim().slice(0, 140), body: String(x.body || '').trim().slice(0, 8000) }))
+      .map(x => ({ id: x.id, type: x.type || 'text', heading: String(x.heading || '').trim().slice(0, 140), body: String(x.body || '').trim().slice(0, 8000) }))
       .filter(x => x.heading || x.body);
     if (cleanSections.length === 0) { setErr('Add at least one section with content.'); return null; }
     setErr('');
@@ -199,11 +274,21 @@ const DocumentEditor = ({ docItem, staff, onSave, onPublish, onDelete, onClose }
 
       <div className="space-y-2">
         <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Sections</p>
-        {sections.map((sec, i) => (
+        {sections.map((sec, i) => {
+          const secType = sec.type || 'text';
+          const ph = SECTION_PLACEHOLDER[secType] || SECTION_PLACEHOLDER.text;
+          return (
           <div key={sec.id} className="space-y-2 rounded-2xl border-2 p-3">
+            <div className="flex flex-wrap gap-1.5">
+              {SECTION_TYPES.map(([v, l]) => (
+                <button key={v} type="button" aria-pressed={secType === v} onClick={() => patchSection(sec.id, { type: v })} className={cn('h-8 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest', secType === v ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                  {l}
+                </button>
+              ))}
+            </div>
             <div className="flex items-center gap-2">
               <label htmlFor={`sec-h-${sec.id}`} className="sr-only">Section heading</label>
-              <Input id={`sec-h-${sec.id}`} value={sec.heading} onChange={e => patchSection(sec.id, { heading: e.target.value })} maxLength={140} placeholder={`Section ${i + 1} heading`} className="h-10 flex-1 rounded-xl border-2 bg-white font-bold text-sm" />
+              <Input id={`sec-h-${sec.id}`} value={sec.heading} onChange={e => patchSection(sec.id, { heading: e.target.value })} maxLength={140} placeholder={ph.heading} className="h-10 flex-1 rounded-xl border-2 bg-white font-bold text-sm" />
               <Button type="button" variant="outline" aria-label="Move section up" disabled={i === 0} onClick={() => moveSection(i, -1)} className="h-10 w-10 rounded-lg border-2 p-0 text-xs font-black">↑</Button>
               <Button type="button" variant="outline" aria-label="Move section down" disabled={i === sections.length - 1} onClick={() => moveSection(i, 1)} className="h-10 w-10 rounded-lg border-2 p-0 text-xs font-black">↓</Button>
               {sections.length > 1 && (
@@ -211,9 +296,10 @@ const DocumentEditor = ({ docItem, staff, onSave, onPublish, onDelete, onClose }
               )}
             </div>
             <label htmlFor={`sec-b-${sec.id}`} className="sr-only">Section content</label>
-            <textarea id={`sec-b-${sec.id}`} value={sec.body} onChange={e => patchSection(sec.id, { body: e.target.value })} maxLength={8000} rows={4} placeholder="Write the steps, rules, or guidance for this section" className="w-full rounded-xl border-2 bg-white p-3 font-bold text-sm" />
+            <textarea id={`sec-b-${sec.id}`} value={sec.body} onChange={e => patchSection(sec.id, { body: e.target.value })} maxLength={8000} rows={secType === 'checklist' ? 5 : 4} placeholder={ph.body} className="w-full rounded-xl border-2 bg-white p-3 font-bold text-sm" />
           </div>
-        ))}
+          );
+        })}
         {sections.length < MAX_SECTIONS && (
           <Button type="button" variant="outline" onClick={() => setSections(prev => [...prev, { id: nanoid(), heading: '', body: '' }])} className="h-11 w-full rounded-xl border-2 border-dashed text-[11px] font-black uppercase tracking-widest">
             <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" /> Add section
