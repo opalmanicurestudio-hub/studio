@@ -104,7 +104,7 @@ const safeDate = (val: any): Date | null => {
 
 const makePin = () => String(Math.floor(1000 + Math.random() * 9000));
 
-const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, businessName, onSendMessage, timeline, onDecline, onScheduleInterview, invite, onCopyInviteLink, onAcceptProposed, publishedDocs }: { app: any; onStatus: (id: string, status: AppStatus) => void; onHire: (app: any, opts: { role: 'staff' | 'admin'; payStructure: string; pin: string; assignedFormIds: string[]; assignedDocIds?: string[] }) => Promise<void>; teamEmails: Set<string>; consentForms: any[]; businessName: string; onSendMessage: (app: any, subject: string, body: string) => Promise<void>; timeline: any[]; onDecline: (app: any, reason: string, talentPool: boolean) => void; onScheduleInterview: (app: any, slots: string[]) => Promise<void>; invite: any; onCopyInviteLink: (inviteId: string) => void; onAcceptProposed: (inviteId: string, slot: string) => void; publishedDocs: any[] }) => {
+const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, businessName, onSendMessage, timeline, onDecline, onScheduleInterview, invite, onCopyInviteLink, onAcceptProposed, onCancelInterview, publishedDocs }: { app: any; onStatus: (id: string, status: AppStatus) => void; onHire: (app: any, opts: { role: 'staff' | 'admin'; payStructure: string; pin: string; assignedFormIds: string[]; assignedDocIds?: string[] }) => Promise<void>; teamEmails: Set<string>; consentForms: any[]; businessName: string; onSendMessage: (app: any, subject: string, body: string) => Promise<void>; timeline: any[]; onDecline: (app: any, reason: string, talentPool: boolean) => void; onScheduleInterview: (app: any, slots: string[]) => Promise<void>; invite: any; onCopyInviteLink: (inviteId: string) => void; onAcceptProposed: (inviteId: string, slot: string) => void; onCancelInterview: (app: any, invite: any) => void; publishedDocs: any[] }) => {
   const [open, setOpen] = useState(false);
   const [hireOpen, setHireOpen] = useState(false);
   const [hireRole, setHireRole] = useState<'staff' | 'admin'>('staff');
@@ -279,9 +279,17 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
             {app.email && !alreadyOnTeam && (
               <div className="space-y-2">
                 {invite && invite.status === 'accepted' ? (
-                  <div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-3">
+                  <div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-3 space-y-2">
                     <p className="text-[10px] font-black uppercase tracking-widest text-emerald-900">Interview confirmed</p>
                     <p className="mt-0.5 text-[13px] font-black text-emerald-900">{invite.chosenSlot ? format(safeDate(invite.chosenSlot) as Date, 'EEEE, MMM d · h:mm a') : ''}</p>
+                    <Button type="button" variant="outline" onClick={() => onCancelInterview(app, invite)} className="h-auto min-h-10 w-full whitespace-normal rounded-xl border-2 py-2 text-[10px] font-black uppercase leading-tight tracking-widest text-destructive border-destructive/30 sm:w-auto">
+                      Cancel this interview (emails them)
+                    </Button>
+                    <p className="text-[11px] font-bold text-emerald-900/70">To move it instead, cancel, then propose new times below.</p>
+                  </div>
+                ) : invite && invite.status === 'canceled' ? (
+                  <div className="rounded-2xl border-2 border-dashed bg-slate-50 p-3">
+                    <p className="text-[11px] font-bold text-slate-600">Interview canceled — they&apos;ve been emailed. Propose new times below whenever you&apos;re ready.</p>
                   </div>
                 ) : invite && invite.status === 'needs_new_times' ? (
                   <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-3">
@@ -999,6 +1007,27 @@ export default function ApplicantsPage() {
     [tenantDocs]
   );
 
+  const handleCancelInterview = (app: any, invite: any) => {
+    if (!tenantId) return;
+    updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/interviewInvites/${invite.id}`), {
+      status: 'canceled',
+      canceledAt: new Date().toISOString(),
+    });
+    const whenStr = invite.chosenSlot ? (() => { try { const dd = safeDate(invite.chosenSlot); return dd ? format(dd as Date, 'EEEE, MMM d \u00b7 h:mm a') : ''; } catch { return ''; } })() : '';
+    const businessName = selectedTenant?.name || 'our team';
+    const msgId = nanoid();
+    setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/applications/${app.id}/messages/${msgId}`), {
+      id: msgId,
+      type: 'email',
+      status: 'queued',
+      to: app.email || '',
+      subject: `Interview update — ${businessName}`,
+      body: `Hi ${String(app.name || 'there').split(' ')[0]},\n\nWe need to cancel ${whenStr ? `our interview scheduled for ${whenStr}` : 'our upcoming interview'} — our apologies for the change of plans. This isn\u2019t a reflection on your application: we\u2019ll follow up shortly with new times.\n\nThank you for your patience,\n${businessName}`,
+      by: actorName,
+      createdAt: new Date().toISOString(),
+    }, { merge: false });
+  };
+
   const handleAcceptProposed = (inviteId: string, slot: string) => {
     if (!tenantId) return;
     updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/interviewInvites/${inviteId}`), {
@@ -1227,7 +1256,7 @@ ${selectedTenant?.name || ''}`);
         ) : visible.length > 0 ? (
           <div className="space-y-4">
             {visible.map((app: any) => (
-              <ApplicantCardWithData key={app.id} app={app} tenantId={tenantId} onStatus={handleStatus} onHire={handleHire} teamEmails={teamEmails} consentForms={(consentForms || []) as any[]} businessName={selectedTenant?.name || "our team"} onSendMessage={handleSendMessage} onDecline={handleDecline} onScheduleInterview={handleScheduleInterview} invite={inviteByApplication.get(app.id) || null} onCopyInviteLink={handleCopyInviteLink} onAcceptProposed={handleAcceptProposed} publishedDocs={publishedDocs} />
+              <ApplicantCardWithData key={app.id} app={app} tenantId={tenantId} onStatus={handleStatus} onHire={handleHire} teamEmails={teamEmails} consentForms={(consentForms || []) as any[]} businessName={selectedTenant?.name || "our team"} onSendMessage={handleSendMessage} onDecline={handleDecline} onScheduleInterview={handleScheduleInterview} invite={inviteByApplication.get(app.id) || null} onCopyInviteLink={handleCopyInviteLink} onAcceptProposed={handleAcceptProposed} onCancelInterview={handleCancelInterview} publishedDocs={publishedDocs} />
             ))}
           </div>
         ) : (
