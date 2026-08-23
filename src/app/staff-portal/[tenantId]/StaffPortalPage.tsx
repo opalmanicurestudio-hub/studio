@@ -53,6 +53,167 @@ import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDia
 
 // ─── TIMELINE CONSTANTS ───────────────────────────────────────────────────────
 // Full 24h so the "now" line is always visible no matter the time
+const DOC_CATEGORY_LABEL: Record<string, string> = { sop: 'SOP', handbook: 'Handbook', policy: 'Policy', other: 'Other' };
+
+const PortalSectionRenderer = ({ sec, stepNumber }: { sec: any; stepNumber: number | null }) => {
+  const type = sec.type || 'text';
+  if (type === 'step') {
+    return (
+      <div className="rounded-2xl border-2 border-l-8 border-l-slate-900 p-3">
+        <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">Step {stepNumber}</p>
+        {sec.heading && <p className="mt-0.5 text-[13px] font-black tracking-tight text-slate-900">{sec.heading}</p>}
+        {sec.body && <p className="mt-1 whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-slate-700">{sec.body}</p>}
+      </div>
+    );
+  }
+  if (type === 'checklist') {
+    const items = String(sec.body || '').split('\n').map((x: string) => x.trim()).filter(Boolean);
+    return (
+      <div className="rounded-2xl border-2 p-3">
+        {sec.heading && <p className="text-[12px] font-black uppercase tracking-widest text-slate-900">{sec.heading}</p>}
+        <div className="mt-1.5 space-y-1.5">
+          {items.map((item: string, i: number) => (
+            <div key={i} className="flex items-start gap-2">
+              <Square className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+              <p className="text-[13px] font-bold leading-relaxed text-slate-700">{item}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  if (type === 'warning') {
+    return (
+      <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-3">
+        <div className="flex items-start gap-2">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+          <div>
+            {sec.heading && <p className="text-[12px] font-black uppercase tracking-widest text-amber-900">{sec.heading}</p>}
+            {sec.body && <p className="mt-0.5 whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-amber-900">{sec.body}</p>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (type === 'tip') {
+    return (
+      <div className="rounded-2xl border-2 border-dashed bg-slate-50 p-3">
+        <div className="flex items-start gap-2">
+          <Zap className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
+          <div>
+            {sec.heading && <p className="text-[12px] font-black uppercase tracking-widest text-slate-700">{sec.heading}</p>}
+            {sec.body && <p className="mt-0.5 whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-slate-600">{sec.body}</p>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div>
+      {sec.heading && <p className="text-[12px] font-black uppercase tracking-widest text-slate-900">{sec.heading}</p>}
+      {sec.body && <p className="mt-1 whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-slate-700">{sec.body}</p>}
+    </div>
+  );
+};
+
+const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: string; staffMember: any }) => {
+  const { firestore } = useFirebase();
+  const [open, setOpen] = useState(false);
+  const acksQ = useMemoFirebase(
+    () => firestore && tenantId ? collection(firestore, `tenants/${tenantId}/documents/${d.id}/acks`) : null,
+    [firestore, tenantId, d.id]
+  );
+  const { data: acks } = useCollection<any>(acksQ);
+  const myAck = ((acks || []) as any[]).find(a => a.id === staffMember.id) || null;
+  const version = Number(d.version || 1);
+  const ackCurrent = myAck && Number(myAck.version) === version;
+  const ackStale = myAck && Number(myAck.version) < version;
+
+  const handleAck = () => {
+    if (!firestore || !tenantId) return;
+    setDoc(doc(firestore, `tenants/${tenantId}/documents/${d.id}/acks/${staffMember.id}`), {
+      id: staffMember.id,
+      staffId: staffMember.id,
+      staffName: staffMember.name || 'Team member',
+      version,
+      acknowledgedAt: new Date().toISOString(),
+    }, { merge: true }).catch(err => console.error('ack failed', err));
+  };
+
+  return (
+    <div className={cn('rounded-2xl border-2 bg-white overflow-hidden', ackStale && 'border-amber-300')}>
+      <button type="button" onClick={() => setOpen(v => !v)} className="flex w-full items-start justify-between gap-3 p-4 text-left">
+        <div className="min-w-0">
+          <p className="truncate text-[14px] font-black tracking-tight text-slate-900">{d.title || 'Untitled'}</p>
+          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{DOC_CATEGORY_LABEL[d.category] || 'Doc'} · v{version}</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {ackCurrent && <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
+          {ackStale && <span className="rounded-lg border-2 border-amber-300 bg-amber-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-amber-900">Updated</span>}
+          {!myAck && <span className="rounded-lg border-2 bg-slate-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-slate-700">To read</span>}
+          <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', open && 'rotate-180')} />
+        </div>
+      </button>
+      {open && (
+        <div className="space-y-3 border-t-2 border-dashed p-4">
+          {ackStale && (
+            <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3">
+              <p className="text-[11px] font-bold text-amber-900">This changed since you last read it (you read v{myAck.version}, this is v{version}). Please read again and confirm below.</p>
+            </div>
+          )}
+          {(() => { let n = 0; return (d.sections || []).map((sec: any) => {
+            const stepNumber = (sec.type === 'step') ? ++n : null;
+            return <PortalSectionRenderer key={sec.id} sec={sec} stepNumber={stepNumber} />;
+          }); })()}
+          {ackCurrent ? (
+            <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-3">
+              <p className="text-[10px] font-black uppercase tracking-widest text-emerald-900">Read &amp; understood{myAck.acknowledgedAt ? ` · ${format(safeDate(myAck.acknowledgedAt), 'MMM d, yyyy')}` : ''}</p>
+            </div>
+          ) : (
+            <button type="button" onClick={handleAck} className="flex h-12 w-full items-center justify-center gap-1.5 rounded-xl bg-slate-900 text-[11px] font-black uppercase tracking-widest text-white">
+              <CheckCircle2 className="h-4 w-4" /> I&apos;ve read and understood this
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const TeamDocumentsSection = ({ tenantId, staffMember }: { tenantId: string; staffMember: any }) => {
+  const { firestore } = useFirebase();
+  const docsQ = useMemoFirebase(
+    () => firestore && tenantId ? collection(firestore, `tenants/${tenantId}/documents`) : null,
+    [firestore, tenantId]
+  );
+  const { data: docs } = useCollection<any>(docsQ);
+
+  const mine = useMemo(() => {
+    return ((docs || []) as any[])
+      .filter(d => d.status === 'published' && (
+        (d.assignedRoles || []).includes('all') ||
+        (staffMember.role && (d.assignedRoles || []).includes(staffMember.role)) ||
+        (d.assignedStaffIds || []).includes(staffMember.id)
+      ))
+      .sort((a, b) => String(a.title || '').localeCompare(String(b.title || '')));
+  }, [docs, staffMember]);
+
+  return (
+    <div className="space-y-3">
+      <p className="px-1 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Handbook &amp; SOPs</p>
+      {mine.length === 0 ? (
+        <div className="rounded-2xl border-2 border-dashed bg-white/60 py-12 text-center">
+          <FileText className="mx-auto h-8 w-8 text-slate-300" />
+          <p className="mt-3 text-[11px] font-black uppercase tracking-widest text-slate-900">Nothing assigned yet</p>
+          <p className="mt-1 px-6 text-[11px] font-bold text-muted-foreground">When your manager publishes a handbook or SOP for you, it shows up here to read and confirm.</p>
+        </div>
+      ) : (
+        mine.map((d: any) => <PortalDocumentCard key={d.id} d={d} tenantId={tenantId} staffMember={staffMember} />)
+      )}
+    </div>
+  );
+};
+
 const HOUR_START  = 0;
 const HOUR_END    = 24;
 const TOTAL_MINS  = (HOUR_END - HOUR_START) * 60; // 1440
@@ -4264,7 +4425,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     ? ([RENT_TAB] as any[]).concat(ALL_TABS.filter(t => t.id === 'messages' || t.id === 'inbox') as any[]).concat([DOCS_TAB])
     : isHybrid
       ? (ALL_TABS as any[]).concat([RENT_TAB, DOCS_TAB])
-      : ALL_TABS;
+      : (ALL_TABS as unknown as any[]).concat([DOCS_TAB]);
   const VISIBLE_TABS: any[] = fulfilmentPerms.canPick ? (TABS as any[]).concat([ORDERS_TAB]) : (TABS as any[]);
 
   // v63 — W-9 state lives in the main portal component so Documents tab can access it
@@ -4709,6 +4870,9 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                 </div>
               ))}
             </div>
+          )}
+          {activeTab==='documents' && (
+            <TeamDocumentsSection tenantId={tenantId} staffMember={staffMember} />
           )}
           {activeTab==='documents' && (isRenter || isHybrid) && (
             <div className="space-y-4">
