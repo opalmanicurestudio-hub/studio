@@ -490,6 +490,20 @@ service cloud.firestore {
             && request.resource.data.completedBy == request.auth.token.staffId);
     }
 
+    // Turn-taking rotations. Managers create/remove/reorder; members
+    // advance the turn, cover a teammate's turn, or swap with next —
+    // touching only the turn-state fields. memberIds is included so a
+    // swap can reorder positions; membership itself is checked.
+    match /tenants/{tenantId}/rotations/{rotationId} {
+      allow get, list: if isStaff(tenantId) || isPortalMember(tenantId);
+      allow create, delete: if isManager(tenantId);
+      allow update: if isManager(tenantId)
+        || (isPortalMember(tenantId)
+            && request.auth.token.staffId in resource.data.memberIds
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['currentIndex', 'history', 'lastDoneDate', 'memberIds']));
+    }
+
     // Interview invites — capability URLs. The token IS the doc id
     // (unguessable), the doc holds only first name + role + slots. Public
     // may read one by id and may respond exactly once: only the response
