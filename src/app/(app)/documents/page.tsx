@@ -11,7 +11,8 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
-import { Loader, FileText, ChevronDown, Plus } from 'lucide-react';
+import { Loader, FileText, ChevronDown, Plus, CheckCircle2 } from 'lucide-react';
+import { resolveActiveStaffId } from '@/lib/staff-identity';
 
 const CATEGORIES = [
   ['sop', 'SOP'],
@@ -33,28 +34,52 @@ const safeDate = (val: any): Date | null => {
 
 const categoryLabel = (c: string) => CATEGORIES.find(x => x[0] === c)?.[1] || 'Other';
 
-const DocumentReadView = ({ docItem }: { docItem: any }) => {
+const DocumentReadView = ({ docItem, myAck, onAck }: { docItem: any; myAck: any; onAck: () => void }) => {
   const [open, setOpen] = useState(false);
+  const version = docItem.version || 1;
+  const ackCurrent = myAck && Number(myAck.version) === Number(version);
+  const ackStale = myAck && Number(myAck.version) < Number(version);
   return (
-    <Card className="rounded-[2rem] border-2 bg-white overflow-hidden">
+    <Card className={cn('rounded-[2rem] border-2 bg-white overflow-hidden', ackStale && 'border-amber-300')}>
       <CardContent className="p-5 space-y-3">
         <button type="button" onClick={() => setOpen(v => !v)} aria-expanded={open} className="flex w-full items-start justify-between gap-3 text-left">
           <div className="min-w-0">
             <p className="truncate text-[15px] font-black tracking-tight text-slate-900">{docItem.title}</p>
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-              {categoryLabel(docItem.category)} · v{docItem.version || 1}
+              {categoryLabel(docItem.category)} · v{version}
             </p>
           </div>
-          <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} aria-hidden="true" />
+          <div className="flex shrink-0 items-center gap-2">
+            {ackCurrent && <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-label="Read and understood" />}
+            {ackStale && <span className="rounded-lg border-2 border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-amber-900">Updated</span>}
+            {!myAck && <span className="rounded-lg border-2 bg-slate-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-slate-700">To read</span>}
+            <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', open && 'rotate-180')} aria-hidden="true" />
+          </div>
         </button>
         {open && (
           <div className="space-y-4 border-t-2 border-dashed pt-3">
+            {ackStale && (
+              <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3">
+                <p className="text-[11px] font-bold text-amber-900">This document changed since you last read it (you read v{myAck.version}, this is v{version}). Please read it again and confirm below.</p>
+              </div>
+            )}
             {(docItem.sections || []).map((sec: any) => (
               <div key={sec.id}>
                 {sec.heading && <p className="text-[12px] font-black uppercase tracking-widest text-slate-900">{sec.heading}</p>}
                 <p className="mt-1 whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-slate-700">{sec.body}</p>
               </div>
             ))}
+            {ackCurrent ? (
+              <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-3">
+                <p className="text-[11px] font-black uppercase tracking-widest text-emerald-900">
+                  Read &amp; understood{myAck.acknowledgedAt && safeDate(myAck.acknowledgedAt) ? ` · ${format(safeDate(myAck.acknowledgedAt) as Date, 'MMM d, yyyy')}` : ''}
+                </p>
+              </div>
+            ) : (
+              <Button type="button" onClick={onAck} className="h-12 w-full rounded-xl bg-slate-900 text-[11px] font-black uppercase tracking-widest text-white">
+                <CheckCircle2 className="mr-1.5 h-4 w-4" aria-hidden="true" /> I&apos;ve read and understood this
+              </Button>
+            )}
           </div>
         )}
       </CardContent>
@@ -188,6 +213,84 @@ const DocumentEditor = ({ docItem, staff, onSave, onPublish, onDelete, onClose }
   );
 };
 
+const DocumentCardWithAcks = ({ d, tenantId, canManage, myStaffId, actorName, staff, expandedId, setExpandedId, onSave, onDelete }: any) => {
+  const { firestore } = useFirebase();
+  const acksQuery = useMemoFirebase(
+    () => tenantId ? collection(firestore, `tenants/${tenantId}/documents/${d.id}/acks`) : null,
+    [firestore, tenantId, d.id]
+  );
+  const { data: acks } = useCollection(acksQuery);
+  const ackList = (acks || []) as any[];
+  const myAck = ackList.find((a: any) => a.id === myStaffId) || null;
+
+  const handleAck = () => {
+    if (!tenantId || !myStaffId) return;
+    setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/documents/${d.id}/acks/${myStaffId}`), {
+      id: myStaffId,
+      staffId: myStaffId,
+      staffName: actorName,
+      version: d.version || 1,
+      acknowledgedAt: new Date().toISOString(),
+    }, { merge: true });
+  };
+
+  if (!canManage) {
+    return <DocumentReadView docItem={d} myAck={myAck} onAck={handleAck} />;
+  }
+
+  const version = d.version || 1;
+  return (
+    <Card className="rounded-[2rem] border-2 bg-white overflow-hidden">
+      <CardContent className="p-5 space-y-3">
+        <button type="button" onClick={() => setExpandedId(expandedId === d.id ? null : d.id)} aria-expanded={expandedId === d.id} className="flex w-full items-start justify-between gap-3 text-left">
+          <div className="min-w-0">
+            <p className="truncate text-[15px] font-black tracking-tight text-slate-900">{d.title || 'Untitled document'}</p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+              {categoryLabel(d.category)} · v{version} · {(d.sections || []).length} section{(d.sections || []).length === 1 ? '' : 's'}
+              {d.status === 'published' ? ` · read by ${ackList.filter((a: any) => Number(a.version) === Number(version)).length}` : ''}
+              {d.updatedAt && safeDate(d.updatedAt) ? ` · ${format(safeDate(d.updatedAt) as Date, 'MMM d')}` : ''}
+            </p>
+          </div>
+          <span className={cn('shrink-0 rounded-lg border-2 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest', d.status === 'published' ? 'bg-emerald-100 text-emerald-900 border-emerald-300' : 'bg-amber-100 text-amber-900 border-amber-300')}>
+            {d.status === 'published' ? 'Published' : 'Draft'}
+          </span>
+        </button>
+        {expandedId === d.id && (
+          <>
+            {d.status === 'published' && (
+              <div className="rounded-2xl border-2 border-dashed bg-slate-50/60 p-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Read &amp; understood</p>
+                {ackList.length === 0 ? (
+                  <p className="mt-1 text-[12px] font-bold text-muted-foreground">No one has confirmed reading it yet.</p>
+                ) : (
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {ackList.map((a: any) => {
+                      const current = Number(a.version) === Number(version);
+                      return (
+                        <span key={a.id} className={cn('rounded-lg border-2 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest', current ? 'bg-emerald-100 text-emerald-900 border-emerald-300' : 'bg-amber-50 text-amber-900 border-amber-300')}>
+                          {a.staffName || 'Team member'}{current ? '' : ` · read v${a.version}`}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+            <DocumentEditor
+              docItem={d}
+              staff={staff}
+              onSave={(data: any) => onSave(d.id, data, false)}
+              onPublish={(data: any) => onSave(d.id, data, true)}
+              onDelete={onDelete}
+              onClose={() => setExpandedId(null)}
+            />
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
 export default function DocumentsPage() {
   const { firestore } = useFirebase();
   const { user: currentUser } = useUser();
@@ -195,6 +298,7 @@ export default function DocumentsPage() {
   const tenantId = selectedTenant?.id;
   const canManage = role === 'owner' || role === 'admin';
   const actorName = currentUser?.displayName || currentUser?.email || 'A manager';
+  const myStaffId = resolveActiveStaffId(currentUser?.uid) || '';
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [q, setQ] = useState('');
@@ -217,12 +321,13 @@ export default function DocumentsPage() {
     if (!canManage) {
       list = list.filter(d => d.status === 'published' && (
         (d.assignedRoles || []).includes('all') ||
-        (role && (d.assignedRoles || []).includes(role))
+        (role && (d.assignedRoles || []).includes(role)) ||
+        (myStaffId && (d.assignedStaffIds || []).includes(myStaffId))
       ));
     }
     if (needle) list = list.filter(d => `${d.title || ''} ${d.category || ''}`.toLowerCase().includes(needle));
     return list.sort((a, b) => String(a.title || '').localeCompare(String(b.title || '')));
-  }, [documents, canManage, role, q]);
+  }, [documents, canManage, role, myStaffId, q]);
 
   const handleCreate = () => {
     if (!tenantId) return;
@@ -290,36 +395,19 @@ export default function DocumentsPage() {
         ) : visible.length > 0 ? (
           <div className="space-y-4">
             {visible.map((d: any) => (
-              canManage ? (
-                <Card key={d.id} className="rounded-[2rem] border-2 bg-white overflow-hidden">
-                  <CardContent className="p-5 space-y-3">
-                    <button type="button" onClick={() => setExpandedId(expandedId === d.id ? null : d.id)} aria-expanded={expandedId === d.id} className="flex w-full items-start justify-between gap-3 text-left">
-                      <div className="min-w-0">
-                        <p className="truncate text-[15px] font-black tracking-tight text-slate-900">{d.title || 'Untitled document'}</p>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                          {categoryLabel(d.category)} · v{d.version || 1} · {(d.sections || []).length} section{(d.sections || []).length === 1 ? '' : 's'}
-                          {d.updatedAt && safeDate(d.updatedAt) ? ` · ${format(safeDate(d.updatedAt) as Date, 'MMM d')}` : ''}
-                        </p>
-                      </div>
-                      <span className={cn('shrink-0 rounded-lg border-2 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest', d.status === 'published' ? 'bg-emerald-100 text-emerald-900 border-emerald-300' : 'bg-amber-100 text-amber-900 border-amber-300')}>
-                        {d.status === 'published' ? 'Published' : 'Draft'}
-                      </span>
-                    </button>
-                    {expandedId === d.id && (
-                      <DocumentEditor
-                        docItem={d}
-                        staff={(staff || []) as any[]}
-                        onSave={(data) => handleSave(d.id, data, false)}
-                        onPublish={(data) => handleSave(d.id, data, true)}
-                        onDelete={() => { if (tenantId) { deleteDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/documents/${d.id}`)); setExpandedId(null); } }}
-                        onClose={() => setExpandedId(null)}
-                      />
-                    )}
-                  </CardContent>
-                </Card>
-              ) : (
-                <DocumentReadView key={d.id} docItem={d} />
-              )
+              <DocumentCardWithAcks
+                key={d.id}
+                d={d}
+                tenantId={tenantId}
+                canManage={canManage}
+                myStaffId={myStaffId}
+                actorName={actorName}
+                staff={(staff || []) as any[]}
+                expandedId={expandedId}
+                setExpandedId={setExpandedId}
+                onSave={handleSave}
+                onDelete={() => { if (tenantId) { deleteDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/documents/${d.id}`)); setExpandedId(null); } }}
+              />
             ))}
           </div>
         ) : (
