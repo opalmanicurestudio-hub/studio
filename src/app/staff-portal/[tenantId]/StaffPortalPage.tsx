@@ -5,6 +5,7 @@ import { FulfilmentPanel } from '@/components/fulfilment/FulfilmentPanel';
 import { permissionsFor } from '@/lib/fulfilment-access';
 import { useRouter } from 'next/navigation';
 import { setActiveStaffId, clearActiveStaffId } from '@/lib/staff-identity';
+import { uploadImage } from '@/lib/upload-image';
 import { registerPushForStaff } from '@/lib/push-notifications';
 import { AvatarUpload } from '@/components/shared/AvatarUpload';
 import { GifPicker, GIF_ENABLED } from '@/components/shared/GifPicker';
@@ -135,6 +136,10 @@ const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: st
   const { data: todayRuns } = useCollection<any>(runsQ);
   const myRun = ((todayRuns || []) as any[]).find(r => r.id === runId) || null;
   const runItems: Record<string, boolean> = myRun?.items || {};
+  const runPhotos: Record<string, string> = myRun?.photos || {};
+  const [uploadingKey, setUploadingKey] = useState<string | null>(null);
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const totalItems = useMemo(() => (d.sections || []).reduce((acc: number, sec: any) => {
     if (sec.type !== 'checklist') return acc;
@@ -143,10 +148,9 @@ const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: st
 
   const checkedCount = Object.values(runItems).filter(Boolean).length;
 
-  const toggleItem = (key: string) => {
+  const writeRun = (nextItems: Record<string, boolean>, nextPhotos: Record<string, string>) => {
     if (!firestore || !tenantId) return;
-    const next = { ...runItems, [key]: !runItems[key] };
-    const nextChecked = Object.values(next).filter(Boolean).length;
+    const nextChecked = Object.values(nextItems).filter(Boolean).length;
     const full = totalItems > 0 && nextChecked >= totalItems;
     setDoc(doc(firestore, `tenants/${tenantId}/documents/${d.id}/runs/${runId}`), {
       id: runId,
@@ -154,12 +158,41 @@ const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: st
       staffName: staffMember.name || 'Team member',
       date: todayStr,
       docVersion: Number(d.version || 1),
-      items: next,
+      items: nextItems,
+      photos: nextPhotos,
       checkedCount: nextChecked,
       totalItems,
       startedAt: myRun?.startedAt || new Date().toISOString(),
       completedAt: full ? (myRun?.completedAt || new Date().toISOString()) : null,
     }, { merge: true }).catch(err => console.error('run write failed', err));
+  };
+
+  const toggleItem = (key: string, needsPhoto: boolean) => {
+    if (!firestore || !tenantId) return;
+    const isChecked = !!runItems[key];
+    if (!isChecked && needsPhoto && !runPhotos[key]) {
+      setPendingKey(key);
+      fileRef.current?.click();
+      return;
+    }
+    writeRun({ ...runItems, [key]: !isChecked }, runPhotos);
+  };
+
+  const handlePhotoPicked = async (file: File | null) => {
+    const key = pendingKey;
+    setPendingKey(null);
+    if (!file || !key || !tenantId) return;
+    setUploadingKey(key);
+    try {
+      const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const url = await uploadImage(`tenants/${tenantId}/evidence/${d.id}/${todayStr}/${staffMember.id}_${safeKey}.jpg`, file, 1280);
+      writeRun({ ...runItems, [key]: true }, { ...runPhotos, [key]: url });
+    } catch (err) {
+      console.error('evidence upload failed', err);
+    } finally {
+      setUploadingKey(null);
+      if (fileRef.current) fileRef.current.value = '';
+    }
   };
   const myAck = ((acks || []) as any[]).find(a => a.id === staffMember.id) || null;
   const version = Number(d.version || 1);
@@ -198,6 +231,7 @@ const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: st
               <p className="text-[11px] font-bold text-amber-900">This changed since you last read it (you read v{myAck.version}, this is v{version}). Please read again and confirm below.</p>
             </div>
           )}
+          <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" aria-hidden="true" tabIndex={-1} onChange={(e) => handlePhotoPicked(e.target.files?.[0] || null)} />
           {hasChecklists && totalItems > 0 && (
             <div className="rounded-xl border-2 bg-slate-50 p-3">
               <div className="flex items-center justify-between">
@@ -221,10 +255,20 @@ const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: st
                     {items.map((item: string, i: number) => {
                       const key = `${sec.id}:${i}`;
                       const on = !!runItems[key];
+                      const needsPhoto = Array.isArray(sec.photoLines) && sec.photoLines.includes(i);
+                      const photoUrl = runPhotos[key];
+                      const uploading = uploadingKey === key;
                       return (
-                        <button key={i} type="button" aria-pressed={on} onClick={() => toggleItem(key)} className={cn('flex w-full items-start gap-2 rounded-xl border-2 p-2.5 text-left transition-all active:scale-[0.99]', on ? 'border-emerald-300 bg-emerald-50' : 'bg-white')}>
-                          {on ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : <Square className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />}
-                          <p className={cn('text-[13px] font-bold leading-relaxed', on ? 'text-emerald-900' : 'text-slate-700')}>{item}</p>
+                        <button key={i} type="button" aria-pressed={on} disabled={uploading} onClick={() => toggleItem(key, needsPhoto)} className={cn('flex w-full items-start gap-2 rounded-xl border-2 p-2.5 text-left transition-all active:scale-[0.99]', on ? 'border-emerald-300 bg-emerald-50' : 'bg-white', uploading && 'opacity-70')}>
+                          {uploading ? <Loader className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-slate-500" /> : on ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : <Square className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />}
+                          <div className="min-w-0 flex-1">
+                            <p className={cn('text-[13px] font-bold leading-relaxed', on ? 'text-emerald-900' : 'text-slate-700')}>{item}</p>
+                            {needsPhoto && !photoUrl && !uploading && (
+                              <p className="mt-0.5 text-[10px] font-black uppercase tracking-widest text-slate-400">📷 Photo required — tap to take it</p>
+                            )}
+                            {uploading && <p className="mt-0.5 text-[10px] font-black uppercase tracking-widest text-slate-400">Uploading photo…</p>}
+                          </div>
+                          {photoUrl && <img src={photoUrl} alt="Evidence" className="h-10 w-10 shrink-0 rounded-lg border-2 object-cover" />}
                         </button>
                       );
                     })}
