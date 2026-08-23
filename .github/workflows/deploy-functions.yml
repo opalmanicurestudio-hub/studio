@@ -1,0 +1,58 @@
+# .github/workflows/deploy-functions.yml
+#
+# Deploys Cloud Functions automatically whenever anything under functions/
+# changes on main — so email mailers, document notices, and the evidence
+# cleanup go live from a GitHub paste, with no terminal or Firebase CLI
+# on any device.
+#
+# ONE-TIME SETUP (GitHub website, ~2 minutes):
+#   1. Firebase console → Project settings (gear) → Service accounts →
+#      "Generate new private key" → a JSON file downloads.
+#   2. GitHub repo → Settings → Secrets and variables → Actions →
+#      "New repository secret":
+#        Name:  FIREBASE_SERVICE_ACCOUNT
+#        Value: the ENTIRE contents of that JSON file, pasted as-is.
+#   3. Add a second secret:
+#        Name:  FIREBASE_PROJECT_ID
+#        Value: your Firebase project id (same value as
+#               NEXT_PUBLIC_FIREBASE_PROJECT_ID in Vercel).
+#
+# After that, every push touching functions/ deploys them. Watch progress
+# under the repo's Actions tab; a green check means the functions are live.
+
+name: Deploy Cloud Functions
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'functions/**'
+      - '.github/workflows/deploy-functions.yml'
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install function dependencies
+        working-directory: functions
+        run: npm ci || npm install
+
+      - name: Write service account key
+        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "$RUNNER_TEMP/sa.json"
+
+      - name: Deploy functions
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json
+        run: |
+          npx firebase-tools deploy --only functions \
+            --project "${{ secrets.FIREBASE_PROJECT_ID }}" \
+            --non-interactive --force
