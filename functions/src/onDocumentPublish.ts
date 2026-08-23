@@ -71,6 +71,8 @@ export const onDocumentPublish = functions.firestore.onDocumentWritten(
 
     if (recipients.length === 0) return;
 
+    const portalUrl = `${process.env.APP_BASE_URL || 'https://studio-one-blue.vercel.app'}/staff-portal/${tenantId}`;
+
     const subject = isUpdate
       ? `Updated — please re-read: ${title}`
       : `Please read: ${title}`;
@@ -96,8 +98,9 @@ export const onDocumentPublish = functions.firestore.onDocumentWritten(
                   <p style="margin: 4px 0 0; color: #64748b; font-size: 13px;">Version ${version}</p>
                 </div>
                 <p style="color: #475569; line-height: 1.6;">${isUpdate
-                  ? 'It was updated since you last confirmed it. Open the app, go to <strong>Documents</strong>, read the new version, and tap \u201cI\u2019ve read and understood this.\u201d'
-                  : 'Open the app, go to <strong>Documents</strong>, read it, and tap \u201cI\u2019ve read and understood this\u201d when you\u2019re done.'}</p>
+                  ? 'It was updated since you last confirmed it. Open your staff portal, tap <strong>Documents</strong>, read the new version, and tap \u201cI\u2019ve read and understood this.\u201d'
+                  : 'Open your staff portal, tap <strong>Documents</strong>, read it, and tap \u201cI\u2019ve read and understood this\u201d when you\u2019re done.'}</p>
+                <p style="margin-top: 16px;"><a href="${portalUrl}" style="display: inline-block; background: #0f172a; color: #ffffff; padding: 12px 24px; border-radius: 12px; text-decoration: none; font-weight: 700;">Open my portal</a></p>
                 <p style="color: #94a3b8; font-size: 12px; margin-top: 24px;">Sent by ${esc(businessName)} via their team documents system.</p>
               </div>
             `,
