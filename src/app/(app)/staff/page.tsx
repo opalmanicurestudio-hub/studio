@@ -99,7 +99,7 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, pricingTiers, onForceIdle, onDelete, onOnboard, onCoverage, onPrintReview, onArchiveToggle, canManage }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void, pricingTiers: PricingTier[], onForceIdle: (id: string) => void, onDelete: (member: Staff) => void, onOnboard: (member: Staff) => void, onCoverage: (member: Staff) => void, onPrintReview: (member: Staff & { stats: any }) => void, onArchiveToggle: (member: Staff) => void, canManage: boolean }) => {
+const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, pricingTiers, onForceIdle, onDelete, onOnboard, onCoverage, onPrintReview, onArchiveToggle, onFulfilmentRole, canManage }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void, pricingTiers: PricingTier[], onForceIdle: (id: string) => void, onDelete: (member: Staff) => void, onOnboard: (member: Staff) => void, onCoverage: (member: Staff) => void, onPrintReview: (member: Staff & { stats: any }) => void, onArchiveToggle: (member: Staff) => void, onFulfilmentRole: (member: Staff, value: string) => void, canManage: boolean }) => {
     const [actionsOpen, setActionsOpen] = useState(false);
     const [licenseInfo, setLicenseInfo] = useState<{
         isExpired: boolean;
@@ -339,6 +339,27 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                                 <RefreshCw className="mr-2 h-3.5 w-3.5 shrink-0" aria-hidden="true" /> Force idle
                             </Button>
                         )}
+                        {!(member as any).archived && (
+                          <div className="col-span-2 rounded-xl border-2 p-3">
+                            <label htmlFor={`fulfilment-${member.id}`} className="block text-[10px] font-black uppercase tracking-widest text-muted-foreground">Fulfilment access</label>
+                            <p className="mt-0.5 text-[11px] font-bold text-muted-foreground">
+                              {(member as any).fulfilmentRole
+                                ? describeRole((member as any).fulfilmentRole as FulfilmentRole)
+                                : (() => { const eff = permissionsFor(member as any); return `Follows ${member.role} — ${describeRole(eff.canManage ? 'manager' : eff.canShip ? 'shipper' : eff.canPack ? 'packer' : eff.canPick ? 'picker' : 'none')}`; })()}
+                            </p>
+                            <select
+                              id={`fulfilment-${member.id}`}
+                              value={String((member as any).fulfilmentRole || '')}
+                              onChange={(e) => onFulfilmentRole(member, e.target.value)}
+                              className="mt-2 h-10 w-full rounded-xl border-2 bg-white px-2 text-[11px] font-black uppercase tracking-widest"
+                            >
+                              <option value="">Follow role</option>
+                              {FULFILMENT_ROLES.map((r) => (
+                                <option key={r} value={r}>{r}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                         <Button variant="outline" onClick={() => { setActionsOpen(false); onArchiveToggle(member); }} className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-[11px] justify-start px-3 text-slate-700">
                             <Users className="mr-2 h-3.5 w-3.5 shrink-0" aria-hidden="true" /> {(member as any).archived ? 'Restore' : 'Archive'}
                         </Button>
@@ -413,7 +434,7 @@ const PricingTierCard = ({
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                         <div>
                             <CardTitle className="text-sm font-black uppercase tracking-widest">Skill & Pricing Tiers</CardTitle>
-                            <CardDescription className="text-xs font-bold uppercase tracking-tight opacity-60">Studio expertise levels.</CardDescription>
+                            <CardDescription className="text-xs font-bold uppercase tracking-tight opacity-60">Pay and skill levels for your team.</CardDescription>
                         </div>
                         {isEditing ? (
                             <div className="flex gap-2 w-full sm:w-auto">
@@ -1018,7 +1039,7 @@ export default function StaffPage() {
                         <p className="text-[10px] sm:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Team manager & performance hub</p>
                     </div>
                     <Button onClick={() => setIsAddStaffOpen(true)} className="h-12 sm:h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20 w-full sm:w-auto">
-                        <PlusCircle className="mr-2 h-4 w-4" /> New Provider
+                        <PlusCircle className="mr-2 h-4 w-4" /> Add team member
                     </Button>
                 </div>
                 
@@ -1126,7 +1147,7 @@ export default function StaffPage() {
                             {visibleStaff.length > 0 ? (
                             <div className="grid gap-6 md:grid-cols-1 xl:grid-cols-2">
                                 {visibleStaff.map((member) => (
-                                <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithAuth} pricingTiers={pricingTiers || []} onForceIdle={handleForceIdle} onDelete={handleDeleteStaffClick} onOnboard={(m) => setOnboardingStaff(m)} onCoverage={(m) => setCoverageFor(m)} onPrintReview={(m) => setReviewFor(m)} onArchiveToggle={handleArchiveToggle} canManage={canManage} />
+                                <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithAuth} pricingTiers={pricingTiers || []} onForceIdle={handleForceIdle} onDelete={handleDeleteStaffClick} onOnboard={(m) => setOnboardingStaff(m)} onCoverage={(m) => setCoverageFor(m)} onPrintReview={(m) => setReviewFor(m)} onArchiveToggle={handleArchiveToggle} onFulfilmentRole={(m, v) => handleUpdateStaff({ ...(m as any), fulfilmentRole: v || null } as any)} canManage={canManage} />
                                 ))}
                             </div>
                             ) : (
@@ -1140,52 +1161,14 @@ export default function StaffPage() {
                             <Card className="border-4 border-dashed rounded-[3rem] opacity-40">
                                 <CardContent className="py-24 flex flex-col items-center justify-center text-center text-muted-foreground">
                                     <Users className="w-16 h-16 mb-4"/>
-                                <h3 className="text-2xl font-black uppercase tracking-widest text-slate-900">Team Empty</h3>
-                                <p className="mt-2 font-bold text-sm uppercase opacity-60 tracking-tight">Onboard your first provider to activate studio management.</p>
+                                <h3 className="text-2xl font-black uppercase tracking-widest text-slate-900">No team yet</h3>
+                                <p className="mt-2 font-bold text-sm uppercase opacity-60 tracking-tight">Add your first team member to get started.</p>
                                 </CardContent>
                             </Card>
                         )}
                     </div>
                 </div>
 
-                {canManage && staff && staff.length > 0 && (
-                  <Card className="border-2 rounded-[2rem] overflow-hidden bg-white mt-10">
-                    <CardContent className="p-5 space-y-3">
-                      <div>
-                        <p className="text-[11px] font-black uppercase tracking-widest">Fulfilment access</p>
-                        <p className="text-[11px] font-bold text-muted-foreground mt-0.5">
-                          Who can pick, pack, buy shipping labels and cancel orders. Blank follows their staff role.
-                        </p>
-                      </div>
-                      {staff.filter((m: any) => !m.archived).map((m: any) => {
-                        const current = String(m.fulfilmentRole || '');
-                        const effective = permissionsFor(m);
-                        return (
-                          <div key={m.id} className="flex items-center justify-between gap-3 rounded-2xl border-2 p-3">
-                            <div className="min-w-0">
-                              <p className="truncate text-xs font-black uppercase tracking-tight">{m.name}</p>
-                              <p className="truncate text-[11px] font-bold text-muted-foreground">
-                                {current ? describeRole(current as FulfilmentRole) : `Follows ${m.role} — ${describeRole(effective.canManage ? 'manager' : effective.canShip ? 'shipper' : effective.canPack ? 'packer' : effective.canPick ? 'picker' : 'none')}`}
-                              </p>
-                            </div>
-                            <select
-                              aria-label={`Fulfilment role for ${m.name}`}
-                              value={current}
-                              onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                                handleUpdateStaff({ ...(m as any), fulfilmentRole: e.target.value || null } as any)}
-                              className="h-10 shrink-0 rounded-xl border-2 bg-white px-2 text-[11px] font-black uppercase tracking-widest"
-                            >
-                              <option value="">Follow role</option>
-                              {FULFILMENT_ROLES.map((r) => (
-                                <option key={r} value={r}>{r}</option>
-                              ))}
-                            </select>
-                          </div>
-                        );
-                      })}
-                    </CardContent>
-                  </Card>
-                )}
             </>
         )}
       </main>
@@ -1256,10 +1239,10 @@ export default function StaffPage() {
             <DialogHeader className="p-6 pb-0 text-left">
                 <DialogTitle className="flex items-center gap-3 text-2xl font-black uppercase tracking-tighter">
                     <KeyRound className="w-6 h-6 text-primary" />
-                    Security Verify
+                    Confirm with PIN
                 </DialogTitle>
                 <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">
-                    Authorize status transition with your unique 4-digit PIN.
+                    Enter your 4-digit PIN to confirm this change.
                 </DialogDescription>
             </DialogHeader>
             <div className="py-10 flex flex-col items-center space-y-6">
@@ -1280,7 +1263,7 @@ export default function StaffPage() {
                 </div>
             </div>
             <DialogFooter className="p-6 pt-0 flex flex-col gap-3">
-                <Button onClick={handleVerifyPin} disabled={authPin.length < 4} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/20">Verify & Confirm</Button>
+                <Button onClick={handleVerifyPin} disabled={authPin.length < 4} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/20">Confirm</Button>
                 <Button variant="ghost" onClick={() => setIsPinAuthOpen(false)} className="w-full font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
             </DialogFooter>
         </DialogContent>
@@ -1289,16 +1272,16 @@ export default function StaffPage() {
       <AlertDialog open={!!staffToDelete} onOpenChange={() => setStaffToDelete(null)}>
         <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
             <AlertDialogHeader className="p-6 pb-0 text-left">
-                <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Terminate Profile</AlertDialogTitle>
+                <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Delete forever?</AlertDialogTitle>
                 <AlertDialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">
-                    Target: <strong>{staffToDelete?.name}</strong>
+                    <strong>{staffToDelete?.name}</strong>
                 </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="p-6">
-                <p className="text-sm font-medium text-slate-600 leading-relaxed text-left">This will permanently delete the staff profile. <strong>This action is non-reversible.</strong></p>
+                <p className="text-sm font-medium text-slate-600 leading-relaxed text-left">This permanently deletes their profile. If you just need them off the roster, Archive keeps their history for reports. <strong>Deleting cannot be undone.</strong></p>
             </div>
             <AlertDialogFooter className="p-6 pt-0 flex flex-col gap-3">
-                <Button onClick={confirmDeleteStaff} variant="destructive" className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Purge Record</Button>
+                <Button onClick={confirmDeleteStaff} variant="destructive" className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Yes, delete forever</Button>
                 <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Cancel</AlertDialogCancel>
             </AlertDialogFooter>
         </AlertDialogContent>
