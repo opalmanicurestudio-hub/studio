@@ -426,6 +426,12 @@ service cloud.firestore {
       allow read, list, update, delete: if isManager(tenantId);
     }
 
+    // Applicant message log + outbound email queue — managers write, the
+    // mailer function (Admin SDK) flips queued → sent/failed.
+    match /tenants/{tenantId}/applications/{applicationId}/messages/{messageId} {
+      allow read, list, create, update, delete: if isManager(tenantId);
+    }
+
     // v79 — LEGACY, compatibility window only. /api/checkins now writes
     // the scoped tenants/{id}/appointmentCheckIns (rules above) and
     // mirrors here so old readers keep working. TO CLOSE THIS HOLE:
