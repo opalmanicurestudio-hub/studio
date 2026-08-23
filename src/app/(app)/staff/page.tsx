@@ -99,7 +99,7 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, pricingTiers, onForceIdle, onDelete, onOnboard, onCoverage, onPrintReview, canManage }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void, pricingTiers: PricingTier[], onForceIdle: (id: string) => void, onDelete: (member: Staff) => void, onOnboard: (member: Staff) => void, onCoverage: (member: Staff) => void, onPrintReview: (member: Staff & { stats: any }) => void, canManage: boolean }) => {
+const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, pricingTiers, onForceIdle, onDelete, onOnboard, onCoverage, onPrintReview, onArchiveToggle, canManage }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void, pricingTiers: PricingTier[], onForceIdle: (id: string) => void, onDelete: (member: Staff) => void, onOnboard: (member: Staff) => void, onCoverage: (member: Staff) => void, onPrintReview: (member: Staff & { stats: any }) => void, onArchiveToggle: (member: Staff) => void, canManage: boolean }) => {
     const [actionsOpen, setActionsOpen] = useState(false);
     const [licenseInfo, setLicenseInfo] = useState<{
         isExpired: boolean;
@@ -135,6 +135,9 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
     };
 
     const renderActionButtons = () => {
+        if ((member as any).archived) {
+            return <p className="w-full py-3 text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">Archived — history kept</p>;
+        }
         if (!member.active) {
             return <Button className="w-full h-12 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg" onClick={() => onStatusChange(member.id, 'clock_in')}><Clock className="mr-2 h-4 w-4"/>Clock In</Button>
         }
@@ -167,14 +170,19 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
      */
     const { showProfitability } = useProfitabilityVisibility();
     const onboarded = (member as any).onboardingComplete === true;
-    const edgeClass = !onboarded
+    const isArchived = (member as any).archived === true;
+    const edgeClass = isArchived
+        ? 'border-l-foreground/15 border-dashed opacity-70'
+        : !onboarded
         ? 'border-l-foreground/25 border-dashed'
         : !member.active
             ? 'border-l-foreground/20'
             : member.onBreak
                 ? 'border-l-amber-600'
                 : 'border-l-emerald-600';
-    const stateLine = !onboarded
+    const stateLine = isArchived
+        ? 'Archived'
+        : !onboarded
         ? 'Not onboarded yet'
         : !member.active
             ? 'Clocked out'
@@ -331,8 +339,11 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                                 <RefreshCw className="mr-2 h-3.5 w-3.5 shrink-0" aria-hidden="true" /> Force idle
                             </Button>
                         )}
+                        <Button variant="outline" onClick={() => { setActionsOpen(false); onArchiveToggle(member); }} className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-[11px] justify-start px-3 text-slate-700">
+                            <Users className="mr-2 h-3.5 w-3.5 shrink-0" aria-hidden="true" /> {(member as any).archived ? 'Restore' : 'Archive'}
+                        </Button>
                         <Button variant="outline" onClick={() => { setActionsOpen(false); onDelete(member); }} className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-[11px] justify-start px-3 text-destructive border-destructive/30 hover:bg-destructive/5">
-                            <Trash2 className="mr-2 h-3.5 w-3.5 shrink-0" aria-hidden="true" /> Remove
+                            <Trash2 className="mr-2 h-3.5 w-3.5 shrink-0" aria-hidden="true" /> Delete forever
                         </Button>
                     </div>
                 )}
@@ -481,7 +492,7 @@ export default function StaffPage() {
   const [onboardingStaff, setOnboardingStaff] = useState<Staff | null>(null);
   const [reviewFor, setReviewFor] = useState<(Staff & { stats: any }) | null>(null);
   const [rosterQuery, setRosterQuery] = useState('');
-  const [rosterFilter, setRosterFilter] = useState<'all' | 'in' | 'break' | 'off'>('all');
+  const [rosterFilter, setRosterFilter] = useState<'all' | 'in' | 'break' | 'off' | 'archived'>('all');
 
   const { firestore, user } = useFirebase();
   const isMobile = useIsMobile();
@@ -711,6 +722,9 @@ export default function StaffPage() {
     const q = rosterQuery.trim().toLowerCase();
     return staffWithStats
       .filter((m) => {
+        const archived = Boolean((m as any).archived);
+        if (rosterFilter === 'archived') { if (!archived) return false; }
+        else if (archived) return false;
         if (rosterFilter === 'in' && !(m.active && !m.onBreak)) return false;
         if (rosterFilter === 'break' && !m.onBreak) return false;
         if (rosterFilter === 'off' && m.active) return false;
@@ -906,6 +920,21 @@ export default function StaffPage() {
     uiToast({ title: 'Tier Deleted', variant: 'destructive' });
   };
 
+  const handleArchiveToggle = (member: Staff) => {
+    if (!firestore || !tenantId) return;
+    const ref = doc(firestore, 'tenants', tenantId, 'staff', member.id);
+    const archiving = !(member as any).archived;
+    setDocumentNonBlocking(ref, archiving
+      ? { archived: true, archivedAt: new Date().toISOString(), active: false, onBreak: false, status: 'idle', showOnPublicPage: false }
+      : { archived: false }, { merge: true });
+    uiToast({
+      title: archiving ? 'Archived' : 'Restored',
+      description: archiving
+        ? `${member.name} is off the team. Their history stays in reports, and they no longer appear on your public pages.`
+        : `${member.name} is back on the team. Turn their public visibility back on in Edit if they take bookings.`,
+    });
+  };
+
   const handleForceIdle = (staffId: string) => {
     if (!firestore || !tenantId) return;
     const staffRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
@@ -1061,7 +1090,7 @@ export default function StaffPage() {
                                     )}
                                 </div>
                                 <div className="flex flex-wrap items-center gap-1.5">
-                                    {([['all','Everyone'],['in','Clocked in'],['break','On break'],['off','Off']] as const).map(([key, label]) => (
+                                    {([['all','Everyone'],['in','Clocked in'],['break','On break'],['off','Off'],['archived','Archived']] as const).map(([key, label]) => (
                                         <button
                                             key={key}
                                             type="button"
@@ -1083,7 +1112,7 @@ export default function StaffPage() {
                             {visibleStaff.length > 0 ? (
                             <div className="grid gap-6 md:grid-cols-1 xl:grid-cols-2">
                                 {visibleStaff.map((member) => (
-                                <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithAuth} pricingTiers={pricingTiers || []} onForceIdle={handleForceIdle} onDelete={handleDeleteStaffClick} onOnboard={(m) => setOnboardingStaff(m)} onCoverage={(m) => setCoverageFor(m)} onPrintReview={(m) => setReviewFor(m)} canManage={canManage} />
+                                <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithAuth} pricingTiers={pricingTiers || []} onForceIdle={handleForceIdle} onDelete={handleDeleteStaffClick} onOnboard={(m) => setOnboardingStaff(m)} onCoverage={(m) => setCoverageFor(m)} onPrintReview={(m) => setReviewFor(m)} onArchiveToggle={handleArchiveToggle} canManage={canManage} />
                                 ))}
                             </div>
                             ) : (
@@ -1114,7 +1143,7 @@ export default function StaffPage() {
                           Who can pick, pack, buy shipping labels and cancel orders. Blank follows their staff role.
                         </p>
                       </div>
-                      {staff.map((m: any) => {
+                      {staff.filter((m: any) => !m.archived).map((m: any) => {
                         const current = String(m.fulfilmentRole || '');
                         const effective = permissionsFor(m);
                         return (
