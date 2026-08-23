@@ -239,10 +239,16 @@ const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: st
       writeRun({ ...runItems, [key]: true }, { ...runPhotos, [key]: url });
     } catch (err: any) {
       console.error('evidence upload failed', err);
-      const code = String(err?.code || err?.message || '');
-      setUploadErr(code.includes('unauthorized') || code.includes('permission')
-        ? 'The photo was blocked by storage permissions — tell your manager the evidence storage rules need publishing.'
-        : 'The photo didn\u2019t upload — check your connection and tap the item to try again.');
+      const code = String(err?.code || err?.message || 'unknown');
+      let uid = 'not signed in';
+      try {
+        const { getAuth } = await import('firebase/auth');
+        uid = getAuth().currentUser?.uid || 'not signed in';
+      } catch { /* keep default */ }
+      const friendly = code.includes('unauthorized') || code.includes('permission')
+        ? 'The photo was blocked by storage permissions.'
+        : 'The photo didn\u2019t upload.';
+      setUploadErr(`${friendly} [diagnostic — code: ${code} \u00b7 auth: ${uid.slice(0, 24)}]`);
     } finally {
       setUploadingKey(null);
       if (fileRef.current) fileRef.current.value = '';
@@ -544,10 +550,16 @@ const TasksForYou = ({ tenantId, staffMember }: { tenantId: string; staffMember:
       completeTask(t, url);
     } catch (err: any) {
       console.error('task evidence upload failed', err);
-      const code = String(err?.code || err?.message || '');
-      setTaskUploadErr(code.includes('unauthorized') || code.includes('permission')
-        ? 'The photo was blocked by storage permissions — tell your manager the evidence storage rules need publishing.'
-        : 'The photo didn\u2019t upload — check your connection and try again.');
+      const code = String(err?.code || err?.message || 'unknown');
+      let uid = 'not signed in';
+      try {
+        const { getAuth } = await import('firebase/auth');
+        uid = getAuth().currentUser?.uid || 'not signed in';
+      } catch { /* keep default */ }
+      const friendly = code.includes('unauthorized') || code.includes('permission')
+        ? 'The photo was blocked by storage permissions.'
+        : 'The photo didn\u2019t upload.';
+      setTaskUploadErr(`${friendly} [diagnostic — code: ${code} \u00b7 auth: ${uid.slice(0, 24)}]`);
     } finally {
       setUploadingId(null);
       if (taskFileRef.current) taskFileRef.current.value = '';
