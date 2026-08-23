@@ -150,6 +150,44 @@ const TEMPLATES: Array<{ key: string; title: string; category: string; blurb: st
       { type: 'warning', heading: 'Safety incidents', body: 'If the complaint involves safety or a reaction, follow the incident procedure and notify the owner immediately.' },
     ],
   },
+  {
+    key: 'sanitation',
+    title: 'Sanitation & disinfection SOP',
+    category: 'sop',
+    blurb: 'The non-negotiable hygiene standard, station by station.',
+    sections: [
+      { type: 'text', heading: 'Purpose', body: 'Protects every client and team member. This standard is not optional and is never shortened for time.' },
+      { type: 'step', heading: 'Between every client', body: 'Remove all used items. Disinfect every touched surface with the approved product and let it sit for the full contact time on the label — wiping early is the same as not disinfecting.' },
+      { type: 'checklist', heading: 'Tool processing', body: 'Wash tools with soap and warm water\nFully immerse in disinfectant for the labeled contact time\nDry on a clean towel — never a used one\nStore in the clean, closed container' },
+      { type: 'warning', heading: 'Single-use means single-use', body: 'Files, buffers, and anything porous cannot be disinfected. One client, then the bin — in front of the client when possible.' },
+      { type: 'tip', heading: 'Let clients see it', body: 'Sanitize visibly. Clients who watch the standard become clients who tell their friends about it.' },
+    ],
+  },
+  {
+    key: 'firstweek',
+    title: 'New hire — first week guide',
+    category: 'sop',
+    blurb: 'Day-by-day ramp so nobody’s first week is guesswork.',
+    sections: [
+      { type: 'text', heading: 'Welcome', body: 'This week is for learning, not performing. Ask everything — the only bad question is the one you sat on.' },
+      { type: 'checklist', heading: 'Day one', body: 'Tour the space — exits, supplies, break area\nMeet the team\nSet up your staff portal and PIN\nRead and confirm the employee handbook\nShadow a full shift' },
+      { type: 'checklist', heading: 'By end of week', body: 'Read and confirm every assigned SOP\nComplete the opening checklist with a buddy\nComplete the closing checklist with a buddy\nKnow who to call when something breaks' },
+      { type: 'tip', heading: 'For the trainer', body: 'Explain the why behind each step — people follow procedures they understand and improvise around ones they don’t.' },
+    ],
+  },
+  {
+    key: 'incident',
+    title: 'Incident report policy',
+    category: 'policy',
+    blurb: 'What gets reported, by whom, and how fast.',
+    sections: [
+      { type: 'text', heading: 'What counts as an incident', body: 'Any injury to a client or team member, any adverse reaction to a product or service, any damage, theft, or safety hazard — and anything that made you think “should I report this?” The answer to that question is yes.' },
+      { type: 'step', heading: 'Immediate response', body: 'Make the person and the area safe first. Care before paperwork, always.' },
+      { type: 'step', heading: 'Report the same day', body: 'Tell the manager on duty before you leave. Write down what happened, when, who was involved, and what was done — plain facts, no blame.' },
+      { type: 'warning', heading: 'Never', body: 'Never admit fault to a client on the business’s behalf, and never promise compensation — that decision belongs to the owner.' },
+      { type: 'text', heading: 'After', body: 'The owner reviews every incident, decides follow-up, and updates procedures if the incident revealed a gap.' },
+    ],
+  },
 ];
 
 const safeDate = (val: any): Date | null => {
@@ -162,6 +200,109 @@ const safeDate = (val: any): Date | null => {
 };
 
 const categoryLabel = (c: string) => CATEGORIES.find(x => x[0] === c)?.[1] || 'Other';
+
+const PrintableDocument = ({ d, businessName, onClose }: { d: any; businessName: string; onClose: () => void }) => {
+  useEffect(() => {
+    const t = setTimeout(() => window.print(), 250);
+    const after = () => onClose();
+    window.addEventListener('afterprint', after);
+    return () => { clearTimeout(t); window.removeEventListener('afterprint', after); };
+  }, [onClose]);
+
+  let stepN = 0;
+  return (
+    <div className="print-area fixed inset-0 z-[100] overflow-auto bg-white p-10">
+      <style>{`
+        @media print {
+          body * { visibility: hidden !important; }
+          .print-area, .print-area * { visibility: visible !important; }
+          .print-area { position: absolute !important; inset: 0 !important; padding: 0.5in !important; }
+          .print-hide { display: none !important; }
+        }
+        @page { margin: 0.6in; }
+      `}</style>
+      <div className="print-hide mb-6 flex justify-between">
+        <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Print preview — your browser\u2019s print dialog will open</p>
+        <button type="button" onClick={onClose} className="rounded-lg border-2 px-3 py-1 text-[11px] font-black uppercase tracking-widest">Close</button>
+      </div>
+      <div className="mx-auto max-w-[7.5in] font-serif text-slate-900">
+        <div className="border-b-4 border-slate-900 pb-4">
+          <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-slate-500">{businessName}</p>
+          <h1 className="mt-1 text-3xl font-black tracking-tight">{d.title || 'Untitled document'}</h1>
+          <p className="mt-1 text-[12px] font-bold uppercase tracking-widest text-slate-500">
+            {categoryLabel(d.category)} · Version {Number(d.version || 1)} · {format(new Date(), 'MMMM d, yyyy')}
+          </p>
+        </div>
+        <div className="mt-6 space-y-5">
+          {(d.sections || []).map((sec: any) => {
+            const type = sec.type || 'text';
+            if (type === 'step') {
+              stepN++;
+              return (
+                <div key={sec.id} className="break-inside-avoid border-l-4 border-slate-900 pl-4">
+                  <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">Step {stepN}</p>
+                  {sec.heading && <p className="text-[15px] font-black">{sec.heading}</p>}
+                  {sec.body && <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed">{sec.body}</p>}
+                </div>
+              );
+            }
+            if (type === 'checklist') {
+              const items = String(sec.body || '').split('\n').map((x: string) => x.trim()).filter(Boolean);
+              return (
+                <div key={sec.id} className="break-inside-avoid">
+                  {sec.heading && <p className="text-[12px] font-black uppercase tracking-widest">{sec.heading}</p>}
+                  <div className="mt-1.5 space-y-1.5">
+                    {items.map((item: string, i: number) => (
+                      <p key={i} className="text-[13px] leading-relaxed">
+                        <span className="mr-2 inline-block h-3.5 w-3.5 -mb-0.5 border-2 border-slate-900 align-middle" /> {item}
+                        {Array.isArray(sec.photoLines) && sec.photoLines.includes(i) ? '  \ud83d\udcf7' : ''}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              );
+            }
+            if (type === 'warning') {
+              return (
+                <div key={sec.id} className="break-inside-avoid border-2 border-slate-900 p-3">
+                  <p className="text-[11px] font-black uppercase tracking-widest">\u26a0 {sec.heading || 'Warning'}</p>
+                  {sec.body && <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed">{sec.body}</p>}
+                </div>
+              );
+            }
+            if (type === 'tip') {
+              return (
+                <div key={sec.id} className="break-inside-avoid border-l-4 border-dotted border-slate-400 pl-4 italic">
+                  {sec.heading && <p className="text-[12px] font-black uppercase tracking-widest not-italic">{sec.heading}</p>}
+                  {sec.body && <p className="mt-0.5 whitespace-pre-wrap text-[13px] leading-relaxed">{sec.body}</p>}
+                </div>
+              );
+            }
+            return (
+              <div key={sec.id} className="break-inside-avoid">
+                {sec.heading && <p className="text-[12px] font-black uppercase tracking-widest">{sec.heading}</p>}
+                {sec.body && <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed">{sec.body}</p>}
+              </div>
+            );
+          })}
+        </div>
+        <div className="mt-12 break-inside-avoid border-t-2 border-slate-300 pt-6">
+          <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Read &amp; understood</p>
+          <div className="mt-8 grid grid-cols-2 gap-10">
+            <div>
+              <div className="border-b-2 border-slate-900 pb-1" style={{ minHeight: '2rem' }} />
+              <p className="mt-1 text-[11px] font-bold uppercase tracking-widest text-slate-500">Signature</p>
+            </div>
+            <div>
+              <div className="border-b-2 border-slate-900 pb-1" style={{ minHeight: '2rem' }} />
+              <p className="mt-1 text-[11px] font-bold uppercase tracking-widest text-slate-500">Name &amp; date</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const DocumentReadView = ({ docItem, myAck, onAck }: { docItem: any; myAck: any; onAck: () => void }) => {
   const [open, setOpen] = useState(false);
@@ -387,6 +528,14 @@ const RunsCollector = ({ tenantId, docItem, onRuns }: { tenantId: string; docIte
   useEffect(() => { onRuns(docItem.id, (data || []) as any[]); }, [data, docItem.id, onRuns]);
   return null;
 };
+
+const TASK_TEMPLATES = [
+  { title: 'Deep-clean the front window & entry', notes: 'Glass, frame, door handles, and the welcome mat area.', requirePhoto: true },
+  { title: 'Supply inventory count', notes: 'Count back-bar and retail. Note anything under par on the list.', requirePhoto: false },
+  { title: 'Restock retail shelves', notes: 'Face all products forward; note gaps to reorder.', requirePhoto: true },
+  { title: 'Wipe down break room', notes: 'Counters, microwave, fridge handles; toss expired items.', requirePhoto: false },
+  { title: 'Call supplier about order', notes: 'Confirm delivery date and any backordered items; note the answer here after.', requirePhoto: false },
+] as const;
 
 const AUDIT_FILTERS = [['all', 'Everything'], ['tasks', 'Tasks'], ['runs', 'Checklists'], ['rotations', 'Rotations']] as const;
 
@@ -847,6 +996,14 @@ const TasksCard = ({ tenantId, staff, actorName }: { tenantId: string; staff: an
 
             {creating ? (
               <div className="space-y-2 rounded-2xl border-2 p-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Quick starts</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {TASK_TEMPLATES.map(tt => (
+                    <button key={tt.title} type="button" onClick={() => { setTitle(tt.title); setNotes(tt.notes); setRequirePhoto(tt.requirePhoto); }} className="h-9 max-w-[240px] truncate rounded-lg border-2 bg-white px-2.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                      {tt.requirePhoto ? '\ud83d\udcf7 ' : ''}{tt.title}
+                    </button>
+                  ))}
+                </div>
                 <label htmlFor="task-title" className="sr-only">Task name</label>
                 <Input id="task-title" value={title} onChange={e => setTitle(e.target.value)} maxLength={140} placeholder="e.g. Deep-clean the front window" className="h-11 rounded-xl border-2 bg-white font-bold text-sm" />
                 <label htmlFor="task-notes" className="sr-only">Notes</label>
@@ -888,7 +1045,7 @@ const TasksCard = ({ tenantId, staff, actorName }: { tenantId: string; staff: an
   );
 };
 
-const DocumentCardWithAcks = ({ d, tenantId, canManage, myStaffId, actorName, staff, expandedId, setExpandedId, onSave, onDelete }: any) => {
+const DocumentCardWithAcks = ({ d, tenantId, canManage, myStaffId, actorName, staff, expandedId, setExpandedId, onSave, onDelete, onPrint }: any) => {
   const { firestore } = useFirebase();
   const acksQuery = useMemoFirebase(
     () => tenantId ? collection(firestore, `tenants/${tenantId}/documents/${d.id}/acks`) : null,
@@ -986,6 +1143,9 @@ const DocumentCardWithAcks = ({ d, tenantId, canManage, myStaffId, actorName, st
                 </div>
               );
             })()}
+            <Button type="button" variant="outline" onClick={onPrint} className="h-10 w-full rounded-xl border-2 text-[10px] font-black uppercase tracking-widest">
+              🖨 Print this document (with signature line)
+            </Button>
             {hasChecklists && d.status === 'published' && (
               <div className="rounded-2xl border-2 border-dashed bg-slate-50/60 p-3">
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Recent checklist runs</p>
@@ -1065,6 +1225,8 @@ export default function DocumentsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [pageTab, setPageTab] = useState<'library' | 'tasks' | 'rotations' | 'audit'>('library');
+  const [printDoc, setPrintDoc] = useState<any | null>(null);
 
   const documentsQuery = useMemoFirebase(
     () => tenantId ? collection(firestore, `tenants/${tenantId}/documents`) : null,
@@ -1128,6 +1290,9 @@ export default function DocumentsPage() {
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
       <AppHeader title="Documents" />
+      {printDoc && (
+        <PrintableDocument d={printDoc} businessName={selectedTenant?.name || 'ClarityFlow'} onClose={() => setPrintDoc(null)} />
+      )}
       <main className="flex-1 space-y-6 p-4 md:p-8 mx-auto w-full max-w-3xl">
         {canManage && (
           <Card className="rounded-[2rem] border-2 bg-slate-950 text-white overflow-hidden">
@@ -1160,15 +1325,25 @@ export default function DocumentsPage() {
         )}
 
         {canManage && (
+          <div className="flex gap-1.5 overflow-x-auto pb-1">
+            {([['library', 'Library'], ['tasks', 'Tasks'], ['rotations', 'Rotations'], ['audit', 'Audit trail']] as const).map(([v, l]) => (
+              <button key={v} type="button" aria-pressed={pageTab === v} onClick={() => setPageTab(v)} className={cn('h-11 shrink-0 rounded-xl border-2 px-4 text-[11px] font-black uppercase tracking-widest', pageTab === v ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                {l}
+              </button>
+            ))}
+          </div>
+        )}
+        {canManage && pageTab === 'audit' && (
           <AuditCard tenantId={tenantId || ''} staff={(staff || []) as any[]} />
         )}
-        {canManage && (
+        {canManage && pageTab === 'rotations' && (
           <RotationsCard tenantId={tenantId || ''} staff={(staff || []) as any[]} publishedDocs={((documents || []) as any[]).filter((x: any) => x.status === 'published')} />
         )}
-        {canManage && (
+        {canManage && pageTab === 'tasks' && (
           <TasksCard tenantId={tenantId || ''} staff={(staff || []) as any[]} actorName={actorName} />
         )}
 
+        {(!canManage || pageTab === 'library') && (
         <Input
           value={q}
           onChange={e => setQ(e.target.value)}
@@ -1176,8 +1351,9 @@ export default function DocumentsPage() {
           placeholder="Search by title or type"
           className="h-12 rounded-2xl border-2 bg-white px-4 font-bold text-sm"
         />
+        )}
 
-        {isLoading ? (
+        {(!canManage || pageTab === 'library') && (isLoading ? (
           <div className="flex min-h-[200px] items-center justify-center">
             <Loader className="h-7 w-7 animate-spin text-slate-900" aria-label="Loading documents" />
           </div>
@@ -1195,6 +1371,7 @@ export default function DocumentsPage() {
                 expandedId={expandedId}
                 setExpandedId={setExpandedId}
                 onSave={handleSave}
+                onPrint={() => setPrintDoc(d)}
                 onDelete={() => { if (tenantId) { deleteDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/documents/${d.id}`)); setExpandedId(null); } }}
               />
             ))}
@@ -1209,7 +1386,7 @@ export default function DocumentsPage() {
               {canManage ? 'Start with your opening checklist or the employee handbook.' : 'When your manager publishes a handbook or SOP for your role, it shows up here.'}
             </p>
           </div>
-        )}
+        ))}
       </main>
     </div>
   );
