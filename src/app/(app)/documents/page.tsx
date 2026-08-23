@@ -377,6 +377,162 @@ const DocumentEditor = ({ docItem, staff, onSave, onPublish, onDelete, onClose }
   );
 };
 
+const ROTATION_CADENCES = [['daily', 'Daily'], ['weekly', 'Weekly'], ['per-shift', 'Per shift']] as const;
+
+const RotationsCard = ({ tenantId, staff, publishedDocs }: { tenantId: string; staff: any[]; publishedDocs: any[] }) => {
+  const { firestore } = useFirebase();
+  const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [title, setTitle] = useState('');
+  const [memberIds, setMemberIds] = useState<string[]>([]);
+  const [cadence, setCadence] = useState('daily');
+  const [linkedDocId, setLinkedDocId] = useState('');
+  const [err, setErr] = useState('');
+
+  const rotationsQ = useMemoFirebase(
+    () => tenantId ? collection(firestore, `tenants/${tenantId}/rotations`) : null,
+    [firestore, tenantId]
+  );
+  const { data: rotations } = useCollection(rotationsQ);
+  const list = useMemo(() => ([...((rotations || []) as any[])]).sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''))), [rotations]);
+  const activeStaff = staff.filter((m: any) => !m.archived);
+  const nameOf = (id: string) => activeStaff.find((m: any) => m.id === id)?.name || 'Team member';
+
+  const createRotation = () => {
+    const t = title.trim().slice(0, 140);
+    if (!t) { setErr('Name the rotation.'); return; }
+    if (memberIds.length < 2) { setErr('A rotation needs at least two people.'); return; }
+    setErr('');
+    const id = nanoid();
+    const memberNames: Record<string, string> = {};
+    for (const mid of memberIds) memberNames[mid] = nameOf(mid);
+    setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/rotations/${id}`), {
+      id, title: t, memberIds, memberNames, cadence, linkedDocId: linkedDocId || '',
+      currentIndex: 0, history: [], lastDoneDate: '', createdAt: new Date().toISOString(),
+    }, { merge: false });
+    setCreating(false); setTitle(''); setMemberIds([]); setCadence('daily'); setLinkedDocId('');
+  };
+
+  const moveMember = (r: any, i: number, dir: number) => {
+    const ids = [...(r.memberIds || [])];
+    const j = i + dir;
+    if (j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/rotations/${r.id}`), { memberIds: ids });
+  };
+
+  return (
+    <Card className="rounded-[2rem] border-2 bg-white overflow-hidden">
+      <CardContent className="p-5 space-y-3">
+        <button type="button" onClick={() => setOpen(v => !v)} aria-expanded={open} className="flex w-full items-center justify-between gap-3 text-left">
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-widest text-slate-900">Rotations</p>
+            <p className="mt-0.5 text-[12px] font-bold text-muted-foreground">
+              {list.length > 0 ? `${list.length} running — turn-taking chores, tracked fairly` : 'Shared duties that take turns (laundry, bathroom check\u2026)'}
+            </p>
+          </div>
+          <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} aria-hidden="true" />
+        </button>
+
+        {open && (
+          <div className="space-y-3 border-t-2 border-dashed pt-3">
+            {list.map((r: any) => {
+              const ids: string[] = r.memberIds || [];
+              const cur = ids[Number(r.currentIndex || 0) % Math.max(ids.length, 1)];
+              const history = ([...(r.history || [])]).slice(-6).reverse();
+              return (
+                <div key={r.id} className="space-y-2 rounded-2xl border-2 p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-black tracking-tight text-slate-900">{r.title}</p>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                        {(ROTATION_CADENCES.find(([v]) => v === r.cadence)?.[1]) || 'Daily'}{r.linkedDocId ? ' · linked to an SOP' : ''}
+                      </p>
+                    </div>
+                    <Button type="button" variant="outline" aria-label={`Remove rotation ${r.title}`} onClick={() => deleteDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/rotations/${r.id}`))} className="h-9 shrink-0 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest text-destructive border-destructive/30">✕</Button>
+                  </div>
+                  <div className="rounded-xl border-2 border-dashed bg-slate-50 p-2.5">
+                    <p className="text-[11px] font-black uppercase tracking-widest text-slate-900">Now: {nameOf(cur)}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Order</p>
+                    {ids.map((id, i) => (
+                      <div key={id} className="flex items-center gap-2">
+                        <p className={cn('min-w-0 flex-1 truncate text-[12px] font-bold', id === cur ? 'text-slate-900' : 'text-slate-500')}>{i + 1}. {nameOf(id)}{id === cur ? ' ← turn' : ''}</p>
+                        <Button type="button" variant="outline" aria-label={`Move ${nameOf(id)} up`} disabled={i === 0} onClick={() => moveMember(r, i, -1)} className="h-8 w-8 rounded-lg border-2 p-0 text-[10px] font-black">↑</Button>
+                        <Button type="button" variant="outline" aria-label={`Move ${nameOf(id)} down`} disabled={i === ids.length - 1} onClick={() => moveMember(r, i, 1)} className="h-8 w-8 rounded-lg border-2 p-0 text-[10px] font-black">↓</Button>
+                      </div>
+                    ))}
+                  </div>
+                  {history.length > 0 && (
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Recent turns</p>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {history.map((h: any, i: number) => (
+                          <span key={i} className={cn('rounded-lg border-2 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest', h.action === 'swap' ? 'bg-slate-100 text-slate-700' : 'bg-emerald-100 text-emerald-900 border-emerald-300')}>
+                            {h.action === 'swap' ? `${h.staffName} ⇄ ${h.withName || ''}` : `${h.staffName}${h.coveredForName ? ` (for ${h.coveredForName})` : ''} · ${h.date}`}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {creating ? (
+              <div className="space-y-2 rounded-2xl border-2 p-3">
+                <label htmlFor="rot-title" className="sr-only">Rotation name</label>
+                <Input id="rot-title" value={title} onChange={e => setTitle(e.target.value)} maxLength={140} placeholder="e.g. Towel laundry" className="h-11 rounded-xl border-2 bg-white font-bold text-sm" />
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Who takes turns (tap in order)</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {activeStaff.map((m: any) => {
+                    const idx = memberIds.indexOf(m.id);
+                    const on = idx >= 0;
+                    return (
+                      <button key={m.id} type="button" aria-pressed={on} onClick={() => setMemberIds(prev => on ? prev.filter(x => x !== m.id) : [...prev, m.id])} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', on ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                        {on ? `${idx + 1}. ` : ''}{m.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {ROTATION_CADENCES.map(([v, l]) => (
+                    <button key={v} type="button" aria-pressed={cadence === v} onClick={() => setCadence(v)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', cadence === v ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                      {l}
+                    </button>
+                  ))}
+                </div>
+                {publishedDocs.length > 0 && (
+                  <div>
+                    <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Link an SOP (optional — the turn arrives with its checklist)</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {publishedDocs.map((dd: any) => (
+                        <button key={dd.id} type="button" aria-pressed={linkedDocId === dd.id} onClick={() => setLinkedDocId(linkedDocId === dd.id ? '' : dd.id)} className={cn('h-10 max-w-[220px] truncate rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', linkedDocId === dd.id ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                          {dd.title || 'Untitled'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {err && <p className="text-[11px] font-bold text-destructive">{err}</p>}
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" onClick={() => setCreating(false)} className="h-11 flex-1 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest">Cancel</Button>
+                  <Button type="button" onClick={createRotation} className="h-11 flex-[2] rounded-xl bg-slate-900 text-[11px] font-black uppercase tracking-widest text-white">Start rotation</Button>
+                </div>
+              </div>
+            ) : (
+              <Button type="button" variant="outline" onClick={() => setCreating(true)} className="h-11 w-full rounded-xl border-2 border-dashed text-[11px] font-black uppercase tracking-widest">
+                <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" /> New rotation
+              </Button>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
 const TasksCard = ({ tenantId, staff, actorName }: { tenantId: string; staff: any[]; actorName: string }) => {
   const { firestore } = useFirebase();
   const [open, setOpen] = useState(false);
@@ -788,6 +944,9 @@ export default function DocumentsPage() {
           </Card>
         )}
 
+        {canManage && (
+          <RotationsCard tenantId={tenantId || ''} staff={(staff || []) as any[]} publishedDocs={((documents || []) as any[]).filter((x: any) => x.status === 'published')} />
+        )}
         {canManage && (
           <TasksCard tenantId={tenantId || ''} staff={(staff || []) as any[]} actorName={actorName} />
         )}
