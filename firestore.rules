@@ -168,7 +168,7 @@ service cloud.firestore {
     }
     match /tenants/{tenantId}/notifications/{notificationId} {
       allow create: if true;
-      allow read, update, delete: if isStaff(tenantId);
+      allow read, update, delete: if isStaff(tenantId) || isPortalMember(tenantId);
     }
 
     // ── Staff custody & replenishment ──────────────────────────────────
