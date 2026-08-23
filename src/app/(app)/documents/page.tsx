@@ -408,8 +408,11 @@ const RotationsCard = ({ tenantId, staff, publishedDocs }: { tenantId: string; s
     const id = nanoid();
     const memberNames: Record<string, string> = {};
     for (const mid of memberIds) memberNames[mid] = nameOf(mid);
+    const linkedDoc = publishedDocs.find((x: any) => x.id === linkedDocId) || null;
+    const linkedHasChecklist = !!linkedDoc && (linkedDoc.sections || []).some((x: any) => x.type === 'checklist');
     setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/rotations/${id}`), {
       id, title: t, memberIds, memberNames, cadence, linkedDocId: linkedDocId || '',
+      linkedHasChecklist,
       allowCover, allowSwap,
       currentIndex: 0, history: [], lastDoneDate: '', createdAt: new Date().toISOString(),
     }, { merge: false });
