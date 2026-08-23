@@ -104,7 +104,7 @@ const safeDate = (val: any): Date | null => {
 
 const makePin = () => String(Math.floor(1000 + Math.random() * 9000));
 
-const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, businessName, onSendMessage, timeline, onDecline, onScheduleInterview, invite, onCopyInviteLink, publishedDocs }: { app: any; onStatus: (id: string, status: AppStatus) => void; onHire: (app: any, opts: { role: 'staff' | 'admin'; payStructure: string; pin: string; assignedFormIds: string[]; assignedDocIds?: string[] }) => Promise<void>; teamEmails: Set<string>; consentForms: any[]; businessName: string; onSendMessage: (app: any, subject: string, body: string) => Promise<void>; timeline: any[]; onDecline: (app: any, reason: string, talentPool: boolean) => void; onScheduleInterview: (app: any, slots: string[]) => Promise<void>; invite: any; onCopyInviteLink: (inviteId: string) => void; publishedDocs: any[] }) => {
+const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, businessName, onSendMessage, timeline, onDecline, onScheduleInterview, invite, onCopyInviteLink, onAcceptProposed, publishedDocs }: { app: any; onStatus: (id: string, status: AppStatus) => void; onHire: (app: any, opts: { role: 'staff' | 'admin'; payStructure: string; pin: string; assignedFormIds: string[]; assignedDocIds?: string[] }) => Promise<void>; teamEmails: Set<string>; consentForms: any[]; businessName: string; onSendMessage: (app: any, subject: string, body: string) => Promise<void>; timeline: any[]; onDecline: (app: any, reason: string, talentPool: boolean) => void; onScheduleInterview: (app: any, slots: string[]) => Promise<void>; invite: any; onCopyInviteLink: (inviteId: string) => void; onAcceptProposed: (inviteId: string, slot: string) => void; publishedDocs: any[] }) => {
   const [open, setOpen] = useState(false);
   const [hireOpen, setHireOpen] = useState(false);
   const [hireRole, setHireRole] = useState<'staff' | 'admin'>('staff');
@@ -285,6 +285,25 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
                 ) : invite && invite.status === 'needs_new_times' ? (
                   <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-3">
                     <p className="text-[11px] font-bold text-amber-900">None of the offered times worked — propose new ones below.</p>
+                  </div>
+                ) : invite && invite.status === 'countered' ? (
+                  <div className="rounded-2xl border-2 border-slate-900 bg-white p-3 space-y-2">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-900">They sent their availability</p>
+                    {invite.applicantNote && <p className="text-[12px] font-bold text-slate-600">\u201c{invite.applicantNote}\u201d</p>}
+                    <div className="space-y-1.5">
+                      {(invite.proposedSlots || []).map((sl: string, i: number) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => onAcceptProposed(invite.id, sl)}
+                          className="flex h-11 w-full items-center justify-between rounded-xl border-2 bg-white px-3 text-left hover:border-slate-900"
+                        >
+                          <span className="text-[12px] font-black text-slate-900">{format(new Date(sl), 'EEE, MMM d \u00b7 h:mm a')}</span>
+                          <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Accept ✓</span>
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[11px] font-bold text-muted-foreground">Accepting emails them the confirmation automatically. If none work, schedule fresh times below — the new invite supersedes this one.</p>
                   </div>
                 ) : invite && invite.status === 'pending' ? (
                   <div className="rounded-2xl border-2 border-dashed bg-slate-50 p-3 space-y-2">
@@ -979,6 +998,14 @@ export default function ApplicantsPage() {
     [tenantDocs]
   );
 
+  const handleAcceptProposed = (inviteId: string, slot: string) => {
+    if (!tenantId) return;
+    updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/interviewInvites/${inviteId}`), {
+      status: 'accepted',
+      chosenSlot: slot,
+    });
+  };
+
   const handleCopyInviteLink = async (inviteId: string) => {
     const url = `${origin}/interview/${tenantId}/${inviteId}`;
     try { await navigator.clipboard.writeText(url); } catch { window.prompt('Copy this link:', url); }
@@ -1199,7 +1226,7 @@ ${selectedTenant?.name || ''}`);
         ) : visible.length > 0 ? (
           <div className="space-y-4">
             {visible.map((app: any) => (
-              <ApplicantCardWithData key={app.id} app={app} tenantId={tenantId} onStatus={handleStatus} onHire={handleHire} teamEmails={teamEmails} consentForms={(consentForms || []) as any[]} businessName={selectedTenant?.name || "our team"} onSendMessage={handleSendMessage} onDecline={handleDecline} onScheduleInterview={handleScheduleInterview} invite={inviteByApplication.get(app.id) || null} onCopyInviteLink={handleCopyInviteLink} publishedDocs={publishedDocs} />
+              <ApplicantCardWithData key={app.id} app={app} tenantId={tenantId} onStatus={handleStatus} onHire={handleHire} teamEmails={teamEmails} consentForms={(consentForms || []) as any[]} businessName={selectedTenant?.name || "our team"} onSendMessage={handleSendMessage} onDecline={handleDecline} onScheduleInterview={handleScheduleInterview} invite={inviteByApplication.get(app.id) || null} onCopyInviteLink={handleCopyInviteLink} onAcceptProposed={handleAcceptProposed} publishedDocs={publishedDocs} />
             ))}
           </div>
         ) : (
