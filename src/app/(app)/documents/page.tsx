@@ -387,6 +387,8 @@ const RotationsCard = ({ tenantId, staff, publishedDocs }: { tenantId: string; s
   const [memberIds, setMemberIds] = useState<string[]>([]);
   const [cadence, setCadence] = useState('daily');
   const [linkedDocId, setLinkedDocId] = useState('');
+  const [allowCover, setAllowCover] = useState(true);
+  const [allowSwap, setAllowSwap] = useState(true);
   const [err, setErr] = useState('');
 
   const rotationsQ = useMemoFirebase(
@@ -408,9 +410,10 @@ const RotationsCard = ({ tenantId, staff, publishedDocs }: { tenantId: string; s
     for (const mid of memberIds) memberNames[mid] = nameOf(mid);
     setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/rotations/${id}`), {
       id, title: t, memberIds, memberNames, cadence, linkedDocId: linkedDocId || '',
+      allowCover, allowSwap,
       currentIndex: 0, history: [], lastDoneDate: '', createdAt: new Date().toISOString(),
     }, { merge: false });
-    setCreating(false); setTitle(''); setMemberIds([]); setCadence('daily'); setLinkedDocId('');
+    setCreating(false); setTitle(''); setMemberIds([]); setCadence('daily'); setLinkedDocId(''); setAllowCover(true); setAllowSwap(true);
   };
 
   const moveMember = (r: any, i: number, dir: number) => {
@@ -453,6 +456,14 @@ const RotationsCard = ({ tenantId, staff, publishedDocs }: { tenantId: string; s
                   </div>
                   <div className="rounded-xl border-2 border-dashed bg-slate-50 p-2.5">
                     <p className="text-[11px] font-black uppercase tracking-widest text-slate-900">Now: {nameOf(cur)}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button type="button" aria-pressed={r.allowCover !== false} onClick={() => updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/rotations/${r.id}`), { allowCover: r.allowCover === false })} className={cn('h-9 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest', r.allowCover !== false ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                      {r.allowCover !== false ? '✓ Covering on' : 'Covering off'}
+                    </button>
+                    <button type="button" aria-pressed={r.allowSwap !== false} onClick={() => updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/rotations/${r.id}`), { allowSwap: r.allowSwap === false })} className={cn('h-9 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest', r.allowSwap !== false ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                      {r.allowSwap !== false ? '✓ Swaps on' : 'Swaps off'}
+                    </button>
                   </div>
                   <div className="space-y-1">
                     <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Order</p>
@@ -502,6 +513,15 @@ const RotationsCard = ({ tenantId, staff, publishedDocs }: { tenantId: string; s
                       {l}
                     </button>
                   ))}
+                </div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">What members may do</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <button type="button" aria-pressed={allowCover} onClick={() => setAllowCover(v => !v)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', allowCover ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                    {allowCover ? '✓ ' : ''}Covering allowed
+                  </button>
+                  <button type="button" aria-pressed={allowSwap} onClick={() => setAllowSwap(v => !v)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', allowSwap ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                    {allowSwap ? '✓ ' : ''}Swaps allowed
+                  </button>
                 </div>
                 {publishedDocs.length > 0 && (
                   <div>
