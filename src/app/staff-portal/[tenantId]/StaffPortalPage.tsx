@@ -139,6 +139,7 @@ const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: st
   const runPhotos: Record<string, string> = myRun?.photos || {};
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const [pendingKey, setPendingKey] = useState<string | null>(null);
+  const [uploadErr, setUploadErr] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
   const totalItems = useMemo(() => (d.sections || []).reduce((acc: number, sec: any) => {
@@ -183,12 +184,17 @@ const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: st
     setPendingKey(null);
     if (!file || !key || !tenantId) return;
     setUploadingKey(key);
+    setUploadErr('');
     try {
       const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, '_');
       const url = await uploadImage(`tenants/${tenantId}/evidence/${d.id}/${todayStr}/${staffMember.id}_${safeKey}.jpg`, file, 1280);
       writeRun({ ...runItems, [key]: true }, { ...runPhotos, [key]: url });
-    } catch (err) {
+    } catch (err: any) {
       console.error('evidence upload failed', err);
+      const code = String(err?.code || err?.message || '');
+      setUploadErr(code.includes('unauthorized') || code.includes('permission')
+        ? 'The photo was blocked by storage permissions — tell your manager the evidence storage rules need publishing.'
+        : 'The photo didn\u2019t upload — check your connection and tap the item to try again.');
     } finally {
       setUploadingKey(null);
       if (fileRef.current) fileRef.current.value = '';
@@ -232,6 +238,11 @@ const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: st
             </div>
           )}
           <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" aria-hidden="true" tabIndex={-1} onChange={(e) => handlePhotoPicked(e.target.files?.[0] || null)} />
+          {uploadErr && (
+            <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3">
+              <p className="text-[11px] font-bold text-amber-900">{uploadErr}</p>
+            </div>
+          )}
           {hasChecklists && totalItems > 0 && (
             <div className="rounded-xl border-2 bg-slate-50 p-3">
               <div className="flex items-center justify-between">
@@ -293,6 +304,123 @@ const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: st
   );
 };
 
+const RotationRow = ({ r, tenantId, staffMember, onOpenDoc, todayStr }: { r: any; tenantId: string; staffMember: any; onOpenDoc: () => void; todayStr: string }) => {
+  const { firestore } = useFirebase();
+  const gateOnChecklist = !!r.linkedDocId && r.linkedHasChecklist === true;
+  const linkedRunsQ = useMemoFirebase(
+    () => (firestore && tenantId && gateOnChecklist) ? query(collection(firestore, `tenants/${tenantId}/documents/${r.linkedDocId}/runs`), where('date', '==', todayStr)) : null,
+    [firestore, tenantId, r.linkedDocId, gateOnChecklist, todayStr]
+  );
+  const { data: linkedRuns } = useCollection<any>(linkedRunsQ);
+  const myLinkedRun = ((linkedRuns || []) as any[]).find(x => x.id === `${staffMember.id}_${todayStr}`) || null;
+  const myChecklistDone = !gateOnChecklist || (!!myLinkedRun && Number(myLinkedRun.totalItems || 0) > 0 && Number(myLinkedRun.checkedCount || 0) >= Number(myLinkedRun.totalItems || 0));
+
+  const ids: string[] = r.memberIds || [];
+  const cur = ids[Number(r.currentIndex || 0) % Math.max(ids.length, 1)];
+  const isMyTurn = cur === staffMember.id;
+
+  const satisfied = (() => {
+    const last = String(r.lastDoneDate || '');
+    if (!last) return false;
+    if (r.cadence === 'weekly') {
+      const weekStart = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
+      return last >= weekStart;
+    }
+    if (r.cadence === 'per-shift') return false;
+    return last === todayStr;
+  })();
+
+  const lastEntry = ([...(r.history || [])]).reverse().find((h: any) => h.action === 'done');
+
+  const advance = (action: 'done' | 'cover', coveredForId?: string, coveredForName?: string) => {
+    if (!firestore || !tenantId) return;
+    const nextIndex = (Number(r.currentIndex || 0) + 1) % Math.max(ids.length, 1);
+    const entry: any = {
+      date: todayStr, action: 'done',
+      staffId: staffMember.id, staffName: staffMember.name || 'Team member',
+    };
+    if (action === 'cover' && coveredForId) { entry.coveredForId = coveredForId; entry.coveredForName = coveredForName || 'Team member'; }
+    const history = ([...(r.history || []), entry]).slice(-20);
+    setDoc(doc(firestore, `tenants/${tenantId}/rotations/${r.id}`), {
+      currentIndex: nextIndex, history, lastDoneDate: todayStr,
+    }, { merge: true }).catch(err => console.error('rotation advance failed', err));
+  };
+
+  const swapWithNext = () => {
+    if (!firestore || !tenantId) return;
+    const arr: string[] = [...ids];
+    const curI = Number(r.currentIndex || 0) % Math.max(arr.length, 1);
+    const nxt = (curI + 1) % arr.length;
+    if (arr.length < 2) return;
+    [arr[curI], arr[nxt]] = [arr[nxt], arr[curI]];
+    const entry = { date: todayStr, action: 'swap', staffId: staffMember.id, staffName: staffMember.name || 'Team member', withName: (r.memberNames || {})[arr[curI]] || 'the next person' };
+    const history = ([...(r.history || []), entry]).slice(-20);
+    setDoc(doc(firestore, `tenants/${tenantId}/rotations/${r.id}`), {
+      memberIds: arr, history,
+    }, { merge: true }).catch(err => console.error('rotation swap failed', err));
+  };
+
+  if (satisfied) {
+    return (
+      <div className="flex items-center justify-between gap-2 rounded-2xl border-2 border-emerald-300 bg-emerald-50/60 px-4 py-3">
+        <div className="min-w-0">
+          <p className="truncate text-[12px] font-black tracking-tight text-emerald-900">✓ {r.title}</p>
+          <p className="text-[10px] font-black uppercase tracking-widest text-emerald-800">
+            Done {r.cadence === 'weekly' ? 'this week' : 'today'}{lastEntry ? ` by ${lastEntry.staffName}` : ''}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isMyTurn) {
+    return (
+      <div className="rounded-2xl border-2 border-slate-900 bg-white p-4">
+        <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">Your turn</p>
+        <p className="mt-0.5 text-[15px] font-black tracking-tight text-slate-900">{r.title}</p>
+        {gateOnChecklist && !myChecklistDone && (
+          <p className="mt-1 text-[11px] font-bold text-slate-600">This turn has a checklist — finish it first, then pass the turn.</p>
+        )}
+        <div className="mt-2.5 flex flex-wrap gap-2">
+          {r.linkedDocId && (
+            <button type="button" onClick={onOpenDoc} className={cn('flex h-10 items-center gap-1.5 rounded-xl px-3 text-[10px] font-black uppercase tracking-widest', gateOnChecklist && !myChecklistDone ? 'bg-slate-900 text-white' : 'border-2 text-slate-700')}>
+              <FileText className="h-3.5 w-3.5" /> Open the checklist
+            </button>
+          )}
+          <button type="button" disabled={gateOnChecklist && !myChecklistDone} onClick={() => advance('done')} className={cn('flex h-10 items-center gap-1.5 rounded-xl px-3 text-[10px] font-black uppercase tracking-widest', gateOnChecklist && !myChecklistDone ? 'border-2 bg-slate-100 text-slate-400' : 'bg-slate-900 text-white')}>
+            <CheckCircle2 className="h-3.5 w-3.5" /> {gateOnChecklist && !myChecklistDone ? 'Finish the checklist first' : 'Done — pass the turn'}
+          </button>
+          {r.allowSwap !== false && (
+            <button type="button" onClick={swapWithNext} className="flex h-10 items-center gap-1.5 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest text-slate-700">
+              ⇄ Swap with next
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-2xl border-2 border-dashed bg-white/70 px-4 py-3">
+      <div className="min-w-0">
+        <p className="truncate text-[12px] font-black tracking-tight text-slate-700">{r.title}</p>
+        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Turn: {(r.memberNames || {})[cur] || 'a teammate'}</p>
+      </div>
+      {r.allowCover !== false && (
+        gateOnChecklist && !myChecklistDone ? (
+          <button type="button" onClick={onOpenDoc} className="h-9 shrink-0 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">
+            Do the checklist to cover
+          </button>
+        ) : (
+          <button type="button" onClick={() => advance('cover', cur, (r.memberNames || {})[cur])} className="h-9 shrink-0 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">
+            I did it instead
+          </button>
+        )
+      )}
+    </div>
+  );
+};
+
 const RotationsToday = ({ tenantId, staffMember, onOpenDoc }: { tenantId: string; staffMember: any; onOpenDoc: () => void }) => {
   const { firestore } = useFirebase();
   const rotationsQ = useMemoFirebase(
@@ -306,84 +434,13 @@ const RotationsToday = ({ tenantId, staffMember, onOpenDoc }: { tenantId: string
     .filter(r => (r.memberIds || []).includes(staffMember.id))
     .sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''))), [rotations, staffMember.id]);
 
-  const advance = (r: any, action: 'done' | 'cover', coveredForId?: string, coveredForName?: string) => {
-    if (!firestore || !tenantId) return;
-    const ids: string[] = r.memberIds || [];
-    const nextIndex = (Number(r.currentIndex || 0) + 1) % Math.max(ids.length, 1);
-    const entry: any = {
-      date: todayStr, action: 'done',
-      staffId: staffMember.id, staffName: staffMember.name || 'Team member',
-    };
-    if (action === 'cover' && coveredForId) { entry.coveredForId = coveredForId; entry.coveredForName = coveredForName || 'Team member'; }
-    const history = ([...(r.history || []), entry]).slice(-20);
-    setDoc(doc(firestore, `tenants/${tenantId}/rotations/${r.id}`), {
-      currentIndex: nextIndex, history, lastDoneDate: todayStr,
-    }, { merge: true }).catch(err => console.error('rotation advance failed', err));
-  };
-
-  const swapWithNext = (r: any) => {
-    if (!firestore || !tenantId) return;
-    const ids: string[] = [...(r.memberIds || [])];
-    const cur = Number(r.currentIndex || 0) % Math.max(ids.length, 1);
-    const nxt = (cur + 1) % ids.length;
-    if (ids.length < 2) return;
-    const withId = ids[nxt];
-    const withName = withId === staffMember.id ? (staffMember.name || 'Team member') : 'the next person';
-    [ids[cur], ids[nxt]] = [ids[nxt], ids[cur]];
-    const entry = { date: todayStr, action: 'swap', staffId: staffMember.id, staffName: staffMember.name || 'Team member', withName };
-    const history = ([...(r.history || []), entry]).slice(-20);
-    setDoc(doc(firestore, `tenants/${tenantId}/rotations/${r.id}`), {
-      memberIds: ids, history,
-    }, { merge: true }).catch(err => console.error('rotation swap failed', err));
-  };
-
   if (relevant.length === 0) return null;
 
   return (
     <div className="space-y-2">
-      {relevant.map((r: any) => {
-        const ids: string[] = r.memberIds || [];
-        const cur = ids[Number(r.currentIndex || 0) % Math.max(ids.length, 1)];
-        const isMyTurn = cur === staffMember.id;
-        const doneToday = r.lastDoneDate === todayStr;
-        if (isMyTurn) {
-          return (
-            <div key={r.id} className="rounded-2xl border-2 border-slate-900 bg-white p-4">
-              <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">Your turn</p>
-              <p className="mt-0.5 text-[15px] font-black tracking-tight text-slate-900">{r.title}</p>
-              {doneToday && <p className="mt-1 text-[11px] font-bold text-emerald-700">Already done today — this is for next time.</p>}
-              <div className="mt-2.5 flex flex-wrap gap-2">
-                {r.linkedDocId && (
-                  <button type="button" onClick={onOpenDoc} className="flex h-10 items-center gap-1.5 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest text-slate-700">
-                    <FileText className="h-3.5 w-3.5" /> Open the checklist
-                  </button>
-                )}
-                <button type="button" onClick={() => advance(r, 'done')} className="flex h-10 items-center gap-1.5 rounded-xl bg-slate-900 px-3 text-[10px] font-black uppercase tracking-widest text-white">
-                  <CheckCircle2 className="h-3.5 w-3.5" /> Done — pass the turn
-                </button>
-                {r.allowSwap !== false && (
-                  <button type="button" onClick={() => swapWithNext(r)} className="flex h-10 items-center gap-1.5 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest text-slate-700">
-                    ⇄ Swap with next
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        }
-        return (
-          <div key={r.id} className="flex items-center justify-between gap-2 rounded-2xl border-2 border-dashed bg-white/70 px-4 py-3">
-            <div className="min-w-0">
-              <p className="truncate text-[12px] font-black tracking-tight text-slate-700">{r.title}</p>
-              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Turn: {(r.memberNames || {})[cur] || 'a teammate'}</p>
-            </div>
-            {r.allowCover !== false && (
-              <button type="button" onClick={() => advance(r, 'cover', cur, (r.memberNames || {})[cur])} className="h-9 shrink-0 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">
-                I did it instead
-              </button>
-            )}
-          </div>
-        );
-      })}
+      {relevant.map((r: any) => (
+        <RotationRow key={r.id} r={r} tenantId={tenantId} staffMember={staffMember} onOpenDoc={onOpenDoc} todayStr={todayStr} />
+      ))}
     </div>
   );
 };
@@ -392,6 +449,7 @@ const TasksForYou = ({ tenantId, staffMember }: { tenantId: string; staffMember:
   const { firestore } = useFirebase();
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
+  const [taskUploadErr, setTaskUploadErr] = useState('');
   const taskFileRef = useRef<HTMLInputElement>(null);
 
   const tasksQ = useMemoFirebase(
@@ -431,11 +489,16 @@ const TasksForYou = ({ tenantId, staffMember }: { tenantId: string; staffMember:
     const t = mine.find(x => x.id === taskId);
     if (!t) return;
     setUploadingId(taskId);
+    setTaskUploadErr('');
     try {
       const url = await uploadImage(`tenants/${tenantId}/evidence/tasks/${taskId}/${staffMember.id}.jpg`, file, 1280);
       completeTask(t, url);
-    } catch (err) {
+    } catch (err: any) {
       console.error('task evidence upload failed', err);
+      const code = String(err?.code || err?.message || '');
+      setTaskUploadErr(code.includes('unauthorized') || code.includes('permission')
+        ? 'The photo was blocked by storage permissions — tell your manager the evidence storage rules need publishing.'
+        : 'The photo didn\u2019t upload — check your connection and try again.');
     } finally {
       setUploadingId(null);
       if (taskFileRef.current) taskFileRef.current.value = '';
@@ -448,6 +511,11 @@ const TasksForYou = ({ tenantId, staffMember }: { tenantId: string; staffMember:
     <div className="rounded-2xl border-2 bg-white p-4 space-y-2">
       <p className="text-[10px] font-black uppercase tracking-widest text-slate-900">Tasks for you</p>
       <input ref={taskFileRef} type="file" accept="image/*" capture="environment" className="hidden" aria-hidden="true" tabIndex={-1} onChange={(e) => handleTaskPhoto(e.target.files?.[0] || null)} />
+      {taskUploadErr && (
+        <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3">
+          <p className="text-[11px] font-bold text-amber-900">{taskUploadErr}</p>
+        </div>
+      )}
       {mine.map((t: any) => {
         const uploading = uploadingId === t.id;
         return (
