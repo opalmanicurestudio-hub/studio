@@ -7,8 +7,9 @@
  * Capability URL: the token is an unguessable doc id under
  * tenants/{tenantId}/interviewInvites. The doc holds only first name, role
  * title, and offered slots — never the application itself. The applicant
- * picks a slot (or asks for new times); rules restrict the public update to
- * exactly that.
+ * picks a slot, or counters with up to three windows of their own
+ * availability; rules restrict the public update to exactly those fields,
+ * exactly once, only while pending.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -31,6 +32,16 @@ const getDb = () => {
     });
   }
   return getFirestore();
+};
+
+const safeWhen = (val: string, pattern: string): string => {
+  try {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return '';
+    return format(d, pattern);
+  } catch {
+    return '';
+  }
 };
 
 export default function InterviewInvitePage() {
@@ -120,10 +131,10 @@ export default function InterviewInvitePage() {
   const responded = invite.status === 'accepted' || invite.status === 'needs_new_times' || invite.status === 'countered';
 
   return (
-    <div className="min-h-dvh bg-slate-50 pb-[max(2rem,env(safe-area-inset-bottom))]">
-      <header className="bg-slate-950 px-6 pb-12 pt-12 text-center">
-        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">{businessName || 'Interview'}</p>
-        <h1 className="mt-2 text-3xl font-black uppercase tracking-tight text-white">
+    <div className="min-h-dvh bg-slate-50 pb-16">
+      <header className="bg-slate-900 px-4 pb-12 pt-10 text-center">
+        <p className="text-[10px] font-black uppercase tracking-[0.35em] text-slate-400">{businessName || 'Interview'}</p>
+        <h1 className="mt-2 text-2xl font-black tracking-tight text-white">
           {responded ? (invite.status === 'accepted' ? 'You\u2019re booked' : 'Got it') : `Hi ${invite.firstName || 'there'}`}
         </h1>
         {!responded && (
@@ -140,8 +151,8 @@ export default function InterviewInvitePage() {
             {invite.status === 'accepted' ? (
               <>
                 <p className="mt-4 text-sm font-black uppercase tracking-widest text-slate-900">Interview confirmed</p>
-                <p className="mt-2 text-lg font-black text-slate-900">{invite.chosenSlot ? format(new Date(invite.chosenSlot), 'EEEE, MMMM d') : ''}</p>
-                <p className="text-md font-bold text-slate-700">{invite.chosenSlot ? format(new Date(invite.chosenSlot), 'h:mm a') : ''}</p>
+                <p className="mt-2 text-lg font-black text-slate-900">{safeWhen(invite.chosenSlot, 'EEEE, MMMM d')}</p>
+                <p className="text-md font-bold text-slate-700">{safeWhen(invite.chosenSlot, 'h:mm a')}</p>
                 <p className="mt-3 text-[12px] font-bold text-muted-foreground">{businessName} has been notified. If something comes up, reply to the email you received.</p>
               </>
             ) : invite.status === 'countered' ? (
@@ -149,7 +160,7 @@ export default function InterviewInvitePage() {
                 <p className="mt-4 text-sm font-black uppercase tracking-widest text-slate-900">Availability sent</p>
                 <div className="mt-2 space-y-1">
                   {(invite.proposedSlots || []).map((sl: string, i: number) => (
-                    <p key={i} className="text-[13px] font-black text-slate-900">{format(new Date(sl), 'EEE, MMM d \u00b7 h:mm a')}</p>
+                    <p key={i} className="text-[13px] font-black text-slate-900">{safeWhen(sl, 'EEE, MMM d') + ' \u00b7 ' + safeWhen(sl, 'h:mm a')}</p>
                   ))}
                 </div>
                 <p className="mt-3 text-[12px] font-bold text-muted-foreground">{businessName} will confirm one of your times or reply with alternatives — watch your email.</p>
@@ -171,15 +182,15 @@ export default function InterviewInvitePage() {
                 aria-pressed={picked === slot}
                 onClick={() => setPicked(slot)}
                 className={cn(
-                  'flex w-full items-center gap-3 rounded-2xl border-2 p-4 text-left',
+                  'flex h-16 w-full items-center justify-between rounded-2xl border-2 px-4 text-left transition-all',
                   picked === slot ? 'border-slate-900 bg-slate-900 text-white' : 'bg-white text-slate-900'
                 )}
               >
-                <CalendarClock className={cn('h-5 w-5 shrink-0', picked === slot ? 'text-white' : 'text-slate-400')} aria-hidden="true" />
                 <span>
-                  <span className="block text-[14px] font-black">{format(new Date(slot), 'EEEE, MMMM d')}</span>
-                  <span className={cn('block text-[12px] font-bold', picked === slot ? 'text-slate-300' : 'text-muted-foreground')}>{format(new Date(slot), 'h:mm a')}</span>
+                  <span className="block text-[13px] font-black">{safeWhen(slot, 'EEEE, MMMM d')}</span>
+                  <span className={cn('block text-[12px] font-bold', picked === slot ? 'text-slate-300' : 'text-slate-500')}>{safeWhen(slot, 'h:mm a')}</span>
                 </span>
+                <CalendarClock className="h-5 w-5 shrink-0 opacity-60" aria-hidden="true" />
               </button>
             ))}
             {error && <p className="text-[11px] font-bold text-destructive">{error}</p>}
