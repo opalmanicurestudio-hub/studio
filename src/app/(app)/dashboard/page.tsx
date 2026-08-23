@@ -85,6 +85,82 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
+const BusinessPulse = ({ tenantId }: { tenantId: string }) => {
+  const { firestore } = useFirebase();
+  const appsQ = useMemoFirebase(
+    () => tenantId ? collection(firestore, `tenants/${tenantId}/applications`) : null,
+    [firestore, tenantId]
+  );
+  const { data: applications } = useCollection<any>(appsQ);
+  const invitesQ = useMemoFirebase(
+    () => tenantId ? collection(firestore, `tenants/${tenantId}/interviewInvites`) : null,
+    [firestore, tenantId]
+  );
+  const { data: invites } = useCollection<any>(invitesQ);
+  const tasksQ = useMemoFirebase(
+    () => tenantId ? collection(firestore, `tenants/${tenantId}/tasks`) : null,
+    [firestore, tenantId]
+  );
+  const { data: tasks } = useCollection<any>(tasksQ);
+
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const items = useMemo(() => {
+    const out: Array<{ key: string; icon: string; text: string; href: string; tone: 'urgent' | 'info' | 'good' }> = [];
+    const apps = (applications || []) as any[];
+    const inv = (invites || []) as any[];
+    const tk = (tasks || []) as any[];
+
+    for (const a of apps.filter(x => x.status === 'new')) {
+      out.push({ key: `app-${a.id}`, icon: '🧑\u200d💼', text: `New application — ${a.name || 'Someone'}${a.position ? ` (${a.position})` : ''}`, href: '/applicants', tone: 'urgent' });
+    }
+    for (const i of inv.filter(x => x.status === 'countered')) {
+      out.push({ key: `cnt-${i.id}`, icon: '📅', text: `${i.firstName || 'An applicant'} sent their availability — pick a time`, href: '/applicants', tone: 'urgent' });
+    }
+    for (const i of inv.filter(x => x.status === 'needs_new_times')) {
+      out.push({ key: `nnt-${i.id}`, icon: '🔁', text: `${i.firstName || 'An applicant'} needs different interview times`, href: '/applicants', tone: 'urgent' });
+    }
+    for (const i of inv.filter(x => x.status === 'accepted' && x.chosenSlot)) {
+      try {
+        const d = new Date(i.chosenSlot);
+        if (!isNaN(d.getTime()) && format(d, 'yyyy-MM-dd') === todayStr) {
+          out.push({ key: `int-${i.id}`, icon: '🤝', text: `Interview today ${format(d, 'h:mm a')} — ${i.firstName || 'applicant'}${i.roleTitle ? ` (${i.roleTitle})` : ''}`, href: '/applicants', tone: 'info' });
+        }
+      } catch { /* skip malformed */ }
+    }
+    for (const t of tk.filter(x => x.status !== 'done' && x.dueDate && x.dueDate < todayStr)) {
+      out.push({ key: `od-${t.id}`, icon: '⏰', text: `Task overdue — ${t.title} (due ${t.dueDate})`, href: '/documents', tone: 'urgent' });
+    }
+    const doneToday = tk.filter(x => x.status === 'done' && String(x.completedAt || '').slice(0, 10) === todayStr);
+    if (doneToday.length > 0) {
+      out.push({ key: 'done-today', icon: '✅', text: `${doneToday.length} task${doneToday.length === 1 ? '' : 's'} completed today — see the audit trail`, href: '/documents', tone: 'good' });
+    }
+    return out;
+  }, [applications, invites, tasks, todayStr]);
+
+  if (items.length === 0) return null;
+
+  return (
+    <Card className="rounded-[2rem] border-4 border-slate-900/10 bg-white shadow-xl">
+      <CardHeader className="p-5 pb-2">
+        <CardTitle className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-900">
+          <Zap className="h-3 w-3" aria-hidden="true" /> Needs your attention
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2 p-5 pt-1">
+        {items.slice(0, 8).map(it => (
+          <Link key={it.key} href={it.href} className={cn(
+            'flex items-center justify-between gap-2 rounded-xl border-2 px-3 py-2.5 transition-colors',
+            it.tone === 'urgent' ? 'border-amber-300 bg-amber-50 hover:bg-amber-100' : it.tone === 'good' ? 'border-emerald-200 bg-emerald-50/60 hover:bg-emerald-100/60' : 'bg-slate-50 hover:bg-slate-100'
+          )}>
+            <p className="min-w-0 flex-1 text-[12px] font-bold text-slate-800">{it.icon} {it.text}</p>
+            <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-slate-400">Open →</span>
+          </Link>
+        ))}
+      </CardContent>
+    </Card>
+  );
+};
+
 const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, onBringing, staff }: any) => {
     // One tick a second so every guest's wait counts up on its own. The same
     // clock the curbside board runs: "pending" tells you nothing at a glance,
@@ -534,7 +610,7 @@ export default function DashboardPage() {
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
       <AppHeader title="Command Hub" />
       <main className="flex-1 p-4 md:p-10 max-w-7xl mx-auto w-full space-y-10">
-        
+        <BusinessPulse tenantId={selectedTenant?.id || ''} />
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
             <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2rem] shadow-xl shadow-primary/5 text-left">
                 <CardHeader className="p-5 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase text-primary tracking-widest flex items-center gap-2"><TrendingUp className="w-3 h-3"/>Today's Gross</CardTitle></CardHeader>
