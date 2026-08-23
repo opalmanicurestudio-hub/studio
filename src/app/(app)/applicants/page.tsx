@@ -1007,6 +1007,21 @@ export default function ApplicantsPage() {
     [tenantDocs]
   );
 
+  const [focusAppId, setFocusAppId] = useState('');
+  useEffect(() => {
+    try {
+      const id = new URLSearchParams(window.location.search).get('app') || '';
+      if (id) setFocusAppId(id);
+    } catch { /* no-op */ }
+  }, []);
+  useEffect(() => {
+    if (!focusAppId) return;
+    const t = setTimeout(() => {
+      document.getElementById(`applicant-${focusAppId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [focusAppId, applications]);
+
   const handleCancelInterview = (app: any, invite: any) => {
     if (!tenantId) return;
     updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/interviewInvites/${invite.id}`), {
@@ -1117,6 +1132,7 @@ ${selectedTenant?.name || ''}`);
     const needle = q.trim().toLowerCase();
     return ((applications || []) as any[])
       .filter(a => {
+        if (focusAppId && a.id === focusAppId) return true;
         const s = STATUSES.includes(a.status) ? a.status : 'new';
         if (lane === 'pool') { if (!(s === 'declined' && a.talentPool)) return false; }
         else if (lane === 'active' ? (s === 'hired' || s === 'declined') : s !== lane) return false;
@@ -1124,7 +1140,7 @@ ${selectedTenant?.name || ''}`);
         return `${a.name || ''} ${a.position || ''} ${a.listingTitle || ''} ${a.email || ''} ${a.phone || ''}`.toLowerCase().includes(needle);
       })
       .sort((a, b) => (safeDate(b.createdAt)?.getTime() || 0) - (safeDate(a.createdAt)?.getTime() || 0));
-  }, [applications, lane, q]);
+  }, [applications, lane, q, focusAppId]);
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
@@ -1256,7 +1272,9 @@ ${selectedTenant?.name || ''}`);
         ) : visible.length > 0 ? (
           <div className="space-y-4">
             {visible.map((app: any) => (
-              <ApplicantCardWithData key={app.id} app={app} tenantId={tenantId} onStatus={handleStatus} onHire={handleHire} teamEmails={teamEmails} consentForms={(consentForms || []) as any[]} businessName={selectedTenant?.name || "our team"} onSendMessage={handleSendMessage} onDecline={handleDecline} onScheduleInterview={handleScheduleInterview} invite={inviteByApplication.get(app.id) || null} onCopyInviteLink={handleCopyInviteLink} onAcceptProposed={handleAcceptProposed} onCancelInterview={handleCancelInterview} publishedDocs={publishedDocs} />
+              <div key={app.id} id={`applicant-${app.id}`} className={cn('rounded-[2rem]', focusAppId === app.id && 'ring-4 ring-amber-300 ring-offset-2')}>
+              <ApplicantCardWithData app={app} tenantId={tenantId} onStatus={handleStatus} onHire={handleHire} teamEmails={teamEmails} consentForms={(consentForms || []) as any[]} businessName={selectedTenant?.name || "our team"} onSendMessage={handleSendMessage} onDecline={handleDecline} onScheduleInterview={handleScheduleInterview} invite={inviteByApplication.get(app.id) || null} onCopyInviteLink={handleCopyInviteLink} onAcceptProposed={handleAcceptProposed} onCancelInterview={handleCancelInterview} publishedDocs={publishedDocs} />
+              </div>
             ))}
           </div>
         ) : (
