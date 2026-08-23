@@ -201,109 +201,6 @@ const safeDate = (val: any): Date | null => {
 
 const categoryLabel = (c: string) => CATEGORIES.find(x => x[0] === c)?.[1] || 'Other';
 
-const PrintableDocument = ({ d, businessName, onClose }: { d: any; businessName: string; onClose: () => void }) => {
-  useEffect(() => {
-    const t = setTimeout(() => window.print(), 250);
-    const after = () => onClose();
-    window.addEventListener('afterprint', after);
-    return () => { clearTimeout(t); window.removeEventListener('afterprint', after); };
-  }, [onClose]);
-
-  let stepN = 0;
-  return (
-    <div className="print-area fixed inset-0 z-[100] overflow-auto bg-white p-10">
-      <style>{`
-        @media print {
-          body * { visibility: hidden !important; }
-          .print-area, .print-area * { visibility: visible !important; }
-          .print-area { position: absolute !important; inset: 0 !important; padding: 0.5in !important; }
-          .print-hide { display: none !important; }
-        }
-        @page { margin: 0.6in; }
-      `}</style>
-      <div className="print-hide mb-6 flex justify-between">
-        <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Print preview — your browser\u2019s print dialog will open</p>
-        <button type="button" onClick={onClose} className="rounded-lg border-2 px-3 py-1 text-[11px] font-black uppercase tracking-widest">Close</button>
-      </div>
-      <div className="mx-auto max-w-[7.5in] font-serif text-slate-900">
-        <div className="border-b-4 border-slate-900 pb-4">
-          <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-slate-500">{businessName}</p>
-          <h1 className="mt-1 text-3xl font-black tracking-tight">{d.title || 'Untitled document'}</h1>
-          <p className="mt-1 text-[12px] font-bold uppercase tracking-widest text-slate-500">
-            {categoryLabel(d.category)} · Version {Number(d.version || 1)} · {format(new Date(), 'MMMM d, yyyy')}
-          </p>
-        </div>
-        <div className="mt-6 space-y-5">
-          {(d.sections || []).map((sec: any) => {
-            const type = sec.type || 'text';
-            if (type === 'step') {
-              stepN++;
-              return (
-                <div key={sec.id} className="break-inside-avoid border-l-4 border-slate-900 pl-4">
-                  <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">Step {stepN}</p>
-                  {sec.heading && <p className="text-[15px] font-black">{sec.heading}</p>}
-                  {sec.body && <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed">{sec.body}</p>}
-                </div>
-              );
-            }
-            if (type === 'checklist') {
-              const items = String(sec.body || '').split('\n').map((x: string) => x.trim()).filter(Boolean);
-              return (
-                <div key={sec.id} className="break-inside-avoid">
-                  {sec.heading && <p className="text-[12px] font-black uppercase tracking-widest">{sec.heading}</p>}
-                  <div className="mt-1.5 space-y-1.5">
-                    {items.map((item: string, i: number) => (
-                      <p key={i} className="text-[13px] leading-relaxed">
-                        <span className="mr-2 inline-block h-3.5 w-3.5 -mb-0.5 border-2 border-slate-900 align-middle" /> {item}
-                        {Array.isArray(sec.photoLines) && sec.photoLines.includes(i) ? '  \ud83d\udcf7' : ''}
-                      </p>
-                    ))}
-                  </div>
-                </div>
-              );
-            }
-            if (type === 'warning') {
-              return (
-                <div key={sec.id} className="break-inside-avoid border-2 border-slate-900 p-3">
-                  <p className="text-[11px] font-black uppercase tracking-widest">\u26a0 {sec.heading || 'Warning'}</p>
-                  {sec.body && <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed">{sec.body}</p>}
-                </div>
-              );
-            }
-            if (type === 'tip') {
-              return (
-                <div key={sec.id} className="break-inside-avoid border-l-4 border-dotted border-slate-400 pl-4 italic">
-                  {sec.heading && <p className="text-[12px] font-black uppercase tracking-widest not-italic">{sec.heading}</p>}
-                  {sec.body && <p className="mt-0.5 whitespace-pre-wrap text-[13px] leading-relaxed">{sec.body}</p>}
-                </div>
-              );
-            }
-            return (
-              <div key={sec.id} className="break-inside-avoid">
-                {sec.heading && <p className="text-[12px] font-black uppercase tracking-widest">{sec.heading}</p>}
-                {sec.body && <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed">{sec.body}</p>}
-              </div>
-            );
-          })}
-        </div>
-        <div className="mt-12 break-inside-avoid border-t-2 border-slate-300 pt-6">
-          <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Read &amp; understood</p>
-          <div className="mt-8 grid grid-cols-2 gap-10">
-            <div>
-              <div className="border-b-2 border-slate-900 pb-1" style={{ minHeight: '2rem' }} />
-              <p className="mt-1 text-[11px] font-bold uppercase tracking-widest text-slate-500">Signature</p>
-            </div>
-            <div>
-              <div className="border-b-2 border-slate-900 pb-1" style={{ minHeight: '2rem' }} />
-              <p className="mt-1 text-[11px] font-bold uppercase tracking-widest text-slate-500">Name &amp; date</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 const DocumentReadView = ({ docItem, myAck, onAck }: { docItem: any; myAck: any; onAck: () => void }) => {
   const [open, setOpen] = useState(false);
   const version = docItem.version || 1;
@@ -658,7 +555,26 @@ const AuditCard = ({ tenantId, staff }: { tenantId: string; staff: any[] }) => {
         </button>
 
         {open && (
-          <div className="space-y-3 border-t-2 border-dashed pt-3">
+          <div className="audit-print-area space-y-3 border-t-2 border-dashed pt-3">
+            <style>{`
+              @media print {
+                body * { visibility: hidden !important; }
+                .audit-print-area, .audit-print-area * { visibility: visible !important; }
+                .audit-print-area { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; border: 0 !important; padding: 0 !important; }
+                .audit-print-hide { display: none !important; }
+                .audit-print-area * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+              }
+              @page { margin: 0.6in; }
+            `}</style>
+            <div className="audit-print-hide">
+              <Button type="button" variant="outline" onClick={() => window.print()} className="h-10 w-full rounded-xl border-2 text-[10px] font-black uppercase tracking-widest">
+                🖨 Print this timeline
+              </Button>
+            </div>
+            <div className="hidden print:block">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Completed work — audit trail</p>
+              <p className="text-[12px] font-bold text-slate-700">Printed {format(new Date(), 'EEEE, MMMM d, yyyy \u00b7 h:mm a')}{personId ? '' : ' \u00b7 whole team'}</p>
+            </div>
             {checklistDocs.map((d: any) => (
               <RunsCollector key={d.id} tenantId={tenantId} docItem={d} onRuns={onRuns} />
             ))}
@@ -1223,7 +1139,7 @@ const DocumentCardWithAcks = ({ d, tenantId, canManage, myStaffId, actorName, st
               );
             })()}
             <Button type="button" variant="outline" onClick={onPrint} className="h-10 w-full rounded-xl border-2 text-[10px] font-black uppercase tracking-widest">
-              🖨 Print this document (with signature line)
+              🖨 Open print view (new tab)
             </Button>
             {hasChecklists && d.status === 'published' && (
               <div className="rounded-2xl border-2 border-dashed bg-slate-50/60 p-3">
@@ -1305,7 +1221,6 @@ export default function DocumentsPage() {
   const [q, setQ] = useState('');
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [pageTab, setPageTab] = useState<'library' | 'tasks' | 'rotations' | 'audit'>('library');
-  const [printDoc, setPrintDoc] = useState<any | null>(null);
 
   const documentsQuery = useMemoFirebase(
     () => tenantId ? collection(firestore, `tenants/${tenantId}/documents`) : null,
@@ -1369,9 +1284,6 @@ export default function DocumentsPage() {
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
       <AppHeader title="Documents" />
-      {printDoc && (
-        <PrintableDocument d={printDoc} businessName={selectedTenant?.name || 'ClarityFlow'} onClose={() => setPrintDoc(null)} />
-      )}
       <main className="flex-1 space-y-6 p-4 md:p-8 mx-auto w-full max-w-3xl">
         {canManage && (
           <Card className="rounded-[2rem] border-2 bg-slate-950 text-white overflow-hidden">
@@ -1450,7 +1362,7 @@ export default function DocumentsPage() {
                 expandedId={expandedId}
                 setExpandedId={setExpandedId}
                 onSave={handleSave}
-                onPrint={() => setPrintDoc(d)}
+                onPrint={() => window.open(`/print-doc?id=${d.id}`, '_blank')}
                 onDelete={() => { if (tenantId) { deleteDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/documents/${d.id}`)); setExpandedId(null); } }}
               />
             ))}
