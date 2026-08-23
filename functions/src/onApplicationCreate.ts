@@ -122,5 +122,42 @@ export const onApplicationCreate = functions.firestore.onDocumentCreated(
     } catch (e: any) {
       console.error('receipt send failed', e);
     }
+
+    try {
+      const tSnap = await db.doc(`tenants/${tenantId}`).get();
+      const t = (tSnap.data() as any) || {};
+      let ownerEmail: string = t.notificationEmail || t.email || '';
+      if (!ownerEmail && t.userId) {
+        try {
+          const { getAuth } = await import('firebase-admin/auth');
+          ownerEmail = (await getAuth().getUser(t.userId)).email || '';
+        } catch { /* no admin auth user lookup */ }
+      }
+      if (!ownerEmail) return;
+      await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: `ClarityFlow <notifications@${process.env.RESEND_SENDING_DOMAIN || 'clarityflow.app'}>`,
+          to: ownerEmail,
+          subject: `New application: ${esc(app.name || 'Someone')}${app.position ? ` — ${esc(app.position)}` : ''}`,
+          html: `
+            <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+              <h2 style="margin: 8px 0 4px;">Someone just applied.</h2>
+              <div style="background: #f8fafc; border-radius: 16px; padding: 16px 20px; margin: 16px 0;">
+                <p style="margin: 0; font-weight: 700;">${esc(app.name || 'Applicant')}</p>
+                <p style="margin: 4px 0 0; color: #64748b; font-size: 13px;">${esc(app.position || '')}${app.email ? ` \u00b7 ${esc(app.email)}` : ''}</p>
+              </div>
+              <p style="color: #475569; line-height: 1.6;">Open <strong>Applicants</strong> in ClarityFlow to review, message, or schedule an interview.</p>
+            </div>
+          `,
+        }),
+      });
+    } catch (e) {
+      console.error('owner alert failed', e);
+    }
   },
 );
