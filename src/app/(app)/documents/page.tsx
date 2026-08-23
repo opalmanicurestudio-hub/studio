@@ -359,6 +359,16 @@ const DocumentCardWithAcks = ({ d, tenantId, canManage, myStaffId, actorName, st
   );
   const { data: acks } = useCollection(acksQuery);
   const ackList = (acks || []) as any[];
+  const runsQuery = useMemoFirebase(
+    () => (tenantId && canManage) ? collection(firestore, `tenants/${tenantId}/documents/${d.id}/runs`) : null,
+    [firestore, tenantId, d.id, canManage]
+  );
+  const { data: runs } = useCollection(runsQuery);
+  const recentRuns = useMemo(
+    () => ([...((runs || []) as any[])]).sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))).slice(0, 6),
+    [runs]
+  );
+  const hasChecklists = (d.sections || []).some((x: any) => x.type === 'checklist');
   const myAck = ackList.find((a: any) => a.id === myStaffId) || null;
 
   const handleAck = () => {
@@ -437,6 +447,25 @@ const DocumentCardWithAcks = ({ d, tenantId, canManage, myStaffId, actorName, st
                 </div>
               );
             })()}
+            {hasChecklists && d.status === 'published' && (
+              <div className="rounded-2xl border-2 border-dashed bg-slate-50/60 p-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Recent checklist runs</p>
+                {recentRuns.length === 0 ? (
+                  <p className="mt-1 text-[12px] font-bold text-muted-foreground">No runs yet — the team ticks these off from their portal&apos;s Documents tab.</p>
+                ) : (
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {recentRuns.map((r: any) => {
+                      const full = r.totalItems > 0 && Number(r.checkedCount) >= Number(r.totalItems);
+                      return (
+                        <span key={r.id} className={cn('rounded-lg border-2 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest', full ? 'bg-emerald-100 text-emerald-900 border-emerald-300' : 'bg-amber-50 text-amber-900 border-amber-300')}>
+                          {r.staffName || 'Team member'} · {r.date ? format(safeDate(r.date) as Date, 'MMM d') : ''} · {r.checkedCount}/{r.totalItems}{full ? ' ✓' : ''}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
             <DocumentEditor
               docItem={d}
               staff={staff}
