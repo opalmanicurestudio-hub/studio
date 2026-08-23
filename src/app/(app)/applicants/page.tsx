@@ -112,6 +112,7 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
   const [pin, setPin] = useState(makePin);
   const [formIds, setFormIds] = useState<string[]>([]);
   const [docIds, setDocIds] = useState<string[]>([]);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [hiring, setHiring] = useState(false);
   const [hireError, setHireError] = useState('');
   const [declineOpen, setDeclineOpen] = useState(false);
@@ -308,15 +309,15 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
                 ) : invite && invite.status === 'pending' ? (
                   <div className="rounded-2xl border-2 border-dashed bg-slate-50 p-3 space-y-2">
                     <p className="text-[11px] font-bold text-slate-600">Interview invite sent — waiting on their pick.</p>
-                    <Button type="button" variant="outline" onClick={() => onCopyInviteLink(invite.id)} className="h-10 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest">
-                      Copy their scheduling link
+                    <Button type="button" variant="outline" onClick={() => { onCopyInviteLink(invite.id); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2500); }} className={cn('h-auto min-h-11 w-full whitespace-normal rounded-xl border-2 px-3 py-2 text-[10px] font-black uppercase leading-tight tracking-widest sm:w-auto', linkCopied && 'border-emerald-400 bg-emerald-50 text-emerald-800')}>
+                      {linkCopied ? 'Link copied ✓ — paste it in a text' : 'Copy their scheduling link'}
                     </Button>
                     <p className="text-[10px] font-bold text-muted-foreground">Same link the email carries — text it to them directly if email is slow.</p>
                   </div>
                 ) : null}
                 {!inviteOpen ? (
                   <Button type="button" variant="outline" onClick={() => setInviteOpen(true)} className="h-11 w-full rounded-xl border-2 text-[11px] font-black uppercase tracking-widest">
-                    <ChevronDown className="mr-1.5 h-3.5 w-3.5 rotate-[-90deg]" aria-hidden="true" /> {invite ? 'Propose new interview times' : 'Schedule interview'}
+                    <ChevronDown className="mr-1.5 h-3.5 w-3.5 shrink-0 rotate-[-90deg]" aria-hidden="true" /> <span className="whitespace-normal leading-tight">{invite ? 'Propose new interview times' : 'Schedule interview'}</span>
                   </Button>
                 ) : (
                   <div className="space-y-2 rounded-2xl border-2 bg-muted/10 p-3">
