@@ -1,10 +1,10 @@
-'use client';
+h'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { useFirebase, useUser, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
-import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, setDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -104,13 +104,14 @@ const safeDate = (val: any): Date | null => {
 
 const makePin = () => String(Math.floor(1000 + Math.random() * 9000));
 
-const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, businessName, onSendMessage, timeline, onDecline, onScheduleInterview, invite }: { app: any; onStatus: (id: string, status: AppStatus) => void; onHire: (app: any, opts: { role: 'staff' | 'admin'; payStructure: string; pin: string; assignedFormIds: string[] }) => Promise<void>; teamEmails: Set<string>; consentForms: any[]; businessName: string; onSendMessage: (app: any, subject: string, body: string) => Promise<void>; timeline: any[]; onDecline: (app: any, reason: string, talentPool: boolean) => void; onScheduleInterview: (app: any, slots: string[]) => Promise<void>; invite: any }) => {
+const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, businessName, onSendMessage, timeline, onDecline, onScheduleInterview, invite, onCopyInviteLink, publishedDocs }: { app: any; onStatus: (id: string, status: AppStatus) => void; onHire: (app: any, opts: { role: 'staff' | 'admin'; payStructure: string; pin: string; assignedFormIds: string[]; assignedDocIds?: string[] }) => Promise<void>; teamEmails: Set<string>; consentForms: any[]; businessName: string; onSendMessage: (app: any, subject: string, body: string) => Promise<void>; timeline: any[]; onDecline: (app: any, reason: string, talentPool: boolean) => void; onScheduleInterview: (app: any, slots: string[]) => Promise<void>; invite: any; onCopyInviteLink: (inviteId: string) => void; publishedDocs: any[] }) => {
   const [open, setOpen] = useState(false);
   const [hireOpen, setHireOpen] = useState(false);
   const [hireRole, setHireRole] = useState<'staff' | 'admin'>('staff');
   const [payStructure, setPayStructure] = useState('commission');
   const [pin, setPin] = useState(makePin);
   const [formIds, setFormIds] = useState<string[]>([]);
+  const [docIds, setDocIds] = useState<string[]>([]);
   const [hiring, setHiring] = useState(false);
   const [hireError, setHireError] = useState('');
   const [declineOpen, setDeclineOpen] = useState(false);
@@ -160,7 +161,7 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
     setHireError('');
     setHiring(true);
     try {
-      await onHire(app, { role: hireRole, payStructure, pin, assignedFormIds: formIds });
+      await onHire(app, { role: hireRole, payStructure, pin, assignedFormIds: formIds, assignedDocIds: docIds });
     } catch (e: any) {
       console.error(e);
       setHireError('Could not add them to the team. Nothing was saved — please try again.');
@@ -286,8 +287,12 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
                     <p className="text-[11px] font-bold text-amber-900">None of the offered times worked — propose new ones below.</p>
                   </div>
                 ) : invite && invite.status === 'pending' ? (
-                  <div className="rounded-2xl border-2 border-dashed bg-slate-50 p-3">
+                  <div className="rounded-2xl border-2 border-dashed bg-slate-50 p-3 space-y-2">
                     <p className="text-[11px] font-bold text-slate-600">Interview invite sent — waiting on their pick.</p>
+                    <Button type="button" variant="outline" onClick={() => onCopyInviteLink(invite.id)} className="h-10 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest">
+                      Copy their scheduling link
+                    </Button>
+                    <p className="text-[10px] font-bold text-muted-foreground">Same link the email carries — text it to them directly if email is slow.</p>
                   </div>
                 ) : null}
                 {!inviteOpen ? (
@@ -489,6 +494,22 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
                       })}
                     </div>
                     <p className="mt-1 text-[11px] font-bold text-muted-foreground">Selected forms are assigned now and collected in their onboarding.</p>
+                  </div>
+                )}
+                {publishedDocs.length > 0 && (
+                  <div>
+                    <p className="mb-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Handbook &amp; SOPs to assign</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {publishedDocs.map((dd: any) => {
+                        const on = docIds.includes(dd.id);
+                        return (
+                          <button key={dd.id} type="button" aria-pressed={on} onClick={() => setDocIds(prev => on ? prev.filter(x => x !== dd.id) : [...prev, dd.id])} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', on ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                            {dd.title || 'Untitled'}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="mt-1 text-[11px] font-bold text-muted-foreground">These land in their Documents library to read and confirm.</p>
                   </div>
                 )}
                 {hireError && (
@@ -862,7 +883,7 @@ export default function ApplicantsPage() {
     return s;
   }, [staff]);
 
-  const handleHire = async (app: any, opts: { role: 'staff' | 'admin'; payStructure: string; pin: string; assignedFormIds: string[] }) => {
+  const handleHire = async (app: any, opts: { role: 'staff' | 'admin'; payStructure: string; pin: string; assignedFormIds: string[]; assignedDocIds?: string[] }) => {
     if (!tenantId) throw new Error('No tenant');
     const staffId = nanoid();
     const record = {
@@ -892,6 +913,11 @@ export default function ApplicantsPage() {
       staffId,
       hiredAt: serverTimestamp(),
     });
+    for (const docId of (opts.assignedDocIds || [])) {
+      updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/documents/${docId}`), {
+        assignedStaffIds: arrayUnion(staffId),
+      });
+    }
   };
 
   const applyUrl = tenantId && origin ? `${origin}/apply/${tenantId}` : '';
@@ -942,6 +968,21 @@ export default function ApplicantsPage() {
     for (const inv of sorted) if (inv.applicationId) m.set(inv.applicationId, inv);
     return m;
   }, [invites]);
+
+  const documentsQuery = useMemoFirebase(
+    () => (tenantId && canManage) ? collection(firestore, `tenants/${tenantId}/documents`) : null,
+    [firestore, tenantId, canManage]
+  );
+  const { data: tenantDocs } = useCollection(documentsQuery);
+  const publishedDocs = useMemo(
+    () => ((tenantDocs || []) as any[]).filter(d => d.status === 'published').sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''))),
+    [tenantDocs]
+  );
+
+  const handleCopyInviteLink = async (inviteId: string) => {
+    const url = `${origin}/interview/${tenantId}/${inviteId}`;
+    try { await navigator.clipboard.writeText(url); } catch { window.prompt('Copy this link:', url); }
+  };
 
   const handleDecline = (app: any, reason: string, talentPool: boolean) => {
     if (!tenantId) return;
@@ -1158,7 +1199,7 @@ ${selectedTenant?.name || ''}`);
         ) : visible.length > 0 ? (
           <div className="space-y-4">
             {visible.map((app: any) => (
-              <ApplicantCardWithData key={app.id} app={app} tenantId={tenantId} onStatus={handleStatus} onHire={handleHire} teamEmails={teamEmails} consentForms={(consentForms || []) as any[]} businessName={selectedTenant?.name || "our team"} onSendMessage={handleSendMessage} onDecline={handleDecline} onScheduleInterview={handleScheduleInterview} invite={inviteByApplication.get(app.id) || null} />
+              <ApplicantCardWithData key={app.id} app={app} tenantId={tenantId} onStatus={handleStatus} onHire={handleHire} teamEmails={teamEmails} consentForms={(consentForms || []) as any[]} businessName={selectedTenant?.name || "our team"} onSendMessage={handleSendMessage} onDecline={handleDecline} onScheduleInterview={handleScheduleInterview} invite={inviteByApplication.get(app.id) || null} onCopyInviteLink={handleCopyInviteLink} publishedDocs={publishedDocs} />
             ))}
           </div>
         ) : (
