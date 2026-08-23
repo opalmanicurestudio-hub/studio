@@ -46,3 +46,4 @@ export { plaidSync } from './plaidSync';
  * already sends its own confirmation, so enabling it would double-send. */
 export { onNotificationCreate } from './onNotificationCreate';
 export { appointmentReadinessCheck } from './appointmentReadinessCheck';
+export { onApplicantMessageCreate } from './onApplicantMessageCreate';
