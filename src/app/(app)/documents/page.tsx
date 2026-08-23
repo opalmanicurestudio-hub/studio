@@ -558,9 +558,10 @@ const AUDIT_KIND_META: Record<string, { dot: string; label: string }> = {
   acks: { dot: 'bg-sky-500', label: 'Sign-off' },
 };
 
-const AuditCard = ({ tenantId, staff }: { tenantId: string; staff: any[] }) => {
+const AuditCard = ({ tenantId, staff, initialOpen }: { tenantId: string; staff: any[]; initialOpen?: boolean }) => {
   const { firestore } = useFirebase();
   const [open, setOpen] = useState(false);
+  useEffect(() => { if (initialOpen) setOpen(true); }, [initialOpen]);
   const [filter, setFilter] = useState('all');
   const [personId, setPersonId] = useState('');
   const [openRunKey, setOpenRunKey] = useState<string | null>(null);
@@ -977,7 +978,7 @@ const RotationsCard = ({ tenantId, staff, publishedDocs }: { tenantId: string; s
   );
 };
 
-const TasksCard = ({ tenantId, staff, actorName }: { tenantId: string; staff: any[]; actorName: string }) => {
+const TasksCard = ({ tenantId, staff, actorName, focusTaskId }: { tenantId: string; staff: any[]; actorName: string; focusTaskId?: string }) => {
   const { firestore } = useFirebase();
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -988,6 +989,16 @@ const TasksCard = ({ tenantId, staff, actorName }: { tenantId: string; staff: an
   const [requirePhoto, setRequirePhoto] = useState(false);
   const [err, setErr] = useState('');
 
+  useEffect(() => {
+    if (focusTaskId) setOpen(true);
+  }, [focusTaskId]);
+  useEffect(() => {
+    if (!focusTaskId) return;
+    const t = setTimeout(() => {
+      document.getElementById(`task-${focusTaskId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [focusTaskId]);
   const tasksQ = useMemoFirebase(
     () => tenantId ? collection(firestore, `tenants/${tenantId}/tasks`) : null,
     [firestore, tenantId]
@@ -1042,7 +1053,7 @@ const TasksCard = ({ tenantId, staff, actorName }: { tenantId: string; staff: an
         {open && (
           <div className="space-y-3 border-t-2 border-dashed pt-3">
             {openTasks.map((t: any) => (
-              <div key={t.id} className="rounded-2xl border-2 p-3">
+              <div key={t.id} id={`task-${t.id}`} className={cn('rounded-2xl border-2 p-3', focusTaskId === t.id && 'ring-4 ring-amber-300')}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="text-[13px] font-black tracking-tight text-slate-900">{t.title}</p>
@@ -1307,6 +1318,16 @@ export default function DocumentsPage() {
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [pageTab, setPageTab] = useState<'library' | 'tasks' | 'rotations' | 'audit'>('library');
   const [printDoc, setPrintDoc] = useState<any | null>(null);
+  const [focusTaskId, setFocusTaskId] = useState('');
+  useEffect(() => {
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      const tab = sp.get('tab');
+      if (tab === 'tasks' || tab === 'rotations' || tab === 'audit' || tab === 'library') setPageTab(tab);
+      const tk = sp.get('task') || '';
+      if (tk) { setPageTab('tasks'); setFocusTaskId(tk); }
+    } catch { /* no-op */ }
+  }, []);
 
   const documentsQuery = useMemoFirebase(
     () => tenantId ? collection(firestore, `tenants/${tenantId}/documents`) : null,
@@ -1414,13 +1435,13 @@ export default function DocumentsPage() {
           </div>
         )}
         {canManage && pageTab === 'audit' && (
-          <AuditCard tenantId={tenantId || ''} staff={(staff || []) as any[]} />
+          <AuditCard tenantId={tenantId || ''} staff={(staff || []) as any[]} initialOpen={pageTab === 'audit'} />
         )}
         {canManage && pageTab === 'rotations' && (
           <RotationsCard tenantId={tenantId || ''} staff={(staff || []) as any[]} publishedDocs={((documents || []) as any[]).filter((x: any) => x.status === 'published')} />
         )}
         {canManage && pageTab === 'tasks' && (
-          <TasksCard tenantId={tenantId || ''} staff={(staff || []) as any[]} actorName={actorName} />
+          <TasksCard tenantId={tenantId || ''} staff={(staff || []) as any[]} actorName={actorName} focusTaskId={focusTaskId} />
         )}
 
         {(!canManage || pageTab === 'library') && (
