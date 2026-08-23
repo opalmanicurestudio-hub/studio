@@ -377,6 +377,146 @@ const DocumentEditor = ({ docItem, staff, onSave, onPublish, onDelete, onClose }
   );
 };
 
+const TasksCard = ({ tenantId, staff, actorName }: { tenantId: string; staff: any[]; actorName: string }) => {
+  const { firestore } = useFirebase();
+  const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [title, setTitle] = useState('');
+  const [notes, setNotes] = useState('');
+  const [assignees, setAssignees] = useState<string[]>([]);
+  const [dueDate, setDueDate] = useState('');
+  const [requirePhoto, setRequirePhoto] = useState(false);
+  const [err, setErr] = useState('');
+
+  const tasksQ = useMemoFirebase(
+    () => tenantId ? collection(firestore, `tenants/${tenantId}/tasks`) : null,
+    [firestore, tenantId]
+  );
+  const { data: tasks } = useCollection(tasksQ);
+  const openTasks = useMemo(() => ((tasks || []) as any[]).filter(t => t.status !== 'done').sort((a, b) => String(a.dueDate || '9999').localeCompare(String(b.dueDate || '9999'))), [tasks]);
+  const doneTasks = useMemo(() => ((tasks || []) as any[]).filter(t => t.status === 'done').sort((a, b) => String(b.completedAt || '').localeCompare(String(a.completedAt || ''))).slice(0, 8), [tasks]);
+  const activeStaff = staff.filter((m: any) => !m.archived);
+  const nameOf = (id: string) => activeStaff.find((m: any) => m.id === id)?.name || 'Team member';
+
+  const createTask = () => {
+    const t = title.trim().slice(0, 140);
+    if (!t) { setErr('Give the task a name.'); return; }
+    if (assignees.length === 0) { setErr('Pick at least one person.'); return; }
+    setErr('');
+    const id = nanoid();
+    setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/tasks/${id}`), {
+      id,
+      title: t,
+      notes: notes.trim().slice(0, 2000),
+      assignedStaffIds: assignees,
+      dueDate: dueDate || '',
+      requirePhoto,
+      status: 'open',
+      createdAt: new Date().toISOString(),
+      createdBy: actorName,
+    }, { merge: false });
+    for (const staffId of assignees) {
+      const nId = nanoid();
+      setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/notifications/${nId}`), {
+        id: nId, userId: staffId, read: false, createdAt: new Date().toISOString(),
+        type: 'task', link: 'today', message: `New task: ${t}${dueDate ? ` — due ${dueDate}` : ''}`,
+      }, { merge: false });
+    }
+    setCreating(false);
+    setTitle(''); setNotes(''); setAssignees([]); setDueDate(''); setRequirePhoto(false);
+  };
+
+  return (
+    <Card className="rounded-[2rem] border-2 bg-white overflow-hidden">
+      <CardContent className="p-5 space-y-3">
+        <button type="button" onClick={() => setOpen(v => !v)} aria-expanded={open} className="flex w-full items-center justify-between gap-3 text-left">
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-widest text-slate-900">One-off tasks</p>
+            <p className="mt-0.5 text-[12px] font-bold text-muted-foreground">
+              {openTasks.length > 0 ? `${openTasks.length} open` : 'Assign a to-do that isn\u2019t an SOP'}
+            </p>
+          </div>
+          <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} aria-hidden="true" />
+        </button>
+
+        {open && (
+          <div className="space-y-3 border-t-2 border-dashed pt-3">
+            {openTasks.map((t: any) => (
+              <div key={t.id} className="rounded-2xl border-2 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-black tracking-tight text-slate-900">{t.title}</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                      {(t.assignedStaffIds || []).map(nameOf).join(', ')}{t.dueDate ? ` · due ${t.dueDate}` : ''}{t.requirePhoto ? ' · 📷' : ''}
+                    </p>
+                  </div>
+                  <Button type="button" variant="outline" aria-label={`Remove task ${t.title}`} onClick={() => deleteDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/tasks/${t.id}`))} className="h-9 shrink-0 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest text-destructive border-destructive/30">✕</Button>
+                </div>
+                {t.notes && <p className="mt-1 text-[12px] font-bold text-slate-600">{t.notes}</p>}
+              </div>
+            ))}
+
+            {doneTasks.length > 0 && (
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Recently done</p>
+                <div className="mt-1 space-y-1.5">
+                  {doneTasks.map((t: any) => (
+                    <div key={t.id} className="flex items-center justify-between gap-2 rounded-xl border-2 border-dashed bg-slate-50/60 px-3 py-2">
+                      <p className="min-w-0 text-[12px] font-bold text-slate-700">✓ {t.title} · {t.completedByName || 'Team member'}{t.completedAt && safeDate(t.completedAt) ? ` · ${format(safeDate(t.completedAt) as Date, 'MMM d, h:mm a')}` : ''}</p>
+                      {t.photoUrl && (
+                        <a href={t.photoUrl} target="_blank" rel="noreferrer">
+                          <img src={t.photoUrl} alt={`Evidence: ${t.title}`} className="h-9 w-9 shrink-0 rounded-lg border-2 object-cover" />
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {creating ? (
+              <div className="space-y-2 rounded-2xl border-2 p-3">
+                <label htmlFor="task-title" className="sr-only">Task name</label>
+                <Input id="task-title" value={title} onChange={e => setTitle(e.target.value)} maxLength={140} placeholder="e.g. Deep-clean the front window" className="h-11 rounded-xl border-2 bg-white font-bold text-sm" />
+                <label htmlFor="task-notes" className="sr-only">Notes</label>
+                <textarea id="task-notes" value={notes} onChange={e => setNotes(e.target.value)} maxLength={2000} rows={2} placeholder="Details (optional)" className="w-full rounded-xl border-2 bg-white p-3 font-bold text-sm" />
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Who</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {activeStaff.map((m: any) => {
+                    const on = assignees.includes(m.id);
+                    return (
+                      <button key={m.id} type="button" aria-pressed={on} onClick={() => setAssignees(prev => on ? prev.filter(x => x !== m.id) : [...prev, m.id])} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', on ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                        {m.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label htmlFor="task-due" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Due</label>
+                  <input id="task-due" type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="h-10 rounded-xl border-2 bg-white px-3 text-[12px] font-bold" />
+                  <button type="button" aria-pressed={requirePhoto} onClick={() => setRequirePhoto(v => !v)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', requirePhoto ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                    📷 {requirePhoto ? 'Photo required' : 'No photo needed'}
+                  </button>
+                </div>
+                {err && <p className="text-[11px] font-bold text-destructive">{err}</p>}
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" onClick={() => setCreating(false)} className="h-11 flex-1 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest">Cancel</Button>
+                  <Button type="button" onClick={createTask} className="h-11 flex-[2] rounded-xl bg-slate-900 text-[11px] font-black uppercase tracking-widest text-white">Assign task</Button>
+                </div>
+                <p className="text-[11px] font-bold text-muted-foreground">Assignees get a ping in their portal inbox.</p>
+              </div>
+            ) : (
+              <Button type="button" variant="outline" onClick={() => setCreating(true)} className="h-11 w-full rounded-xl border-2 border-dashed text-[11px] font-black uppercase tracking-widest">
+                <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" /> New task
+              </Button>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
 const DocumentCardWithAcks = ({ d, tenantId, canManage, myStaffId, actorName, staff, expandedId, setExpandedId, onSave, onDelete }: any) => {
   const { firestore } = useFirebase();
   const acksQuery = useMemoFirebase(
@@ -646,6 +786,10 @@ export default function DocumentsPage() {
               )}
             </CardContent>
           </Card>
+        )}
+
+        {canManage && (
+          <TasksCard tenantId={tenantId || ''} staff={(staff || []) as any[]} actorName={actorName} />
         )}
 
         <Input
