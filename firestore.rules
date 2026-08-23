@@ -432,19 +432,31 @@ service cloud.firestore {
       allow read, list, create, update, delete: if isManager(tenantId);
     }
 
+    // Portal sessions sign in with a custom token (uid `portal:{tid}:{staffId}`,
+    // claims stamped by /api/portal/auth). This recognizes them for the
+    // surfaces the portal reads.
+    function isPortalMember(tenantId) {
+      return isSignedIn()
+        && request.auth.token.portal == true
+        && request.auth.token.tenantId == tenantId;
+    }
+
     // Operating documents — SOPs, handbooks, policies. Whole team can read
     // (the staff view filters to published + assigned); only managers author.
     match /tenants/{tenantId}/documents/{documentId} {
-      allow get, list: if isStaff(tenantId);
+      allow get, list: if isStaff(tenantId) || isPortalMember(tenantId);
       allow create, update, delete: if isManager(tenantId);
     }
 
-    // Read-and-understood attestations, keyed by staff id. Any signed-in
-    // team member can write acks (kiosk PIN-switching means the acting
-    // person may differ from the auth account); managers may clear them.
+    // Read-and-understood attestations, keyed by staff id. Main-app team
+    // members write acks (kiosk PIN-switching means the acting person may
+    // differ from the auth account); portal members write only their own.
     match /tenants/{tenantId}/documents/{documentId}/acks/{ackId} {
-      allow get, list: if isStaff(tenantId);
-      allow create, update: if isStaff(tenantId)
+      allow get, list: if isStaff(tenantId) || isPortalMember(tenantId);
+      allow create, update: if (
+          isStaff(tenantId)
+          || (isPortalMember(tenantId) && ackId == request.auth.token.staffId)
+        )
         && request.resource.data.version is number
         && request.resource.data.staffName is string
         && request.resource.data.staffName.size() <= 140;
