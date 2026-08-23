@@ -293,6 +293,97 @@ const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: st
   );
 };
 
+const RotationsToday = ({ tenantId, staffMember, onOpenDoc }: { tenantId: string; staffMember: any; onOpenDoc: () => void }) => {
+  const { firestore } = useFirebase();
+  const rotationsQ = useMemoFirebase(
+    () => firestore && tenantId ? collection(firestore, `tenants/${tenantId}/rotations`) : null,
+    [firestore, tenantId]
+  );
+  const { data: rotations } = useCollection<any>(rotationsQ);
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+
+  const relevant = useMemo(() => ((rotations || []) as any[])
+    .filter(r => (r.memberIds || []).includes(staffMember.id))
+    .sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''))), [rotations, staffMember.id]);
+
+  const advance = (r: any, action: 'done' | 'cover', coveredForId?: string, coveredForName?: string) => {
+    if (!firestore || !tenantId) return;
+    const ids: string[] = r.memberIds || [];
+    const nextIndex = (Number(r.currentIndex || 0) + 1) % Math.max(ids.length, 1);
+    const entry: any = {
+      date: todayStr, action: 'done',
+      staffId: staffMember.id, staffName: staffMember.name || 'Team member',
+    };
+    if (action === 'cover' && coveredForId) { entry.coveredForId = coveredForId; entry.coveredForName = coveredForName || 'Team member'; }
+    const history = ([...(r.history || []), entry]).slice(-20);
+    setDoc(doc(firestore, `tenants/${tenantId}/rotations/${r.id}`), {
+      currentIndex: nextIndex, history, lastDoneDate: todayStr,
+    }, { merge: true }).catch(err => console.error('rotation advance failed', err));
+  };
+
+  const swapWithNext = (r: any) => {
+    if (!firestore || !tenantId) return;
+    const ids: string[] = [...(r.memberIds || [])];
+    const cur = Number(r.currentIndex || 0) % Math.max(ids.length, 1);
+    const nxt = (cur + 1) % ids.length;
+    if (ids.length < 2) return;
+    const withId = ids[nxt];
+    const withName = withId === staffMember.id ? (staffMember.name || 'Team member') : 'the next person';
+    [ids[cur], ids[nxt]] = [ids[nxt], ids[cur]];
+    const entry = { date: todayStr, action: 'swap', staffId: staffMember.id, staffName: staffMember.name || 'Team member', withName };
+    const history = ([...(r.history || []), entry]).slice(-20);
+    setDoc(doc(firestore, `tenants/${tenantId}/rotations/${r.id}`), {
+      memberIds: ids, history,
+    }, { merge: true }).catch(err => console.error('rotation swap failed', err));
+  };
+
+  if (relevant.length === 0) return null;
+
+  return (
+    <div className="space-y-2">
+      {relevant.map((r: any) => {
+        const ids: string[] = r.memberIds || [];
+        const cur = ids[Number(r.currentIndex || 0) % Math.max(ids.length, 1)];
+        const isMyTurn = cur === staffMember.id;
+        const doneToday = r.lastDoneDate === todayStr;
+        if (isMyTurn) {
+          return (
+            <div key={r.id} className="rounded-2xl border-2 border-slate-900 bg-white p-4">
+              <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">Your turn</p>
+              <p className="mt-0.5 text-[15px] font-black tracking-tight text-slate-900">{r.title}</p>
+              {doneToday && <p className="mt-1 text-[11px] font-bold text-emerald-700">Already done today — this is for next time.</p>}
+              <div className="mt-2.5 flex flex-wrap gap-2">
+                {r.linkedDocId && (
+                  <button type="button" onClick={onOpenDoc} className="flex h-10 items-center gap-1.5 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest text-slate-700">
+                    <FileText className="h-3.5 w-3.5" /> Open the checklist
+                  </button>
+                )}
+                <button type="button" onClick={() => advance(r, 'done')} className="flex h-10 items-center gap-1.5 rounded-xl bg-slate-900 px-3 text-[10px] font-black uppercase tracking-widest text-white">
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Done — pass the turn
+                </button>
+                <button type="button" onClick={() => swapWithNext(r)} className="flex h-10 items-center gap-1.5 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest text-slate-700">
+                  ⇄ Swap with next
+                </button>
+              </div>
+            </div>
+          );
+        }
+        return (
+          <div key={r.id} className="flex items-center justify-between gap-2 rounded-2xl border-2 border-dashed bg-white/70 px-4 py-3">
+            <div className="min-w-0">
+              <p className="truncate text-[12px] font-black tracking-tight text-slate-700">{r.title}</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Turn: {(r.memberNames || {})[cur] || 'a teammate'}</p>
+            </div>
+            <button type="button" onClick={() => advance(r, 'cover', cur, (r.memberNames || {})[cur])} className="h-9 shrink-0 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">
+              I did it instead
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 const TasksForYou = ({ tenantId, staffMember }: { tenantId: string; staffMember: any }) => {
   const { firestore } = useFirebase();
   const [uploadingId, setUploadingId] = useState<string | null>(null);
@@ -4746,6 +4837,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           {activeTab==='today' && (
             isLoadingToday ? <TabSkeleton /> : (
               <div className="space-y-4">
+<RotationsToday tenantId={tenantId} staffMember={staffMember} onOpenDoc={() => setActiveTab('documents')} />
 <TasksForYou tenantId={tenantId} staffMember={staffMember} />
 {stuckApts.length > 0 && (
                   <div className="rounded-[2rem] border-2 border-amber-300 bg-amber-50 overflow-hidden">
