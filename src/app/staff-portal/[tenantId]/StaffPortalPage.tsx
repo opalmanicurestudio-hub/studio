@@ -361,9 +361,11 @@ const RotationsToday = ({ tenantId, staffMember, onOpenDoc }: { tenantId: string
                 <button type="button" onClick={() => advance(r, 'done')} className="flex h-10 items-center gap-1.5 rounded-xl bg-slate-900 px-3 text-[10px] font-black uppercase tracking-widest text-white">
                   <CheckCircle2 className="h-3.5 w-3.5" /> Done — pass the turn
                 </button>
-                <button type="button" onClick={() => swapWithNext(r)} className="flex h-10 items-center gap-1.5 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest text-slate-700">
-                  ⇄ Swap with next
-                </button>
+                {r.allowSwap !== false && (
+                  <button type="button" onClick={() => swapWithNext(r)} className="flex h-10 items-center gap-1.5 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest text-slate-700">
+                    ⇄ Swap with next
+                  </button>
+                )}
               </div>
             </div>
           );
@@ -374,9 +376,11 @@ const RotationsToday = ({ tenantId, staffMember, onOpenDoc }: { tenantId: string
               <p className="truncate text-[12px] font-black tracking-tight text-slate-700">{r.title}</p>
               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Turn: {(r.memberNames || {})[cur] || 'a teammate'}</p>
             </div>
-            <button type="button" onClick={() => advance(r, 'cover', cur, (r.memberNames || {})[cur])} className="h-9 shrink-0 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">
-              I did it instead
-            </button>
+            {r.allowCover !== false && (
+              <button type="button" onClick={() => advance(r, 'cover', cur, (r.memberNames || {})[cur])} className="h-9 shrink-0 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                I did it instead
+              </button>
+            )}
           </div>
         );
       })}
