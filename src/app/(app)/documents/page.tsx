@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { useFirebase, useUser, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
@@ -374,6 +374,198 @@ const DocumentEditor = ({ docItem, staff, onSave, onPublish, onDelete, onClose }
         {confirmDelete ? 'Tap again to delete this document' : 'Delete document'}
       </button>
     </div>
+  );
+};
+
+const RunsCollector = ({ tenantId, docItem, onRuns }: { tenantId: string; docItem: any; onRuns: (docId: string, runs: any[]) => void }) => {
+  const { firestore } = useFirebase();
+  const runsQ = useMemoFirebase(
+    () => tenantId ? collection(firestore, `tenants/${tenantId}/documents/${docItem.id}/runs`) : null,
+    [firestore, tenantId, docItem.id]
+  );
+  const { data } = useCollection(runsQ);
+  useEffect(() => { onRuns(docItem.id, (data || []) as any[]); }, [data, docItem.id, onRuns]);
+  return null;
+};
+
+const AUDIT_FILTERS = [['all', 'Everything'], ['tasks', 'Tasks'], ['runs', 'Checklists'], ['rotations', 'Rotations']] as const;
+
+const AuditCard = ({ tenantId, staff }: { tenantId: string; staff: any[] }) => {
+  const { firestore } = useFirebase();
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState('all');
+  const [openRunKey, setOpenRunKey] = useState<string | null>(null);
+  const [runsByDoc, setRunsByDoc] = useState<Record<string, any[]>>({});
+
+  const tasksQ = useMemoFirebase(
+    () => (tenantId && open) ? collection(firestore, `tenants/${tenantId}/tasks`) : null,
+    [firestore, tenantId, open]
+  );
+  const { data: tasks } = useCollection(tasksQ);
+
+  const rotationsQ = useMemoFirebase(
+    () => (tenantId && open) ? collection(firestore, `tenants/${tenantId}/rotations`) : null,
+    [firestore, tenantId, open]
+  );
+  const { data: rotations } = useCollection(rotationsQ);
+
+  const documentsQ = useMemoFirebase(
+    () => (tenantId && open) ? collection(firestore, `tenants/${tenantId}/documents`) : null,
+    [firestore, tenantId, open]
+  );
+  const { data: allDocs } = useCollection(documentsQ);
+  const checklistDocs = useMemo(
+    () => ((allDocs || []) as any[]).filter(d => d.status === 'published' && (d.sections || []).some((x: any) => x.type === 'checklist')),
+    [allDocs]
+  );
+  const docById = useMemo(() => {
+    const m: Record<string, any> = {};
+    for (const d of ((allDocs || []) as any[])) m[d.id] = d;
+    return m;
+  }, [allDocs]);
+
+  const onRuns = useCallback((docId: string, runs: any[]) => {
+    setRunsByDoc(prev => ({ ...prev, [docId]: runs }));
+  }, []);
+
+  const entries = useMemo(() => {
+    const out: Array<{ kind: string; ts: string; dayKey: string; payload: any }> = [];
+    for (const t of ((tasks || []) as any[])) {
+      if (t.status !== 'done' || !t.completedAt) continue;
+      out.push({ kind: 'tasks', ts: String(t.completedAt), dayKey: String(t.completedAt).slice(0, 10), payload: t });
+    }
+    for (const [docId, runs] of Object.entries(runsByDoc)) {
+      for (const r of (runs as any[])) {
+        const ts = String(r.completedAt || r.startedAt || `${r.date}T12:00:00`);
+        out.push({ kind: 'runs', ts, dayKey: String(r.date || ts.slice(0, 10)), payload: { ...r, docId } });
+      }
+    }
+    for (const r of ((rotations || []) as any[])) {
+      for (const h of ((r.history || []) as any[])) {
+        if (h.action !== 'done') continue;
+        out.push({ kind: 'rotations', ts: `${h.date}T12:00:01`, dayKey: String(h.date || ''), payload: { ...h, rotationTitle: r.title } });
+      }
+    }
+    return out
+      .filter(e => filter === 'all' || e.kind === filter)
+      .sort((a, b) => b.ts.localeCompare(a.ts))
+      .slice(0, 200);
+  }, [tasks, runsByDoc, rotations, filter]);
+
+  const byDay = useMemo(() => {
+    const m = new Map<string, typeof entries>();
+    for (const e of entries) {
+      if (!m.has(e.dayKey)) m.set(e.dayKey, [] as any);
+      (m.get(e.dayKey) as any).push(e);
+    }
+    return [...m.entries()];
+  }, [entries]);
+
+  return (
+    <Card className="rounded-[2rem] border-2 bg-white overflow-hidden">
+      <CardContent className="p-5 space-y-3">
+        <button type="button" onClick={() => setOpen(v => !v)} aria-expanded={open} className="flex w-full items-center justify-between gap-3 text-left">
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-widest text-slate-900">Completed work — audit trail</p>
+            <p className="mt-0.5 text-[12px] font-bold text-muted-foreground">Every finished task, checklist run, and rotation turn — with photos</p>
+          </div>
+          <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} aria-hidden="true" />
+        </button>
+
+        {open && (
+          <div className="space-y-3 border-t-2 border-dashed pt-3">
+            {checklistDocs.map((d: any) => (
+              <RunsCollector key={d.id} tenantId={tenantId} docItem={d} onRuns={onRuns} />
+            ))}
+            <div className="flex flex-wrap gap-1.5">
+              {AUDIT_FILTERS.map(([v, l]) => (
+                <button key={v} type="button" aria-pressed={filter === v} onClick={() => setFilter(v)} className={cn('h-9 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest', filter === v ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                  {l}
+                </button>
+              ))}
+            </div>
+
+            {byDay.length === 0 ? (
+              <p className="py-6 text-center text-[12px] font-bold text-muted-foreground">Nothing completed yet — finished work lands here automatically.</p>
+            ) : byDay.map(([day, dayEntries]: [string, any[]]) => (
+              <div key={day}>
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                  {safeDate(day) ? format(safeDate(day) as Date, 'EEEE, MMM d') : day}
+                </p>
+                <div className="mt-1 space-y-1.5">
+                  {dayEntries.map((e: any, i: number) => {
+                    if (e.kind === 'tasks') {
+                      const t = e.payload;
+                      return (
+                        <div key={`t-${t.id}-${i}`} className="flex items-center justify-between gap-2 rounded-xl border-2 border-dashed bg-slate-50/60 px-3 py-2">
+                          <p className="min-w-0 flex-1 text-[12px] font-bold text-slate-700">
+                            ✓ Task · {t.title} — {t.completedByName || 'Team member'}{t.completedAt && safeDate(t.completedAt) ? ` · ${format(safeDate(t.completedAt) as Date, 'h:mm a')}` : ''}
+                          </p>
+                          {t.photoUrl && (
+                            <a href={t.photoUrl} target="_blank" rel="noreferrer">
+                              <img src={t.photoUrl} alt={`Evidence: ${t.title}`} className="h-10 w-10 shrink-0 rounded-lg border-2 object-cover" />
+                            </a>
+                          )}
+                        </div>
+                      );
+                    }
+                    if (e.kind === 'rotations') {
+                      const h = e.payload;
+                      return (
+                        <div key={`r-${i}`} className="rounded-xl border-2 border-dashed bg-slate-50/60 px-3 py-2">
+                          <p className="text-[12px] font-bold text-slate-700">
+                            ✓ Rotation · {h.rotationTitle} — {h.staffName}{h.coveredForName ? ` (covering for ${h.coveredForName})` : ''}
+                          </p>
+                        </div>
+                      );
+                    }
+                    const r = e.payload;
+                    const rDoc = docById[r.docId];
+                    const full = r.totalItems > 0 && Number(r.checkedCount) >= Number(r.totalItems);
+                    const runKey = `${r.docId}:${r.id}`;
+                    const isOpen = openRunKey === runKey;
+                    const photoCount = Object.keys(r.photos || {}).length;
+                    return (
+                      <div key={`run-${runKey}`} className="rounded-xl border-2 border-dashed bg-slate-50/60 px-3 py-2">
+                        <button type="button" onClick={() => setOpenRunKey(isOpen ? null : runKey)} className="flex w-full items-center justify-between gap-2 text-left">
+                          <p className="min-w-0 flex-1 text-[12px] font-bold text-slate-700">
+                            {full ? '✓' : '◐'} Checklist · {rDoc?.title || 'Document'} — {r.staffName || 'Team member'} · {r.checkedCount}/{r.totalItems}{photoCount > 0 ? ` · 📷 ${photoCount}` : ''}
+                          </p>
+                          <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', isOpen && 'rotate-180')} aria-hidden="true" />
+                        </button>
+                        {isOpen && rDoc && (
+                          <div className="mt-2 space-y-1 border-t-2 border-dashed pt-2">
+                            {(rDoc.sections || []).filter((sec: any) => sec.type === 'checklist').map((sec: any) => {
+                              const items = String(sec.body || '').split('\n').map((x: string) => x.trim()).filter(Boolean);
+                              return items.map((item: string, ii: number) => {
+                                const key = `${sec.id}:${ii}`;
+                                const on = !!(r.items || {})[key];
+                                const photo = (r.photos || {})[key];
+                                return (
+                                  <div key={key} className="flex items-center justify-between gap-2 py-0.5">
+                                    <p className={cn('min-w-0 flex-1 text-[11px] font-bold', on ? 'text-slate-700' : 'text-slate-400')}>{on ? '✓' : '·'} {item}</p>
+                                    {photo && (
+                                      <a href={photo} target="_blank" rel="noreferrer">
+                                        <img src={photo} alt={`Evidence: ${item}`} className="h-10 w-10 shrink-0 rounded-lg border-2 object-cover" />
+                                      </a>
+                                    )}
+                                  </div>
+                                );
+                              });
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+            <p className="text-[11px] font-bold text-muted-foreground">Showing the latest 200 entries. Evidence photos open full-size in a new tab.</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 };
 
@@ -967,6 +1159,9 @@ export default function DocumentsPage() {
           </Card>
         )}
 
+        {canManage && (
+          <AuditCard tenantId={tenantId || ''} staff={(staff || []) as any[]} />
+        )}
         {canManage && (
           <RotationsCard tenantId={tenantId || ''} staff={(staff || []) as any[]} publishedDocs={((documents || []) as any[]).filter((x: any) => x.status === 'published')} />
         )}
