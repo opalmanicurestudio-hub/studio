@@ -23,6 +23,58 @@ const CATEGORIES = [
 
 const MAX_SECTIONS = 20;
 
+const TEMPLATES: Array<{ key: string; title: string; category: string; blurb: string; sections: Array<{ heading: string; body: string }> }> = [
+  {
+    key: 'opening',
+    title: 'Opening checklist',
+    category: 'sop',
+    blurb: 'Start-of-day routine so any team member can open alone.',
+    sections: [
+      { heading: 'Before unlocking', body: 'Arrive 15 minutes before open. Check the exterior — signage on, entry clear and safe. Disarm the alarm and turn on lights.' },
+      { heading: 'Set up the space', body: 'Turn on all equipment and let it reach working temperature. Wipe down stations and shared surfaces. Restock anything below par level and note shortages for the manager.' },
+      { heading: 'Systems check', body: 'Open the register or point of sale and count the float. Review today\u2019s schedule for special notes. Confirm the booking page and phone line are live.' },
+      { heading: 'Ready to open', body: 'Unlock the door at the posted time. First impression standard: music on, space tidy, team ready to greet.' },
+    ],
+  },
+  {
+    key: 'closing',
+    title: 'Closing checklist',
+    category: 'sop',
+    blurb: 'End-of-day shutdown that protects cash, equipment, and tomorrow.',
+    sections: [
+      { heading: 'Last client through', body: 'No new walk-ins after the posted cutoff. Finish every client with the full standard — closing time never shortens service quality.' },
+      { heading: 'Clean and reset', body: 'Sanitize all stations and tools per the sanitation standard. Empty bins. Reset each station so tomorrow starts clean.' },
+      { heading: 'Cash and records', body: 'Count the drawer with a second person when possible. Record totals. Prepare the deposit and secure it as trained.' },
+      { heading: 'Lock up', body: 'Equipment off, lights off, thermostat set. Arm the alarm and confirm the door is locked behind you. Report anything unusual to the manager tonight, not tomorrow.' },
+    ],
+  },
+  {
+    key: 'handbook',
+    title: 'Employee handbook starter',
+    category: 'handbook',
+    blurb: 'A humane starter handbook — edit every section to sound like you.',
+    sections: [
+      { heading: 'Welcome', body: 'Welcome to the team. This handbook explains how we work, what you can expect from us, and what we ask of you. When in doubt, ask — questions are always welcome here.' },
+      { heading: 'Schedules & time off', body: 'Schedules post in advance. Swaps need manager approval. Request time off as early as you can; we\u2019ll always try to make it work.' },
+      { heading: 'Conduct & respect', body: 'We treat clients and each other with respect, full stop. Harassment or discrimination of any kind is not tolerated and should be reported to the owner immediately.' },
+      { heading: 'Phones & appearance', body: 'Personal phones stay off the floor during service. Follow the posted appearance standard for your role.' },
+      { heading: 'Acknowledgment', body: 'Read this handbook fully, then mark it read and understood below. Your confirmation is recorded with the version you read.' },
+    ],
+  },
+  {
+    key: 'complaint',
+    title: 'Client complaint policy',
+    category: 'policy',
+    blurb: 'How complaints get handled the same way every time.',
+    sections: [
+      { heading: 'First response', body: 'Listen fully without interrupting. Thank them for telling us. Never argue in front of other clients — move the conversation somewhere calm.' },
+      { heading: 'What you can offer', body: 'Team members may offer a redo of the service. Anything involving a refund or beyond goes to a manager — say: \u201cI want to make this right, let me get my manager.\u201d' },
+      { heading: 'Escalation', body: 'Manager decides refund or resolution and records what happened and what was offered in the client\u2019s notes the same day.' },
+      { heading: 'After', body: 'If the complaint involves safety or a reaction, follow the incident procedure and notify the owner immediately.' },
+    ],
+  },
+];
+
 const safeDate = (val: any): Date | null => {
   if (!val) return null;
   if (val instanceof Date) return val;
@@ -257,25 +309,48 @@ const DocumentCardWithAcks = ({ d, tenantId, canManage, myStaffId, actorName, st
         </button>
         {expandedId === d.id && (
           <>
-            {d.status === 'published' && (
-              <div className="rounded-2xl border-2 border-dashed bg-slate-50/60 p-3">
-                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Read &amp; understood</p>
-                {ackList.length === 0 ? (
-                  <p className="mt-1 text-[12px] font-bold text-muted-foreground">No one has confirmed reading it yet.</p>
-                ) : (
-                  <div className="mt-1.5 flex flex-wrap gap-1.5">
-                    {ackList.map((a: any) => {
-                      const current = Number(a.version) === Number(version);
-                      return (
-                        <span key={a.id} className={cn('rounded-lg border-2 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest', current ? 'bg-emerald-100 text-emerald-900 border-emerald-300' : 'bg-amber-50 text-amber-900 border-amber-300')}>
-                          {a.staffName || 'Team member'}{current ? '' : ` · read v${a.version}`}
-                        </span>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
+            {d.status === 'published' && (() => {
+              const activeStaff = (staff || []).filter((m: any) => !m.archived);
+              const assignedTo = activeStaff.filter((m: any) => {
+                const roles = d.assignedRoles || [];
+                if (roles.includes('all')) return true;
+                if (m.role && roles.includes(m.role)) return true;
+                return (d.assignedStaffIds || []).includes(m.id);
+              });
+              const currentIds = new Set(ackList.filter((a: any) => Number(a.version) === Number(version)).map((a: any) => a.id));
+              const missing = assignedTo.filter((m: any) => !currentIds.has(m.id));
+              return (
+                <div className="rounded-2xl border-2 border-dashed bg-slate-50/60 p-3 space-y-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                    Read &amp; understood — {currentIds.size} of {assignedTo.length} assigned
+                  </p>
+                  {ackList.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {ackList.map((a: any) => {
+                        const current = Number(a.version) === Number(version);
+                        return (
+                          <span key={a.id} className={cn('rounded-lg border-2 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest', current ? 'bg-emerald-100 text-emerald-900 border-emerald-300' : 'bg-amber-50 text-amber-900 border-amber-300')}>
+                            {a.staffName || 'Team member'}{current ? '' : ` · read v${a.version}`}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {missing.length > 0 ? (
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Still to read</p>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {missing.map((m: any) => (
+                          <span key={m.id} className="rounded-lg border-2 bg-white px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-slate-500">{m.name}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : assignedTo.length > 0 ? (
+                    <p className="text-[11px] font-bold text-emerald-700">Everyone assigned has read the current version.</p>
+                  ) : null}
+                </div>
+              );
+            })()}
             <DocumentEditor
               docItem={d}
               staff={staff}
@@ -302,6 +377,7 @@ export default function DocumentsPage() {
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [q, setQ] = useState('');
+  const [templatesOpen, setTemplatesOpen] = useState(false);
 
   const documentsQuery = useMemoFirebase(
     () => tenantId ? collection(firestore, `tenants/${tenantId}/documents`) : null,
@@ -329,14 +405,14 @@ export default function DocumentsPage() {
     return list.sort((a, b) => String(a.title || '').localeCompare(String(b.title || '')));
   }, [documents, canManage, role, myStaffId, q]);
 
-  const handleCreate = () => {
+  const handleCreate = (tpl?: typeof TEMPLATES[number]) => {
     if (!tenantId) return;
     const id = nanoid();
     setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/documents/${id}`), {
       id,
-      title: '',
-      category: 'sop',
-      sections: [],
+      title: tpl ? tpl.title : '',
+      category: tpl ? tpl.category : 'sop',
+      sections: tpl ? tpl.sections.map(x => ({ id: nanoid(), heading: x.heading, body: x.body })) : [],
       assignedRoles: ['all'],
       assignedStaffIds: [],
       status: 'draft',
@@ -373,9 +449,25 @@ export default function DocumentsPage() {
                 <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">Your operating library</p>
                 <p className="mt-1 text-[13px] font-bold text-slate-200">SOPs, handbooks, and policies — written once, assigned to roles or people, versioned when they change.</p>
               </div>
-              <Button onClick={handleCreate} className="h-11 rounded-xl bg-white px-4 text-[11px] font-black uppercase tracking-widest text-slate-900 hover:bg-slate-200">
-                <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" /> New document
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={() => handleCreate()} className="h-11 rounded-xl bg-white px-4 text-[11px] font-black uppercase tracking-widest text-slate-900 hover:bg-slate-200">
+                  <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" /> Blank document
+                </Button>
+                <Button onClick={() => setTemplatesOpen(v => !v)} variant="outline" className="h-11 rounded-xl border-2 border-white/30 bg-transparent px-4 text-[11px] font-black uppercase tracking-widest text-white hover:bg-white/10">
+                  Start from a template
+                </Button>
+              </div>
+              {templatesOpen && (
+                <div className="space-y-2 border-t-2 border-dashed border-white/20 pt-3">
+                  {TEMPLATES.map(t => (
+                    <button key={t.key} type="button" onClick={() => { handleCreate(t); setTemplatesOpen(false); }} className="w-full rounded-2xl border-2 border-white/20 bg-white/5 p-3 text-left hover:bg-white/10">
+                      <p className="text-[13px] font-black tracking-tight text-white">{t.title}</p>
+                      <p className="text-[11px] font-bold text-slate-400">{categoryLabel(t.category)} · {t.sections.length} sections — {t.blurb}</p>
+                    </button>
+                  ))}
+                  <p className="text-[11px] font-bold text-slate-400">Templates land as drafts — edit every line to match how your business actually runs, then publish.</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
