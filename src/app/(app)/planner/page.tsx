@@ -155,6 +155,25 @@ function PlannerPageContent() {
     });
   }, [tourAppsRaw, currentDate]);
 
+  // Accepted interview slots from the hiring funnel render as calendar items
+  // here at the DISPLAY layer only — interviews never touch the appointments
+  // collection, so revenue and utilization stats stay clean.
+  const interviewsQ = useMemoFirebase(
+    () => !firestore || !tenantId ? null :
+      query(collection(firestore, `tenants/${tenantId}/interviewInvites`), where('status', '==', 'accepted')),
+    [firestore, tenantId]
+  );
+  const { data: interviewsRaw } = useCollection<any>(interviewsQ);
+
+  const interviewsToday = useMemo(() => {
+    if (!interviewsRaw) return [];
+    return interviewsRaw.filter((iv: any) => {
+      if (!iv || !iv.chosenSlot) return false;
+      const d = safeDate(iv.chosenSlot);
+      return d && !isNaN(d.getTime()) && isSameDay(d, currentDate);
+    });
+  }, [interviewsRaw, currentDate]);
+
   // Paid day/hourly reservations (from the reserve API, via Stripe) land here so
   // the Studio lane is one unified calendar — appointments, tours, and rentals.
   const reservationsQ = useMemoFirebase(
@@ -409,6 +428,27 @@ function PlannerPageContent() {
             } as any);
         });
 
+        interviewsToday.forEach(iv => {
+            const start = safeDate(iv.chosenSlot);
+            if (!start || isNaN(start.getTime())) return;
+            map.get('business')!.push({
+                id:        `interview-${iv.id}`,
+                itemType:  'event',
+                type:      'interview',
+                title:     `Interview — ${iv.firstName || 'Applicant'}${iv.roleTitle ? ` (${iv.roleTitle})` : ''}`,
+                name:      `Interview — ${iv.firstName || 'Applicant'}`,
+                startTime: start.toISOString(),
+                endTime:   addMinutes(start, 45).toISOString(),
+                allDay:    false,
+                staffIds:  [],
+                checklist: [],
+                guestCount: 0,
+                notes:     [iv.roleTitle, 'Hiring interview — details on the Applicants page'].filter(Boolean).join(' · '),
+                location:  '',
+                status:    'confirmed',
+            } as any);
+        });
+
         reservationsToday.forEach(r => {
             const cd = currentDate;
             const curIso = `${cd.getFullYear()}-${String(cd.getMonth() + 1).padStart(2, '0')}-${String(cd.getDate()).padStart(2, '0')}`;
@@ -491,7 +531,7 @@ function PlannerPageContent() {
 
     map.forEach(items => items.sort((a, b) => safeDate(a.startTime || a.dueDate).getTime() - safeDate(b.startTime || b.dueDate).getTime()));
     return map;
-  }, [currentDate, appointments, columns, activeView, showCancelled, billInstances, billDefinitions, events, studioEventsToday, toursToday, reservationsToday, maintenanceToday]);
+  }, [currentDate, appointments, columns, activeView, showCancelled, billInstances, billDefinitions, events, studioEventsToday, toursToday, interviewsToday, reservationsToday, maintenanceToday]);
 
   const { showProfitability } = useProfitabilityVisibility();
 
