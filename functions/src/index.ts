@@ -47,3 +47,5 @@ export { plaidSync } from './plaidSync';
 export { onNotificationCreate } from './onNotificationCreate';
 export { appointmentReadinessCheck } from './appointmentReadinessCheck';
 export { onApplicantMessageCreate } from './onApplicantMessageCreate';
+export { onApplicationCreate } from './onApplicationCreate';
+export { onInterviewInviteUpdate } from './onInterviewInviteUpdate';
