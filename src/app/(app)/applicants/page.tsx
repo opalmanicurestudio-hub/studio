@@ -1,4 +1,4 @@
-h'use client';
+'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
