@@ -537,14 +537,34 @@ const TASK_TEMPLATES = [
   { title: 'Call supplier about order', notes: 'Confirm delivery date and any backordered items; note the answer here after.', requirePhoto: false },
 ] as const;
 
-const AUDIT_FILTERS = [['all', 'Everything'], ['tasks', 'Tasks'], ['runs', 'Checklists'], ['rotations', 'Rotations']] as const;
+const AcksCollector = ({ tenantId, docItem, onAcks }: { tenantId: string; docItem: any; onAcks: (docId: string, acks: any[]) => void }) => {
+  const { firestore } = useFirebase();
+  const acksQ = useMemoFirebase(
+    () => tenantId ? collection(firestore, `tenants/${tenantId}/documents/${docItem.id}/acks`) : null,
+    [firestore, tenantId, docItem.id]
+  );
+  const { data } = useCollection(acksQ);
+  useEffect(() => { onAcks(docItem.id, (data || []) as any[]); }, [data, docItem.id, onAcks]);
+  return null;
+};
+
+const AUDIT_FILTERS = [['all', 'Everything'], ['tasks', 'Tasks'], ['runs', 'Checklists'], ['rotations', 'Rotations'], ['acks', 'Sign-offs']] as const;
+
+const AUDIT_KIND_META: Record<string, { dot: string; label: string }> = {
+  tasks: { dot: 'bg-emerald-500', label: 'Task' },
+  runs: { dot: 'bg-slate-900', label: 'Checklist' },
+  rotations: { dot: 'bg-amber-500', label: 'Rotation' },
+  acks: { dot: 'bg-sky-500', label: 'Sign-off' },
+};
 
 const AuditCard = ({ tenantId, staff }: { tenantId: string; staff: any[] }) => {
   const { firestore } = useFirebase();
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState('all');
+  const [personId, setPersonId] = useState('');
   const [openRunKey, setOpenRunKey] = useState<string | null>(null);
   const [runsByDoc, setRunsByDoc] = useState<Record<string, any[]>>({});
+  const [acksByDoc, setAcksByDoc] = useState<Record<string, any[]>>({});
 
   const tasksQ = useMemoFirebase(
     () => (tenantId && open) ? collection(firestore, `tenants/${tenantId}/tasks`) : null,
@@ -576,30 +596,46 @@ const AuditCard = ({ tenantId, staff }: { tenantId: string; staff: any[] }) => {
   const onRuns = useCallback((docId: string, runs: any[]) => {
     setRunsByDoc(prev => ({ ...prev, [docId]: runs }));
   }, []);
+  const onAcks = useCallback((docId: string, acks: any[]) => {
+    setAcksByDoc(prev => ({ ...prev, [docId]: acks }));
+  }, []);
+  const publishedDocs = useMemo(
+    () => ((allDocs || []) as any[]).filter(d => d.status === 'published'),
+    [allDocs]
+  );
 
   const entries = useMemo(() => {
-    const out: Array<{ kind: string; ts: string; dayKey: string; payload: any }> = [];
+    const out: Array<{ kind: string; ts: string; dayKey: string; staffId: string; payload: any }> = [];
     for (const t of ((tasks || []) as any[])) {
       if (t.status !== 'done' || !t.completedAt) continue;
-      out.push({ kind: 'tasks', ts: String(t.completedAt), dayKey: String(t.completedAt).slice(0, 10), payload: t });
+      out.push({ kind: 'tasks', ts: String(t.completedAt), dayKey: String(t.completedAt).slice(0, 10), staffId: String(t.completedBy || ''), payload: t });
     }
     for (const [docId, runs] of Object.entries(runsByDoc)) {
       for (const r of (runs as any[])) {
         const ts = String(r.completedAt || r.startedAt || `${r.date}T12:00:00`);
-        out.push({ kind: 'runs', ts, dayKey: String(r.date || ts.slice(0, 10)), payload: { ...r, docId } });
+        out.push({ kind: 'runs', ts, dayKey: String(r.date || ts.slice(0, 10)), staffId: String(r.staffId || ''), payload: { ...r, docId } });
       }
     }
     for (const r of ((rotations || []) as any[])) {
       for (const h of ((r.history || []) as any[])) {
         if (h.action !== 'done') continue;
-        out.push({ kind: 'rotations', ts: `${h.date}T12:00:01`, dayKey: String(h.date || ''), payload: { ...h, rotationTitle: r.title } });
+        out.push({ kind: 'rotations', ts: `${h.date}T12:00:01`, dayKey: String(h.date || ''), staffId: String(h.staffId || ''), payload: { ...h, rotationTitle: r.title } });
+      }
+    }
+    for (const [docId, acks] of Object.entries(acksByDoc)) {
+      const dTitle = docById[docId]?.title || 'Document';
+      for (const a of (acks as any[])) {
+        if (!a.acknowledgedAt) continue;
+        const ts = String(a.acknowledgedAt);
+        out.push({ kind: 'acks', ts, dayKey: ts.slice(0, 10), staffId: String(a.id || ''), payload: { ...a, docTitle: dTitle } });
       }
     }
     return out
       .filter(e => filter === 'all' || e.kind === filter)
+      .filter(e => !personId || e.staffId === personId)
       .sort((a, b) => b.ts.localeCompare(a.ts))
       .slice(0, 200);
-  }, [tasks, runsByDoc, rotations, filter]);
+  }, [tasks, runsByDoc, rotations, acksByDoc, docById, filter, personId]);
 
   const byDay = useMemo(() => {
     const m = new Map<string, typeof entries>();
@@ -626,10 +662,23 @@ const AuditCard = ({ tenantId, staff }: { tenantId: string; staff: any[] }) => {
             {checklistDocs.map((d: any) => (
               <RunsCollector key={d.id} tenantId={tenantId} docItem={d} onRuns={onRuns} />
             ))}
+            {publishedDocs.map((d: any) => (
+              <AcksCollector key={`a-${d.id}`} tenantId={tenantId} docItem={d} onAcks={onAcks} />
+            ))}
             <div className="flex flex-wrap gap-1.5">
               {AUDIT_FILTERS.map(([v, l]) => (
                 <button key={v} type="button" aria-pressed={filter === v} onClick={() => setFilter(v)} className={cn('h-9 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest', filter === v ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
                   {l}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              <button type="button" aria-pressed={personId === ''} onClick={() => setPersonId('')} className={cn('h-9 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest', personId === '' ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                Whole team
+              </button>
+              {staff.filter((m: any) => !m.archived).map((m: any) => (
+                <button key={m.id} type="button" aria-pressed={personId === m.id} onClick={() => setPersonId(personId === m.id ? '' : m.id)} className={cn('h-9 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest', personId === m.id ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                  {m.name}
                 </button>
               ))}
             </div>
@@ -641,29 +690,53 @@ const AuditCard = ({ tenantId, staff }: { tenantId: string; staff: any[] }) => {
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                   {safeDate(day) ? format(safeDate(day) as Date, 'EEEE, MMM d') : day}
                 </p>
-                <div className="mt-1 space-y-1.5">
+                <div className="relative mt-2 space-y-3 border-l-2 border-slate-200 pl-5">
                   {dayEntries.map((e: any, i: number) => {
+                    const meta = AUDIT_KIND_META[e.kind] || AUDIT_KIND_META.tasks;
+                    const timeStr = /T\d{2}:\d{2}/.test(e.ts) && safeDate(e.ts) ? format(safeDate(e.ts) as Date, 'h:mm a') : '';
+                    const dot = <span className={cn('absolute -left-[27px] top-1.5 h-3 w-3 rounded-full border-2 border-white ring-2 ring-slate-200', meta.dot)} aria-hidden="true" />;
+                    const header = (
+                      <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+                        {meta.label}{timeStr ? ` \u00b7 ${timeStr}` : ''}
+                      </p>
+                    );
+                    if (e.kind === 'acks') {
+                      const a = e.payload;
+                      return (
+                        <div key={`a-${i}`} className="relative">
+                          {dot}
+                          {header}
+                          <p className="text-[12px] font-bold text-slate-700">✍️ {a.staffName || 'Team member'} read &amp; confirmed <span className="font-black">{a.docTitle}</span> (v{a.version})</p>
+                        </div>
+                      );
+                    }
                     if (e.kind === 'tasks') {
                       const t = e.payload;
                       return (
-                        <div key={`t-${t.id}-${i}`} className="flex items-center justify-between gap-2 rounded-xl border-2 border-dashed bg-slate-50/60 px-3 py-2">
-                          <p className="min-w-0 flex-1 text-[12px] font-bold text-slate-700">
-                            ✓ Task · {t.title} — {t.completedByName || 'Team member'}{t.completedAt && safeDate(t.completedAt) ? ` · ${format(safeDate(t.completedAt) as Date, 'h:mm a')}` : ''}
-                          </p>
-                          {t.photoUrl && (
-                            <a href={t.photoUrl} target="_blank" rel="noreferrer">
-                              <img src={t.photoUrl} alt={`Evidence: ${t.title}`} className="h-10 w-10 shrink-0 rounded-lg border-2 object-cover" />
-                            </a>
-                          )}
+                        <div key={`t-${t.id}-${i}`} className="relative">
+                          {dot}
+                          {header}
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="min-w-0 flex-1 text-[12px] font-bold text-slate-700">
+                              ✓ {t.title} — <span className="font-black">{t.completedByName || 'Team member'}</span>{t.notes ? <span className="text-slate-500"> \u00b7 {t.notes}</span> : null}
+                            </p>
+                            {t.photoUrl && (
+                              <a href={t.photoUrl} target="_blank" rel="noreferrer">
+                                <img src={t.photoUrl} alt={`Evidence: ${t.title}`} className="h-10 w-10 shrink-0 rounded-lg border-2 object-cover" />
+                              </a>
+                            )}
+                          </div>
                         </div>
                       );
                     }
                     if (e.kind === 'rotations') {
                       const h = e.payload;
                       return (
-                        <div key={`r-${i}`} className="rounded-xl border-2 border-dashed bg-slate-50/60 px-3 py-2">
+                        <div key={`r-${i}`} className="relative">
+                          {dot}
+                          {header}
                           <p className="text-[12px] font-bold text-slate-700">
-                            ✓ Rotation · {h.rotationTitle} — {h.staffName}{h.coveredForName ? ` (covering for ${h.coveredForName})` : ''}
+                            ✓ {h.rotationTitle} — <span className="font-black">{h.staffName}</span>{h.coveredForName ? ` (covering for ${h.coveredForName})` : ''}
                           </p>
                         </div>
                       );
@@ -674,11 +747,17 @@ const AuditCard = ({ tenantId, staff }: { tenantId: string; staff: any[] }) => {
                     const runKey = `${r.docId}:${r.id}`;
                     const isOpen = openRunKey === runKey;
                     const photoCount = Object.keys(r.photos || {}).length;
+                    const started = r.startedAt && safeDate(r.startedAt) ? format(safeDate(r.startedAt) as Date, 'h:mm a') : '';
+                    const finished = r.completedAt && safeDate(r.completedAt) ? format(safeDate(r.completedAt) as Date, 'h:mm a') : '';
                     return (
-                      <div key={`run-${runKey}`} className="rounded-xl border-2 border-dashed bg-slate-50/60 px-3 py-2">
+                      <div key={`run-${runKey}`} className="relative">
+                        {dot}
+                        {header}
                         <button type="button" onClick={() => setOpenRunKey(isOpen ? null : runKey)} className="flex w-full items-center justify-between gap-2 text-left">
                           <p className="min-w-0 flex-1 text-[12px] font-bold text-slate-700">
-                            {full ? '✓' : '◐'} Checklist · {rDoc?.title || 'Document'} — {r.staffName || 'Team member'} · {r.checkedCount}/{r.totalItems}{photoCount > 0 ? ` · 📷 ${photoCount}` : ''}
+                            {full ? '✓' : '◐'} {rDoc?.title || 'Document'} — <span className="font-black">{r.staffName || 'Team member'}</span> · {r.checkedCount}/{r.totalItems}
+                            {photoCount > 0 ? ` · 📷 ${photoCount}` : ''}
+                            {started && finished ? <span className="text-slate-500"> \u00b7 {started} \u2192 {finished}</span> : started ? <span className="text-slate-500"> \u00b7 started {started}</span> : null}
                           </p>
                           <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', isOpen && 'rotate-180')} aria-hidden="true" />
                         </button>
