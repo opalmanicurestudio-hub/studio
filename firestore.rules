@@ -439,6 +439,18 @@ service cloud.firestore {
       allow create, update, delete: if isManager(tenantId);
     }
 
+    // Read-and-understood attestations, keyed by staff id. Any signed-in
+    // team member can write acks (kiosk PIN-switching means the acting
+    // person may differ from the auth account); managers may clear them.
+    match /tenants/{tenantId}/documents/{documentId}/acks/{ackId} {
+      allow get, list: if isStaff(tenantId);
+      allow create, update: if isStaff(tenantId)
+        && request.resource.data.version is number
+        && request.resource.data.staffName is string
+        && request.resource.data.staffName.size() <= 140;
+      allow delete: if isManager(tenantId);
+    }
+
     // Interview invites — capability URLs. The token IS the doc id
     // (unguessable), the doc holds only first name + role + slots. Public
     // may read one by id and may respond exactly once: only the response
