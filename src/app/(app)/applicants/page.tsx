@@ -34,6 +34,8 @@ const STATUS_TONE: Record<AppStatus, string> = {
   declined: 'bg-slate-100 text-slate-500 border-slate-300',
 };
 
+const DECLINE_REASONS = ['Position filled', 'Not a fit right now', 'Experience level', 'Availability mismatch', 'Other'] as const;
+
 const MESSAGE_TEMPLATES: Array<{ key: string; label: string; subject: (v: any) => string; body: (v: any) => string }> = [
   {
     key: 'forward',
@@ -92,7 +94,7 @@ const safeDate = (val: any): Date | null => {
 
 const makePin = () => String(Math.floor(1000 + Math.random() * 9000));
 
-const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, businessName, onSendMessage, timeline }: { app: any; onStatus: (id: string, status: AppStatus) => void; onHire: (app: any, opts: { role: 'staff' | 'admin'; payStructure: string; pin: string; assignedFormIds: string[] }) => Promise<void>; teamEmails: Set<string>; consentForms: any[]; businessName: string; onSendMessage: (app: any, subject: string, body: string) => Promise<void>; timeline: any[] }) => {
+const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, businessName, onSendMessage, timeline, onDecline, onScheduleInterview, invite }: { app: any; onStatus: (id: string, status: AppStatus) => void; onHire: (app: any, opts: { role: 'staff' | 'admin'; payStructure: string; pin: string; assignedFormIds: string[] }) => Promise<void>; teamEmails: Set<string>; consentForms: any[]; businessName: string; onSendMessage: (app: any, subject: string, body: string) => Promise<void>; timeline: any[]; onDecline: (app: any, reason: string, talentPool: boolean) => void; onScheduleInterview: (app: any, slots: string[]) => Promise<void>; invite: any }) => {
   const [open, setOpen] = useState(false);
   const [hireOpen, setHireOpen] = useState(false);
   const [hireRole, setHireRole] = useState<'staff' | 'admin'>('staff');
@@ -101,6 +103,13 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
   const [formIds, setFormIds] = useState<string[]>([]);
   const [hiring, setHiring] = useState(false);
   const [hireError, setHireError] = useState('');
+  const [declineOpen, setDeclineOpen] = useState(false);
+  const [declineReason, setDeclineReason] = useState('');
+  const [keepInPool, setKeepInPool] = useState(true);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [slots, setSlots] = useState<string[]>(['']);
+  const [inviteError, setInviteError] = useState('');
+  const [inviting, setInviting] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [msgSubject, setMsgSubject] = useState('');
   const [msgBody, setMsgBody] = useState('');
@@ -174,6 +183,9 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
         </button>
 
         <div className="flex flex-wrap gap-1.5">
+          {app.status === 'declined' && app.talentPool && (
+            <span className="rounded-lg border-2 border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-emerald-900">Talent pool</span>
+          )}
           {app.listingTitle && (
             <span className="flex items-center gap-1 rounded-lg border-2 bg-slate-900 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-white"><Briefcase className="h-3 w-3" aria-hidden="true" /> {app.listingTitle}</span>
           )}
@@ -252,6 +264,66 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
                 <p className="mt-0.5 text-[13px] font-bold text-slate-800">{[app.email, app.phone].filter(Boolean).join(' · ')}</p>
               </div>
             )}
+            {app.email && !alreadyOnTeam && (
+              <div className="space-y-2">
+                {invite && invite.status === 'accepted' ? (
+                  <div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-emerald-900">Interview confirmed</p>
+                    <p className="mt-0.5 text-[13px] font-black text-emerald-900">{invite.chosenSlot ? format(safeDate(invite.chosenSlot) as Date, 'EEEE, MMM d · h:mm a') : ''}</p>
+                  </div>
+                ) : invite && invite.status === 'needs_new_times' ? (
+                  <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-3">
+                    <p className="text-[11px] font-bold text-amber-900">None of the offered times worked — propose new ones below.</p>
+                  </div>
+                ) : invite && invite.status === 'pending' ? (
+                  <div className="rounded-2xl border-2 border-dashed bg-slate-50 p-3">
+                    <p className="text-[11px] font-bold text-slate-600">Interview invite sent — waiting on their pick.</p>
+                  </div>
+                ) : null}
+                {!inviteOpen ? (
+                  <Button type="button" variant="outline" onClick={() => setInviteOpen(true)} className="h-11 w-full rounded-xl border-2 text-[11px] font-black uppercase tracking-widest">
+                    <ChevronDown className="mr-1.5 h-3.5 w-3.5 rotate-[-90deg]" aria-hidden="true" /> {invite ? 'Propose new interview times' : 'Schedule interview'}
+                  </Button>
+                ) : (
+                  <div className="space-y-2 rounded-2xl border-2 bg-muted/10 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Offer up to 3 times — they pick one</p>
+                    {slots.map((slot, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <label htmlFor={`slot-${app.id}-${i}`} className="sr-only">Time option {i + 1}</label>
+                        <input
+                          id={`slot-${app.id}-${i}`}
+                          type="datetime-local"
+                          value={slot}
+                          onChange={e => setSlots(prev => prev.map((x, xi) => xi === i ? e.target.value : x))}
+                          className="h-12 flex-1 rounded-xl border-2 bg-white px-3 font-bold text-sm"
+                        />
+                        {slots.length > 1 && (
+                          <Button type="button" variant="outline" aria-label={`Remove time option ${i + 1}`} onClick={() => setSlots(prev => prev.filter((_, xi) => xi !== i))} className="h-12 w-12 rounded-xl border-2 p-0 font-black">✕</Button>
+                        )}
+                      </div>
+                    ))}
+                    {slots.length < 3 && (
+                      <Button type="button" variant="outline" onClick={() => setSlots(prev => [...prev, ''])} className="h-10 w-full rounded-xl border-2 border-dashed text-[11px] font-black uppercase tracking-widest">+ Another time</Button>
+                    )}
+                    {inviteError && <p className="text-[11px] font-bold text-destructive">{inviteError}</p>}
+                    <div className="flex gap-2">
+                      <Button type="button" variant="outline" onClick={() => setInviteOpen(false)} className="h-11 flex-1 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest">Cancel</Button>
+                      <Button type="button" disabled={inviting} onClick={async () => {
+                        const clean = slots.filter(x => x && !isNaN(new Date(x).getTime()));
+                        if (clean.length === 0) { setInviteError('Add at least one valid time.'); return; }
+                        setInviteError(''); setInviting(true);
+                        try { await onScheduleInterview(app, clean); setInviteOpen(false); setSlots(['']); }
+                        catch { setInviteError('Couldn\u2019t send the invite — try again.'); }
+                        finally { setInviting(false); }
+                      }} className="h-11 flex-[2] rounded-xl bg-slate-900 text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-60">
+                        {inviting ? <Loader className="h-4 w-4 animate-spin" aria-hidden="true" /> : 'Send invite'}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {app.email ? (
               <div className="space-y-2">
                 {!composeOpen ? (
@@ -313,12 +385,32 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
                   <button
                     key={s}
                     type="button"
-                    onClick={() => onStatus(app.id, s)}
+                    onClick={() => { if (s === 'declined') { setDeclineOpen(v => !v); } else { setDeclineOpen(false); onStatus(app.id, s); } }}
                     className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', STATUS_TONE[s])}
                   >
                     {STATUS_LABEL[s]}
                   </button>
                 ))}
+              </div>
+              {declineOpen && (
+                <div className="mt-2 space-y-2 rounded-2xl border-2 bg-muted/10 p-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Why? (kept private)</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {DECLINE_REASONS.map(r => (
+                      <button key={r} type="button" aria-pressed={declineReason === r} onClick={() => setDeclineReason(r)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', declineReason === r ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                  <button type="button" aria-pressed={keepInPool} onClick={() => setKeepInPool(v => !v)} className={cn('h-10 w-full rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', keepInPool ? 'bg-emerald-100 text-emerald-900 border-emerald-300' : 'bg-white text-muted-foreground')}>
+                    {keepInPool ? 'Keep in talent pool for future openings ✓' : 'Don\u2019t keep on file'}
+                  </button>
+                  <Button type="button" onClick={() => { onDecline(app, declineReason, keepInPool); setDeclineOpen(false); }} className="h-11 w-full rounded-xl bg-slate-900 text-[11px] font-black uppercase tracking-widest text-white">
+                    Confirm decline
+                  </Button>
+                </div>
+              )}
+              <div className="hidden">
               </div>
             </div>
 
@@ -720,7 +812,7 @@ export default function ApplicantsPage() {
 
   const [origin, setOrigin] = useState('');
   const [copied, setCopied] = useState(false);
-  const [lane, setLane] = useState<'active' | AppStatus>('active');
+  const [lane, setLane] = useState<'active' | 'pool' | AppStatus>('active');
   const [q, setQ] = useState('');
 
   useEffect(() => { setOrigin(window.location.origin); }, []);
@@ -826,6 +918,62 @@ export default function ApplicantsPage() {
     }, { merge: false });
   };
 
+  const invitesQuery = useMemoFirebase(
+    () => (tenantId && canManage) ? collection(firestore, `tenants/${tenantId}/interviewInvites`) : null,
+    [firestore, tenantId, canManage]
+  );
+  const { data: invites } = useCollection(invitesQuery);
+  const inviteByApplication = useMemo(() => {
+    const m = new Map<string, any>();
+    const sorted = [...((invites || []) as any[])].sort((a, b) => (safeDate(a.createdAt)?.getTime() || 0) - (safeDate(b.createdAt)?.getTime() || 0));
+    for (const inv of sorted) if (inv.applicationId) m.set(inv.applicationId, inv);
+    return m;
+  }, [invites]);
+
+  const handleDecline = (app: any, reason: string, talentPool: boolean) => {
+    if (!tenantId) return;
+    updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/applications/${app.id}`), {
+      status: 'declined',
+      declineReason: reason || '',
+      talentPool,
+    });
+    const evId = nanoid();
+    setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/applications/${app.id}/messages/${evId}`), {
+      id: evId, type: 'status', toStatus: 'declined', note: [reason, talentPool ? 'kept in talent pool' : ''].filter(Boolean).join(' · '), createdAt: new Date().toISOString(),
+    }, { merge: false });
+  };
+
+  const handleScheduleInterview = async (app: any, slots: string[]) => {
+    if (!tenantId || !app?.email) throw new Error('Missing recipient');
+    const token = nanoid();
+    const { setDoc } = await import('firebase/firestore');
+    await setDoc(doc(firestore, `tenants/${tenantId}/interviewInvites/${token}`), {
+      id: token,
+      applicationId: app.id,
+      firstName: String(app.name || 'there').split(' ')[0],
+      roleTitle: String(app.listingTitle || app.position || '').slice(0, 120),
+      slots: slots.slice(0, 3).map(x => new Date(x).toISOString()),
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    });
+    const link = `${origin}/interview/${tenantId}/${token}`;
+    await handleSendMessage(app, `Interview — ${selectedTenant?.name || 'our team'}`,
+      `Hi ${String(app.name || 'there').split(' ')[0]},
+
+We'd love to meet you${app.listingTitle ? ` about the ${app.listingTitle} role` : ''}. Pick the time that works best for you here:
+
+${link}
+
+If none of them work, the page lets us know and we'll offer others.
+
+${selectedTenant?.name || ''}`);
+    const evId = nanoid();
+    setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/applications/${app.id}/messages/${evId}`), {
+      id: evId, type: 'status', toStatus: 'interview', note: 'interview times offered', createdAt: new Date().toISOString(),
+    }, { merge: false });
+    updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/applications/${app.id}`), { status: 'interview' });
+  };
+
   const handleSendMessage = async (app: any, subject: string, body: string) => {
     if (!tenantId || !app?.email) throw new Error('No recipient');
     const msgId = nanoid();
@@ -842,12 +990,13 @@ export default function ApplicantsPage() {
   };
 
   const counts = useMemo(() => {
-    const c: Record<string, number> = { active: 0 };
+    const c: Record<string, number> = { active: 0, pool: 0 };
     for (const s of STATUSES) c[s] = 0;
     for (const a of (applications || []) as any[]) {
       const s = STATUSES.includes(a.status) ? a.status : 'new';
       c[s]++;
       if (s !== 'hired' && s !== 'declined') c.active++;
+      if (s === 'declined' && a.talentPool) c.pool++;
     }
     return c;
   }, [applications]);
@@ -857,7 +1006,8 @@ export default function ApplicantsPage() {
     return ((applications || []) as any[])
       .filter(a => {
         const s = STATUSES.includes(a.status) ? a.status : 'new';
-        if (lane === 'active' ? (s === 'hired' || s === 'declined') : s !== lane) return false;
+        if (lane === 'pool') { if (!(s === 'declined' && a.talentPool)) return false; }
+        else if (lane === 'active' ? (s === 'hired' || s === 'declined') : s !== lane) return false;
         if (!needle) return true;
         return `${a.name || ''} ${a.position || ''} ${a.listingTitle || ''} ${a.email || ''} ${a.phone || ''}`.toLowerCase().includes(needle);
       })
@@ -952,6 +1102,14 @@ export default function ApplicantsPage() {
                 {STATUS_LABEL[s]} ({counts[s]})
               </button>
             ))}
+            <button
+              type="button"
+              aria-pressed={lane === 'pool'}
+              onClick={() => setLane('pool' as any)}
+              className={cn('h-9 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', lane === ('pool' as any) ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}
+            >
+              Talent pool ({counts.pool})
+            </button>
           </div>
         </div>
 
@@ -962,7 +1120,7 @@ export default function ApplicantsPage() {
         ) : visible.length > 0 ? (
           <div className="space-y-4">
             {visible.map((app: any) => (
-              <ApplicantCardWithData key={app.id} app={app} tenantId={tenantId} onStatus={handleStatus} onHire={handleHire} teamEmails={teamEmails} consentForms={(consentForms || []) as any[]} businessName={selectedTenant?.name || "our team"} onSendMessage={handleSendMessage} />
+              <ApplicantCardWithData key={app.id} app={app} tenantId={tenantId} onStatus={handleStatus} onHire={handleHire} teamEmails={teamEmails} consentForms={(consentForms || []) as any[]} businessName={selectedTenant?.name || "our team"} onSendMessage={handleSendMessage} onDecline={handleDecline} onScheduleInterview={handleScheduleInterview} invite={inviteByApplication.get(app.id) || null} />
             ))}
           </div>
         ) : (
