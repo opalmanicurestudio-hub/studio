@@ -102,6 +102,26 @@ const BusinessPulse = ({ tenantId }: { tenantId: string }) => {
     [firestore, tenantId]
   );
   const { data: tasks } = useCollection<any>(tasksQ);
+  const rentInvQ = useMemoFirebase(
+    () => tenantId ? query(collection(firestore, `tenants/${tenantId}/rentInvoices`), where('status', 'in', ['due', 'late'])) : null,
+    [firestore, tenantId]
+  );
+  const { data: rentInvoices } = useCollection<any>(rentInvQ);
+  const pulseLeasesQ = useMemoFirebase(
+    () => tenantId ? collection(firestore, `tenants/${tenantId}/leases`) : null,
+    [firestore, tenantId]
+  );
+  const { data: pulseLeases } = useCollection<any>(pulseLeasesQ);
+  const pulseRentersQ = useMemoFirebase(
+    () => tenantId ? collection(firestore, `tenants/${tenantId}/renters`) : null,
+    [firestore, tenantId]
+  );
+  const { data: pulseRenters } = useCollection<any>(pulseRentersQ);
+  const pendingRentQ = useMemoFirebase(
+    () => tenantId ? query(collection(firestore, `tenants/${tenantId}/rentLedger`), where('status', '==', 'pending')) : null,
+    [firestore, tenantId]
+  );
+  const { data: pendingRent } = useCollection<any>(pendingRentQ);
 
   const todayStr = format(new Date(), 'yyyy-MM-dd');
   const items = useMemo(() => {
@@ -130,12 +150,37 @@ const BusinessPulse = ({ tenantId }: { tenantId: string }) => {
     for (const t of tk.filter(x => x.status !== 'done' && x.dueDate && x.dueDate < todayStr)) {
       out.push({ key: `od-${t.id}`, icon: '⏰', text: `Task overdue — ${t.title} (due ${t.dueDate})`, href: `/documents?tab=tasks&task=${t.id}`, tone: 'urgent' });
     }
+    const rinv = (rentInvoices || []) as any[];
+    const ls = (pulseLeases || []) as any[];
+    const leaseById = new Map(ls.map((l: any) => [l.id, l]));
+    const renterById = new Map(((pulseRenters || []) as any[]).map((r: any) => [r.id, r]));
+    const rName = (leaseId?: string, renterId?: string, fallback?: string) => {
+      const lease = leaseId ? leaseById.get(leaseId) : null;
+      const r = renterById.get(renterId || lease?.renterId || '');
+      const nm = r ? `${r.firstName || ''} ${r.lastName || ''}`.trim() : '';
+      return nm || fallback || 'Renter';
+    };
+    for (const v of rinv.filter((x: any) => x.status === 'late')) {
+      const total = ((Number(v.amountCents) || 0) + (Number(v.lateFeeCents) || 0)) / 100;
+      out.push({ key: `rlate-${v.id}`, icon: '💸', text: `Rent late — ${rName(v.leaseId, undefined, v.renterName)} ($${total.toFixed(2)}${v.lateFeeCents ? ' incl. late fee' : ''})`, href: '/booths', tone: 'urgent' });
+    }
+    for (const c of ((pendingRent || []) as any[]).filter((x: any) => x.type === 'rent_charge' && String(x.description || '').toLowerCase().includes('declined'))) {
+      out.push({ key: `rfail-${c.id}`, icon: '💳', text: `Autopay card declined — ${rName(c.leaseId, c.renterId)} ($${((Number(c.amountCents) || 0) / 100).toFixed(2)})`, href: '/booths', tone: 'urgent' });
+    }
+    for (const v of rinv.filter((x: any) => x.status === 'due' && String(x.dueDate || '').slice(0, 10) === todayStr)) {
+      out.push({ key: `rdue-${v.id}`, icon: '🏠', text: `Rent due today — ${rName(v.leaseId, undefined, v.renterName)} ($${((Number(v.amountCents) || 0) / 100).toFixed(2)})`, href: '/booths', tone: 'info' });
+    }
+    const soonD = new Date(); soonD.setDate(soonD.getDate() + 7);
+    const soonStr = format(soonD, 'yyyy-MM-dd');
+    for (const l of ls.filter((x: any) => x.status === 'active' && x.endDate && !x.autoRenew && String(x.endDate).slice(0, 10) >= todayStr && String(x.endDate).slice(0, 10) <= soonStr)) {
+      out.push({ key: `lend-${l.id}`, icon: '📄', text: `Lease ends ${String(l.endDate).slice(0, 10)} — ${rName(undefined, l.renterId)} (renew or end)`, href: '/booths', tone: 'info' });
+    }
     const doneToday = tk.filter(x => x.status === 'done' && String(x.completedAt || '').slice(0, 10) === todayStr);
     if (doneToday.length > 0) {
       out.push({ key: 'done-today', icon: '✅', text: `${doneToday.length} task${doneToday.length === 1 ? '' : 's'} completed today — see the audit trail`, href: '/documents?tab=audit', tone: 'good' });
     }
     return out;
-  }, [applications, invites, tasks, todayStr]);
+  }, [applications, invites, tasks, rentInvoices, pulseLeases, pulseRenters, pendingRent, todayStr]);
 
   if (items.length === 0) return null;
 
