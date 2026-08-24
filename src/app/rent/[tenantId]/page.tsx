@@ -56,6 +56,42 @@ const api = async (payload: any) => {
 
 const STORE = (tenantId: string) => `opal_renter_${tenantId}`;
 
+
+// ─── My Book: their client appointments + what they've earned this month ──────
+// The renter's own ledger. The studio's reports deliberately exclude every one
+// of these, so this is the only place these numbers live.
+function MyBook({ data }: { data: any }) {
+  const rows: any[] = data?.myBookings || [];
+  const e = data?.earnings || {};
+  const money = (c: number) => `$${((Number(c) || 0) / 100).toFixed(2)}`;
+  return (
+    <section className="space-y-3">
+      <SectionTitle icon={CalendarDays}>My Book</SectionTitle>
+      <div className="p-4 rounded-3xl bg-white border-2 space-y-3">
+        <div className="rounded-2xl bg-slate-50 p-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Booked this month</p>
+          <p className="text-2xl font-black text-slate-900">{money(e.monthBookedCents)}</p>
+          <p className="text-[11px] font-bold text-slate-500">
+            {e.monthCount || 0} appointment{(e.monthCount || 0) === 1 ? '' : 's'} so far · {e.upcomingCount || 0} coming up
+          </p>
+          <p className="mt-1 text-[10px] font-bold text-slate-400">You collect these directly — this is your record, not a payout.</p>
+        </div>
+        {rows.length === 0 ? (
+          <p className="py-4 text-center text-[11px] font-bold text-slate-400">No upcoming client bookings yet. Share your booking link to fill it.</p>
+        ) : rows.map((b: any) => (
+          <div key={b.id} className="flex items-center justify-between gap-3 rounded-2xl border-2 p-3">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-black text-slate-900">{b.clientName}</p>
+              <p className="text-[11px] font-bold text-slate-500">{b.serviceName || 'Service'} · {fmtDate(String(b.startTime).slice(0, 10))}</p>
+            </div>
+            <p className="shrink-0 text-[13px] font-black text-slate-900">${Number(b.price || 0).toFixed(2)}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 // ─── My Services: menu editor + pricing coach ─────────────────────────────────
 // The renter's own business tool. Every number here is derived from THEIR rent
 // and THEIR hours — the studio never sees these calculations, only the menu
@@ -683,6 +719,8 @@ export default function RenterPortalPage() {
             {data?.provider && session?.token && (
               <MyServices data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
             )}
+
+            {data?.provider && <MyBook data={data} />}
 
             {/* Upcoming */}
             <section className="space-y-3">
