@@ -480,6 +480,15 @@ service cloud.firestore {
 
     // One-off tasks. Managers create/remove; assignees complete from the
     // portal, touching only the completion fields.
+    // Renter (independent provider) service menus. Publicly readable for the
+    // same reason the house menu is — the booking page is unauthenticated and
+    // must render a renter's own prices from their personal link. Writes stay
+    // with managers for now; the portal self-serve editor lands next round.
+    match /tenants/{tenantId}/renterServices/{serviceId} {
+      allow read: if true;
+      allow write: if isManager(tenantId);
+    }
+
     match /tenants/{tenantId}/tasks/{taskId} {
       allow get, list: if isStaff(tenantId) || isPortalMember(tenantId);
       allow create, delete: if isManager(tenantId);
