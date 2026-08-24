@@ -253,7 +253,7 @@ function RentCommsCard({ tenantId, firestore, tenant }: { tenantId: string; fire
 // live in tenants/{t}/renterServices keyed by their staff record, never mixed
 // into the house menu, and every one of them is marked collectsOwnPayment so
 // the booking engine takes no money for them (see resolveBookingPlan).
-function RenterProvidersCard({ tenantId, firestore, renters, staff }: { tenantId: string; firestore: any; renters: any[]; staff: any[] }) {
+function RenterProvidersCard({ tenantId, firestore, renters, staff, allAppointments }: { tenantId: string; firestore: any; renters: any[]; staff: any[]; allAppointments: any[] }) {
   const [openId, setOpenId] = useState<string>('');
   const [copied, setCopied] = useState('');
   const [draft, setDraft] = useState<{ name: string; price: string; duration: string }>({ name: '', price: '', duration: '60' });
@@ -354,6 +354,23 @@ function RenterProvidersCard({ tenantId, firestore, renters, staff }: { tenantId
 
               {open && on && (
                 <div className="mt-3 space-y-2 border-t-2 pt-3">
+                  <div className="rounded-2xl bg-slate-50 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Chair activity (last 30 days)</p>
+                    <p className="text-[13px] font-bold text-slate-700">
+                      {(() => {
+                        const since = new Date(Date.now() - 30 * 86400000).toISOString();
+                        const rows = ((allAppointments || []) as any[]).filter((a: any) => a.isRenterBooking && a.staffId === st?.id && a.startTime >= since && a.status !== 'cancelled');
+                        const upcoming = rows.filter((a: any) => a.startTime >= new Date().toISOString()).length;
+                        return `${rows.length} booking${rows.length === 1 ? '' : 's'} · ${upcoming} upcoming`;
+                      })()}
+                    </p>
+                    <p className="mt-1 text-[10px] font-bold text-slate-400">
+                      Volume only — their earnings are their own books.
+                      {Number(r.sharedTargetHourlyCents) > 0
+                        ? ` They've chosen to share an hourly target of $${(Number(r.sharedTargetHourlyCents) / 100).toFixed(2)}.`
+                        : ''}
+                    </p>
+                  </div>
                   <div className="flex items-center gap-2">
                     <Input readOnly value={linkFor(r)} className="text-[11px] font-bold" />
                     <Button size="sm" variant="outline" className="shrink-0 rounded-xl text-[10px] font-black uppercase tracking-widest"
@@ -427,6 +444,11 @@ export default function RentRollPage() {
     [firestore, tenantId]
   );
   const { data: allStaff } = useCollection<any>(staffRef);
+  const apptsRef = useMemoFirebase(
+    () => (firestore && tenantId ? collection(firestore, `tenants/${tenantId}/appointments`) : null),
+    [firestore, tenantId]
+  );
+  const { data: allAppointments } = useCollection<any>(apptsRef);
   const { data: booths } = useCollection<Booth>(boothsRef);
   const { data: leases } = useCollection<Lease>(leasesRef);
   const { data: ledger, isLoading: ledgerLoading } =
@@ -1219,7 +1241,7 @@ export default function RentRollPage() {
           </div>
         </DialogContent>
       </Dialog>
-      {tenantId && <RenterProvidersCard tenantId={tenantId} firestore={firestore} renters={(renters || []) as any[]} staff={(allStaff || []) as any[]} />}
+      {tenantId && <RenterProvidersCard tenantId={tenantId} firestore={firestore} renters={(renters || []) as any[]} staff={(allStaff || []) as any[]} allAppointments={(allAppointments || []) as any[]} />}
       {tenantId && <RentCommsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
     </div>
   );
