@@ -612,6 +612,9 @@ export async function POST(req: NextRequest) {
             const origin = String(tenant.publicOrigin || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/+$/, '');
             provider = {
               staffId: st.id,
+              // Their weekly template, in the shape the availability engine
+              // already honors as layer 3 (per-staff weekly hours).
+              week: (st.availability?.week && typeof st.availability.week === 'object') ? st.availability.week : null,
               // Deposits can only be offered once their own Stripe can charge.
               chargesEnabled: renter?.stripeChargesEnabled === true,
               bookingUrl: origin ? `${origin}/book/${tenantId}?provider=${st.id}` : `/book/${tenantId}?provider=${st.id}`,
@@ -780,10 +783,38 @@ export async function POST(req: NextRequest) {
       if (!st) return NextResponse.json({ ok: false, error: 'Bookings are not enabled for you yet' }, { status: 403 });
 
       if (action === 'my-hours') {
-        const hours = Math.max(1, Math.min(400, Number(body.bookableHoursPerMonth) || 0));
-        if (!hours) return NextResponse.json({ ok: false, error: 'Enter your bookable hours' }, { status: 400 });
-        await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set({ bookableHoursPerMonth: hours }, { merge: true });
-        return NextResponse.json({ ok: true, bookableHoursPerMonth: hours });
+        // Two things share this action: the pricing input (hours per month)
+        // and, optionally, the weekly template the booking engine reads.
+        const patch: any = {};
+        if (body.bookableHoursPerMonth !== undefined) {
+          const hours = Math.max(1, Math.min(400, Number(body.bookableHoursPerMonth) || 0));
+          if (!hours) return NextResponse.json({ ok: false, error: 'Enter your bookable hours' }, { status: 400 });
+          patch.bookableHoursPerMonth = hours;
+        }
+        if (Object.keys(patch).length > 0) {
+          await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set(patch, { merge: true });
+        }
+
+        if (body.week && typeof body.week === 'object') {
+          const DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+          const clock = (v: any) => (/^([01]\d|2[0-3]):[0-5]\d$/.test(String(v || '')) ? String(v) : '');
+          const week: any = {};
+          for (const d of DAYS) {
+            const row = (body.week as any)[d] || {};
+            const enabled = row.enabled === true;
+            const start = clock(row.start);
+            const end = clock(row.end);
+            // A day is only "on" if it carries a real, ordered pair of times —
+            // otherwise it is written as off rather than as a broken window
+            // the booking grid would have to guess about.
+            week[d] = (enabled && start && end && start < end)
+              ? { enabled: true, start, end }
+              : { enabled: false };
+          }
+          await db.doc(`tenants/${tenantId}/staff/${st.id}`).set({ availability: { week } }, { merge: true });
+          return NextResponse.json({ ok: true, week });
+        }
+        return NextResponse.json({ ok: true, ...patch });
       }
 
       if (action === 'my-service-remove') {
