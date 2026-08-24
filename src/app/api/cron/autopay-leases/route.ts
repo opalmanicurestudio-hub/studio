@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
+import { brandedEmailHtml } from '@/lib/email-template';
 
 // ─── /api/cron/autopay-leases/route.ts ─────────────────────────────────────
 // Runs once daily (wire to Vercel Cron / Cloud Scheduler / GitHub Actions —
@@ -27,6 +28,28 @@ import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 // pipeline (see StudioSettings.reminders) picks it up on its normal
 // cadence, rather than building a second dunning system in parallel.
 // ─────────────────────────────────────────────────────────────────────────
+
+
+// Branded rent emails ride the same Resend + RESEND_FROM address the rest of
+// the app's mail uses — tenant name as display name, fail-soft everywhere.
+async function sendRentEmail(opts: { to: string; fromName: string; subject: string; html: string }): Promise<boolean> {
+  const key = process.env.RESEND_API_KEY;
+  if (!key || !opts.to) return false;
+  const rf = String(process.env.RESEND_FROM || '').trim();
+  const m = rf.match(/<([^>]+)>/);
+  const addr = (m ? m[1] : rf).trim();
+  const from = addr.includes('@') ? `${opts.fromName} <${addr}>` : `${opts.fromName} <notifications@clarityflow.app>`;
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to: opts.to, subject: opts.subject, html: opts.html }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 function getAdmin() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
@@ -256,6 +279,73 @@ export async function POST(req: NextRequest) {
       }
 
       await batch.commit();
+
+      // ── comms: receipts + decline notices, honoring tenants/{t}.rentComms ──
+      // After the commit on purpose: the money truth is on the ledger before
+      // a single email goes out, and a mail failure can never unwind it.
+      try {
+        const tData: any = tenantDoc.data() || {};
+        const comms: any = { sendReceipts: true, ownerEmailOnFailedAutopay: true, ...(tData.rentComms || {}) };
+        const businessName = String(tData.name || 'ClarityFlow');
+        const base = String(tData.publicOrigin || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 'https://studio-one-blue.vercel.app')).replace(/\/+$/, '');
+        const portalUrl = renter?.portalToken ? `${base}/rent/${tenantId}?rt=${renter.portalToken}` : '';
+        const amountStr = `$${((lease.rentAmountCents || 0) / 100).toFixed(2)}`;
+        const boothName = booth?.name || 'your booth';
+        if (!failureReason) {
+          if (comms.sendReceipts !== false && renter?.email) {
+            await sendRentEmail({
+              to: renter.email, fromName: businessName,
+              subject: `Rent paid — ${amountStr} (${boothName})`,
+              html: brandedEmailHtml({
+                studioName: businessName,
+                title: 'Rent paid — thank you.',
+                bodyLines: [
+                  `Your autopay went through: ${amountStr} for ${boothName} on ${todayIso}.`,
+                  'Keep this email for your records — your portal has the full history.',
+                ],
+                ...(portalUrl ? { cta: { label: 'Open my portal', url: portalUrl } } : {}),
+                footerNote: `Sent by ${businessName}.`,
+              }),
+            });
+          }
+        } else {
+          if (renter?.email) {
+            await sendRentEmail({
+              to: renter.email, fromName: businessName,
+              subject: 'Action needed — your rent payment didn\u2019t go through',
+              html: brandedEmailHtml({
+                studioName: businessName,
+                title: 'Your rent payment didn\u2019t go through.',
+                bodyLines: [
+                  `We tried to collect ${amountStr} for ${boothName} today and the card was declined.`,
+                  'The amount stays owed. Update your card or pay directly in your portal to stay ahead of late fees.',
+                ],
+                ...(portalUrl ? { cta: { label: 'Update my card', url: portalUrl } } : {}),
+                footerNote: `Sent by ${businessName}.`,
+              }),
+            });
+          }
+          if (comms.ownerEmailOnFailedAutopay !== false) {
+            const ownerEmail = String(tData.notificationEmail || tData.email || '');
+            if (ownerEmail) {
+              const rn = `${renter?.firstName || ''} ${renter?.lastName || ''}`.trim() || 'A renter';
+              await sendRentEmail({
+                to: ownerEmail, fromName: 'ClarityFlow',
+                subject: `Autopay declined — ${rn} (${amountStr})`,
+                html: brandedEmailHtml({
+                  studioName: 'ClarityFlow',
+                  title: `${rn}\u2019s autopay was declined.`,
+                  bodyLines: [
+                    `${amountStr} for ${boothName} did not collect (${failureReason}). It\u2019s posted as owed, and the renter was asked to update their card.`,
+                  ],
+                  cta: { label: 'Open Booths', url: `${base}/booths` },
+                  footerNote: 'You\u2019re receiving this because you own this business on ClarityFlow.',
+                }),
+              });
+            }
+          }
+        }
+      } catch { /* comms are a bonus — the charge and ledger truth stand */ }
     }
   }
 
