@@ -11,6 +11,7 @@ export interface BrandedEmailInput {
   title: string;                 // big heading, e.g. "Your sign-in code"
   bodyLines?: string[];          // paragraphs, rendered in order
   bigCode?: string;              // renders a large centered code block (OTPs)
+  bodyHtml?: string;             // trusted pre-built HTML (caller escapes its own data), rendered after bodyLines
   cta?: { label: string; url: string } | null;
   footerNote?: string;           // small print under the card
 }
@@ -38,6 +39,8 @@ export function brandedEmailHtml(i: BrandedEmailInput): string {
     <p style="margin:10px 0 0;font-size:11px;color:#94a3b8;text-align:center;word-break:break-all;">
       Button not working? Copy this link: ${esc(i.cta.url)}</p>` : '';
 
+  const bodyHtml = i.bodyHtml || '';
+
   return `<!doctype html>
 <html><body style="margin:0;padding:0;background:#f1f5f9;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:28px 12px;">
@@ -52,6 +55,7 @@ export function brandedEmailHtml(i: BrandedEmailInput): string {
         <!-- Card -->
         <tr><td style="background:#ffffff;border-radius:0 0 20px 20px;padding:26px 28px;border:1px solid #e2e8f0;border-top:none;">
           ${paragraphs}
+          ${bodyHtml}
           ${code}
           ${cta}
         </td></tr>
