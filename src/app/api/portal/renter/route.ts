@@ -600,6 +600,8 @@ export async function POST(req: NextRequest) {
       let provider: any = null;
       let myServices: any[] = [];
       let pricing: any = null;
+      let myBookings: any[] = [];
+      let earnings: any = null;
       try {
         if (renter) {
           const stSnap = await db.collection(`tenants/${tenantId}/staff`)
@@ -612,6 +614,35 @@ export async function POST(req: NextRequest) {
               staffId: st.id,
               bookingUrl: origin ? `${origin}/book/${tenantId}?provider=${st.id}` : `/book/${tenantId}?provider=${st.id}`,
             };
+            // Their own book: client appointments booked through their link.
+            // This is the renter's ledger — the studio's reports exclude these
+            // entirely, so the two sets of books never overlap.
+            try {
+              const since = new Date(Date.now() - 60 * 86400000).toISOString();
+              const apSnap = await db.collection(`tenants/${tenantId}/appointments`)
+                .where('staffId', '==', st.id).where('startTime', '>=', since).get();
+              const rows = apSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+                .filter((a: any) => a.isRenterBooking && a.status !== 'cancelled');
+              const nowIso = new Date().toISOString();
+              myBookings = rows
+                .filter((a: any) => a.startTime >= nowIso)
+                .sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime)))
+                .slice(0, 20)
+                .map((a: any) => ({
+                  id: a.id, clientName: a.clientName || 'Client',
+                  serviceName: a.renterServiceName || '', price: Number(a.renterServicePrice) || 0,
+                  startTime: a.startTime, status: a.status,
+                }));
+              const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+              const monthIso = monthStart.toISOString();
+              const done = rows.filter((a: any) => a.startTime >= monthIso && a.startTime < nowIso);
+              earnings = {
+                monthBookedCents: Math.round(done.reduce((sum: number, a: any) => sum + (Number(a.renterServicePrice) || 0), 0) * 100),
+                monthCount: done.length,
+                upcomingCount: myBookings.length,
+              };
+            } catch { /* their book is additive — never fail the whole call */ }
+
             const svSnap = await db.collection(`tenants/${tenantId}/renterServices`)
               .where('staffId', '==', st.id).get();
             myServices = svSnap.docs
@@ -660,7 +691,7 @@ export async function POST(req: NextRequest) {
         invoices, credits, availableCreditCents,
         upcoming, past,
         payments,
-        provider, myServices, pricing,
+        provider, myServices, pricing, myBookings, earnings,
       });
     }
 
