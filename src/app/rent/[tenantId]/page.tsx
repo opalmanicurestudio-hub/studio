@@ -56,6 +56,179 @@ const api = async (payload: any) => {
 
 const STORE = (tenantId: string) => `opal_renter_${tenantId}`;
 
+// ─── My Services: menu editor + pricing coach ─────────────────────────────────
+// The renter's own business tool. Every number here is derived from THEIR rent
+// and THEIR hours — the studio never sees these calculations, only the menu
+// that results. The lease floor is shown as the agreed term it is, and the
+// server enforces it too, so a refused save is never a surprise.
+function MyServices({ data, tenantId, token, onChanged }: { data: any; tenantId: string; token: string; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [hours, setHours] = useState(String(data?.pricing?.bookableHoursPerMonth || 100));
+  const [draft, setDraft] = useState<any>(null);
+
+  const pricing = data?.pricing || {};
+  const rentPerHour = (Number(pricing.rentPerHourCents) || 0) / 100;
+  const floor = (Number(pricing.priceFloorCents) || 0) / 100;
+  const services: any[] = data?.myServices || [];
+
+  const coach = (price: number, duration: number, productCost: number) => {
+    const hrs = Math.max(0.01, (Number(duration) || 60) / 60);
+    const rentShare = rentPerHour * hrs;
+    const keep = (Number(price) || 0) - rentShare - (Number(productCost) || 0);
+    const perHour = keep / hrs;
+    const tone = keep <= 0 ? 'bad' : perHour < rentPerHour * 2 ? 'thin' : 'good';
+    const monthlyRent = (Number(pricing.monthlyRentCents) || 0) / 100;
+    const needed = keep > 0 ? Math.ceil(monthlyRent / keep) : 0;
+    return { rentShare, keep, perHour, tone, needed };
+  };
+
+  const saveHours = async () => {
+    setBusy(true); setErr('');
+    const d = await api({ action: 'my-hours', tenantId, token, bookableHoursPerMonth: Number(hours) });
+    setBusy(false);
+    if (!d.ok) { setErr(d.error || 'Could not save'); return; }
+    onChanged();
+  };
+
+  const saveService = async () => {
+    if (!draft) return;
+    setBusy(true); setErr('');
+    const d = await api({
+      action: 'my-service-save', tenantId, token,
+      serviceId: draft.id || '', name: draft.name,
+      price: Number(draft.price), duration: Number(draft.duration), productCost: Number(draft.productCost || 0),
+    });
+    setBusy(false);
+    if (!d.ok) { setErr(d.error || 'Could not save'); return; }
+    setDraft(null); onChanged();
+  };
+
+  const removeService = async (id: string) => {
+    setBusy(true); setErr('');
+    const d = await api({ action: 'my-service-remove', tenantId, token, serviceId: id });
+    setBusy(false);
+    if (!d.ok) { setErr(d.error || 'Could not remove'); return; }
+    onChanged();
+  };
+
+  const live = draft ? coach(Number(draft.price) || 0, Number(draft.duration) || 60, Number(draft.productCost) || 0) : null;
+
+  return (
+    <section className="space-y-3">
+      <SectionTitle icon={Sparkles}>My Services</SectionTitle>
+
+      <div className="p-4 rounded-3xl bg-white border-2 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Your booking link</p>
+            <p className="text-[11px] font-bold text-slate-700 truncate">{data?.provider?.bookingUrl}</p>
+          </div>
+          <button onClick={() => { navigator.clipboard?.writeText(data?.provider?.bookingUrl || ''); }}
+                  className="h-9 shrink-0 rounded-xl bg-slate-900 px-4 text-[10px] font-black uppercase tracking-widest text-white active:scale-95">
+            Copy
+          </button>
+        </div>
+
+        <div className="rounded-2xl bg-slate-50 p-3 space-y-2">
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">What an hour costs you</p>
+          <p className="text-[13px] font-bold text-slate-700">
+            Your rent works out to <span className="font-black text-slate-900">${rentPerHour.toFixed(2)}/hour</span> in the chair.
+          </p>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold text-slate-500">Hours you book a month</span>
+            <input type="number" min={1} max={400} value={hours} onChange={e => setHours(e.target.value)}
+                   className="h-9 w-20 rounded-xl border-2 text-center text-[12px] font-black" />
+            <button onClick={saveHours} disabled={busy}
+                    className="h-9 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-50">Save</button>
+          </div>
+        </div>
+
+        {floor > 0 && (
+          <p className="text-[11px] font-bold text-slate-500">Your lease sets a ${floor.toFixed(2)} minimum per service.</p>
+        )}
+        {err && <p className="text-[11px] font-black text-red-600">{err}</p>}
+
+        {services.map((sv: any) => {
+          const c = coach(sv.price, sv.duration, sv.productCost);
+          return (
+            <div key={sv.id} className="rounded-2xl border-2 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13px] font-black text-slate-900">{sv.name}</p>
+                  <p className="text-[11px] font-bold text-slate-500">${Number(sv.price).toFixed(2)} · {sv.duration} min</p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <button onClick={() => setDraft({ ...sv })} className="h-8 rounded-lg border-2 px-3 text-[10px] font-black uppercase tracking-widest">Edit</button>
+                  <button onClick={() => removeService(sv.id)} disabled={busy} className="h-8 rounded-lg px-2 text-[10px] font-black uppercase tracking-widest text-slate-400 disabled:opacity-50">Remove</button>
+                </div>
+              </div>
+              <p className={cn('mt-2 text-[11px] font-bold',
+                c.tone === 'bad' ? 'text-red-600' : c.tone === 'thin' ? 'text-amber-600' : 'text-emerald-700')}>
+                {c.keep <= 0
+                  ? `You lose $${Math.abs(c.keep).toFixed(2)} on this one after rent and product.`
+                  : `You keep $${c.keep.toFixed(2)} — that's $${c.perHour.toFixed(2)}/hour. ${c.needed} a month covers your rent.`}
+              </p>
+            </div>
+          );
+        })}
+
+        {draft ? (
+          <div className="rounded-2xl border-2 border-slate-900 p-3 space-y-2">
+            <input placeholder="Service name" value={draft.name || ''} onChange={e => setDraft((d: any) => ({ ...d, name: e.target.value }))}
+                   className="h-10 w-full rounded-xl border-2 px-3 text-[13px] font-bold" />
+            <div className="flex flex-wrap gap-2">
+              <label className="flex-1 min-w-[5rem]">
+                <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Price</span>
+                <input type="number" min={0} value={draft.price ?? ''} onChange={e => setDraft((d: any) => ({ ...d, price: e.target.value }))}
+                       className="h-10 w-full rounded-xl border-2 text-center text-[13px] font-black" />
+              </label>
+              <label className="flex-1 min-w-[5rem]">
+                <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Minutes</span>
+                <input type="number" min={5} step={5} value={draft.duration ?? 60} onChange={e => setDraft((d: any) => ({ ...d, duration: e.target.value }))}
+                       className="h-10 w-full rounded-xl border-2 text-center text-[13px] font-black" />
+              </label>
+              <label className="flex-1 min-w-[5rem]">
+                <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Product $</span>
+                <input type="number" min={0} value={draft.productCost ?? 0} onChange={e => setDraft((d: any) => ({ ...d, productCost: e.target.value }))}
+                       className="h-10 w-full rounded-xl border-2 text-center text-[13px] font-black" />
+              </label>
+            </div>
+            {live && (
+              <div className={cn('rounded-xl p-3',
+                live.tone === 'bad' ? 'bg-red-50' : live.tone === 'thin' ? 'bg-amber-50' : 'bg-emerald-50')}>
+                <p className={cn('text-[12px] font-black',
+                  live.tone === 'bad' ? 'text-red-700' : live.tone === 'thin' ? 'text-amber-700' : 'text-emerald-800')}>
+                  {live.keep <= 0
+                    ? `At this price you lose $${Math.abs(live.keep).toFixed(2)} each time.`
+                    : `You keep $${live.keep.toFixed(2)} — $${live.perHour.toFixed(2)}/hour.`}
+                </p>
+                <p className="mt-1 text-[11px] font-bold text-slate-600">
+                  Rent share ${live.rentShare.toFixed(2)}{Number(draft.productCost) > 0 ? ` · product $${Number(draft.productCost).toFixed(2)}` : ''}
+                  {live.needed > 0 ? ` · ${live.needed} a month covers your rent` : ''}
+                </p>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button onClick={saveService} disabled={busy}
+                      className="h-10 flex-1 rounded-xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white active:scale-95 disabled:opacity-50">
+                {busy ? 'Saving…' : 'Save service'}
+              </button>
+              <button onClick={() => { setDraft(null); setErr(''); }} className="h-10 rounded-xl border-2 px-4 text-[10px] font-black uppercase tracking-widest">Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <button onClick={() => setDraft({ name: '', price: '', duration: 60, productCost: 0 })}
+                  className="h-11 w-full rounded-2xl border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-500">
+            ＋ Add a service
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+
 // ─── Shared UI bits ───────────────────────────────────────────────────────────
 const SectionTitle = ({ icon: Icon, children }: { icon: any; children: React.ReactNode }) => (
   <div className="flex items-center gap-2 px-1">
@@ -505,6 +678,10 @@ export default function RenterPortalPage() {
                   <p className="text-[9px] font-bold uppercase tracking-widest text-slate-300 text-center">Prefer cash or check? Pay at the front desk — it posts here too.</p>
                 </div>
               </section>
+            )}
+
+            {data?.provider && session?.token && (
+              <MyServices data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
             )}
 
             {/* Upcoming */}
