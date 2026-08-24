@@ -107,6 +107,13 @@ function MyHours({ data, tenantId, token, onChanged }: { data: any; tenantId: st
         <p className="text-[11px] font-bold text-slate-500">
           When clients can book you. These are your hours — they don&apos;t have to match the studio&apos;s.
         </p>
+        {Array.isArray(data?.provider?.leasedDays) && data.provider.leasedDays.length > 0 && (
+          <p className="rounded-2xl bg-slate-50 p-3 text-[11px] font-bold text-slate-600">
+            Your lease covers {data.provider.leasedDays.map((d: string) => d.slice(0, 3)).join(', ')}
+            {data.provider.leasedStart ? ' ' + data.provider.leasedStart + '\u2013' + (data.provider.leasedEnd || 'close') : ''}.
+            {' '}Hours outside that save as off — the chair belongs to someone else then.
+          </p>
+        )}
         {DAY_ROWS.map(([key, label]) => (
           <div key={key} className="flex items-center gap-2 rounded-2xl border-2 p-2">
             <button type="button" onClick={() => set(key, { enabled: !week[key].enabled })}
