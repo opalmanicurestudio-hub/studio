@@ -42,6 +42,33 @@ import { createHash, randomBytes } from 'crypto';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
 import { smsConfigured, sendTenantSms } from '@/lib/sms';
+
+const WEEK_DAYS = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+
+// ── The leased window is the outer bound on bookable hours ───────────────────
+// A part-time or shared lease holds the chair only on certain days (and
+// sometimes only part of those days). A renter can set any hours they like,
+// but clients can only ever book them inside what they actually lease —
+// otherwise two people end up in one chair. Applied on BOTH read and write, so
+// a later change to the lease can't leave stale hours behind.
+function clampWeekToLease(week: any, lease: any): any {
+  const slot = lease?.scheduleSlot;
+  if (!slot || !Array.isArray(slot.days) || slot.days.length === 0) return week || {};
+  const leasedDays = new Set(slot.days.map((d: any) => WEEK_DAYS[Number(d)] || ''));
+  const out: any = {};
+  for (const day of WEEK_DAYS) {
+    const row = (week || {})[day];
+    if (!row || !row.enabled) { out[day] = { enabled: false }; continue; }
+    if (!leasedDays.has(day)) { out[day] = { enabled: false }; continue; }
+    let start = String(row.start || '');
+    let end = String(row.end || '');
+    // A slot with times narrows the day; a slot without them takes it whole.
+    if (slot.startTime && start < slot.startTime) start = slot.startTime;
+    if (slot.endTime && end > slot.endTime) end = slot.endTime;
+    out[day] = (start && end && start < end) ? { enabled: true, start, end } : { enabled: false };
+  }
+  return out;
+}
 import { dueAtFor, TICKET_STATUS_LABELS } from '@/lib/maintenance';
 import { uploadTicketPhotoFromDataUrl, autoAssignTicket } from '@/lib/maintenance-server';
 
@@ -614,7 +641,16 @@ export async function POST(req: NextRequest) {
               staffId: st.id,
               // Their weekly template, in the shape the availability engine
               // already honors as layer 3 (per-staff weekly hours).
-              week: (st.availability?.week && typeof st.availability.week === 'object') ? st.availability.week : null,
+              week: clampWeekToLease(
+                (st.availability?.week && typeof st.availability.week === 'object') ? st.availability.week : {},
+                lease,
+              ),
+              // Shown so the renter understands why a day may be unavailable.
+              leasedDays: Array.isArray(lease?.scheduleSlot?.days)
+                ? lease.scheduleSlot.days.map((d: any) => WEEK_DAYS[Number(d)] || '').filter(Boolean)
+                : null,
+              leasedStart: lease?.scheduleSlot?.startTime || '',
+              leasedEnd: lease?.scheduleSlot?.endTime || '',
               // Deposits can only be offered once their own Stripe can charge.
               chargesEnabled: renter?.stripeChargesEnabled === true,
               bookingUrl: origin ? `${origin}/book/${tenantId}?provider=${st.id}` : `/book/${tenantId}?provider=${st.id}`,
@@ -811,8 +847,17 @@ export async function POST(req: NextRequest) {
               ? { enabled: true, start, end }
               : { enabled: false };
           }
-          await db.doc(`tenants/${tenantId}/staff/${st.id}`).set({ availability: { week } }, { merge: true });
-          return NextResponse.json({ ok: true, week });
+          // Re-read their active lease here rather than trusting the client,
+          // then clamp before saving.
+          let activeLease: any = null;
+          try {
+            const ls = await db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', session.renterId).get();
+            activeLease = ls.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+              .find((l: any) => ['active', 'on_leave'].includes(l.status)) || null;
+          } catch { /* no lease readable — save as entered */ }
+          const clamped = clampWeekToLease(week, activeLease);
+          await db.doc(`tenants/${tenantId}/staff/${st.id}`).set({ availability: { week: clamped } }, { merge: true });
+          return NextResponse.json({ ok: true, week: clamped });
         }
         return NextResponse.json({ ok: true, ...patch });
       }
