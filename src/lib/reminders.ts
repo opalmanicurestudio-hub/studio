@@ -22,6 +22,7 @@
 // from an ISO instant — so we never show the wrong timezone.
 
 import { logAuditAdmin } from './audit';
+import { brandedEmailHtml } from './email-template';
 
 type Db = any;
 
@@ -72,6 +73,28 @@ function relDay(days: number, dateStr: string): string {
 
 const money = (cents: any) => `$${((Number(cents) || 0) / 100).toFixed(2)}`;
 
+// Branded rent emails ride the same Resend + RESEND_FROM address the rest of
+// the app's mail uses — tenant name as display name, fail-soft everywhere.
+async function sendRentEmail(opts: { to: string; fromName: string; subject: string; html: string }): Promise<boolean> {
+  const key = process.env.RESEND_API_KEY;
+  if (!key || !opts.to) return false;
+  const rf = String(process.env.RESEND_FROM || '').trim();
+  const m = rf.match(/<([^>]+)>/);
+  const addr = (m ? m[1] : rf).trim();
+  const from = addr.includes('@') ? `${opts.fromName} <${addr}>` : `${opts.fromName} <notifications@clarityflow.app>`;
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to: opts.to, subject: opts.subject, html: opts.html }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+
 async function pushNotification(db: Db, tenantId: string, n: { type: string; link: string; message: string }) {
   const ref = db.collection(`tenants/${tenantId}/notifications`).doc();
   await ref.set({
@@ -109,6 +132,13 @@ export async function runReminderSweep(db: Db, tenantId: string, now: Date = new
   const counts: ReminderCounts = { tourReminders: 0, balanceDue: 0, licenseExpiry: 0, leaseRenewal: 0, contactFollowUps: 0 };
   const nowMs = now.getTime();
   const todayStr = iso(now).slice(0, 10);
+
+  // Per-tenant comms knobs (rent page → Rent notifications card). Absent
+  // fields fall back to defaults, so existing tenants behave sensibly.
+  let tenantData: any = {};
+  try { tenantData = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {}; } catch { /* defaults apply */ }
+  const rentComms: any = { remindRenterBeforeDue: true, remindLeadDays: 3, ...(tenantData.rentComms || {}) };
+  const remindLead = Math.min(7, Math.max(1, Number(rentComms.remindLeadDays) || 3));
 
   // ── Load once: leases + renters (shared by balance-due, license, renewal) ──
   let leaseDocs: any[] = [];
@@ -167,7 +197,7 @@ export async function runReminderSweep(db: Db, tenantId: string, now: Date = new
         const v = inv.data() as any;
         if (v.dueSoonNotifiedAt) continue;
         const d = daysUntil(v.dueDate, todayStr);
-        if (d === null || d < 0 || d > 3) continue; // due within the next 3 days
+        if (d === null || d < 0 || d > remindLead) continue; // due within the configured lead window
         const lease: any = v.leaseId ? leaseById.get(v.leaseId) : null;
         const who = lease?.renterId ? renterName(renterById.get(lease.renterId)) : (v.renterName || 'A renter');
         const total = (Number(v.amountCents) || 0) + (Number(v.lateFeeCents) || 0);
@@ -175,6 +205,30 @@ export async function runReminderSweep(db: Db, tenantId: string, now: Date = new
           type: 'balance_due', link: '/booths',
           message: `${who}'s rent of ${money(total)} is due ${relDay(d, v.dueDate)}.`,
         });
+        // Renter-facing heads-up with a pay link. Skipped for autopay renters
+        // (their charge is automatic — a "pay now" nag would just confuse).
+        try {
+          const r: any = lease?.renterId ? renterById.get(lease.renterId) : null;
+          if (rentComms.remindRenterBeforeDue !== false && r?.email && !r?.autopayEnabled) {
+            const base = String(tenantData.publicOrigin || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 'https://studio-one-blue.vercel.app')).replace(/\/+$/, '');
+            const payLink = r?.portalToken ? `${base}/rent/${tenantId}?rt=${r.portalToken}` : '';
+            const businessName = String(tenantData.name || 'ClarityFlow');
+            await sendRentEmail({
+              to: r.email, fromName: businessName,
+              subject: `Rent due ${relDay(d, v.dueDate)} — ${money(total)}`,
+              html: brandedEmailHtml({
+                studioName: businessName,
+                title: `Your rent is due ${relDay(d, v.dueDate)}.`,
+                bodyLines: [
+                  `${money(total)} is due ${relDay(d, v.dueDate)}${v.dueDate ? ` (${dateOnly(v.dueDate)})` : ''}.`,
+                  'Pay any time before the due date to stay ahead of late fees.',
+                ],
+                ...(payLink ? { cta: { label: 'Pay in my portal', url: payLink } } : {}),
+                footerNote: `Sent by ${businessName}.`,
+              }),
+            });
+          }
+        } catch { /* renter email is a bonus — the owner note stands */ }
         await inv.ref.set({ dueSoonNotifiedAt: iso(now) }, { merge: true });
         counts.balanceDue++;
       } catch { /* skip this invoice */ }
