@@ -593,6 +593,53 @@ export async function POST(req: NextRequest) {
           .slice(0, 15);
       } catch { /* payments are informational — never fail the whole call */ }
 
+      // ── Independent-provider block: their menu + the pricing coach inputs ──
+      // Their staff record is the provider identity; the menu is keyed to it.
+      // The coach numbers are derived HERE, server-side, from their own lease
+      // so the portal never has to guess and never sees another renter's data.
+      let provider: any = null;
+      let myServices: any[] = [];
+      let pricing: any = null;
+      try {
+        if (renter) {
+          const stSnap = await db.collection(`tenants/${tenantId}/staff`)
+            .where('renterId', '==', renter.id).get();
+          const st = stSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+            .find((m: any) => m.isRenter && m.isActive !== false);
+          if (st) {
+            const origin = String(tenant.publicOrigin || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/+$/, '');
+            provider = {
+              staffId: st.id,
+              bookingUrl: origin ? `${origin}/book/${tenantId}?provider=${st.id}` : `/book/${tenantId}?provider=${st.id}`,
+            };
+            const svSnap = await db.collection(`tenants/${tenantId}/renterServices`)
+              .where('staffId', '==', st.id).get();
+            myServices = svSnap.docs
+              .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+              .filter((sv: any) => sv.isActive !== false)
+              .map((sv: any) => ({ id: sv.id, name: sv.name || '', price: Number(sv.price) || 0, duration: Number(sv.duration) || 60, productCost: Number(sv.productCost) || 0 }))
+              .sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)));
+
+            // Rent → cost per bookable hour. Weekly/biweekly leases are
+            // normalized to a month so the number means the same thing for
+            // everyone. Bookable hours are the renter's own estimate.
+            const freq = String(lease?.frequency || 'monthly');
+            const rentCents = Number(lease?.rentAmountCents) || 0;
+            const monthlyRentCents = freq === 'weekly' ? Math.round(rentCents * 52 / 12)
+              : freq === 'biweekly' ? Math.round(rentCents * 26 / 12)
+              : rentCents;
+            const bookableHours = Math.max(1, Number(renter.bookableHoursPerMonth) || 100);
+            pricing = {
+              monthlyRentCents,
+              bookableHoursPerMonth: bookableHours,
+              rentPerHourCents: Math.round(monthlyRentCents / bookableHours),
+              // Lease floor — a term they agreed to, shown plainly, not a leash.
+              priceFloorCents: Number(lease?.priceFloorCents) || 0,
+            };
+          }
+        }
+      } catch { /* the provider block is additive — never fail the whole call */ }
+
       return NextResponse.json({
         ok: true,
         name: session.name,
@@ -613,7 +660,76 @@ export async function POST(req: NextRequest) {
         invoices, credits, availableCreditCents,
         upcoming, past,
         payments,
+        provider, myServices, pricing,
       });
+    }
+
+    // ═══ my-service-save / my-service-remove / my-hours ═══════════════════
+    // A renter editing their own menu. The session's renterId decides which
+    // staff record they own; the serviceId is re-read and re-checked against
+    // it, so a forged id can only ever hit their own row. The lease floor is
+    // enforced HERE, not just in the UI.
+    if (action === 'my-service-save' || action === 'my-service-remove' || action === 'my-hours') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const stSnap = await db.collection(`tenants/${tenantId}/staff`).where('renterId', '==', session.renterId).get();
+      const st = stSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+        .find((m: any) => m.isRenter && m.isActive !== false);
+      if (!st) return NextResponse.json({ ok: false, error: 'Bookings are not enabled for you yet' }, { status: 403 });
+
+      if (action === 'my-hours') {
+        const hours = Math.max(1, Math.min(400, Number(body.bookableHoursPerMonth) || 0));
+        if (!hours) return NextResponse.json({ ok: false, error: 'Enter your bookable hours' }, { status: 400 });
+        await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set({ bookableHoursPerMonth: hours }, { merge: true });
+        return NextResponse.json({ ok: true, bookableHoursPerMonth: hours });
+      }
+
+      if (action === 'my-service-remove') {
+        const id = String(body.serviceId || '');
+        const ref = db.doc(`tenants/${tenantId}/renterServices/${id}`);
+        const cur = await ref.get();
+        if (!cur.exists || (cur.data() as any)?.staffId !== st.id) {
+          return NextResponse.json({ ok: false, error: 'Not your service' }, { status: 403 });
+        }
+        await ref.set({ isActive: false }, { merge: true });
+        return NextResponse.json({ ok: true });
+      }
+
+      const name = String(body.name || '').trim().slice(0, 80);
+      const priceCents = Math.round((Number(body.price) || 0) * 100);
+      const duration = Math.max(5, Math.min(600, Number(body.duration) || 60));
+      const productCost = Math.max(0, Number(body.productCost) || 0);
+      if (!name) return NextResponse.json({ ok: false, error: 'Give the service a name' }, { status: 400 });
+      if (priceCents <= 0) return NextResponse.json({ ok: false, error: 'Set a price' }, { status: 400 });
+
+      // Lease floor: refuse rather than save something that breaks their terms.
+      let floorCents = 0;
+      try {
+        const ls = await db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', session.renterId).get();
+        const active = ls.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+          .find((l: any) => ['active', 'on_leave'].includes(l.status));
+        floorCents = Number(active?.priceFloorCents) || 0;
+      } catch { /* no floor readable — treat as none */ }
+      if (floorCents > 0 && priceCents < floorCents) {
+        return NextResponse.json({
+          ok: false,
+          error: `Your lease sets a $${(floorCents / 100).toFixed(2)} minimum per service.`,
+        }, { status: 400 });
+      }
+
+      const id = String(body.serviceId || '') || `rs_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      const ref = db.doc(`tenants/${tenantId}/renterServices/${id}`);
+      const cur = await ref.get();
+      if (cur.exists && (cur.data() as any)?.staffId !== st.id) {
+        return NextResponse.json({ ok: false, error: 'Not your service' }, { status: 403 });
+      }
+      await ref.set({
+        id, tenantId, staffId: st.id, renterId: session.renterId,
+        name, price: priceCents / 100, duration, productCost,
+        isActive: true, collectsOwnPayment: true,
+        updatedAt: new Date().toISOString(),
+        ...(cur.exists ? {} : { createdAt: new Date().toISOString() }),
+      }, { merge: true });
+      return NextResponse.json({ ok: true, serviceId: id });
     }
 
     // ═══ check-in ═════════════════════════════════════════════════════════
