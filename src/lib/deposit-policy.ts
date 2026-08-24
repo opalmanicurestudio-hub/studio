@@ -289,6 +289,27 @@ export interface BookingPlan {
  */
 export function resolveBookingPlan(input: BookingPlanInput): BookingPlan {
   const { tenant, service, price, client, byStaff } = input;
+
+  // ── Layer 0: independent providers collect their own money ────────────────
+  // A booth renter's service is THEIR sale, not the studio's. The studio's
+  // Stripe must never touch it — no deposit, no card vault, no payment step —
+  // so this short-circuits ahead of every other layer, including the guardian.
+  // The slot is still really held; only the money moves elsewhere.
+  if (service?.collectsOwnPayment) {
+    return {
+      mode: 'instant',
+      status: 'confirmed',
+      depositCents: 0,
+      chargeTiming: 'never',
+      paymentBlocksConfirmation: false,
+      requiresCardOnFile: false,
+      holdMinutes: 0,
+      approvalExpiryHours: 0,
+      clientNotice: `You'll pay ${service?.providerName || 'your provider'} directly at your visit.`,
+      reason: 'Independent provider — collects payment directly',
+    };
+  }
+
   const cfg = resolveBookingMode(tenant);
 
   const poorHistory = !!client
