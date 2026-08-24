@@ -296,6 +296,25 @@ export function resolveBookingPlan(input: BookingPlanInput): BookingPlan {
   // so this short-circuits ahead of every other layer, including the guardian.
   // The slot is still really held; only the money moves elsewhere.
   if (service?.collectsOwnPayment) {
+    // Their own Stripe is live AND they've set a deposit on this service →
+    // collect it ON THEIR ACCOUNT. Any other state (not connected, still in
+    // review, no deposit set) falls through to pay-in-person below, which is
+    // why a half-onboarded provider can never produce a broken checkout.
+    const renterDeposit = Math.round(Number(service?.renterDepositAmount) * 100) || 0;
+    if (service?.renterChargesEnabled && renterDeposit > 0) {
+      return {
+        mode: 'deposit_required',
+        status: 'pending_payment',
+        depositCents: renterDeposit,
+        chargeTiming: 'at_booking',
+        paymentBlocksConfirmation: true,
+        requiresCardOnFile: false,
+        holdMinutes: 15,
+        approvalExpiryHours: 0,
+        clientNotice: `A $${(renterDeposit / 100).toFixed(2)} deposit holds this appointment. You'll pay the rest to ${service?.providerName || 'your provider'} at your visit.`,
+        reason: 'Independent provider — deposit collected on their own account',
+      };
+    }
     return {
       mode: 'instant',
       status: 'confirmed',
