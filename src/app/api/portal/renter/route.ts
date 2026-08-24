@@ -660,12 +660,41 @@ export async function POST(req: NextRequest) {
               : freq === 'biweekly' ? Math.round(rentCents * 26 / 12)
               : rentCents;
             const bookableHours = Math.max(1, Number(renter.bookableHoursPerMonth) || 100);
+            // ── Their goals: PRIVATE ────────────────────────────────────────
+            // Lives in a subcollection the security rules close to every
+            // client, reachable only through this session-checked API. The
+            // studio's own pages cannot read it — that is the promise the
+            // portal makes to a renter, made structurally true rather than
+            // just stated. Only a target hourly, and only if they opt in, is
+            // ever visible to the owner (see shareTargetHourly).
+            let goals: any = null;
+            try {
+              const g = await db.doc(`tenants/${tenantId}/renters/${renter.id}/private/goals`).get();
+              if (g.exists) goals = g.data() as any;
+            } catch { /* no goals yet */ }
+
+            const personalCents = Number(goals?.personalMonthlyCents) || 0;
+            const businessCents = Number(goals?.businessMonthlyCents) || 0;
+            const taxPct = Math.min(60, Math.max(0, Number(goals?.taxSetAsidePct ?? 25)));
+            // Backwards from what they need to KEEP: gross up for tax, add rent
+            // and business costs, spread over the hours they actually book.
+            const grossNeededCents = personalCents > 0
+              ? Math.round(personalCents / Math.max(0.1, 1 - taxPct / 100)) + monthlyRentCents + businessCents
+              : 0;
+
             pricing = {
               monthlyRentCents,
               bookableHoursPerMonth: bookableHours,
               rentPerHourCents: Math.round(monthlyRentCents / bookableHours),
               // Lease floor — a term they agreed to, shown plainly, not a leash.
               priceFloorCents: Number(lease?.priceFloorCents) || 0,
+              hasGoals: !!goals && personalCents > 0,
+              targetHourlyCents: grossNeededCents > 0 ? Math.round(grossNeededCents / bookableHours) : 0,
+              monthlyTargetCents: grossNeededCents,
+              taxSetAsidePct: taxPct,
+              personalMonthlyCents: personalCents,
+              businessMonthlyCents: businessCents,
+              shareTargetHourly: !!goals?.shareTargetHourly,
             };
           }
         }
@@ -693,6 +722,47 @@ export async function POST(req: NextRequest) {
         payments,
         provider, myServices, pricing, myBookings, earnings,
       });
+    }
+
+    // ═══ my-goals ═════════════════════════════════════════════════════════
+    // What they need to earn, in their own words. Written to the private
+    // subcollection; nothing here is ever returned to an owner-facing surface.
+    // shareTargetHourly is opt-in and shares ONE derived number, never the
+    // inputs behind it.
+    if (action === 'my-goals') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const personal = Math.max(0, Math.round((Number(body.personalMonthly) || 0) * 100));
+      const business = Math.max(0, Math.round((Number(body.businessMonthly) || 0) * 100));
+      const taxPct = Math.min(60, Math.max(0, Number(body.taxSetAsidePct ?? 25)));
+      const share = body.shareTargetHourly === true;
+      await db.doc(`tenants/${tenantId}/renters/${session.renterId}/private/goals`).set({
+        personalMonthlyCents: personal,
+        businessMonthlyCents: business,
+        taxSetAsidePct: taxPct,
+        shareTargetHourly: share,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+      // The opt-in shares exactly one derived figure on the renter record —
+      // the owner sees a rate, never a household budget.
+      try {
+        const rRef = db.doc(`tenants/${tenantId}/renters/${session.renterId}`);
+        if (share) {
+          const ls = await db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', session.renterId).get();
+          const active = ls.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+            .find((l: any) => ['active', 'on_leave'].includes(l.status));
+          const freq = String(active?.frequency || 'monthly');
+          const rentCents = Number(active?.rentAmountCents) || 0;
+          const monthlyRentCents = freq === 'weekly' ? Math.round(rentCents * 52 / 12)
+            : freq === 'biweekly' ? Math.round(rentCents * 26 / 12) : rentCents;
+          const rSnap = await rRef.get();
+          const hrs = Math.max(1, Number((rSnap.data() as any)?.bookableHoursPerMonth) || 100);
+          const gross = personal > 0 ? Math.round(personal / Math.max(0.1, 1 - taxPct / 100)) + monthlyRentCents + business : 0;
+          await rRef.set({ sharedTargetHourlyCents: gross > 0 ? Math.round(gross / hrs) : 0 }, { merge: true });
+        } else {
+          await rRef.set({ sharedTargetHourlyCents: 0 }, { merge: true });
+        }
+      } catch { /* sharing is a bonus — the private save already stands */ }
+      return NextResponse.json({ ok: true });
     }
 
     // ═══ my-service-save / my-service-remove / my-hours ═══════════════════
