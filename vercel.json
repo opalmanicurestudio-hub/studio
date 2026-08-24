@@ -1,6 +1,7 @@
 {
   "crons": [
     { "path": "/api/cron/reminders", "schedule": "0 13 * * *" },
-    { "path": "/api/cron/nightly", "schedule": "0 7 * * *" }
+    { "path": "/api/cron/nightly", "schedule": "0 7 * * *" },
+    { "path": "/api/cron/autopay-leases", "schedule": "0 12 * * *" }
   ]
 }
