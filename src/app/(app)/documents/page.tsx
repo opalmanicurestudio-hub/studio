@@ -1378,13 +1378,31 @@ export default function DocumentsPage() {
     if (!tenantId) return;
     const existing = ((documents || []) as any[]).find(d => d.id === id);
     const bumping = publish && existing?.status === 'published';
-    updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/documents/${id}`), {
+    const payload: any = {
       ...data,
       status: publish ? 'published' : (existing?.status || 'draft'),
       version: bumping ? (existing?.version || 1) + 1 : (existing?.version || 1),
       updatedAt: new Date().toISOString(),
       updatedBy: actorName,
-    });
+    };
+    delete payload.id;
+    const targetRef = doc(firestore, `tenants/${tenantId}/documents/${id}`);
+    if (publish) {
+      import('firebase/firestore')
+        .then(({ updateDoc }) => updateDoc(targetRef, payload))
+        .then(() => {
+          try {
+            void fetch('/api/comms/dispatch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ kind: 'document', tenantId, documentId: id }),
+            }).catch(() => { /* the publish is saved; notices are best-effort */ });
+          } catch { /* fire-and-forget */ }
+        })
+        .catch(err => console.error('publish failed', err));
+    } else {
+      updateDocumentNonBlocking(targetRef, payload);
+    }
     if (publish) setExpandedId(null);
   };
 
