@@ -1051,7 +1051,15 @@ export default function ApplicantsPage() {
     const t = setTimeout(() => {
       document.getElementById(`applicant-${focusAppId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 400);
-    return () => clearTimeout(t);
+    const fade = setTimeout(() => {
+      setFocusAppId('');
+      try {
+        const u = new URL(window.location.href);
+        u.searchParams.delete('app');
+        window.history.replaceState({}, '', u.toString());
+      } catch { /* cosmetic only */ }
+    }, 6000);
+    return () => { clearTimeout(t); clearTimeout(fade); };
   }, [focusAppId, applications]);
 
   const handleCancelInterview = async (app: any, invite: any) => {
