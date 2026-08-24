@@ -722,11 +722,11 @@ const AuditCard = ({ tenantId, staff, initialOpen }: { tenantId: string; staff: 
                             <p className="min-w-0 flex-1 text-[12px] font-bold text-slate-700">
                               ✓ {t.title} — <span className="font-black">{t.completedByName || 'Team member'}</span>{t.notes ? <span className="text-slate-500"> \u00b7 {t.notes}</span> : null}
                             </p>
-                            {t.photoUrl && (
-                              <a href={t.photoUrl} target="_blank" rel="noreferrer">
-                                <img src={t.photoUrl} alt={`Evidence: ${t.title}`} className="h-10 w-10 shrink-0 rounded-lg border-2 object-cover" />
+                            {(Array.isArray(t.photoUrls) && t.photoUrls.length > 0 ? t.photoUrls : (t.photoUrl ? [t.photoUrl] : [])).map((u: string, pi: number) => (
+                              <a key={pi} href={u} target="_blank" rel="noreferrer">
+                                <img src={u} alt={`Photo ${pi + 1} — ${t.title}`} className="h-10 w-10 shrink-0 rounded-lg border-2 object-cover" />
                               </a>
-                            )}
+                            ))}
                           </div>
                         </div>
                       );
@@ -1074,11 +1074,13 @@ const TasksCard = ({ tenantId, staff, actorName, focusTaskId }: { tenantId: stri
                   {doneTasks.map((t: any) => (
                     <div key={t.id} className="flex items-center justify-between gap-2 rounded-xl border-2 border-dashed bg-slate-50/60 px-3 py-2">
                       <p className="min-w-0 text-[12px] font-bold text-slate-700">✓ {t.title} · {t.completedByName || 'Team member'}{t.completedAt && safeDate(t.completedAt) ? ` · ${format(safeDate(t.completedAt) as Date, 'MMM d, h:mm a')}` : ''}</p>
-                      {t.photoUrl && (
-                        <a href={t.photoUrl} target="_blank" rel="noreferrer">
-                          <img src={t.photoUrl} alt={`Evidence: ${t.title}`} className="h-9 w-9 shrink-0 rounded-lg border-2 object-cover" />
-                        </a>
-                      )}
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        {(Array.isArray(t.photoUrls) && t.photoUrls.length > 0 ? t.photoUrls : (t.photoUrl ? [t.photoUrl] : [])).map((u: string, pi: number) => (
+                          <a key={pi} href={u} target="_blank" rel="noreferrer">
+                            <img src={u} alt={`Photo ${pi + 1} — ${t.title}`} className="h-9 w-9 rounded-lg border-2 object-cover" />
+                          </a>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>
