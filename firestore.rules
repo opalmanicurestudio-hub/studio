@@ -484,6 +484,15 @@ service cloud.firestore {
     // same reason the house menu is — the booking page is unauthenticated and
     // must render a renter's own prices from their personal link. Writes stay
     // with managers for now; the portal self-serve editor lands next round.
+    // A renter's private financial goals. NO client may read or write these —
+    // not the renter's own browser, not the owner, not a manager. The only
+    // path in is the portal API's Admin SDK, behind a session check. This is
+    // what makes "only you can see these numbers" a fact about the database
+    // rather than a promise in the UI.
+    match /tenants/{tenantId}/renters/{renterId}/private/{docId} {
+      allow read, write: if false;
+    }
+
     match /tenants/{tenantId}/renterServices/{serviceId} {
       allow read: if true;
       allow write: if isManager(tenantId);
