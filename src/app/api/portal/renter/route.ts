@@ -1,1159 +1,1049 @@
-// src/app/api/portal/renter/route.ts
-//
-// v81 — Guest portal auth + data for booth renters WITHOUT staff records
-// (day/hourly renters). Staff-linked and hybrid renters keep using the
-// staff portal; this route exists for the guest who booked a chair with
-// just a name + phone/email and has nothing to log into.
-//
-// Identity = contact footprint. A guest proves control of the phone/email
-// they booked with via a 6-digit code (10-min expiry, hashed at rest).
-// Until an SMS/email provider is wired, the code is delivered as a
-// notification to owners/admins — front desk relays it in person, same
-// manager-mediated pattern as staff PIN resets. The delivery hook is a
-// single function (deliverCode) so SMS can be swapped in later without
-// touching the flow.
-//
-// Actions (POST { action, tenantId, ... }):
-//   request-code → { contact } — finds the contact's footprint across
-//                  renters + recent boothReservations. Always answers
-//                  ok:true (no account enumeration); only stores/delivers
-//                  a code when a footprint exists.
-//   verify-code  → { contact, code } — 5 attempts max; returns a session
-//                  token (24h, hashed at rest in private/renterSessions).
-//   me           → { token, today? } — everything the guest may see:
-//                  their reservations, credits, lease + invoices, and
-//                  booth-rent payment history. Contact-scoped only.
-//   check-in     → { token, reservationId, today? } — self check-in for a
-//                  confirmed reservation on its booked date. Mirrors the
-//                  owner-side checkInRes exactly (incl. the settleHourlyCents
-//                  rate snapshot and the `checked_inAt` underscore field).
-//   check-out    → { token, reservationId } — self check-out. Mirrors
-//                  checkOutRes settlement math exactly: 10-min grace, then
-//                  15-min increments of overage at the snapshotted rate;
-//                  30+ min early with ≥$1 value records a PENDING credit
-//                  for the owner to approve (never auto-issued).
-//
-// Rate limits (per tenant, sliding windows in tenants/{id}/private/renterAuth):
-//   10 code requests / 15 min · 5 failed verifies / 15 min (423 when locked).
+'use client';
 
-import { NextRequest, NextResponse } from 'next/server';
-import Stripe from 'stripe';
-import { createHash, randomBytes } from 'crypto';
-import { getAdminDb } from '@/lib/firebase-admin';
-import { logAuditAdmin } from '@/lib/audit';
-import { smsConfigured, sendTenantSms } from '@/lib/sms';
-import { dueAtFor, TICKET_STATUS_LABELS } from '@/lib/maintenance';
-import { uploadTicketPhotoFromDataUrl, autoAssignTicket } from '@/lib/maintenance-server';
+// src/app/rent/[tenantId]/page.tsx
+//
+// v81 — Guest portal for booth renters WITHOUT staff records (day/hourly
+// renters), plus a lightweight view for leased renters who never got a
+// staff login. Everything goes through /api/portal/renter — this page
+// makes ZERO direct Firestore reads, so it works under the hardened rules
+// with no client SDK auth at all.
+//
+// Flow: enter the phone/email you booked with → the studio front desk
+// receives a 6-digit code and relays it (SMS delivery slots in later,
+// server-side only) → 24h session (token in localStorage) → dashboard:
+//   · Today card — self check-in / check-out with honest settlement
+//     results (overage due / credit pending review)
+//   · Upcoming bookings + booking history
+//   · Credits balance (auto-applies at their next booking)
+//   · Lease + rent invoices (for leased renters) and payment history
+//
+// Hybrid renters (chair + salon booking system) keep the full staff
+// portal; this page is intentionally simpler.
 
-const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
-const WINDOW_MS = 15 * 60 * 1000;
-const CODE_TTL_MS = 10 * 60 * 1000;
-const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
-const MAX_CODE_REQUESTS = 10;
-const MAX_VERIFY_FAILS = 5;
+import { downscaleImageToDataUrl } from '@/lib/client-image';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useParams } from 'next/navigation';
+import { format, parseISO } from 'date-fns';
+import { cn } from '@/lib/utils';
+import { useToast } from '@/hooks/use-toast';
+import {
+  Armchair, CalendarDays, Clock, CreditCard, LogOut, Loader,
+  CheckCircle2, Sparkles, ChevronRight, Receipt, AlertTriangle,
+  Wallet, KeyRound, Phone, RefreshCw,
+} from 'lucide-react';
 
-// ── Contact normalization ─────────────────────────────────────────────────
-// Stored contact fields are un-normalized (raw-trimmed at write time), so
-// every comparison normalizes BOTH sides: emails trim+lowercase, phones
-// digits-only. This matches the staff-portal reader behavior.
-const isEmail = (v: string) => v.includes('@');
-const normEmail = (v: any) => String(v || '').trim().toLowerCase();
-const digits = (v: any) => String(v || '').replace(/\D/g, '');
-const normContact = (v: string) => (isEmail(v) ? normEmail(v) : digits(v));
-const contactMatches = (key: string, phone?: any, email?: any) =>
-  !!key && (
-    (isEmail(key) ? normEmail(email) === key : false) ||
-    (!isEmail(key) ? (digits(phone) && digits(phone) === key) : false)
-  );
-
-const maskContact = (c: string) => {
-  if (isEmail(c)) {
-    const [u, d] = c.split('@');
-    return `${u.slice(0, 1)}•••@${d}`;
-  }
-  const dg = digits(c);
-  return dg.length >= 4 ? `•••-${dg.slice(-4)}` : '•••';
+// Local YYYY-MM-DD — the UTC-slice version flips to tomorrow in the evening.
+const localISO = (d = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const fmtDate = (s?: string | null) => {
+  if (!s) return '';
+  try { return format(parseISO(String(s).slice(0, 10) + 'T12:00:00'), 'EEE, MMM d'); } catch { return s; }
+};
+const fmtMoney = (cents: number) => `$${((cents || 0) / 100).toFixed(2)}`;
+const fmtTime = (t?: string | null) => {
+  if (!t) return '';
+  try { return format(parseISO(`2000-01-01T${t}:00`), 'h:mm a'); } catch { return t; }
 };
 
-const localTodayFallback = () => new Date().toISOString().slice(0, 10);
-const safeToday = (v: any) =>
-  typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : localTodayFallback();
-
-// ── Rate limiting (private/renterAuth: { requestedAt:[], failedAt:[] }) ──
-async function slidingWindow(db: any, tenantId: string, field: string, max: number): Promise<boolean> {
-  const snap = await db.doc(`tenants/${tenantId}/private/renterAuth`).get();
-  const stamps: number[] = (((snap.data() as any) || {})[field] || [])
-    .filter((t: number) => Date.now() - t < WINDOW_MS);
-  return stamps.length >= max;
-}
-async function recordStamp(db: any, tenantId: string, field: string, clear = false) {
-  const ref = db.doc(`tenants/${tenantId}/private/renterAuth`);
-  const snap = await ref.get();
-  const prior: number[] = (((snap.data() as any) || {})[field] || [])
-    .filter((t: number) => Date.now() - t < WINDOW_MS);
-  await ref.set({ [field]: clear ? [] : [...prior, Date.now()].slice(-30) }, { merge: true });
-}
-
-// ── Code delivery — swap this for SMS/email when a provider is wired ─────
-async function deliverCode(db: any, tenantId: string, contact: string, code: string, name?: string) {
-  // SMS-FIRST: when Twilio is configured and the contact is a phone
-  // number, the code goes straight to the renter — the owner is out of
-  // the loop entirely. Anything else (email contact, SMS down, not yet
-  // configured) falls back to the owner's inbox for manual relay.
-  const isPhone = /^\+?[\d\s().-]{7,}$/.test(contact.trim());
-  // Secondary method: know their email too? SMS failure falls through to
-  // an emailed code before bothering the owner.
-  let fallbackEmail: string | null = null;
-  try {
-    const rs = await db.collection(`tenants/${tenantId}/renters`).get();
-    const norm = (s: any) => String(s || '').replace(/\D+/g, '');
-    const r = rs.docs.map((d: any) => d.data() as any).find((x: any) => norm(x.phone) && norm(x.phone) === norm(contact));
-    if (r?.email && /@/.test(r.email)) fallbackEmail = r.email;
-  } catch { /* fallback is a bonus */ }
-  if (isPhone && smsConfigured()) {
-    const sent = await sendTenantSms(db, tenantId, contact,
-      `Your renter portal sign-in code is ${code}. It expires in 10 minutes. Didn't request this? Ignore it.`,
-      { email: fallbackEmail, subject: 'Your sign-in code' });
-    if (sent.ok) {
-      const ref = db.collection(`tenants/${tenantId}/notifications`).doc();
-      await ref.set({
-        id: ref.id, userId: null, read: false, createdAt: new Date().toISOString(),
-        type: 'renter_code', link: 'inbox',
-        message: `${name || 'A renter'} signed in to the renter portal — code texted to them automatically.`,
-      });
-      return;
-    }
-  }
-  // Contact IS an email (or SMS+email both failed) → email the code
-  // directly before falling back to the owner inbox.
-  const contactIsEmail = /@/.test(contact);
-  if ((contactIsEmail || fallbackEmail) && process.env.RESEND_API_KEY) {
-    try {
-      let studioName = 'The studio';
-      try { studioName = ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.name || studioName; } catch { /* cosmetic */ }
-      const { brandedEmailHtml } = await import('@/lib/email-template');
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
-        body: JSON.stringify({
-          from: process.env.NOTIFY_FROM_EMAIL || 'ClarityFlow <onboarding@resend.dev>',
-          to: [contactIsEmail ? contact.trim() : fallbackEmail],
-          subject: `Your sign-in code — ${studioName}`,
-          text: `Your renter portal sign-in code is ${code}. It expires in 10 minutes. Didn't request this? Ignore it.`,
-          html: brandedEmailHtml({
-            studioName,
-            title: 'Your sign-in code',
-            bodyLines: ['Use this code to sign in to your renter portal. It expires in 10 minutes.'],
-            bigCode: code,
-            footerNote: `Didn't request this? You can safely ignore it. Sent by ${studioName}.`,
-          }),
-        }),
-      });
-      if (res.ok) {
-        const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-        await nRef.set({
-          id: nRef.id, userId: null, read: false, createdAt: new Date().toISOString(),
-          type: 'renter_code', link: 'inbox',
-          message: `${name || 'A renter'} signed in to the renter portal — code emailed to them automatically.`,
-        });
-        return;
-      }
-    } catch { /* fall through to the owner inbox */ }
-  }
-  const ref = db.collection(`tenants/${tenantId}/notifications`).doc();
-  await ref.set({
-    id: ref.id,
-    userId: null, // owners/admins inbox
-    read: false,
-    createdAt: new Date().toISOString(),
-    type: 'renter_code',
-    link: 'inbox',
-    message: `${name || 'A renter'} is signing in to the renter portal and needs their code: ${code} (valid 10 min). ${isPhone ? `Text it to ${contact.trim()}.` : `Send it to ${contact.trim()}.`}`,
+const api = async (payload: any) => {
+  const res = await fetch('/api/portal/renter', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
   });
-}
-
-// ── Contact footprint: does this phone/email belong to a renter here? ────
-async function findFootprint(db: any, tenantId: string, key: string): Promise<{ found: boolean; name: string | null; renterId: string | null }> {
-  // 1) renters directory (small collection — scan and normalize-compare)
-  const renters = await db.collection(`tenants/${tenantId}/renters`).get();
-  for (const d of renters.docs) {
-    const r = d.data() as any;
-    if (contactMatches(key, r.phone, r.email)) {
-      const name = [r.firstName, r.lastName].filter(Boolean).join(' ') || null;
-      return { found: true, name, renterId: d.id };
-    }
-  }
-  // 2) recent reservations (last 180 days) — day/hourly guests live here
-  const cutoff = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
-  const res = await db.collection(`tenants/${tenantId}/boothReservations`)
-    .where('createdAt', '>=', cutoff).get();
-  for (const d of res.docs) {
-    const r = d.data() as any;
-    if (contactMatches(key, r.phone, r.email)) {
-      return { found: true, name: r.name || null, renterId: null };
-    }
-  }
-  return { found: false, name: null, renterId: null };
-}
-
-// ── Session helpers (private/renterSessions: { [sha256(token)]: {...} }) ─
-async function createSession(db: any, tenantId: string, key: string, name: string | null, renterId: string | null) {
-  const token = randomBytes(24).toString('hex');
-  const ref = db.doc(`tenants/${tenantId}/private/renterSessions`);
-  const snap = await ref.get();
-  const all = ((snap.data() as any) || {});
-  // prune expired sessions while we're here
-  const kept: any = {};
-  for (const [k, v] of Object.entries<any>(all)) {
-    if (v && v.expiresAt > Date.now()) kept[k] = v;
-  }
-  kept[sha256(token)] = {
-    contactKey: key, name, renterId,
-    expiresAt: Date.now() + SESSION_TTL_MS,
-    createdAt: new Date().toISOString(),
-  };
-  await ref.set(kept); // whole-doc set = prune sticks
-  return { token, expiresAt: kept[sha256(token)].expiresAt };
-}
-async function resolveSession(db: any, tenantId: string, token: any) {
-  if (!token || typeof token !== 'string') return null;
-  const snap = await db.doc(`tenants/${tenantId}/private/renterSessions`).get();
-  const entry = (((snap.data() as any) || {})[sha256(token)]) || null;
-  if (!entry || entry.expiresAt < Date.now()) return null;
-  return entry as { contactKey: string; name: string | null; renterId: string | null };
-}
-
-// ── Reservation shaping (guest-safe subset) ───────────────────────────────
-const safeReservation = (id: string, r: any) => ({
-  id,
-  boothId: r.boothId || null,
-  boothName: r.boothName || 'Space',
-  startDate: r.startDate, endDate: r.endDate,
-  bookingType: r.bookingType || 'daily',
-  startTime: r.startTime || null, endTime: r.endTime || null,
-  slotLabel: r.slotLabel || null,
-  status: r.status,
-  amountCents: r.amountCents || 0,
-  netDueCents: r.netDueCents ?? null,
-  creditAppliedCents: r.creditAppliedCents || 0,
-  balanceDueCents: r.balanceDueCents || 0,
-  balanceMode: r.balanceMode || null,
-  balancePaid: !!r.balancePaid,
-  checked_inAt: r.checked_inAt || null,
-  actualCheckIn: r.actualCheckIn || null,
-  completedAt: r.completedAt || null,
-  overageMinutes: r.overageMinutes || 0,
-  overageDueCents: r.overageDueCents || 0,
-  overageStatus: r.overageStatus || null,
-  unusedMinutes: r.unusedMinutes || 0,
-  potentialCreditCents: r.potentialCreditCents || 0,
-  creditDecision: r.creditDecision || null,
-  rescheduleRequestedAt: r.rescheduleRequestedAt || null,
-});
-
-const hourlyCentsOf = (booth: any): number => {
-  const opts = Array.isArray(booth?.pricingOptions) ? booth.pricingOptions : [];
-  return opts.find((o: any) => o.frequency === 'hourly' && o.amountCents > 0)?.amountCents || 0;
+  const d = await res.json().catch(() => ({}));
+  return { status: res.status, ...d };
 };
 
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const { action, tenantId } = body || {};
-    if (!action || !tenantId) {
-      return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
-    }
-    const db = getAdminDb();
+const STORE = (tenantId: string) => `opal_renter_${tenantId}`;
 
-    // ═══ request-code ═════════════════════════════════════════════════════
-    if (action === 'request-code') {
-      const raw = String(body.contact || '').trim().slice(0, 160);
-      const key = normContact(raw);
-      if (!key || (!isEmail(raw) && key.length < 7)) {
-        return NextResponse.json({ ok: false, error: 'Enter the phone number or email you booked with.' }, { status: 400 });
-      }
-      if (await slidingWindow(db, tenantId, 'requestedAt', MAX_CODE_REQUESTS)) {
-        return NextResponse.json({ ok: false, error: 'Too many code requests — try again in a few minutes.' }, { status: 429 });
-      }
-      await recordStamp(db, tenantId, 'requestedAt');
 
-      const fp = await findFootprint(db, tenantId, key);
-      if (fp.found) {
-        const code = String(Math.floor(100000 + Math.random() * 900000));
-        await db.doc(`tenants/${tenantId}/private/renterCodes`).set({
-          [key]: { codeHash: sha256(code), expiresAt: Date.now() + CODE_TTL_MS, attempts: 0, createdAt: new Date().toISOString(), name: fp.name, renterId: fp.renterId },
-        }, { merge: true });
-        await deliverCode(db, tenantId, raw, code, fp.name || undefined);
-        await logAuditAdmin(db, tenantId, {
-          action: 'portal.renter_code_requested',
-          targetType: 'renterContact', targetId: maskContact(raw),
-          summary: `Renter portal access code requested for ${fp.name || maskContact(raw)}`,
-          actor: { type: 'system', name: 'renter-portal' },
+
+
+// ─── Card payments: their own Stripe ─────────────────────────────────────────
+// Connecting here creates an account that belongs to the RENTER. Money, refunds
+// and disputes are all theirs; the studio is never in the path. Half-finished
+// onboarding is an expected state, not an error — services simply stay
+// pay-in-person until Stripe reports charges are live.
+function MyPayments({ data, tenantId, token }: { data: any; tenantId: string; token: string }) {
+  const [st, setSt] = useState<any>(null);
+  const [busy, setBusy] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/portal/renter-connect', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'status', tenantId, token }),
         });
-      }
-      // Same answer either way — no account enumeration.
-      return NextResponse.json({ ok: true, delivery: 'studio' });
+        const d = await res.json().catch(() => ({}));
+        if (!cancelled) setSt(d);
+      } catch { /* offline — the card just shows the connect option */ }
+      if (!cancelled) setBusy(false);
+    })();
+    return () => { cancelled = true; };
+  }, [tenantId, token]);
+
+  const connected = !!st?.connected;
+  const live = !!st?.chargesEnabled;
+  const submitted = !!st?.detailsSubmitted;
+  const onboardHref = `/api/portal/renter-connect?tenantId=${encodeURIComponent(tenantId)}&token=${encodeURIComponent(token)}`;
+
+  return (
+    <section className="space-y-3">
+      <SectionTitle icon={CreditCard}>Card Payments</SectionTitle>
+      <div className="p-4 rounded-3xl bg-white border-2 space-y-3">
+        {busy ? (
+          <p className="py-3 text-center text-[11px] font-bold text-slate-400">Checking your account…</p>
+        ) : live ? (
+          <div className="rounded-2xl bg-emerald-50 p-4">
+            <p className="text-[13px] font-black text-emerald-900">You can take cards.</p>
+            <p className="mt-1 text-[11px] font-bold text-emerald-800">
+              Payments go straight to your own Stripe account and pay out to your bank. {data?.studioName || 'The studio'} never touches them.
+            </p>
+          </div>
+        ) : connected && submitted ? (
+          <div className="rounded-2xl bg-amber-50 p-4">
+            <p className="text-[13px] font-black text-amber-900">Stripe is still reviewing your details.</p>
+            <p className="mt-1 text-[11px] font-bold text-amber-800">
+              This usually takes a few minutes. Until it clears, your clients pay you in person as usual — nothing is broken.
+            </p>
+          </div>
+        ) : connected ? (
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-[13px] font-black text-slate-900">You started setting up — a few steps left.</p>
+            <p className="mt-1 text-[11px] font-bold text-slate-500">Pick up where you left off. Your bookings keep working meanwhile.</p>
+          </div>
+        ) : (
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-[13px] font-black text-slate-900">Want to take cards and deposits?</p>
+            <p className="mt-1 text-[11px] font-bold text-slate-500">
+              Connect your own Stripe account — you keep 100%, minus Stripe&apos;s normal processing fee. It pays out to your bank, not the studio&apos;s.
+            </p>
+          </div>
+        )}
+
+        {!live && !busy && (
+          <a href={onboardHref}
+             className="flex h-11 w-full items-center justify-center rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white active:scale-95">
+            {connected ? 'Finish setting up' : 'Connect my Stripe'}
+          </a>
+        )}
+        {live && (
+          <a href={onboardHref}
+             className="flex h-11 w-full items-center justify-center rounded-2xl border-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+            Manage my account
+          </a>
+        )}
+        <p className="text-[10px] font-bold text-slate-400">
+          Payment questions go to Stripe, not the front desk — it&apos;s your account.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+// ─── My Number: what they need to earn ───────────────────────────────────────
+// Rough is fine. These inputs live in a server-only subcollection the studio
+// cannot read — the card says so plainly, because a renter's landlord asking
+// about their household budget is exactly the thing that would stop them from
+// answering honestly. Sharing is one derived rate, opt-in, off by default.
+function MyNumber({ data, tenantId, token, onChanged }: { data: any; tenantId: string; token: string; onChanged: () => void }) {
+  const p = data?.pricing || {};
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [personal, setPersonal] = useState(String(((Number(p.personalMonthlyCents) || 0) / 100) || ''));
+  const [business, setBusiness] = useState(String(((Number(p.businessMonthlyCents) || 0) / 100) || ''));
+  const [taxPct, setTaxPct] = useState(String(p.taxSetAsidePct ?? 25));
+  const [share, setShare] = useState(!!p.shareTargetHourly);
+
+  const save = async () => {
+    setBusy(true); setErr('');
+    const d = await api({
+      action: 'my-goals', tenantId, token,
+      personalMonthly: Number(personal) || 0,
+      businessMonthly: Number(business) || 0,
+      taxSetAsidePct: Number(taxPct) || 0,
+      shareTargetHourly: share,
+    });
+    setBusy(false);
+    if (!d.ok) { setErr(d.error || 'Could not save'); return; }
+    setOpen(false); onChanged();
+  };
+
+  const target = (Number(p.targetHourlyCents) || 0) / 100;
+  const monthly = (Number(p.monthlyTargetCents) || 0) / 100;
+
+  return (
+    <section className="space-y-3">
+      <SectionTitle icon={Wallet}>My Number</SectionTitle>
+      <div className="p-4 rounded-3xl bg-white border-2 space-y-3">
+        {p.hasGoals && !open ? (
+          <div className="rounded-2xl bg-slate-900 p-4 text-white">
+            <p className="text-[10px] font-black uppercase tracking-widest text-white/50">Your hour needs to make</p>
+            <p className="text-3xl font-black">${target.toFixed(2)}</p>
+            <p className="mt-1 text-[11px] font-bold text-white/70">
+              ${monthly.toFixed(2)} a month across {p.bookableHoursPerMonth} booked hours — rent, taxes and living covered.
+            </p>
+          </div>
+        ) : !open ? (
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-[13px] font-black text-slate-900">Know what your hour has to earn.</p>
+            <p className="mt-1 text-[11px] font-bold text-slate-500">
+              Tell us roughly what you need each month and we&apos;ll work backwards through taxes and rent to the number that makes your prices make sense.
+            </p>
+          </div>
+        ) : null}
+
+        {open && (
+          <div className="space-y-2">
+            <p className="rounded-2xl bg-emerald-50 p-3 text-[11px] font-bold text-emerald-900">
+              🔒 Only you can see these numbers. {data?.studioName || 'The studio'} sees that you&apos;ve set a goal, never what&apos;s in it.
+            </p>
+            <label className="block">
+              <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">What you need to live on, a month</span>
+              <input type="number" min={0} value={personal} onChange={e => setPersonal(e.target.value)} placeholder="3000"
+                     className="h-11 w-full rounded-xl border-2 px-3 text-[15px] font-black" />
+              <span className="mt-1 block text-[10px] font-bold text-slate-400">Housing, car, food, insurance, debt, savings — rough is fine.</span>
+            </label>
+            <div className="flex gap-2">
+              <label className="flex-1">
+                <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Business costs / mo</span>
+                <input type="number" min={0} value={business} onChange={e => setBusiness(e.target.value)} placeholder="200"
+                       className="h-11 w-full rounded-xl border-2 text-center text-[15px] font-black" />
+              </label>
+              <label className="flex-1">
+                <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Tax set-aside %</span>
+                <input type="number" min={0} max={60} value={taxPct} onChange={e => setTaxPct(e.target.value)}
+                       className="h-11 w-full rounded-xl border-2 text-center text-[15px] font-black" />
+              </label>
+            </div>
+            <button type="button" onClick={() => setShare(v => !v)}
+                    className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 p-3 text-left">
+              <span>
+                <span className="block text-[12px] font-black text-slate-900">Share just my hourly target with {data?.studioName || 'the studio'}</span>
+                <span className="block text-[10px] font-bold text-slate-500">One number, so they can help you price. Never your costs.</span>
+              </span>
+              <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest',
+                share ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500')}>{share ? 'On' : 'Off'}</span>
+            </button>
+            {err && <p className="text-[11px] font-black text-red-600">{err}</p>}
+            <div className="flex gap-2">
+              <button onClick={save} disabled={busy}
+                      className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white active:scale-95 disabled:opacity-50">
+                {busy ? 'Saving…' : 'Save my number'}
+              </button>
+              <button onClick={() => { setOpen(false); setErr(''); }} className="h-11 rounded-2xl border-2 px-4 text-[10px] font-black uppercase tracking-widest">Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {!open && (
+          <button onClick={() => setOpen(true)}
+                  className="h-11 w-full rounded-2xl border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-500">
+            {p.hasGoals ? 'Update my number' : 'Set up my number'}
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ─── My Book: their client appointments + what they've earned this month ──────
+// The renter's own ledger. The studio's reports deliberately exclude every one
+// of these, so this is the only place these numbers live.
+function MyBook({ data }: { data: any }) {
+  const rows: any[] = data?.myBookings || [];
+  const e = data?.earnings || {};
+  const money = (c: number) => `$${((Number(c) || 0) / 100).toFixed(2)}`;
+  return (
+    <section className="space-y-3">
+      <SectionTitle icon={CalendarDays}>My Book</SectionTitle>
+      <div className="p-4 rounded-3xl bg-white border-2 space-y-3">
+        <div className="rounded-2xl bg-slate-50 p-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Booked this month</p>
+          <p className="text-2xl font-black text-slate-900">{money(e.monthBookedCents)}</p>
+          <p className="text-[11px] font-bold text-slate-500">
+            {e.monthCount || 0} appointment{(e.monthCount || 0) === 1 ? '' : 's'} so far · {e.upcomingCount || 0} coming up
+          </p>
+          <p className="mt-1 text-[10px] font-bold text-slate-400">You collect these directly — this is your record, not a payout.</p>
+        </div>
+        {rows.length === 0 ? (
+          <p className="py-4 text-center text-[11px] font-bold text-slate-400">No upcoming client bookings yet. Share your booking link to fill it.</p>
+        ) : rows.map((b: any) => (
+          <div key={b.id} className="flex items-center justify-between gap-3 rounded-2xl border-2 p-3">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-black text-slate-900">{b.clientName}</p>
+              <p className="text-[11px] font-bold text-slate-500">{b.serviceName || 'Service'} · {fmtDate(String(b.startTime).slice(0, 10))}</p>
+            </div>
+            <p className="shrink-0 text-[13px] font-black text-slate-900">${Number(b.price || 0).toFixed(2)}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ─── My Services: menu editor + pricing coach ─────────────────────────────────
+// The renter's own business tool. Every number here is derived from THEIR rent
+// and THEIR hours — the studio never sees these calculations, only the menu
+// that results. The lease floor is shown as the agreed term it is, and the
+// server enforces it too, so a refused save is never a surprise.
+function MyServices({ data, tenantId, token, onChanged }: { data: any; tenantId: string; token: string; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [hours, setHours] = useState(String(data?.pricing?.bookableHoursPerMonth || 100));
+  const [draft, setDraft] = useState<any>(null);
+
+  const pricing = data?.pricing || {};
+  const rentPerHour = (Number(pricing.rentPerHourCents) || 0) / 100;
+  const floor = (Number(pricing.priceFloorCents) || 0) / 100;
+  const services: any[] = data?.myServices || [];
+
+  // When they've told us what they need to live on, the bar becomes THEIR
+  // target hourly instead of a generic multiple of rent. Same shape either
+  // way, so the UI doesn't branch — only the standard gets more honest.
+  const targetHourly = (Number(pricing.targetHourlyCents) || 0) / 100;
+  const hasGoals = !!pricing.hasGoals && targetHourly > 0;
+
+  const coach = (price: number, duration: number, productCost: number) => {
+    const hrs = Math.max(0.01, (Number(duration) || 60) / 60);
+    const rentShare = rentPerHour * hrs;
+    const keep = (Number(price) || 0) - rentShare - (Number(productCost) || 0);
+    const perHour = keep / hrs;
+    const bar = hasGoals ? targetHourly : rentPerHour * 2;
+    const tone = keep <= 0 ? 'bad' : perHour < bar ? 'thin' : 'good';
+    const monthlyTarget = hasGoals
+      ? (Number(pricing.monthlyTargetCents) || 0) / 100
+      : (Number(pricing.monthlyRentCents) || 0) / 100;
+    const needed = keep > 0 ? Math.ceil(monthlyTarget / keep) : 0;
+    return { rentShare, keep, perHour, tone, needed, bar };
+  };
+
+  const saveHours = async () => {
+    setBusy(true); setErr('');
+    const d = await api({ action: 'my-hours', tenantId, token, bookableHoursPerMonth: Number(hours) });
+    setBusy(false);
+    if (!d.ok) { setErr(d.error || 'Could not save'); return; }
+    onChanged();
+  };
+
+  const saveService = async () => {
+    if (!draft) return;
+    setBusy(true); setErr('');
+    const d = await api({
+      action: 'my-service-save', tenantId, token,
+      serviceId: draft.id || '', name: draft.name,
+      price: Number(draft.price), duration: Number(draft.duration), productCost: Number(draft.productCost || 0),
+      depositAmount: Number(draft.depositAmount || 0),
+    });
+    setBusy(false);
+    if (!d.ok) { setErr(d.error || 'Could not save'); return; }
+    setDraft(null); onChanged();
+  };
+
+  const removeService = async (id: string) => {
+    setBusy(true); setErr('');
+    const d = await api({ action: 'my-service-remove', tenantId, token, serviceId: id });
+    setBusy(false);
+    if (!d.ok) { setErr(d.error || 'Could not remove'); return; }
+    onChanged();
+  };
+
+  const live = draft ? coach(Number(draft.price) || 0, Number(draft.duration) || 60, Number(draft.productCost) || 0) : null;
+
+  return (
+    <section className="space-y-3">
+      <SectionTitle icon={Sparkles}>My Services</SectionTitle>
+
+      <div className="p-4 rounded-3xl bg-white border-2 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Your booking link</p>
+            <p className="text-[11px] font-bold text-slate-700 truncate">{data?.provider?.bookingUrl}</p>
+          </div>
+          <button onClick={() => { navigator.clipboard?.writeText(data?.provider?.bookingUrl || ''); }}
+                  className="h-9 shrink-0 rounded-xl bg-slate-900 px-4 text-[10px] font-black uppercase tracking-widest text-white active:scale-95">
+            Copy
+          </button>
+        </div>
+
+        <div className="rounded-2xl bg-slate-50 p-3 space-y-2">
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+            {hasGoals ? 'What an hour needs to earn' : 'What an hour costs you'}
+          </p>
+          <p className="text-[13px] font-bold text-slate-700">
+            {hasGoals ? (
+              <>Your hour needs to make <span className="font-black text-slate-900">${targetHourly.toFixed(2)}</span> — rent, taxes and what you live on, over the hours you book.</>
+            ) : (
+              <>Your rent works out to <span className="font-black text-slate-900">${rentPerHour.toFixed(2)}/hour</span> in the chair.</>
+            )}
+          </p>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold text-slate-500">Hours you book a month</span>
+            <input type="number" min={1} max={400} value={hours} onChange={e => setHours(e.target.value)}
+                   className="h-9 w-20 rounded-xl border-2 text-center text-[12px] font-black" />
+            <button onClick={saveHours} disabled={busy}
+                    className="h-9 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-50">Save</button>
+          </div>
+        </div>
+
+        {floor > 0 && (
+          <p className="text-[11px] font-bold text-slate-500">Your lease sets a ${floor.toFixed(2)} minimum per service.</p>
+        )}
+        {err && <p className="text-[11px] font-black text-red-600">{err}</p>}
+
+        {services.map((sv: any) => {
+          const c = coach(sv.price, sv.duration, sv.productCost);
+          return (
+            <div key={sv.id} className="rounded-2xl border-2 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13px] font-black text-slate-900">{sv.name}</p>
+                  <p className="text-[11px] font-bold text-slate-500">${Number(sv.price).toFixed(2)} · {sv.duration} min</p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <button onClick={() => setDraft({ ...sv })} className="h-8 rounded-lg border-2 px-3 text-[10px] font-black uppercase tracking-widest">Edit</button>
+                  <button onClick={() => removeService(sv.id)} disabled={busy} className="h-8 rounded-lg px-2 text-[10px] font-black uppercase tracking-widest text-slate-400 disabled:opacity-50">Remove</button>
+                </div>
+              </div>
+              <p className={cn('mt-2 text-[11px] font-bold',
+                c.tone === 'bad' ? 'text-red-600' : c.tone === 'thin' ? 'text-amber-600' : 'text-emerald-700')}>
+                {c.keep <= 0
+                  ? `You lose $${Math.abs(c.keep).toFixed(2)} on this one after rent and product.`
+                  : `You keep $${c.keep.toFixed(2)} — that's $${c.perHour.toFixed(2)}/hour. ${c.needed} a month ${hasGoals ? 'hits your goal' : 'covers your rent'}.`}
+              </p>
+            </div>
+          );
+        })}
+
+        {draft ? (
+          <div className="rounded-2xl border-2 border-slate-900 p-3 space-y-2">
+            <input placeholder="Service name" value={draft.name || ''} onChange={e => setDraft((d: any) => ({ ...d, name: e.target.value }))}
+                   className="h-10 w-full rounded-xl border-2 px-3 text-[13px] font-bold" />
+            <div className="flex flex-wrap gap-2">
+              <label className="flex-1 min-w-[5rem]">
+                <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Price</span>
+                <input type="number" min={0} value={draft.price ?? ''} onChange={e => setDraft((d: any) => ({ ...d, price: e.target.value }))}
+                       className="h-10 w-full rounded-xl border-2 text-center text-[13px] font-black" />
+              </label>
+              <label className="flex-1 min-w-[5rem]">
+                <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Minutes</span>
+                <input type="number" min={5} step={5} value={draft.duration ?? 60} onChange={e => setDraft((d: any) => ({ ...d, duration: e.target.value }))}
+                       className="h-10 w-full rounded-xl border-2 text-center text-[13px] font-black" />
+              </label>
+              <label className="flex-1 min-w-[5rem]">
+                <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Product $</span>
+                <input type="number" min={0} value={draft.productCost ?? 0} onChange={e => setDraft((d: any) => ({ ...d, productCost: e.target.value }))}
+                       className="h-10 w-full rounded-xl border-2 text-center text-[13px] font-black" />
+              </label>
+              {data?.provider?.chargesEnabled && (
+                <label className="flex-1 min-w-[5rem]">
+                  <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Deposit $</span>
+                  <input type="number" min={0} value={draft.depositAmount ?? 0} onChange={e => setDraft((d: any) => ({ ...d, depositAmount: e.target.value }))}
+                         className="h-10 w-full rounded-xl border-2 text-center text-[13px] font-black" />
+                </label>
+              )}
+            </div>
+            {data?.provider?.chargesEnabled ? (
+              <p className="text-[10px] font-bold text-slate-400">A deposit holds the slot and goes straight to your Stripe. Leave it 0 for no deposit.</p>
+            ) : (
+              <p className="text-[10px] font-bold text-slate-400">Connect your Stripe below to start taking deposits and stop losing no-shows.</p>
+            )}
+            {live && (
+              <div className={cn('rounded-xl p-3',
+                live.tone === 'bad' ? 'bg-red-50' : live.tone === 'thin' ? 'bg-amber-50' : 'bg-emerald-50')}>
+                <p className={cn('text-[12px] font-black',
+                  live.tone === 'bad' ? 'text-red-700' : live.tone === 'thin' ? 'text-amber-700' : 'text-emerald-800')}>
+                  {live.keep <= 0
+                    ? `At this price you lose $${Math.abs(live.keep).toFixed(2)} each time.`
+                    : `You keep $${live.keep.toFixed(2)} — $${live.perHour.toFixed(2)}/hour.`}
+                </p>
+                <p className="mt-1 text-[11px] font-bold text-slate-600">
+                  Rent share ${live.rentShare.toFixed(2)}{Number(draft.productCost) > 0 ? ` · product $${Number(draft.productCost).toFixed(2)}` : ''}
+                  {live.needed > 0 ? ` · ${live.needed} a month covers your rent` : ''}
+                </p>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button onClick={saveService} disabled={busy}
+                      className="h-10 flex-1 rounded-xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white active:scale-95 disabled:opacity-50">
+                {busy ? 'Saving…' : 'Save service'}
+              </button>
+              <button onClick={() => { setDraft(null); setErr(''); }} className="h-10 rounded-xl border-2 px-4 text-[10px] font-black uppercase tracking-widest">Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <button onClick={() => setDraft({ name: '', price: '', duration: 60, productCost: 0 })}
+                  className="h-11 w-full rounded-2xl border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-500">
+            ＋ Add a service
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+
+// ─── Shared UI bits ───────────────────────────────────────────────────────────
+const SectionTitle = ({ icon: Icon, children }: { icon: any; children: React.ReactNode }) => (
+  <div className="flex items-center gap-2 px-1">
+    <Icon className="w-3.5 h-3.5 text-primary" />
+    <h2 className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">{children}</h2>
+  </div>
+);
+
+const Chip = ({ tone, children }: { tone: 'green' | 'amber' | 'red' | 'slate' | 'violet'; children: React.ReactNode }) => (
+  <span className={cn('inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest',
+    tone === 'green' && 'bg-emerald-100 text-emerald-700',
+    tone === 'amber' && 'bg-amber-100 text-amber-700',
+    tone === 'red' && 'bg-red-100 text-red-700',
+    tone === 'violet' && 'bg-violet-100 text-violet-700',
+    tone === 'slate' && 'bg-slate-100 text-slate-600')}>
+    {children}
+  </span>
+);
+
+// ─── Login (contact → code) ───────────────────────────────────────────────────
+const LoginFlow = ({ tenantId, onSession }: {
+  tenantId: string;
+  onSession: (s: { token: string; expiresAt: number; name: string | null }) => void;
+}) => {
+  const { toast } = useToast();
+  const [phase, setPhase] = useState<'contact' | 'code'>('contact');
+  const [contact, setContact] = useState('');
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const requestCode = async () => {
+    if (!contact.trim()) return;
+    setBusy(true);
+    const d = await api({ action: 'request-code', tenantId, contact: contact.trim() });
+    setBusy(false);
+    if (d.ok) {
+      setPhase('code');
+    } else {
+      toast({ variant: 'destructive', title: 'Couldn’t send a code', description: d.error || 'Try again.' });
     }
+  };
 
-    // ═══ verify-code ══════════════════════════════════════════════════════
-    if (action === 'verify-code') {
-      const raw = String(body.contact || '').trim().slice(0, 160);
-      const key = normContact(raw);
-      const code = String(body.code || '').trim();
-      if (!key || !/^\d{6}$/.test(code)) {
-        return NextResponse.json({ ok: false, error: 'Enter the 6-digit code.' }, { status: 400 });
-      }
-      if (await slidingWindow(db, tenantId, 'failedAt', MAX_VERIFY_FAILS)) {
-        return NextResponse.json({ ok: false, error: 'Too many attempts — try again in 15 minutes.' }, { status: 423 });
-      }
-      const codesRef = db.doc(`tenants/${tenantId}/private/renterCodes`);
-      const entry = ((((await codesRef.get()).data() as any) || {})[key]) || null;
-      if (!entry || Date.now() > entry.expiresAt || entry.attempts >= 5 || entry.codeHash !== sha256(code)) {
-        if (entry) await codesRef.set({ [key]: { ...entry, attempts: (entry.attempts || 0) + 1 } }, { merge: true });
-        await recordStamp(db, tenantId, 'failedAt');
-        return NextResponse.json({ ok: false, error: 'That code isn’t valid — check it or request a new one.' }, { status: 401 });
-      }
-      await codesRef.set({ [key]: null }, { merge: true }); // single-use
-      await recordStamp(db, tenantId, 'failedAt', true);
-      const session = await createSession(db, tenantId, key, entry.name || null, entry.renterId || null);
-      await logAuditAdmin(db, tenantId, {
-        action: 'portal.renter_login',
-        targetType: 'renterContact', targetId: maskContact(raw),
-        summary: `${entry.name || maskContact(raw)} signed in to the renter portal`,
-        actor: { type: 'user', name: entry.name || null, role: 'renter', via: 'renter-portal' },
-      });
-      return NextResponse.json({ ok: true, token: session.token, expiresAt: session.expiresAt, name: entry.name || null });
+  const verify = async () => {
+    if (code.length !== 6) return;
+    setBusy(true);
+    const d = await api({ action: 'verify-code', tenantId, contact: contact.trim(), code });
+    setBusy(false);
+    if (d.ok && d.token) {
+      onSession({ token: d.token, expiresAt: d.expiresAt, name: d.name || null });
+    } else {
+      setCode('');
+      toast({ variant: 'destructive', title: 'Code didn’t match', description: d.error || 'Check the code and try again.' });
     }
+  };
 
-    // ═══ token-login — the renter's MAGIC LINK ════════════════════════════
-    // The owner shares /rent/{tenantId}?rt=TOKEN from the renter's profile;
-    // opening it signs the renter straight in — no code, no SMS required.
-    // This is what makes the portal usable BEFORE Twilio is set up (and
-    // easier after). The token lives on the renter doc; the owner clears or
-    // regenerates it to revoke. Same rate-limit pool as code attempts, so
-    // token guessing burns the same budget as code guessing.
-    if (action === 'token-login') {
-      const tok = String(body.magicToken || '').trim();
-      if (!tok || tok.length < 12) {
-        return NextResponse.json({ ok: false, error: 'This link is incomplete — ask the studio to resend it.' }, { status: 400 });
-      }
-      if (await slidingWindow(db, tenantId, 'failedAt', MAX_VERIFY_FAILS)) {
-        return NextResponse.json({ ok: false, error: 'Too many attempts — try again in 15 minutes.' }, { status: 423 });
-      }
-      const rs = await db.collection(`tenants/${tenantId}/renters`).where('portalToken', '==', tok).limit(1).get();
-      if (rs.empty) {
-        await recordStamp(db, tenantId, 'failedAt');
-        return NextResponse.json({ ok: false, error: 'This link is no longer valid — ask the studio for a fresh one.' }, { status: 401 });
-      }
-      const r = { id: rs.docs[0].id, ...(rs.docs[0].data() as any) };
-      const key = normContact(String(r.phone || r.email || ''));
-      if (!key) {
-        return NextResponse.json({ ok: false, error: 'No phone or email on your renter record — the studio needs to add one.' }, { status: 400 });
-      }
-      await recordStamp(db, tenantId, 'failedAt', true);
-      const session = await createSession(db, tenantId, key, r.name || null, r.id);
-      await logAuditAdmin(db, tenantId, {
-        action: 'portal.renter_login',
-        targetType: 'renter', targetId: r.id,
-        summary: `${r.name || 'A renter'} signed in to the renter portal via their personal link`,
-        actor: { type: 'user', name: r.name || null, role: 'renter', via: 'renter-portal-magic-link' },
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-violet-50 via-white to-white flex items-center justify-center p-6">
+      <div className="w-full max-w-sm space-y-8">
+        <div className="text-center space-y-3">
+          <div className="w-16 h-16 rounded-3xl bg-violet-100 flex items-center justify-center mx-auto">
+            <Armchair className="w-8 h-8 text-violet-600" />
+          </div>
+          <h1 className="text-3xl font-black uppercase tracking-tighter text-slate-900">Renter Portal</h1>
+          <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+            {phase === 'contact' ? 'Your bookings, credits & rent — one place' : 'Enter your access code'}
+          </p>
+        </div>
+
+        {phase === 'contact' ? (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-1">
+                Phone or email you booked with
+              </label>
+              {/* Carrier-required disclosure for the OTP text this requests */}
+              <p className="text-[10px] font-medium text-slate-400 px-1 leading-snug">
+                We'll text a one-time sign-in code to this number. Msg &amp; data rates may
+                apply. Reply STOP to opt out. <a href="/terms" target="_blank" rel="noreferrer" className="underline">SMS Terms</a> · <a href="/privacy" target="_blank" rel="noreferrer" className="underline">Privacy</a>
+              </p>
+              <div className="relative">
+                <Phone className="w-4 h-4 text-slate-300 absolute left-4 top-1/2 -translate-y-1/2" />
+                <input
+                  value={contact}
+                  onChange={e => setContact(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && requestCode()}
+                  inputMode="email"
+                  autoComplete="tel"
+                  placeholder="(555) 123-4567 or you@email.com"
+                  className="w-full h-14 pl-11 pr-4 rounded-2xl border-2 border-slate-200 bg-white font-bold text-slate-900 placeholder:text-slate-300 focus:border-violet-400 focus:outline-none"
+                />
+              </div>
+            </div>
+            <button
+              onClick={requestCode}
+              disabled={busy || !contact.trim()}
+              className="w-full h-14 rounded-2xl bg-slate-900 text-white font-black uppercase tracking-widest text-xs shadow-xl shadow-slate-900/20 active:scale-[0.98] transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+            >
+              {busy ? <Loader className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
+              Get Access Code
+            </button>
+            <p className="text-[10px] font-medium text-slate-400 text-center leading-relaxed px-4">
+              We’ll verify it’s really you. The studio front desk can share your one-time code.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="p-4 rounded-2xl bg-violet-50 border border-violet-100 text-center">
+              <p className="text-[10px] font-bold text-violet-700 leading-relaxed">
+                A 6-digit code was sent to the studio for <strong>{contact.trim()}</strong>.
+                Ask the front desk to read it to you.
+              </p>
+            </div>
+            <input
+              value={code}
+              onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              onKeyDown={e => e.key === 'Enter' && verify()}
+              inputMode="numeric"
+              autoFocus
+              placeholder="••••••"
+              className="w-full h-16 rounded-2xl border-2 border-slate-200 bg-white font-black text-3xl text-center tracking-[0.5em] text-slate-900 placeholder:text-slate-200 focus:border-violet-400 focus:outline-none"
+            />
+            <button
+              onClick={verify}
+              disabled={busy || code.length !== 6}
+              className="w-full h-14 rounded-2xl bg-slate-900 text-white font-black uppercase tracking-widest text-xs shadow-xl shadow-slate-900/20 active:scale-[0.98] transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+            >
+              {busy ? <Loader className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              Sign In
+            </button>
+            <button
+              onClick={() => { setPhase('contact'); setCode(''); }}
+              className="w-full text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 py-2"
+            >
+              Use a different phone / email
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ─── Reservation card ─────────────────────────────────────────────────────────
+const ResCard = ({ r, isToday, onCheckIn, onCheckOut, onRequestReschedule, busy }: {
+  r: any; isToday: boolean;
+  onCheckIn?: (id: string) => void; onCheckOut?: (id: string) => void;
+  onRequestReschedule?: (id: string) => void; busy?: boolean;
+}) => {
+  const window = r.bookingType === 'hourly' && r.startTime
+    ? `${fmtTime(r.startTime)} – ${fmtTime(r.endTime)}`
+    : r.startDate === r.endDate ? 'All day' : `through ${fmtDate(r.endDate)}`;
+  const statusChip =
+    r.status === 'checked_in' ? <Chip tone="green">Checked in</Chip> :
+    r.status === 'confirmed' ? <Chip tone="violet">Confirmed</Chip> :
+    r.status === 'completed' ? <Chip tone="slate">Completed</Chip> :
+    r.status === 'refunded' ? <Chip tone="slate">Refunded</Chip> :
+    <Chip tone="slate">{String(r.status || '').replace(/_/g, ' ')}</Chip>;
+
+  return (
+    <div className={cn('p-4 rounded-3xl border-2 bg-white space-y-3',
+      isToday ? 'border-violet-200 shadow-lg shadow-violet-100' : 'border-slate-100')}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-black text-slate-900 text-sm truncate">{r.boothName}</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-0.5">
+            {fmtDate(r.startDate)} · {window}{r.slotLabel ? ` · ${r.slotLabel}` : ''}
+          </p>
+        </div>
+        {statusChip}
+      </div>
+
+      {(r.balanceDueCents > 0 && !r.balancePaid && r.status !== 'refunded') && (
+        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-50 border border-amber-100">
+          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+          <p className="text-[10px] font-bold text-amber-700">
+            {fmtMoney(r.balanceDueCents)} balance {r.balanceMode === 'at_checkin' ? 'due at check-in' : 'payable in person'}
+          </p>
+        </div>
+      )}
+      {r.overageStatus === 'due' && r.overageDueCents > 0 && (
+        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-red-50 border border-red-100">
+          <Clock className="w-3.5 h-3.5 text-red-600 shrink-0" />
+          <p className="text-[10px] font-bold text-red-700">
+            {fmtMoney(r.overageDueCents)} overtime due ({r.overageMinutes} min past booked time)
+          </p>
+        </div>
+      )}
+      {r.creditDecision === 'pending' && r.potentialCreditCents > 0 && (
+        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-50 border border-emerald-100">
+          <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+          <p className="text-[10px] font-bold text-emerald-700">
+            {fmtMoney(r.potentialCreditCents)} credit for unused time — pending studio review
+          </p>
+        </div>
+      )}
+
+      {isToday && r.status === 'confirmed' && onCheckIn && (
+        <button onClick={() => onCheckIn(r.id)} disabled={busy}
+          className="w-full h-12 rounded-2xl bg-violet-600 text-white font-black uppercase tracking-widest text-[11px] shadow-lg shadow-violet-200 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+          {busy ? <Loader className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Check In
+        </button>
+      )}
+      {isToday && r.status === 'checked_in' && onCheckOut && (
+        <button onClick={() => onCheckOut(r.id)} disabled={busy}
+          className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase tracking-widest text-[11px] active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+          {busy ? <Loader className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />} Check Out
+        </button>
+      )}
+      {!isToday && r.status === 'confirmed' && onRequestReschedule && (
+        r.rescheduleRequestedAt ? (
+          <p className="text-[10px] font-black uppercase tracking-widest text-violet-500 text-center py-1.5">
+            ⏱ Reschedule requested — the studio will reach out
+          </p>
+        ) : (
+          <button onClick={() => onRequestReschedule(r.id)} disabled={busy}
+            className="w-full h-10 rounded-2xl border-2 border-slate-200 text-slate-500 font-black uppercase tracking-widest text-[10px] active:scale-[0.98] transition-all disabled:opacity-50">
+            Request Reschedule
+          </button>
+        )
+      )}
+    </div>
+  );
+};
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+export default function RenterPortalPage() {
+  const params = useParams();
+  const tenantId = params.tenantId as string;
+  const { toast } = useToast();
+
+  const [session, setSession] = useState<{ token: string; expiresAt: number; name: string | null } | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const s = JSON.parse(localStorage.getItem(STORE(tenantId)) || 'null');
+      return s && s.expiresAt > Date.now() ? s : null;
+    } catch { return null; }
+  });
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [credBusy, setCredBusy] = useState<'license' | 'insurance' | null>(null);
+  const [credDone, setCredDone] = useState<'license' | 'insurance' | null>(null);
+
+  const saveSession = (s: { token: string; expiresAt: number; name: string | null } | null) => {
+    if (s) localStorage.setItem(STORE(tenantId), JSON.stringify(s));
+    else localStorage.removeItem(STORE(tenantId));
+    setSession(s);
+    if (!s) setData(null);
+  };
+
+  // Magic link (?rt=TOKEN): the owner shared a personal sign-in link from
+  // the renter's profile — exchange it for a session on arrival, then wipe
+  // the token from the URL so it doesn't linger in history or share sheets.
+  // This is the no-SMS path: it works before Twilio is configured.
+  useEffect(() => {
+    if (typeof window === 'undefined' || session?.token) return;
+    const rt = new URLSearchParams(window.location.search).get('rt');
+    if (!rt) return;
+    window.history.replaceState({}, '', window.location.pathname);
+    (async () => {
+      const d = await api({ action: 'token-login', tenantId, magicToken: rt });
+      if (d.ok && d.token) saveSession({ token: d.token, expiresAt: d.expiresAt, name: d.name || null });
+      else toast({ variant: 'destructive', title: 'Link didn’t work', description: d.error || 'Sign in with your phone or email below.' });
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const refresh = useCallback(async (tok?: string) => {
+    const token = tok || session?.token;
+    if (!token) return;
+    setLoading(true);
+    const d = await api({ action: 'me', tenantId, token, today: localISO() });
+    setLoading(false);
+    if (d.ok) setData(d);
+    else if (d.status === 401) saveSession(null);
+    else toast({ variant: 'destructive', title: 'Couldn’t load your info', description: d.error || 'Pull to refresh or try again.' });
+  }, [session?.token, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { if (session?.token && !data) refresh(); }, [session?.token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Returning from Stripe Checkout (?cfInvoiceId=&cfSession=) → confirm the
+  // payment server-side (idempotent), then clean the URL.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !session?.token) return;
+    const params = new URLSearchParams(window.location.search);
+    const invoiceId = params.get('cfInvoiceId');
+    const sessionId = params.get('cfSession');
+    if (!invoiceId || !sessionId) return;
+    window.history.replaceState({}, '', window.location.pathname);
+    (async () => {
+      const d = await api({ action: 'confirm-invoice', tenantId, token: session.token, invoiceId, sessionId });
+      if (d.ok) toast({ title: 'Rent paid ✓', description: 'Your receipt is in Payment History below.' });
+      else toast({ variant: 'destructive', title: 'Payment needs attention', description: d.error || 'If you were charged, contact the studio — nothing is lost.' });
+      refresh();
+    })();
+  }, [session?.token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const today = localISO();
+  const todays = useMemo(() => (data?.upcoming || []).filter((r: any) => r.startDate <= today && r.endDate >= today), [data, today]);
+  const later = useMemo(() => (data?.upcoming || []).filter((r: any) => r.startDate > today), [data, today]);
+  const openInvoices = useMemo(() => (data?.invoices || []).filter((i: any) => i.status === 'due' || i.status === 'late'), [data]);
+
+  const doCheckIn = async (reservationId: string) => {
+    if (!session) return;
+    setActionBusy(true);
+    const d = await api({ action: 'check-in', tenantId, token: session.token, reservationId, today: localISO() });
+    setActionBusy(false);
+    if (d.ok) {
+      toast({
+        title: 'You’re checked in ✓',
+        description: d.needsBalance
+          ? `Reminder: ${fmtMoney(d.balanceDueCents)} balance is ${d.balanceMode === 'at_checkin' ? 'due now at the front desk' : 'payable in person'}.`
+          : 'Have a great day at the studio.',
       });
-      return NextResponse.json({ ok: true, token: session.token, expiresAt: session.expiresAt, name: r.name || null });
-    }
+      refresh();
+    } else if (d.status === 401) { saveSession(null); }
+    else toast({ variant: 'destructive', title: 'Check-in didn’t go through', description: d.error || 'See the front desk.' });
+  };
 
-    // ═══ Everything below requires a session ══════════════════════════════
-    const session = await resolveSession(db, tenantId, body.token);
-    if (!session) {
-      return NextResponse.json({ ok: false, error: 'Session expired — sign in again.' }, { status: 401 });
-    }
-    const key = session.contactKey;
+  const payInvoice = async (invoiceId: string) => {
+    if (!session) return;
+    setActionBusy(true);
+    const d = await api({ action: 'pay-invoice', tenantId, token: session.token, invoiceId, returnUrl: window.location.href });
+    setActionBusy(false);
+    if (d.ok && d.url) { window.location.href = d.url; }
+    else if (d.ok && d.alreadyPaid) { toast({ title: 'Already paid ✓' }); refresh(); }
+    else if (d.status === 401) { saveSession(null); }
+    else toast({ variant: 'destructive', title: 'Couldn’t start payment', description: d.error || 'You can always pay at the front desk.' });
+  };
 
-    // ═══ MAINTENANCE TICKETS — renters report and follow issues ═══════════
-    // The renter portal is a first-class entry to the same ticket queue the
-    // owner and techs work. No phone tag: they file it, they watch it move.
-    if (action === 'create-ticket') {
-      const title = String(body.title || '').trim().slice(0, 140);
-      const description = String(body.description || '').trim().slice(0, 2000);
-      const category = ['equipment', 'plumbing', 'electrical', 'cleaning', 'safety', 'other'].includes(body.category) ? body.category : 'other';
-      // Renters can flag urgency, but 'urgent' (4h SLA + station lockout) is
-      // an owner/tech call — renter submissions cap at 'high'.
-      const priority = ['high', 'normal', 'low'].includes(body.priority) ? body.priority : 'normal';
-      if (!title) return NextResponse.json({ ok: false, error: 'Give the issue a short title.' }, { status: 400 });
-      // Attach their station automatically when they have one.
-      let boothId: string | null = null; let boothName: string | null = null;
-      if (session.renterId) {
-        try {
-          const ls = await db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', session.renterId).get();
-          const l = ls.docs.map((d: any) => d.data() as any).find((x: any) => ['active', 'on_leave'].includes(x.status));
-          if (l?.boothId) {
-            boothId = l.boothId;
-            const b = await db.doc(`tenants/${tenantId}/booths/${l.boothId}`).get();
-            boothName = b.exists ? ((b.data() as any).name || null) : null;
-          }
-        } catch { /* station attach is a bonus */ }
-      }
-      const nowIso = new Date().toISOString();
-      const ref = db.collection(`tenants/${tenantId}/tickets`).doc();
-      // Optional photo — "here's what it looks like" beats any description.
-      let photoUrl: string | null = null;
-      let photoError: string | undefined;
-      if (typeof body.photoData === 'string' && body.photoData.startsWith('data:image')) {
-        const up = await uploadTicketPhotoFromDataUrl(tenantId, ref.id, body.photoData);
-        photoUrl = up.url; photoError = up.error;
-      }
-      await ref.set({
-        id: ref.id, tenantId, locationId: null,
-        title, description, category, priority, status: 'open',
-        boothId, boothName,
-        photoUrls: photoUrl ? [photoUrl] : [],
-        reporter: { type: 'renter', name: session.name || 'Renter', phone: /\d{7,}/.test(key) ? key : '', renterId: session.renterId || null },
-        assigneeId: null, assigneeName: null,
-        updates: [{ at: nowIso, by: session.name || 'Renter', byType: 'renter', note: 'Ticket created', status: 'open', ...(photoUrl ? { photoUrl } : {}) }],
-        createdAt: nowIso, updatedAt: nowIso, dueAt: dueAtFor(priority), resolvedAt: null,
-      });
-      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-      await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/booths',
-        message: `Maintenance request from ${session.name || 'a renter'}: "${title}"${boothName ? ` (${boothName})` : ''} — ${priority} priority${photoUrl ? ' · photo attached' : ''}.` });
-      // Rotation: with auto-assign on, the ticket already has a worker (and
-      // they already have a text) before the owner even sees the notification.
-      const assigned = await autoAssignTicket(db, tenantId, ref.id, { title, boothName, priority }, req.headers.get('origin') || undefined);
-      return NextResponse.json({ ok: true, ticketId: ref.id, photoError, assignedTo: assigned?.assigneeName || null });
-    }
+  const requestReschedule = async (reservationId: string) => {
+    if (!session) return;
+    setActionBusy(true);
+    const d = await api({ action: 'request-reschedule', tenantId, token: session.token, reservationId });
+    setActionBusy(false);
+    if (d.ok) {
+      toast({ title: 'Request sent ✓', description: 'The studio will reach out to move your booking.' });
+      refresh();
+    } else if (d.status === 401) { saveSession(null); }
+    else toast({ variant: 'destructive', title: 'Couldn’t send request', description: d.error || 'Try again.' });
+  };
 
-    // ═══ upload-credential — paperwork renews ITSELF ══════════════════════
-    // The expiry text says "upload the renewed one in your portal"; this is
-    // where that lands. Photo goes up with admin credentials, the renter
-    // record updates, the expiry-nag stamp clears, and the owner gets a
-    // "Maya uploaded her renewed license" notification instead of a chore.
-    if (action === 'upload-credential') {
-      if (!session.renterId) return NextResponse.json({ ok: false, error: 'Your account isn\'t linked to a renter record — ask the studio to update it.' }, { status: 403 });
-      const kind = body.kind === 'insurance' ? 'insurance' : 'license';
-      if (typeof body.photoData !== 'string' || !body.photoData.startsWith('data:image')) {
-        return NextResponse.json({ ok: false, error: 'Attach a photo of the document.' }, { status: 400 });
-      }
-      const up = await uploadTicketPhotoFromDataUrl(tenantId, `credential-${session.renterId}`, body.photoData);
-      if (!up.url) return NextResponse.json({ ok: false, error: up.error || 'Upload failed — try again.' }, { status: 500 });
-      const expiry = /^\d{4}-\d{2}-\d{2}$/.test(String(body.expiry || '')) ? String(body.expiry) : null;
-      const patch: any = kind === 'license'
-        ? { licenseDocUrl: up.url, ...(expiry ? { licenseExpiry: expiry } : {}), credNotified_licenseExpiry: null }
-        : { insuranceDocUrl: up.url, ...(expiry ? { insuranceExpiry: expiry } : {}), credNotified_insuranceExpiry: null };
-      await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set(patch, { merge: true });
-      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-      await nRef.set({
-        id: nRef.id, type: 'credential', read: false, createdAt: new Date().toISOString(), link: '/booths',
-        message: `${session.name || 'A renter'} uploaded a renewed ${kind}${expiry ? ` (expires ${expiry})` : ''} — it's on their profile.`,
-      });
-      await logAuditAdmin(db, tenantId, {
-        action: 'renter.credential_uploaded', targetType: 'renter', targetId: session.renterId,
-        summary: `${session.name || 'Renter'} self-uploaded renewed ${kind}${expiry ? ` (exp ${expiry})` : ''}`,
-        actor: { type: 'user', name: session.name || 'Renter', role: 'renter', via: 'renter-portal' },
-      });
-      return NextResponse.json({ ok: true, url: up.url });
-    }
+  const doCheckOut = async (reservationId: string) => {
+    if (!session) return;
+    setActionBusy(true);
+    const d = await api({ action: 'check-out', tenantId, token: session.token, reservationId });
+    setActionBusy(false);
+    if (d.ok) {
+      const desc = d.overageDueCents > 0
+        ? `${fmtMoney(d.overageDueCents)} for ${d.overageMinutes} extra minutes will be settled by the studio.`
+        : d.potentialCreditCents > 0
+          ? `${fmtMoney(d.potentialCreditCents)} of unused time was sent to the studio for credit review.`
+          : 'All settled — see you next time.';
+      toast({ title: 'Checked out ✓', description: desc });
+      refresh();
+    } else if (d.status === 401) { saveSession(null); }
+    else toast({ variant: 'destructive', title: 'Check-out didn’t go through', description: d.error || 'See the front desk.' });
+  };
 
-    if (action === 'my-tickets') {
-      const snap = await db.collection(`tenants/${tenantId}/tickets`).get();
-      const mine = snap.docs
-        .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
-        .filter((t: any) => (session.renterId && t.reporter?.renterId === session.renterId)
-          || (t.reporter?.phone && t.reporter.phone === key))
-        .sort((a: any, b: any) => (b.createdAt || '').localeCompare(a.createdAt || ''))
-        .slice(0, 25)
-        .map((t: any) => ({
-          id: t.id, title: t.title, description: t.description,
-          category: t.category, priority: t.priority,
-          status: t.status, statusLabel: TICKET_STATUS_LABELS[t.status as keyof typeof TICKET_STATUS_LABELS] || t.status,
-          boothName: t.boothName || null, createdAt: t.createdAt, resolvedAt: t.resolvedAt || null,
-          assigneeName: t.assigneeName || null,
-          photoUrls: Array.isArray(t.photoUrls) ? t.photoUrls : [],
-          updates: (t.updates || []).map((u: any) => ({ at: u.at, by: u.by, byType: u.byType, note: u.note || null, status: u.status || null, photoUrl: u.photoUrl || null })),
-        }));
-      return NextResponse.json({ ok: true, tickets: mine });
-    }
+  if (!session) return <LoginFlow tenantId={tenantId} onSession={s => { saveSession(s); refresh(s.token); }} />;
 
-    if (action === 'ticket-note') {
-      const { ticketId } = body;
-      const note = String(body.note || '').trim().slice(0, 1000);
-      const hasPhoto = typeof body.photoData === 'string' && body.photoData.startsWith('data:image');
-      if (!ticketId || (!note && !hasPhoto)) return NextResponse.json({ ok: false, error: 'Write a note or attach a photo first.' }, { status: 400 });
-      const ref = db.doc(`tenants/${tenantId}/tickets/${ticketId}`);
-      const snap = await ref.get();
-      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
-      const t = snap.data() as any;
-      const owns = (session.renterId && t.reporter?.renterId === session.renterId) || (t.reporter?.phone && t.reporter.phone === key);
-      if (!owns) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
-      const nowIso = new Date().toISOString();
-      let photoUrl: string | null = null;
-      if (hasPhoto) photoUrl = (await uploadTicketPhotoFromDataUrl(tenantId, ticketId, body.photoData)).url;
-      await ref.set({
-        updates: [...(t.updates || []), { at: nowIso, by: session.name || 'Renter', byType: 'renter', ...(note ? { note } : {}), ...(photoUrl ? { photoUrl } : {}) }],
-        ...(photoUrl ? { photoUrls: [...(Array.isArray(t.photoUrls) ? t.photoUrls : []), photoUrl] } : {}),
-        updatedAt: nowIso,
-      }, { merge: true });
-      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-      await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/booths',
-        message: `${session.name || 'Renter'} added to ticket "${t.title}"${note ? `: "${note.slice(0, 120)}"` : ' — photo attached.'}` });
-      return NextResponse.json({ ok: true, photoUrl });
-    }
+  const firstName = (data?.name || session.name || '').split(' ')[0] || 'there';
 
-    // ═══ me ═══════════════════════════════════════════════════════════════
-    if (action === 'me') {
-      const today = safeToday(body.today);
-      const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
-      const tenant = (tenantSnap.data() as any) || {};
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <div className="max-w-lg mx-auto px-4 pb-16">
+        {/* Header */}
+        <header className="flex items-center justify-between pt-8 pb-6">
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">{data?.studioName || 'Studio'}</p>
+            <h1 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Hi, {firstName}</h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => refresh()} disabled={loading}
+              className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:text-slate-600 active:scale-95 transition-all">
+              <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
+            </button>
+            <button onClick={() => saveSession(null)}
+              className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:text-red-500 active:scale-95 transition-all">
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
+        </header>
 
-      // Renter directory entry (may not exist for pure day guests)
-      let renter: any = null;
-      if (session.renterId) {
-        const rd = await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get();
-        if (rd.exists) renter = { id: rd.id, ...(rd.data() as any) };
-      }
-      if (!renter) {
-        const renters = await db.collection(`tenants/${tenantId}/renters`).get();
-        const hit = renters.docs.find((d: any) => { const r = d.data(); return contactMatches(key, r.phone, r.email); });
-        if (hit) renter = { id: hit.id, ...(hit.data() as any) };
-      }
+        {loading && !data ? (
+          <div className="flex flex-col items-center py-24 gap-3 text-slate-400">
+            <Loader className="w-8 h-8 animate-spin" />
+            <p className="text-[10px] font-black uppercase tracking-widest">Loading your studio life…</p>
+          </div>
+        ) : (
+          <div className="space-y-8">
+            {/* Today */}
+            {todays.length > 0 && (
+              <section className="space-y-3">
+                <SectionTitle icon={Clock}>Today</SectionTitle>
+                {todays.map((r: any) => (
+                  <ResCard key={r.id} r={r} isToday onCheckIn={doCheckIn} onCheckOut={doCheckOut} busy={actionBusy} />
+                ))}
+              </section>
+            )}
 
-      // Lease + invoices (leased renters only)
-      let lease: any = null; let invoices: any[] = []; let leaseBoothName: string | null = null;
-      if (renter) {
-        const leases = await db.collection(`tenants/${tenantId}/leases`)
-          .where('renterId', '==', renter.id).get();
-        const activeish = leases.docs
-          .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
-          .filter((l: any) => ['active', 'on_leave', 'pending_signature'].includes(l.status));
-        lease = activeish[0] || null;
-        if (lease) {
-          if (lease.boothId) {
-            const b = await db.doc(`tenants/${tenantId}/booths/${lease.boothId}`).get();
-            leaseBoothName = b.exists ? ((b.data() as any).name || null) : null;
-          }
-          const inv = await db.collection(`tenants/${tenantId}/rentInvoices`)
-            .where('leaseId', '==', lease.id).get();
-          invoices = inv.docs
-            .map((d: any) => { const v = d.data() as any; return {
-              id: d.id, amountCents: v.amountCents || 0, lateFeeCents: v.lateFeeCents || 0,
-              dueDate: String(v.dueDate || '').slice(0, 10), status: v.status || 'due',
-            }; })
-            .sort((a: any, b: any) => (b.dueDate || '').localeCompare(a.dueDate || ''));
-        }
-      }
+            {/* Credits */}
+            {(data?.availableCreditCents > 0 || (data?.credits || []).length > 0) && (
+              <section className="space-y-3">
+                <SectionTitle icon={Sparkles}>Studio Credit</SectionTitle>
+                <div className="p-5 rounded-3xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-xl shadow-emerald-200">
+                  <p className="text-[9px] font-black uppercase tracking-[0.3em] opacity-70">Available balance</p>
+                  <p className="text-4xl font-black tracking-tighter font-mono mt-1">{fmtMoney(data?.availableCreditCents || 0)}</p>
+                  <p className="text-[10px] font-bold opacity-80 mt-2">Applies automatically to your next booking.</p>
+                </div>
+              </section>
+            )}
 
-      // Credits — contactKey is stored un-normalized, so normalize both sides
-      const creditsSnap = await db.collection(`tenants/${tenantId}/boothCredits`).get();
-      const credits = creditsSnap.docs
-        .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
-        .filter((c: any) => normContact(String(c.contactKey || '')) === key
-          || contactMatches(key, c.phone, c.email))
-        .map((c: any) => ({
-          id: c.id, amountCents: c.amountCents || 0, minutes: c.minutes || 0,
-          status: c.status, sourceBoothName: c.sourceBoothName || null, createdAt: c.createdAt || null,
-        }));
-      const availableCreditCents = credits
-        .filter((c: any) => c.status === 'available')
-        .reduce((s: number, c: any) => s + (c.amountCents || 0), 0);
+            {/* Rent (leased renters) */}
+            {data?.lease && (
+              <section className="space-y-3">
+                <SectionTitle icon={Wallet}>Your Rent</SectionTitle>
+                <div className="p-4 rounded-3xl bg-white border-2 border-slate-100 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-black text-slate-900 text-sm">{data.lease.boothName || 'Your space'}</p>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-0.5">
+                        {fmtMoney(data.lease.rentAmountCents)} / {String(data.lease.frequency || 'month').replace('biweekly', '2 weeks').replace('ly', '')}
+                      </p>
+                    </div>
+                    {openInvoices.some((i: any) => i.status === 'late')
+                      ? <Chip tone="red">Late</Chip>
+                      : openInvoices.length > 0 ? <Chip tone="amber">Due</Chip> : <Chip tone="green">Current</Chip>}
+                  </div>
+                  {openInvoices.map((i: any) => (
+                    <div key={i.id} className={cn('flex items-center justify-between p-3 rounded-xl',
+                      i.status === 'late' ? 'bg-red-50' : 'bg-amber-50')}>
+                      <div>
+                        <p className={cn('text-[11px] font-black', i.status === 'late' ? 'text-red-700' : 'text-amber-700')}>
+                          {fmtMoney(i.amountCents + i.lateFeeCents)}
+                          {i.lateFeeCents > 0 && <span className="font-bold opacity-70"> (incl. {fmtMoney(i.lateFeeCents)} late fee)</span>}
+                        </p>
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Due {fmtDate(i.dueDate)}</p>
+                      </div>
+                      <button onClick={() => payInvoice(i.id)} disabled={actionBusy}
+                        className={cn('h-9 px-4 rounded-xl font-black uppercase tracking-widest text-[10px] text-white active:scale-95 transition-all disabled:opacity-50 shrink-0',
+                          i.status === 'late' ? 'bg-red-600' : 'bg-slate-900')}>
+                        {actionBusy ? '…' : 'Pay Now'}
+                      </button>
+                    </div>
+                  ))}
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-slate-300 text-center">Prefer cash or check? Pay at the front desk — it posts here too.</p>
+                </div>
+              </section>
+            )}
 
-      // Reservations (last 180 days), split upcoming vs past
-      const cutoff = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
-      const resSnap = await db.collection(`tenants/${tenantId}/boothReservations`)
-        .where('createdAt', '>=', cutoff).get();
-      const mine = resSnap.docs
-        .filter((d: any) => { const r = d.data(); return contactMatches(key, r.phone, r.email); })
-        .map((d: any) => safeReservation(d.id, d.data()));
-      const ACTIVE = ['confirmed', 'checked_in'];
-      const upcoming = mine
-        .filter((r: any) => ACTIVE.includes(r.status) && r.endDate >= today)
-        .sort((a: any, b: any) => (a.startDate + (a.startTime || '')).localeCompare(b.startDate + (b.startTime || '')));
-      const past = mine
-        .filter((r: any) => !ACTIVE.includes(r.status) || r.endDate < today)
-        .sort((a: any, b: any) => (b.startDate || '').localeCompare(a.startDate || ''))
-        .slice(0, 8);
+            {data?.provider && session?.token && (
+              <MyServices data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
+            )}
 
-      // Booth-rent payment history — matched by name, same as the staff portal
-      const namesToMatch = new Set<string>();
-      if (session.name) namesToMatch.add(session.name.toLowerCase());
-      if (renter) namesToMatch.add(`${renter.firstName || ''} ${renter.lastName || ''}`.trim().toLowerCase());
-      const resNames = resSnap.docs
-        .filter((d: any) => { const r = d.data(); return contactMatches(key, r.phone, r.email); })
-        .map((d: any) => String((d.data() as any).name || '').trim().toLowerCase())
-        .filter(Boolean);
-      resNames.forEach((n: string) => namesToMatch.add(n));
-      let payments: any[] = [];
-      try {
-        const txSnap = await db.collection(`tenants/${tenantId}/transactions`)
-          .where('source', '==', 'booth_rent').get();
-        payments = txSnap.docs
-          .map((d: any) => d.data() as any)
-          .filter((t: any) => namesToMatch.has(String(t.clientOrVendor || '').trim().toLowerCase()))
-          .map((t: any) => ({
-            id: t.id, date: t.date, description: t.description || '',
-            amount: t.amount || 0, type: t.type, category: t.category || '',
-          }))
-          .sort((a: any, b: any) => (b.date || '').localeCompare(a.date || ''))
-          .slice(0, 15);
-      } catch { /* payments are informational — never fail the whole call */ }
+            {data?.provider && session?.token && (
+              <MyNumber data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
+            )}
 
-      // ── Independent-provider block: their menu + the pricing coach inputs ──
-      // Their staff record is the provider identity; the menu is keyed to it.
-      // The coach numbers are derived HERE, server-side, from their own lease
-      // so the portal never has to guess and never sees another renter's data.
-      let provider: any = null;
-      let myServices: any[] = [];
-      let pricing: any = null;
-      let myBookings: any[] = [];
-      let earnings: any = null;
-      try {
-        if (renter) {
-          const stSnap = await db.collection(`tenants/${tenantId}/staff`)
-            .where('renterId', '==', renter.id).get();
-          const st = stSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
-            .find((m: any) => m.isRenter && m.isActive !== false);
-          if (st) {
-            const origin = String(tenant.publicOrigin || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/+$/, '');
-            provider = {
-              staffId: st.id,
-              bookingUrl: origin ? `${origin}/book/${tenantId}?provider=${st.id}` : `/book/${tenantId}?provider=${st.id}`,
-            };
-            // Their own book: client appointments booked through their link.
-            // This is the renter's ledger — the studio's reports exclude these
-            // entirely, so the two sets of books never overlap.
-            try {
-              const since = new Date(Date.now() - 60 * 86400000).toISOString();
-              const apSnap = await db.collection(`tenants/${tenantId}/appointments`)
-                .where('staffId', '==', st.id).where('startTime', '>=', since).get();
-              const rows = apSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
-                .filter((a: any) => a.isRenterBooking && a.status !== 'cancelled');
-              const nowIso = new Date().toISOString();
-              myBookings = rows
-                .filter((a: any) => a.startTime >= nowIso)
-                .sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime)))
-                .slice(0, 20)
-                .map((a: any) => ({
-                  id: a.id, clientName: a.clientName || 'Client',
-                  serviceName: a.renterServiceName || '', price: Number(a.renterServicePrice) || 0,
-                  startTime: a.startTime, status: a.status,
-                }));
-              const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
-              const monthIso = monthStart.toISOString();
-              const done = rows.filter((a: any) => a.startTime >= monthIso && a.startTime < nowIso);
-              earnings = {
-                monthBookedCents: Math.round(done.reduce((sum: number, a: any) => sum + (Number(a.renterServicePrice) || 0), 0) * 100),
-                monthCount: done.length,
-                upcomingCount: myBookings.length,
-              };
-            } catch { /* their book is additive — never fail the whole call */ }
+            {data?.provider && <MyBook data={data} />}
 
-            const svSnap = await db.collection(`tenants/${tenantId}/renterServices`)
-              .where('staffId', '==', st.id).get();
-            myServices = svSnap.docs
-              .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
-              .filter((sv: any) => sv.isActive !== false)
-              .map((sv: any) => ({ id: sv.id, name: sv.name || '', price: Number(sv.price) || 0, duration: Number(sv.duration) || 60, productCost: Number(sv.productCost) || 0 }))
-              .sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)));
+            {data?.provider && session?.token && (
+              <MyPayments data={data} tenantId={tenantId} token={session.token} />
+            )}
 
-            // Rent → cost per bookable hour. Weekly/biweekly leases are
-            // normalized to a month so the number means the same thing for
-            // everyone. Bookable hours are the renter's own estimate.
-            const freq = String(lease?.frequency || 'monthly');
-            const rentCents = Number(lease?.rentAmountCents) || 0;
-            const monthlyRentCents = freq === 'weekly' ? Math.round(rentCents * 52 / 12)
-              : freq === 'biweekly' ? Math.round(rentCents * 26 / 12)
-              : rentCents;
-            const bookableHours = Math.max(1, Number(renter.bookableHoursPerMonth) || 100);
-            // ── Their goals: PRIVATE ────────────────────────────────────────
-            // Lives in a subcollection the security rules close to every
-            // client, reachable only through this session-checked API. The
-            // studio's own pages cannot read it — that is the promise the
-            // portal makes to a renter, made structurally true rather than
-            // just stated. Only a target hourly, and only if they opt in, is
-            // ever visible to the owner (see shareTargetHourly).
-            let goals: any = null;
-            try {
-              const g = await db.doc(`tenants/${tenantId}/renters/${renter.id}/private/goals`).get();
-              if (g.exists) goals = g.data() as any;
-            } catch { /* no goals yet */ }
+            {/* Upcoming */}
+            <section className="space-y-3">
+              <SectionTitle icon={CalendarDays}>Upcoming Bookings</SectionTitle>
+              {later.length === 0 && todays.length === 0 ? (
+                <div className="p-6 rounded-3xl bg-white border-2 border-dashed border-slate-200 text-center space-y-2">
+                  <Armchair className="w-8 h-8 text-slate-200 mx-auto" />
+                  <p className="text-[11px] font-bold text-slate-400">No upcoming bookings</p>
+                </div>
+              ) : (
+                later.map((r: any) => <ResCard key={r.id} r={r} isToday={false} onRequestReschedule={requestReschedule} busy={actionBusy} />)
+              )}
+              {data?.rebookUrl && (
+                <a href={data.rebookUrl}
+                  className="w-full h-12 rounded-2xl border-2 border-violet-200 bg-violet-50 text-violet-700 font-black uppercase tracking-widest text-[11px] active:scale-[0.98] transition-all flex items-center justify-center gap-2">
+                  Book Another Visit <ChevronRight className="w-4 h-4" />
+                </a>
+              )}
+            </section>
 
-            const personalCents = Number(goals?.personalMonthlyCents) || 0;
-            const businessCents = Number(goals?.businessMonthlyCents) || 0;
-            const taxPct = Math.min(60, Math.max(0, Number(goals?.taxSetAsidePct ?? 25)));
-            // Backwards from what they need to KEEP: gross up for tax, add rent
-            // and business costs, spread over the hours they actually book.
-            const grossNeededCents = personalCents > 0
-              ? Math.round(personalCents / Math.max(0.1, 1 - taxPct / 100)) + monthlyRentCents + businessCents
-              : 0;
+            {/* Documents — self-serve credential renewals. The expiry text
+                points here; uploading clears the nag and notifies the studio. */}
+            <section className="space-y-3">
+              <SectionTitle icon={Receipt}>Documents</SectionTitle>
+              <div className="rounded-3xl bg-white border-2 border-slate-100 p-4 space-y-2.5">
+                <p className="text-[11px] font-bold text-slate-500">License or insurance renewed? Upload the new one here — the studio is notified automatically.</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['license', 'insurance'] as const).map((kind) => (
+                    <label key={kind} className={`h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest flex items-center justify-center cursor-pointer ${credBusy === kind ? 'opacity-50' : 'text-slate-700'}`}>
+                      {credBusy === kind ? 'Uploading…' : credDone === kind ? `${kind} ✓` : `Upload ${kind}`}
+                      <input type="file" accept="image/*" className="hidden" disabled={!!credBusy}
+                        onChange={async (e) => {
+                          const f = e.target.files?.[0]; e.target.value = '';
+                          if (!f || !session) return;
+                          setCredBusy(kind);
+                          try {
+                            const dataUrl: string = await downscaleImageToDataUrl(f, { maxDim: 1600 });
+                            const d = await api({ action: 'upload-credential', tenantId, token: session.token, kind, photoData: dataUrl });
+                            if (d.ok) { setCredDone(kind); toast({ title: 'Uploaded ✓', description: 'The studio has been notified — you\'re all set.' }); }
+                            else toast({ variant: 'destructive', title: 'Upload failed', description: d.error || 'Try again.' });
+                          } catch { toast({ variant: 'destructive', title: 'Upload failed', description: 'Try again.' }); }
+                          finally { setCredBusy(null); }
+                        }} />
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </section>
 
-            pricing = {
-              monthlyRentCents,
-              bookableHoursPerMonth: bookableHours,
-              rentPerHourCents: Math.round(monthlyRentCents / bookableHours),
-              // Lease floor — a term they agreed to, shown plainly, not a leash.
-              priceFloorCents: Number(lease?.priceFloorCents) || 0,
-              hasGoals: !!goals && personalCents > 0,
-              targetHourlyCents: grossNeededCents > 0 ? Math.round(grossNeededCents / bookableHours) : 0,
-              monthlyTargetCents: grossNeededCents,
-              taxSetAsidePct: taxPct,
-              personalMonthlyCents: personalCents,
-              businessMonthlyCents: businessCents,
-              shareTargetHourly: !!goals?.shareTargetHourly,
-            };
-          }
-        }
-      } catch { /* the provider block is additive — never fail the whole call */ }
+            {/* Payments */}
+            {(data?.payments || []).length > 0 && (
+              <section className="space-y-3">
+                <SectionTitle icon={Receipt}>Payment History</SectionTitle>
+                <div className="rounded-3xl bg-white border-2 border-slate-100 divide-y divide-slate-50 overflow-hidden">
+                  {(data.payments || []).map((p: any) => (
+                    <div key={p.id || p.date + p.description} className="flex items-center justify-between p-3.5">
+                      <div className="min-w-0 pr-3">
+                        <p className="text-[11px] font-bold text-slate-800 truncate">{p.description || p.category}</p>
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">
+                          {p.date ? fmtDate(String(p.date).slice(0, 10)) : ''}
+                        </p>
+                      </div>
+                      <p className={cn('text-xs font-black font-mono shrink-0',
+                        p.type === 'reversal' ? 'text-slate-400' : 'text-slate-900')}>
+                        {p.type === 'reversal' ? '−' : ''}${Number(p.amount || 0).toFixed(2)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
 
-      return NextResponse.json({
-        ok: true,
-        name: session.name,
-        studioName: tenant.name || 'Studio',
-        rebookUrl: tenant.boothListingUrl || tenant.publicBookingUrl || null,
-        renter: renter ? {
-          id: renter.id,
-          firstName: renter.firstName || '', lastName: renter.lastName || '',
-          businessName: renter.businessName || null,
-          cardOnFile: !!renter.cardOnFile, cardBrand: renter.cardBrand || null, cardLast4: renter.cardLast4 || null,
-        } : null,
-        lease: lease ? {
-          id: lease.id, boothName: leaseBoothName,
-          rentAmountCents: lease.rentAmountCents || 0, frequency: lease.frequency || 'monthly',
-          dueDay: lease.dueDay ?? 1, endDate: lease.endDate || null, status: lease.status,
-          scheduleSlot: lease.scheduleSlot || null,
-        } : null,
-        invoices, credits, availableCreditCents,
-        upcoming, past,
-        payments,
-        provider, myServices, pricing, myBookings, earnings,
-      });
-    }
-
-    // ═══ my-goals ═════════════════════════════════════════════════════════
-    // What they need to earn, in their own words. Written to the private
-    // subcollection; nothing here is ever returned to an owner-facing surface.
-    // shareTargetHourly is opt-in and shares ONE derived number, never the
-    // inputs behind it.
-    if (action === 'my-goals') {
-      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
-      const personal = Math.max(0, Math.round((Number(body.personalMonthly) || 0) * 100));
-      const business = Math.max(0, Math.round((Number(body.businessMonthly) || 0) * 100));
-      const taxPct = Math.min(60, Math.max(0, Number(body.taxSetAsidePct ?? 25)));
-      const share = body.shareTargetHourly === true;
-      await db.doc(`tenants/${tenantId}/renters/${session.renterId}/private/goals`).set({
-        personalMonthlyCents: personal,
-        businessMonthlyCents: business,
-        taxSetAsidePct: taxPct,
-        shareTargetHourly: share,
-        updatedAt: new Date().toISOString(),
-      }, { merge: true });
-      // The opt-in shares exactly one derived figure on the renter record —
-      // the owner sees a rate, never a household budget.
-      try {
-        const rRef = db.doc(`tenants/${tenantId}/renters/${session.renterId}`);
-        if (share) {
-          const ls = await db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', session.renterId).get();
-          const active = ls.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
-            .find((l: any) => ['active', 'on_leave'].includes(l.status));
-          const freq = String(active?.frequency || 'monthly');
-          const rentCents = Number(active?.rentAmountCents) || 0;
-          const monthlyRentCents = freq === 'weekly' ? Math.round(rentCents * 52 / 12)
-            : freq === 'biweekly' ? Math.round(rentCents * 26 / 12) : rentCents;
-          const rSnap = await rRef.get();
-          const hrs = Math.max(1, Number((rSnap.data() as any)?.bookableHoursPerMonth) || 100);
-          const gross = personal > 0 ? Math.round(personal / Math.max(0.1, 1 - taxPct / 100)) + monthlyRentCents + business : 0;
-          await rRef.set({ sharedTargetHourlyCents: gross > 0 ? Math.round(gross / hrs) : 0 }, { merge: true });
-        } else {
-          await rRef.set({ sharedTargetHourlyCents: 0 }, { merge: true });
-        }
-      } catch { /* sharing is a bonus — the private save already stands */ }
-      return NextResponse.json({ ok: true });
-    }
-
-    // ═══ my-service-save / my-service-remove / my-hours ═══════════════════
-    // A renter editing their own menu. The session's renterId decides which
-    // staff record they own; the serviceId is re-read and re-checked against
-    // it, so a forged id can only ever hit their own row. The lease floor is
-    // enforced HERE, not just in the UI.
-    if (action === 'my-service-save' || action === 'my-service-remove' || action === 'my-hours') {
-      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
-      const stSnap = await db.collection(`tenants/${tenantId}/staff`).where('renterId', '==', session.renterId).get();
-      const st = stSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
-        .find((m: any) => m.isRenter && m.isActive !== false);
-      if (!st) return NextResponse.json({ ok: false, error: 'Bookings are not enabled for you yet' }, { status: 403 });
-
-      if (action === 'my-hours') {
-        const hours = Math.max(1, Math.min(400, Number(body.bookableHoursPerMonth) || 0));
-        if (!hours) return NextResponse.json({ ok: false, error: 'Enter your bookable hours' }, { status: 400 });
-        await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set({ bookableHoursPerMonth: hours }, { merge: true });
-        return NextResponse.json({ ok: true, bookableHoursPerMonth: hours });
-      }
-
-      if (action === 'my-service-remove') {
-        const id = String(body.serviceId || '');
-        const ref = db.doc(`tenants/${tenantId}/renterServices/${id}`);
-        const cur = await ref.get();
-        if (!cur.exists || (cur.data() as any)?.staffId !== st.id) {
-          return NextResponse.json({ ok: false, error: 'Not your service' }, { status: 403 });
-        }
-        await ref.set({ isActive: false }, { merge: true });
-        return NextResponse.json({ ok: true });
-      }
-
-      const name = String(body.name || '').trim().slice(0, 80);
-      const priceCents = Math.round((Number(body.price) || 0) * 100);
-      const duration = Math.max(5, Math.min(600, Number(body.duration) || 60));
-      const productCost = Math.max(0, Number(body.productCost) || 0);
-      if (!name) return NextResponse.json({ ok: false, error: 'Give the service a name' }, { status: 400 });
-      if (priceCents <= 0) return NextResponse.json({ ok: false, error: 'Set a price' }, { status: 400 });
-
-      // Lease floor: refuse rather than save something that breaks their terms.
-      let floorCents = 0;
-      try {
-        const ls = await db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', session.renterId).get();
-        const active = ls.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
-          .find((l: any) => ['active', 'on_leave'].includes(l.status));
-        floorCents = Number(active?.priceFloorCents) || 0;
-      } catch { /* no floor readable — treat as none */ }
-      if (floorCents > 0 && priceCents < floorCents) {
-        return NextResponse.json({
-          ok: false,
-          error: `Your lease sets a $${(floorCents / 100).toFixed(2)} minimum per service.`,
-        }, { status: 400 });
-      }
-
-      const id = String(body.serviceId || '') || `rs_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-      const ref = db.doc(`tenants/${tenantId}/renterServices/${id}`);
-      const cur = await ref.get();
-      if (cur.exists && (cur.data() as any)?.staffId !== st.id) {
-        return NextResponse.json({ ok: false, error: 'Not your service' }, { status: 403 });
-      }
-      await ref.set({
-        id, tenantId, staffId: st.id, renterId: session.renterId,
-        name, price: priceCents / 100, duration, productCost,
-        isActive: true, collectsOwnPayment: true,
-        updatedAt: new Date().toISOString(),
-        ...(cur.exists ? {} : { createdAt: new Date().toISOString() }),
-      }, { merge: true });
-      return NextResponse.json({ ok: true, serviceId: id });
-    }
-
-    // ═══ check-in ═════════════════════════════════════════════════════════
-    if (action === 'check-in') {
-      const reservationId = String(body.reservationId || '');
-      const today = safeToday(body.today);
-      const ref = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
-      const snap = await ref.get();
-      const r = snap.exists ? (snap.data() as any) : null;
-      if (!r || !contactMatches(key, r.phone, r.email)) {
-        return NextResponse.json({ ok: false, error: 'Reservation not found.' }, { status: 404 });
-      }
-      if (r.status !== 'confirmed') {
-        return NextResponse.json({ ok: false, error: `This booking can’t be checked in (status: ${String(r.status).replace(/_/g, ' ')}).` }, { status: 409 });
-      }
-      if (today < r.startDate || today > r.endDate) {
-        return NextResponse.json({ ok: false, error: `This booking is for ${r.startDate}${r.endDate !== r.startDate ? ` – ${r.endDate}` : ''}.` }, { status: 409 });
-      }
-      // Rate snapshot — same as owner-side checkInRes (settle at the rate in
-      // force during the stay, not whatever the booth costs later).
-      let settleHourlyCents = r.settleHourlyCents || 0;
-      if (!settleHourlyCents && r.boothId) {
-        const b = await db.doc(`tenants/${tenantId}/booths/${r.boothId}`).get();
-        settleHourlyCents = b.exists ? hourlyCentsOf(b.data()) : 0;
-      }
-      const nowIso = new Date().toISOString();
-      await ref.set({
-        status: 'checked_in',
-        checked_inAt: nowIso,       // NOTE: underscore — matches every reader
-        actualCheckIn: nowIso,
-        settleHourlyCents,
-        selfCheckIn: true,
-      }, { merge: true });
-      await logAuditAdmin(db, tenantId, {
-        action: 'booth.renter_checked_in',
-        targetType: 'boothReservation', targetId: reservationId,
-        summary: `${r.name || 'Renter'} self-checked in to ${r.boothName || 'their space'} via renter portal`,
-        actor: { type: 'user', name: r.name || session.name || null, role: 'renter', via: 'renter-portal' },
-      });
-      const notifRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-      await notifRef.set({
-        id: notifRef.id, userId: null, read: false, createdAt: nowIso,
-        type: 'booth_reservation', link: '/booths',
-        message: `${r.name || 'A renter'} checked in to ${r.boothName || 'their space'} (self check-in).`,
-      });
-      const needsBalance = (r.balanceDueCents || 0) > 0 && !r.balancePaid;
-      return NextResponse.json({
-        ok: true,
-        reservation: safeReservation(reservationId, { ...r, status: 'checked_in', checked_inAt: nowIso, actualCheckIn: nowIso }),
-        needsBalance,
-        balanceDueCents: needsBalance ? r.balanceDueCents : 0,
-        balanceMode: r.balanceMode || null,
-      });
-    }
-
-    // ═══ check-out ════════════════════════════════════════════════════════
-    if (action === 'check-out') {
-      const reservationId = String(body.reservationId || '');
-      const ref = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
-      const snap = await ref.get();
-      const r = snap.exists ? (snap.data() as any) : null;
-      if (!r || !contactMatches(key, r.phone, r.email)) {
-        return NextResponse.json({ ok: false, error: 'Reservation not found.' }, { status: 404 });
-      }
-      if (r.status !== 'checked_in') {
-        return NextResponse.json({ ok: false, error: 'This booking isn’t checked in.' }, { status: 409 });
-      }
-      // Settlement math — mirrors owner-side checkOutRes exactly.
-      const now = new Date();
-      const updates: any = {
-        status: 'completed',
-        completedAt: now.toISOString(),
-        actualCheckOut: now.toISOString(),
-        selfCheckOut: true,
-      };
-      if (r.bookingType === 'hourly' && r.startTime && r.endTime && r.actualCheckIn) {
-        const bookedEnd = new Date(`${r.startDate}T${r.endTime}:00`);
-        let rate = r.settleHourlyCents > 0 ? r.settleHourlyCents : 0;
-        if (!rate && r.boothId) {
-          const b = await db.doc(`tenants/${tenantId}/booths/${r.boothId}`).get();
-          rate = b.exists ? hourlyCentsOf(b.data()) : 0;
-        }
-        const GRACE_MS = 10 * 60 * 1000;
-        const diffMs = now.getTime() - bookedEnd.getTime();
-        if (diffMs > GRACE_MS && rate > 0) {
-          const overQuarters = Math.ceil((diffMs - GRACE_MS) / (15 * 60 * 1000));
-          updates.overageMinutes = overQuarters * 15;
-          updates.overageDueCents = Math.round(rate * (overQuarters * 15) / 60);
-          updates.overageStatus = 'due';
-        } else if (diffMs < -(30 * 60 * 1000) && rate > 0) {
-          const underQuarters = Math.floor(-diffMs / (15 * 60 * 1000));
-          const creditCents = Math.round(rate * (underQuarters * 15) / 60);
-          if (creditCents >= 100) {
-            updates.unusedMinutes = underQuarters * 15;
-            updates.potentialCreditCents = creditCents;
-            updates.creditDecision = 'pending'; // owner approves — never auto-issued
-          }
-        }
-      }
-      await ref.set(updates, { merge: true });
-      const bits: string[] = [];
-      if (updates.overageDueCents) bits.push(`$${(updates.overageDueCents / 100).toFixed(2)} overage due (${updates.overageMinutes} min)`);
-      if (updates.potentialCreditCents) bits.push(`$${(updates.potentialCreditCents / 100).toFixed(2)} potential credit pending review`);
-      await logAuditAdmin(db, tenantId, {
-        action: 'booth.renter_checked_out',
-        targetType: 'boothReservation', targetId: reservationId,
-        summary: `${r.name || 'Renter'} self-checked out of ${r.boothName || 'their space'} via renter portal${bits.length ? ` — ${bits.join(', ')}` : ''}`,
-        amount: updates.overageDueCents ? updates.overageDueCents / 100 : undefined,
-        actor: { type: 'user', name: r.name || session.name || null, role: 'renter', via: 'renter-portal' },
-      });
-      if (updates.overageDueCents || updates.potentialCreditCents) {
-        const notifRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-        await notifRef.set({
-          id: notifRef.id, userId: null, read: false, createdAt: now.toISOString(),
-          type: 'booth_reservation', link: '/booths',
-          message: `${r.name || 'A renter'} checked out of ${r.boothName || 'their space'} — ${bits.join(', ')}.`,
-        });
-      }
-      return NextResponse.json({
-        ok: true,
-        reservation: safeReservation(reservationId, { ...r, ...updates }),
-        overageDueCents: updates.overageDueCents || 0,
-        overageMinutes: updates.overageMinutes || 0,
-        potentialCreditCents: updates.potentialCreditCents || 0,
-      });
-    }
-
-    // ═══ pay-invoice — Stripe Checkout for an open rent invoice ═══════════
-    // Ownership chain verified server-side: invoice → lease → renter →
-    // renter's contact must match this session. Works for every renter,
-    // card on file or not (Checkout collects the card).
-    if (action === 'pay-invoice' || action === 'confirm-invoice') {
-      const invoiceId = String(body.invoiceId || '');
-      if (!invoiceId) return NextResponse.json({ ok: false, error: 'Missing invoice.' }, { status: 400 });
-      if (!process.env.STRIPE_SECRET_KEY) {
-        return NextResponse.json({ ok: false, error: 'Online payments aren’t set up yet — pay at the front desk.' }, { status: 400 });
-      }
-      const invRef = db.doc(`tenants/${tenantId}/rentInvoices/${invoiceId}`);
-      const invSnap = await invRef.get();
-      const inv = invSnap.exists ? (invSnap.data() as any) : null;
-      if (!inv) return NextResponse.json({ ok: false, error: 'Invoice not found.' }, { status: 404 });
-      const leaseSnap = inv.leaseId ? await db.doc(`tenants/${tenantId}/leases/${inv.leaseId}`).get() : null;
-      const lease = leaseSnap?.exists ? (leaseSnap.data() as any) : null;
-      const renterSnap = lease?.renterId ? await db.doc(`tenants/${tenantId}/renters/${lease.renterId}`).get() : null;
-      const renter = renterSnap?.exists ? (renterSnap.data() as any) : null;
-      if (!renter || !contactMatches(key, renter.phone, renter.email)) {
-        return NextResponse.json({ ok: false, error: 'This invoice belongs to a different renter.' }, { status: 403 });
-      }
-      const renterName = `${renter.firstName || ''} ${renter.lastName || ''}`.trim() || 'Renter';
-      const totalCents = (inv.amountCents || 0) + (inv.lateFeeCents || 0);
-      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
-
-      if (action === 'pay-invoice') {
-        if (inv.status === 'paid') return NextResponse.json({ ok: true, alreadyPaid: true });
-        if (!['due', 'late'].includes(inv.status)) {
-          return NextResponse.json({ ok: false, error: 'This invoice isn’t open.' }, { status: 409 });
-        }
-        if (totalCents <= 0) return NextResponse.json({ ok: false, error: 'Nothing to pay.' }, { status: 400 });
-        const returnUrl = String(body.returnUrl || '');
-        if (!returnUrl) return NextResponse.json({ ok: false, error: 'Missing return URL.' }, { status: 400 });
-        const base = returnUrl.split('?')[0];
-        // Reuse the renter's Stripe customer if one exists (from setup-card or a
-        // prior payment); otherwise create it now. The renter doc is the single
-        // card-on-file store — paying rent online enrolls the card automatically,
-        // so no separate setup step is needed for incidentals.
-        let customerId: string | null = renter.stripeCustomerId || null;
-        if (!customerId) {
-          const customer = await stripe.customers.create({
-            email: renter.email || undefined,
-            name: renterName,
-            metadata: { tenantId, renterId: lease?.renterId || '', leaseId: inv.leaseId || '' },
-          });
-          customerId = customer.id;
-          if (lease?.renterId) {
-            await db.doc(`tenants/${tenantId}/renters/${lease.renterId}`).set({ stripeCustomerId: customerId }, { merge: true });
-          }
-        }
-        const checkout = await stripe.checkout.sessions.create({
-          mode: 'payment',
-          customer: customerId,
-          // Save the card for off-session incidental charges (hotel-style),
-          // governed by the studio's capped incidentals policy.
-          payment_intent_data: { setup_future_usage: 'off_session' },
-          line_items: [{
-            quantity: 1,
-            price_data: {
-              currency: 'usd',
-              unit_amount: totalCents,
-              product_data: {
-                name: `Booth rent — due ${String(inv.dueDate || '').slice(0, 10)}`,
-                description: renterName + (inv.lateFeeCents > 0 ? ` · incl. $${(inv.lateFeeCents / 100).toFixed(2)} late fee` : ''),
-              },
-            },
-          }],
-          success_url: `${base}?cfInvoiceId=${invoiceId}&cfSession={CHECKOUT_SESSION_ID}`,
-          cancel_url: base,
-          metadata: { tenantId, invoiceId, kind: 'rent_invoice' },
-        });
-        await invRef.set({ stripeSessionId: checkout.id, paymentStartedAt: new Date().toISOString() }, { merge: true });
-        return NextResponse.json({ ok: true, url: checkout.url });
-      }
-
-      // ═══ confirm-invoice — after Stripe redirects back ═════════════════
-      if (inv.status === 'paid') return NextResponse.json({ ok: true, alreadyPaid: true });
-      const sessionId = String(body.sessionId || '');
-      if (!sessionId) return NextResponse.json({ ok: false, error: 'Missing session.' }, { status: 400 });
-      const cs: any = await stripe.checkout.sessions.retrieve(sessionId);
-      if (cs?.payment_status !== 'paid' || cs?.metadata?.invoiceId !== invoiceId) {
-        return NextResponse.json({ ok: false, error: 'Payment not completed — nothing was charged.' }, { status: 402 });
-      }
-      const nowIso = new Date().toISOString();
-      // Idempotent: refreshing the return page must never double-book income.
-      const existing = await db.collection(`tenants/${tenantId}/transactions`)
-        .where('sourceId', '==', invoiceId).get();
-      let txnId = existing.docs.find((d: any) => (d.data() as any).type === 'income')?.id || null;
-      if (!txnId) {
-        const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-        txnId = txnRef.id;
-        await txnRef.set({
-          id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
-          source: 'booth_rent', category: 'Booth Rent',
-          amount: totalCents / 100,
-          description: `Booth rent — due ${String(inv.dueDate || '').slice(0, 10)} (paid online)${inv.lateFeeCents > 0 ? ` · incl. $${(inv.lateFeeCents / 100).toFixed(2)} late fee` : ''}`,
-          clientOrVendor: renterName, date: nowIso, paymentMethod: 'Card (Stripe)',
-          hasReceipt: false, sourceId: invoiceId,
-          stripePaymentIntentId: cs.payment_intent || null,
-          tenantId, createdAt: nowIso,
-        });
-        // Paired Stripe fee — fail-open, fee recording never blocks revenue.
-        try {
-          const pi: any = await stripe.paymentIntents.retrieve(String(cs.payment_intent), { expand: ['latest_charge.balance_transaction'] });
-          const bt: any = pi?.latest_charge?.balance_transaction;
-          const feeCents = bt?.fee ?? 0;
-          if (feeCents > 0) {
-            const feeRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-            await feeRef.set({
-              id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
-              category: 'Processing Fee', amount: feeCents / 100,
-              description: `Stripe fee — rent due ${String(inv.dueDate || '').slice(0, 10)}`,
-              clientOrVendor: 'Stripe', date: nowIso, paymentMethod: 'Deducted from payout',
-              hasReceipt: false, relatedTxnId: txnId, sourceId: invoiceId, tenantId, createdAt: nowIso,
-            });
-          }
-        } catch { /* fee is informational */ }
-      }
-      await invRef.set({
-        status: 'paid', paidAt: nowIso, paidMethod: 'Card (Stripe)',
-        paidAmountCents: totalCents, paidLedgerEntryId: txnId,
-        stripePaymentIntentId: cs.payment_intent || null,
-      }, { merge: true });
-      // Save the card on file to the RENTER doc (the single card store the
-      // studio's capped incidentals charge reads) so incidentals can be charged
-      // off-session later. Best-effort — never blocks the receipt.
-      try {
-        if (lease?.renterId && cs.payment_intent) {
-          const pi: any = await stripe.paymentIntents.retrieve(String(cs.payment_intent));
-          const pmId = pi?.payment_method ? String(pi.payment_method) : null;
-          const custId = pi?.customer ? String(pi.customer) : (cs.customer ? String(cs.customer) : null);
-          if (pmId) {
-            let brand = 'card', last4 = '';
-            try {
-              const pm: any = await stripe.paymentMethods.retrieve(pmId);
-              brand = pm?.card?.brand || 'card';
-              last4 = pm?.card?.last4 || '';
-            } catch { /* card summary is cosmetic */ }
-            await db.doc(`tenants/${tenantId}/renters/${lease.renterId}`).set({
-              stripeCustomerId: custId || renter.stripeCustomerId || null,
-              stripePaymentMethodId: pmId,
-              cardOnFile: true,
-              cardBrand: brand,
-              cardLast4: last4,
-              cardSetupAt: nowIso,
-            }, { merge: true });
-          }
-        }
-      } catch { /* card-on-file capture is best-effort */ }
-      await logAuditAdmin(db, tenantId, {
-        action: 'rent.paid_online', targetType: 'rentInvoice', targetId: invoiceId,
-        summary: `${renterName} paid $${(totalCents / 100).toFixed(2)} rent online (due ${String(inv.dueDate || '').slice(0, 10)})`,
-        amount: totalCents / 100,
-        actor: { type: 'user', name: renterName, role: 'renter', via: 'renter-portal' },
-      });
-      const payNotif = db.collection(`tenants/${tenantId}/notifications`).doc();
-      await payNotif.set({
-        id: payNotif.id, userId: null, read: false, createdAt: nowIso,
-        type: 'rent_paid', link: '/booths',
-        message: `💚 ${renterName} paid $${(totalCents / 100).toFixed(2)} rent online.`,
-      });
-      return NextResponse.json({ ok: true, paidCents: totalCents });
-    }
-
-    // ═══ request-reschedule ═══════════════════════════════════════════════
-    if (action === 'request-reschedule') {
-      const reservationId = String(body.reservationId || '');
-      const note = String(body.note || '').slice(0, 300);
-      const ref = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
-      const snap = await ref.get();
-      const r = snap.exists ? (snap.data() as any) : null;
-      if (!r || !contactMatches(key, r.phone, r.email)) {
-        return NextResponse.json({ ok: false, error: 'Reservation not found.' }, { status: 404 });
-      }
-      if (r.status !== 'confirmed') {
-        return NextResponse.json({ ok: false, error: 'Only upcoming confirmed bookings can be rescheduled.' }, { status: 409 });
-      }
-      const nowIso = new Date().toISOString();
-      await ref.set({ rescheduleRequestedAt: nowIso, rescheduleRequestNote: note || null }, { merge: true });
-      await logAuditAdmin(db, tenantId, {
-        action: 'booth.reschedule_requested', targetType: 'boothReservation', targetId: reservationId,
-        summary: `${r.name || 'Renter'} asked to move their ${r.boothName || 'space'} booking (${r.startDate}${r.startTime ? ` ${r.startTime}` : ''})${note ? ` — “${note}”` : ''}`,
-        actor: { type: 'user', name: r.name || session.name || null, role: 'renter', via: 'renter-portal' },
-      });
-      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-      await nRef.set({
-        id: nRef.id, userId: null, read: false, createdAt: nowIso,
-        type: 'booth_reservation', link: '/booths',
-        message: `${r.name || 'A renter'} wants to reschedule ${r.boothName || 'their space'} (${r.startDate})${note ? `: “${note}”` : ''} — use Reschedule on their booking card.`,
-      });
-      return NextResponse.json({ ok: true });
-    }
-
-    return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
-  } catch (err) {
-    console.error('[portal/renter] failed', err);
-    return NextResponse.json({ ok: false, error: 'Something went wrong — try again.' }, { status: 500 });
-  }
+            {/* History */}
+            {(data?.past || []).length > 0 && (
+              <section className="space-y-3">
+                <SectionTitle icon={CreditCard}>Past Visits</SectionTitle>
+                <div className="space-y-2">
+                  {(data.past || []).map((r: any) => (
+                    <div key={r.id} className="flex items-center justify-between p-3.5 rounded-2xl bg-white border border-slate-100">
+                      <div className="min-w-0 pr-3">
+                        <p className="text-[11px] font-bold text-slate-800 truncate">{r.boothName}</p>
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">{fmtDate(r.startDate)}</p>
+                      </div>
+                      <Chip tone={r.status === 'refunded' ? 'slate' : 'slate'}>
+                        {String(r.status || '').replace(/_/g, ' ')}
+                      </Chip>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
