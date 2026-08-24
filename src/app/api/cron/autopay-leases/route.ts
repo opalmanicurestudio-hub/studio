@@ -261,3 +261,8 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ processed: results.length, results });
 }
+
+// Vercel Cron invokes scheduled paths with GET — same auth, same run.
+export async function GET(req: NextRequest) {
+  return POST(req);
+}
