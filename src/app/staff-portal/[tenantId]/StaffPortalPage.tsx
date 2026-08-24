@@ -503,6 +503,7 @@ const TasksForYou = ({ tenantId, staffMember }: { tenantId: string; staffMember:
   const { firestore } = useFirebase();
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
+  const [pendingPhotos, setPendingPhotos] = useState<Record<string, string[]>>({});
   const [taskUploadErr, setTaskUploadErr] = useState('');
   const taskFileRef = useRef<HTMLInputElement>(null);
 
@@ -516,15 +517,17 @@ const TasksForYou = ({ tenantId, staffMember }: { tenantId: string; staffMember:
     .filter(t => t.status !== 'done' && (t.assignedStaffIds || []).includes(staffMember.id))
     .sort((a, b) => String(a.dueDate || '9999').localeCompare(String(b.dueDate || '9999'))), [tasks, staffMember.id]);
 
-  const completeTask = (t: any, photoUrl?: string) => {
+  const completeTask = (t: any, photoUrls?: string[]) => {
     if (!firestore || !tenantId) return;
+    const list = (photoUrls || []).filter(Boolean).slice(0, 6);
     setDoc(doc(firestore, `tenants/${tenantId}/tasks/${t.id}`), {
       status: 'done',
       completedBy: staffMember.id,
       completedByName: staffMember.name || 'Team member',
       completedAt: new Date().toISOString(),
-      ...(photoUrl ? { photoUrl } : {}),
+      ...(list.length ? { photoUrl: list[0], photoUrls: list } : {}),
     }, { merge: true }).catch(err => console.error('task complete failed', err));
+    setPendingPhotos(p => { const n = { ...p }; delete n[t.id]; return n; });
   };
 
   const handleTap = (t: any) => {
@@ -546,8 +549,10 @@ const TasksForYou = ({ tenantId, staffMember }: { tenantId: string; staffMember:
     setTaskUploadErr('');
     try {
       const blob = await compressEvidencePhoto(file);
-      const url = await uploadImageBlob(`tenants/${tenantId}/evidence/tasks/${taskId}/${staffMember.id}.jpg`, blob);
-      completeTask(t, url);
+      const already = pendingPhotos[taskId] || [];
+      const suffix = already.length === 0 ? '' : `_${already.length + 1}`;
+      const url = await uploadImageBlob(`tenants/${tenantId}/evidence/tasks/${taskId}/${staffMember.id}${suffix}.jpg`, blob);
+      setPendingPhotos(p => ({ ...p, [taskId]: [...(p[taskId] || []), url].slice(0, 6) }));
     } catch (err: any) {
       console.error('task evidence upload failed', err);
       const code = String(err?.code || err?.message || 'unknown');
@@ -579,6 +584,7 @@ const TasksForYou = ({ tenantId, staffMember }: { tenantId: string; staffMember:
       )}
       {mine.map((t: any) => {
         const uploading = uploadingId === t.id;
+        const taken = pendingPhotos[t.id] || [];
         return (
           <div key={t.id} className="rounded-xl border-2 p-3">
             <div className="flex items-start justify-between gap-2">
@@ -589,11 +595,29 @@ const TasksForYou = ({ tenantId, staffMember }: { tenantId: string; staffMember:
                 </p>
                 {t.notes && <p className="mt-1 text-[12px] font-bold text-slate-600">{t.notes}</p>}
               </div>
-              <button type="button" disabled={uploading} onClick={() => handleTap(t)} className={cn('flex h-10 shrink-0 items-center gap-1.5 rounded-xl px-3 text-[10px] font-black uppercase tracking-widest', uploading ? 'bg-slate-100 text-slate-400' : 'bg-slate-900 text-white')}>
-                {uploading ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                {uploading ? 'Uploading…' : t.requirePhoto ? 'Photo + done' : 'Done'}
-              </button>
+              {taken.length === 0 ? (
+                <button type="button" disabled={uploading} onClick={() => handleTap(t)} className={cn('flex h-10 shrink-0 items-center gap-1.5 rounded-xl px-3 text-[10px] font-black uppercase tracking-widest', uploading ? 'bg-slate-100 text-slate-400' : 'bg-slate-900 text-white')}>
+                  {uploading ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                  {uploading ? 'Uploading…' : t.requirePhoto ? 'Photo + done' : 'Done'}
+                </button>
+              ) : (
+                <button type="button" disabled={uploading} onClick={() => completeTask(t, taken)} className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-emerald-600 px-3 text-[10px] font-black uppercase tracking-widest text-white">
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Finish task
+                </button>
+              )}
             </div>
+            {taken.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {taken.map((u: string, pi: number) => (
+                  <img key={pi} src={u} alt={`Photo ${pi + 1} of ${taken.length} for ${t.title}`} className="h-12 w-12 rounded-lg border-2 object-cover" />
+                ))}
+                {taken.length < 6 && (
+                  <button type="button" disabled={uploading} onClick={() => { setPendingTaskId(t.id); taskFileRef.current?.click(); }} className={cn('flex h-12 items-center gap-1 rounded-lg border-2 border-dashed px-3 text-[10px] font-black uppercase tracking-widest', uploading ? 'text-slate-300' : 'text-slate-600')}>
+                    {uploading ? <Loader className="h-3.5 w-3.5 animate-spin" /> : '＋'} {uploading ? 'Uploading…' : 'Add another photo'}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         );
       })}
@@ -2633,9 +2657,9 @@ function ForgotPinFlow({ tenantId, firestore, onBack, onSuccess }: any) {
 }
 
 // ─── PIN ENTRY ────────────────────────────────────────────────────────────────
-function PinEntry({ onSuccess, tenantId, firestore }: any) {
+function PinEntry({ onSuccess, tenantId, firestore, notice }: any) {
   const [pin, setPin]       = useState('');
-  const [error, setError]   = useState('');
+  const [error, setError]   = useState(notice || '');
   const [shake, setShake]   = useState(false);
   const [checking, setChecking] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
@@ -2655,29 +2679,40 @@ function PinEntry({ onSuccess, tenantId, firestore }: any) {
       if (res.status === 404) throw new Error('__legacy__');   // API not deployed yet
       const d = await res.json();
       if (d.ok && d.staff) {
-        if (d.customToken) {
-          try {
-            const { getAuth, signInWithCustomToken } = await import('firebase/auth');
-            await signInWithCustomToken(getAuth(), d.customToken);
-          } catch (tokenErr) {
-            console.error('portal token sign-in failed', tokenErr);
-          }
-        } else {
-          console.warn('portal auth: no customToken in response — Firestore reads will be unauthenticated');
+        if (!d.customToken) {
+          console.warn('portal auth: no customToken in response');
+          setError('Secure sign-in unavailable right now. Try again in a moment.');
+          setShake(true); setTimeout(() => { setShake(false); setPin(''); }, 600);
+          return;
+        }
+        try {
+          const { getAuth, signInWithCustomToken } = await import('firebase/auth');
+          await signInWithCustomToken(getAuth(), d.customToken);
+        } catch (tokenErr) {
+          console.error('portal token sign-in failed', tokenErr);
+          setError('Secure sign-in failed. Check your connection and try again.');
+          setShake(true); setTimeout(() => { setShake(false); setPin(''); }, 600);
+          return;
         }
         onSuccess(d.staff);
       } else {
         setError(d.error || 'Incorrect PIN. Try again.');
         setShake(true); setTimeout(() => { setShake(false); setPin(''); }, 600);
       }
-    } catch {
-      // Fallback: legacy client-side check so the portal keeps working
-      // until the auth API is deployed. Remove once live.
-      try {
-        const snap = await getDocs(query(collection(firestore, `tenants/${tenantId}/staff`), where('pin', '==', entered)));
-        if (!snap.empty) { onSuccess({ id: snap.docs[0].id, ...snap.docs[0].data() }); }
-        else { setError('Incorrect PIN. Try again.'); setShake(true); setTimeout(() => { setShake(false); setPin(''); }, 600); }
-      } catch { setError('Error. Try again.'); setPin(''); }
+    } catch (apiErr: any) {
+      // Fallback: legacy client-side check, ONLY when the auth API is not
+      // deployed (404). Any other failure surfaces instead of silently
+      // creating an unauthenticated session that fails every upload later.
+      if (String(apiErr?.message) !== '__legacy__') {
+        setError('Couldn\u2019t reach the sign-in service. Check your connection and try again.');
+        setShake(true); setTimeout(() => { setShake(false); setPin(''); }, 600);
+      } else {
+        try {
+          const snap = await getDocs(query(collection(firestore, `tenants/${tenantId}/staff`), where('pin', '==', entered)));
+          if (!snap.empty) { onSuccess({ id: snap.docs[0].id, ...snap.docs[0].data() }); }
+          else { setError('Incorrect PIN. Try again.'); setShake(true); setTimeout(() => { setShake(false); setPin(''); }, 600); }
+        } catch { setError('Error. Try again.'); setPin(''); }
+      }
     }
     finally { setChecking(false); }
   };
@@ -5471,6 +5506,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
 export default function StaffPortalPage({ params }: { params: { tenantId: string } }) {
   const { firestore } = useFirebase();
   const [signedInStaff, setSignedInStaff] = useState<any | null>(null);
+  const [authNotice, setAuthNotice] = useState('');
   const tenantId = params.tenantId;
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -5487,13 +5523,30 @@ export default function StaffPortalPage({ params }: { params: { tenantId: string
     return () => { events.forEach(e => window.removeEventListener(e, resetTimeout)); if (timeoutRef.current) clearTimeout(timeoutRef.current); };
   }, [signedInStaff, resetTimeout]);
 
+  useEffect(() => {
+    if (!signedInStaff) return;
+    let cancelled = false;
+    import('firebase/auth').then(({ getAuth, onAuthStateChanged }) => {
+      const stop = onAuthStateChanged(getAuth(), (user) => {
+        stop();
+        if (cancelled) return;
+        if (!user) {
+          clearActiveStaffId();
+          setSignedInStaff(null);
+          setAuthNotice('Your session wasn\u2019t fully signed in, so photos and saves would fail. Please enter your PIN again.');
+        }
+      });
+    }).catch(() => { /* auth module unavailable; leave the session alone */ });
+    return () => { cancelled = true; };
+  }, [signedInStaff]);
+
   if (!firestore || !tenantId) return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center">
       <p className="text-white/40 font-black uppercase text-[10px] tracking-widest animate-pulse">Loading...</p>
     </div>
   );
 
-  if (!signedInStaff) return <PinEntry firestore={firestore} tenantId={tenantId} onSuccess={(s: any) => { setActiveStaffId(s.id); setSignedInStaff(s); registerPushForStaff(firestore, tenantId, s.id).catch(() => {}); }} />;
+  if (!signedInStaff) return <PinEntry firestore={firestore} tenantId={tenantId} notice={authNotice} onSuccess={(s: any) => { setAuthNotice(''); setActiveStaffId(s.id); setSignedInStaff(s); registerPushForStaff(firestore, tenantId, s.id).catch(() => {}); }} />;
 
   return <ErrorBoundary><StaffDashboard staffMember={signedInStaff} tenantId={tenantId} firestore={firestore} onSignOut={() => { clearActiveStaffId(); setSignedInStaff(null); import('firebase/auth').then(({ getAuth, signOut }) => signOut(getAuth()).catch(() => {})); }} /></ErrorBoundary>;
 }
