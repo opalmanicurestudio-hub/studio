@@ -71,6 +71,17 @@ async function syncAccount(stripe: Stripe, db: any, tenantId: string, renterId: 
       stripePayoutsEnabled:   !!acct.payouts_enabled,
       stripeDetailsSubmitted: !!acct.details_submitted,
     }, { merge: true });
+    // Mirror ONLY the capability flag onto their provider record. The public
+    // booking page reads staff (never renters), so this is what lets it decide
+    // whether a deposit can be collected — without exposing anything else.
+    try {
+      const stSnap = await db.collection(`tenants/${tenantId}/staff`).where('renterId', '==', renterId).get();
+      for (const d of stSnap.docs) {
+        if ((d.data() as any)?.isRenter) {
+          await d.ref.set({ stripeChargesEnabled: !!acct.charges_enabled }, { merge: true });
+        }
+      }
+    } catch { /* mirror is best-effort — the renter record is the source */ }
     return {
       chargesEnabled: !!acct.charges_enabled,
       payoutsEnabled: !!acct.payouts_enabled,
