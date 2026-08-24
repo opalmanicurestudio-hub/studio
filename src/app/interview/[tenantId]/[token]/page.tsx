@@ -92,6 +92,13 @@ export default function InterviewInvitePage() {
       if (extra?.proposedSlots) payload.proposedSlots = extra.proposedSlots;
       if (extra?.applicantNote) payload.applicantNote = extra.applicantNote;
       await updateDoc(doc(db, `tenants/${tenantId}/interviewInvites/${token}`), payload);
+      try {
+        void fetch('/api/comms/dispatch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kind: 'interview', tenantId, token }),
+        }).catch(() => { /* the response itself is safely saved; emails are best-effort */ });
+      } catch { /* fire-and-forget */ }
       setInvite((prev: any) => ({ ...prev, ...payload }));
       window.scrollTo({ top: 0 });
     } catch (e) {
