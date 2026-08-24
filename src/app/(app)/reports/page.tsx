@@ -108,8 +108,10 @@ export default function ReportsPage() {
     const taxBurden = selectedTenant.employerTaxBurdenPct || 10;
     const tmhr = selectedTenant.tmhr || 50;
 
-    const performance = staff.map(staffMember => {
-        const staffAppointments = appointments.filter(apt => apt.staffId === staffMember.id && filterByDate(apt.startTime));
+    // Independent providers keep their own books — they never appear in the
+    // studio's staff performance table (no commission, no revenue share).
+    const performance = staff.filter((m: any) => !m.isRenter).map(staffMember => {
+        const staffAppointments = appointments.filter(apt => apt.staffId === staffMember.id && filterByDate(apt.startTime) && !(apt as any).isRenterBooking);
         const completedAppointments = staffAppointments.filter(apt => apt.status === 'completed');
         const completedCount = completedAppointments.length;
         let totalMinutesVariance = 0, totalInServiceMinutes = 0, totalMaterialCost = 0;
@@ -181,7 +183,7 @@ export default function ReportsPage() {
         };
     });
 
-    const periodAppointments = appointments.filter(a => filterByDate(a.startTime));
+    const periodAppointments = appointments.filter(a => filterByDate(a.startTime) && !(a as any).isRenterBooking);
     const channelStats = [
         { id: 'online', label: 'Online Booking', icon: Globe, color: 'text-primary' },
         { id: 'manual', label: 'Manual / Phone', icon: Phone, color: 'text-indigo-600' },
