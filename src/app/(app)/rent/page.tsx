@@ -6,8 +6,10 @@ import {
   doc,
   addDoc,
   updateDoc,
+  setDoc,
   writeBatch,
 } from 'firebase/firestore';
+import { nanoid } from 'nanoid';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { Button } from '@/components/ui/button';
@@ -245,6 +247,146 @@ function RentCommsCard({ tenantId, firestore, tenant }: { tenantId: string; fire
   );
 }
 
+
+// ── Independent providers ────────────────────────────────────────────────────
+// Turns a renter into a bookable provider with their OWN menu. Their services
+// live in tenants/{t}/renterServices keyed by their staff record, never mixed
+// into the house menu, and every one of them is marked collectsOwnPayment so
+// the booking engine takes no money for them (see resolveBookingPlan).
+function RenterProvidersCard({ tenantId, firestore, renters, staff }: { tenantId: string; firestore: any; renters: any[]; staff: any[] }) {
+  const [openId, setOpenId] = useState<string>('');
+  const [copied, setCopied] = useState('');
+  const [draft, setDraft] = useState<{ name: string; price: string; duration: string }>({ name: '', price: '', duration: '60' });
+
+  const menuRef = useMemoFirebase(
+    () => (firestore && tenantId ? collection(firestore, `tenants/${tenantId}/renterServices`) : null),
+    [firestore, tenantId]
+  );
+  const { data: renterServices } = useCollection<any>(menuRef);
+
+  const staffForRenter = (renterId: string) => (staff || []).find((m: any) => m.isRenter && m.renterId === renterId);
+  const rName = (r: any) => `${r.firstName || ''} ${r.lastName || ''}`.trim() || 'Renter';
+
+  const enableProvider = async (r: any) => {
+    const existing = staffForRenter(r.id);
+    const staffId = existing?.id || nanoid();
+    await setDoc(doc(firestore, `tenants/${tenantId}/staff/${staffId}`), {
+      id: staffId,
+      tenantId,
+      name: rName(r),
+      email: r.email || '',
+      phone: r.phone || '',
+      role: 'staff',
+      isRenter: true,
+      renterId: r.id,
+      payStructure: 'none',
+      isActive: true,
+      active: false,
+      onBreak: false,
+      status: 'idle',
+      avatarUrl: '',
+    }, { merge: true });
+    setOpenId(r.id);
+  };
+
+  const disableProvider = async (r: any) => {
+    const st = staffForRenter(r.id);
+    if (!st) return;
+    await updateDoc(doc(firestore, `tenants/${tenantId}/staff/${st.id}`), { isActive: false });
+  };
+
+  const addService = async (r: any) => {
+    const st = staffForRenter(r.id);
+    if (!st) return;
+    const name = draft.name.trim();
+    const price = Number(draft.price);
+    const duration = Math.max(5, Number(draft.duration) || 60);
+    if (!name || !(price >= 0)) return;
+    const id = nanoid();
+    await setDoc(doc(firestore, `tenants/${tenantId}/renterServices/${id}`), {
+      id, tenantId, staffId: st.id, renterId: r.id,
+      name, price, duration,
+      isActive: true,
+      collectsOwnPayment: true,
+      createdAt: new Date().toISOString(),
+    });
+    setDraft({ name: '', price: '', duration: '60' });
+  };
+
+  const removeService = async (svcId: string) => {
+    await updateDoc(doc(firestore, `tenants/${tenantId}/renterServices/${svcId}`), { isActive: false });
+  };
+
+  const linkFor = (r: any) => {
+    const st = staffForRenter(r.id);
+    if (!st) return '';
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    return `${origin}/book/${tenantId}?provider=${st.id}`;
+  };
+
+  const list = (renters || []).filter((r: any) => !r.archived);
+  if (list.length === 0) return null;
+
+  return (
+    <Card className="rounded-[2rem] border-2">
+      <CardHeader className="p-5 pb-2">
+        <CardTitle className="text-[11px] font-black uppercase tracking-widest">Independent providers</CardTitle>
+        <p className="text-[11px] font-bold text-slate-500">Let a renter take bookings on your booking page with their own menu and prices. They collect payment directly — nothing runs through your Stripe.</p>
+      </CardHeader>
+      <CardContent className="space-y-2 p-5 pt-2">
+        {list.map((r: any) => {
+          const st = staffForRenter(r.id);
+          const on = !!st && st.isActive !== false;
+          const mine = ((renterServices || []) as any[]).filter((sv: any) => sv.staffId === st?.id && sv.isActive !== false);
+          const open = openId === r.id;
+          return (
+            <div key={r.id} className="rounded-2xl border-2 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <button type="button" onClick={() => setOpenId(open ? '' : r.id)} className="flex-1 text-left">
+                  <span className="block text-[12px] font-black uppercase tracking-wide text-slate-900">{rName(r)}</span>
+                  <span className="block text-[11px] font-bold text-slate-500">{on ? `${mine.length} service${mine.length === 1 ? '' : 's'} on their menu` : 'Not taking bookings here'}</span>
+                </button>
+                <Button size="sm" variant={on ? 'ghost' : 'default'} className="shrink-0 rounded-xl text-[10px] font-black uppercase tracking-widest"
+                        onClick={() => (on ? disableProvider(r) : enableProvider(r))}>
+                  {on ? 'Turn off' : 'Enable'}
+                </Button>
+              </div>
+
+              {open && on && (
+                <div className="mt-3 space-y-2 border-t-2 pt-3">
+                  <div className="flex items-center gap-2">
+                    <Input readOnly value={linkFor(r)} className="text-[11px] font-bold" />
+                    <Button size="sm" variant="outline" className="shrink-0 rounded-xl text-[10px] font-black uppercase tracking-widest"
+                            onClick={() => { navigator.clipboard?.writeText(linkFor(r)); setCopied(r.id); setTimeout(() => setCopied(''), 2000); }}>
+                      {copied === r.id ? 'Copied ✓' : 'Copy link'}
+                    </Button>
+                  </div>
+                  {mine.map((sv: any) => (
+                    <div key={sv.id} className="flex items-center justify-between gap-3 rounded-xl border-2 p-2">
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[12px] font-black text-slate-900">{sv.name}</span>
+                        <span className="block text-[11px] font-bold text-slate-500">${Number(sv.price || 0).toFixed(2)} · {sv.duration} min</span>
+                      </span>
+                      <Button size="sm" variant="ghost" className="shrink-0 text-[10px] font-black uppercase tracking-widest" onClick={() => removeService(sv.id)}>Remove</Button>
+                    </div>
+                  ))}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input placeholder="Service name" value={draft.name} onChange={(e: any) => setDraft(d => ({ ...d, name: e.target.value }))} className="min-w-[8rem] flex-1 text-[12px] font-bold" />
+                    <Input type="number" min={0} placeholder="$" value={draft.price} onChange={(e: any) => setDraft(d => ({ ...d, price: e.target.value }))} className="w-20 text-center text-[12px] font-bold" />
+                    <Input type="number" min={5} step={5} value={draft.duration} onChange={(e: any) => setDraft(d => ({ ...d, duration: e.target.value }))} className="w-20 text-center text-[12px] font-bold" />
+                    <Button size="sm" className="rounded-xl text-[10px] font-black uppercase tracking-widest" onClick={() => addService(r)}>Add</Button>
+                  </div>
+                  <p className="text-[11px] font-bold text-slate-500">Clients booking these see “you’ll pay {rName(r)} directly at your visit.” Their own hours and self-serve menu editing come next.</p>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function RentRollPage() {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
@@ -280,6 +422,11 @@ export default function RentRollPage() {
   );
 
   const { data: renters } = useCollection<Renter>(rentersRef);
+  const staffRef = useMemoFirebase(
+    () => (firestore && tenantId ? collection(firestore, `tenants/${tenantId}/staff`) : null),
+    [firestore, tenantId]
+  );
+  const { data: allStaff } = useCollection<any>(staffRef);
   const { data: booths } = useCollection<Booth>(boothsRef);
   const { data: leases } = useCollection<Lease>(leasesRef);
   const { data: ledger, isLoading: ledgerLoading } =
@@ -1072,6 +1219,7 @@ export default function RentRollPage() {
           </div>
         </DialogContent>
       </Dialog>
+      {tenantId && <RenterProvidersCard tenantId={tenantId} firestore={firestore} renters={(renters || []) as any[]} staff={(allStaff || []) as any[]} />}
       {tenantId && <RentCommsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
     </div>
   );
