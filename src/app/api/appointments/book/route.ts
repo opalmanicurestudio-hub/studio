@@ -168,7 +168,26 @@ export async function POST(req: NextRequest) {
     const roster = staffSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
     const tenant = ((tenantSnap.data() as any) || {}) as any;
 
-    const svc = services.find((s: any) => s.id === serviceId);
+    let svc = services.find((s: any) => s.id === serviceId);
+    // Independent-provider menus live in their own collection. Looked up only
+    // on a miss, so the house path costs nothing. The flag rides onto the
+    // appointment below, which is what keeps their sale out of YOUR books.
+    let renterSvc: any = null;
+    if (!svc) {
+      try {
+        const rs = await db.doc(`tenants/${tenantId}/renterServices/${serviceId}`).get();
+        if (rs.exists) {
+          const d = rs.data() as any;
+          if (d?.isActive !== false) {
+            const provider = roster.find((m: any) => m.id === d.staffId && m.isRenter && m.isActive !== false);
+            if (provider) {
+              renterSvc = { id: rs.id, ...d, providerName: provider.name || 'your provider', staffIds: [provider.id] };
+              svc = renterSvc;
+            }
+          }
+        }
+      } catch { /* fall through to the 404 below */ }
+    }
     if (!svc) return NextResponse.json({ ok: false, error: 'Service not found.' }, { status: 404 });
 
     const addOnIds: string[] = Array.isArray(body.addOnIds) ? body.addOnIds.slice(0, 10).map(String) : [];
@@ -473,6 +492,18 @@ export async function POST(req: NextRequest) {
         id: aptId, tenantId,
         clientId, clientName,
         serviceId, addOnIds: addOnIds.length > 0 ? addOnIds : null,
+        // ── Whose sale is this? ──────────────────────────────────────────────
+        // An independent provider's booking is THEIR revenue, not the studio's.
+        // Stamped at creation so reporting never has to re-derive it, and
+        // revenue is explicitly zero so any total that sums appointments is
+        // right by construction rather than by remembering to filter.
+        ...(renterSvc ? {
+          isRenterBooking: true,
+          renterProviderId: renterSvc.staffId,
+          renterServiceName: renterSvc.name || '',
+          renterServicePrice: Number(renterSvc.price) || 0,
+          revenue: 0,
+        } : {}),
         staffId,
         startTime: placedStart.toISOString(),
         endTime: placedEnd.toISOString(),
