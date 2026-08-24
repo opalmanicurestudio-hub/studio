@@ -182,6 +182,69 @@ interface ChargeFormState {
   dueDate: string;
 }
 
+
+const RENT_COMMS_DEFAULTS: any = {
+  remindRenterBeforeDue: true,
+  remindLeadDays: 3,
+  sendReceipts: true,
+  lateNoticeEmail: true,
+  lateNoticeSms: true,
+  ownerEmailOnFailedAutopay: true,
+};
+
+// Rent notifications — the per-business comms knobs the crons read
+// (tenants/{t}.rentComms). Late-fee amounts and grace stay per-lease.
+function RentCommsCard({ tenantId, firestore, tenant }: { tenantId: string; firestore: any; tenant: any }) {
+  const [cfg, setCfg] = useState<any>({ ...RENT_COMMS_DEFAULTS, ...(tenant?.rentComms || {}) });
+  const [saved, setSaved] = useState(false);
+  const flip = (k: string) => setCfg((c: any) => ({ ...c, [k]: c[k] === false ? true : !c[k] }));
+  const save = async () => {
+    try {
+      await updateDoc(doc(firestore, `tenants/${tenantId}`), {
+        rentComms: { ...cfg, remindLeadDays: Math.min(7, Math.max(1, Number(cfg.remindLeadDays) || 3)) },
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e) {
+      console.error('rent notification settings save failed', e);
+    }
+  };
+  const Row = ({ k, label, hint }: { k: string; label: string; hint: string }) => (
+    <button type="button" onClick={() => flip(k)} className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 p-3 text-left">
+      <span>
+        <span className="block text-[12px] font-black uppercase tracking-wide text-slate-900">{label}</span>
+        <span className="block text-[11px] font-bold text-slate-500">{hint}</span>
+      </span>
+      <span className={`shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest ${cfg[k] !== false ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+        {cfg[k] !== false ? 'On' : 'Off'}
+      </span>
+    </button>
+  );
+  return (
+    <Card className="rounded-[2rem] border-2">
+      <CardHeader className="p-5 pb-2">
+        <CardTitle className="text-[11px] font-black uppercase tracking-widest">Rent notifications</CardTitle>
+        <p className="text-[11px] font-bold text-slate-500">Who hears what, automatically. Late-fee amounts and grace days live on each lease.</p>
+      </CardHeader>
+      <CardContent className="space-y-2 p-5 pt-2">
+        <Row k="remindRenterBeforeDue" label="Remind renters before rent is due" hint="Branded email with a pay link — autopay renters are skipped" />
+        <div className="flex items-center justify-between gap-3 rounded-2xl border-2 p-3">
+          <span>
+            <span className="block text-[12px] font-black uppercase tracking-wide text-slate-900">Reminder lead time</span>
+            <span className="block text-[11px] font-bold text-slate-500">Days before the due date (1–7)</span>
+          </span>
+          <Input type="number" min={1} max={7} value={cfg.remindLeadDays} onChange={(e: any) => setCfg((c: any) => ({ ...c, remindLeadDays: e.target.value }))} className="w-20 text-center font-black" />
+        </div>
+        <Row k="sendReceipts" label="Autopay receipts" hint="Email renters a receipt each time autopay collects" />
+        <Row k="lateNoticeEmail" label="Late notice — email" hint="Branded email the night rent goes late, with a pay link" />
+        <Row k="lateNoticeSms" label="Late notice — text" hint="One-tap pay link by text (needs SMS configured)" />
+        <Row k="ownerEmailOnFailedAutopay" label="Email me when autopay is declined" hint="Card-declined alert to your owner email" />
+        <Button onClick={save} className="mt-2 w-full rounded-2xl font-black uppercase tracking-widest">{saved ? 'Saved \u2713' : 'Save notification settings'}</Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function RentRollPage() {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
@@ -1009,6 +1072,7 @@ export default function RentRollPage() {
           </div>
         </DialogContent>
       </Dialog>
+      {tenantId && <RentCommsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
     </div>
   );
 }
