@@ -1016,6 +1016,19 @@ export default function ApplicantsPage() {
     return m;
   }, [invites]);
 
+  const supersedeOpenInvites = (applicationId: string) => {
+    if (!tenantId) return;
+    for (const inv of ((invites || []) as any[])) {
+      if (inv.applicationId !== applicationId) continue;
+      if (inv.status === 'pending' || inv.status === 'countered' || inv.status === 'needs_new_times') {
+        updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/interviewInvites/${inv.id}`), {
+          status: 'superseded',
+          supersededAt: new Date().toISOString(),
+        });
+      }
+    }
+  };
+
   const documentsQuery = useMemoFirebase(
     () => (tenantId && canManage) ? collection(firestore, `tenants/${tenantId}/documents`) : null,
     [firestore, tenantId, canManage]
@@ -1084,6 +1097,7 @@ export default function ApplicantsPage() {
 
   const handleDecline = (app: any, reason: string, talentPool: boolean) => {
     if (!tenantId) return;
+    supersedeOpenInvites(app.id);
     updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/applications/${app.id}`), {
       status: 'declined',
       declineReason: reason || '',
@@ -1097,6 +1111,7 @@ export default function ApplicantsPage() {
 
   const handleScheduleInterview = async (app: any, slots: string[]) => {
     if (!tenantId || !app?.email) throw new Error('Missing recipient');
+    supersedeOpenInvites(app.id);
     const token = nanoid();
     const { setDoc } = await import('firebase/firestore');
     await setDoc(doc(firestore, `tenants/${tenantId}/interviewInvites/${token}`), {
@@ -1118,7 +1133,7 @@ ${link}
 
 If none of them work, the page lets us know and we'll offer others.
 
-${selectedTenant?.name || ''}`);
+${selectedTenant?.name || ''}`, { skipAutoAdvance: true });
     const evId = nanoid();
     setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/applications/${app.id}/messages/${evId}`), {
       id: evId, type: 'status', toStatus: 'interview', note: 'interview times offered', by: actorName, createdAt: new Date().toISOString(),
@@ -1126,7 +1141,7 @@ ${selectedTenant?.name || ''}`);
     updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/applications/${app.id}`), { status: 'interview' });
   };
 
-  const handleSendMessage = async (app: any, subject: string, body: string) => {
+  const handleSendMessage = async (app: any, subject: string, body?: string, opts?: { skipAutoAdvance?: boolean }) => {
     if (!tenantId || !app?.email) throw new Error('No recipient');
     const msgId = nanoid();
     const { setDoc } = await import('firebase/firestore');
@@ -1136,11 +1151,18 @@ ${selectedTenant?.name || ''}`);
       status: 'queued',
       to: String(app.email).trim(),
       subject: subject.slice(0, 200),
-      body: body.slice(0, 5000),
+      body: String(body || '').slice(0, 5000),
       by: actorName,
       createdAt: new Date().toISOString(),
     });
     pumpComms({ kind: 'messages', tenantId, applicationId: app.id });
+    if (!opts?.skipAutoAdvance && app.status === 'new') {
+      updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/applications/${app.id}`), { status: 'reviewing' });
+      const evId = nanoid();
+      setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/applications/${app.id}/messages/${evId}`), {
+        id: evId, type: 'status', toStatus: 'reviewing', note: 'moved automatically — first message sent', by: actorName, createdAt: new Date().toISOString(),
+      }, { merge: false });
+    }
   };
 
   const counts = useMemo(() => {
