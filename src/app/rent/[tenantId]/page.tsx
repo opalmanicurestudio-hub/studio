@@ -58,6 +58,91 @@ const STORE = (tenantId: string) => `opal_renter_${tenantId}`;
 
 
 
+
+// ─── Card payments: their own Stripe ─────────────────────────────────────────
+// Connecting here creates an account that belongs to the RENTER. Money, refunds
+// and disputes are all theirs; the studio is never in the path. Half-finished
+// onboarding is an expected state, not an error — services simply stay
+// pay-in-person until Stripe reports charges are live.
+function MyPayments({ data, tenantId, token }: { data: any; tenantId: string; token: string }) {
+  const [st, setSt] = useState<any>(null);
+  const [busy, setBusy] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/portal/renter-connect', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'status', tenantId, token }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!cancelled) setSt(d);
+      } catch { /* offline — the card just shows the connect option */ }
+      if (!cancelled) setBusy(false);
+    })();
+    return () => { cancelled = true; };
+  }, [tenantId, token]);
+
+  const connected = !!st?.connected;
+  const live = !!st?.chargesEnabled;
+  const submitted = !!st?.detailsSubmitted;
+  const onboardHref = `/api/portal/renter-connect?tenantId=${encodeURIComponent(tenantId)}&token=${encodeURIComponent(token)}`;
+
+  return (
+    <section className="space-y-3">
+      <SectionTitle icon={CreditCard}>Card Payments</SectionTitle>
+      <div className="p-4 rounded-3xl bg-white border-2 space-y-3">
+        {busy ? (
+          <p className="py-3 text-center text-[11px] font-bold text-slate-400">Checking your account…</p>
+        ) : live ? (
+          <div className="rounded-2xl bg-emerald-50 p-4">
+            <p className="text-[13px] font-black text-emerald-900">You can take cards.</p>
+            <p className="mt-1 text-[11px] font-bold text-emerald-800">
+              Payments go straight to your own Stripe account and pay out to your bank. {data?.studioName || 'The studio'} never touches them.
+            </p>
+          </div>
+        ) : connected && submitted ? (
+          <div className="rounded-2xl bg-amber-50 p-4">
+            <p className="text-[13px] font-black text-amber-900">Stripe is still reviewing your details.</p>
+            <p className="mt-1 text-[11px] font-bold text-amber-800">
+              This usually takes a few minutes. Until it clears, your clients pay you in person as usual — nothing is broken.
+            </p>
+          </div>
+        ) : connected ? (
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-[13px] font-black text-slate-900">You started setting up — a few steps left.</p>
+            <p className="mt-1 text-[11px] font-bold text-slate-500">Pick up where you left off. Your bookings keep working meanwhile.</p>
+          </div>
+        ) : (
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-[13px] font-black text-slate-900">Want to take cards and deposits?</p>
+            <p className="mt-1 text-[11px] font-bold text-slate-500">
+              Connect your own Stripe account — you keep 100%, minus Stripe&apos;s normal processing fee. It pays out to your bank, not the studio&apos;s.
+            </p>
+          </div>
+        )}
+
+        {!live && !busy && (
+          <a href={onboardHref}
+             className="flex h-11 w-full items-center justify-center rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white active:scale-95">
+            {connected ? 'Finish setting up' : 'Connect my Stripe'}
+          </a>
+        )}
+        {live && (
+          <a href={onboardHref}
+             className="flex h-11 w-full items-center justify-center rounded-2xl border-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+            Manage my account
+          </a>
+        )}
+        <p className="text-[10px] font-bold text-slate-400">
+          Payment questions go to Stripe, not the front desk — it&apos;s your account.
+        </p>
+      </div>
+    </section>
+  );
+}
+
 // ─── My Number: what they need to earn ───────────────────────────────────────
 // Rough is fine. These inputs live in a server-only subcollection the studio
 // cannot read — the card says so plainly, because a renter's landlord asking
@@ -848,6 +933,10 @@ export default function RenterPortalPage() {
             )}
 
             {data?.provider && <MyBook data={data} />}
+
+            {data?.provider && session?.token && (
+              <MyPayments data={data} tenantId={tenantId} token={session.token} />
+            )}
 
             {/* Upcoming */}
             <section className="space-y-3">
