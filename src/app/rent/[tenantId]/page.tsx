@@ -59,6 +59,92 @@ const STORE = (tenantId: string) => `opal_renter_${tenantId}`;
 
 
 
+
+// ─── My Hours: the renter's own weekly availability ──────────────────────────
+// Writes staff.availability.week, which the booking engine already treats as
+// layer 3 (per-staff weekly hours) — so a renter's template beats the house
+// profile for their own link, with no engine changes. Days left off simply
+// produce no slots.
+const DAY_ROWS: Array<[string, string]> = [
+  ['monday', 'Mon'], ['tuesday', 'Tue'], ['wednesday', 'Wed'], ['thursday', 'Thu'],
+  ['friday', 'Fri'], ['saturday', 'Sat'], ['sunday', 'Sun'],
+];
+
+function MyHours({ data, tenantId, token, onChanged }: { data: any; tenantId: string; token: string; onChanged: () => void }) {
+  const initial = () => {
+    const w = data?.provider?.week || {};
+    const out: any = {};
+    for (const [key] of DAY_ROWS) {
+      const r = w[key] || {};
+      out[key] = { enabled: !!r.enabled, start: r.start || '09:00', end: r.end || '17:00' };
+    }
+    return out;
+  };
+  const [week, setWeek] = useState<any>(initial);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState('');
+
+  const set = (day: string, patch: any) => setWeek((w: any) => ({ ...w, [day]: { ...w[day], ...patch } }));
+
+  const save = async () => {
+    setBusy(true); setErr('');
+    const bad = DAY_ROWS.find(([k]) => week[k].enabled && !(week[k].start < week[k].end));
+    if (bad) { setBusy(false); setErr('End time has to be after start time.'); return; }
+    const d = await api({ action: 'my-hours', tenantId, token, week });
+    setBusy(false);
+    if (!d.ok) { setErr(d.error || 'Could not save'); return; }
+    setSaved(true); setTimeout(() => setSaved(false), 2000);
+    onChanged();
+  };
+
+  const anyOn = DAY_ROWS.some(([k]) => week[k].enabled);
+
+  return (
+    <section className="space-y-3">
+      <SectionTitle icon={Clock}>My Hours</SectionTitle>
+      <div className="p-4 rounded-3xl bg-white border-2 space-y-2">
+        <p className="text-[11px] font-bold text-slate-500">
+          When clients can book you. These are your hours — they don&apos;t have to match the studio&apos;s.
+        </p>
+        {DAY_ROWS.map(([key, label]) => (
+          <div key={key} className="flex items-center gap-2 rounded-2xl border-2 p-2">
+            <button type="button" onClick={() => set(key, { enabled: !week[key].enabled })}
+                    className={cn('h-9 w-16 shrink-0 rounded-xl text-[10px] font-black uppercase tracking-widest',
+                      week[key].enabled ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-400')}>
+              {label}
+            </button>
+            {week[key].enabled ? (
+              <div className="flex flex-1 items-center gap-2">
+                <input type="time" value={week[key].start} onChange={e => set(key, { start: e.target.value })}
+                       className="h-9 min-w-0 flex-1 rounded-xl border-2 px-2 text-[12px] font-bold" />
+                <span className="text-[11px] font-black text-slate-400">to</span>
+                <input type="time" value={week[key].end} onChange={e => set(key, { end: e.target.value })}
+                       className="h-9 min-w-0 flex-1 rounded-xl border-2 px-2 text-[12px] font-bold" />
+              </div>
+            ) : (
+              <span className="flex-1 text-[11px] font-bold text-slate-400">Off</span>
+            )}
+          </div>
+        ))}
+        {!anyOn && (
+          <p className="rounded-2xl bg-amber-50 p-3 text-[11px] font-bold text-amber-800">
+            Every day is off right now, so nobody can book you. Turn on at least one day.
+          </p>
+        )}
+        {err && <p className="text-[11px] font-black text-red-600">{err}</p>}
+        <button onClick={save} disabled={busy}
+                className="h-11 w-full rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white active:scale-95 disabled:opacity-50">
+          {busy ? 'Saving…' : saved ? 'Saved ✓' : 'Save my hours'}
+        </button>
+        <p className="text-[10px] font-bold text-slate-400">
+          Time off for a single day? Ask the studio to block it — that keeps the calendar honest for everyone.
+        </p>
+      </div>
+    </section>
+  );
+}
+
 // ─── Card payments: their own Stripe ─────────────────────────────────────────
 // Connecting here creates an account that belongs to the RENTER. Money, refunds
 // and disputes are all theirs; the studio is never in the path. Half-finished
@@ -943,6 +1029,10 @@ export default function RenterPortalPage() {
 
             {data?.provider && session?.token && (
               <MyNumber data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
+            )}
+
+            {data?.provider && session?.token && (
+              <MyHours data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
             )}
 
             {data?.provider && <MyBook data={data} />}
