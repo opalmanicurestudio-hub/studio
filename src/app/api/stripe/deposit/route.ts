@@ -59,6 +59,7 @@ export async function POST(req: NextRequest) {
       clientName,
       clientEmail,
       serviceName,
+      renterProviderId,     // present when this is an independent provider's booking
     } = await req.json();
 
     if (!tenantId || !bookingRequestId || !clientEmail || !depositAmount) {
@@ -70,7 +71,30 @@ export async function POST(req: NextRequest) {
     if (!tenantSnap.exists) {
       return NextResponse.json({ error: 'Studio not found' }, { status: 404 });
     }
-    const stripeAccountId = tenantSnap.data()?.stripeAccountId;
+    // ── Whose account collects this? ────────────────────────────────────────
+    // For an independent provider's booking the money must land on THEIR
+    // connected account, never the studio's. The account id is resolved here
+    // from their provider record — never accepted from the caller — and only
+    // when Stripe has actually enabled charges for them.
+    let stripeAccountId = tenantSnap.data()?.stripeAccountId;
+    let isRenterCharge = false;
+    if (renterProviderId) {
+      const stSnap = await db.doc(`tenants/${tenantId}/staff/${String(renterProviderId)}`).get();
+      const st = stSnap.exists ? (stSnap.data() as any) : null;
+      if (!st?.isRenter || !st?.renterId) {
+        return NextResponse.json({ error: 'Provider not found.' }, { status: 404 });
+      }
+      const rSnap = await db.doc(`tenants/${tenantId}/renters/${st.renterId}`).get();
+      const r = rSnap.exists ? (rSnap.data() as any) : null;
+      if (!r?.stripeAccountId || r?.stripeChargesEnabled !== true) {
+        return NextResponse.json(
+          { error: 'This provider is not set up to take cards yet — book without a deposit and pay them directly.' },
+          { status: 400 }
+        );
+      }
+      stripeAccountId = r.stripeAccountId;
+      isRenterCharge = true;
+    }
     if (!stripeAccountId) {
       return NextResponse.json(
         { error: 'This studio has not connected a payment account yet.' },
@@ -105,6 +129,9 @@ export async function POST(req: NextRequest) {
           tenantId,
           bookingRequestId,
           type:        'deposit',
+          // Tagged so the webhook and any later reconciliation can tell a
+          // renter's deposit from the studio's at a glance.
+          ...(isRenterCharge ? { renterProviderId: String(renterProviderId) } : {}),
           serviceName: serviceName || '',
           clientName:  clientName  || '',
           clientEmail: clientEmail || '',
