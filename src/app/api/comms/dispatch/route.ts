@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { brandedEmailHtml } from '@/lib/email-template';
+
 // ─── /api/comms/dispatch ──────────────────────────────────────────────────────
 // POST { kind, tenantId, ...ids }
 //
@@ -82,8 +84,12 @@ async function sendEmail(opts: { from: string; to: string; subject: string; html
   }
 }
 
-function shell(inner: string): string {
-  return `<div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">${inner}</div>`;
+function appBase(): string {
+  return String(process.env.APP_BASE_URL || 'https://studio-one-blue.vercel.app').replace(/\/+$/, '');
+}
+
+function detailCard(lines: string[]): string {
+  return `<div style="background:#f8fafc;border:2px solid #e2e8f0;border-radius:14px;padding:16px 20px;margin:16px 0;">${lines.join('')}</div>`;
 }
 
 async function ownerEmailFor(db: any, tenantId: string): Promise<string> {
@@ -105,14 +111,20 @@ async function ownerEmailFor(db: any, tenantId: string): Promise<string> {
   }
 }
 
-async function notifyOwner(db: any, tenantId: string, subject: string, bodyHtml: string) {
+async function notifyOwner(db: any, tenantId: string, subject: string, title: string, bodyHtml: string, cta?: { label: string; url: string }) {
   const ownerEmail = await ownerEmailFor(db, tenantId);
   if (!ownerEmail) return;
   await sendEmail({
     from: fromFor('ClarityFlow'),
     to: ownerEmail,
     subject,
-    html: shell(`${bodyHtml}<p style="color: #475569; line-height: 1.6;">Open <strong>Applicants</strong> in ClarityFlow to act on it.</p>`),
+    html: brandedEmailHtml({
+      studioName: 'ClarityFlow',
+      title,
+      bodyHtml,
+      cta: cta || { label: 'Open Applicants', url: `${appBase()}/applicants` },
+      footerNote: 'You\u2019re receiving this because you own this business on ClarityFlow.',
+    }),
   });
 }
 
@@ -158,11 +170,12 @@ async function handleMessages(db: any, tenantId: string, applicationId: string) 
       from: fromFor(businessName),
       to: String(msg.to),
       subject,
-      html: shell(`
-        <p style="font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: #94a3b8; font-weight: 700;">${esc(businessName)}</p>
-        <div style="font-size: 15px; color: #0f172a; line-height: 1.6;">${bodyHtml}</div>
-        <p style="color: #94a3b8; font-size: 12px; margin-top: 24px;">You're receiving this because you applied to ${esc(businessName)}. Reply to this email to reach us.</p>
-      `),
+      html: brandedEmailHtml({
+        studioName: businessName,
+        title: subject,
+        bodyHtml: `<div style="font-size:15px;color:#0f172a;line-height:1.6;">${bodyHtml}</div>`,
+        footerNote: `You're receiving this because you applied to ${businessName}. Reply to this email to reach us.`,
+      }),
     });
 
     if (result.ok) {
@@ -206,12 +219,11 @@ async function handleApplication(db: any, tenantId: string, applicationId: strin
         const listingSnap = await db.doc(`tenants/${tenantId}/jobListings/${app.listingId}`).get();
         const l = listingSnap.data() as any;
         if (l) {
-          listingBlock = `
-            <div style="background: #f8fafc; border-radius: 16px; padding: 16px 20px; margin: 16px 0;">
-              <p style="margin: 0; font-weight: 700;">${esc(l.title)}</p>
-              ${l.payRange || l.scheduleNote ? `<p style="margin: 4px 0 0; color: #64748b; font-size: 13px;">${esc([l.payRange, l.scheduleNote].filter(Boolean).join(' · '))}</p>` : ''}
-              ${l.description ? `<p style="margin: 8px 0 0; color: #475569; font-size: 14px; line-height: 1.6;">${esc(l.description).replace(/\n/g, '<br/>')}</p>` : ''}
-            </div>`;
+          listingBlock = detailCard([
+            `<p style="margin:0;font-size:15px;font-weight:800;color:#0f172a;">${esc(l.title)}</p>`,
+            (l.payRange || l.scheduleNote) ? `<p style="margin:4px 0 0;color:#64748b;font-size:13px;">${esc([l.payRange, l.scheduleNote].filter(Boolean).join(' · '))}</p>` : '',
+            l.description ? `<p style="margin:8px 0 0;color:#475569;font-size:14px;line-height:1.6;">${esc(l.description).replace(/\n/g, '<br/>')}</p>` : '',
+          ]);
         }
       } catch { /* listing block is optional */ }
     }
@@ -222,15 +234,16 @@ async function handleApplication(db: any, tenantId: string, applicationId: strin
       from: fromFor(businessName),
       to: String(app.email),
       subject,
-      html: shell(`
-        <p style="font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: #94a3b8; font-weight: 700;">${esc(businessName)}</p>
-        <h2 style="margin: 8px 0 4px;">Thanks, ${first} — it's in.</h2>
-        <p style="color: #475569; margin-top: 0; line-height: 1.6;">Your application${app.listingTitle ? ` for <strong>${esc(app.listingTitle)}</strong>` : ''} reached us and a real person will read it. Here's a little about us while you wait:</p>
-        ${welcomeNote ? `<p style="color: #0f172a; line-height: 1.6;">${esc(welcomeNote).replace(/\n/g, '<br/>')}</p>` : ''}
-        ${listingBlock}
-        <p style="color: #475569; line-height: 1.6;">If you're a fit, we'll reach out at this address about next steps — usually within a few days.</p>
-        <p style="color: #94a3b8; font-size: 12px; margin-top: 24px;">You're receiving this because you applied to ${esc(businessName)}. Reply to this email to reach us.</p>
-      `),
+      html: brandedEmailHtml({
+        studioName: businessName,
+        title: `Thanks, ${first} — it's in.`,
+        bodyHtml: `
+          <p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#334155;">Your application${app.listingTitle ? ` for <strong>${esc(app.listingTitle)}</strong>` : ''} reached us and a real person will read it. Here's a little about us while you wait:</p>
+          ${welcomeNote ? `<p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#0f172a;">${esc(welcomeNote).replace(/\n/g, '<br/>')}</p>` : ''}
+          ${listingBlock}
+          <p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#334155;">If you're a fit, we'll reach out at this address about next steps — usually within a few days.</p>`,
+        footerNote: `You're receiving this because you applied to ${businessName}. Reply to this email to reach us.`,
+      }),
     });
 
     const msgRef = db.doc(`tenants/${tenantId}/applications/${applicationId}/messages/receipt`);
@@ -249,11 +262,12 @@ async function handleApplication(db: any, tenantId: string, applicationId: strin
 
   await notifyOwner(db, tenantId,
     `New application: ${String(app.name || 'Someone').slice(0, 120)}${app.position ? ` — ${String(app.position).slice(0, 120)}` : ''}`,
-    `<h2 style="margin: 8px 0 4px;">Someone just applied.</h2>
-     <div style="background: #f8fafc; border-radius: 16px; padding: 16px 20px; margin: 16px 0;">
-       <p style="margin: 0; font-weight: 700;">${esc(app.name || 'Applicant')}</p>
-       <p style="margin: 4px 0 0; color: #64748b; font-size: 13px;">${esc(app.position || '')}${app.email ? ` · ${esc(app.email)}` : ''}</p>
-     </div>`,
+    'Someone just applied.',
+    detailCard([
+      `<p style="margin:0;font-size:15px;font-weight:800;color:#0f172a;">${esc(app.name || 'Applicant')}</p>`,
+      `<p style="margin:4px 0 0;color:#64748b;font-size:13px;">${esc(app.position || '')}${app.email ? ` · ${esc(app.email)}` : ''}</p>`,
+    ]),
+    { label: 'Review their application', url: `${appBase()}/applicants?app=${encodeURIComponent(applicationId)}` },
   );
 
   return { ok: true };
@@ -302,15 +316,17 @@ async function handleInterview(db: any, tenantId: string, token: string) {
       from: fromFor(businessName),
       to: applicantEmail,
       subject: `Interview confirmed — ${whenText}`,
-      html: shell(`
-        <p style="font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: #94a3b8; font-weight: 700;">${esc(businessName)}</p>
-        <h2 style="margin: 8px 0 4px;">You're confirmed, ${esc(invite.firstName || 'there')}.</h2>
-        <div style="background: #f8fafc; border-radius: 16px; padding: 16px 20px; margin: 16px 0;">
-          ${invite.roleTitle ? `<p style="margin: 0; font-weight: 700;">${esc(invite.roleTitle)}</p>` : ''}
-          <p style="margin: 4px 0 0; color: #64748b;">${esc(whenText)}</p>
-        </div>
-        <p style="color: #475569; line-height: 1.6;">If anything changes, just reply to this email and we'll rearrange.</p>
-      `),
+      html: brandedEmailHtml({
+        studioName: businessName,
+        title: `You're confirmed, ${invite.firstName || 'there'}.`,
+        bodyHtml: `
+          ${detailCard([
+            invite.roleTitle ? `<p style="margin:0;font-size:15px;font-weight:800;color:#0f172a;">${esc(invite.roleTitle)}</p>` : '',
+            `<p style="margin:4px 0 0;color:#64748b;font-size:14px;">${esc(whenText)}</p>`,
+          ])}
+          <p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#334155;">If anything changes, just reply to this email and we'll rearrange.</p>`,
+        footerNote: `Sent by ${businessName}.`,
+      }),
     });
   }
 
@@ -335,16 +351,22 @@ async function handleInterview(db: any, tenantId: string, token: string) {
   const first = esc(invite.firstName || 'An applicant');
   if (accepted) {
     await notifyOwner(db, tenantId, `Interview confirmed: ${invite.firstName || 'applicant'}`,
-      `<h2 style="margin: 8px 0 4px;">${first} confirmed their interview.</h2><p style="color: #475569;">${esc(whenText || '')}${invite.roleTitle ? ` · ${esc(invite.roleTitle)}` : ''}</p>`);
+      `${first} confirmed their interview.`,
+      detailCard([`<p style="margin:0;color:#0f172a;font-size:15px;font-weight:700;">${esc(whenText || '')}${invite.roleTitle ? ` · ${esc(invite.roleTitle)}` : ''}</p>`]),
+      invite.applicationId ? { label: 'Open their application', url: `${appBase()}/applicants?app=${encodeURIComponent(String(invite.applicationId))}` } : undefined);
   } else if (status === 'countered') {
     const slots = (invite.proposedSlots || []).map((sl: string) => {
       try { return new Date(sl).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch { return sl; }
     });
     await notifyOwner(db, tenantId, `${invite.firstName || 'An applicant'} sent their availability`,
-      `<h2 style="margin: 8px 0 4px;">${first} can’t make your times — they sent theirs.</h2><p style="color: #475569;">${slots.map((x: string) => esc(x)).join('<br/>')}</p>${invite.applicantNote ? `<p style="color: #64748b; font-style: italic;">“${esc(invite.applicantNote)}”</p>` : ''}`);
+      `${first} can’t make your times — they sent theirs.`,
+      `${detailCard([`<p style="margin:0;color:#0f172a;font-size:15px;line-height:1.8;font-weight:700;">${slots.map((x: string) => esc(x)).join('<br/>')}</p>`])}${invite.applicantNote ? `<p style="margin:0 0 12px;color:#64748b;font-size:14px;font-style:italic;">“${esc(invite.applicantNote)}”</p>` : ''}`,
+      invite.applicationId ? { label: 'Open their application', url: `${appBase()}/applicants?app=${encodeURIComponent(String(invite.applicationId))}` } : undefined);
   } else {
     await notifyOwner(db, tenantId, `${invite.firstName || 'An applicant'} needs new interview times`,
-      `<h2 style="margin: 8px 0 4px;">${first} asked for different times.</h2>`);
+      `${first} asked for different times.`,
+      `<p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#334155;">Propose a fresh set of times from their card and they'll get a new link.</p>`,
+      invite.applicationId ? { label: 'Open their application', url: `${appBase()}/applicants?app=${encodeURIComponent(String(invite.applicationId))}` } : undefined);
   }
 
   return { ok: true };
@@ -394,7 +416,7 @@ async function handleDocument(db: any, tenantId: string, documentId: string) {
 
   if (recipients.length === 0) return { ok: true, sent: 0 };
 
-  const portalUrl = `${process.env.APP_BASE_URL || 'https://studio-one-blue.vercel.app'}/staff-portal/${tenantId}`;
+  const portalUrl = `${appBase()}/staff-portal/${tenantId}`;
   const subject = isUpdate ? `Updated — please re-read: ${title}` : `Please read: ${title}`;
 
   let sent = 0;
@@ -403,19 +425,20 @@ async function handleDocument(db: any, tenantId: string, documentId: string) {
       from: fromFor(businessName),
       to: String(m.email),
       subject,
-      html: shell(`
-        <p style="font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: #94a3b8; font-weight: 700;">${esc(businessName)}</p>
-        <h2 style="margin: 8px 0 4px;">${isUpdate ? 'A document you’ve read has changed.' : 'Something new to read.'}</h2>
-        <div style="background: #f8fafc; border-radius: 16px; padding: 16px 20px; margin: 16px 0;">
-          <p style="margin: 0; font-weight: 700;">${esc(title)}</p>
-          <p style="margin: 4px 0 0; color: #64748b; font-size: 13px;">Version ${version}</p>
-        </div>
-        <p style="color: #475569; line-height: 1.6;">${isUpdate
-          ? 'It was updated since you last confirmed it. Open your staff portal, tap <strong>Documents</strong>, read the new version, and tap “I’ve read and understood this.”'
-          : 'Open your staff portal, tap <strong>Documents</strong>, read it, and tap “I’ve read and understood this” when you’re done.'}</p>
-        <p style="margin-top: 16px;"><a href="${portalUrl}" style="display: inline-block; background: #0f172a; color: #ffffff; padding: 12px 24px; border-radius: 12px; text-decoration: none; font-weight: 700;">Open my portal</a></p>
-        <p style="color: #94a3b8; font-size: 12px; margin-top: 24px;">Sent by ${esc(businessName)} via their team documents system.</p>
-      `),
+      html: brandedEmailHtml({
+        studioName: businessName,
+        title: isUpdate ? 'A document you’ve read has changed.' : 'Something new to read.',
+        bodyHtml: `
+          ${detailCard([
+            `<p style="margin:0;font-size:15px;font-weight:800;color:#0f172a;">${esc(title)}</p>`,
+            `<p style="margin:4px 0 0;color:#64748b;font-size:13px;">Version ${version}</p>`,
+          ])}
+          <p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#334155;">${isUpdate
+            ? 'It was updated since you last confirmed it. Open your staff portal, tap <strong>Documents</strong>, read the new version, and tap “I’ve read and understood this.”'
+            : 'Open your staff portal, tap <strong>Documents</strong>, read it, and tap “I’ve read and understood this” when you’re done.'}</p>`,
+        cta: { label: 'Open my portal', url: portalUrl },
+        footerNote: `Sent by ${businessName} via their team documents system.`,
+      }),
     });
     if (result.ok) sent++;
   }
