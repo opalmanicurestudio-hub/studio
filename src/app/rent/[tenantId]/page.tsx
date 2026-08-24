@@ -336,6 +336,7 @@ function MyServices({ data, tenantId, token, onChanged }: { data: any; tenantId:
       action: 'my-service-save', tenantId, token,
       serviceId: draft.id || '', name: draft.name,
       price: Number(draft.price), duration: Number(draft.duration), productCost: Number(draft.productCost || 0),
+      depositAmount: Number(draft.depositAmount || 0),
     });
     setBusy(false);
     if (!d.ok) { setErr(d.error || 'Could not save'); return; }
@@ -437,7 +438,19 @@ function MyServices({ data, tenantId, token, onChanged }: { data: any; tenantId:
                 <input type="number" min={0} value={draft.productCost ?? 0} onChange={e => setDraft((d: any) => ({ ...d, productCost: e.target.value }))}
                        className="h-10 w-full rounded-xl border-2 text-center text-[13px] font-black" />
               </label>
+              {data?.provider?.chargesEnabled && (
+                <label className="flex-1 min-w-[5rem]">
+                  <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Deposit $</span>
+                  <input type="number" min={0} value={draft.depositAmount ?? 0} onChange={e => setDraft((d: any) => ({ ...d, depositAmount: e.target.value }))}
+                         className="h-10 w-full rounded-xl border-2 text-center text-[13px] font-black" />
+                </label>
+              )}
             </div>
+            {data?.provider?.chargesEnabled ? (
+              <p className="text-[10px] font-bold text-slate-400">A deposit holds the slot and goes straight to your Stripe. Leave it 0 for no deposit.</p>
+            ) : (
+              <p className="text-[10px] font-bold text-slate-400">Connect your Stripe below to start taking deposits and stop losing no-shows.</p>
+            )}
             {live && (
               <div className={cn('rounded-xl p-3',
                 live.tone === 'bad' ? 'bg-red-50' : live.tone === 'thin' ? 'bg-amber-50' : 'bg-emerald-50')}>
