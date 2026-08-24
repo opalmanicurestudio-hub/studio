@@ -13,6 +13,16 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { Loader, Copy, Check, Share2, Send, Mail, Phone, ChevronDown, UserPlus, RefreshCw, ArrowRight, Briefcase } from 'lucide-react';
 
+const pumpComms = (payload: Record<string, string>) => {
+  try {
+    void fetch('/api/comms/dispatch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch(() => { /* message docs keep their own status; the timeline shows the truth */ });
+  } catch { /* fire-and-forget */ }
+};
+
 const STATUSES = ['new', 'reviewing', 'interview', 'offer', 'hired', 'declined'] as const;
 type AppStatus = typeof STATUSES[number];
 
@@ -857,6 +867,15 @@ const ApplicantCardWithData = (props: any) => {
     [firestore, tenantId, app.id]
   );
   const { data: events } = useCollection(msgsQuery);
+  const pumpedOnce = React.useRef(false);
+  useEffect(() => {
+    if (pumpedOnce.current || !tenantId) return;
+    const stuck = ((events || []) as any[]).some((m: any) => m.type === 'email' && m.status === 'queued');
+    if (stuck) {
+      pumpedOnce.current = true;
+      pumpComms({ kind: 'messages', tenantId, applicationId: app.id });
+    }
+  }, [events, tenantId, app.id]);
   const timeline = useMemo(
     () => ([...((events || []) as any[])]).sort((a, b) => (safeDate(b.createdAt)?.getTime() || 0) - (safeDate(a.createdAt)?.getTime() || 0)).slice(0, 20),
     [events]
@@ -1022,7 +1041,7 @@ export default function ApplicantsPage() {
     return () => clearTimeout(t);
   }, [focusAppId, applications]);
 
-  const handleCancelInterview = (app: any, invite: any) => {
+  const handleCancelInterview = async (app: any, invite: any) => {
     if (!tenantId) return;
     updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/interviewInvites/${invite.id}`), {
       status: 'canceled',
@@ -1031,7 +1050,7 @@ export default function ApplicantsPage() {
     const whenStr = invite.chosenSlot ? (() => { try { const dd = safeDate(invite.chosenSlot); return dd ? format(dd as Date, 'EEEE, MMM d \u00b7 h:mm a') : ''; } catch { return ''; } })() : '';
     const businessName = selectedTenant?.name || 'our team';
     const msgId = nanoid();
-    setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/applications/${app.id}/messages/${msgId}`), {
+    await setDoc(doc(firestore, `tenants/${tenantId}/applications/${app.id}/messages/${msgId}`), {
       id: msgId,
       type: 'email',
       status: 'queued',
@@ -1040,15 +1059,22 @@ export default function ApplicantsPage() {
       body: `Hi ${String(app.name || 'there').split(' ')[0]},\n\nWe need to cancel ${whenStr ? `our interview scheduled for ${whenStr}` : 'our upcoming interview'} — our apologies for the change of plans. This isn\u2019t a reflection on your application: we\u2019ll follow up shortly with new times.\n\nThank you for your patience,\n${businessName}`,
       by: actorName,
       createdAt: new Date().toISOString(),
-    }, { merge: false });
+    });
+    pumpComms({ kind: 'messages', tenantId, applicationId: app.id });
   };
 
-  const handleAcceptProposed = (inviteId: string, slot: string) => {
+  const handleAcceptProposed = async (inviteId: string, slot: string) => {
     if (!tenantId) return;
-    updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/interviewInvites/${inviteId}`), {
-      status: 'accepted',
-      chosenSlot: slot,
-    });
+    const { updateDoc } = await import('firebase/firestore');
+    try {
+      await updateDoc(doc(firestore, `tenants/${tenantId}/interviewInvites/${inviteId}`), {
+        status: 'accepted',
+        chosenSlot: slot,
+      });
+      pumpComms({ kind: 'interview', tenantId, token: inviteId });
+    } catch (e) {
+      console.error('accept proposed failed', e);
+    }
   };
 
   const handleCopyInviteLink = async (inviteId: string) => {
@@ -1114,6 +1140,7 @@ ${selectedTenant?.name || ''}`);
       by: actorName,
       createdAt: new Date().toISOString(),
     });
+    pumpComms({ kind: 'messages', tenantId, applicationId: app.id });
   };
 
   const counts = useMemo(() => {
