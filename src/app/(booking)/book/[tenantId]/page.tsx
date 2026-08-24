@@ -211,6 +211,10 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
                 collectsOwnPayment: true,
                 providerName: provider.name || 'your provider',
                 staffIds: [provider.id],
+                // Deposits are possible only when THEIR Stripe can charge.
+                renterChargesEnabled: provider.stripeChargesEnabled === true,
+                renterDepositAmount: Number(sv.depositAmount) || 0,
+                renterProviderId: provider.id,
               }));
             setServices(mine);
             setStaff([provider]);
@@ -491,6 +495,9 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           clientName:  formData.clientName,
           clientEmail: formData.clientEmail,
           serviceName: svc?.name || '',
+          // Independent-provider bookings collect on THEIR account.
+          ...(svc?.collectsOwnPayment && svc?.renterProviderId
+            ? { renterProviderId: svc.renterProviderId } : {}),
         }),
       });
       const out = await res.json().catch(() => null);
