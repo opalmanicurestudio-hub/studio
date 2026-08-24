@@ -57,6 +57,114 @@ const api = async (payload: any) => {
 const STORE = (tenantId: string) => `opal_renter_${tenantId}`;
 
 
+
+// ─── My Number: what they need to earn ───────────────────────────────────────
+// Rough is fine. These inputs live in a server-only subcollection the studio
+// cannot read — the card says so plainly, because a renter's landlord asking
+// about their household budget is exactly the thing that would stop them from
+// answering honestly. Sharing is one derived rate, opt-in, off by default.
+function MyNumber({ data, tenantId, token, onChanged }: { data: any; tenantId: string; token: string; onChanged: () => void }) {
+  const p = data?.pricing || {};
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [personal, setPersonal] = useState(String(((Number(p.personalMonthlyCents) || 0) / 100) || ''));
+  const [business, setBusiness] = useState(String(((Number(p.businessMonthlyCents) || 0) / 100) || ''));
+  const [taxPct, setTaxPct] = useState(String(p.taxSetAsidePct ?? 25));
+  const [share, setShare] = useState(!!p.shareTargetHourly);
+
+  const save = async () => {
+    setBusy(true); setErr('');
+    const d = await api({
+      action: 'my-goals', tenantId, token,
+      personalMonthly: Number(personal) || 0,
+      businessMonthly: Number(business) || 0,
+      taxSetAsidePct: Number(taxPct) || 0,
+      shareTargetHourly: share,
+    });
+    setBusy(false);
+    if (!d.ok) { setErr(d.error || 'Could not save'); return; }
+    setOpen(false); onChanged();
+  };
+
+  const target = (Number(p.targetHourlyCents) || 0) / 100;
+  const monthly = (Number(p.monthlyTargetCents) || 0) / 100;
+
+  return (
+    <section className="space-y-3">
+      <SectionTitle icon={Wallet}>My Number</SectionTitle>
+      <div className="p-4 rounded-3xl bg-white border-2 space-y-3">
+        {p.hasGoals && !open ? (
+          <div className="rounded-2xl bg-slate-900 p-4 text-white">
+            <p className="text-[10px] font-black uppercase tracking-widest text-white/50">Your hour needs to make</p>
+            <p className="text-3xl font-black">${target.toFixed(2)}</p>
+            <p className="mt-1 text-[11px] font-bold text-white/70">
+              ${monthly.toFixed(2)} a month across {p.bookableHoursPerMonth} booked hours — rent, taxes and living covered.
+            </p>
+          </div>
+        ) : !open ? (
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-[13px] font-black text-slate-900">Know what your hour has to earn.</p>
+            <p className="mt-1 text-[11px] font-bold text-slate-500">
+              Tell us roughly what you need each month and we&apos;ll work backwards through taxes and rent to the number that makes your prices make sense.
+            </p>
+          </div>
+        ) : null}
+
+        {open && (
+          <div className="space-y-2">
+            <p className="rounded-2xl bg-emerald-50 p-3 text-[11px] font-bold text-emerald-900">
+              🔒 Only you can see these numbers. {data?.studioName || 'The studio'} sees that you&apos;ve set a goal, never what&apos;s in it.
+            </p>
+            <label className="block">
+              <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">What you need to live on, a month</span>
+              <input type="number" min={0} value={personal} onChange={e => setPersonal(e.target.value)} placeholder="3000"
+                     className="h-11 w-full rounded-xl border-2 px-3 text-[15px] font-black" />
+              <span className="mt-1 block text-[10px] font-bold text-slate-400">Housing, car, food, insurance, debt, savings — rough is fine.</span>
+            </label>
+            <div className="flex gap-2">
+              <label className="flex-1">
+                <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Business costs / mo</span>
+                <input type="number" min={0} value={business} onChange={e => setBusiness(e.target.value)} placeholder="200"
+                       className="h-11 w-full rounded-xl border-2 text-center text-[15px] font-black" />
+              </label>
+              <label className="flex-1">
+                <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Tax set-aside %</span>
+                <input type="number" min={0} max={60} value={taxPct} onChange={e => setTaxPct(e.target.value)}
+                       className="h-11 w-full rounded-xl border-2 text-center text-[15px] font-black" />
+              </label>
+            </div>
+            <button type="button" onClick={() => setShare(v => !v)}
+                    className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 p-3 text-left">
+              <span>
+                <span className="block text-[12px] font-black text-slate-900">Share just my hourly target with {data?.studioName || 'the studio'}</span>
+                <span className="block text-[10px] font-bold text-slate-500">One number, so they can help you price. Never your costs.</span>
+              </span>
+              <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest',
+                share ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500')}>{share ? 'On' : 'Off'}</span>
+            </button>
+            {err && <p className="text-[11px] font-black text-red-600">{err}</p>}
+            <div className="flex gap-2">
+              <button onClick={save} disabled={busy}
+                      className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white active:scale-95 disabled:opacity-50">
+                {busy ? 'Saving…' : 'Save my number'}
+              </button>
+              <button onClick={() => { setOpen(false); setErr(''); }} className="h-11 rounded-2xl border-2 px-4 text-[10px] font-black uppercase tracking-widest">Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {!open && (
+          <button onClick={() => setOpen(true)}
+                  className="h-11 w-full rounded-2xl border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-500">
+            {p.hasGoals ? 'Update my number' : 'Set up my number'}
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
 // ─── My Book: their client appointments + what they've earned this month ──────
 // The renter's own ledger. The studio's reports deliberately exclude every one
 // of these, so this is the only place these numbers live.
@@ -108,15 +216,24 @@ function MyServices({ data, tenantId, token, onChanged }: { data: any; tenantId:
   const floor = (Number(pricing.priceFloorCents) || 0) / 100;
   const services: any[] = data?.myServices || [];
 
+  // When they've told us what they need to live on, the bar becomes THEIR
+  // target hourly instead of a generic multiple of rent. Same shape either
+  // way, so the UI doesn't branch — only the standard gets more honest.
+  const targetHourly = (Number(pricing.targetHourlyCents) || 0) / 100;
+  const hasGoals = !!pricing.hasGoals && targetHourly > 0;
+
   const coach = (price: number, duration: number, productCost: number) => {
     const hrs = Math.max(0.01, (Number(duration) || 60) / 60);
     const rentShare = rentPerHour * hrs;
     const keep = (Number(price) || 0) - rentShare - (Number(productCost) || 0);
     const perHour = keep / hrs;
-    const tone = keep <= 0 ? 'bad' : perHour < rentPerHour * 2 ? 'thin' : 'good';
-    const monthlyRent = (Number(pricing.monthlyRentCents) || 0) / 100;
-    const needed = keep > 0 ? Math.ceil(monthlyRent / keep) : 0;
-    return { rentShare, keep, perHour, tone, needed };
+    const bar = hasGoals ? targetHourly : rentPerHour * 2;
+    const tone = keep <= 0 ? 'bad' : perHour < bar ? 'thin' : 'good';
+    const monthlyTarget = hasGoals
+      ? (Number(pricing.monthlyTargetCents) || 0) / 100
+      : (Number(pricing.monthlyRentCents) || 0) / 100;
+    const needed = keep > 0 ? Math.ceil(monthlyTarget / keep) : 0;
+    return { rentShare, keep, perHour, tone, needed, bar };
   };
 
   const saveHours = async () => {
@@ -167,9 +284,15 @@ function MyServices({ data, tenantId, token, onChanged }: { data: any; tenantId:
         </div>
 
         <div className="rounded-2xl bg-slate-50 p-3 space-y-2">
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">What an hour costs you</p>
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+            {hasGoals ? 'What an hour needs to earn' : 'What an hour costs you'}
+          </p>
           <p className="text-[13px] font-bold text-slate-700">
-            Your rent works out to <span className="font-black text-slate-900">${rentPerHour.toFixed(2)}/hour</span> in the chair.
+            {hasGoals ? (
+              <>Your hour needs to make <span className="font-black text-slate-900">${targetHourly.toFixed(2)}</span> — rent, taxes and what you live on, over the hours you book.</>
+            ) : (
+              <>Your rent works out to <span className="font-black text-slate-900">${rentPerHour.toFixed(2)}/hour</span> in the chair.</>
+            )}
           </p>
           <div className="flex items-center gap-2">
             <span className="text-[11px] font-bold text-slate-500">Hours you book a month</span>
@@ -203,7 +326,7 @@ function MyServices({ data, tenantId, token, onChanged }: { data: any; tenantId:
                 c.tone === 'bad' ? 'text-red-600' : c.tone === 'thin' ? 'text-amber-600' : 'text-emerald-700')}>
                 {c.keep <= 0
                   ? `You lose $${Math.abs(c.keep).toFixed(2)} on this one after rent and product.`
-                  : `You keep $${c.keep.toFixed(2)} — that's $${c.perHour.toFixed(2)}/hour. ${c.needed} a month covers your rent.`}
+                  : `You keep $${c.keep.toFixed(2)} — that's $${c.perHour.toFixed(2)}/hour. ${c.needed} a month ${hasGoals ? 'hits your goal' : 'covers your rent'}.`}
               </p>
             </div>
           );
@@ -718,6 +841,10 @@ export default function RenterPortalPage() {
 
             {data?.provider && session?.token && (
               <MyServices data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
+            )}
+
+            {data?.provider && session?.token && (
+              <MyNumber data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
             )}
 
             {data?.provider && <MyBook data={data} />}
