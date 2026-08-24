@@ -69,6 +69,17 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   const [tenant,          setTenant]          = useState<any>(null);
   const [services,        setServices]        = useState<any[]>([]);
   const [staff,           setStaff]           = useState<any[]>([]);
+  // Independent-provider mode: /book/{tenant}?provider={staffId} shows ONLY
+  // that renter's own menu at their own prices. Read post-mount from
+  // window.location for the same reason the applicants page does — useSearchParams
+  // forces a Suspense boundary this page doesn't have.
+  const [providerId,      setProviderId]      = useState('');
+  useEffect(() => {
+    try {
+      const p = new URLSearchParams(window.location.search).get('provider') || '';
+      if (p) setProviderId(p);
+    } catch { /* no-op */ }
+  }, []);
   const [events,          setEvents]          = useState<any[]>([]);
   const [appointments,    setAppointments]    = useState<any[]>([]);
   const [scheduleProfiles,setScheduleProfiles]= useState<any[]>([]);
@@ -162,7 +173,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       const fromDay = todayIn(tenantTimeZone(tenant));
       const eventsFromDay = todayIn(tenantTimeZone(tenant), new Date(Date.now() - 31 * 86400000));
       try {
-        const [svSnap,stSnap,evSnap,aptSnap,spSnap,ptSnap,cfSnap,shSnap,sbSnap,doSnap,rsSnap,tkSnap,mpSnap,ceSnap] = await Promise.all([
+        const [svSnap,stSnap,evSnap,aptSnap,spSnap,ptSnap,cfSnap,shSnap,sbSnap,doSnap,rsSnap,tkSnap,mpSnap,ceSnap,rsvSnap] = await Promise.all([
           getDocs(collection(db, `tenants/${tenantId}/services`)),
           getDocs(collection(db, `tenants/${tenantId}/staff`)),
           getDocs(query(collection(db, `tenants/${tenantId}/studioEvents`), orderBy('date','asc'))).catch(() => getDocs(collection(db, `tenants/${tenantId}/studioEvents`))),
@@ -183,10 +194,30 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           getDocs(query(collection(db, `tenants/${tenantId}/tickets`), where('status', 'in', ['open', 'in_progress']))).catch(() => ({ docs: [] })),
           getDocs(collection(db, `tenants/${tenantId}/maintenancePlans`)).catch(() => ({ docs: [] })),
           getDocs(query(collection(db, `tenants/${tenantId}/events`), where('startTime', '>=', eventsFromDay))).catch(() => ({ docs: [] })),
+          getDocs(collection(db, `tenants/${tenantId}/renterServices`)).catch(() => ({ docs: [] })),
         ]);
         if (!cancelled) {
-          setServices(svSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false));
-          setStaff(stSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false));
+          const allStaff = stSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false);
+          const houseServices = svSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false);
+          const provider: any = providerId ? allStaff.find((m: any) => m.id === providerId && m.isRenter) : null;
+          if (provider) {
+            // Their menu, their prices, their durations — never mixed with the
+            // house list, so a client never sees one service priced two ways.
+            const mine = (rsvSnap as any).docs
+              .map((d: any) => ({ id: d.id, ...d.data() }))
+              .filter((sv: any) => sv.isActive !== false && sv.staffId === provider.id)
+              .map((sv: any) => ({
+                ...sv,
+                collectsOwnPayment: true,
+                providerName: provider.name || 'your provider',
+                staffIds: [provider.id],
+              }));
+            setServices(mine);
+            setStaff([provider]);
+          } else {
+            setServices(houseServices);
+            setStaff(allStaff);
+          }
           setEvents(evSnap.docs.map(d => ({ id: d.id, ...d.data() })));
           setAppointments((aptSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
           setScheduleProfiles((spSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
@@ -204,7 +235,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     };
     run();
     return () => { cancelled = true; };
-  }, [tenantId, configReady, getDb]);
+  }, [tenantId, configReady, getDb, providerId]);
 
   // Booking events
   useEffect(() => {
