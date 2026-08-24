@@ -135,6 +135,25 @@ export default function InterviewInvitePage() {
     );
   }
 
+  if (invite.status === 'canceled' || invite.status === 'superseded') {
+    const wasCanceled = invite.status === 'canceled';
+    return (
+      <div className="min-h-dvh bg-slate-50 flex items-center justify-center p-6">
+        <div className="w-full max-w-md rounded-[2rem] border-2 bg-white p-8 text-center">
+          <AlertTriangle className="mx-auto h-10 w-10 text-amber-500" aria-hidden="true" />
+          <h1 className="mt-4 text-xl font-black uppercase tracking-tight text-slate-900">
+            {wasCanceled ? 'This interview was canceled' : 'These times were replaced'}
+          </h1>
+          <p className="mt-2 text-sm font-bold text-muted-foreground">
+            {wasCanceled
+              ? `${businessName || 'The business'} had to cancel and will follow up with you — this isn\u2019t a reflection on your application.`
+              : `${businessName || 'The business'} sent you a newer set of interview times. Check your latest email or text from them for the current link.`}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const responded = invite.status === 'accepted' || invite.status === 'needs_new_times' || invite.status === 'countered';
 
   return (
