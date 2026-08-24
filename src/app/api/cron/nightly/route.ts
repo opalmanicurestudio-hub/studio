@@ -19,6 +19,7 @@ import { syncTenantBankFeed, listBankFeedTenants } from '@/lib/plaid-sync';
 import { generateBillInstances } from '@/lib/bills-recurrence';
 import { logAuditAdmin } from '@/lib/audit';
 import { runReminderSweep } from '@/lib/reminders';
+import { brandedEmailHtml } from '@/lib/email-template';
 import { sweepNoShows } from '@/lib/no-show';
 import { reconcileReservations } from '@/lib/stock-reconcile';
 import { sweepStaleCurbside } from '@/lib/stock-reconcile';
@@ -29,6 +30,28 @@ import {
 } from '@/lib/retail-sweeps';
 
 export const maxDuration = 300; // allow up to 5 min on Vercel Pro
+
+
+// Branded rent emails ride the same Resend + RESEND_FROM address the rest of
+// the app's mail uses — tenant name as display name, fail-soft everywhere.
+async function sendRentEmail(opts: { to: string; fromName: string; subject: string; html: string }): Promise<boolean> {
+  const key = process.env.RESEND_API_KEY;
+  if (!key || !opts.to) return false;
+  const rf = String(process.env.RESEND_FROM || '').trim();
+  const m = rf.match(/<([^>]+)>/);
+  const addr = (m ? m[1] : rf).trim();
+  const from = addr.includes('@') ? `${opts.fromName} <${addr}>` : `${opts.fromName} <notifications@clarityflow.app>`;
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to: opts.to, subject: opts.subject, html: opts.html }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 // Magic portal link for a renter — mints their portalToken when missing,
 // same mechanism as the owner's "Send portal link" button.
@@ -211,9 +234,10 @@ export async function GET(req: NextRequest) {
         });
         // COLLECTIONS ON AUTOPILOT: the renter hears it the same night,
         // with a one-tap magic link into their portal's Pay button.
+        const rentComms: any = { lateNoticeEmail: true, lateNoticeSms: true, ...(((tDoc.data() as any)?.rentComms) || {}) };
         try {
           const { smsConfigured, sendTenantSms } = await import('@/lib/sms');
-          if (lease.renterId && smsConfigured()) {
+          if (rentComms.lateNoticeSms !== false && lease.renterId && smsConfigured()) {
             const rRef = db.doc(`tenants/${tDoc.id}/renters/${lease.renterId}`);
             const r = (await rRef.get()).data() as any;
             if (r?.phone) {
@@ -224,6 +248,31 @@ export async function GET(req: NextRequest) {
             }
           }
         } catch { /* renter text is a bonus — the owner notification stands */ }
+        // Late notice EMAIL beside the text — some renters never text back,
+        // and the branded email carries the same one-tap pay link.
+        try {
+          if (rentComms.lateNoticeEmail !== false && lease.renterId) {
+            const r = (await db.doc(`tenants/${tDoc.id}/renters/${lease.renterId}`).get()).data() as any;
+            if (r?.email) {
+              const businessName = String((tDoc.data() as any)?.name || 'ClarityFlow');
+              const payLink = await renterPortalLink(db, tDoc.id, lease.renterId, r);
+              await sendRentEmail({
+                to: r.email, fromName: businessName,
+                subject: `Rent past due — $${owed.toFixed(2)} owed`,
+                html: brandedEmailHtml({
+                  studioName: businessName,
+                  title: 'Your rent is past due.',
+                  bodyLines: [
+                    `Rent due ${due} is now late — $${owed.toFixed(2)} owed${feeCents > 0 ? ', including the late fee' : ''}.`,
+                    'Paying now stops anything further.',
+                  ],
+                  ...(payLink ? { cta: { label: 'Pay in my portal', url: payLink } } : {}),
+                  footerNote: `Sent by ${businessName}.`,
+                }),
+              });
+            }
+          }
+        } catch { /* email is a bonus — the owner notification stands */ }
       }
     } catch (e) {
       results[`rent:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
