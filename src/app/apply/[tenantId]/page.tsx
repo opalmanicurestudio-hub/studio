@@ -165,7 +165,7 @@ export default function ApplyPage() {
     setSubmitting(true);
     try {
       const db = getDb();
-      await addDoc(collection(db, `tenants/${tenantId}/applications`), {
+      const created = await addDoc(collection(db, `tenants/${tenantId}/applications`), {
         name: name.trim().slice(0, 120),
         email: email.trim().slice(0, 160),
         phone: phone.trim().slice(0, 40),
@@ -191,6 +191,13 @@ export default function ApplyPage() {
         createdAt: serverTimestamp(),
       });
       try { localStorage.setItem(`applied_${tenantId}`, String(Date.now())); } catch { /* fine */ }
+      try {
+        void fetch('/api/comms/dispatch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kind: 'application', tenantId, applicationId: created.id }),
+        }).catch(() => { /* receipt is best-effort; the application itself is safely in */ });
+      } catch { /* fire-and-forget */ }
       setDone(true);
       window.scrollTo({ top: 0 });
     } catch (e: any) {
