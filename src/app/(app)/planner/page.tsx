@@ -174,6 +174,61 @@ function PlannerPageContent() {
     });
   }, [interviewsRaw, currentDate]);
 
+  // Rent joins the planner the same way interviews did — display-layer only.
+  // Invoices and leases never touch the appointments collection; blocks
+  // derive live, so paying or renewing clears the planner by itself.
+  const rentInvoicesQ = useMemoFirebase(
+    () => !firestore || !tenantId ? null :
+      query(collection(firestore, `tenants/${tenantId}/rentInvoices`), where('status', 'in', ['due', 'late'])),
+    [firestore, tenantId]
+  );
+  const { data: rentInvoicesRaw } = useCollection<any>(rentInvoicesQ);
+  const plannerLeasesQ = useMemoFirebase(
+    () => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/leases`),
+    [firestore, tenantId]
+  );
+  const { data: plannerLeasesRaw } = useCollection<any>(plannerLeasesQ);
+  const plannerRentersQ = useMemoFirebase(
+    () => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/renters`),
+    [firestore, tenantId]
+  );
+  const { data: plannerRentersRaw } = useCollection<any>(plannerRentersQ);
+
+  const rentItemsToday = useMemo(() => {
+    const leaseById = new Map(((plannerLeasesRaw || []) as any[]).map((l: any) => [l.id, l]));
+    const renterById = new Map(((plannerRentersRaw || []) as any[]).map((r: any) => [r.id, r]));
+    const nameFor = (inv: any): string => {
+      const lease = inv.leaseId ? leaseById.get(inv.leaseId) : null;
+      const r = lease?.renterId ? renterById.get(lease.renterId) : null;
+      const nm = r ? `${r.firstName || ''} ${r.lastName || ''}`.trim() : '';
+      return nm || inv.renterName || 'Renter';
+    };
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const curIso = `${currentDate.getFullYear()}-${pad(currentDate.getMonth() + 1)}-${pad(currentDate.getDate())}`;
+    const n = new Date();
+    const todayIso = `${n.getFullYear()}-${pad(n.getMonth() + 1)}-${pad(n.getDate())}`;
+    const out: any[] = [];
+    for (const inv of ((rentInvoicesRaw || []) as any[])) {
+      const due = String(inv.dueDate || '').slice(0, 10);
+      const total = ((Number(inv.amountCents) || 0) + (Number(inv.lateFeeCents) || 0)) / 100;
+      if (inv.status === 'due' && due === curIso) {
+        out.push({ kind: 'due', id: inv.id, name: nameFor(inv), total, due });
+      } else if (inv.status === 'late' && curIso === todayIso) {
+        // Late rent isn't tied to a calendar day — it sits on TODAY's plan
+        // until it's collected or waived.
+        out.push({ kind: 'late', id: inv.id, name: nameFor(inv), total, due });
+      }
+    }
+    for (const l of ((plannerLeasesRaw || []) as any[])) {
+      if (l.status !== 'active' || !l.endDate) continue;
+      if (String(l.endDate).slice(0, 10) !== curIso) continue;
+      const r = l.renterId ? renterById.get(l.renterId) : null;
+      const nm = (r ? `${r.firstName || ''} ${r.lastName || ''}`.trim() : '') || 'Renter';
+      out.push({ kind: 'lease_end', id: l.id, name: nm, autoRenew: !!l.autoRenew, due: String(l.endDate).slice(0, 10) });
+    }
+    return out;
+  }, [rentInvoicesRaw, plannerLeasesRaw, plannerRentersRaw, currentDate]);
+
   // Paid day/hourly reservations (from the reserve API, via Stripe) land here so
   // the Studio lane is one unified calendar — appointments, tours, and rentals.
   const reservationsQ = useMemoFirebase(
@@ -449,6 +504,36 @@ function PlannerPageContent() {
             } as any);
         });
 
+        rentItemsToday.forEach(it => {
+            const cd = currentDate;
+            const pad = (x: number) => String(x).padStart(2, '0');
+            const curIso = `${cd.getFullYear()}-${pad(cd.getMonth() + 1)}-${pad(cd.getDate())}`;
+            const start = safeDate(`${curIso}T09:00:00`);
+            const end = safeDate(`${curIso}T09:30:00`);
+            if (!start || !end) return;
+            const money = typeof it.total === 'number' ? `$${it.total.toFixed(2)}` : '';
+            map.get('business')!.push({
+                id:        `rent-${it.kind}-${it.id}`,
+                itemType:  'event',
+                type:      'rent',
+                title:     it.kind === 'late' ? `Rent LATE — ${it.name} (${money})`
+                          : it.kind === 'due' ? `Rent due — ${it.name} (${money})`
+                          : `Lease ends — ${it.name}${it.autoRenew ? ' (auto-renews tonight)' : ' (renew or end in Booths)'}`,
+                name:      it.kind === 'lease_end' ? `Lease ends — ${it.name}` : `Rent — ${it.name}`,
+                startTime: start.toISOString(),
+                endTime:   end.toISOString(),
+                allDay:    true,
+                staffIds:  [],
+                checklist: [],
+                guestCount: 0,
+                notes:     it.kind === 'late' ? `Past due since ${it.due} — collect or waive on the Booths page`
+                          : it.kind === 'due' ? 'Due today — the invoice is on the Booths page'
+                          : '',
+                location:  '',
+                status:    'confirmed',
+            } as any);
+        });
+
         reservationsToday.forEach(r => {
             const cd = currentDate;
             const curIso = `${cd.getFullYear()}-${String(cd.getMonth() + 1).padStart(2, '0')}-${String(cd.getDate()).padStart(2, '0')}`;
@@ -531,7 +616,7 @@ function PlannerPageContent() {
 
     map.forEach(items => items.sort((a, b) => safeDate(a.startTime || a.dueDate).getTime() - safeDate(b.startTime || b.dueDate).getTime()));
     return map;
-  }, [currentDate, appointments, columns, activeView, showCancelled, billInstances, billDefinitions, events, studioEventsToday, toursToday, interviewsToday, reservationsToday, maintenanceToday]);
+  }, [currentDate, appointments, columns, activeView, showCancelled, billInstances, billDefinitions, events, studioEventsToday, toursToday, interviewsToday, rentItemsToday, reservationsToday, maintenanceToday]);
 
   const { showProfitability } = useProfitabilityVisibility();
 
