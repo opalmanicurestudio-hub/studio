@@ -83,9 +83,26 @@ const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 export interface PhotoUploadResult { url: string | null; error?: string }
 
 // dataUrl: "data:image/jpeg;base64,...."
+/** Maintenance tickets keep their original storage path. */
 export async function uploadTicketPhotoFromDataUrl(
   tenantId: string,
   ticketId: string,
+  dataUrl: any,
+): Promise<PhotoUploadResult> {
+  return uploadPortalImageFromDataUrl(tenantId, `tickets/${ticketId}`, dataUrl);
+}
+
+/**
+ * The same upload, anywhere under the tenant.
+ *
+ * Everything below — the size and mime gate, the download token, and the
+ * long bucket hunt — was worked out once and painfully. Renter profile photos
+ * reuse it by passing a different subPath rather than growing a second copy
+ * that would drift from this one the first time a bucket name changed.
+ */
+export async function uploadPortalImageFromDataUrl(
+  tenantId: string,
+  subPath: string,
   dataUrl: any,
 ): Promise<PhotoUploadResult> {
   try {
@@ -99,7 +116,13 @@ export async function uploadTicketPhotoFromDataUrl(
     if (buf.length > MAX_PHOTO_BYTES) return { url: null, error: 'Photo too large — keep it under 3 MB.' };
 
     const ext = mime === 'image/jpeg' ? 'jpg' : mime.split('/')[1];
-    const path = `tenants/${tenantId}/tickets/${ticketId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    // Anything outside a safe path alphabet is dropped rather than escaped —
+    // a storage path is not a place to be creative with user input.
+    const safeSub = String(subPath || '')
+      .replace(/[^A-Za-z0-9/_-]/g, '')
+      .replace(/\/{2,}/g, '/')          // collapse the gaps stripping leaves behind
+      .replace(/^\/+|\/+$/g, '') || 'uploads';
+    const path = `tenants/${tenantId}/${safeSub}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
     // A token in the URL makes the file readable via the standard Firebase
     // download URL WITHOUT opening Storage rules — the same mechanism
