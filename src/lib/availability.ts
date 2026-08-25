@@ -398,6 +398,13 @@ export function resolveDayHours(
   profile: any,
   dateKey?: string,
 ): { start: string; end: string } | null {
+  // A renter who runs their OWN booking system is not bookable here at all.
+  // This sits ABOVE the date override on purpose: opting out has to beat even
+  // an accepted swap, or a trade made before they switched would keep selling
+  // a chair they no longer take bookings for. Opting out is a real state, not
+  // a hidden section — if it only hid UI, the booking page would still sell.
+  if (staffMember?.isRenter === true && staffMember?.bookingOptOut === true) return null;
+
   const dateDay = dateKey ? staffMember?.availability?.dates?.[dateKey] : null;
   if (dateDay) {
     if (!dateDay.enabled) return null;
