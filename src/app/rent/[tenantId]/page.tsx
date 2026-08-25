@@ -363,6 +363,8 @@ function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenantId: st
   const incoming: any[] = swaps.incoming || [];
   const outgoing: any[] = swaps.outgoing || [];
   const confirmed: any[] = swaps.confirmed || [];
+  const openOffers: any[] = swaps.openOffers || [];
+  const myOpen: any[] = swaps.myOpen || [];
 
   const [open, setOpen] = useState(false);
   const [opts, setOpts] = useState<any>(null);
@@ -452,6 +454,31 @@ function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenantId: st
     onChanged();
   };
 
+  const claim = async (id: string) => {
+    setBusy(id); setErr('');
+    const d = await api({ action: 'swap-claim', tenantId, token, today: localISO(), swapId: id });
+    setBusy('');
+    if (!d.ok) { setErr(d.error || 'Could not take that one.'); onChanged(); return; }
+    toast({ title: 'It’s yours ✓', description: 'Your booking hours have moved for that window only. Rent is unchanged.' });
+    onChanged();
+  };
+
+  const broadcast = async () => {
+    if (!win) return;
+    setBusy('send'); setErr('');
+    const d = await api({
+      action: 'swap-broadcast', tenantId, token, today: localISO(),
+      giveDate, giveStart: win.start, giveEnd: win.end, note,
+    });
+    setBusy('');
+    if (!d.ok) { setErr(d.error || 'Could not offer that.'); return; }
+    toast({
+      title: 'Offered to everyone who can take it',
+      description: `${d.offeredTo} ${d.offeredTo === 1 ? 'person was' : 'people were'} asked. First to take it gets it.`,
+    });
+    reset(); onChanged();
+  };
+
   const withdraw = async (id: string) => {
     setBusy(id);
     const d = await api({ action: 'swap-cancel', tenantId, token, swapId: id });
@@ -466,6 +493,40 @@ function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenantId: st
   return (
     <section className="space-y-3">
       <SectionTitle icon={Repeat}>Day Swaps</SectionTitle>
+
+      {openOffers.map((o: any) => (
+        <div key={o.id} className="p-4 rounded-3xl bg-white border-2 border-sky-300 space-y-3">
+          <div>
+            <p className="font-black text-slate-900 text-sm">{o.fromName} is offering a day</p>
+            <p className="text-[11px] font-bold text-slate-500 mt-0.5">
+              {o.giveLabel}, {o.windowLabel}{o.boothName ? ` · ${o.boothName}` : ''}
+            </p>
+            {o.note && <p className="text-[11px] font-bold text-slate-400 mt-1 italic">“{o.note}”</p>}
+          </div>
+          <button onClick={() => claim(o.id)} disabled={!!busy}
+            className="w-full py-3 rounded-2xl bg-sky-600 text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
+            {busy === o.id ? 'Taking…' : 'Take this day'}
+          </button>
+          <p className="text-[10px] font-bold text-slate-400">
+            First to take it gets it{o.offeredTo > 1 ? ` — ${o.offeredTo} people were asked` : ''}. Rent is not affected.
+          </p>
+        </div>
+      ))}
+
+      {myOpen.map((o: any) => (
+        <div key={o.id} className="p-4 rounded-3xl bg-white border-2 border-slate-100 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-black text-slate-900 text-sm truncate">Offered to anyone who can take it</p>
+            <p className="text-[11px] font-bold text-slate-500 mt-0.5">
+              {o.giveLabel}, {o.windowLabel}{o.offeredTo ? ` · ${o.offeredTo} asked` : ''}
+            </p>
+          </div>
+          <button onClick={() => withdraw(o.id)} disabled={!!busy}
+            className="shrink-0 w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 active:scale-95 transition-all disabled:opacity-50">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      ))}
 
       {incoming.map((s2: any) => (
         <div key={s2.id} className={cn('p-4 rounded-3xl bg-white border-2 space-y-3',
@@ -667,6 +728,18 @@ function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenantId: st
                   <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
                   <p className="text-[11px] font-bold">{err}</p>
                 </div>
+              )}
+
+              {chosen && win && !confirmAsk && (
+                <button onClick={broadcast} disabled={!!busy}
+                  className="w-full p-3 rounded-2xl bg-sky-50 border-2 border-sky-200 text-left active:scale-[0.99] transition-all disabled:opacity-50">
+                  <p className="text-[11px] font-black text-sky-800">
+                    {busy === 'send' ? 'Offering…' : 'Or offer it to anyone who can take it'}
+                  </p>
+                  <p className="text-[10px] font-bold text-sky-600 mt-0.5">
+                    Everyone who could actually cover it gets asked once. First to take it gets it — no chasing.
+                  </p>
+                </button>
               )}
 
               {!confirmAsk && (
