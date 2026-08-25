@@ -110,6 +110,119 @@ function overlaps(aStart: string, aEnd: string, bStart: string, bEnd: string): b
 // ranges overlap AND their times overlap. A daily booking (no times)
 // occupies the whole day, so it conflicts with everything that day.
 // Hourly bookings only conflict when their hour windows intersect.
+
+// ─── Day rental → bookable availability ──────────────────────────────────────
+// A confirmed day rental gives someone a chair. Until now it did NOT make them
+// bookable, so a renter could pay for a station and stay invisible in the
+// booking system — a paid-for chair nobody could book into.
+//
+// The grant writes the SAME date override an accepted swap writes
+// (staff.availability.dates['yyyy-MM-dd']), because "this person is bookable
+// here on this date" is one idea, not several competing ones.
+//
+// Three things it will not do:
+//   · touch anyone without a renterId — walk-in guests have no provider record;
+//   · touch a renter who runs their own booking system;
+//   · overwrite a SWAP override, ever. Two renters already agreed that day
+//     between themselves, and quietly moving it would be the system taking a
+//     side in someone else's arrangement.
+const DAY_NAMES_RES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+function eachDate(startDate: string, endDate: string, cap = 31): string[] {
+  const out: string[] = [];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) return out;
+  const last = /^\d{4}-\d{2}-\d{2}$/.test(endDate) ? endDate : startDate;
+  const d = new Date(`${startDate}T12:00:00Z`);
+  while (out.length < cap) {
+    const key = d.toISOString().slice(0, 10);
+    out.push(key);
+    if (key >= last) break;
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return out;
+}
+
+async function syncReservationAvailability(
+  db: FirebaseFirestore.Firestore,
+  tenantId: string,
+  reservationId: string,
+  r: any,
+  grant: boolean,
+): Promise<{ granted: number; skipped: string[] }> {
+  const skipped: string[] = [];
+  try {
+    if (!r?.renterId) return { granted: 0, skipped: ['no renter record'] };
+    const staffSnap = await db.collection(`tenants/${tenantId}/staff`)
+      .where('renterId', '==', r.renterId).limit(5).get();
+    const staffDoc = staffSnap.docs.find((d) => (d.data() as any)?.isRenter);
+    if (!staffDoc) return { granted: 0, skipped: ['not a booking provider'] };
+    const sd = staffDoc.data() as any;
+    if (sd.bookingOptOut === true) return { granted: 0, skipped: ['books elsewhere'] };
+
+    // Hourly rentals carry their own window. A DAILY rental does not, and a
+    // date override without hours would fall through to the weekly template —
+    // which for a renter is clamped to their lease and may well say "off".
+    // So daily rentals borrow the studio's own hours for that weekday rather
+    // than inventing a window nobody agreed to.
+    const isHourly = r.bookingType === 'hourly' && r.startTime && r.endTime;
+    let profileWeek: any = null;
+    if (!isHourly && grant) {
+      try {
+        const tSnap = await db.doc(`tenants/${tenantId}`).get();
+        const profiles = (tSnap.data() as any)?.scheduleProfiles;
+        profileWeek = Array.isArray(profiles) ? (profiles.find((x: any) => x.isActive)?.week || null) : null;
+      } catch { /* fall through to skipping daily grants */ }
+    }
+
+    const existingDates = (sd?.availability?.dates && typeof sd.availability.dates === 'object')
+      ? sd.availability.dates : {};
+    const patch: Record<string, any> = {};
+    let granted = 0;
+
+    for (const dk of eachDate(String(r.startDate || ''), String(r.endDate || ''))) {
+      const existing = existingDates[dk];
+      if (existing && existing.reason === 'swap') { skipped.push(`${dk}: a swap already owns that day`); continue; }
+      if (!grant) {
+        // Only ever remove our own.
+        if (!existing || existing.reason === 'day_rental') patch[dk] = FieldValueDelete();
+        continue;
+      }
+      let start = isHourly ? String(r.startTime) : '';
+      let end = isHourly ? String(r.endTime) : '';
+      if (!isHourly) {
+        const row = profileWeek?.[DAY_NAMES_RES[new Date(`${dk}T12:00:00Z`).getUTCDay()]];
+        if (!row?.enabled || !row?.start || !row?.end) { skipped.push(`${dk}: studio has no hours set`); continue; }
+        start = String(row.start); end = String(row.end);
+      }
+      patch[dk] = {
+        enabled: true, start, end,
+        reason: 'day_rental', reservationId,
+        setAt: new Date().toISOString(),
+      };
+      granted++;
+    }
+
+    if (Object.keys(patch).length > 0) {
+      const flat: Record<string, any> = {};
+      for (const [k, v] of Object.entries(patch)) flat[`availability.dates.${k}`] = v;
+      await staffDoc.ref.update(flat);
+    }
+    return { granted, skipped };
+  } catch (err) {
+    // Availability is a bonus on top of a paid reservation. It must never be
+    // able to fail a payment confirmation; the nightly sweep reconciles it.
+    console.error('[booth-reserve] syncReservationAvailability failed', err);
+    return { granted: 0, skipped: ['sync failed'] };
+  }
+}
+
+/** Admin SDK sentinel, imported lazily so the module stays edge-safe. */
+function FieldValueDelete(): any {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { FieldValue } = require('firebase-admin/firestore');
+  return FieldValue.delete();
+}
+
 function timesConflict(a: any, b: any): boolean {
   const aHourly = a.bookingType === 'hourly' && a.startTime && a.endTime;
   const bHourly = b.bookingType === 'hourly' && b.startTime && b.endTime;
@@ -829,6 +942,9 @@ export async function GET(req: NextRequest) {
       const existing = await db.collection(`tenants/${tenantId}/transactions`).where('sourceId', '==', reservationId).limit(1).get();
       if (existing.empty) await writeLedgerTxn(db, tenantId, reservationId, r, r.stripePaymentIntentId || null);
       await persistDayUseSignature(db, tenantId, reservationId, r);
+      // Same self-heal the ledger gets: reservations confirmed before
+      // availability granting existed pick it up on the next call.
+      await syncReservationAvailability(db, tenantId, reservationId, r, true);
       return NextResponse.json({ ok: true, confirmed: true, boothName: r.boothName, startDate: r.startDate, endDate: r.endDate });
     }
     if (r.stripeSessionId !== sessionId) {
@@ -872,9 +988,12 @@ export async function GET(req: NextRequest) {
     // sits beside booth rent in every financial view.
     await writeLedgerTxn(db, tenantId, reservationId, r, (typeof session.payment_intent === 'string' ? session.payment_intent : pi?.id) || null);
     await persistDayUseSignature(db, tenantId, reservationId, r);
+    const availability = await syncReservationAvailability(db, tenantId, reservationId, r, true);
     const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
     await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/booths',
-      message: `💰 Day rental booked & paid: ${r.name} — ${r.boothName}, ${r.startDate} → ${r.endDate} ($${(r.amountCents / 100).toFixed(2)})` });
+      message: `💰 Day rental booked & paid: ${r.name} — ${r.boothName}, ${r.startDate} → ${r.endDate} ($${(r.amountCents / 100).toFixed(2)})`
+        + (availability.granted > 0 ? ` · bookable ${availability.granted === 1 ? 'that day' : `${availability.granted} days`}` : '')
+        + (availability.skipped.length > 0 ? ` · not bookable: ${availability.skipped.join('; ')}` : '') });
     await logAuditAdmin(db, tenantId, {
       action: 'booth.booking_paid', targetType: 'boothReservation', targetId: reservationId,
       summary: `Booking paid via Stripe: ${r.name || 'guest'} · ${r.boothName || 'space'} (${r.startDate}${r.endDate !== r.startDate ? ` → ${r.endDate}` : ''})${(r.creditAppliedCents || 0) > 0 ? ` · $${((r.creditAppliedCents || 0) / 100).toFixed(2)} credit applied` : ''}`,
