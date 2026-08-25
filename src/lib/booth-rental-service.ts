@@ -1,4 +1,4 @@
-//**
+/**
  * lib/booth-rental-service.ts
  *
  * Single place for every Firestore *write* that touches more than one
