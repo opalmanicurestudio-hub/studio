@@ -70,7 +70,7 @@ function clampWeekToLease(week: any, lease: any): any {
   return out;
 }
 import { dueAtFor, TICKET_STATUS_LABELS } from '@/lib/maintenance';
-import { uploadTicketPhotoFromDataUrl, autoAssignTicket } from '@/lib/maintenance-server';
+import { uploadTicketPhotoFromDataUrl, uploadPortalImageFromDataUrl, autoAssignTicket } from '@/lib/maintenance-server';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 const WINDOW_MS = 15 * 60 * 1000;
@@ -1321,6 +1321,13 @@ export async function POST(req: NextRequest) {
         upcoming, past,
         payments,
         provider, myServices, pricing, myBookings, earnings, swaps, checklist,
+        profile: {
+          bio: renter?.bio || '',
+          instagram: renter?.instagram || '',
+          photoUrl: renter?.photoUrl || '',
+          externalBookingUrl: renter?.externalBookingUrl || '',
+          listExternally: renter?.listExternally === true,
+        },
         bookingMode: renter?.bookingMode === 'own' ? 'own' : 'studio',
       });
     }
@@ -1481,6 +1488,71 @@ export async function POST(req: NextRequest) {
         ...(cur.exists ? {} : { createdAt: new Date().toISOString() }),
       }, { merge: true });
       return NextResponse.json({ ok: true, serviceId: id });
+    }
+
+    // ═══ my-profile ═════════════════════════════════════════════════════════
+    // Who a client sees behind the link. Until now a personal booking link led
+    // to a bare name, which is a poor advertisement for someone whose whole
+    // pitch is that they are their own business.
+    //
+    // Renters on their OWN booking system get the field that matters to them
+    // instead: their real booking URL, so a client who lands on the studio's
+    // page can still reach them rather than hitting a dead end.
+    //
+    // Everything saved here is public by nature, so it is mirrored onto the
+    // STAFF doc — the booking page reads staff and must never read renters,
+    // which hold rent, payouts and Stripe ids.
+    if (action === 'my-profile') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const bio = String(body.bio ?? '').trim().slice(0, 300);
+      const instagram = String(body.instagram ?? '').trim()
+        .replace(/^https?:\/\/(www\.)?instagram\.com\//i, '')
+        .replace(/^@/, '').replace(/\/+$/, '').slice(0, 40);
+      if (instagram && !/^[A-Za-z0-9._]+$/.test(instagram)) {
+        return NextResponse.json({ ok: false, error: 'That Instagram handle has characters it shouldn’t.' }, { status: 400 });
+      }
+
+      // Only https. A booking link is rendered as something a stranger taps,
+      // so javascript: and data: URLs are refused outright rather than escaped.
+      let externalBookingUrl = String(body.externalBookingUrl ?? '').trim().slice(0, 300);
+      if (externalBookingUrl) {
+        if (!/^https:\/\//i.test(externalBookingUrl)) {
+          externalBookingUrl = `https://${externalBookingUrl.replace(/^\w+:\/\//, '')}`;
+        }
+        try {
+          const u = new URL(externalBookingUrl);
+          if (u.protocol !== 'https:') throw new Error('bad');
+          externalBookingUrl = u.toString();
+        } catch {
+          return NextResponse.json({ ok: false, error: 'That booking link doesn’t look like a web address.' }, { status: 400 });
+        }
+      }
+      const listExternally = body.listExternally === true;
+
+      let photoUrl: string | null | undefined = undefined;
+      if (typeof body.photoData === 'string' && body.photoData.startsWith('data:')) {
+        const up = await uploadPortalImageFromDataUrl(tenantId, `renters/${session.renterId}/profile`, body.photoData);
+        if (!up.url) return NextResponse.json({ ok: false, error: up.error || 'That photo didn’t upload.' }, { status: 400 });
+        photoUrl = up.url;
+      } else if (body.photoData === null) {
+        photoUrl = null;
+      }
+
+      const renterPatch: any = { bio, instagram, externalBookingUrl, listExternally };
+      if (photoUrl !== undefined) renterPatch.photoUrl = photoUrl;
+      await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set(renterPatch, { merge: true });
+
+      try {
+        const stSnap = await db.collection(`tenants/${tenantId}/staff`)
+          .where('renterId', '==', session.renterId).limit(1).get();
+        if (!stSnap.empty) {
+          const mirror: any = { bio, instagram, externalBookingUrl, listExternally };
+          if (photoUrl !== undefined) mirror.photoUrl = photoUrl;
+          await stSnap.docs[0].ref.set(mirror, { merge: true });
+        }
+      } catch { /* the portal still shows it; the booking page catches up on the next save */ }
+
+      return NextResponse.json({ ok: true, photoUrl: photoUrl === undefined ? null : photoUrl });
     }
 
     // ═══ booking-mode ═══════════════════════════════════════════════════════
