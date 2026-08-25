@@ -343,6 +343,8 @@ const num = (v: any, fallback = 0): number => {
   return isNaN(n) ? fallback : n;
 };
 
+const WEEK_ORDER = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
 const overlaps = (a: Window, b: Window): boolean =>
   areIntervalsOverlapping(a, b, { inclusive: false });
 
@@ -404,7 +406,9 @@ export function resolveDayHours(
   const staffDay = staffMember?.availability?.week?.[dayName];
   if (staffDay) {
     if (!staffDay.enabled) return null;
-    if (staffDay.start && staffDay.end) return { start: staffDay.start, end: staffDay.end };
+    if (staffDay.start && staffDay.end) {
+      return clampToLeaseWindow(staffMember, dayName, { start: staffDay.start, end: staffDay.end });
+    }
   }
   // A RENTER never inherits the house schedule. They are an independent
   // professional whose hours are their own, and — more concretely — they lease
@@ -413,12 +417,45 @@ export function resolveDayHours(
   // else is paying for that day. So no hours set means no hours, not ours.
   // The visible consequence is deliberate: a renter who has not filled in My
   // Hours yet shows no availability until they do.
-  if (staffMember?.isRenter === true) return null;
+  if (staffMember?.isRenter === true) return clampToLeaseWindow(staffMember, dayName, null);
   const profileDay = profile?.week?.[dayName];
   if (profileDay && profileDay.enabled && profileDay.start && profileDay.end) {
     return { start: profileDay.start, end: profileDay.end };
   }
   return null;
+}
+
+/**
+ * A renter is bookable only inside the window their lease actually holds.
+ *
+ * This is enforced HERE, at read time, rather than trusted from the hours the
+ * renter saved. The portal narrows hours to the lease when they save, but the
+ * owner can change a lease afterwards — and nothing rewrites the renter's saved
+ * week when she does. Read-time clamping means a lease edit takes effect on the
+ * booking grid immediately and stale stored hours can never oversell the chair.
+ *
+ * `leaseWindow` is a money-free stamp kept on the staff doc (days, times, booth,
+ * turnover) precisely so the PUBLIC booking page can honor it — leases hold rent
+ * and must never be readable there.
+ *
+ * A date override is resolved before this is ever called, which is deliberate:
+ * an accepted swap is supposed to put someone outside their own leased days.
+ */
+export function clampToLeaseWindow(
+  staffMember: any,
+  dayName: string,
+  hours: { start: string; end: string } | null,
+): { start: string; end: string } | null {
+  const lw = staffMember?.leaseWindow;
+  if (!lw) return hours;
+  const idx = WEEK_ORDER.indexOf(dayName);
+  // days null/absent = a full-time lease: every day is theirs.
+  if (Array.isArray(lw.days) && idx >= 0 && !lw.days.map(Number).includes(idx)) return null;
+  if (!hours) return null;
+  let { start, end } = hours;
+  if (lw.startTime && start < lw.startTime) start = String(lw.startTime);
+  if (lw.endTime && end > lw.endTime) end = String(lw.endTime);
+  return start < end ? { start, end } : null;
 }
 
 /**
@@ -935,10 +972,20 @@ export function buildDayContext(input: AvailabilityInput): DayContext | null {
       );
     }
 
-    const open = parseClock(hours.start, dateObj);
-    const close = parseClock(hours.end, dateObj);
-    if (!open || !close || close <= open) {
+    const rawOpen = parseClock(hours.start, dateObj);
+    const rawClose = parseClock(hours.end, dateObj);
+    if (!rawOpen || !rawClose || rawClose <= rawOpen) {
       warnings.push(`Unreadable hours for ${staffMember?.name || staffMember.id} on ${dayName}.`);
+      continue;
+    }
+    // Shared-station turnover. Measured against the FULL staff list, not the
+    // filtered pool — a booth-mate who cannot perform this service still
+    // occupies the chair.
+    const { open, close } = applyTurnoverBuffer(
+      staffMember, input.staff || [], dayName, dateStr, profile, dateObj, rawOpen, rawClose,
+    );
+    if (close <= open) {
+      warnings.push(`${staffMember?.name || staffMember.id} has no bookable time on ${dayName} once station turnover is allowed for.`);
       continue;
     }
 
@@ -1080,6 +1127,58 @@ function claimResources(
     if (!claimed[led.resourceId]) claimed[led.resourceId] = [];
     claimed[led.resourceId].push(guard);
   }
+}
+
+
+/**
+ * The turnover gap between two people who share one station.
+ *
+ * A full-day swap has no handoff — one person's day ends, the next begins the
+ * following morning. A SHARED or part-time booth is different: Priya has the
+ * chair 9–1 and Maya has it 1–6, in the same physical spot. Without a gap,
+ * Priya's last client can run to 1:00 and Maya's first starts at 1:00, over a
+ * station nobody has cleaned.
+ *
+ * So each occupant's window is backed off the moment it ABUTS a booth-mate's.
+ * Windows that are already far apart are left alone, which is why this can be
+ * on by default without shrinking anybody's day: it only ever bites where a
+ * zero-gap handoff would otherwise happen.
+ */
+function applyTurnoverBuffer(
+  staffMember: any,
+  allStaff: any[],
+  dayName: string,
+  dateStr: string,
+  profile: any,
+  dateObj: Date,
+  open: Date,
+  close: Date,
+): { open: Date; close: Date } {
+  const lw = staffMember?.leaseWindow;
+  const boothId = lw?.boothId;
+  const buffer = num(lw?.turnoverMinutes, 0);
+  if (!boothId || buffer <= 0) return { open, close };
+
+  let nextOpen = open;
+  let nextClose = close;
+  for (const mate of allStaff || []) {
+    if (!mate?.id || mate.id === staffMember.id) continue;
+    if (mate?.leaseWindow?.boothId !== boothId) continue;
+    const mateHours = resolveDayHours(mate, dayName, profile, dateStr);
+    if (!mateHours) continue;
+    const mOpen = parseClock(mateHours.start, dateObj);
+    const mClose = parseClock(mateHours.end, dateObj);
+    if (!mOpen || !mClose) continue;
+    // They finish just before we start → start later.
+    if (mClose <= nextOpen && differenceInMinutes(nextOpen, mClose) < buffer) {
+      nextOpen = addMinutes(mClose, buffer);
+    }
+    // They start just after we finish → finish earlier.
+    if (mOpen >= nextClose && differenceInMinutes(mOpen, nextClose) < buffer) {
+      nextClose = subMinutes(mOpen, buffer);
+    }
+  }
+  return { open: nextOpen, close: nextClose };
 }
 
 // ─── Freedom checks ──────────────────────────────────────────────────────────
