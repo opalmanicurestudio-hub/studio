@@ -612,6 +612,8 @@ async function loadSwapProviders(db: any, tenantId: string, today: string): Prom
     .forEach((m: any) => {
       const r = renterById.get(m.renterId);
       if (!r) return;
+      // Someone running their own booking system has no chair here to trade.
+      if (r.bookingMode === 'own') return;
       const lease = leaseByRenter.get(m.renterId) || null;
       const days = lease?.scheduleSlot?.days;
       const booth = lease?.boothId ? boothInfo.get(String(lease.boothId)) : null;
@@ -1253,6 +1255,51 @@ export async function POST(req: NextRequest) {
         }
       } catch { /* swaps are additive — never fail the whole call */ }
 
+      // ── Setup checklist ───────────────────────────────────────────────────
+      // Derived fresh every read from what actually exists, never from a
+      // stored "onboarded" flag — a flag would keep saying done after they
+      // deleted their last service, and would say not-done forever for the
+      // renters who were already set up before this existed.
+      //
+      // It ADAPTS to booking mode: someone on their own system is not
+      // half-finished, they are finished. Nagging them about hours and menus
+      // they will never use is how a portal gets ignored.
+      let checklist: any = null;
+      try {
+        if (renter) {
+          const mode = renter.bookingMode === 'own' ? 'own' : 'studio';
+          const modeChosen = renter.bookingMode === 'own' || renter.bookingMode === 'studio';
+          const items: any[] = [];
+          if (mode === 'studio' && provider) {
+            const week = (provider as any).week || {};
+            const hasHours = Object.keys(week).some((k) => week[k]?.enabled && week[k]?.start && week[k]?.end);
+            items.push({
+              key: 'hours', label: 'Set the hours you work',
+              hint: hasHours ? '' : 'Until this is set, nobody can book you at all.',
+              done: hasHours, optional: false,
+            });
+            items.push({
+              key: 'services', label: 'Add at least one service',
+              hint: (myServices || []).length > 0 ? '' : 'Your prices, your menu — clients see only yours.',
+              done: (myServices || []).length > 0, optional: false,
+            });
+            items.push({
+              key: 'deposits', label: 'Connect Stripe to take deposits',
+              hint: renter.stripeChargesEnabled ? '' : 'Optional. Without it, clients pay you in person.',
+              done: renter.stripeChargesEnabled === true, optional: true,
+            });
+          }
+          const required = items.filter((i) => !i.optional);
+          checklist = {
+            mode, modeChosen,
+            dismissed: !!renter.checklistDismissedAt,
+            items,
+            remaining: required.filter((i) => !i.done).length,
+            allDone: required.every((i) => i.done),
+          };
+        }
+      } catch { /* the checklist is additive — never fail the whole call */ }
+
       return NextResponse.json({
         ok: true,
         name: session.name,
@@ -1273,7 +1320,8 @@ export async function POST(req: NextRequest) {
         invoices, credits, availableCreditCents,
         upcoming, past,
         payments,
-        provider, myServices, pricing, myBookings, earnings, swaps,
+        provider, myServices, pricing, myBookings, earnings, swaps, checklist,
+        bookingMode: renter?.bookingMode === 'own' ? 'own' : 'studio',
       });
     }
 
@@ -1433,6 +1481,52 @@ export async function POST(req: NextRequest) {
         ...(cur.exists ? {} : { createdAt: new Date().toISOString() }),
       }, { merge: true });
       return NextResponse.json({ ok: true, serviceId: id });
+    }
+
+    // ═══ booking-mode ═══════════════════════════════════════════════════════
+    // "I book through the studio" vs "I use my own system". This is an explicit
+    // CHOICE, not an absence — plenty of renters already run Square or Booksy
+    // and are not going to move. Recording it means the portal can stop
+    // nagging them about hours and menus they will never use, and their booking
+    // link can stop existing, without anybody having to pretend they are
+    // half-set-up forever.
+    if (action === 'booking-mode') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const mode = String(body.mode || '');
+      if (!['studio', 'own'].includes(mode)) {
+        return NextResponse.json({ ok: false, error: 'Pick how you take bookings.' }, { status: 400 });
+      }
+      await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set({
+        bookingMode: mode, bookingModeSetAt: new Date().toISOString(),
+      }, { merge: true });
+
+      // Mirror ONE public-safe flag onto the staff doc. The booking page reads
+      // staff and never renters, and the availability engine reads this to make
+      // the opt-out real rather than cosmetic.
+      try {
+        const stSnap = await db.collection(`tenants/${tenantId}/staff`)
+          .where('renterId', '==', session.renterId).limit(1).get();
+        if (!stSnap.empty) {
+          await stSnap.docs[0].ref.set({ bookingOptOut: mode === 'own' }, { merge: true });
+        }
+      } catch { /* the engine also treats a missing flag as opted-in */ }
+
+      await logAuditAdmin(db, tenantId, {
+        action: 'renter.booking_mode', targetType: 'renter', targetId: session.renterId,
+        summary: `${session.name || 'A renter'} set booking to ${mode === 'own' ? 'their own system' : 'the studio system'}`,
+        actor: { type: 'user', name: session.name || 'Renter', role: 'renter', via: 'renter-portal' },
+      });
+      return NextResponse.json({ ok: true, mode });
+    }
+
+    // ═══ checklist-dismiss ══════════════════════════════════════════════════
+    // One dismissal, permanent. A setup prompt that comes back is a nag.
+    if (action === 'checklist-dismiss') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set({
+        checklistDismissedAt: new Date().toISOString(),
+      }, { merge: true });
+      return NextResponse.json({ ok: true });
     }
 
     // ═══ swap-options ═══════════════════════════════════════════════════
