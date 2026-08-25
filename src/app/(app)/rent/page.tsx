@@ -192,6 +192,8 @@ const RENT_COMMS_DEFAULTS: any = {
   lateNoticeEmail: true,
   lateNoticeSms: true,
   ownerEmailOnFailedAutopay: true,
+  swapNotifyEmail: true,
+  swapNotifySms: true,
 };
 
 // Rent notifications — the per-business comms knobs the crons read
@@ -241,12 +243,107 @@ function RentCommsCard({ tenantId, firestore, tenant }: { tenantId: string; fire
         <Row k="lateNoticeEmail" label="Late notice — email" hint="Branded email the night rent goes late, with a pay link" />
         <Row k="lateNoticeSms" label="Late notice — text" hint="One-tap pay link by text (needs SMS configured)" />
         <Row k="ownerEmailOnFailedAutopay" label="Email me when autopay is declined" hint="Card-declined alert to your owner email" />
+        <Row k="swapNotifyEmail" label="Day swaps — email" hint="Renters emailed when a swap is asked, taken, or declined" />
+        <Row k="swapNotifySms" label="Day swaps — text" hint="Texts for swaps that need an answer; open offers stay email-only" />
         <Button onClick={save} className="mt-2 w-full rounded-2xl font-black uppercase tracking-widest">{saved ? 'Saved \u2713' : 'Save notification settings'}</Button>
       </CardContent>
     </Card>
   );
 }
 
+
+
+// ── Day swaps ────────────────────────────────────────────────────────────────
+// Renters arrange cover between themselves; you are told, not asked. That is
+// deliberate — a swap trades TIME, never money, so no rent, invoice or lease
+// moves and there is nothing here for you to approve. What you DO need is to
+// know who is actually in the building, which is what the list below is for.
+// A permanent change of days is a lease change, and that stays your call.
+function RenterSwapsCard({ tenantId, firestore, tenant }: { tenantId: string; firestore: any; tenant: any }) {
+  const [saved, setSaved] = useState(false);
+  const enabled = tenant?.renterSwapsEnabled !== false;
+
+  const swapsRef = useMemoFirebase(
+    () => (firestore && tenantId ? collection(firestore, `tenants/${tenantId}/renterSwaps`) : null),
+    [firestore, tenantId]
+  );
+  const { data: swaps } = useCollection<any>(swapsRef);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const upcoming = useMemo(() => (swaps || [])
+    .filter((x: any) => (x.status === 'accepted' || x.status === 'taken')
+      && typeof x.giveDate === 'string' && x.giveDate >= today)
+    .sort((a: any, b: any) => String(a.giveDate).localeCompare(String(b.giveDate)))
+    .slice(0, 12), [swaps, today]);
+  const openCount = useMemo(() => (swaps || [])
+    .filter((x: any) => x.status === 'open' && typeof x.giveDate === 'string' && x.giveDate >= today).length,
+    [swaps, today]);
+
+  const toggle = async () => {
+    try {
+      await updateDoc(doc(firestore, `tenants/${tenantId}`), { renterSwapsEnabled: !enabled });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e) {
+      console.error('renter swap toggle failed', e);
+    }
+  };
+
+  const when = (d: string) => {
+    try {
+      const dt = new Date(`${d}T12:00:00`);
+      return dt.toLocaleDateString(undefined, { weekday: 'short', month: 'numeric', day: 'numeric' });
+    } catch { return d; }
+  };
+
+  return (
+    <Card className="rounded-[2rem] border-2">
+      <CardHeader className="p-5 pb-2">
+        <CardTitle className="text-[11px] font-black uppercase tracking-widest">Day swaps</CardTitle>
+        <p className="text-[11px] font-bold text-slate-500">
+          Renters cover for each other directly. Rent never moves, so there is nothing to approve — this is just who is in.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3 p-5 pt-2">
+        <button type="button" onClick={toggle} className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 p-3 text-left">
+          <span>
+            <span className="block text-[12px] font-black uppercase tracking-wide text-slate-900">Renters can swap days directly</span>
+            <span className="block text-[11px] font-bold text-slate-500">Turn off in a tight space where you want every change to come through you</span>
+          </span>
+          <span className={`shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest ${enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+            {saved ? 'Saved' : enabled ? 'On' : 'Off'}
+          </span>
+        </button>
+
+        {openCount > 0 && (
+          <p className="text-[11px] font-bold text-sky-700">
+            {openCount} {openCount === 1 ? 'day is' : 'days are'} currently offered to whoever can take {openCount === 1 ? 'it' : 'them'}.
+          </p>
+        )}
+
+        <div className="space-y-2">
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Who is covering whom</p>
+          {upcoming.length === 0 ? (
+            <p className="text-[11px] font-bold text-slate-500">No swaps coming up.</p>
+          ) : upcoming.map((x: any) => (
+            <div key={x.id} className="rounded-2xl border-2 p-3">
+              <p className="text-[12px] font-black text-slate-900">
+                {x.toName || 'Someone'} covers {x.fromName || 'someone'}
+              </p>
+              <p className="text-[11px] font-bold text-slate-500 mt-0.5">
+                {when(x.giveDate)} · {x.wholeDay === false ? `${x.giveStart}–${x.giveEnd}` : 'all day'}
+                {x.giveBoothName ? ` · ${x.giveBoothName}` : ''}
+              </p>
+            </div>
+          ))}
+        </div>
+        <p className="text-[10px] font-bold text-slate-400">
+          Rent, invoices and leases are untouched by every swap above. A permanent change of days is a lease change.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
 
 // ── Independent providers ────────────────────────────────────────────────────
 // Turns a renter into a bookable provider with their OWN menu. Their services
@@ -1242,6 +1339,7 @@ export default function RentRollPage() {
         </DialogContent>
       </Dialog>
       {tenantId && <RenterProvidersCard tenantId={tenantId} firestore={firestore} renters={(renters || []) as any[]} staff={(allStaff || []) as any[]} allAppointments={(allAppointments || []) as any[]} />}
+      {tenantId && <RenterSwapsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
       {tenantId && <RentCommsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
     </div>
   );
