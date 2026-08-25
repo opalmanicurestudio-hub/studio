@@ -172,6 +172,8 @@ export async function GET(req: NextRequest) {
   let rentMarkedLate = 0;
   let leasesRenewed = 0;
   let leaseWindowsSynced = 0;
+  let profileMirrorsSynced = 0;
+  let rentalDaysGranted = 0;
   for (const tDoc of allTenantsSnap.docs) {
     try {
       // "Today" belongs to the studio, not to the server. This ran at 07:00
@@ -214,6 +216,96 @@ export async function GET(req: NextRequest) {
           }
         }
       } catch (e) { console.error('[cron/nightly] lease-window sync', e); }
+      // ── Profile mirror + day-rental availability reconcile ────────────────
+      // Two things elsewhere are written best-effort and would otherwise stay
+      // wrong forever if their write happened to fail: the public half of a
+      // renter's profile (mirrored onto the staff doc, which is what the
+      // booking page reads) and the availability a confirmed day rental buys.
+      // Both are cheap to recompute and only written when they actually differ,
+      // so this stays quiet after the first pass.
+      try {
+        const renterSnap = await db.collection(`tenants/${tDoc.id}/renters`).get();
+        const rentersById = new Map<string, any>();
+        renterSnap.docs.forEach((d: any) => rentersById.set(d.id, d.data()));
+        const staffSnap2 = await db.collection(`tenants/${tDoc.id}/staff`).where('isRenter', '==', true).get();
+
+        for (const sd of staffSnap2.docs) {
+          const st = sd.data() as any;
+          const r = st.renterId ? rentersById.get(st.renterId) : null;
+          if (!r) continue;
+          const want = {
+            bio: r.bio || '',
+            instagram: r.instagram || '',
+            photoUrl: r.photoUrl || '',
+            externalBookingUrl: r.externalBookingUrl || '',
+            listExternally: r.listExternally === true,
+            bookingOptOut: r.bookingMode === 'own',
+          };
+          const drifted = Object.entries(want).some(([k, v]) => (st as any)[k] !== v && !((st as any)[k] === undefined && (v === '' || v === false)));
+          if (drifted) {
+            await sd.ref.set(want, { merge: true });
+            profileMirrorsSynced++;
+          }
+        }
+
+        // Confirmed rentals whose dates are still ahead of us should be
+        // reflected in the booking system. Never touches a swap override.
+        const DAY_NAMES_N = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        const tenantData2 = tDoc.data() as any;
+        const activeWeek = Array.isArray(tenantData2?.scheduleProfiles)
+          ? (tenantData2.scheduleProfiles.find((x: any) => x.isActive)?.week || null) : null;
+        const resSnap2 = await db.collection(`tenants/${tDoc.id}/boothReservations`)
+          .where('status', '==', 'confirmed').get();
+        const staffByRenter = new Map<string, any>();
+        staffSnap2.docs.forEach((d: any) => {
+          const x = d.data() as any;
+          if (x.renterId && !staffByRenter.has(x.renterId)) staffByRenter.set(x.renterId, d);
+        });
+
+        for (const rd of resSnap2.docs) {
+          const r: any = rd.data() || {};
+          if (!r.renterId || !r.startDate) continue;
+          if (String(r.endDate || r.startDate) < todayStr) continue;
+          const sdoc = staffByRenter.get(r.renterId);
+          if (!sdoc) continue;
+          const sdata = sdoc.data() as any;
+          if (sdata.bookingOptOut === true) continue;
+          const isHourly = r.bookingType === 'hourly' && r.startTime && r.endTime;
+          const dates = (() => {
+            const out: string[] = [];
+            const last = String(r.endDate || r.startDate);
+            const d = new Date(`${r.startDate}T12:00:00Z`);
+            while (out.length < 31) {
+              const k = d.toISOString().slice(0, 10);
+              out.push(k);
+              if (k >= last) break;
+              d.setUTCDate(d.getUTCDate() + 1);
+            }
+            return out;
+          })();
+          const flat: Record<string, any> = {};
+          for (const dk of dates) {
+            if (dk < todayStr) continue;
+            const existing = sdata?.availability?.dates?.[dk];
+            if (existing && existing.reason === 'swap') continue;
+            if (existing && existing.reason === 'day_rental' && existing.reservationId === rd.id) continue;
+            let start = isHourly ? String(r.startTime) : '';
+            let end = isHourly ? String(r.endTime) : '';
+            if (!isHourly) {
+              const row = activeWeek?.[DAY_NAMES_N[new Date(`${dk}T12:00:00Z`).getUTCDay()]];
+              if (!row?.enabled || !row?.start || !row?.end) continue;
+              start = String(row.start); end = String(row.end);
+            }
+            flat[`availability.dates.${dk}`] = {
+              enabled: true, start, end, reason: 'day_rental', reservationId: rd.id,
+              setAt: new Date().toISOString(),
+            };
+            rentalDaysGranted++;
+          }
+          if (Object.keys(flat).length > 0) await sdoc.ref.update(flat);
+        }
+      } catch (e) { console.error('[cron/nightly] profile/rental reconcile', e); }
+
 
       // ── v85: lease renewals — auto-renew leases extend by one full term
       // the day after they end; everyone else gets ONE "lease ended" nudge.
@@ -683,6 +775,6 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate, '· leases renewed', leasesRenewed, '· lease windows synced', leaseWindowsSynced, '· reminders', reminderTotals, '· no-shows', noShowTotals, '· plans', planTotals, '· sla', slaTotals, '· stock holds', stockTotals, '· retail sweeps', retailTotals);
-  return NextResponse.json({ ok: true, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, leaseWindowsSynced, reminderTotals, noShowTotals, planTotals, slaTotals, stockTotals, retailTotals, results });
+  console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate, '· leases renewed', leasesRenewed, '· lease windows synced', leaseWindowsSynced, '· profile mirrors', profileMirrorsSynced, '· rental days granted', rentalDaysGranted, '· reminders', reminderTotals, '· no-shows', noShowTotals, '· plans', planTotals, '· sla', slaTotals, '· stock holds', stockTotals, '· retail sweeps', retailTotals);
+  return NextResponse.json({ ok: true, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, leaseWindowsSynced, profileMirrorsSynced, rentalDaysGranted, reminderTotals, noShowTotals, planTotals, slaTotals, stockTotals, retailTotals, results });
 }
