@@ -283,6 +283,253 @@ const hourlyCentsOf = (booth: any): number => {
   return opts.find((o: any) => o.frequency === 'hourly' && o.amountCents > 0)?.amountCents || 0;
 };
 
+
+// ═══ Renter day swaps ═══════════════════════════════════════════════════════
+// Two renters trading a day between themselves. The owner is NOT in the
+// approval path — she is told, not asked — because a swap trades TIME, never
+// money. Rent does not move, invoices do not move, and a permanent change of
+// days is a lease change, which IS her business. Keeping rent still is exactly
+// what stops a swap quietly becoming a sublet.
+//
+// An accepted swap writes ONE thing: a date override on each staff record
+// (availability.dates['yyyy-MM-dd']), which the availability engine reads as
+// layer 3a. The giver's date turns off; the taker's turns on with the giver's
+// window. Neither lease is touched, so every rent cron keeps working untouched.
+//
+// Everything is filtered BEFORE a request can be sent — you can only offer a
+// day you actually hold and have no clients booked on, and you can only offer
+// it to someone who is not already holding a chair that day. A request that
+// could fail on accept is a request that should never have been sendable.
+
+const SWAP_HORIZON_DAYS = 42;
+const SWAP_DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const SWAP_DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const swapDayIndex = (dateKey: string) => {
+  const d = new Date(`${dateKey}T12:00:00Z`);
+  return Number.isNaN(d.getTime()) ? -1 : d.getUTCDay();
+};
+const swapAddDays = (dateKey: string, n: number) => {
+  const d = new Date(`${dateKey}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+const swapDateLabel = (dateKey: string) => {
+  const i = swapDayIndex(dateKey);
+  const parts = String(dateKey).split('-');
+  return `${SWAP_DAY_SHORT[i] || ''} ${Number(parts[1])}/${Number(parts[2])}`.trim();
+};
+const isDateKey = (v: any) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+const fmtHM = (t: any) => {
+  const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(t || ''));
+  if (!m) return String(t || '');
+  const h = Number(m[1]);
+  return `${((h + 11) % 12) + 1}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`;
+};
+
+type SwapCtx = {
+  renterId: string; staffId: string; name: string;
+  email: string | null; phone: string | null; portalToken: string | null;
+  week: any; dates: Record<string, any>;
+  leaseDays: number[] | null; leaseEndDate: string | null;
+  boothId: string | null; boothName: string | null;
+  apptDates: Set<string>; busyDates: Set<string>;
+};
+
+/** Does this person hold the chair on that date? Override first, then lease + template. */
+function swapHoldsDay(ctx: SwapCtx, dateKey: string): boolean {
+  const ov = ctx.dates?.[dateKey];
+  if (ov) return ov.enabled === true;
+  const idx = swapDayIndex(dateKey);
+  if (idx < 0) return false;
+  if (ctx.leaseDays && !ctx.leaseDays.includes(idx)) return false;
+  const row = ctx.week?.[SWAP_DAY_NAMES[idx]];
+  return !!(row && row.enabled && row.start && row.end);
+}
+
+/** The window that would move — an override's, otherwise their template's. */
+function swapWindowFor(ctx: SwapCtx, dateKey: string): { start: string; end: string } | null {
+  const ov = ctx.dates?.[dateKey];
+  if (ov && ov.enabled && ov.start && ov.end) return { start: String(ov.start), end: String(ov.end) };
+  const idx = swapDayIndex(dateKey);
+  const row = idx >= 0 ? ctx.week?.[SWAP_DAY_NAMES[idx]] : null;
+  return row && row.enabled && row.start && row.end
+    ? { start: String(row.start), end: String(row.end) } : null;
+}
+
+/** Empty string = fine. Anything else is the honest reason, shown as-is. */
+function swapGiveBlock(ctx: SwapCtx, dateKey: string, today: string): string {
+  if (dateKey <= today) return 'Today or past';
+  if (ctx.leaseEndDate && dateKey > ctx.leaseEndDate) return 'After your lease ends';
+  if (!swapHoldsDay(ctx, dateKey)) return 'Not one of your days';
+  if (ctx.apptDates.has(dateKey)) return 'You have clients booked';
+  if (ctx.busyDates.has(dateKey)) return 'Already in a swap';
+  return '';
+}
+function swapTakeBlock(ctx: SwapCtx, dateKey: string, today: string): string {
+  if (dateKey <= today) return 'Today or past';
+  if (ctx.leaseEndDate && dateKey > ctx.leaseEndDate) return 'After their lease ends';
+  if (swapHoldsDay(ctx, dateKey)) return 'Already here that day';
+  if (ctx.apptDates.has(dateKey)) return 'They have clients booked';
+  if (ctx.busyDates.has(dateKey)) return 'Already in a swap';
+  return '';
+}
+
+/**
+ * Everyone who can take part in a swap, with everything needed to decide.
+ * One pass over staff/renters/leases/appointments/swaps — the alternative was
+ * a query per person per date, which does not survive a busy studio.
+ */
+async function loadSwapProviders(db: any, tenantId: string, today: string): Promise<SwapCtx[]> {
+  const horizonEnd = swapAddDays(today, SWAP_HORIZON_DAYS);
+  const [staffSnap, renterSnap, leaseSnap] = await Promise.all([
+    db.collection(`tenants/${tenantId}/staff`).get(),
+    db.collection(`tenants/${tenantId}/renters`).get(),
+    db.collection(`tenants/${tenantId}/leases`).get(),
+  ]);
+
+  const renterById = new Map<string, any>();
+  renterSnap.docs.forEach((d: any) => renterById.set(d.id, { id: d.id, ...(d.data() as any) }));
+
+  const leaseByRenter = new Map<string, any>();
+  const boothIds = new Set<string>();
+  leaseSnap.docs.forEach((d: any) => {
+    const l: any = { id: d.id, ...(d.data() as any) };
+    if (!['active', 'on_leave'].includes(String(l.status))) return;
+    if (l.renterId && !leaseByRenter.has(l.renterId)) {
+      leaseByRenter.set(l.renterId, l);
+      if (l.boothId) boothIds.add(String(l.boothId));
+    }
+  });
+  const boothNames = new Map<string, string>();
+  await Promise.all(Array.from(boothIds).map(async (bid) => {
+    try {
+      const b = await db.doc(`tenants/${tenantId}/booths/${bid}`).get();
+      if (b.exists) boothNames.set(bid, (b.data() as any)?.name || '');
+    } catch { /* a booth name is cosmetic */ }
+  }));
+
+  // Booked client days, one range query instead of one per person.
+  const apptByStaff = new Map<string, Set<string>>();
+  const ap = await db.collection(`tenants/${tenantId}/appointments`)
+    .where('startTime', '>=', `${today}T00:00:00`)
+    .where('startTime', '<=', `${horizonEnd}T23:59:59`).get();
+  ap.docs.forEach((d: any) => {
+    const a: any = d.data() || {};
+    if (!a.staffId || a.status === 'cancelled') return;
+    const key = String(a.startTime || '').slice(0, 10);
+    if (!isDateKey(key)) return;
+    if (!apptByStaff.has(a.staffId)) apptByStaff.set(a.staffId, new Set());
+    (apptByStaff.get(a.staffId) as Set<string>).add(key);
+  });
+
+  // Dates already spoken for by a live swap — a day can only be traded once.
+  const busyByRenter = new Map<string, Set<string>>();
+  try {
+    const sw = await db.collection(`tenants/${tenantId}/renterSwaps`).get();
+    sw.docs.forEach((d: any) => {
+      const x: any = d.data() || {};
+      if (!['pending', 'accepted'].includes(String(x.status))) return;
+      for (const [rid, dk] of [
+        [x.fromRenterId, x.giveDate], [x.toRenterId, x.giveDate],
+        [x.fromRenterId, x.returnDate], [x.toRenterId, x.returnDate],
+      ] as any[]) {
+        if (!rid || !isDateKey(dk) || dk < today) continue;
+        if (!busyByRenter.has(rid)) busyByRenter.set(rid, new Set());
+        (busyByRenter.get(rid) as Set<string>).add(dk);
+      }
+    });
+  } catch { /* no swaps yet */ }
+
+  const out: SwapCtx[] = [];
+  staffSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+    .filter((m: any) => m.isRenter && m.isActive !== false && m.renterId)
+    .forEach((m: any) => {
+      const r = renterById.get(m.renterId);
+      if (!r) return;
+      const lease = leaseByRenter.get(m.renterId) || null;
+      const days = lease?.scheduleSlot?.days;
+      out.push({
+        renterId: m.renterId,
+        staffId: m.id,
+        name: `${r.firstName || ''} ${r.lastName || ''}`.trim() || m.name || 'Renter',
+        email: r.email || null,
+        phone: r.phone || null,
+        portalToken: r.portalToken || null,
+        week: (m.availability?.week && typeof m.availability.week === 'object') ? m.availability.week : {},
+        dates: (m.availability?.dates && typeof m.availability.dates === 'object') ? m.availability.dates : {},
+        // No scheduleSlot means a full-time lease: they hold the chair every day.
+        leaseDays: Array.isArray(days) && days.length > 0
+          ? days.map((x: any) => Number(x)).filter((n: number) => n >= 0 && n <= 6) : null,
+        leaseEndDate: isDateKey(lease?.endDate) ? String(lease.endDate).slice(0, 10) : null,
+        boothId: lease?.boothId || null,
+        boothName: lease?.boothId ? (boothNames.get(String(lease.boothId)) || null) : null,
+        apptDates: apptByStaff.get(m.id) || new Set<string>(),
+        busyDates: busyByRenter.get(m.renterId) || new Set<string>(),
+      });
+    });
+  return out;
+}
+
+/**
+ * Email AND text, to the person who has to act or wants to know. Both are
+ * toggleable per business; both fail silently, because a swap that is already
+ * written must never be undone by a mail outage.
+ */
+async function swapNotify(
+  db: any, tenantId: string, tenant: any,
+  target: { name: string; email: string | null; phone: string | null; portalToken: string | null },
+  subject: string, headline: string, lines: string[], smsText: string,
+) {
+  const comms = (tenant?.rentComms || {}) as any;
+  const studioName = tenant?.name || 'The studio';
+  const origin = String(tenant?.publicOrigin
+    || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/+$/, '');
+  const portalUrl = origin
+    ? `${origin}/rent/${tenantId}${target.portalToken ? `?rt=${encodeURIComponent(target.portalToken)}` : ''}`
+    : '';
+
+  if (comms.swapNotifyEmail !== false && target.email && /@/.test(target.email) && process.env.RESEND_API_KEY) {
+    try {
+      const { brandedEmailHtml } = await import('@/lib/email-template');
+      await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
+        body: JSON.stringify({
+          from: process.env.NOTIFY_FROM_EMAIL || 'ClarityFlow <onboarding@resend.dev>',
+          to: [target.email],
+          subject,
+          text: `${headline}\n\n${lines.join('\n')}${portalUrl ? `\n\n${portalUrl}` : ''}`,
+          html: brandedEmailHtml({
+            studioName,
+            title: headline,
+            bodyLines: lines,
+            ...(portalUrl ? { cta: { label: 'Open my portal', url: portalUrl } } : {}),
+            footerNote: `Day swaps are between you and the other professional — rent is not affected. Sent by ${studioName}.`,
+          }),
+        }),
+      });
+    } catch { /* the swap stands whether or not the email lands */ }
+  }
+
+  if (comms.swapNotifySms !== false && target.phone && smsConfigured()) {
+    try {
+      await sendTenantSms(db, tenantId, target.phone, smsText, { email: target.email, subject });
+    } catch { /* same */ }
+  }
+}
+
+/** The owner is told, never asked. She needs to know who is in the building. */
+async function swapTellOwner(db: any, tenantId: string, message: string) {
+  try {
+    const ref = db.collection(`tenants/${tenantId}/notifications`).doc();
+    await ref.set({
+      id: ref.id, userId: null, read: false, createdAt: new Date().toISOString(),
+      type: 'renter_swap', link: 'booths', message,
+    });
+  } catch { /* visibility is a bonus, never a blocker */ }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -741,6 +988,38 @@ export async function POST(req: NextRequest) {
         }
       } catch { /* the provider block is additive — never fail the whole call */ }
 
+      // ── Day swaps: what is waiting on me, what I am waiting on ────────────
+      // Peer-to-peer, so both directions live here. Pending requests whose
+      // date has already come around are simply not listed — that is what
+      // "expires at the date" means in practice.
+      let swaps: any = null;
+      try {
+        if (provider && renter) {
+          const swSnap = await db.collection(`tenants/${tenantId}/renterSwaps`).get();
+          const rows = swSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+            .filter((x: any) => x.fromRenterId === renter.id || x.toRenterId === renter.id)
+            .filter((x: any) => isDateKey(x.giveDate) && x.giveDate >= today);
+          const shape = (x: any) => ({
+            id: x.id, status: x.status,
+            iAmGiver: x.fromRenterId === renter.id,
+            otherName: x.fromRenterId === renter.id ? x.toName : x.fromName,
+            giveDate: x.giveDate, giveLabel: swapDateLabel(x.giveDate),
+            giveStart: x.giveStart || '', giveEnd: x.giveEnd || '',
+            returnDate: x.returnDate || null,
+            returnLabel: isDateKey(x.returnDate) ? swapDateLabel(x.returnDate) : null,
+            returnStart: x.returnStart || '', returnEnd: x.returnEnd || '',
+            note: x.note || null, createdAt: x.createdAt || null,
+          });
+          const bySoonest = (a: any, b: any) => String(a.giveDate).localeCompare(String(b.giveDate));
+          swaps = {
+            enabled: tenant.renterSwapsEnabled !== false,
+            incoming: rows.filter((x: any) => x.status === 'pending' && x.toRenterId === renter.id).map(shape).sort(bySoonest),
+            outgoing: rows.filter((x: any) => x.status === 'pending' && x.fromRenterId === renter.id).map(shape).sort(bySoonest),
+            confirmed: rows.filter((x: any) => x.status === 'accepted').map(shape).sort(bySoonest),
+          };
+        }
+      } catch { /* swaps are additive — never fail the whole call */ }
+
       return NextResponse.json({
         ok: true,
         name: session.name,
@@ -761,7 +1040,7 @@ export async function POST(req: NextRequest) {
         invoices, credits, availableCreditCents,
         upcoming, past,
         payments,
-        provider, myServices, pricing, myBookings, earnings,
+        provider, myServices, pricing, myBookings, earnings, swaps,
       });
     }
 
@@ -915,6 +1194,251 @@ export async function POST(req: NextRequest) {
         ...(cur.exists ? {} : { createdAt: new Date().toISOString() }),
       }, { merge: true });
       return NextResponse.json({ ok: true, serviceId: id });
+    }
+
+    // ═══ swap-options ═════════════════════════════════════════════════════
+    // Everything the swap screen needs, already filtered. Only days this
+    // renter can actually give are returned, and each one carries the list of
+    // people who could actually take it — so a request can never be built that
+    // would fail on accept.
+    if (action === 'swap-options') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const today = safeToday(body.today);
+      const tenant = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      if (tenant.renterSwapsEnabled === false) {
+        return NextResponse.json({ ok: true, enabled: false, myDates: [], partners: [] });
+      }
+      const all = await loadSwapProviders(db, tenantId, today);
+      const me = all.find((x) => x.renterId === session.renterId);
+      if (!me) return NextResponse.json({ ok: false, error: 'Bookings are not enabled for you yet' }, { status: 403 });
+      const others = all.filter((x) => x.renterId !== me.renterId);
+
+      const myDates: any[] = [];
+      for (let i = 1; i <= SWAP_HORIZON_DAYS; i++) {
+        const dk = swapAddDays(today, i);
+        if (swapGiveBlock(me, dk, today)) continue;
+        const w = swapWindowFor(me, dk);
+        if (!w) continue;
+        const eligible = others.filter((o) => !swapTakeBlock(o, dk, today)).map((o) => o.staffId);
+        if (eligible.length === 0) continue;
+        myDates.push({ date: dk, label: swapDateLabel(dk), start: w.start, end: w.end, eligible });
+      }
+
+      const partners = others.map((o) => {
+        const openDates: any[] = [];
+        for (let i = 1; i <= SWAP_HORIZON_DAYS; i++) {
+          const dk = swapAddDays(today, i);
+          if (swapGiveBlock(o, dk, today)) continue;
+          if (swapTakeBlock(me, dk, today)) continue;
+          const w = swapWindowFor(o, dk);
+          if (!w) continue;
+          openDates.push({ date: dk, label: swapDateLabel(dk), start: w.start, end: w.end });
+        }
+        return { staffId: o.staffId, name: o.name, openDates };
+      });
+
+      return NextResponse.json({ ok: true, enabled: true, myDates, partners });
+    }
+
+    // ═══ swap-request ═════════════════════════════════════════════════════
+    if (action === 'swap-request') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const today = safeToday(body.today);
+      const tenant = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      if (tenant.renterSwapsEnabled === false) {
+        return NextResponse.json({ ok: false, error: 'Day swaps are turned off for this studio.' }, { status: 403 });
+      }
+      const toStaffId = String(body.toStaffId || '');
+      const giveDate = String(body.giveDate || '');
+      const returnDate = isDateKey(body.returnDate) ? String(body.returnDate) : '';
+      const note = String(body.note || '').trim().slice(0, 240);
+      if (!isDateKey(giveDate)) return NextResponse.json({ ok: false, error: 'Pick a date to offer.' }, { status: 400 });
+
+      const all = await loadSwapProviders(db, tenantId, today);
+      const me = all.find((x) => x.renterId === session.renterId);
+      const other = all.find((x) => x.staffId === toStaffId);
+      if (!me) return NextResponse.json({ ok: false, error: 'Bookings are not enabled for you yet' }, { status: 403 });
+      if (!other || other.renterId === me.renterId) {
+        return NextResponse.json({ ok: false, error: 'Pick who you want to swap with.' }, { status: 400 });
+      }
+
+      const giveBlock = swapGiveBlock(me, giveDate, today) || swapTakeBlock(other, giveDate, today);
+      if (giveBlock) return NextResponse.json({ ok: false, error: `That day can’t be swapped — ${giveBlock.toLowerCase()}.` }, { status: 400 });
+      const giveWin = swapWindowFor(me, giveDate);
+      if (!giveWin) return NextResponse.json({ ok: false, error: 'No hours set on that day.' }, { status: 400 });
+
+      let retWin: { start: string; end: string } | null = null;
+      if (returnDate) {
+        const retBlock = swapGiveBlock(other, returnDate, today) || swapTakeBlock(me, returnDate, today);
+        if (retBlock) return NextResponse.json({ ok: false, error: `Their day can’t be swapped — ${retBlock.toLowerCase()}.` }, { status: 400 });
+        retWin = swapWindowFor(other, returnDate);
+        if (!retWin) return NextResponse.json({ ok: false, error: 'They have no hours set on that day.' }, { status: 400 });
+      }
+
+      const ref = db.collection(`tenants/${tenantId}/renterSwaps`).doc();
+      await ref.set({
+        id: ref.id, tenantId, status: 'pending',
+        fromRenterId: me.renterId, fromStaffId: me.staffId, fromName: me.name,
+        toRenterId: other.renterId, toStaffId: other.staffId, toName: other.name,
+        giveDate, giveStart: giveWin.start, giveEnd: giveWin.end,
+        giveBoothId: me.boothId, giveBoothName: me.boothName,
+        returnDate: returnDate || null,
+        returnStart: retWin?.start || null, returnEnd: retWin?.end || null,
+        returnBoothId: returnDate ? other.boothId : null,
+        returnBoothName: returnDate ? other.boothName : null,
+        note: note || null,
+        createdAt: new Date().toISOString(), respondedAt: null,
+      });
+
+      const swapLine = returnDate
+        ? `${me.name} would take your ${swapDateLabel(returnDate)} and you would take their ${swapDateLabel(giveDate)}.`
+        : `${me.name} is offering you ${swapDateLabel(giveDate)}, ${fmtHM(giveWin.start)}–${fmtHM(giveWin.end)}.`;
+      await swapNotify(db, tenantId, tenant, other,
+        `Day swap request from ${me.name}`,
+        'A day swap is waiting for you',
+        [swapLine, ...(note ? [`They said: “${note}”`] : []),
+         'Open your portal to accept or decline. Nothing changes until you answer, and your rent is not affected either way.'],
+        `${me.name} wants to swap ${swapDateLabel(giveDate)} with you. Open your portal to accept or decline.`);
+
+      await swapTellOwner(db, tenantId,
+        `${me.name} asked ${other.name} to swap ${swapDateLabel(giveDate)}${returnDate ? ` for ${swapDateLabel(returnDate)}` : ''} — waiting on ${other.name}.`);
+      await logAuditAdmin(db, tenantId, {
+        action: 'renter.swap_requested', targetType: 'renterSwap', targetId: ref.id,
+        summary: `${me.name} requested a day swap with ${other.name} for ${giveDate}${returnDate ? ` in exchange for ${returnDate}` : ''}`,
+        actor: { type: 'user', name: me.name, role: 'renter', via: 'renter-portal' },
+      });
+      return NextResponse.json({ ok: true, swapId: ref.id });
+    }
+
+    // ═══ swap-respond ═════════════════════════════════════════════════════
+    // Accepting is the only place a day actually moves. Everything is checked
+    // AGAIN here: a request sent last week may have been overtaken by a client
+    // booking, and the honest answer then is no, not a double-booked chair.
+    if (action === 'swap-respond') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const today = safeToday(body.today);
+      const decision = String(body.decision || '');
+      if (!['accept', 'decline'].includes(decision)) {
+        return NextResponse.json({ ok: false, error: 'Accept or decline.' }, { status: 400 });
+      }
+      const ref = db.doc(`tenants/${tenantId}/renterSwaps/${String(body.swapId || '')}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'That request is gone.' }, { status: 404 });
+      const sw: any = snap.data();
+      if (sw.toRenterId !== session.renterId) {
+        return NextResponse.json({ ok: false, error: 'That request isn’t yours to answer.' }, { status: 403 });
+      }
+      if (sw.status !== 'pending') {
+        return NextResponse.json({ ok: false, error: 'That request has already been answered.' }, { status: 409 });
+      }
+      const tenant = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      const all = await loadSwapProviders(db, tenantId, today);
+      const from = all.find((x) => x.renterId === sw.fromRenterId);
+      const to = all.find((x) => x.renterId === sw.toRenterId);
+
+      if (decision === 'decline') {
+        await ref.set({ status: 'declined', respondedAt: new Date().toISOString() }, { merge: true });
+        if (from) {
+          await swapNotify(db, tenantId, tenant, from,
+            `${sw.toName} declined the swap`, 'Swap declined',
+            [`${sw.toName} can’t take ${swapDateLabel(sw.giveDate)}. Your day is unchanged and your rent was never affected.`,
+             'You can offer it to someone else from your portal.'],
+            `${sw.toName} declined the ${swapDateLabel(sw.giveDate)} swap. Your day is unchanged.`);
+        }
+        await logAuditAdmin(db, tenantId, {
+          action: 'renter.swap_declined', targetType: 'renterSwap', targetId: ref.id,
+          summary: `${sw.toName} declined ${sw.fromName}'s swap for ${sw.giveDate}`,
+          actor: { type: 'user', name: sw.toName, role: 'renter', via: 'renter-portal' },
+        });
+        return NextResponse.json({ ok: true, status: 'declined' });
+      }
+
+      // The request auto-expires at the date it was for.
+      if (!isDateKey(sw.giveDate) || sw.giveDate <= today) {
+        await ref.set({ status: 'expired', respondedAt: new Date().toISOString() }, { merge: true });
+        return NextResponse.json({ ok: false, error: 'That day has already come around — the request expired.' }, { status: 409 });
+      }
+      if (!from || !to) {
+        return NextResponse.json({ ok: false, error: 'One of you is no longer set up for bookings.' }, { status: 409 });
+      }
+      // Re-check ignoring THIS request's own hold on the dates.
+      const ignore = (ctx: SwapCtx) => {
+        const clone: SwapCtx = { ...ctx, busyDates: new Set(ctx.busyDates) };
+        clone.busyDates.delete(sw.giveDate);
+        if (isDateKey(sw.returnDate)) clone.busyDates.delete(sw.returnDate);
+        return clone;
+      };
+      const fromC = ignore(from); const toC = ignore(to);
+      const stale = swapGiveBlock(fromC, sw.giveDate, today) || swapTakeBlock(toC, sw.giveDate, today)
+        || (isDateKey(sw.returnDate)
+          ? (swapGiveBlock(toC, sw.returnDate, today) || swapTakeBlock(fromC, sw.returnDate, today)) : '');
+      if (stale) {
+        return NextResponse.json({ ok: false, error: `This swap no longer works — ${stale.toLowerCase()}. Ask them to send a new one.` }, { status: 409 });
+      }
+
+      const batch = db.batch();
+      const stamp = { reason: 'swap', swapId: ref.id, setAt: new Date().toISOString() };
+      // The giver's day turns off; the taker's turns on with the giver's window.
+      batch.set(db.doc(`tenants/${tenantId}/staff/${from.staffId}`), {
+        availability: { dates: { [sw.giveDate]: { enabled: false, ...stamp, note: `Swapped to ${to.name}` } } },
+      }, { merge: true });
+      batch.set(db.doc(`tenants/${tenantId}/staff/${to.staffId}`), {
+        availability: { dates: { [sw.giveDate]: { enabled: true, start: sw.giveStart, end: sw.giveEnd, ...stamp, note: `Covering for ${from.name}`, boothId: sw.giveBoothId || null } } },
+      }, { merge: true });
+      if (isDateKey(sw.returnDate)) {
+        batch.set(db.doc(`tenants/${tenantId}/staff/${to.staffId}`), {
+          availability: { dates: { [sw.returnDate]: { enabled: false, ...stamp, note: `Swapped to ${from.name}` } } },
+        }, { merge: true });
+        batch.set(db.doc(`tenants/${tenantId}/staff/${from.staffId}`), {
+          availability: { dates: { [sw.returnDate]: { enabled: true, start: sw.returnStart, end: sw.returnEnd, ...stamp, note: `Covering for ${to.name}`, boothId: sw.returnBoothId || null } } },
+        }, { merge: true });
+      }
+      batch.set(ref, { status: 'accepted', respondedAt: new Date().toISOString() }, { merge: true });
+      await batch.commit();
+
+      // Messages go out AFTER the commit — a mail failure can never leave the
+      // calendar and the inbox disagreeing about who is in the chair.
+      const both = isDateKey(sw.returnDate)
+        ? `${to.name} takes ${swapDateLabel(sw.giveDate)} and ${from.name} takes ${swapDateLabel(sw.returnDate)}.`
+        : `${to.name} takes ${swapDateLabel(sw.giveDate)}.`;
+      await swapNotify(db, tenantId, tenant, from,
+        `Swap confirmed with ${to.name}`, 'Your swap is confirmed',
+        [both, 'Your booking hours have already moved for those days only. Rent is unchanged — a swap trades time, not money.'],
+        `Swap confirmed: ${both} Your booking hours have moved for those days.`);
+      await swapNotify(db, tenantId, tenant, to,
+        `Swap confirmed with ${from.name}`, 'Your swap is confirmed',
+        [both, 'Your booking hours have already moved for those days only. Rent is unchanged — a swap trades time, not money.'],
+        `Swap confirmed: ${both} Your booking hours have moved for those days.`);
+      await swapTellOwner(db, tenantId,
+        `${from.name} and ${to.name} swapped ${swapDateLabel(sw.giveDate)}${isDateKey(sw.returnDate) ? ` and ${swapDateLabel(sw.returnDate)}` : ''}${sw.giveBoothName ? ` (${sw.giveBoothName})` : ''}. Rent unchanged.`);
+      await logAuditAdmin(db, tenantId, {
+        action: 'renter.swap_accepted', targetType: 'renterSwap', targetId: ref.id,
+        summary: `${to.name} accepted ${from.name}'s swap: ${sw.giveDate}${isDateKey(sw.returnDate) ? ` ↔ ${sw.returnDate}` : ''} (rent unchanged)`,
+        actor: { type: 'user', name: to.name, role: 'renter', via: 'renter-portal' },
+      });
+      return NextResponse.json({ ok: true, status: 'accepted' });
+    }
+
+    // ═══ swap-cancel ══════════════════════════════════════════════════════
+    if (action === 'swap-cancel') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const ref = db.doc(`tenants/${tenantId}/renterSwaps/${String(body.swapId || '')}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'That request is gone.' }, { status: 404 });
+      const sw: any = snap.data();
+      if (sw.fromRenterId !== session.renterId) {
+        return NextResponse.json({ ok: false, error: 'That request isn’t yours to cancel.' }, { status: 403 });
+      }
+      if (sw.status !== 'pending') {
+        return NextResponse.json({ ok: false, error: 'That request has already been answered.' }, { status: 409 });
+      }
+      await ref.set({ status: 'cancelled', respondedAt: new Date().toISOString() }, { merge: true });
+      await logAuditAdmin(db, tenantId, {
+        action: 'renter.swap_cancelled', targetType: 'renterSwap', targetId: ref.id,
+        summary: `${sw.fromName} withdrew the swap request to ${sw.toName} for ${sw.giveDate}`,
+        actor: { type: 'user', name: sw.fromName, role: 'renter', via: 'renter-portal' },
+      });
+      return NextResponse.json({ ok: true });
     }
 
     // ═══ check-in ═════════════════════════════════════════════════════════
