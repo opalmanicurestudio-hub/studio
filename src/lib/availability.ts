@@ -69,7 +69,10 @@
 //      do NOT block, because a request nobody has answered should not quietly
 //      cost you bookings.
 //   3. PER-STAFF WEEKLY HOURS (staff.availability.week[day]) — the template. A
-//      day explicitly disabled means off; a day absent falls through.
+//      day explicitly disabled means off; a day absent falls through. A single
+//      DATE may override the template via availability.dates['yyyy-MM-dd'],
+//      which is how an accepted renter swap moves one day from one person to
+//      the other without either lease changing.
 //   4. STUDIO SCHEDULE PROFILE (scheduleProfiles, isActive) — the house hours.
 //   5. APPOINTMENTS — padded on both sides. Everything blocks except
 //      cancellations and payment holds older than 30 minutes.
@@ -374,21 +377,43 @@ export function protectedWindow(
  * Working hours for one staff member on one day.
  *
  * Precedence, carried over from BookingSheet so behavior does not change:
+ *   staff has a DATE override      -> use it (see below)
  *   staff has an ENABLED day       -> use it
  *   staff has a DISABLED day       -> that person is off; no slots
  *   staff has no entry for the day -> fall back to the studio's active profile
  *   profile day disabled/missing   -> no slots
+ *
+ * The DATE override (availability.dates['yyyy-MM-dd']) is layer 3a: one date,
+ * outranking the weekly template underneath it. Only an accepted renter swap
+ * writes here — the person giving the day up gets { enabled:false }, the person
+ * covering gets that day's window even though their own template says they are
+ * off. Pass no dateKey and this layer does not exist; an absent key changes
+ * nothing. So it is invisible until two renters actually trade a day.
  */
 export function resolveDayHours(
   staffMember: any,
   dayName: string,
   profile: any,
+  dateKey?: string,
 ): { start: string; end: string } | null {
+  const dateDay = dateKey ? staffMember?.availability?.dates?.[dateKey] : null;
+  if (dateDay) {
+    if (!dateDay.enabled) return null;
+    if (dateDay.start && dateDay.end) return { start: dateDay.start, end: dateDay.end };
+  }
   const staffDay = staffMember?.availability?.week?.[dayName];
   if (staffDay) {
     if (!staffDay.enabled) return null;
     if (staffDay.start && staffDay.end) return { start: staffDay.start, end: staffDay.end };
   }
+  // A RENTER never inherits the house schedule. They are an independent
+  // professional whose hours are their own, and — more concretely — they lease
+  // the chair only on their leased days. Falling through to the studio profile
+  // would make a Tue/Thu/Sat renter bookable on Monday, in a chair somebody
+  // else is paying for that day. So no hours set means no hours, not ours.
+  // The visible consequence is deliberate: a renter who has not filled in My
+  // Hours yet shows no availability until they do.
+  if (staffMember?.isRenter === true) return null;
   const profileDay = profile?.week?.[dayName];
   if (profileDay && profileDay.enabled && profileDay.start && profileDay.end) {
     return { start: profileDay.start, end: profileDay.end };
@@ -884,14 +909,22 @@ export function buildDayContext(input: AvailabilityInput): DayContext | null {
       continue;
     }
 
-    // Roster first, weekly hours second, studio profile third.
-    const shift = useShifts ? findShift(shifts, staffMember.id, dateStr) : null;
-    if (useShifts && !shift) continue; // published roster says they are not in
+    // Roster first, date override second, weekly hours third, profile fourth.
+    //
+    // Renters are exempt from the roster gate on purpose. They are independent
+    // professionals running their own hours, never people a manager rosters —
+    // so they will never have a shift doc. Left inside the gate, publishing a
+    // roster for ONE date would silently blank every renter's booking link on
+    // that date, and nothing on screen would explain why.
+    const isRenterProvider = staffMember?.isRenter === true;
+    const useShiftsHere = useShifts && !isRenterProvider;
+    const shift = useShiftsHere ? findShift(shifts, staffMember.id, dateStr) : null;
+    if (useShiftsHere && !shift) continue; // published roster says they are not in
 
     let hours: { start: string; end: string } | null =
       shift?.startTime && shift?.endTime
         ? { start: String(shift.startTime), end: String(shift.endTime) }
-        : resolveDayHours(staffMember, dayName, profile);
+        : resolveDayHours(staffMember, dayName, profile, dateStr);
 
     if (!hours) {
       const hasAnySchedule = !!staffMember?.availability?.week || !!profile?.week;
