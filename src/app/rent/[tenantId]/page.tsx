@@ -341,10 +341,22 @@ function MyNumber({ data, tenantId, token, onChanged }: { data: any; tenantId: s
 
 // ─── Day Swaps: renter ↔ renter, the studio is told but never asked ───────────
 // A swap trades TIME, not money. Rent never moves — a permanent change of days
-// is a lease change, which is the owner's business. Every option shown here has
-// already been filtered server-side: you can only offer a day you actually hold
-// with no clients booked, and only to someone who isn't already in a chair that
-// day. So there is no such thing here as a request that fails when accepted.
+// is a lease change, which is the owner's business.
+//
+// A day can be given whole, or from either EDGE — "I need to leave early", "I'm
+// coming in late". Never a hole out of the middle: the remainder has to stay one
+// window, and two handoffs in one chair helps nobody.
+//
+// If the other person has their own client inside the window, the request can
+// still be sent, but it arrives flagged and cannot be accepted until they move
+// that booking themselves. The clash is theirs to resolve, never the asker's to
+// override — a client who is not in this conversation would be the one moved.
+const SWAP_SLICE: Array<[string, string]> = [
+  ['whole', 'The whole day'],
+  ['trailing', 'Leave early — give away the end'],
+  ['leading', 'Come in late — give away the start'],
+];
+
 function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenantId: string; token: string; onChanged: () => void }) {
   const { toast } = useToast();
   const swaps = data?.swaps || {};
@@ -356,22 +368,35 @@ function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenantId: st
   const [opts, setOpts] = useState<any>(null);
   const [loadingOpts, setLoadingOpts] = useState(false);
   const [giveDate, setGiveDate] = useState('');
+  const [slice, setSlice] = useState('whole');
+  const [edge, setEdge] = useState('');
   const [toStaffId, setToStaffId] = useState('');
-  const [returnDate, setReturnDate] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
+  const [confirmAsk, setConfirmAsk] = useState('');
+  const [declineFor, setDeclineFor] = useState('');
 
   const myDates: any[] = opts?.myDates || [];
   const chosen = myDates.find((d: any) => d.date === giveDate) || null;
-  const partners: any[] = (opts?.partners || []).filter(
-    (p: any) => !chosen || (chosen.eligible || []).includes(p.staffId));
-  const partner = partners.find((p: any) => p.staffId === toStaffId) || null;
-  const backDates: any[] = partner?.openDates || [];
+  const partners: any[] = opts?.partners || [];
+
+  const seg = (() => {
+    if (!chosen) return null;
+    if (slice === 'whole') return chosen.held;
+    return slice === 'leading' ? chosen.leading : chosen.trailing;
+  })();
+
+  const win = (() => {
+    if (!seg || !chosen) return null;
+    if (slice === 'whole') return { start: chosen.held.start, end: chosen.held.end };
+    if (slice === 'leading') return { start: chosen.held.start, end: edge || seg.end };
+    return { start: edge || seg.start, end: chosen.held.end };
+  })();
 
   const reset = () => {
-    setOpen(false); setOpts(null); setGiveDate(''); setToStaffId('');
-    setReturnDate(''); setNote(''); setErr('');
+    setOpen(false); setOpts(null); setGiveDate(''); setSlice('whole'); setEdge('');
+    setToStaffId(''); setNote(''); setErr(''); setConfirmAsk('');
   };
 
   const start = async () => {
@@ -382,27 +407,46 @@ function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenantId: st
     setOpts(d);
   };
 
-  const send = async () => {
+  const pickDate = (d: any) => {
+    setGiveDate(d.date); setSlice('whole'); setEdge(''); setErr(''); setConfirmAsk('');
+  };
+  const pickSlice = (k: string) => {
+    setSlice(k); setErr(''); setConfirmAsk('');
+    if (!chosen) return;
+    const s2 = k === 'leading' ? chosen.leading : k === 'trailing' ? chosen.trailing : chosen.held;
+    setEdge(k === 'leading' ? (s2?.end || '') : k === 'trailing' ? (s2?.start || '') : '');
+  };
+
+  const send = async (askAnyway: boolean) => {
+    if (!win) return;
     setBusy('send'); setErr('');
     const d = await api({
       action: 'swap-request', tenantId, token, today: localISO(),
-      toStaffId, giveDate, returnDate: returnDate || undefined, note,
+      toStaffId, giveDate, giveStart: win.start, giveEnd: win.end, note, askAnyway,
     });
     setBusy('');
-    if (!d.ok) { setErr(d.error || 'Could not send that request.'); return; }
-    toast({ title: 'Swap request sent', description: `${partner?.name || 'They'} will get an email and a text.` });
+    if (d.needsConfirm) { setConfirmAsk(d.error || ''); return; }
+    if (!d.ok) { setErr(d.error || 'Could not send that request.'); setConfirmAsk(''); return; }
+    const who = partners.find((p: any) => p.staffId === toStaffId)?.name || 'They';
+    toast({
+      title: d.conflicted ? 'Asked anyway' : 'Swap request sent',
+      description: d.conflicted
+        ? `${who} will see it flagged — they can only accept if they move their own booking.`
+        : `${who} will get an email and a text.`,
+    });
     reset(); onChanged();
   };
 
-  const respond = async (id: string, decision: 'accept' | 'decline') => {
+  const respond = async (id: string, decision: 'accept' | 'decline', reason?: string) => {
     setBusy(id); setErr('');
-    const d = await api({ action: 'swap-respond', tenantId, token, today: localISO(), swapId: id, decision });
+    const d = await api({ action: 'swap-respond', tenantId, token, today: localISO(), swapId: id, decision, reason });
     setBusy('');
-    if (!d.ok) { setErr(d.error || 'That did not go through.'); return; }
+    setDeclineFor('');
+    if (!d.ok) { setErr(d.error || 'That did not go through.'); onChanged(); return; }
     toast({
       title: decision === 'accept' ? 'Swap confirmed ✓' : 'Swap declined',
       description: decision === 'accept'
-        ? 'Your booking hours have moved for those days only. Rent is unchanged.'
+        ? 'Your booking hours have moved for that window only. Rent is unchanged.'
         : 'Their day is unchanged and nothing was charged.',
     });
     onChanged();
@@ -416,64 +460,96 @@ function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenantId: st
     onChanged();
   };
 
-  const line = (s: any) => s.returnDate
-    ? `You take ${s.iAmGiver ? s.returnLabel : s.giveLabel}, they take ${s.iAmGiver ? s.giveLabel : s.returnLabel}`
-    : `${s.iAmGiver ? 'They take' : 'You take'} ${s.giveLabel}, ${fmtTime(s.giveStart)}–${fmtTime(s.giveEnd)}`;
+  const line = (s2: any) =>
+    `${s2.iAmGiver ? 'They cover' : 'You cover'} ${s2.giveLabel}, ${s2.windowLabel}`;
 
   return (
     <section className="space-y-3">
       <SectionTitle icon={Repeat}>Day Swaps</SectionTitle>
 
-      {incoming.map((s: any) => (
-        <div key={s.id} className="p-4 rounded-3xl bg-white border-2 border-amber-300 space-y-3">
+      {incoming.map((s2: any) => (
+        <div key={s2.id} className={cn('p-4 rounded-3xl bg-white border-2 space-y-3',
+          s2.conflictCount > 0 ? 'border-red-300' : 'border-amber-300')}>
           <div>
-            <p className="font-black text-slate-900 text-sm">{s.otherName} wants to swap</p>
-            <p className="text-[11px] font-bold text-slate-500 mt-0.5">{line(s)}</p>
-            {s.note && <p className="text-[11px] font-bold text-slate-400 mt-1 italic">“{s.note}”</p>}
+            <p className="font-black text-slate-900 text-sm">{s2.otherName} wants you to cover</p>
+            <p className="text-[11px] font-bold text-slate-500 mt-0.5">{s2.giveLabel}, {s2.windowLabel}</p>
+            {s2.note && <p className="text-[11px] font-bold text-slate-400 mt-1 italic">“{s2.note}”</p>}
           </div>
-          <div className="flex gap-2">
-            <button onClick={() => respond(s.id, 'accept')} disabled={!!busy}
-              className="flex-1 py-3 rounded-2xl bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
-              {busy === s.id ? 'Working…' : 'Accept'}
-            </button>
-            <button onClick={() => respond(s.id, 'decline')} disabled={!!busy}
-              className="px-5 py-3 rounded-2xl bg-slate-100 text-slate-600 text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
-              Decline
-            </button>
-          </div>
+
+          {s2.conflictCount > 0 ? (
+            <div className="space-y-2">
+              <div className="flex items-start gap-2 p-3 rounded-2xl bg-red-50">
+                <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                <p className="text-[11px] font-bold text-red-700">
+                  You have {s2.conflictCount === 1 ? 'a client' : `${s2.conflictCount} clients`} booked in that window,
+                  so you can&apos;t accept this yet. Move or cancel that booking yourself and this turns green on its own.
+                </p>
+              </div>
+              <button onClick={() => setDeclineFor(s2.id)} disabled={!!busy}
+                className="w-full py-3 rounded-2xl bg-slate-100 text-slate-600 text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
+                Decline
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <button onClick={() => respond(s2.id, 'accept')} disabled={!!busy}
+                className="flex-1 py-3 rounded-2xl bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
+                {busy === s2.id ? 'Working…' : 'Accept'}
+              </button>
+              <button onClick={() => setDeclineFor(s2.id)} disabled={!!busy}
+                className="px-5 py-3 rounded-2xl bg-slate-100 text-slate-600 text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
+                Decline
+              </button>
+            </div>
+          )}
+
+          {declineFor === s2.id && (
+            <div className="space-y-2 pt-1">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Why?</p>
+              <button onClick={() => respond(s2.id, 'decline', 'not_this_time')} disabled={!!busy}
+                className="w-full py-3 rounded-2xl bg-white border-2 text-slate-700 text-[11px] font-black active:scale-95 transition-all disabled:opacity-50">
+                Not this time
+              </button>
+              <button onClick={() => respond(s2.id, 'decline', 'never_that_day')} disabled={!!busy}
+                className="w-full py-3 rounded-2xl bg-white border-2 text-slate-700 text-[11px] font-black active:scale-95 transition-all disabled:opacity-50">
+                That day never works for me
+              </button>
+            </div>
+          )}
+
           <p className="text-[10px] font-bold text-slate-400">Your rent is not affected either way.</p>
         </div>
       ))}
 
-      {outgoing.map((s: any) => (
-        <div key={s.id} className="p-4 rounded-3xl bg-white border-2 border-slate-100 flex items-center justify-between gap-3">
+      {outgoing.map((s2: any) => (
+        <div key={s2.id} className="p-4 rounded-3xl bg-white border-2 border-slate-100 flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="font-black text-slate-900 text-sm truncate">Waiting on {s.otherName}</p>
-            <p className="text-[11px] font-bold text-slate-500 mt-0.5">{line(s)}</p>
+            <p className="font-black text-slate-900 text-sm truncate">Waiting on {s2.otherName}</p>
+            <p className="text-[11px] font-bold text-slate-500 mt-0.5">{s2.giveLabel}, {s2.windowLabel}</p>
           </div>
-          <button onClick={() => withdraw(s.id)} disabled={!!busy}
+          <button onClick={() => withdraw(s2.id)} disabled={!!busy}
             className="shrink-0 w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 active:scale-95 transition-all disabled:opacity-50">
             <X className="w-4 h-4" />
           </button>
         </div>
       ))}
 
-      {confirmed.map((s: any) => (
-        <div key={s.id} className="p-4 rounded-3xl bg-emerald-50 border-2 border-emerald-200">
+      {confirmed.map((s2: any) => (
+        <div key={s2.id} className="p-4 rounded-3xl bg-emerald-50 border-2 border-emerald-200">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <p className="font-black text-emerald-900 text-sm">Swapped with {s.otherName}</p>
+            <p className="font-black text-emerald-900 text-sm">Swapped with {s2.otherName}</p>
           </div>
-          <p className="text-[11px] font-bold text-emerald-700 mt-1">{line(s)}</p>
+          <p className="text-[11px] font-bold text-emerald-700 mt-1">{line(s2)}</p>
         </div>
       ))}
 
       {!open ? (
         <button onClick={start}
           className="w-full p-4 rounded-3xl bg-white border-2 border-dashed border-slate-200 text-left active:scale-[0.99] transition-all">
-          <p className="font-black text-slate-900 text-sm">Offer one of my days</p>
+          <p className="font-black text-slate-900 text-sm">Give away a day, or part of one</p>
           <p className="text-[11px] font-bold text-slate-500 mt-0.5">
-            Trade a day with another professional here. You arrange it between you — the studio just gets told who is in.
+            Hand a whole day, or just your morning or afternoon, to another professional here. You arrange it between you.
           </p>
         </button>
       ) : (
@@ -481,22 +557,22 @@ function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenantId: st
           {loadingOpts ? (
             <div className="flex items-center gap-2 py-4 text-slate-400">
               <Loader className="w-4 h-4 animate-spin" />
-              <span className="text-[11px] font-black uppercase tracking-widest">Finding your free days…</span>
+              <span className="text-[11px] font-black uppercase tracking-widest">Finding your free time…</span>
             </div>
           ) : myDates.length === 0 ? (
             <div className="space-y-2">
               <p className="text-[11px] font-bold text-slate-500">
-                Nothing to offer right now. A day can be swapped when it is one of your leased days, you have no clients booked on it, and someone else here is free that day.
+                Nothing to offer right now. A day shows up here when it is one of yours and somebody else could take at least part of it.
               </p>
               <button onClick={reset} className="text-[11px] font-black uppercase tracking-widest text-slate-400">Close</button>
             </div>
           ) : (
             <>
               <div className="space-y-2">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">1 · Day you are giving up</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">1 · Which day</p>
                 <div className="flex flex-wrap gap-2">
                   {myDates.map((d: any) => (
-                    <button key={d.date} onClick={() => { setGiveDate(d.date); setToStaffId(''); setReturnDate(''); }}
+                    <button key={d.date} onClick={() => pickDate(d)}
                       className={cn('px-3 py-2 rounded-xl text-[11px] font-black border-2 transition-all',
                         giveDate === d.date ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200')}>
                       {d.label}
@@ -505,60 +581,84 @@ function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenantId: st
                 </div>
                 {chosen && (
                   <p className="text-[10px] font-bold text-slate-400">
-                    {fmtTime(chosen.start)}–{fmtTime(chosen.end)} moves to them for that date only.
+                    You hold {fmtTime(chosen.held.start)}–{fmtTime(chosen.held.end)} that day.
                   </p>
                 )}
               </div>
 
               {chosen && (
                 <div className="space-y-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">2 · Who is taking it</p>
-                  {partners.length === 0 ? (
-                    <p className="text-[11px] font-bold text-slate-500">Nobody is free that day. Try another date.</p>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {partners.map((pp: any) => (
-                        <button key={pp.staffId} onClick={() => { setToStaffId(pp.staffId); setReturnDate(''); }}
-                          className={cn('px-3 py-2 rounded-xl text-[11px] font-black border-2 transition-all',
-                            toStaffId === pp.staffId ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200')}>
-                          {pp.name}
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">2 · How much of it</p>
+                  <div className="space-y-2">
+                    {SWAP_SLICE.map(([k, label]) => {
+                      const avail = k === 'whole' ? chosen.held : k === 'leading' ? chosen.leading : chosen.trailing;
+                      if (!avail) return null;
+                      return (
+                        <button key={k} onClick={() => pickSlice(k)}
+                          className={cn('w-full px-3 py-3 rounded-xl text-left text-[11px] font-black border-2 transition-all',
+                            slice === k ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200')}>
+                          {label}
                         </button>
-                      ))}
+                      );
+                    })}
+                  </div>
+                  {slice !== 'whole' && seg && (
+                    <div className="flex items-center gap-2 pt-1">
+                      <label htmlFor="swap-edge" className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                        {slice === 'leading' ? 'Coming in at' : 'Leaving at'}
+                      </label>
+                      <input id="swap-edge" type="time" value={edge}
+                        min={slice === 'leading' ? seg.start : seg.start}
+                        max={slice === 'leading' ? seg.end : seg.end}
+                        onChange={(e) => setEdge(e.target.value)}
+                        className="px-3 py-2 rounded-xl border-2 border-slate-200 text-sm font-bold" />
                     </div>
+                  )}
+                  {win && (
+                    <p className="text-[10px] font-bold text-slate-400">
+                      Giving away {fmtTime(win.start)}–{fmtTime(win.end)}.
+                    </p>
                   )}
                 </div>
               )}
 
-              {partner && (
+              {chosen && win && (
                 <div className="space-y-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">3 · Want a day back? (optional)</p>
-                  {backDates.length === 0 ? (
-                    <p className="text-[11px] font-bold text-slate-500">They have no free days you could take. You can still give yours.</p>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      <button onClick={() => setReturnDate('')}
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">3 · Who you&apos;re asking</p>
+                  <div className="flex flex-wrap gap-2">
+                    {partners.map((pp: any) => (
+                      <button key={pp.staffId} onClick={() => { setToStaffId(pp.staffId); setConfirmAsk(''); setErr(''); }}
                         className={cn('px-3 py-2 rounded-xl text-[11px] font-black border-2 transition-all',
-                          !returnDate ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200')}>
-                        Nothing back
+                          toStaffId === pp.staffId ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200')}>
+                        {pp.name}
                       </button>
-                      {backDates.map((d: any) => (
-                        <button key={d.date} onClick={() => setReturnDate(d.date)}
-                          className={cn('px-3 py-2 rounded-xl text-[11px] font-black border-2 transition-all',
-                            returnDate === d.date ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200')}>
-                          {d.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                    ))}
+                  </div>
                 </div>
               )}
 
-              {partner && (
+              {toStaffId && (
                 <div className="space-y-2">
                   <label htmlFor="swap-note" className="block text-[10px] font-black uppercase tracking-widest text-slate-400">Message (optional)</label>
                   <input id="swap-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={240}
-                    placeholder="Family thing that Thursday…"
+                    placeholder="Family thing that afternoon…"
                     className="w-full px-3 py-3 rounded-xl border-2 border-slate-200 text-sm font-bold" />
+                </div>
+              )}
+
+              {confirmAsk && (
+                <div className="p-3 rounded-2xl bg-amber-50 border-2 border-amber-200 space-y-2">
+                  <p className="text-[11px] font-bold text-amber-800">{confirmAsk}</p>
+                  <div className="flex gap-2">
+                    <button onClick={() => send(true)} disabled={!!busy}
+                      className="flex-1 py-3 rounded-2xl bg-amber-500 text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
+                      {busy === 'send' ? 'Sending…' : 'Ask anyway'}
+                    </button>
+                    <button onClick={() => setConfirmAsk('')}
+                      className="px-5 py-3 rounded-2xl bg-white border-2 text-slate-600 text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all">
+                      Back
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -569,18 +669,20 @@ function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenantId: st
                 </div>
               )}
 
-              <div className="flex gap-2">
-                <button onClick={send} disabled={!giveDate || !toStaffId || !!busy}
-                  className="flex-1 py-3 rounded-2xl bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-40">
-                  {busy === 'send' ? 'Sending…' : 'Send request'}
-                </button>
-                <button onClick={reset}
-                  className="px-5 py-3 rounded-2xl bg-slate-100 text-slate-600 text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all">
-                  Cancel
-                </button>
-              </div>
+              {!confirmAsk && (
+                <div className="flex gap-2">
+                  <button onClick={() => send(false)} disabled={!giveDate || !toStaffId || !win || !!busy}
+                    className="flex-1 py-3 rounded-2xl bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-40">
+                    {busy === 'send' ? 'Sending…' : 'Send request'}
+                  </button>
+                  <button onClick={reset}
+                    className="px-5 py-3 rounded-2xl bg-slate-100 text-slate-600 text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all">
+                    Cancel
+                  </button>
+                </div>
+              )}
               <p className="text-[10px] font-bold text-slate-400">
-                They get an email and a text. Nothing moves until they accept, and rent stays exactly where it is.
+                Nothing moves until they accept, and rent stays exactly where it is.
               </p>
             </>
           )}
