@@ -284,6 +284,55 @@ const hourlyCentsOf = (booth: any): number => {
 };
 
 
+
+// ── Lease-window stamp ───────────────────────────────────────────────────────
+// A money-free copy of what this renter's lease holds — days, times, station,
+// turnover — written onto their STAFF doc, because the availability engine
+// enforces the leased window at read time and the PUBLIC booking page reads
+// staff but must never read leases (leases carry rent).
+//
+// Deliberately duplicated in /api/cron/nightly rather than imported: a route is
+// an endpoint, not a module. The cron is the safety net for lease edits nobody
+// is present for; these two call sites make a renter's own actions instant.
+const DEFAULT_TURNOVER_MINUTES = 15;
+
+function leaseWindowStamp(lease: any, boothBufferMinutes: any, tenant: any): any {
+  if (!lease) return null;
+  const slot = lease.scheduleSlot;
+  const days = Array.isArray(slot?.days) && slot.days.length > 0
+    ? slot.days.map((d: any) => Number(d)).filter((n: number) => n >= 0 && n <= 6)
+    : null;
+  const raw = boothBufferMinutes ?? tenant?.boothTurnoverMinutes ?? DEFAULT_TURNOVER_MINUTES;
+  const turnoverMinutes = Math.max(0, Math.min(120, Number(raw) || 0));
+  return {
+    days,
+    startTime: slot?.startTime || '',
+    endTime: slot?.endTime || '',
+    boothId: lease.boothId || null,
+    turnoverMinutes,
+  };
+}
+
+/** True when the stored stamp already says exactly this — skip a pointless write. */
+function sameLeaseWindow(a: any, b: any): boolean {
+  if (!a || !b) return (!a && !b);
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** Refresh the stamp when it has drifted. Never fails the caller. */
+async function syncLeaseWindow(db: any, tenantId: string, staffDoc: any, lease: any, tenant: any) {
+  try {
+    let bufferMinutes: any = undefined;
+    if (lease?.boothId) {
+      const b = await db.doc(`tenants/${tenantId}/booths/${lease.boothId}`).get();
+      bufferMinutes = b.exists ? (b.data() as any)?.dayUseBufferMinutes : undefined;
+    }
+    const next = leaseWindowStamp(lease, bufferMinutes, tenant);
+    if (sameLeaseWindow(staffDoc?.leaseWindow || null, next)) return;
+    await db.doc(`tenants/${tenantId}/staff/${staffDoc.id}`).set({ leaseWindow: next }, { merge: true });
+  } catch { /* the stamp is self-healing — the nightly sweep catches it */ }
+}
+
 // ═══ Renter day swaps ═══════════════════════════════════════════════════════
 // Two renters trading a day between themselves. The owner is NOT in the
 // approval path — she is told, not asked — because a swap trades TIME, never
@@ -883,6 +932,7 @@ export async function POST(req: NextRequest) {
           const st = stSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
             .find((m: any) => m.isRenter && m.isActive !== false);
           if (st) {
+            await syncLeaseWindow(db, tenantId, st, lease, tenant);
             const origin = String(tenant.publicOrigin || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/+$/, '');
             provider = {
               staffId: st.id,
@@ -1136,6 +1186,12 @@ export async function POST(req: NextRequest) {
           } catch { /* no lease readable — save as entered */ }
           const clamped = clampWeekToLease(week, activeLease);
           await db.doc(`tenants/${tenantId}/staff/${st.id}`).set({ availability: { week: clamped } }, { merge: true });
+          // Saved hours are only half the story — the engine clamps to the
+          // lease at read time, so keep the stamp it reads current too.
+          try {
+            const tSnap = await db.doc(`tenants/${tenantId}`).get();
+            await syncLeaseWindow(db, tenantId, st, activeLease, (tSnap.data() as any) || {});
+          } catch { /* nightly sweep catches it */ }
           return NextResponse.json({ ok: true, week: clamped });
         }
         return NextResponse.json({ ok: true, ...patch });
