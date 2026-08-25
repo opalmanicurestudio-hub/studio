@@ -29,7 +29,7 @@ import { useToast } from '@/hooks/use-toast';
 import {
   Armchair, CalendarDays, Clock, CreditCard, LogOut, Loader,
   CheckCircle2, Sparkles, ChevronRight, Receipt, AlertTriangle,
-  Wallet, KeyRound, Phone, RefreshCw,
+  Wallet, KeyRound, Phone, RefreshCw, Repeat, X,
 } from 'lucide-react';
 
 // Local YYYY-MM-DD — the UTC-slice version flips to tomorrow in the evening.
@@ -55,10 +55,6 @@ const api = async (payload: any) => {
 };
 
 const STORE = (tenantId: string) => `opal_renter_${tenantId}`;
-
-
-
-
 
 // ─── My Hours: the renter's own weekly availability ──────────────────────────
 // Writes staff.availability.week, which the booking engine already treats as
@@ -343,6 +339,264 @@ function MyNumber({ data, tenantId, token, onChanged }: { data: any; tenantId: s
   );
 }
 
+// ─── Day Swaps: renter ↔ renter, the studio is told but never asked ───────────
+// A swap trades TIME, not money. Rent never moves — a permanent change of days
+// is a lease change, which is the owner's business. Every option shown here has
+// already been filtered server-side: you can only offer a day you actually hold
+// with no clients booked, and only to someone who isn't already in a chair that
+// day. So there is no such thing here as a request that fails when accepted.
+function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenantId: string; token: string; onChanged: () => void }) {
+  const { toast } = useToast();
+  const swaps = data?.swaps || {};
+  const incoming: any[] = swaps.incoming || [];
+  const outgoing: any[] = swaps.outgoing || [];
+  const confirmed: any[] = swaps.confirmed || [];
+
+  const [open, setOpen] = useState(false);
+  const [opts, setOpts] = useState<any>(null);
+  const [loadingOpts, setLoadingOpts] = useState(false);
+  const [giveDate, setGiveDate] = useState('');
+  const [toStaffId, setToStaffId] = useState('');
+  const [returnDate, setReturnDate] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState('');
+  const [err, setErr] = useState('');
+
+  const myDates: any[] = opts?.myDates || [];
+  const chosen = myDates.find((d: any) => d.date === giveDate) || null;
+  const partners: any[] = (opts?.partners || []).filter(
+    (p: any) => !chosen || (chosen.eligible || []).includes(p.staffId));
+  const partner = partners.find((p: any) => p.staffId === toStaffId) || null;
+  const backDates: any[] = partner?.openDates || [];
+
+  const reset = () => {
+    setOpen(false); setOpts(null); setGiveDate(''); setToStaffId('');
+    setReturnDate(''); setNote(''); setErr('');
+  };
+
+  const start = async () => {
+    setOpen(true); setErr(''); setLoadingOpts(true);
+    const d = await api({ action: 'swap-options', tenantId, token, today: localISO() });
+    setLoadingOpts(false);
+    if (!d.ok) { setErr(d.error || 'Could not load your days.'); return; }
+    setOpts(d);
+  };
+
+  const send = async () => {
+    setBusy('send'); setErr('');
+    const d = await api({
+      action: 'swap-request', tenantId, token, today: localISO(),
+      toStaffId, giveDate, returnDate: returnDate || undefined, note,
+    });
+    setBusy('');
+    if (!d.ok) { setErr(d.error || 'Could not send that request.'); return; }
+    toast({ title: 'Swap request sent', description: `${partner?.name || 'They'} will get an email and a text.` });
+    reset(); onChanged();
+  };
+
+  const respond = async (id: string, decision: 'accept' | 'decline') => {
+    setBusy(id); setErr('');
+    const d = await api({ action: 'swap-respond', tenantId, token, today: localISO(), swapId: id, decision });
+    setBusy('');
+    if (!d.ok) { setErr(d.error || 'That did not go through.'); return; }
+    toast({
+      title: decision === 'accept' ? 'Swap confirmed ✓' : 'Swap declined',
+      description: decision === 'accept'
+        ? 'Your booking hours have moved for those days only. Rent is unchanged.'
+        : 'Their day is unchanged and nothing was charged.',
+    });
+    onChanged();
+  };
+
+  const withdraw = async (id: string) => {
+    setBusy(id);
+    const d = await api({ action: 'swap-cancel', tenantId, token, swapId: id });
+    setBusy('');
+    if (!d.ok) { setErr(d.error || 'Could not withdraw that.'); return; }
+    onChanged();
+  };
+
+  const line = (s: any) => s.returnDate
+    ? `You take ${s.iAmGiver ? s.returnLabel : s.giveLabel}, they take ${s.iAmGiver ? s.giveLabel : s.returnLabel}`
+    : `${s.iAmGiver ? 'They take' : 'You take'} ${s.giveLabel}, ${fmtTime(s.giveStart)}–${fmtTime(s.giveEnd)}`;
+
+  return (
+    <section className="space-y-3">
+      <SectionTitle icon={Repeat}>Day Swaps</SectionTitle>
+
+      {incoming.map((s: any) => (
+        <div key={s.id} className="p-4 rounded-3xl bg-white border-2 border-amber-300 space-y-3">
+          <div>
+            <p className="font-black text-slate-900 text-sm">{s.otherName} wants to swap</p>
+            <p className="text-[11px] font-bold text-slate-500 mt-0.5">{line(s)}</p>
+            {s.note && <p className="text-[11px] font-bold text-slate-400 mt-1 italic">“{s.note}”</p>}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => respond(s.id, 'accept')} disabled={!!busy}
+              className="flex-1 py-3 rounded-2xl bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
+              {busy === s.id ? 'Working…' : 'Accept'}
+            </button>
+            <button onClick={() => respond(s.id, 'decline')} disabled={!!busy}
+              className="px-5 py-3 rounded-2xl bg-slate-100 text-slate-600 text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
+              Decline
+            </button>
+          </div>
+          <p className="text-[10px] font-bold text-slate-400">Your rent is not affected either way.</p>
+        </div>
+      ))}
+
+      {outgoing.map((s: any) => (
+        <div key={s.id} className="p-4 rounded-3xl bg-white border-2 border-slate-100 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-black text-slate-900 text-sm truncate">Waiting on {s.otherName}</p>
+            <p className="text-[11px] font-bold text-slate-500 mt-0.5">{line(s)}</p>
+          </div>
+          <button onClick={() => withdraw(s.id)} disabled={!!busy}
+            className="shrink-0 w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 active:scale-95 transition-all disabled:opacity-50">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      ))}
+
+      {confirmed.map((s: any) => (
+        <div key={s.id} className="p-4 rounded-3xl bg-emerald-50 border-2 border-emerald-200">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <p className="font-black text-emerald-900 text-sm">Swapped with {s.otherName}</p>
+          </div>
+          <p className="text-[11px] font-bold text-emerald-700 mt-1">{line(s)}</p>
+        </div>
+      ))}
+
+      {!open ? (
+        <button onClick={start}
+          className="w-full p-4 rounded-3xl bg-white border-2 border-dashed border-slate-200 text-left active:scale-[0.99] transition-all">
+          <p className="font-black text-slate-900 text-sm">Offer one of my days</p>
+          <p className="text-[11px] font-bold text-slate-500 mt-0.5">
+            Trade a day with another professional here. You arrange it between you — the studio just gets told who is in.
+          </p>
+        </button>
+      ) : (
+        <div className="p-4 rounded-3xl bg-white border-2 space-y-4">
+          {loadingOpts ? (
+            <div className="flex items-center gap-2 py-4 text-slate-400">
+              <Loader className="w-4 h-4 animate-spin" />
+              <span className="text-[11px] font-black uppercase tracking-widest">Finding your free days…</span>
+            </div>
+          ) : myDates.length === 0 ? (
+            <div className="space-y-2">
+              <p className="text-[11px] font-bold text-slate-500">
+                Nothing to offer right now. A day can be swapped when it is one of your leased days, you have no clients booked on it, and someone else here is free that day.
+              </p>
+              <button onClick={reset} className="text-[11px] font-black uppercase tracking-widest text-slate-400">Close</button>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">1 · Day you are giving up</p>
+                <div className="flex flex-wrap gap-2">
+                  {myDates.map((d: any) => (
+                    <button key={d.date} onClick={() => { setGiveDate(d.date); setToStaffId(''); setReturnDate(''); }}
+                      className={cn('px-3 py-2 rounded-xl text-[11px] font-black border-2 transition-all',
+                        giveDate === d.date ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200')}>
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
+                {chosen && (
+                  <p className="text-[10px] font-bold text-slate-400">
+                    {fmtTime(chosen.start)}–{fmtTime(chosen.end)} moves to them for that date only.
+                  </p>
+                )}
+              </div>
+
+              {chosen && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">2 · Who is taking it</p>
+                  {partners.length === 0 ? (
+                    <p className="text-[11px] font-bold text-slate-500">Nobody is free that day. Try another date.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {partners.map((pp: any) => (
+                        <button key={pp.staffId} onClick={() => { setToStaffId(pp.staffId); setReturnDate(''); }}
+                          className={cn('px-3 py-2 rounded-xl text-[11px] font-black border-2 transition-all',
+                            toStaffId === pp.staffId ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200')}>
+                          {pp.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {partner && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">3 · Want a day back? (optional)</p>
+                  {backDates.length === 0 ? (
+                    <p className="text-[11px] font-bold text-slate-500">They have no free days you could take. You can still give yours.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      <button onClick={() => setReturnDate('')}
+                        className={cn('px-3 py-2 rounded-xl text-[11px] font-black border-2 transition-all',
+                          !returnDate ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200')}>
+                        Nothing back
+                      </button>
+                      {backDates.map((d: any) => (
+                        <button key={d.date} onClick={() => setReturnDate(d.date)}
+                          className={cn('px-3 py-2 rounded-xl text-[11px] font-black border-2 transition-all',
+                            returnDate === d.date ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200')}>
+                          {d.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {partner && (
+                <div className="space-y-2">
+                  <label htmlFor="swap-note" className="block text-[10px] font-black uppercase tracking-widest text-slate-400">Message (optional)</label>
+                  <input id="swap-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={240}
+                    placeholder="Family thing that Thursday…"
+                    className="w-full px-3 py-3 rounded-xl border-2 border-slate-200 text-sm font-bold" />
+                </div>
+              )}
+
+              {err && (
+                <div className="flex items-start gap-2 text-red-600">
+                  <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                  <p className="text-[11px] font-bold">{err}</p>
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <button onClick={send} disabled={!giveDate || !toStaffId || !!busy}
+                  className="flex-1 py-3 rounded-2xl bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-40">
+                  {busy === 'send' ? 'Sending…' : 'Send request'}
+                </button>
+                <button onClick={reset}
+                  className="px-5 py-3 rounded-2xl bg-slate-100 text-slate-600 text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all">
+                  Cancel
+                </button>
+              </div>
+              <p className="text-[10px] font-bold text-slate-400">
+                They get an email and a text. Nothing moves until they accept, and rent stays exactly where it is.
+              </p>
+            </>
+          )}
+        </div>
+      )}
+
+      {err && !open && (
+        <div className="flex items-start gap-2 text-red-600 px-1">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+          <p className="text-[11px] font-bold">{err}</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ─── My Book: their client appointments + what they've earned this month ──────
 // The renter's own ledger. The studio's reports deliberately exclude every one
 // of these, so this is the only place these numbers live.
@@ -578,7 +832,6 @@ function MyServices({ data, tenantId, token, onChanged }: { data: any; tenantId:
   );
 }
 
-
 // ─── Shared UI bits ───────────────────────────────────────────────────────────
 const SectionTitle = ({ icon: Icon, children }: { icon: any; children: React.ReactNode }) => (
   <div className="flex items-center gap-2 px-1">
@@ -653,7 +906,7 @@ const LoginFlow = ({ tenantId, onSession }: {
               <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-1">
                 Phone or email you booked with
               </label>
-              {/* Carrier-required disclosure for the OTP text this requests */}
+
               <p className="text-[10px] font-medium text-slate-400 px-1 leading-snug">
                 We'll text a one-time sign-in code to this number. Msg &amp; data rates may
                 apply. Reply STOP to opt out. <a href="/terms" target="_blank" rel="noreferrer" className="underline">SMS Terms</a> · <a href="/privacy" target="_blank" rel="noreferrer" className="underline">Privacy</a>
@@ -945,7 +1198,7 @@ export default function RenterPortalPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="max-w-lg mx-auto px-4 pb-16">
-        {/* Header */}
+
         <header className="flex items-center justify-between pt-8 pb-6">
           <div>
             <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">{data?.studioName || 'Studio'}</p>
@@ -970,7 +1223,7 @@ export default function RenterPortalPage() {
           </div>
         ) : (
           <div className="space-y-8">
-            {/* Today */}
+
             {todays.length > 0 && (
               <section className="space-y-3">
                 <SectionTitle icon={Clock}>Today</SectionTitle>
@@ -980,7 +1233,6 @@ export default function RenterPortalPage() {
               </section>
             )}
 
-            {/* Credits */}
             {(data?.availableCreditCents > 0 || (data?.credits || []).length > 0) && (
               <section className="space-y-3">
                 <SectionTitle icon={Sparkles}>Studio Credit</SectionTitle>
@@ -992,7 +1244,6 @@ export default function RenterPortalPage() {
               </section>
             )}
 
-            {/* Rent (leased renters) */}
             {data?.lease && (
               <section className="space-y-3">
                 <SectionTitle icon={Wallet}>Your Rent</SectionTitle>
@@ -1042,13 +1293,16 @@ export default function RenterPortalPage() {
               <MyHours data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
             )}
 
+            {data?.provider && session?.token && data?.swaps?.enabled !== false && (
+              <MySwaps data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
+            )}
+
             {data?.provider && <MyBook data={data} />}
 
             {data?.provider && session?.token && (
               <MyPayments data={data} tenantId={tenantId} token={session.token} />
             )}
 
-            {/* Upcoming */}
             <section className="space-y-3">
               <SectionTitle icon={CalendarDays}>Upcoming Bookings</SectionTitle>
               {later.length === 0 && todays.length === 0 ? (
@@ -1067,8 +1321,6 @@ export default function RenterPortalPage() {
               )}
             </section>
 
-            {/* Documents — self-serve credential renewals. The expiry text
-                points here; uploading clears the nag and notifies the studio. */}
             <section className="space-y-3">
               <SectionTitle icon={Receipt}>Documents</SectionTitle>
               <div className="rounded-3xl bg-white border-2 border-slate-100 p-4 space-y-2.5">
@@ -1096,7 +1348,6 @@ export default function RenterPortalPage() {
               </div>
             </section>
 
-            {/* Payments */}
             {(data?.payments || []).length > 0 && (
               <section className="space-y-3">
                 <SectionTitle icon={Receipt}>Payment History</SectionTitle>
@@ -1119,7 +1370,6 @@ export default function RenterPortalPage() {
               </section>
             )}
 
-            {/* History */}
             {(data?.past || []).length > 0 && (
               <section className="space-y-3">
                 <SectionTitle icon={CreditCard}>Past Visits</SectionTitle>
