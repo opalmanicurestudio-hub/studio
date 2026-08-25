@@ -339,6 +339,157 @@ function MyNumber({ data, tenantId, token, onChanged }: { data: any; tenantId: s
   );
 }
 
+
+// ─── Getting set up ──────────────────────────────────────────────────────────
+// Two things live here, and the first decides whether the second exists.
+//
+// BOOKING MODE is an explicit choice, not an absence. Plenty of renters already
+// run their own booking system and are never going to move; treating that as
+// "incomplete setup" would leave them staring at a permanent to-do list for
+// tools they don't want. Choosing "my own system" makes their portal complete
+// as it stands — rent, documents, credits — and switches every booking section
+// off, including on the booking page itself, not just here.
+//
+// THE CHECKLIST only appears for people who chose the studio system, is derived
+// live from what actually exists rather than a stored flag, and can be
+// dismissed once and for good. Setup prompts that come back are nags.
+function GettingSetUp({ data, tenantId, token, onChanged }: { data: any; tenantId: string; token: string; onChanged: () => void }) {
+  const { toast } = useToast();
+  const cl = data?.checklist;
+  const [busy, setBusy] = useState('');
+  const [switching, setSwitching] = useState(false);
+  const [err, setErr] = useState('');
+
+  if (!cl) return null;
+
+  const setMode = async (mode: 'studio' | 'own') => {
+    setBusy(mode); setErr('');
+    const d = await api({ action: 'booking-mode', tenantId, token, mode });
+    setBusy(''); setSwitching(false);
+    if (!d.ok) { setErr(d.error || 'Could not save that.'); return; }
+    toast({
+      title: mode === 'own' ? 'Set to your own system' : 'Set to the studio system',
+      description: mode === 'own'
+        ? 'Your booking sections are switched off. Your rent, documents and credits are unaffected.'
+        : 'Set your hours and add a service and clients can start booking you.',
+    });
+    onChanged();
+  };
+
+  const dismiss = async () => {
+    setBusy('dismiss');
+    await api({ action: 'checklist-dismiss', tenantId, token });
+    setBusy('');
+    onChanged();
+  };
+
+  if (!cl.modeChosen || switching) {
+    return (
+      <section className="space-y-3">
+        <SectionTitle icon={Sparkles}>Getting set up</SectionTitle>
+        <div className="p-5 rounded-3xl bg-white border-2 space-y-3">
+          <div>
+            <p className="font-black text-slate-900 text-sm">How do you take bookings?</p>
+            <p className="text-[11px] font-bold text-slate-500 mt-1">
+              Either answer is fine, and you can change it whenever you like. Your rent, documents and credits work the same either way.
+            </p>
+          </div>
+          <button onClick={() => setMode('studio')} disabled={!!busy}
+            className="w-full p-4 rounded-2xl border-2 text-left active:scale-[0.99] transition-all disabled:opacity-50">
+            <p className="text-[12px] font-black text-slate-900">I&apos;ll book through the studio</p>
+            <p className="text-[11px] font-bold text-slate-500 mt-0.5">
+              You get your own menu at your own prices, your own hours, a personal booking link, and you keep what you charge.
+            </p>
+          </button>
+          <button onClick={() => setMode('own')} disabled={!!busy}
+            className="w-full p-4 rounded-2xl border-2 text-left active:scale-[0.99] transition-all disabled:opacity-50">
+            <p className="text-[12px] font-black text-slate-900">I use my own booking system</p>
+            <p className="text-[11px] font-bold text-slate-500 mt-0.5">
+              Square, GlossGenius, Booksy, a paper book — whatever you already use. Nothing here will pester you about it.
+            </p>
+          </button>
+          {switching && (
+            <button onClick={() => setSwitching(false)}
+              className="text-[11px] font-black uppercase tracking-widest text-slate-400">Never mind</button>
+          )}
+          {err && (
+            <div className="flex items-start gap-2 text-red-600">
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+              <p className="text-[11px] font-bold">{err}</p>
+            </div>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  if (cl.mode === 'own') {
+    return (
+      <section className="space-y-3">
+        <div className="p-4 rounded-3xl bg-white border-2 border-slate-100">
+          <p className="text-[11px] font-bold text-slate-500">
+            You&apos;re running your own booking system. If you ever want to try the studio&apos;s — your own menu, your own prices, your own link —{' '}
+            <button onClick={() => setSwitching(true)} className="font-black text-slate-900 underline">switch it on here</button>.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  if (cl.dismissed || cl.allDone) {
+    return (
+      <section className="space-y-3">
+        <div className="p-4 rounded-3xl bg-white border-2 border-slate-100">
+          <p className="text-[11px] font-bold text-slate-500">
+            Booking through the studio.{' '}
+            <button onClick={() => setSwitching(true)} className="font-black text-slate-900 underline">Use my own system instead</button>
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="space-y-3">
+      <SectionTitle icon={Sparkles}>Getting set up</SectionTitle>
+      <div className="p-5 rounded-3xl bg-white border-2 space-y-3">
+        <div>
+          <p className="font-black text-slate-900 text-sm">
+            {cl.remaining === 1 ? 'One thing left' : `${cl.remaining} things left`}
+          </p>
+          <p className="text-[11px] font-bold text-slate-500 mt-0.5">
+            Until these are done, clients can&apos;t book you.
+          </p>
+        </div>
+        <div className="space-y-2">
+          {cl.items.map((it: any) => (
+            <div key={it.key} className={cn('flex items-start gap-3 p-3 rounded-2xl border-2',
+              it.done ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200')}>
+              {it.done
+                ? <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
+                : <div className="w-4 h-4 rounded-full border-2 border-slate-300 mt-0.5 shrink-0" />}
+              <div className="min-w-0">
+                <p className={cn('text-[12px] font-black', it.done ? 'text-emerald-900' : 'text-slate-900')}>
+                  {it.label}{it.optional ? ' · optional' : ''}
+                </p>
+                {it.hint && <p className="text-[11px] font-bold text-slate-500 mt-0.5">{it.hint}</p>}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center justify-between gap-3 pt-1">
+          <button onClick={() => setSwitching(true)} className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+            I use my own system
+          </button>
+          <button onClick={dismiss} disabled={!!busy} className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+            {busy === 'dismiss' ? '…' : 'Hide this'}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ─── Day Swaps: renter ↔ renter, the studio is told but never asked ───────────
 // A swap trades TIME, not money. Rent never moves — a permanent change of days
 // is a lease change, which is the owner's business.
@@ -1307,6 +1458,12 @@ export default function RenterPortalPage() {
   const today = localISO();
   const todays = useMemo(() => (data?.upcoming || []).filter((r: any) => r.startDate <= today && r.endDate >= today), [data, today]);
   const later = useMemo(() => (data?.upcoming || []).filter((r: any) => r.startDate > today), [data, today]);
+
+  // Every booking section hangs off this one derived flag. A renter on their
+  // own system keeps rent, documents and credits and loses the rest — and the
+  // engine enforces the same thing server-side, so this is presentation
+  // following truth rather than pretending.
+  const booksHere = !!data?.provider && data?.bookingMode !== 'own';
   const openInvoices = useMemo(() => (data?.invoices || []).filter((i: any) => i.status === 'due' || i.status === 'late'), [data]);
 
   const doCheckIn = async (reservationId: string) => {
@@ -1456,25 +1613,29 @@ export default function RenterPortalPage() {
               </section>
             )}
 
-            {data?.provider && session?.token && (
+            {session?.token && (
+              <GettingSetUp data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
+            )}
+
+            {booksHere && session?.token && (
               <MyServices data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
             )}
 
-            {data?.provider && session?.token && (
+            {booksHere && session?.token && (
               <MyNumber data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
             )}
 
-            {data?.provider && session?.token && (
+            {booksHere && session?.token && (
               <MyHours data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
             )}
 
-            {data?.provider && session?.token && data?.swaps?.enabled !== false && (
+            {booksHere && session?.token && data?.swaps?.enabled !== false && (
               <MySwaps data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
             )}
 
-            {data?.provider && <MyBook data={data} />}
+            {booksHere && <MyBook data={data} />}
 
-            {data?.provider && session?.token && (
+            {booksHere && session?.token && (
               <MyPayments data={data} tenantId={tenantId} token={session.token} />
             )}
 
