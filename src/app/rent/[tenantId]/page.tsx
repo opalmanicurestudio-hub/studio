@@ -340,6 +340,131 @@ function MyNumber({ data, tenantId, token, onChanged }: { data: any; tenantId: s
 }
 
 
+
+// ─── My Profile ──────────────────────────────────────────────────────────────
+// What a client sees when they land on this person. Which fields matter depends
+// entirely on how they take bookings, so the card asks for different things:
+// someone booking through the studio needs a face and a line about themselves,
+// while someone on their own system needs their real booking URL, so a client
+// who lands here can still reach them instead of hitting a dead end.
+function MyProfile({ data, tenantId, token, onChanged }: { data: any; tenantId: string; token: string; onChanged: () => void }) {
+  const { toast } = useToast();
+  const p0 = data?.profile || {};
+  const ownSystem = data?.bookingMode === 'own';
+  const [bio, setBio] = useState(p0.bio || '');
+  const [ig, setIg] = useState(p0.instagram || '');
+  const [url, setUrl] = useState(p0.externalBookingUrl || '');
+  const [listed, setListed] = useState(p0.listExternally === true);
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const shown = photo || p0.photoUrl || '';
+
+  const pick = (e: any) => {
+    const file = e.target?.files?.[0];
+    if (!file) return;
+    if (file.size > 3 * 1024 * 1024) { setErr('Keep the photo under 3 MB.'); return; }
+    const r = new FileReader();
+    r.onload = () => { setPhoto(String(r.result || '')); setErr(''); };
+    r.readAsDataURL(file);
+  };
+
+  const save = async () => {
+    setBusy(true); setErr('');
+    const d = await api({
+      action: 'my-profile', tenantId, token,
+      bio, instagram: ig, externalBookingUrl: url, listExternally: listed,
+      ...(photo ? { photoData: photo } : {}),
+    });
+    setBusy(false);
+    if (!d.ok) { setErr(d.error || 'Could not save that.'); return; }
+    setPhoto(null);
+    toast({ title: 'Profile saved', description: ownSystem ? 'Your booking link is live.' : 'Clients will see this on your booking page.' });
+    onChanged();
+  };
+
+  return (
+    <section className="space-y-3">
+      <SectionTitle icon={Sparkles}>My Profile</SectionTitle>
+      <div className="p-5 rounded-3xl bg-white border-2 space-y-4">
+        {!ownSystem && (
+          <>
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 rounded-2xl bg-slate-100 overflow-hidden shrink-0 flex items-center justify-center">
+                {shown
+                  ? <img src={shown} alt="Your profile" className="w-full h-full object-cover" />
+                  : <Sparkles className="w-5 h-5 text-slate-300" />}
+              </div>
+              <div className="min-w-0">
+                <label htmlFor="pf-photo" className="block text-[11px] font-black uppercase tracking-widest text-slate-900 cursor-pointer underline">
+                  {shown ? 'Change photo' : 'Add a photo'}
+                </label>
+                <input id="pf-photo" type="file" accept="image/*" onChange={pick} className="hidden" />
+                <p className="text-[10px] font-bold text-slate-400 mt-1">A real face books better than a blank square.</p>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label htmlFor="pf-bio" className="block text-[10px] font-black uppercase tracking-widest text-slate-400">About you</label>
+              <textarea id="pf-bio" value={bio} onChange={(e) => setBio(e.target.value)} maxLength={300} rows={3}
+                placeholder="What you specialise in, how long you've been doing it…"
+                className="w-full px-3 py-3 rounded-xl border-2 border-slate-200 text-sm font-bold resize-none" />
+              <p className="text-[10px] font-bold text-slate-400">{300 - bio.length} left</p>
+            </div>
+
+            <div className="space-y-1">
+              <label htmlFor="pf-ig" className="block text-[10px] font-black uppercase tracking-widest text-slate-400">Instagram</label>
+              <input id="pf-ig" value={ig} onChange={(e) => setIg(e.target.value)} placeholder="yourhandle"
+                className="w-full px-3 py-3 rounded-xl border-2 border-slate-200 text-sm font-bold" />
+            </div>
+          </>
+        )}
+
+        {ownSystem && (
+          <>
+            <div className="space-y-1">
+              <label htmlFor="pf-url" className="block text-[10px] font-black uppercase tracking-widest text-slate-400">Your booking link</label>
+              <input id="pf-url" value={url} onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://yourname.glossgenius.com"
+                className="w-full px-3 py-3 rounded-xl border-2 border-slate-200 text-sm font-bold" />
+              <p className="text-[10px] font-bold text-slate-400">
+                Square, GlossGenius, Booksy, your own site — wherever clients actually book you.
+              </p>
+            </div>
+
+            <button onClick={() => setListed(!listed)}
+              className="w-full flex items-center justify-between gap-3 p-3 rounded-2xl border-2 text-left">
+              <span className="min-w-0">
+                <span className="block text-[12px] font-black text-slate-900">Show me on the studio&apos;s booking page</span>
+                <span className="block text-[11px] font-bold text-slate-500">
+                  Clients looking for you there get sent to your link instead of finding nothing.
+                </span>
+              </span>
+              <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest',
+                listed ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500')}>
+                {listed ? 'On' : 'Off'}
+              </span>
+            </button>
+          </>
+        )}
+
+        {err && (
+          <div className="flex items-start gap-2 text-red-600">
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+            <p className="text-[11px] font-bold">{err}</p>
+          </div>
+        )}
+
+        <button onClick={save} disabled={busy}
+          className="w-full py-3 rounded-2xl bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
+          {busy ? 'Saving…' : 'Save profile'}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 // ─── Getting set up ──────────────────────────────────────────────────────────
 // Two things live here, and the first decides whether the second exists.
 //
@@ -1615,6 +1740,10 @@ export default function RenterPortalPage() {
 
             {session?.token && (
               <GettingSetUp data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
+            )}
+
+            {data?.provider && session?.token && data?.checklist?.modeChosen && (
+              <MyProfile data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
             )}
 
             {booksHere && session?.token && (
