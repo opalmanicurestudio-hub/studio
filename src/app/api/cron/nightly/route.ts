@@ -69,6 +69,42 @@ async function renterPortalLink(db: any, tenantId: string, renterId: string, r: 
   } catch { return null; }
 }
 
+
+// ── Lease-window stamp ───────────────────────────────────────────────────────
+// A money-free copy of what a renter's lease actually holds — days, times,
+// station, turnover — kept on their STAFF doc so the availability engine can
+// enforce it at read time. It has to live there because the PUBLIC booking page
+// reads staff but must never read leases: leases carry rent.
+//
+// Duplicated (not imported) in /api/portal/renter, which stamps the same shape
+// when a renter opens their portal or saves hours. A route is an endpoint, not
+// a module; this nightly pass is the safety net that catches the case nobody is
+// around for — the owner edits a lease and the renter never opens the portal.
+const DEFAULT_TURNOVER_MINUTES = 15;
+
+function leaseWindowStamp(lease: any, boothBufferMinutes: any, tenant: any): any {
+  if (!lease) return null;
+  const slot = lease.scheduleSlot;
+  const days = Array.isArray(slot?.days) && slot.days.length > 0
+    ? slot.days.map((d: any) => Number(d)).filter((n: number) => n >= 0 && n <= 6)
+    : null;
+  const raw = boothBufferMinutes ?? tenant?.boothTurnoverMinutes ?? DEFAULT_TURNOVER_MINUTES;
+  const turnoverMinutes = Math.max(0, Math.min(120, Number(raw) || 0));
+  return {
+    days,
+    startTime: slot?.startTime || '',
+    endTime: slot?.endTime || '',
+    boothId: lease.boothId || null,
+    turnoverMinutes,
+  };
+}
+
+/** True when the stored stamp already says exactly this — skip a pointless write. */
+function sameLeaseWindow(a: any, b: any): boolean {
+  if (!a || !b) return (!a && !b);
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 export async function GET(req: NextRequest) {
   // ── Auth: only Vercel Cron (or someone holding the secret) may run this ──
   const secret = process.env.CRON_SECRET;
@@ -135,6 +171,7 @@ export async function GET(req: NextRequest) {
   // still marks late after a default 3-day grace — just without a fee.
   let rentMarkedLate = 0;
   let leasesRenewed = 0;
+  let leaseWindowsSynced = 0;
   for (const tDoc of allTenantsSnap.docs) {
     try {
       // "Today" belongs to the studio, not to the server. This ran at 07:00
@@ -144,6 +181,39 @@ export async function GET(req: NextRequest) {
       const todayStr = todayIn(tenantTimeZone(tDoc.data() as any));
       const leasesSnap = await db.collection(`tenants/${tDoc.id}/leases`).get();
       const leaseById = new Map(leasesSnap.docs.map((d: any) => [d.id, d.data()]));
+
+      // ── Lease-window sync — push each active lease's shape onto the renter's
+      // staff doc so the booking engine (and the public page) can honor it.
+      // Without this, a lease edited by the owner never reaches the booking
+      // grid: the renter's saved hours were clamped when THEY saved them, and
+      // nothing rewrote them afterwards, so the chair kept selling old days.
+      try {
+        const tenantData = tDoc.data() as any;
+        const renterStaffSnap = await db.collection(`tenants/${tDoc.id}/staff`).where('isRenter', '==', true).get();
+        const boothBuffer = new Map<string, any>();
+        for (const sd of renterStaffSnap.docs) {
+          const st = sd.data() as any;
+          if (!st.renterId) continue;
+          const lease = leasesSnap.docs
+            .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+            .find((l: any) => l.renterId === st.renterId && ['active', 'on_leave'].includes(String(l.status)));
+          let bufferMinutes: any = undefined;
+          if (lease?.boothId) {
+            if (!boothBuffer.has(lease.boothId)) {
+              try {
+                const b = await db.doc(`tenants/${tDoc.id}/booths/${lease.boothId}`).get();
+                boothBuffer.set(lease.boothId, b.exists ? (b.data() as any)?.dayUseBufferMinutes : undefined);
+              } catch { boothBuffer.set(lease.boothId, undefined); }
+            }
+            bufferMinutes = boothBuffer.get(lease.boothId);
+          }
+          const next = leaseWindowStamp(lease, bufferMinutes, tenantData);
+          if (!sameLeaseWindow(st.leaseWindow || null, next)) {
+            await sd.ref.set({ leaseWindow: next }, { merge: true });
+            leaseWindowsSynced++;
+          }
+        }
+      } catch (e) { console.error('[cron/nightly] lease-window sync', e); }
 
       // ── v85: lease renewals — auto-renew leases extend by one full term
       // the day after they end; everyone else gets ONE "lease ended" nudge.
@@ -613,6 +683,6 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate, '· leases renewed', leasesRenewed, '· reminders', reminderTotals, '· no-shows', noShowTotals, '· plans', planTotals, '· sla', slaTotals, '· stock holds', stockTotals, '· retail sweeps', retailTotals);
-  return NextResponse.json({ ok: true, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, reminderTotals, noShowTotals, planTotals, slaTotals, stockTotals, retailTotals, results });
+  console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate, '· leases renewed', leasesRenewed, '· lease windows synced', leaseWindowsSynced, '· reminders', reminderTotals, '· no-shows', noShowTotals, '· plans', planTotals, '· sla', slaTotals, '· stock holds', stockTotals, '· retail sweeps', retailTotals);
+  return NextResponse.json({ ok: true, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, leaseWindowsSynced, reminderTotals, noShowTotals, planTotals, slaTotals, stockTotals, retailTotals, results });
 }
