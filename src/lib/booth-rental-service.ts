@@ -1,4 +1,4 @@
-/**
+//**
  * lib/booth-rental-service.ts
  *
  * Single place for every Firestore *write* that touches more than one
@@ -39,8 +39,6 @@ import {
   orderBy,
   limit,
   where,
-  setDoc,
-  deleteField,
 } from 'firebase/firestore';
 import {
   Booth,
@@ -1251,111 +1249,6 @@ export async function releaseBookingHold(
     status: 'cancelled' as BookingStatus,
     cancelledAt: new Date().toISOString(),
     cancellationReason: reason,
-    updatedAt: new Date().toISOString(),
-  });
-}
-
-// ─── DAY PASSES: wiring the spot rental to the rest of the studio ─────────────
-//
-// The hold/confirm/release machinery above was built for a card-paid flow that
-// does not exist yet. In practice a day pass is arranged at the desk: someone
-// wants Tuesday, they pay cash or get invoiced, and the chair is theirs. These
-// two functions are that path, plus the one piece nothing else does — telling
-// the BOOKING system that this person is in the building.
-//
-// A day pass is deliberately NOT a lease. It has its own rate, its own object
-// and no renewal, no late-fee policy and no invoice cycle, so none of the rent
-// crons see it and none of them need to change.
-
-/** 'yyyy-MM-dd' and 'HH:mm' from an ISO datetime, in the string's own frame. */
-const passDateKey = (iso: string) => String(iso || '').slice(0, 10);
-const passClock = (iso: string) => String(iso || '').slice(11, 16);
-
-export class DayPassOverrideConflictError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'DayPassOverrideConflictError';
-  }
-}
-
-/**
- * Grant (or withdraw) the availability a day pass buys.
- *
- * A confirmed pass writes the SAME date override an accepted swap writes —
- * availability.dates['yyyy-MM-dd'] — because "this person is bookable here on
- * this date" is one idea, not two. Without this the pass would sell a chair
- * nobody could book into: they would be paying for a station and be invisible.
- *
- * Refuses to overwrite a SWAP override on the same date. Both mechanisms own
- * that one field, and silently clobbering a trade two renters already agreed
- * on would move somebody's day without telling them.
- */
-export async function syncDayPassAvailability(
-  firestore: Firestore,
-  tenantId: string,
-  booking: Pick<Booking, 'renterId' | 'startAt' | 'endAt'> & { id?: string },
-  grant: boolean,
-): Promise<{ applied: boolean; reason?: string }> {
-  const dateKey = passDateKey(booking.startAt);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return { applied: false, reason: 'bad date' };
-
-  const staffSnap = await getDocs(query(
-    collection(firestore, BOOTH_RENTAL_COLLECTIONS.staff(tenantId)),
-    where('renterId', '==', booking.renterId),
-  ));
-  const staffDoc = staffSnap.docs.find((d) => (d.data() as any)?.isRenter);
-  // No provider record, or they run their own booking system: they still have
-  // the chair, there is simply nothing here to make bookable.
-  if (!staffDoc) return { applied: false, reason: 'not a booking provider' };
-  const staffData = staffDoc.data() as any;
-  if (staffData.bookingOptOut === true) return { applied: false, reason: 'books elsewhere' };
-
-  const existing = staffData?.availability?.dates?.[dateKey];
-  if (existing && existing.reason === 'swap') {
-    throw new DayPassOverrideConflictError(
-      'That date already has a swap agreed on it. Sort the swap out first — a pass would quietly move somebody\u2019s day.',
-    );
-  }
-  if (!grant && existing && existing.reason !== 'daypass') {
-    return { applied: false, reason: 'override is not ours to remove' };
-  }
-
-  const ref = doc(firestore, BOOTH_RENTAL_COLLECTIONS.staff(tenantId), staffDoc.id);
-  if (grant) {
-    await setDoc(ref, {
-      availability: { dates: { [dateKey]: {
-        enabled: true,
-        start: passClock(booking.startAt),
-        end: passClock(booking.endAt),
-        reason: 'daypass',
-        bookingId: booking.id || null,
-        setAt: new Date().toISOString(),
-      } } },
-    }, { merge: true });
-  } else {
-    await updateDoc(ref, { [`availability.dates.${dateKey}`]: deleteField() });
-  }
-  return { applied: true };
-}
-
-/**
- * Confirm a held pass that was settled at the desk rather than by card.
- *
- * confirmBooking() above demands a Stripe payment intent and a transaction id,
- * which is correct for a card flow and useless for cash. This keeps the same
- * status transition, records whether money actually changed hands, and leaves
- * every Stripe field null rather than inventing one.
- */
-export async function confirmDayPassAtDesk(
-  firestore: Firestore,
-  input: { tenantId: string; bookingId: string; paid: boolean },
-): Promise<void> {
-  const ref = doc(firestore, BOOTH_RENTAL_COLLECTIONS.bookings(input.tenantId), input.bookingId);
-  await updateDoc(ref, {
-    status: 'confirmed' as BookingStatus,
-    paymentStatus: input.paid ? 'paid' : 'unpaid',
-    holdExpiresAt: null,
-    settledAtDesk: true,
     updatedAt: new Date().toISOString(),
   });
 }
