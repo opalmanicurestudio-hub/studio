@@ -74,6 +74,8 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   // window.location for the same reason the applicants page does — useSearchParams
   // forces a Suspense boundary this page doesn't have.
   const [providerId,      setProviderId]      = useState('');
+  const [awayProvider,    setAwayProvider]    = useState<any>(null);
+  const [elsewhere,       setElsewhere]       = useState<any[]>([]);
   useEffect(() => {
     try {
       const p = new URLSearchParams(window.location.search).get('provider') || '';
@@ -197,8 +199,18 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           getDocs(collection(db, `tenants/${tenantId}/renterServices`)).catch(() => ({ docs: [] })),
         ]);
         if (!cancelled) {
-          const allStaff = stSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false);
+          const everyStaff = stSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false);
+          // A renter running their own booking system is not bookable here.
+          // Left in, they would show as a provider whose every date is empty —
+          // a dead end that reads like a broken page rather than a choice.
+          const allStaff = everyStaff.filter((m: any) => !(m.isRenter && m.bookingOptOut === true));
+          setElsewhere(everyStaff.filter((m: any) =>
+            m.isRenter && m.bookingOptOut === true && m.listExternally === true && m.externalBookingUrl));
           const houseServices = svSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false);
+          const optedOut: any = providerId
+            ? everyStaff.find((m: any) => m.id === providerId && m.isRenter && m.bookingOptOut === true)
+            : null;
+          if (optedOut) setAwayProvider(optedOut);
           const provider: any = providerId ? allStaff.find((m: any) => m.id === providerId && m.isRenter) : null;
           if (provider) {
             // Their menu, their prices, their durations — never mixed with the
@@ -570,11 +582,52 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     );
   }
 
+  // Someone followed a personal link belonging to a renter who books
+  // elsewhere. Sending them their real link is the whole point — the
+  // alternative is a client who came looking for a specific person and
+  // leaves thinking the studio is broken.
+  if (awayProvider) {
+    return (
+      <div className="w-full min-h-dvh flex items-center justify-center p-6"
+           style={{ background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
+        <div className="w-full max-w-sm bg-white p-8 text-center space-y-4"
+             style={{ borderRadius: br(resolvedStyle), border: `2px solid ${ac(resolvedStyle)}25` }}>
+          {awayProvider.photoUrl && (
+            <img src={awayProvider.photoUrl} alt={awayProvider.name || 'Provider'}
+                 className="w-20 h-20 rounded-full object-cover mx-auto" />
+          )}
+          <div>
+            <p className="text-xl font-light" style={{ fontFamily: hf(resolvedStyle), color: ac(resolvedStyle) }}>
+              {awayProvider.name || 'This provider'}
+            </p>
+            <p className="text-[11px] font-black uppercase tracking-widest mt-1" style={{ color: ac(resolvedStyle) + '80' }}>
+              Books on their own site
+            </p>
+          </div>
+          {awayProvider.bio && <p className="text-sm text-slate-600">{awayProvider.bio}</p>}
+          {awayProvider.externalBookingUrl ? (
+            <a href={awayProvider.externalBookingUrl} target="_blank" rel="noopener noreferrer"
+               className="block w-full py-4 text-white text-[11px] font-black uppercase tracking-widest"
+               style={{ background: ac(resolvedStyle), borderRadius: br(resolvedStyle) }}>
+              Book with {String(awayProvider.name || '').split(' ')[0] || 'them'}
+            </a>
+          ) : (
+            <p className="text-sm text-slate-600">
+              They take bookings directly — contact the studio and we&apos;ll point you their way.
+            </p>
+          )}
+          <a href={`/book/${tenantId}`} className="block text-[10px] font-black uppercase tracking-widest text-slate-400">
+            See everyone else here
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full min-h-dvh overflow-x-hidden"
          style={{ background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
 
-      {/* Service picker modal */}
       {showPicker && (
         <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center">
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowPicker(false)}/>
@@ -613,17 +666,6 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
         </div>
       )}
 
-      {/*
-        Booking sheet.
-        `events` is the studio's MARKETING list, rendered on the page.
-        `calendarEvents` is real occupancy — that is what the scheduling engine
-        means by events. The seven props after `tenant` are the availability
-        context; without them the sheet would offer times the booking route
-        then refuses, which the guest just experiences as a failure.
-      */}
-
-
-      {/* Sections — enabled and visible to visitors */}
       {activeSections.map(section => (
         <SectionWrapper key={section.id} section={section} isPreview={false}
           onEdit={() => {}} onFieldTap={() => {}}>
@@ -631,6 +673,31 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
             isPreview={false} onFieldTap={() => {}}/>
         </SectionWrapper>
       ))}
+
+      {elsewhere.length > 0 && (
+        <div className="px-5 py-8 max-w-lg mx-auto w-full">
+          <p className="text-[10px] font-black uppercase tracking-widest text-center mb-3"
+             style={{ color: ac(resolvedStyle) + '80' }}>Also at this studio</p>
+          <div className="space-y-2">
+            {elsewhere.map((m: any) => (
+              <a key={m.id} href={m.externalBookingUrl} target="_blank" rel="noopener noreferrer"
+                 className="flex items-center gap-3 p-4 bg-white hover:shadow-md transition-all"
+                 style={{ borderRadius: br(resolvedStyle), border: `2px solid ${ac(resolvedStyle)}25` }}>
+                {m.photoUrl
+                  ? <img src={m.photoUrl} alt={m.name || ''} className="w-10 h-10 rounded-full object-cover shrink-0" />
+                  : <div className="w-10 h-10 rounded-full bg-slate-100 shrink-0" />}
+                <div className="flex-1 min-w-0">
+                  <p className="font-black text-sm text-slate-900 truncate">{m.name}</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: ac(resolvedStyle) + '80' }}>
+                    Books on their own site
+                  </p>
+                </div>
+                <ArrowRight className="w-4 h-4 text-slate-300 shrink-0"/>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
 
       <Footer tenant={tenant} style={resolvedStyle}/>
     </div>
