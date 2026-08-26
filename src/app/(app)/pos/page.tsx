@@ -9,6 +9,7 @@ import { type Appointment, type Service, type Client, type WalkIn, type Staff, g
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
 import { WalkInQueue } from '@/components/pos/WalkInQueue';
+import { DeskAvailabilityPanel } from '@/components/pos/DeskAvailabilityPanel';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
@@ -23,7 +24,7 @@ import { AddClientDialog, type ClientFormData } from '@/components/clients/AddCl
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useCancellationConfirm } from '@/hooks/useCancellationConfirm';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { Clock, Users, DollarSign, QrCode, Loader, Play, XCircle, Fingerprint, UserPlus, Sparkles, ChevronRight, ChevronLeft, ShoppingCart, Square, Wallet, AlertTriangle, MapPin, ShieldCheck, ArrowRight, Info, CheckCircle2, Ban, ShieldAlert, Landmark, Smartphone, Cake, Printer, Trash2, Lock, Calendar, BookOpen, Copy, Link2 } from 'lucide-react';
+import { Clock, Users, DollarSign, QrCode, Loader, Play, XCircle, Fingerprint, UserPlus, Sparkles, ChevronRight, ChevronLeft, ShoppingCart, Square, Wallet, AlertTriangle, MapPin, ShieldCheck, ArrowRight, Info, CheckCircle2, Ban, ShieldAlert, Landmark, Smartphone, Cake, Printer, Trash2, Lock, Calendar, BookOpen, Copy, Link2, Armchair } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -311,7 +312,7 @@ function POSPage() {
   // aren't scrolling past the whole queue every time they need retail, and
   // vice versa. Persisted only for the session (not saved), defaults to
   // Floor since that's the higher-frequency screen.
-  const [activeFloorTab, setActiveFloorTab] = useState<'floor' | 'retail' | 'waitlist'>('floor');
+  const [activeFloorTab, setActiveFloorTab] = useState<'floor' | 'retail' | 'waitlist' | 'spaces'>('floor');
   const [isScanLookupOpen, setIsScanLookupOpen] = useState(false);
   const [isCameraScanOpen, setIsCameraScanOpen] = useState(false);
   const [scanQuery, setScanQuery] = useState('');
@@ -1548,6 +1549,15 @@ function POSPage() {
         )}>{waitlist.waitlistClients.length}</span>
       )}
     </button>
+    <button
+      onClick={() => setActiveFloorTab('spaces')}
+      className={cn(
+        'h-8 px-3.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5',
+        activeFloorTab === 'spaces' ? 'bg-white shadow-sm text-slate-900' : 'text-muted-foreground hover:text-slate-600',
+      )}
+    >
+      <Armchair className="w-3 h-3" /> Spaces
+    </button>
   </div>
 
   {cartItemCount > 0 && (
@@ -1585,6 +1595,16 @@ function POSPage() {
             )}
 
             {/* ── Retail tab ─────────────────────────────────────────────── */}
+            {activeFloorTab === 'spaces' && tenantId && (
+              <div className="grid gap-8 grid-cols-1">
+                <DeskAvailabilityPanel
+                  tenantId={tenantId}
+                  staffId={currentUser?.uid || null}
+                  staffName={(staff || []).find((m: any) => m.id === currentUser?.uid)?.name || null}
+                />
+              </div>
+            )}
+
             {activeFloorTab === 'retail' && (
               <div className="space-y-4 text-left">
                 <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2"><Sparkles className="w-4 h-4 text-primary" />Retail & Additions</h3>
