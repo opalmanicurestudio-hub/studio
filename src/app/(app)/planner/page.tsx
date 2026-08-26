@@ -2,7 +2,7 @@
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, BarChart, Calendar as CalendarIcon, User, Building, QrCode, Sparkles, CreditCard, AlertTriangle, Square, Undo2, ArrowRight, Hourglass } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, BarChart, Calendar as CalendarIcon, User, Building, QrCode, Sparkles, CreditCard, AlertTriangle, Square, Undo2, ArrowRight, Hourglass, Armchair } from 'lucide-react';
 import { type Appointment, type Event, type Staff, type Resource, type Membership, type AppointmentCheckoutState, Service, type Client, type Package, type Redemption, type CustomFormula } from '@/lib/data';
 import { format, addDays, subDays, startOfWeek, endOfDay, differenceInDays, isPast, isToday, startOfDay, isSameDay, subWeeks, addWeeks, eachDayOfInterval, parseISO, addMinutes, addMonths, subMonths, subMinutes } from 'date-fns';
 import { query, where, collection, doc, writeBatch, increment, arrayUnion, deleteField } from 'firebase/firestore';
@@ -188,6 +188,14 @@ function PlannerPageContent() {
     [firestore, tenantId]
   );
   const { data: plannerLeasesRaw } = useCollection<any>(plannerLeasesQ);
+
+  // Rentable spaces as their own planner lane. Until now every tour and every
+  // day rental piled into the single Studio column — fine on a quiet day, and
+  // unreadable on exactly the busy day you most need to read it.
+  const { data: boothsData } = useCollection<any>(useMemoFirebase(
+    () => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/booths`),
+    [firestore, tenantId]
+  ));
   const plannerRentersQ = useMemoFirebase(
     () => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/renters`),
     [firestore, tenantId]
@@ -318,7 +326,7 @@ function PlannerPageContent() {
 
   const { toast } = useToast();
   const [mobileSelectedColumnId, setMobileSelectedColumnId] = useState<string>('');
-  const [activeView, setActiveView] = useState<'staff' | 'resources'>(viewParam === 'resources' ? 'resources' : 'staff');
+  const [activeView, setActiveView] = useState<'staff' | 'resources' | 'booths'>(viewParam === 'resources' ? 'resources' : viewParam === 'booths' ? 'booths' : 'staff');
 
   const onMobileColumnChange = useCallback((id: string) => {
     setMobileSelectedColumnId(id);
@@ -359,10 +367,16 @@ function PlannerPageContent() {
   }, [allStaff, role, currentUser]);
 
   const columns = useMemo(() => {
-    let cols: any[] = activeView === 'staff' ? (staff || []) : (resourcesData || []);
+    let cols: any[] = activeView === 'staff'
+      ? (staff || [])
+      : activeView === 'booths'
+        // Only spaces that can actually hold a booking. A column nobody can be
+        // put in is noise on the busiest screen in the building.
+        ? (boothsData || []).filter((b: any) => b && b.isActive !== false)
+        : (resourcesData || []);
     if (role === 'owner' || role === 'admin') cols = [{ id: 'business', name: 'Studio', isBusiness: true }, ...cols];
     return cols;
-  }, [activeView, staff, resourcesData, role]);
+  }, [activeView, staff, resourcesData, boothsData, role]);
 
   useEffect(() => {
     if (columns.length > 0 && !mobileSelectedColumnId) setMobileSelectedColumnId(columns[0].id);
@@ -568,6 +582,35 @@ function PlannerPageContent() {
                 overageRateCentsPerHour: isHourly ? ((): number => { const h = (end.getTime() - start.getTime()) / 3600000; return h > 0 ? Math.round((r.amountCents || 0) / h) : 0; })() : 0,
                 isReservation: true,
             } as any);
+
+            // In BOOTHS view the rental belongs to the space it occupies, not
+            // to a shared Studio lane. Matching on boothId first and falling
+            // back to the stored name means older reservations written before
+            // boothId was recorded still land somewhere sensible.
+            if (activeView === 'booths') {
+                const col = (columns || []).find((c: any) =>
+                    c.id === r.boothId || (r.boothName && c.name === r.boothName));
+                if (col && map.has(col.id)) {
+                    map.get(col.id)!.push({
+                        id:        `resv-col-${r.id}-${curIso}`,
+                        itemType:  'event',
+                        type:      'reservation',
+                        title:     `${isHourly ? 'Hourly' : 'Day'} rental — ${r.name || 'Guest'}`,
+                        name:      r.name || 'Guest',
+                        startTime: start.toISOString(),
+                        endTime:   end.toISOString(),
+                        allDay:    !isHourly,
+                        staffIds:  [], checklist: [], guestCount: 0,
+                        notes:     [r.phone, r.paymentStatus === 'unpaid' ? 'unpaid' : null].filter(Boolean).join(' · '),
+                        location:  r.boothName || '',
+                        status:    r.status,
+                        guestName: r.name || 'Guest',
+                        boothName: r.boothName || null,
+                        bookingType: isHourly ? 'hourly' : 'daily',
+                        isReservation: true,
+                    } as any);
+                }
+            }
         });
     }
 
@@ -585,6 +628,47 @@ function PlannerPageContent() {
             targetStaffIds.forEach(sid => { if (map.has(sid)) map.get(sid)!.push({ ...e, itemType: 'event' } as any); });
         }
     });
+
+    // A resident renter's leased hours are not a booking, but they are the
+    // single biggest reason a space cannot be sold. Shown only in BOOTHS view,
+    // where "why is this column full" is the question being asked. Without it
+    // an empty-looking column reads as sellable when it is already somebody's.
+    if (activeView === 'booths') {
+        const dow = targetDateStart.getDay();
+        (plannerLeasesRaw || []).forEach((l: any) => {
+            if (!['active', 'on_leave', 'pending_signature'].includes(String(l?.status))) return;
+            const slot = l.scheduleSlot;
+            const col = (columns || []).find((c: any) => c.id === l.boothId);
+            if (!col || !map.has(col.id)) return;
+            // No scheduleSlot at all means a full-time lease: the space is
+            // theirs every day, which is exactly what an all-day block says.
+            const wholeDay = !slot || !Array.isArray(slot.days) || slot.days.length === 0;
+            if (!wholeDay && !slot.days.includes(dow)) return;
+            const st = new Date(targetDateStart);
+            const en = new Date(targetDateStart);
+            if (!wholeDay && slot.startTime && slot.endTime) {
+                const [sh, sm] = String(slot.startTime).split(':').map(Number);
+                const [eh, em] = String(slot.endTime).split(':').map(Number);
+                st.setHours(sh || 0, sm || 0, 0, 0);
+                en.setHours(eh || 23, em || 59, 0, 0);
+            } else {
+                st.setHours(0, 0, 0, 0);
+                en.setHours(23, 59, 0, 0);
+            }
+            map.get(col.id)!.push({
+                id: `lease-${l.id}-${col.id}`,
+                itemType: 'event', type: 'blocked',
+                title: `Leased — ${l.renterName || 'resident renter'}`,
+                name: `Leased — ${l.renterName || 'resident renter'}`,
+                startTime: st.toISOString(), endTime: en.toISOString(),
+                allDay: wholeDay || !slot.startTime,
+                staffIds: [], checklist: [], guestCount: 0,
+                notes: 'Resident lease — not available to rent',
+                location: col.name || '', status: 'confirmed',
+                isSecondary: true, isLeaseHold: true,
+            } as any);
+        });
+    }
 
     // Maintenance blocks propagate exactly like global blocked events: the
     // Studio lane gets the primary item, the matching resource column gets
@@ -607,6 +691,11 @@ function PlannerPageContent() {
         if (activeView === 'resources' && mi.resourceId && map.has(mi.resourceId)) {
             map.get(mi.resourceId)!.push({ ...base, isSecondary: true });
         }
+        // A space out of service cannot be rented either — the booths lane
+        // needs the same warning the resources lane gets.
+        if (activeView === 'booths' && mi.resourceId && map.has(mi.resourceId)) {
+            map.get(mi.resourceId)!.push({ ...base, isSecondary: true });
+        }
         if (activeView === 'staff') {
             columns.forEach(col => {
                 if (col.id !== 'business' && map.has(col.id)) map.get(col.id)!.push({ ...base, isSecondary: true });
@@ -616,7 +705,7 @@ function PlannerPageContent() {
 
     map.forEach(items => items.sort((a, b) => safeDate(a.startTime || a.dueDate).getTime() - safeDate(b.startTime || b.dueDate).getTime()));
     return map;
-  }, [currentDate, appointments, columns, activeView, showCancelled, billInstances, billDefinitions, events, studioEventsToday, toursToday, interviewsToday, rentItemsToday, reservationsToday, maintenanceToday]);
+  }, [currentDate, appointments, columns, activeView, showCancelled, plannerLeasesRaw, billInstances, billDefinitions, events, studioEventsToday, toursToday, interviewsToday, rentItemsToday, reservationsToday, maintenanceToday]);
 
   const { showProfitability } = useProfitabilityVisibility();
 
@@ -1345,6 +1434,7 @@ function PlannerPageContent() {
               <RadioGroup value={activeView} onValueChange={(v: any) => setActiveView(v)} className="flex gap-1 p-1 bg-muted/30 rounded-xl border-2 border-muted shadow-inner shrink-0">
                 <Label htmlFor="staff-v" className={cn("flex items-center justify-center gap-1.5 h-7 sm:h-8 px-2.5 sm:px-4 rounded-lg cursor-pointer font-black text-[10px] uppercase tracking-widest transition-colors", activeView === 'staff' ? "bg-white text-primary shadow-sm" : "text-muted-foreground hover:bg-white/50")}><User className="w-3.5 h-3.5 shrink-0" /> Providers <RadioGroupItem value="staff" id="staff-v" className="sr-only" /></Label>
                 <Label htmlFor="res-v" className={cn("flex items-center justify-center gap-1.5 h-7 sm:h-8 px-2.5 sm:px-4 rounded-lg cursor-pointer font-black text-[10px] uppercase tracking-widest transition-colors", activeView === 'resources' ? "bg-white text-primary shadow-sm" : "text-muted-foreground hover:bg-white/50")}><Building className="w-3.5 h-3.5 shrink-0" /> Resources <RadioGroupItem value="resources" id="res-v" className="sr-only" /></Label>
+                <Label htmlFor="booth-v" className={cn("flex items-center justify-center gap-1.5 h-7 sm:h-8 px-2.5 sm:px-4 rounded-lg cursor-pointer font-black text-[10px] uppercase tracking-widest transition-colors", activeView === 'booths' ? "bg-white text-primary shadow-sm" : "text-muted-foreground hover:bg-white/50")}><Armchair className="w-3.5 h-3.5 shrink-0" /> Spaces <RadioGroupItem value="booths" id="booth-v" className="sr-only" /></Label>
               </RadioGroup>
             </div>
           </div>
@@ -1390,7 +1480,7 @@ function PlannerPageContent() {
       <main className="flex-1 flex flex-col min-h-0 bg-slate-50/50">
         <DayTimeline
           date={currentDate} columns={columns} itemsByColumn={itemsByColumn}
-          showColumnHeader={activeView === 'resources'} isMobile={isMobile || false} activeView={activeView}
+          showColumnHeader={activeView === 'resources' || activeView === 'booths'} isMobile={isMobile || false} activeView={activeView}
           allStaff={allStaff || []} mobileSelectedColumnId={mobileSelectedColumnId} onMobileColumnChange={onMobileColumnChange}
           onCompleteClick={a => router.push(`/pos?checkout_id=${a.id}`)} onUpdateStatus={handleUpdateStatus}
           onDeleteAppointment={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))}
