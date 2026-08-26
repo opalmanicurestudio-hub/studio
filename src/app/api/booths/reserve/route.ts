@@ -636,6 +636,11 @@ export async function POST(req: NextRequest) {
           tx.set(passRef, resData);
         });
         await persistDayUseSignature(db, tenantId, passRef.id, resData);
+        // A pass booking is confirmed the moment it is created — there is no
+        // Stripe return trip to hang this on, so grant here. Without it the
+        // nightly reconcile was the first thing to notice, meaning a renter
+        // who paid with a pass stayed unbookable for up to a day.
+        await syncReservationAvailability(db, tenantId, passRef.id, resData, true);
         const pd = passDoc.data() as any;
         const daysLeft = Math.max(0, (Number(pd.daysTotal) || 0) - (Number(pd.daysUsed) || 0) - passDaysNeeded);
         const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
