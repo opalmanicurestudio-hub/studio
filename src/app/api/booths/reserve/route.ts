@@ -275,6 +275,175 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
+    // ── DESK AVAILABILITY ─────────────────────────────────────────────
+    // What the front desk can sell today, for one date.
+    //
+    // Deliberately built on findConflict() and leaseSlotConflict() — the SAME
+    // functions the public booking path uses. A second implementation would
+    // drift the first time a rule changed, and then the desk's answer and the
+    // customer's screen would disagree about the same chair. Reusing them is
+    // the whole point of putting this action in this file.
+    //
+    // Unpaid holds are returned rather than hidden: someone mid-checkout on
+    // the public page has a real claim for PENDING_HOLD_MS, and a desk that
+    // cannot see it will confidently sell the chair out from under them.
+    if (body?.action === 'desk-availability') {
+      const { tenantId: tid, date } = body || {};
+      if (!tid || !/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) {
+        return NextResponse.json({ ok: false, error: 'Missing tenant or date.' }, { status: 400 });
+      }
+      const db = getAdminDb();
+      const boothSnap = await db.collection(`tenants/${tid}/booths`).get();
+      const dow = new Date(`${date}T00:00:00Z`).getUTCDay();
+      const now = Date.now();
+
+      const out: any[] = [];
+      for (const bd of boothSnap.docs) {
+        const b: any = { id: bd.id, ...(bd.data() as any) };
+        if (b.isActive === false) continue;
+        const options: any[] = Array.isArray(b.pricingOptions) ? b.pricingOptions : [];
+        const hourRate = options.find((o) => o.frequency === 'hourly' && o.amountCents > 0) || null;
+        const dayRate = options.find((o) => o.frequency === 'daily' && o.amountCents > 0) || null;
+        // Nothing sellable here — leave it out entirely rather than showing a
+        // space the desk would only be disappointed by.
+        if (!b.dayUseEnabled || (!hourRate && !dayRate)) continue;
+
+        const schedDays: number[] | null = Array.isArray(b.availableDays) && b.availableDays.length > 0
+          ? b.availableDays.map(Number) : null;
+        const blackouts: string[] = Array.isArray(b.blackoutDates) ? b.blackoutDates : [];
+        const closedToday = (schedDays && !schedDays.includes(dow)) || blackouts.includes(date);
+
+        // Everything occupying this booth on this date, with WHY.
+        const busy: any[] = [];
+        const rSnap = await db.collection(`tenants/${tid}/boothReservations`).where('boothId', '==', bd.id).get();
+        for (const rd of rSnap.docs) {
+          const r: any = rd.data() || {};
+          const held = r.status === 'confirmed' || r.status === 'checked_in'
+            || (r.status === 'pending_payment' && r.createdAt && now - new Date(r.createdAt).getTime() < PENDING_HOLD_MS);
+          if (!held) continue;
+          if (!overlaps(date, date, r.startDate, r.endDate || r.startDate)) continue;
+          const isH = r.bookingType === 'hourly' && r.startTime && r.endTime;
+          busy.push({
+            start: isH ? r.startTime : (b.openTime || '00:00'),
+            end: isH ? r.endTime : (b.closeTime || '23:59'),
+            kind: r.status === 'pending_payment' ? 'hold' : 'booked',
+            who: r.name || 'Guest',
+            wholeDay: !isH,
+            expiresInMin: r.status === 'pending_payment'
+              ? Math.max(0, Math.round((PENDING_HOLD_MS - (now - new Date(r.createdAt).getTime())) / 60000)) : null,
+          });
+        }
+        const lSnap = await db.collection(`tenants/${tid}/leases`).where('boothId', '==', bd.id).get();
+        for (const ld of lSnap.docs) {
+          const l: any = ld.data() || {};
+          if (!['active', 'on_leave', 'pending_signature'].includes(String(l.status))) continue;
+          const slot = l.scheduleSlot;
+          if (!slot || !Array.isArray(slot.days) || !slot.days.includes(dow)) continue;
+          busy.push({
+            start: slot.startTime || (b.openTime || '00:00'),
+            end: slot.endTime || (b.closeTime || '23:59'),
+            kind: 'lease', who: 'Resident renter',
+            wholeDay: !slot.startTime || !slot.endTime, expiresInMin: null,
+          });
+        }
+
+        const dayTaken = closedToday || busy.length > 0;
+        out.push({
+          id: bd.id, name: b.name || 'Space',
+          openTime: b.openTime || '09:00', closeTime: b.closeTime || '19:00',
+          hourlyCents: hourRate?.amountCents ?? null,
+          dailyCents: dayRate?.amountCents ?? null,
+          minHours: Number(b.dayUseMinHours) || 1,
+          closedToday, dayTaken, busy,
+        });
+      }
+      out.sort((a, b2) => String(a.name).localeCompare(String(b2.name)));
+      return NextResponse.json({ ok: true, date, booths: out, holdMinutes: Math.round(PENDING_HOLD_MS / 60000) });
+    }
+
+    // ── DESK BOOKING ──────────────────────────────────────────────────
+    // The front desk taking a booking for someone standing there. Same
+    // conflict checks, same collection, same availability grant as a paid
+    // public booking — the only difference is that money is settled at the
+    // till instead of through Stripe, so paymentStatus is recorded honestly
+    // rather than a Stripe id being invented.
+    if (body?.action === 'desk-book') {
+      const { tenantId: tid, boothId, date, bookingType, startTime, endTime,
+        name, phone, email, paid, staffId, staffName } = body || {};
+      if (!tid || !boothId || !/^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) || !String(name || '').trim()) {
+        return NextResponse.json({ ok: false, error: 'Need a space, a date and a name.' }, { status: 400 });
+      }
+      const isHourly = bookingType === 'hourly';
+      if (isHourly && !(/^([01]\d|2[0-3]):[0-5]\d$/.test(String(startTime)) && /^([01]\d|2[0-3]):[0-5]\d$/.test(String(endTime)) && startTime < endTime)) {
+        return NextResponse.json({ ok: false, error: 'Give a start and end time that run forwards.' }, { status: 400 });
+      }
+      const db = getAdminDb();
+      const bSnap = await db.doc(`tenants/${tid}/booths/${boothId}`).get();
+      if (!bSnap.exists) return NextResponse.json({ ok: false, error: 'That space is gone.' }, { status: 404 });
+      const booth: any = bSnap.data();
+      if (!booth.dayUseEnabled) return NextResponse.json({ ok: false, error: 'That space is not set up for day use.' }, { status: 400 });
+
+      // Server-side pricing, always. Reads the same pricingOptions the public
+      // path reads; the desk never dictates an amount.
+      const options: any[] = Array.isArray(booth.pricingOptions) ? booth.pricingOptions : [];
+      let amountCents = 0; let unitsLabel = '';
+      if (isHourly) {
+        const hourRate = options.find((o) => o.frequency === 'hourly' && o.amountCents > 0);
+        if (!hourRate) return NextResponse.json({ ok: false, error: 'No hourly rate is set for that space.' }, { status: 400 });
+        const hrs = Math.round((((new Date(`2000-01-01T${endTime}:00Z`).getTime() - new Date(`2000-01-01T${startTime}:00Z`).getTime()) / 3600000)) * 2) / 2;
+        if (hrs < 1 || hrs > 14) return NextResponse.json({ ok: false, error: 'Hourly bookings run 1–14 hours.' }, { status: 400 });
+        amountCents = Math.round(hourRate.amountCents * hrs);
+        unitsLabel = `${hrs} hour${hrs === 1 ? '' : 's'} (${startTime}–${endTime})`;
+      } else {
+        const dayRate = options.find((o) => o.frequency === 'daily' && o.amountCents > 0);
+        if (!dayRate) return NextResponse.json({ ok: false, error: 'No daily rate is set for that space.' }, { status: 400 });
+        amountCents = dayRate.amountCents;
+        unitsLabel = '1 day';
+      }
+
+      const proposed = { startDate: date, endDate: date, bookingType: isHourly ? 'hourly' : 'daily', startTime, endTime };
+      if (await findConflict(db, tid, boothId, proposed)) {
+        return NextResponse.json({ ok: false, error: 'That space was just taken for part of that window.' }, { status: 409 });
+      }
+      const leaseClash = await leaseSlotConflict(db, tid, boothId, proposed);
+      if (leaseClash) return NextResponse.json({ ok: false, error: `Not available — ${leaseClash}.` }, { status: 409 });
+
+      const recognition = await recognizeContact(db, tid, phone || null, email || null).catch(() => null);
+      const nowIso = new Date().toISOString();
+      const ref = db.collection(`tenants/${tid}/boothReservations`).doc();
+      const resData: any = {
+        id: ref.id, tenantId: tid, boothId, boothName: booth.name || 'Space',
+        startDate: date, endDate: date,
+        bookingType: isHourly ? 'hourly' : 'daily',
+        startTime: isHourly ? startTime : null,
+        endTime: isHourly ? endTime : null,
+        name: String(name).trim().slice(0, 120),
+        phone: String(phone || '').slice(0, 40), email: String(email || '').slice(0, 160),
+        amountCents, unitsLabel,
+        status: 'confirmed', createdAt: nowIso, confirmedAt: nowIso,
+        paymentStatus: paid ? 'paid' : 'unpaid',
+        source: 'desk', bookedByStaffId: staffId || null, bookedByStaffName: staffName || null,
+        stripeSessionId: null, stripePaymentIntentId: null,
+        renterId: recognition?.renterId || null,
+        guestTier: recognition?.tier || 'new',
+      };
+      await ref.set(resData);
+      const availability = await syncReservationAvailability(db, tid, ref.id, resData, true);
+
+      const nRef = db.collection(`tenants/${tid}/notifications`).doc();
+      await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/booths',
+        message: `Desk booking: ${resData.name} — ${resData.boothName}, ${date} · ${unitsLabel} ($${(amountCents / 100).toFixed(2)}${paid ? '' : ' — unpaid'})` });
+      await logAuditAdmin(db, tid, {
+        action: 'booth.desk_booked', targetType: 'boothReservation', targetId: ref.id,
+        summary: `${staffName || 'The desk'} booked ${resData.boothName} for ${resData.name} on ${date} (${unitsLabel}, ${paid ? 'paid' : 'unpaid'})`,
+        actor: { type: 'user', name: staffName || 'Front desk', via: 'pos-desk-panel' },
+      });
+      return NextResponse.json({
+        ok: true, reservationId: ref.id, amountCents, unitsLabel,
+        boothName: resData.boothName, bookable: availability.granted > 0,
+      });
+    }
+
     // ── BUY A DAY PASS (public booking page) ─────────────────────────
     // Server-side pricing only: the client sends a pack INDEX; days and
     // price come from the owner's config. Payment via Stripe Checkout;
