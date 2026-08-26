@@ -585,6 +585,41 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
         return;
       }
     }
+    // A tour with a CONCRETE slot goes through the same booking action the
+    // dedicated tour page uses. That action is the one that holds the slot in
+    // /tours and re-checks it against other bookings, so two people can no
+    // longer take the same time from two different forms. Without this, a tour
+    // requested here reserved nothing and was invisible to the tour page.
+    //
+    // A tour with no firm time ("time to confirm") stays an inquiry — there is
+    // no slot to hold, and inventing one would block a time nobody asked for.
+    if (inquiryKind === 'tour' && tourStartIso && !/time to confirm/i.test(tourSlot)) {
+      try {
+        const d = new Date(tourStartIso);
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const res = await fetch('/api/booths/kiosk', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'tour-book', tenantId,
+            date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+            time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+            name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim(),
+            message: [form.message.trim(), applyFor.name ? `Interested in ${applyFor.name}` : '']
+              .filter(Boolean).join(' — '),
+          }),
+        });
+        const d2 = await res.json();
+        if (d2.ok) { setSubmitted(true); setSubmitting(false); setApplyFor(null); return; }
+        if (res.status === 409) {
+          alert(d2.error || 'That time was just taken — please pick another.');
+          setTourSlot(''); setTourStartIso(''); setTourEndIso('');
+          setSubmitting(false);
+          return;
+        }
+        // Any other failure falls through to the inquiry pipeline below so the
+        // lead is never lost — the same rule the paid-booking path follows.
+      } catch { /* fall through to the inquiry pipeline */ }
+    }
     try {
       const now = new Date().toISOString();
       const lease = applyMode === 'lease';
