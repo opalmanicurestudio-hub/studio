@@ -723,9 +723,23 @@ export async function POST(req: NextRequest) {
 
       const nowIso = new Date().toISOString();
       const status = rules.tourAutoConfirm ? 'confirmed' : 'requested';
+      const durMins = rules.tourDurationMins || 30;
+      // The planner renders tours from the APPLICATION doc's tourStartIso.
+      // Without these two fields a tour booked here held a real slot and still
+      // never appeared on anybody's calendar — the front desk had no way to
+      // know someone was coming. Written in the studio's own wall-clock frame,
+      // matching how the listings form has always written them.
+      const tourStartIso = `${date}T${time}:00`;
+      const tourEndIso = (() => {
+        const [hh, mm] = String(time).split(':').map(Number);
+        const total = hh * 60 + mm + durMins;
+        const eh = String(Math.floor(total / 60) % 24).padStart(2, '0');
+        const em = String(total % 60).padStart(2, '0');
+        return `${date}T${eh}:${em}:00`;
+      })();
       const tourRef = db.collection(`tenants/${tenantId}/tours`).doc();
       await tourRef.set({
-        id: tourRef.id, date, time, durationMins: rules.tourDurationMins || 30,
+        id: tourRef.id, date, time, durationMins: durMins,
         name, phone: phone || '', email: email || '', message: String(message || '').slice(0, 500),
         status, createdAt: nowIso, tenantId,
       });
@@ -735,6 +749,7 @@ export async function POST(req: NextRequest) {
         id: appRef.id, kind: 'tour', name, phone: phone || '', email: email || '',
         message: `Tour ${status === 'confirmed' ? 'booked' : 'requested'} for ${date} ${time}${message ? ` — "${message}"` : ''}`,
         status: 'new', tourId: tourRef.id, tourDate: date, tourTime: time,
+        tourStartIso, tourEndIso, tourSource: 'tour_page',
         createdAt: nowIso, tenantId,
       });
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
