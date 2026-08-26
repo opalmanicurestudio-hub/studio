@@ -246,12 +246,34 @@ function PlannerPageContent() {
   );
   const { data: reservationsRaw } = useCollection<any>(reservationsQ);
 
+  // Matches PENDING_HOLD_MS in /api/booths/reserve. Duplicated rather than
+  // imported — a page importing from an API route is not a dependency worth
+  // creating for one number — but it must be changed in both places together.
+  const PLANNER_HOLD_MS = 30 * 60 * 1000;
+
   const reservationsToday = useMemo(() => {
     if (!reservationsRaw) return [];
     const cd = currentDate;
     const curIso = `${cd.getFullYear()}-${String(cd.getMonth() + 1).padStart(2, '0')}-${String(cd.getDate()).padStart(2, '0')}`;
-    return (reservationsRaw as any[]).filter(r =>
-      r && r.startDate && r.startDate <= curIso && (r.endDate || r.startDate) >= curIso);
+    // Status matters, and until now it was ignored entirely: a CANCELLED
+    // reservation kept rendering as a live booking, so the planner showed a
+    // space as taken that anyone was free to sell.
+    //
+    // pending_payment is the interesting one. It is a real claim — someone is
+    // mid-checkout on the public page — but only for PLANNER_HOLD_MS. Inside
+    // that window it belongs on the calendar so nobody sells over it; past it
+    // the hold is dead and showing it would block a space for nothing.
+    const now = Date.now();
+    return (reservationsRaw as any[]).filter(r => {
+      if (!r || !r.startDate) return false;
+      if (!(r.startDate <= curIso && (r.endDate || r.startDate) >= curIso)) return false;
+      const st = String(r.status || '');
+      if (st === 'confirmed' || st === 'checked_in') return true;
+      if (st === 'pending_payment' && r.createdAt) {
+        return now - new Date(r.createdAt).getTime() < PLANNER_HOLD_MS;
+      }
+      return false;
+    });
   }, [reservationsRaw, currentDate]);
 
   // ── MAINTENANCE ON THE PLANNER ──────────────────────────────────────
@@ -558,7 +580,7 @@ function PlannerPageContent() {
                 id:        `resv-${r.id}-${curIso}`,
                 itemType:  'event',
                 type:      'reservation',
-                title:     `${isHourly ? 'Hourly' : 'Day'} rental — ${r.name || 'Guest'}`,
+                title:     `${r.status === 'pending_payment' ? 'Holding' : isHourly ? 'Hourly' : 'Day'} rental — ${r.name || 'Guest'}`,
                 name:      `${r.boothName || 'Space'} · ${r.name || 'Guest'}`,
                 startTime: start.toISOString(),
                 endTime:   end.toISOString(),
@@ -581,6 +603,7 @@ function PlannerPageContent() {
                 balanceDueCents: r.balancePaid ? 0 : (r.balanceDueCents || 0),
                 overageRateCentsPerHour: isHourly ? ((): number => { const h = (end.getTime() - start.getTime()) / 3600000; return h > 0 ? Math.round((r.amountCents || 0) / h) : 0; })() : 0,
                 isReservation: true,
+                isTentative: r.status === 'pending_payment',
             } as any);
 
             // In BOOTHS view the rental belongs to the space it occupies, not
@@ -595,7 +618,7 @@ function PlannerPageContent() {
                         id:        `resv-col-${r.id}-${curIso}`,
                         itemType:  'event',
                         type:      'reservation',
-                        title:     `${isHourly ? 'Hourly' : 'Day'} rental — ${r.name || 'Guest'}`,
+                        title:     `${r.status === 'pending_payment' ? 'Holding' : isHourly ? 'Hourly' : 'Day'} rental — ${r.name || 'Guest'}`,
                         name:      r.name || 'Guest',
                         startTime: start.toISOString(),
                         endTime:   end.toISOString(),
@@ -608,6 +631,7 @@ function PlannerPageContent() {
                         boothName: r.boothName || null,
                         bookingType: isHourly ? 'hourly' : 'daily',
                         isReservation: true,
+                        isTentative: r.status === 'pending_payment',
                     } as any);
                 }
             }
