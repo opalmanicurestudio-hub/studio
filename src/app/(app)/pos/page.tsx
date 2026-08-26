@@ -1041,11 +1041,20 @@ function POSPage() {
     const offeringsToEnroll: { offeringType: 'membership' | 'package'; offeringId: string }[] = [];
     retailItems.forEach(item => {
       const productValue = item.price * item.quantity;
-      const itemCategory = item.type === 'service' ? 'Service Revenue' : item.type === 'membership' ? 'Membership Sales' : item.type === 'package' ? 'Package Sales' : 'Retail';
-      const itemDescription = item.type === 'service' ? `Service (POS): ${item.quantity}x ${item.name}` : item.type === 'membership' ? `Membership: ${item.name}` : item.type === 'package' ? `Package: ${item.name}` : `Retail Product: ${item.quantity}x ${item.name}`;
+      const itemCategory = item.type === 'service' ? 'Service Revenue' : item.type === 'membership' ? 'Membership Sales' : item.type === 'package' ? 'Package Sales' : item.type === 'rental' ? 'Space Rental' : 'Retail';
+      const itemDescription = item.type === 'service' ? `Service (POS): ${item.quantity}x ${item.name}` : item.type === 'membership' ? `Membership: ${item.name}` : item.type === 'package' ? `Package: ${item.name}` : item.type === 'rental' ? `Space rental: ${item.name}` : `Retail Product: ${item.quantity}x ${item.name}`;
       if (!paymentData.skipLedger) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: itemDescription, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: itemCategory, amount: productValue, paymentMethod: paymentData.paymentMethod, hasReceipt: true, tenantId, checkoutSessionId }));
       if (item.type === 'product') { batch.set(doc(firestore, 'tenants', tenantId, 'inventory', item.id), { totalStock: increment(-item.quantity) }, { merge: true }); batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), sanitizeForFirestore(buildEntry({ productId: item.id, type: 'sold', delta: -item.quantity, reason: `Retail Sale: ${item.name} for ${clientObj?.name || 'Guest'}`, actorId: currentUser?.uid || 'staff', balanceAfter: Math.max(0, (Number(item.stock) || 0) - item.quantity) }))); }
       if (item.type === 'membership' || item.type === 'package') offeringsToEnroll.push({ offeringType: item.type, offeringId: item.id });
+      // A space rental taken at the desk was recorded as owed. Paying for it
+      // here is what closes that loop — without this the reservation stays
+      // 'unpaid' forever and the same money looks outstanding on the Booths
+      // page while sitting in the till. Rentals never touch inventory and are
+      // never enrolled, so the branches above correctly skip them.
+      if (item.type === 'rental' && item.reservationId) {
+        batch.set(doc(firestore, `tenants/${tenantId}/boothReservations`, item.reservationId),
+          { paymentStatus: 'paid', paidAt: now, paidVia: 'pos' }, { merge: true });
+      }
       totalLtvIncrease += productValue; if (paymentData.paymentMethod === 'cash') totalCashIncrease += productValue;
     });
 
@@ -1601,6 +1610,24 @@ function POSPage() {
                   tenantId={tenantId}
                   staffId={currentUser?.uid || null}
                   staffName={(staff || []).find((m: any) => m.id === currentUser?.uid)?.name || null}
+                  onAddToTicket={(line) => {
+                    // The chair-day becomes an ordinary cart line, so it flows
+                    // through the till, the receipt and the daily close like
+                    // anything else sold here. A separate little payment form
+                    // would be how rental money stops reconciling.
+                    setRetailItems(prev => prev.some((i: any) => i.reservationId === line.reservationId)
+                      ? prev
+                      : [...prev, {
+                          id: line.reservationId,
+                          reservationId: line.reservationId,
+                          name: line.label,
+                          price: line.amountCents / 100,
+                          quantity: 1,
+                          type: 'rental',
+                        }]);
+                    setActiveFloorTab('floor');
+                    toast({ title: 'Added to the ticket', description: `${line.label} — take payment at checkout.` });
+                  }}
                 />
               </div>
             )}
