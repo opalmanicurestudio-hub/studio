@@ -258,6 +258,23 @@ export async function createLease(
 ): Promise<string> {
   const now = new Date().toISOString();
   const batch = writeBatch(firestore);
+  // A renter who left and came back must not stay silently unbookable. The
+  // offboarding flags endLease sets are cleared here, at the one moment we
+  // know for certain they are renting again — otherwise the safety switch
+  // that protects clients from booking someone gone becomes the reason a
+  // returning renter gets no bookings and nobody can see why.
+  void renterStaffDocs(firestore, input.tenantId, input.renterId)
+    .then(async (staffDocs) => {
+      if (staffDocs.length === 0) return;
+      const back = writeBatch(firestore);
+      staffDocs.forEach((d) => {
+        if ((d.data() as any)?.offboardedAt) {
+          back.set(d.ref, { bookingOptOut: false, isActive: true, offboardedAt: null }, { merge: true });
+        }
+      });
+      await back.commit();
+    })
+    .catch((err) => console.error('[createLease] clearing offboarding flags failed', err));
 
   const leaseRef = doc(
     collection(firestore, BOOTH_RENTAL_COLLECTIONS.leases(input.tenantId))
@@ -340,6 +357,20 @@ export async function createLease(
  * and Firestore rules check the EXISTING locationId (resource.data) for
  * updates, which this function never changes.
  */
+
+/**
+ * Every staff record belonging to a renter. Usually one; a list because
+ * nothing structurally forbids two, and silently offboarding only the first
+ * would leave the other one selling appointments.
+ */
+async function renterStaffDocs(firestore: Firestore, tenantId: string, renterId: string) {
+  const snap = await getDocs(query(
+    collection(firestore, BOOTH_RENTAL_COLLECTIONS.staff(tenantId)),
+    where('renterId', '==', renterId),
+  ));
+  return snap.docs.filter((d) => (d.data() as any)?.isRenter);
+}
+
 export async function endLease(
   firestore: Firestore,
   tenantId: string,
@@ -372,12 +403,87 @@ export async function endLease(
     }
   );
 
+  // Are they leaving ENTIRELY, or giving up one of several spaces?
+  //
+  // The old code marked the renter 'past' unconditionally, so ending one lease
+  // for someone renting two booths retired a renter who was still very much
+  // here and still paying. Only the last occupying lease ends the relationship.
+  const stillRenting = allLeases.some(
+    (l) => l.renterId === renterId && l.id !== lease.id && isOccupyingLease(l)
+  );
+
+  if (stillRenting) {
+    batch.update(
+      doc(firestore, BOOTH_RENTAL_COLLECTIONS.renters(tenantId), renterId),
+      { updatedAt: now }
+    );
+    await batch.commit();
+    return;
+  }
+
   batch.update(
     doc(firestore, BOOTH_RENTAL_COLLECTIONS.renters(tenantId), renterId),
-    { status: 'past' as Renter['status'], updatedAt: now }
+    {
+      status: 'past' as Renter['status'],
+      offboardedAt: now,
+      updatedAt: now,
+    }
   );
 
   await batch.commit();
+
+  // ─── Offboarding: stop them being bookable ───────────────────────────────
+  //
+  // This is the half that was missing, and it mattered. Ending a lease freed
+  // the booth and retired the renter, then left their STAFF record untouched —
+  // hours intact, still a provider. Once the nightly cleared their lease stamp
+  // there was nothing left to clamp against, so the availability engine handed
+  // back their saved hours unchanged and the public booking page kept selling
+  // appointments with somebody who had left.
+  //
+  // Three flags, deliberately belt-and-braces, because each is read by a
+  // different consumer and any one of them alone leaves a hole:
+  //   · bookingOptOut — read at the very top of resolveDayHours for renters,
+  //     above even an accepted swap, so it beats a stale date override;
+  //   · isActive — how the booking page, swap pool and desk panel filter;
+  //   · leaseWindow — cleared so nothing stale survives the nightly sync.
+  //
+  // Done AFTER the commit above on purpose: the lease genuinely has ended
+  // whether or not this succeeds, and the nightly reconcile is the backstop.
+  try {
+    const staffDocs = await renterStaffDocs(firestore, tenantId, renterId);
+    if (staffDocs.length > 0) {
+      const offBatch = writeBatch(firestore);
+      staffDocs.forEach((d) => {
+        offBatch.set(d.ref, {
+          bookingOptOut: true,
+          isActive: false,
+          leaseWindow: null,
+          offboardedAt: now,
+        }, { merge: true });
+      });
+      await offBatch.commit();
+    }
+  } catch (err) {
+    console.error('[endLease] offboarding the staff record failed', err);
+  }
+}
+
+/**
+ * What still needs a human after a lease ends.
+ *
+ * Deliberately NOT automatic. A deposit is somebody's money, and a system that
+ * refunds it on a status change will eventually refund one it should have kept.
+ * This reports what is outstanding so it can be decided, and nothing more.
+ */
+export function offboardingTodos(lease: Lease): string[] {
+  const todos: string[] = [];
+  const dep = lease.deposit;
+  if (dep && dep.amountCents > 0 && dep.refundable && !dep.refundedLedgerEntryId) {
+    todos.push(`Return or withhold the ${(dep.amountCents / 100).toFixed(2)} deposit`
+      + (dep.refundConditions ? ` — terms: ${dep.refundConditions}` : ''));
+  }
+  return todos;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
