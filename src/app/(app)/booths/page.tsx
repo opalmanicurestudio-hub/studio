@@ -207,7 +207,7 @@ import {
   useOccupyingLeaseByRenter,
   useOccupyingLeaseByBooth,
 } from '@/lib/booth-rental-hooks';
-import { createBooth, createRenter, createLease, endLease } from '@/lib/booth-rental-service';
+import { createBooth, createRenter, createLease, endLease, offboardingTodos } from '@/lib/booth-rental-service';
 import { BoothAutomationSettings } from '@/components/shared/BoothAutomationSettings';
 import { dueAtFor as ticketDueAtFor, isTicketOverdue, pickRotationWorker } from '@/lib/maintenance';
 import { ImageUpload } from '@/components/shared/ImageUpload';
@@ -7440,9 +7440,49 @@ export default function BoothsPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>End lease?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This ends <strong>{endLeaseTarget?.firstName} {endLeaseTarget?.lastName}</strong>'s lease immediately,
-              frees the booth, and marks them as Past. This can't be undone.
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  This ends <strong>{endLeaseTarget?.firstName} {endLeaseTarget?.lastName}</strong>&apos;s lease
+                  immediately and frees the booth. It can&apos;t be undone.
+                </p>
+                {(() => {
+                  const lease = endLeaseTarget ? occupyingLeaseByRenter.get(endLeaseTarget.id) : null;
+                  const others = (leases.data ?? []).filter((l) =>
+                    endLeaseTarget && l.renterId === endLeaseTarget.id && l.id !== lease?.id
+                    && ['active', 'on_leave', 'pending_signature'].includes(String(l.status)));
+                  const todos = lease ? offboardingTodos(lease) : [];
+                  return (
+                    <>
+                      {others.length > 0 ? (
+                        <p className="text-xs font-bold">
+                          They still rent {others.length === 1 ? 'another space' : `${others.length} other spaces`},
+                          so they stay an active renter and keep taking bookings.
+                        </p>
+                      ) : (
+                        <div className="rounded-xl border-2 p-3 space-y-1">
+                          <p className="text-[10px] font-black uppercase tracking-widest">Also happens</p>
+                          <p className="text-xs font-bold">
+                            They&apos;re marked Past and stop being bookable, so clients can&apos;t book someone
+                            who has left. Re-leasing them later turns it all back on.
+                          </p>
+                        </div>
+                      )}
+                      {todos.length > 0 && (
+                        <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3 space-y-1">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">Still yours to settle</p>
+                          {todos.map((t) => (
+                            <p key={t} className="text-xs font-bold text-amber-900">{t}</p>
+                          ))}
+                          <p className="text-[10px] font-bold text-amber-700">
+                            Not done automatically — money doesn&apos;t move on a status change.
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
