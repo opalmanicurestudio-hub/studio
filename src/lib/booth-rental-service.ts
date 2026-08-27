@@ -39,6 +39,8 @@ import {
   orderBy,
   limit,
   where,
+  getDoc,
+  setDoc,
 } from 'firebase/firestore';
 import {
   Booth,
@@ -987,6 +989,12 @@ export interface CreateLocationInput {
   geoFenceRadiusMeters?: number;
   geoFenceBreakRadiusMeters?: number;
   timezone: string;
+  /**
+   * Fixed document id. Used only by the default-location auto-provisioner, so
+   * that concurrent attempts converge on ONE document instead of racing to
+   * create several. Manual creates omit it and get a normal random id.
+   */
+  docId?: string;
 }
 
 export async function createLocation(
@@ -1015,12 +1023,28 @@ export async function createLocation(
     updatedAt: now,
     ...optional,
   };
-  const ref = doc(
-    collection(firestore, BOOTH_RENTAL_COLLECTIONS.locations(input.tenantId))
-  );
+  const col = collection(firestore, BOOTH_RENTAL_COLLECTIONS.locations(input.tenantId));
+  const ref = input.docId ? doc(col, input.docId) : doc(col);
   await writeBatch(firestore).set(ref, locationDoc).commit();
   return ref.id;
 }
+
+/**
+ * The id every auto-provisioned default location uses.
+ *
+ * A RANDOM id was the whole bug: the provisioner is guarded by a useRef, which
+ * lives per component mount, so anything that remounts the provider — a hard
+ * refresh, navigating between route groups, React StrictMode in development, or
+ * simply a second browser tab — reset the guard while the locations
+ * subscription still read as empty. Each of those attempts then minted another
+ * randomly-named "Main Location", which is why duplicates appeared for a studio
+ * that only ever set up one.
+ *
+ * A fixed id makes the write idempotent by construction: N racing attempts all
+ * address the same document, so the worst case is one harmless overwrite rather
+ * than N locations.
+ */
+export const DEFAULT_LOCATION_DOC_ID = 'primary';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Default-location auto-provisioning
@@ -1071,11 +1095,22 @@ export async function provisionDefaultLocation(
   tenant: TenantLocationSeedFields,
   timezone = 'America/New_York'
 ): Promise<string> {
+  // Never clobber a location that already exists at this id — the owner may
+  // have renamed it, moved it, or set its hours. Provisioning is a one-time
+  // seed, not something that should reassert itself on every page open.
+  const ref = doc(
+    collection(firestore, BOOTH_RENTAL_COLLECTIONS.locations(tenantId)),
+    DEFAULT_LOCATION_DOC_ID
+  );
+  const existing = await getDoc(ref);
+  if (existing.exists()) return ref.id;
+
   return createLocation(firestore, {
     tenantId,
     name: tenant.name ? `${tenant.name} — Main Location` : 'Main Location',
     address: tenant.studioAddress,
     timezone,
+    docId: DEFAULT_LOCATION_DOC_ID,
   });
 }
 
