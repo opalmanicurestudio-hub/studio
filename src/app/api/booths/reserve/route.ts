@@ -429,6 +429,13 @@ export async function POST(req: NextRequest) {
       };
       await ref.set(resData);
       const availability = await syncReservationAvailability(db, tid, ref.id, resData, true);
+      // A booking taken at the desk deserves the same confirmation a booking
+      // taken online gets. Without this the guest walked away with nothing —
+      // no times, no address, no manage link — purely because of which side of
+      // the counter the booking happened to be entered from.
+      await sendReservationConfirmation(db, tid, ref.id, resData, {
+        originFallback: String(body.origin || '').split('?')[0] || undefined,
+      }).catch(() => { /* the booking stands whether or not the email lands */ });
 
       const nRef = db.collection(`tenants/${tid}/notifications`).doc();
       await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/booths',
