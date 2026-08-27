@@ -3448,16 +3448,30 @@ export default function BoothsPage() {
   const prevLeasesMapRef = useRef<Map<string, Lease> | null>(null);
   const prevRentersMapRef = useRef<Map<string, Renter> | null>(null);
 
-  // Reset the diff baselines whenever the tenant or location changes.
-  // Without this, switching locations swaps in a whole new booths/
-  // renters/leases data set, and the diff effects below — seeing every
-  // id as unfamiliar — would report the entire new location as "new"
-  // activity and fire a toast per record. Setting the refs back to null
-  // makes the next data arrival re-seed the baseline silently instead.
+  // Which tenant+location each diff baseline was built from.
+  //
+  // Nulling the refs on a location change was not enough, and this is why
+  // phantom "Lease removed for a booth" toasts appeared in threes. Firestore
+  // is asynchronous: when the location changes, the refs reset, but the very
+  // next snapshot still carries the PREVIOUS location's data — which then
+  // becomes the new baseline. When the real data for the new location finally
+  // lands, every record from the old location looks deleted, and the diff
+  // dutifully announces each one. The booth name resolves to "a booth"
+  // because those booths are not in the new location's list either, which is
+  // why the messages were identical and unhelpful.
+  //
+  // Stamping the baseline with the scope it came from fixes it properly: a
+  // baseline built under a different location is never diffed against, only
+  // replaced. Announcements now require both snapshots to describe the same
+  // place.
+  const diffScopeRef = useRef<string | null>(null);
+  const currentScope = `${tenantId || ''}:${selectedLocationId || ''}`;
+
   useEffect(() => {
     prevBoothsMapRef.current = null;
     prevLeasesMapRef.current = null;
     prevRentersMapRef.current = null;
+    diffScopeRef.current = null;
     toastTimersRef.current.forEach((timer) => clearTimeout(timer));
     toastTimersRef.current.clear();
     setToasts([]);
@@ -4505,7 +4519,7 @@ export default function BoothsPage() {
   useEffect(() => {
     if (!booths.data) return;
     const map = new Map(booths.data.map((b) => [b.id, b]));
-    const prev = prevBoothsMapRef.current;
+    const prev = diffScopeRef.current === currentScope ? prevBoothsMapRef.current : null;
     if (prev) {
       map.forEach((b, id) => {
         const old = prev.get(id);
@@ -4525,13 +4539,15 @@ export default function BoothsPage() {
       });
     }
     prevBoothsMapRef.current = map;
-  }, [booths.data, pushActivity]);
+    diffScopeRef.current = currentScope;
+  }, [booths.data, pushActivity, currentScope]);
 
   // Diff leases → activity + toasts
   useEffect(() => {
     if (!leases.data) return;
     const map = new Map(leases.data.map((l) => [l.id, l]));
-    const prev = prevLeasesMapRef.current;
+    // Only diff against a baseline built for the SAME place.
+    const prev = diffScopeRef.current === currentScope ? prevLeasesMapRef.current : null;
     if (prev) {
       map.forEach((l, id) => {
         const boothName = boothById.get(l.boothId)?.name ?? 'a booth';
@@ -4552,13 +4568,14 @@ export default function BoothsPage() {
       });
     }
     prevLeasesMapRef.current = map;
-  }, [leases.data, boothById, renterById, pushActivity]);
+    diffScopeRef.current = currentScope;
+  }, [leases.data, boothById, renterById, pushActivity, currentScope]);
 
   // Diff renters → activity + toasts
   useEffect(() => {
     if (!renters.data) return;
     const map = new Map(renters.data.map((r) => [r.id, r]));
-    const prev = prevRentersMapRef.current;
+    const prev = diffScopeRef.current === currentScope ? prevRentersMapRef.current : null;
     if (prev) {
       map.forEach((r, id) => {
         const old = prev.get(id);
@@ -4575,7 +4592,8 @@ export default function BoothsPage() {
       });
     }
     prevRentersMapRef.current = map;
-  }, [renters.data, pushActivity]);
+    diffScopeRef.current = currentScope;
+  }, [renters.data, pushActivity, currentScope]);
 
   const effectiveBooth = useCallback(
     (booth: Booth) => {
