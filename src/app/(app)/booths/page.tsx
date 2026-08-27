@@ -209,7 +209,6 @@ import {
 } from '@/lib/booth-rental-hooks';
 import { createBooth, createRenter, createLease, endLease } from '@/lib/booth-rental-service';
 import { BoothAutomationSettings } from '@/components/shared/BoothAutomationSettings';
-import { MaintenanceSection } from '@/components/booths/MaintenanceSection';
 import { dueAtFor as ticketDueAtFor, isTicketOverdue, pickRotationWorker } from '@/lib/maintenance';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 
@@ -2545,7 +2544,11 @@ export default function BoothsPage() {
 
   const pendingApps = useMemo(() =>
     applications.filter(a => (a.status === 'new' || a.status === 'in_review') && (!a.locationId || a.locationId === selectedLocationId))
-      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
+      // A tour that already happened and was never written up outranks a lead
+      // that came in this morning: the newer one can still be answered today,
+      // the older one is going cold while nobody looks at it.
+      .sort((a, b) => (Number(!!b.followUpNeeded) - Number(!!a.followUpNeeded))
+        || (b.createdAt || '').localeCompare(a.createdAt || '')),
     [applications, selectedLocationId]);
 
   // 🎟 Day passes — prepaid day bundles. Sold here (cash/Zelle/etc.),
@@ -5937,8 +5940,15 @@ export default function BoothsPage() {
                           {' · '}{app.boothName || 'Any booth'}{app.specialty ? ` · ${app.specialty}` : ''}
                         </p>
                       </div>
-                      <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 shrink-0 ${app.status === 'in_review' ? 'bg-sky-200 text-sky-800' : 'bg-amber-200 text-amber-800'}`}>
-                        {app.status === 'in_review' ? 'Contacted' : 'New'}
+                      <span className="flex items-center gap-1 shrink-0">
+                        {app.followUpNeeded && (
+                          <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-rose-200 text-rose-900">
+                            Tour not closed out
+                          </span>
+                        )}
+                        <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${app.status === 'in_review' ? 'bg-sky-200 text-sky-800' : 'bg-amber-200 text-amber-800'}`}>
+                          {app.status === 'in_review' ? 'Contacted' : 'New'}
+                        </span>
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-bold text-slate-600">
@@ -6162,21 +6172,18 @@ export default function BoothsPage() {
           <ZoneLabel>Facility</ZoneLabel>
 
           <div id="ops-maint" className="scroll-mt-14">
-            <MaintenanceSection
-              firestore={firestore}
-              storage={storage}
-              tenantId={tenantId}
-              locationId={selectedLocationId}
-              booths={sortedBooths}
-              tickets={tickets}
-              workers={maintWorkers}
-              plans={maintPlans}
-              ownerName={(selectedTenant as any)?.name ? `${(selectedTenant as any).name} team` : 'Owner'}
-              autoAssign={(selectedTenant as any)?.maintenanceAutoAssign === 'rotate'}
-              publicOrigin={(selectedTenant as any)?.publicOrigin || null}
-              studioName={(selectedTenant as any)?.name || ''}
-              rules={(selectedTenant as any)?.maintenanceRules || null}
-            />
+            <div className="rounded-2xl border-2 border-dashed p-5 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="font-black text-sm uppercase">Maintenance moved</p>
+                <p className="text-xs font-bold text-muted-foreground mt-0.5">
+                  Tickets, workers and preventive plans now have their own page — they cover the whole studio, not just rented booths.
+                </p>
+              </div>
+              <a href="/maintenance"
+                 className="shrink-0 h-10 px-4 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                <Wrench className="h-3.5 w-3.5" /> Open
+              </a>
+            </div>
           </div>
 
           <ZoneLabel>Directory</ZoneLabel>
