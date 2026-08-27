@@ -154,6 +154,13 @@ export const LocationProvider = ({ children }: { children: ReactNode }) => {
       // Allow a retry on the next render if this failed (network blip,
       // etc.) rather than permanently locking the tenant out of ever
       // getting a default location because one attempt failed silently.
+      //
+      // Safe to retry now in a way it never used to be: provisioning writes to
+      // a FIXED document id and returns early if it already exists, so a retry
+      // — or a second tab, or a StrictMode double-mount — converges on the same
+      // single location instead of minting another one. This ref is now just a
+      // courtesy that avoids a redundant read, not the thing preventing
+      // duplicates.
       hasProvisionedRef.current = false;
     });
   }, [
