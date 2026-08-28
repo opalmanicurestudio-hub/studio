@@ -115,6 +115,7 @@ const FINANCIAL_SUITE = [
 // carries exactly one entry — the hub's own tab strip handles the rest.
 const BOOTH_RENTAL = [
   { href: '/booths', icon: Armchair, label: 'Booth Hub' },
+  { href: '/pipeline', icon: Users, label: 'Pipeline' },
 ];
 
 const EVENTS = [
