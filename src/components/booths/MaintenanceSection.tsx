@@ -10,7 +10,7 @@
 // fire-and-forget via /api/maintenance.
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { doc, setDoc, updateDoc, collection, onSnapshot, increment, arrayUnion } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, collection, onSnapshot, increment, arrayUnion, getDocs, query, where } from 'firebase/firestore';
 import { uploadImageBlob } from '@/lib/upload-image';
 import { useToast } from '@/hooks/use-toast';
 import { auditEntry } from '@/lib/audit';
@@ -528,6 +528,41 @@ export function MaintenanceSection({
       };
       await setDoc(ref, ticket);
       await syncBooth(ticket.boothId, [...tickets, ticket]);
+
+      // ── The other half of the seam ──────────────────────────────────────
+      // A blocking ticket takes the space out of service and STOPS new sales
+      // — but somebody may already have paid for Saturday. That collision is
+      // yours to resolve (move them, refund them, or fix the chair first);
+      // what the system owes you is knowing about it the moment it exists,
+      // not when the guest is standing at a dead station.
+      if (ticket.boothId && ticketBlocksBooth(ticket)) {
+        try {
+          const todayKey = nowIso.slice(0, 10);
+          const resSnap = await getDocs(query(
+            collection(firestore, 'tenants', tenantId, 'boothReservations'),
+            where('boothId', '==', ticket.boothId),
+          ));
+          const upcoming = resSnap.docs
+            .map((d: any) => d.data() as any)
+            .filter((r: any) => ['confirmed', 'checked_in'].includes(String(r.status))
+              && String(r.endDate || r.startDate || '') >= todayKey);
+          if (upcoming.length > 0) {
+            const first = upcoming.sort((a: any, b: any) =>
+              String(a.startDate).localeCompare(String(b.startDate)))[0];
+            toast({
+              title: `${upcoming.length === 1 ? 'A paid rental sits' : `${upcoming.length} paid rentals sit`} on this space`,
+              description: `${first.name || 'A guest'} has it ${first.startDate}${upcoming.length > 1 ? ', and more after' : ''}. Move or refund them — new bookings are already stopped.`,
+            });
+            const nRef = doc(collection(firestore, 'tenants', tenantId, 'notifications'));
+            await setDoc(nRef, {
+              id: nRef.id, type: 'maintenance_collision', read: false, createdAt: nowIso, link: '/booths?tab=ops#ops-rentals',
+              message: `${ticket.boothName || 'A space'} went out of service with ${upcoming.length} paid rental${upcoming.length === 1 ? '' : 's'} booked on it — first is ${first.name || 'a guest'} on ${first.startDate}.`,
+            });
+          }
+        } catch (err) {
+          console.error('[maintenance] reservation collision check failed', err);
+        }
+      }
       // Rotation: unassigned + auto-rotate on → hand it to the least-
       // recently-assigned worker right now, matching the server behavior.
       let rotated: any = null;
