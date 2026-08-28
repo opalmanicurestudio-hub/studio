@@ -24,6 +24,7 @@ type Booth = {
   id: string; name: string; openTime: string; closeTime: string;
   hourlyCents: number | null; dailyCents: number | null; minHours: number;
   closedToday: boolean; dayTaken: boolean; busy: Busy[];
+  outOfService?: boolean; maintenanceNote?: string | null;
 };
 
 const money = (c: number | null) => (c === null || c === undefined ? '—' : `$${(c / 100).toFixed(c % 100 === 0 ? 0 : 2)}`);
@@ -186,6 +187,23 @@ export function DeskAvailabilityPanel({ tenantId, staffId, staffName, onAddToTic
               ) : sellable.map((b) => {
                 const openM = toMin(b.openTime); const closeM = toMin(b.closeTime);
                 const span = Math.max(1, closeM - openM);
+                if (b.outOfService) {
+                  return (
+                    <div key={b.id} className="rounded-2xl border-2 border-rose-200 bg-rose-50 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="flex items-center gap-1.5 text-[12px] font-black text-rose-900 truncate">
+                          <Armchair className="w-3.5 h-3.5 shrink-0" />{b.name}
+                        </span>
+                        <span className="shrink-0 rounded-full bg-rose-200 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-rose-900">
+                          Out of service
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[11px] font-bold text-rose-800">
+                        {b.maintenanceNote || 'A blocking maintenance ticket is open.'} Not bookable until it&apos;s resolved.
+                      </p>
+                    </div>
+                  );
+                }
                 return (
                   <div key={b.id} className="rounded-2xl border-2 p-3 space-y-2">
                     <div className="flex items-center justify-between gap-3">
