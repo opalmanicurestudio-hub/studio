@@ -174,6 +174,7 @@ export async function GET(req: NextRequest) {
   let leaseWindowsSynced = 0;
   let profileMirrorsSynced = 0;
   let rentalDaysGranted = 0;
+  let toursFlagged = 0;
   for (const tDoc of allTenantsSnap.docs) {
     try {
       // "Today" belongs to the studio, not to the server. This ran at 07:00
@@ -529,6 +530,63 @@ export async function GET(req: NextRequest) {
   }
   results.selfServeNudges = nudgeTotals;
 
+
+  // ─── Tours that were never closed out ──────────────────────────────────────
+  // A tour is the most expensive lead in this business: somebody drove over,
+  // somebody walked them round. Every other stage of the funnel has a chaser —
+  // rent has late sweeps, applications sit in a review queue — but a tour that
+  // happened and was never written up simply evaporated. Nobody was told, and
+  // the lead went cold in silence.
+  //
+  // This flags the tour, once, the day after it was due. It does not decide the
+  // outcome: only the person who gave the tour knows whether it was a no-show,
+  // a maybe, or a signature waiting to happen. The flag just makes sure the
+  // question gets asked while the answer is still worth having.
+  for (const tDoc of allTenantsSnap.docs) {
+    try {
+      const tz = tenantTimeZone(tDoc.data() as any);
+      const todayLocal = todayIn(tz);
+      const appsSnap = await db.collection(`tenants/${tDoc.id}/boothApplications`)
+        .where('kind', '==', 'tour').get();
+
+      const stale: any[] = [];
+      for (const ad of appsSnap.docs) {
+        const a: any = ad.data() || {};
+        // Only tours with a real date. A "time to confirm" enquiry has no
+        // moment to have passed, so there is nothing to chase yet.
+        const startIso = String(a.tourStartIso || (a.tourDate ? `${a.tourDate}T00:00:00` : ''));
+        if (!startIso || startIso.length < 10) continue;
+        const tourDay = startIso.slice(0, 10);
+        if (tourDay >= todayLocal) continue;                 // still ahead of us
+        // An outcome of any kind means somebody dealt with it.
+        const st = String(a.status || 'new');
+        if (!['new', 'in_review'].includes(st)) continue;
+        if (a.tourOutcome) continue;
+        if (a.followUpFlaggedAt) continue;                    // flagged already — never nag twice
+        stale.push({ ref: ad.ref, id: ad.id, name: a.name || 'Someone', day: tourDay });
+      }
+      if (stale.length === 0) continue;
+
+      const nowIso = new Date().toISOString();
+      for (const x of stale) {
+        await x.ref.set({ followUpFlaggedAt: nowIso, followUpNeeded: true }, { merge: true });
+        toursFlagged++;
+      }
+
+      // ONE notification for the batch. A row per tour would be the fastest
+      // way to teach somebody to swipe these away without reading them.
+      const nRef = db.collection(`tenants/${tDoc.id}/notifications`).doc();
+      const names = stale.slice(0, 3).map((x) => x.name).join(', ');
+      await nRef.set({
+        id: nRef.id, type: 'tour_followup', read: false, createdAt: nowIso, link: '/pipeline',
+        message: stale.length === 1
+          ? `${names} toured on ${stale[0].day} and it was never closed out — record the outcome while it is still fresh.`
+          : `${stale.length} tours were never closed out (${names}${stale.length > 3 ? ', …' : ''}) — record the outcomes in Pipeline.`,
+      });
+    } catch (e) { console.error('[cron/nightly] tour follow-up', tDoc.id, e); }
+  }
+  results.tourFollowUps = toursFlagged;
+
   // ── Reminder suite — for EVERY tenant, emit idempotent in-app reminders for
   // upcoming tours, rent coming due, credential/license expiry, and leases up
   // for renewal. Isolated in its own loop + try/catch so a reminder failure can
@@ -775,6 +833,6 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate, '· leases renewed', leasesRenewed, '· lease windows synced', leaseWindowsSynced, '· profile mirrors', profileMirrorsSynced, '· rental days granted', rentalDaysGranted, '· reminders', reminderTotals, '· no-shows', noShowTotals, '· plans', planTotals, '· sla', slaTotals, '· stock holds', stockTotals, '· retail sweeps', retailTotals);
-  return NextResponse.json({ ok: true, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, leaseWindowsSynced, profileMirrorsSynced, rentalDaysGranted, reminderTotals, noShowTotals, planTotals, slaTotals, stockTotals, retailTotals, results });
+  console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate, '· leases renewed', leasesRenewed, '· lease windows synced', leaseWindowsSynced, '· profile mirrors', profileMirrorsSynced, '· rental days granted', rentalDaysGranted, '· tours flagged', toursFlagged, '· reminders', reminderTotals, '· no-shows', noShowTotals, '· plans', planTotals, '· sla', slaTotals, '· stock holds', stockTotals, '· retail sweeps', retailTotals);
+  return NextResponse.json({ ok: true, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, leaseWindowsSynced, profileMirrorsSynced, rentalDaysGranted, toursFlagged, reminderTotals, noShowTotals, planTotals, slaTotals, stockTotals, retailTotals, results });
 }
