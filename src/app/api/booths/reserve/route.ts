@@ -308,6 +308,12 @@ export async function POST(req: NextRequest) {
         // space the desk would only be disappointed by.
         if (!b.dayUseEnabled || (!hourRate && !dayRate)) continue;
 
+        // Out of service is DIFFERENT from not-listed: the desk needs to see
+        // it and know why, or they will quote a chair the planner shows as
+        // dead. Maintenance sets booth.status itself (syncBooth), so this is
+        // the same truth every other surface reads — not a second opinion.
+        const outOfService = b.status === 'maintenance';
+
         const schedDays: number[] | null = Array.isArray(b.availableDays) && b.availableDays.length > 0
           ? b.availableDays.map(Number) : null;
         const blackouts: string[] = Array.isArray(b.blackoutDates) ? b.blackoutDates : [];
@@ -347,9 +353,11 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        const dayTaken = closedToday || busy.length > 0;
+        const dayTaken = closedToday || busy.length > 0 || outOfService;
         out.push({
           id: bd.id, name: b.name || 'Space',
+          outOfService,
+          maintenanceNote: outOfService ? (b.maintenanceNote || 'Out of service') : null,
           openTime: b.openTime || '09:00', closeTime: b.closeTime || '19:00',
           hourlyCents: hourRate?.amountCents ?? null,
           dailyCents: dayRate?.amountCents ?? null,
@@ -382,6 +390,16 @@ export async function POST(req: NextRequest) {
       if (!bSnap.exists) return NextResponse.json({ ok: false, error: 'That space is gone.' }, { status: 404 });
       const booth: any = bSnap.data();
       if (!booth.dayUseEnabled) return NextResponse.json({ ok: false, error: 'That space is not set up for day use.' }, { status: 400 });
+      // The one place the desk could sell a chair maintenance has taken down.
+      // The public checkout already refuses anything not vacant/partial; the
+      // desk path was written later and skipped it — which meant the planner
+      // could show a station as dead while the counter took money for it.
+      if (booth.status === 'maintenance') {
+        return NextResponse.json({
+          ok: false,
+          error: `${booth.name || 'That space'} is out of service${booth.maintenanceNote ? ` — ${booth.maintenanceNote}` : ''}. Resolve the ticket before booking it.`,
+        }, { status: 409 });
+      }
 
       // Server-side pricing, always. Reads the same pricingOptions the public
       // path reads; the desk never dictates an amount.
