@@ -656,7 +656,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
       await setDoc(nRef, {
         id: nRef.id, type: 'booth_application', read: false, createdAt: now,
         message: `${inquiryKind === 'tour' ? 'Tour request' : inquiryKind === 'question' ? 'Question' : inquiryKind === 'waitlist' ? 'Waitlist signup' : lease ? 'Space application' : 'Day-rental request'}: ${form.name.trim()} — ${applyFor.name || 'Any space'}${nicheValue ? ` (${nicheValue})` : ''}`,
-        link: '/booths',
+        link: '/pipeline',
       });
       setSubmitted(true);
     } catch { /* dialog stays open for retry */ }
