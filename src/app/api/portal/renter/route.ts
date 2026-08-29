@@ -2307,7 +2307,7 @@ export async function POST(req: NextRequest) {
       const payNotif = db.collection(`tenants/${tenantId}/notifications`).doc();
       await payNotif.set({
         id: payNotif.id, userId: null, read: false, createdAt: nowIso,
-        type: 'rent_paid', link: '/booths',
+        type: 'rent_paid', link: '/rent',
         message: `💚 ${renterName} paid $${(totalCents / 100).toFixed(2)} rent online.`,
       });
       return NextResponse.json({ ok: true, paidCents: totalCents });
