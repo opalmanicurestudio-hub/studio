@@ -529,39 +529,8 @@ export function MaintenanceSection({
       await setDoc(ref, ticket);
       await syncBooth(ticket.boothId, [...tickets, ticket]);
 
-      // ── The other half of the seam ──────────────────────────────────────
-      // A blocking ticket takes the space out of service and STOPS new sales
-      // — but somebody may already have paid for Saturday. That collision is
-      // yours to resolve (move them, refund them, or fix the chair first);
-      // what the system owes you is knowing about it the moment it exists,
-      // not when the guest is standing at a dead station.
       if (ticket.boothId && ticketBlocksBooth(ticket)) {
-        try {
-          const todayKey = nowIso.slice(0, 10);
-          const resSnap = await getDocs(query(
-            collection(firestore, 'tenants', tenantId, 'boothReservations'),
-            where('boothId', '==', ticket.boothId),
-          ));
-          const upcoming = resSnap.docs
-            .map((d: any) => d.data() as any)
-            .filter((r: any) => ['confirmed', 'checked_in'].includes(String(r.status))
-              && String(r.endDate || r.startDate || '') >= todayKey);
-          if (upcoming.length > 0) {
-            const first = upcoming.sort((a: any, b: any) =>
-              String(a.startDate).localeCompare(String(b.startDate)))[0];
-            toast({
-              title: `${upcoming.length === 1 ? 'A paid rental sits' : `${upcoming.length} paid rentals sit`} on this space`,
-              description: `${first.name || 'A guest'} has it ${first.startDate}${upcoming.length > 1 ? ', and more after' : ''}. Move or refund them — new bookings are already stopped.`,
-            });
-            const nRef = doc(collection(firestore, 'tenants', tenantId, 'notifications'));
-            await setDoc(nRef, {
-              id: nRef.id, type: 'maintenance_collision', read: false, createdAt: nowIso, link: '/booths?tab=ops#ops-rentals',
-              message: `${ticket.boothName || 'A space'} went out of service with ${upcoming.length} paid rental${upcoming.length === 1 ? '' : 's'} booked on it — first is ${first.name || 'a guest'} on ${first.startDate}.`,
-            });
-          }
-        } catch (err) {
-          console.error('[maintenance] reservation collision check failed', err);
-        }
+        await warnBookedRentals(ticket);
       }
       // Rotation: unassigned + auto-rotate on → hand it to the least-
       // recently-assigned worker right now, matching the server behavior.
@@ -585,12 +554,59 @@ export function MaintenanceSection({
     finally { setSaving(false); }
   };
 
+  // ── Booked rentals on a space that just went down ─────────────────────────
+  // A blocking ticket stops NEW sales instantly, but somebody may already have
+  // paid for Saturday. That collision is yours to resolve — move them, refund
+  // them, or fix the chair first. What the system owes you is knowing the
+  // moment it exists, not when the guest is standing at a dead station.
+  // Shared by creation AND escalation so the two paths can never drift.
+  const warnBookedRentals = async (ticket: any) => {
+    try {
+      const nowIso = new Date().toISOString();
+      const todayKey = nowIso.slice(0, 10);
+      const resSnap = await getDocs(query(
+        collection(firestore, 'tenants', tenantId, 'boothReservations'),
+        where('boothId', '==', ticket.boothId),
+      ));
+      const upcoming = resSnap.docs
+        .map((d: any) => d.data() as any)
+        .filter((r: any) => ['confirmed', 'checked_in'].includes(String(r.status))
+          && String(r.endDate || r.startDate || '') >= todayKey);
+      if (upcoming.length === 0) return;
+      const first = upcoming.sort((a: any, b: any) =>
+        String(a.startDate).localeCompare(String(b.startDate)))[0];
+      toast({
+        title: `${upcoming.length === 1 ? 'A paid rental sits' : `${upcoming.length} paid rentals sit`} on this space`,
+        description: `${first.name || 'A guest'} has it ${first.startDate}${upcoming.length > 1 ? ', and more after' : ''}. Move or refund them — new bookings are already stopped.`,
+      });
+      const nRef = doc(collection(firestore, 'tenants', tenantId, 'notifications'));
+      await setDoc(nRef, {
+        id: nRef.id, type: 'maintenance_collision', read: false, createdAt: nowIso, link: '/booths?tab=ops#ops-rentals',
+        message: `${ticket.boothName || 'A space'} went out of service with ${upcoming.length} paid rental${upcoming.length === 1 ? '' : 's'} booked on it — first is ${first.name || 'a guest'} on ${first.startDate}.`,
+      });
+    } catch (err) {
+      console.error('[maintenance] reservation collision check failed', err);
+    }
+  };
+
   const patchTicket = async (t: any, patch: any, updateEntry: any) => {
     try {
       await updateDoc(doc(firestore, 'tenants', tenantId, 'tickets', t.id), {
         ...patch, updatedAt: new Date().toISOString(),
         updates: [...(t.updates || []), { at: new Date().toISOString(), by: me, byType: 'owner', ...updateEntry }],
       });
+      // Escalation is a state change in disguise. Bumping a normal ticket to
+      // urgent takes the space out of service exactly as surely as filing it
+      // urgent in the first place — but this path never re-synced the booth,
+      // so an escalated ticket left the chair SELLING while the planner drew
+      // it dead. Detect any change in blocking-ness and treat it like the
+      // state change it is: booth status re-synced, booked rentals warned.
+      const merged = { ...t, ...patch };
+      if (t.boothId && ticketBlocksBooth(t) !== ticketBlocksBooth(merged)) {
+        const updated = tickets.map((x: any) => (x.id === t.id ? merged : x));
+        await syncBooth(t.boothId, updated);
+        if (ticketBlocksBooth(merged)) await warnBookedRentals(merged);
+      }
       return true;
     } catch { toast({ variant: 'destructive', title: 'Could not save', description: 'Try again.' }); return false; }
   };
