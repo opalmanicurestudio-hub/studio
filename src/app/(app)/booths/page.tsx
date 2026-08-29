@@ -5858,10 +5858,10 @@ export default function BoothsPage() {
             <div className="flex items-center gap-2">
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-black">Maintenance portal</p>
-                <p className="text-[10px] font-bold text-muted-foreground truncate">Each worker has their own secure link — send or copy it from Workers.</p>
+                <p className="text-[10px] font-bold text-muted-foreground truncate">Each worker has their own secure link — on the Maintenance page.</p>
               </div>
-              <button onClick={() => { try { document.getElementById('ops-maint')?.scrollIntoView({ behavior: 'smooth' }); } catch { /* anchor */ } }}
-                className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 shrink-0">Workers</button>
+              <a href="/maintenance"
+                className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 shrink-0 flex items-center">Workers</a>
             </div>
           </div>
 
