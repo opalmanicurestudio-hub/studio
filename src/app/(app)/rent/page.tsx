@@ -202,9 +202,16 @@ function RentCommsCard({ tenantId, firestore, tenant }: { tenantId: string; fire
   const [cfg, setCfg] = useState<any>({ ...RENT_COMMS_DEFAULTS, ...(tenant?.rentComms || {}) });
   const [saved, setSaved] = useState(false);
   const flip = (k: string) => setCfg((c: any) => ({ ...c, [k]: c[k] === false ? true : !c[k] }));
+  // Prospect emails are a TOP-LEVEL tenant flag, not part of rentComms:
+  // they go to people who are not customers yet, under the studio's name,
+  // which is a different kind of consent than a receipt to a renter. The
+  // switch lives here so it is one tap instead of a Firestore console edit,
+  // but the flag stays where the kiosk already reads it.
+  const [prospectOn, setProspectOn] = useState<boolean>(tenant?.prospectEmailsEnabled === true);
   const save = async () => {
     try {
       await updateDoc(doc(firestore, `tenants/${tenantId}`), {
+        prospectEmailsEnabled: prospectOn === true,
         rentComms: { ...cfg, remindLeadDays: Math.min(7, Math.max(1, Number(cfg.remindLeadDays) || 3)) },
       });
       setSaved(true);
@@ -213,6 +220,17 @@ function RentCommsCard({ tenantId, firestore, tenant }: { tenantId: string; fire
       console.error('rent notification settings save failed', e);
     }
   };
+  const ProspectRow = () => (
+    <button type="button" onClick={() => setProspectOn((v) => !v)} className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 p-3 text-left">
+      <span>
+        <span className="block text-[12px] font-black uppercase tracking-wide text-slate-900">Tour confirmation to the prospect</span>
+        <span className="block text-[11px] font-bold text-slate-500">Emails the person who booked the tour their time and what to expect. Off means nothing ever sends.</span>
+      </span>
+      <span className={`shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest ${prospectOn ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
+        {prospectOn ? 'On' : 'Off'}
+      </span>
+    </button>
+  );
   const Row = ({ k, label, hint }: { k: string; label: string; hint: string }) => (
     <button type="button" onClick={() => flip(k)} className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 p-3 text-left">
       <span>
@@ -231,6 +249,7 @@ function RentCommsCard({ tenantId, firestore, tenant }: { tenantId: string; fire
         <p className="text-[11px] font-bold text-slate-500">Who hears what, automatically. Late-fee amounts and grace days live on each lease.</p>
       </CardHeader>
       <CardContent className="space-y-2 p-5 pt-2">
+        <ProspectRow />
         <Row k="remindRenterBeforeDue" label="Remind renters before rent is due" hint="Branded email with a pay link — autopay renters are skipped" />
         <div className="flex items-center justify-between gap-3 rounded-2xl border-2 p-3">
           <span>
