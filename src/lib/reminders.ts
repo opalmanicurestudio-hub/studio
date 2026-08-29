@@ -176,7 +176,7 @@ export async function runReminderSweep(db: Db, tenantId: string, now: Date = new
         const startDateStr = dateOnly(t.tourStartIso);
         const when = t.tourSlot ? `· ${t.tourSlot}` : relDay(daysUntil(startDateStr, todayStr) ?? 0, startDateStr);
         await pushNotification(db, tenantId, {
-          type: 'tour_reminder', link: '/booths',
+          type: 'tour_reminder', link: '/pipeline',
           message: `Upcoming tour: ${t.name || 'A visitor'} at ${t.boothName || 'your studio'} ${when}.`,
         });
         await doc.ref.set({ tourReminderSentAt: iso(now) }, { merge: true });
