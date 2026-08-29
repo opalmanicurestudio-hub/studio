@@ -889,7 +889,7 @@ export async function POST(req: NextRequest) {
       await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set(patch, { merge: true });
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({
-        id: nRef.id, type: 'credential', read: false, createdAt: new Date().toISOString(), link: '/booths',
+        id: nRef.id, type: 'credential', read: false, createdAt: new Date().toISOString(), link: '/renters',
         message: `${session.name || 'A renter'} uploaded a renewed ${kind}${expiry ? ` (expires ${expiry})` : ''} — it's on their profile.`,
       });
       await logAuditAdmin(db, tenantId, {
