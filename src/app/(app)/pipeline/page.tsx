@@ -20,6 +20,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { collection, doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { useFirebase } from '@/firebase';
 import { useLocation } from '@/context/LocationContext';
+import { createRenter } from '@/lib/booth-rental-service';
+import { linkContactRenter } from '@/lib/booth-contacts';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -34,6 +36,7 @@ type Row = {
   tourStartIso: string | null; tourDate: string | null;
   outcome: any; followUpNeeded: boolean;
   rentalType: string | null; message: string;
+  specialty: string | null; boothName: string | null; locationId: string | null;
 };
 
 const OPEN_STATUSES = ['new', 'in_review'];
@@ -105,6 +108,9 @@ export default function PipelinePage() {
             followUpNeeded: a.followUpNeeded === true,
             rentalType: a.rentalType || null,
             message: a.message || '',
+            specialty: a.specialty || null,
+            boothName: a.boothName || null,
+            locationId: a.locationId || null,
             _locationId: a.locationId || null,
           } as any;
         }));
@@ -146,6 +152,51 @@ export default function PipelinePage() {
     return list.slice().sort((a, b) =>
       a.u.rank - b.u.rank || String(a.r.createdAt).localeCompare(String(b.r.createdAt)));
   }, [withUrgency, filter, scoped]);
+
+  // ── Convert: the moment a lead becomes a renter ───────────────────────────
+  // Deliberately the SAME semantics as the hub's convert (renter created with
+  // the application's context, the People-directory contact linked, the
+  // application stamped converted) — copied, not reinvented, so a lead
+  // converted here and one converted in the hub produce identical records.
+  // What stays in the hub: giving the new renter a lease. That is a booth
+  // decision, and this page doesn't know booths.
+  const convert = async (r: Row) => {
+    if (!firestore || !tenantId) return;
+    if (!r.name.trim() && !r.phone && !r.email) {
+      toast({ title: 'Not enough detail', description: 'A renter needs at least a name, phone, or email.' });
+      return;
+    }
+    setBusy(r.id);
+    try {
+      const parts = r.name.trim().split(' ');
+      const res: any = await createRenter(firestore, {
+        tenantId,
+        locationId: r.locationId || selectedLocationId,
+        firstName: parts[0] || 'New',
+        lastName: parts.slice(1).join(' ') || 'Renter',
+        email: r.email || '',
+        phone: r.phone || undefined,
+        specialty: r.specialty || undefined,
+        notes: `Converted from ${r.kind === 'tour' ? 'a tour' : 'an application'}${r.boothName ? ` for ${r.boothName}` : ''} (via Pipeline)`,
+        sourceApplicationId: r.id,
+        appliedAt: r.createdAt || null,
+      } as any);
+      const rid: string | null = res?.id || res?.renterId || (typeof res === 'string' ? res : null);
+      if (rid) {
+        await linkContactRenter(firestore, tenantId, { name: r.name, phone: r.phone, email: r.email }, rid)
+          .catch(() => {});
+      }
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'boothApplications', r.id), {
+        status: 'converted', convertedAt: new Date().toISOString(),
+        followUpNeeded: false,
+        ...(rid ? { convertedRenterId: rid } : {}),
+      });
+      toast({ title: 'Now a renter', description: `${r.name} — give them a lease from the Booth Hub when ready.` });
+    } catch {
+      toast({ title: 'Convert failed', description: 'Try again in a moment.' });
+    }
+    setBusy('');
+  };
 
   const setStatus = async (r: Row, status: string, note: string) => {
     if (!firestore || !tenantId) return;
@@ -283,6 +334,10 @@ export default function PipelinePage() {
                         No-show
                       </button>
                     )}
+                    <button onClick={() => convert(r)} disabled={!!busy}
+                      className="rounded-xl bg-emerald-600 px-3 py-2 text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-50">
+                      {busy === r.id ? '…' : 'Convert'}
+                    </button>
                   </>
                 )}
                 <a href="/booths?tab=ops#ops-apps"
@@ -296,7 +351,7 @@ export default function PipelinePage() {
       )}
 
       <p className="text-[10px] font-bold text-muted-foreground">
-        Converting a lead into a renter and a lease still happens in the Booth Hub — this page is for deciding who to act on.
+        Convert makes someone a renter right here; giving them a lease happens in the Booth Hub, where the booths are.
       </p>
     </div>
   );
