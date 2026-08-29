@@ -330,7 +330,7 @@ export async function GET(req: NextRequest) {
           const nR = db.collection(`tenants/${tDoc.id}/notifications`).doc();
           await nR.set({
             id: nR.id, userId: null, read: false, createdAt: new Date().toISOString(),
-            type: 'lease', link: '/booths',
+            type: 'lease', link: '/renters',
             message: `A lease auto-renewed through ${newEnd}.`,
           });
         } else if (!l.expiryNotifiedAt) {
@@ -343,7 +343,7 @@ export async function GET(req: NextRequest) {
           const nR = db.collection(`tenants/${tDoc.id}/notifications`).doc();
           await nR.set({
             id: nR.id, userId: null, read: false, createdAt: new Date().toISOString(),
-            type: 'lease', link: '/booths',
+            type: 'lease', link: '/renters',
             message: `A lease ended ${String(l.endDate).slice(0, 10)} — renew or end it in Booths.`,
           });
         }
