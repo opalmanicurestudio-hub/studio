@@ -861,7 +861,7 @@ export async function POST(req: NextRequest) {
         createdAt: nowIso, updatedAt: nowIso, dueAt: dueAtFor(priority), resolvedAt: null,
       });
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-      await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/booths',
+      await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/maintenance',
         message: `Maintenance request from ${session.name || 'a renter'}: "${title}"${boothName ? ` (${boothName})` : ''} — ${priority} priority${photoUrl ? ' · photo attached' : ''}.` });
       // Rotation: with auto-assign on, the ticket already has a worker (and
       // they already have a text) before the owner even sees the notification.
@@ -940,7 +940,7 @@ export async function POST(req: NextRequest) {
         updatedAt: nowIso,
       }, { merge: true });
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-      await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/booths',
+      await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/maintenance',
         message: `${session.name || 'Renter'} added to ticket "${t.title}"${note ? `: "${note.slice(0, 120)}"` : ' — photo attached.'}` });
       return NextResponse.json({ ok: true, photoUrl });
     }
