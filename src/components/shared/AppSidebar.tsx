@@ -15,6 +15,7 @@ import { ClientOnly } from './ClientOnly';
 import { useTenant } from '@/context/TenantContext';
 import { cn } from '@/lib/utils';
 import { useAuth, useFirebase, useUser } from '@/firebase';
+import { pageVisible } from '@/lib/modules';
 import { resolveActiveStaffId } from '@/lib/staff-identity';
 import { signOut } from 'firebase/auth';
 import {
@@ -218,6 +219,7 @@ function NavSection({
   tenantId?: string;
   badges?:  Record<string, number>;
 }) {
+  const { selectedTenant } = useTenant();
   const { state }   = useSidebar();
   const isCollapsed = state === 'collapsed';
 
@@ -230,7 +232,7 @@ function NavSection({
       )}
       {isCollapsed && <div className="mx-auto w-4 h-px bg-border/50 mb-2" />}
       <SidebarMenu className="gap-px px-0">
-        {items.map(item => (
+        {items.filter((item: any) => pageVisible(selectedTenant, item.href)).map(item => (
           <NavItem
             key={item.href} {...item}
             isPortal={isPortal}
