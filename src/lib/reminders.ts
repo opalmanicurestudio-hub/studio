@@ -202,7 +202,7 @@ export async function runReminderSweep(db: Db, tenantId: string, now: Date = new
         const who = lease?.renterId ? renterName(renterById.get(lease.renterId)) : (v.renterName || 'A renter');
         const total = (Number(v.amountCents) || 0) + (Number(v.lateFeeCents) || 0);
         await pushNotification(db, tenantId, {
-          type: 'balance_due', link: '/booths',
+          type: 'balance_due', link: '/rent',
           message: `${who}'s rent of ${money(total)} is due ${relDay(d, v.dueDate)}.`,
         });
         // Renter-facing heads-up with a pay link. Skipped for autopay renters
