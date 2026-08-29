@@ -677,7 +677,7 @@ export async function GET(req: NextRequest) {
           } catch { /* stays unassigned for manual triage */ }
         }
         const nRef = db.collection(`tenants/${tid}/notifications`).doc();
-        await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/booths',
+        await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/maintenance',
           message: `Scheduled maintenance opened: "${p.title}"${p.boothName ? ` (${p.boothName})` : ''}${p.assigneeName ? ` — assigned to ${p.assigneeName}` : rotatedName ? ` — auto-assigned to ${rotatedName}` : ' — needs a worker'}.` });
         if (p.assigneeId) {
           try {
@@ -756,7 +756,7 @@ export async function GET(req: NextRequest) {
         await d.ref.set({ overdueNotifiedAt: nowIso }, { merge: true });
         slaTotals.overdueFlagged += 1;
         const nRef = db.collection(`tenants/${tid}/notifications`).doc();
-        await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/booths',
+        await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/maintenance',
           message: `Ticket OVERDUE: "${t.title}"${t.boothName ? ` (${t.boothName})` : ''} — ${t.priority} priority, due ${String(t.dueAt).slice(0, 16).replace('T', ' ')}${t.assigneeName ? `, assigned to ${t.assigneeName}` : ', UNASSIGNED'}.` });
         if (t.assigneeId) {
           try {
