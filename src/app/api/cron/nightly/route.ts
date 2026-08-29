@@ -392,7 +392,7 @@ export async function GET(req: NextRequest) {
         const nRef = db.collection(`tenants/${tDoc.id}/notifications`).doc();
         await nRef.set({
           id: nRef.id, userId: null, read: false, createdAt: new Date().toISOString(),
-          type: 'rent_late', link: '/booths',
+          type: 'rent_late', link: '/rent',
           message: `${renterName}'s rent is late — $${owed.toFixed(2)} owed${feeCents > 0 ? ' (late fee applied)' : ''}.`,
         });
         // COLLECTIONS ON AUTOPILOT: the renter hears it the same night,
