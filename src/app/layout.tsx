@@ -2,11 +2,25 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { FirebaseClientProvider } from "@/firebase";
+import { RegisterSW } from "@/components/pwa/RegisterSW";
 
 export const metadata: Metadata = {
   title: "ClarityFlow",
   description:
     "A comprehensive business management application for solo service professionals.",
+  // ── PWA ──
+  // One app for everyone: owners land on their dashboard, renters sign into
+  // their portal — the same install routes by who you are, which is why
+  // start_url is simply "/".
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "ClarityFlow",
+  },
+  icons: {
+    apple: "/apple-touch-icon.png",
+  },
 };
 
 // v70 — THE MOBILE FIX. Your previous layout declared the viewport as a raw
@@ -17,6 +31,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  themeColor: "#0f172a",
   // Deliberately no maximumScale/userScalable — pinch-zoom stays enabled.
 };
 
@@ -37,6 +52,7 @@ export default function RootLayout({
         />
       </head>
       <body className={`font-body antialiased`}>
+        <RegisterSW />
         <FirebaseClientProvider>
           {children}
         </FirebaseClientProvider>
