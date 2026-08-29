@@ -255,14 +255,14 @@ export async function runReminderSweep(db: Db, tenantId: string, now: Date = new
         if (d < 0) {
           if (prior === 'expired') continue;
           await pushNotification(db, tenantId, {
-            type: 'license_expiry', link: '/booths',
+            type: 'license_expiry', link: '/renters',
             message: `${renterName(r)}'s ${c.label} EXPIRED ${fmtDate(c.expiry)} — collect a renewal.`,
           });
           alerts[key] = 'expired'; changed = true; counts.licenseExpiry++;
         } else if (d <= 30) {
           if (prior === 'expiring' || prior === 'expired') continue;
           await pushNotification(db, tenantId, {
-            type: 'license_expiry', link: '/booths',
+            type: 'license_expiry', link: '/renters',
             message: `${renterName(r)}'s ${c.label} expires ${relDay(d, c.expiry)} (${fmtDate(c.expiry)}).`,
           });
           alerts[key] = 'expiring'; changed = true; counts.licenseExpiry++;
@@ -293,14 +293,14 @@ export async function runReminderSweep(db: Db, tenantId: string, now: Date = new
       }
       if (d <= 7 && stage !== 7) {
         await pushNotification(db, tenantId, {
-          type: 'lease_renewal', link: '/booths',
+          type: 'lease_renewal', link: '/renters',
           message: `${who}'s lease for ${space} ends ${relDay(d, l.endDate)} (${fmtDate(l.endDate)}) — renew or end it.`,
         });
         await ld.ref.set({ renewalReminderStage: 7 }, { merge: true });
         counts.leaseRenewal++;
       } else if (d <= 30 && stage === 0) {
         await pushNotification(db, tenantId, {
-          type: 'lease_renewal', link: '/booths',
+          type: 'lease_renewal', link: '/renters',
           message: `${who}'s lease for ${space} ends ${fmtDate(l.endDate)} (${d} days) — plan the renewal.`,
         });
         await ld.ref.set({ renewalReminderStage: 30 }, { merge: true });
