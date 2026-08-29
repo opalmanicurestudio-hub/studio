@@ -753,7 +753,7 @@ export async function POST(req: NextRequest) {
         createdAt: nowIso, tenantId,
       });
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-      await nRef.set({ id: nRef.id, type: 'booth_tour', read: false, createdAt: nowIso, link: '/booths',
+      await nRef.set({ id: nRef.id, type: 'booth_tour', read: false, createdAt: nowIso, link: '/pipeline',
         message: `📅 Tour ${status === 'confirmed' ? 'booked' : 'requested'}: ${name} — ${date} at ${time}${status === 'requested' ? ' (needs your OK)' : ''}` });
 
       return NextResponse.json({ ok: true, status, autoConfirmed: status === 'confirmed' });
