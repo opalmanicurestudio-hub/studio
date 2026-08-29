@@ -66,7 +66,7 @@ async function syncBoothFromTickets(db: FirebaseFirestore.Firestore, tenantId: s
 async function notifyOwner(db: FirebaseFirestore.Firestore, tenantId: string, message: string) {
   try {
     const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-    await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: new Date().toISOString(), link: '/booths', message });
+    await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: new Date().toISOString(), link: '/maintenance', message });
   } catch { /* best-effort */ }
 }
 
