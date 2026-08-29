@@ -6242,74 +6242,21 @@ export default function BoothsPage() {
 
           <ZoneLabel>Collections</ZoneLabel>
 
-          {/* ── RENT ROLL (v78): every active lease, collection status ── */}
-          {rentRoll.length > 0 && (
-            <div id="money-collections" className="space-y-2 scroll-mt-14">
-              <div className="flex items-center gap-2">
-                <h2 className="text-xs font-black uppercase tracking-widest">Rent roll</h2>
-                {rentRoll.some(r => r.owedCents > 0) && (
-                  <span className="h-5 px-2 bg-red-600 text-white text-[9px] font-black rounded-full flex items-center">
-                    ${(rentRoll.reduce((s, r) => s + r.owedCents, 0) / 100).toFixed(0)} outstanding
-                  </span>
-                )}
+          <div id="ops-collections" className="scroll-mt-14">
+            <div className="rounded-2xl border-2 border-dashed p-5 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="font-black text-sm uppercase">Rent money moved</p>
+                <p className="text-xs font-bold text-muted-foreground mt-0.5">
+                  Due and late rent, autopay, receipts and swaps all live on the Rent page — one home for the money instead of two summaries.
+                </p>
               </div>
-              <div className="space-y-2">
-                {rentRoll.map(({ lease: l, renter: rt, booth: bt, open, owedCents, lastPaid }) => (
-                  <div key={l.id} className={`rounded-2xl border-2 bg-white px-4 py-3 space-y-2.5 ${open?.status === 'late' ? 'border-red-300' : open ? 'border-amber-300' : ''}`}>
-                    {/* Row 1 — who + where they stand. Nothing else competes. */}
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-sm font-black truncate">{rt ? `${rt.firstName} ${rt.lastName}` : 'Renter'} <span className="font-bold text-muted-foreground text-xs">· {bt?.name || '—'}</span></p>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase">
-                          {formatCents(l.rentAmountCents)}/{l.frequency}
-                          {l.autoCollect ? ` · auto day ${l.dueDay ?? '1'}` : ''}
-                          {lastPaid ? ` · last paid ${lastPaid.dueDate}` : ''}
-                          {(rt as any)?.cardOnFile ? ' · card on file' : ' · no card'}
-                        </p>
-                      </div>
-                      {l.status === 'pending_signature' ? (
-                        <span className="text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-1 bg-indigo-100 text-indigo-700 shrink-0">Awaiting signature</span>
-                      ) : open ? (
-                        <span className={`text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-1 shrink-0 ${open.status === 'late' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
-                          {open.status === 'late' ? `Late · $${(owedCents / 100).toFixed(0)}` : `Due ${open.dueDate?.slice(5)}`}
-                        </span>
-                      ) : (
-                        <span className="text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-1 bg-emerald-100 text-emerald-700 shrink-0">✓ Current</span>
-                      )}
-                    </div>
-                    {/* Row 2 — actions. Full-width tap targets on phones, inline on desktop. */}
-                    <div className="flex flex-wrap gap-2">
-                      {l.status !== 'pending_signature' && (
-                        <button onClick={() => openRecordPay('rent', { lease: l, renter: rt, booth: bt, open, owedCents })}
-                          className={`flex-1 sm:flex-none h-9 px-3 rounded-xl text-[9px] font-black uppercase tracking-widest active:scale-95 transition-all ${open ? 'bg-emerald-600 text-white' : 'border-2 border-emerald-300 text-emerald-700'}`}>
-                          {open ? 'Record payment' : 'Record cash / prepay'}
-                        </button>
-                      )}
-                      {(l as any).deposit?.amountCents > 0 && !(l as any).deposit?.collectedLedgerEntryId && (
-                        <button onClick={() => openRecordPay('deposit', { lease: l, renter: rt, booth: bt })}
-                          title="Security deposit hasn't been collected yet"
-                          className="flex-1 sm:flex-none h-9 px-3 rounded-xl border-2 border-violet-300 text-violet-700 text-[9px] font-black uppercase tracking-widest active:scale-95 transition-all">
-                          Deposit · {formatCents((l as any).deposit.amountCents)}
-                        </button>
-                      )}
-                      {l.endDate && Math.ceil((new Date(l.endDate + 'T00:00:00').getTime() - Date.now()) / 86400000) <= 30 && (
-                        <button onClick={() => renewLease(l)}
-                          title={`Lease ends ${l.endDate} — extend by one full term`}
-                          className="flex-1 sm:flex-none h-9 px-3 rounded-xl border-2 border-indigo-300 text-indigo-700 text-[9px] font-black uppercase tracking-widest active:scale-95 transition-all">
-                          Renew
-                        </button>
-                      )}
-                      <button onClick={() => toggleAutoCollect(l)}
-                        className={`flex-1 sm:flex-none h-9 px-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-colors ${l.autoCollect ? 'bg-slate-900 text-white' : 'border-2 border-slate-200 text-slate-500'}`}>
-                        {l.autoCollect ? 'Auto ✓' : 'Auto off'}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <p className="text-[10px] font-bold text-muted-foreground">Auto-collect charges the card on file on each due date (8 AM ET). Grace 3 days → late fee + retry → final retry day 7. Renters without a card get a due notification instead.</p>
+              <a href="/rent"
+                 className="shrink-0 h-10 px-4 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                <CircleDollarSign className="h-3.5 w-3.5" /> Open
+              </a>
             </div>
-          )}
+          </div>
+
 
           <ZoneLabel>Products</ZoneLabel>
 
