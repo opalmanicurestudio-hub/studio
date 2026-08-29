@@ -5770,7 +5770,7 @@ export default function BoothsPage() {
         <div className="px-4 sm:px-6 md:px-8 py-5 space-y-6">
           {/* ── Mobile jump bar — thumb-reach navigation for a long page ── */}
           <div className="sm:hidden sticky top-0 z-30 -mx-4 px-4 py-2 bg-slate-50/95 backdrop-blur border-b flex gap-1.5 overflow-x-auto">
-            {([['ops-tours', 'Tours'], ['ops-apps', 'Applications'], ['ops-rentals', 'Rentals'], ['ops-maint', 'Maintenance'], ['ops-people', 'People']] as const).map(([id, label]) => (
+            {([['ops-rentals', 'Rentals'], ['ops-maint', 'Maintenance'], ['ops-people', 'People']] as const).map(([id, label]) => (
               <button key={id}
                 onClick={() => { try { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch { /* older browsers */ } }}
                 className="h-8 px-3 rounded-full border-2 bg-white text-[10px] font-black uppercase tracking-widest text-slate-600 whitespace-nowrap shrink-0 active:scale-95 transition-transform">
@@ -5866,174 +5866,20 @@ export default function BoothsPage() {
 
           <ZoneLabel>Pipeline — new business</ZoneLabel>
 
-          {/* Tour scorecard */}
-          <div id="ops-tours" className="space-y-3 scroll-mt-14">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-xs font-black uppercase tracking-widest">Tours</h2>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={openTourSheets}
-                  className="h-8 px-3 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-50 flex items-center gap-1.5"
-                  title="Customize the visitor confirmation and staff prep sheet"
-                >
-                  <FileText className="h-3.5 w-3.5" /> Tour sheets
-                </button>
-                <button
-                  onClick={openChargePolicy}
-                  className="h-8 px-3 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-50 flex items-center gap-1.5"
-                  title="Set the allowed incidental charges and their caps"
-                >
-                  <Shield className="h-3.5 w-3.5" /> Charge policy
-                </button>
-                <button
-                  onClick={openNoShow}
-                  className="h-8 px-3 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-50 flex items-center gap-1.5"
-                  title="Set what happens when a reservation is a no-show"
-                >
-                  <XCircle className="h-3.5 w-3.5" /> No-shows
-                </button>
+          <div id="ops-tours" className="scroll-mt-14">
+            <div id="ops-apps" className="rounded-2xl border-2 border-dashed p-5 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="font-black text-sm uppercase">Leads moved</p>
+                <p className="text-xs font-bold text-muted-foreground mt-0.5">
+                  Tours and applications now live on their own page, ordered by who has been waiting longest — including converting a lead into a renter.
+                </p>
               </div>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {[
-                { label: 'Tours booked', value: String(tourKpis.total), sub: 'all time', color: 'text-slate-900' },
-                { label: 'Show rate', value: `${tourKpis.showRate}%`, sub: `${tourKpis.noShow} no-show${tourKpis.noShow === 1 ? '' : 's'}`, color: tourKpis.showRate >= 70 ? 'text-emerald-700' : 'text-amber-600' },
-                { label: 'Hot leads', value: String(tourKpis.hot), sub: 'from tours', color: 'text-red-600' },
-                { label: 'Tour → rental', value: `${tourKpis.convRate}%`, sub: `${tourKpis.converted} converted`, color: 'text-slate-900' },
-              ].map(k => (
-                <div key={k.label} className="rounded-2xl border-2 bg-white px-4 py-3 space-y-0.5 shadow-sm">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{k.label}</p>
-                  <p className={`text-xl md:text-2xl font-black tracking-tighter ${k.color}`}>{k.value}</p>
-                  <p className="text-[9px] font-bold text-muted-foreground">{k.sub}</p>
-                </div>
-              ))}
+              <a href="/pipeline"
+                 className="shrink-0 h-10 px-4 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                <Users className="h-3.5 w-3.5" /> Open
+              </a>
             </div>
           </div>
-
-          {/* Follow-ups */}
-          {openTasks.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <h2 className="text-xs font-black uppercase tracking-widest">Follow-ups</h2>
-                <span className="h-5 min-w-5 px-1.5 bg-indigo-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">{openTasks.length}</span>
-              </div>
-              <div className="grid gap-2 md:grid-cols-2">
-                {openTasks.map((t: any) => (
-                  <div key={t.id} className="rounded-xl border-2 bg-white px-3.5 py-2.5 flex items-center gap-2">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-black truncate">{t.title}</p>
-                      <p className="text-[10px] font-bold text-muted-foreground truncate">{[t.contactPhone, t.contactEmail].filter(Boolean).join(' · ') || 'No contact on file'}</p>
-                    </div>
-                    {t.contactPhone && <a href={`sms:${t.contactPhone}`} className="h-8 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 flex items-center">Text</a>}
-                    {!t.contactPhone && t.contactEmail && <a href={`mailto:${t.contactEmail}`} className="h-8 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 flex items-center">Email</a>}
-                    <button onClick={() => updateDoc(doc(firestore, 'tenants', tenantId, 'tasks', t.id), { done: true, doneAt: new Date().toISOString() })} className="h-8 px-3 rounded-lg bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest">Done</button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Applications */}
-          <div id="ops-apps" className="space-y-3 scroll-mt-14">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <h2 className="text-xs font-black uppercase tracking-widest">Applications</h2>
-                {pendingApps.length > 0 && <span className="h-5 min-w-5 px-1.5 bg-amber-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">{pendingApps.length}</span>}
-              </div>
-              <Button size="sm" variant="outline" onClick={openCreateRenter}>
-                <Plus className="h-3.5 w-3.5 mr-1" />Add renter
-              </Button>
-            </div>
-            {pendingApps.length === 0 ? (
-              <p className="text-xs text-muted-foreground font-medium py-3">No pending applications — new inquiries from the website appear here live.</p>
-            ) : (
-              <div className="grid gap-3 md:grid-cols-2">
-                {pendingApps.map((app: any) => (
-                  <div key={app.id} className={`rounded-2xl border-2 p-4 space-y-3 ${app.status === 'in_review' ? 'border-sky-200 bg-sky-50/40' : 'border-amber-300 bg-amber-50/50'}`}>
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="font-black text-sm uppercase truncate">{app.name}</p>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase">
-                          {app.kind === 'tour' ? 'Tour request' : app.kind === 'question' ? 'Question' : app.kind === 'waitlist' ? 'Waitlist' : app.rentalType === 'lease' ? 'Monthly lease' : 'Hourly / daily'}
-                          {' · '}{app.boothName || 'Any booth'}{app.specialty ? ` · ${app.specialty}` : ''}
-                        </p>
-                      </div>
-                      <span className="flex items-center gap-1 shrink-0">
-                        {app.followUpNeeded && (
-                          <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-rose-200 text-rose-900">
-                            Tour not closed out
-                          </span>
-                        )}
-                        <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${app.status === 'in_review' ? 'bg-sky-200 text-sky-800' : 'bg-amber-200 text-amber-800'}`}>
-                          {app.status === 'in_review' ? 'Contacted' : 'New'}
-                        </span>
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-bold text-slate-600">
-                      {app.phone && <a href={`tel:${app.phone}`} className="underline underline-offset-2 text-indigo-600">{app.phone}</a>}
-                      {app.email && <a href={`mailto:${app.email}`} className="underline underline-offset-2 text-indigo-600 truncate">{app.email}</a>}
-                      {app.timing && <span className="text-slate-500">{app.timing}</span>}
-                    </div>
-                    {Array.isArray(app.attachments) && app.attachments.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {app.attachments.map((at: any) => (
-                          <a key={at.url} href={at.url} target="_blank" rel="noreferrer" className="text-[9px] font-black uppercase tracking-wide bg-slate-100 text-slate-700 rounded-full px-2 py-0.5 underline underline-offset-2 inline-flex items-center gap-1"><Paperclip className="h-2.5 w-2.5" /> {at.label || at.name}</a>
-                        ))}
-                      </div>
-                    )}
-                    {app.message && <p className="text-xs font-medium text-slate-600 italic line-clamp-2">"{app.message}"</p>}
-                    <button onClick={() => setViewingApp(app)} className="text-[9px] font-black uppercase tracking-widest text-indigo-600 underline underline-offset-2 text-left">
-                      View full application →
-                    </button>
-                    <div className="flex gap-2 pt-1">
-                      {(!app.kind || app.kind === 'application') ? (
-                        <button onClick={() => approveApplication(app)} disabled={decidingAppId === app.id} className="flex-1 h-9 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
-                          {decidingAppId === app.id ? 'Working…' : app.rentalType === 'lease' ? 'Approve → Create Renter' : 'Approve'}
-                        </button>
-                      ) : (
-                        <button onClick={() => setAppStatus(app, 'closed')} className="flex-1 h-9 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest">{app.kind === 'tour' ? 'Mark Toured' : app.kind === 'question' ? 'Mark Answered' : app.kind === 'waitlist' ? 'Remove' : 'Close Out'}</button>
-                      )}
-                      {app.kind === 'tour' && <button onClick={() => setManagingTour(app)} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-indigo-700 border-indigo-300">Manage Tour</button>}
-                      {app.status === 'new' && app.kind !== 'tour' && <button onClick={() => setAppStatus(app, 'in_review')} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-sky-700 border-sky-300">Contacted</button>}
-                      {(!app.kind || app.kind === 'application') && <button onClick={() => { setAppStatus(app, 'declined'); openDecisionEmail(app, 'declined'); }} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Decline</button>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Day rentals */}
-          {/* ── Tours (v88) ── */}
-          {upcomingTours.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <h2 className="text-xs font-black uppercase tracking-widest">Tours</h2>
-                <span className="h-5 min-w-5 px-1.5 bg-sky-600 text-white text-[9px] font-black rounded-full flex items-center justify-center">{upcomingTours.length}</span>
-                {upcomingTours.some(t => t.status === 'requested') && <span className="text-[10px] font-black uppercase text-amber-600">· some need your OK</span>}
-              </div>
-              <div className="grid gap-2 md:grid-cols-2">
-                {upcomingTours.map((t: any) => (
-                  <div key={t.id} className={`rounded-xl border-2 bg-white px-3.5 py-2.5 space-y-1.5 ${t.status === 'requested' ? 'border-amber-300 bg-amber-50/40' : 'border-sky-200'}`}>
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-black truncate">{t.name}</p>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase">{t.date} · {t12tour(t.time)} · {t.durationMins || 30} min</p>
-                      </div>
-                      <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 shrink-0 ${t.status === 'confirmed' ? 'bg-sky-200 text-sky-800' : 'bg-amber-200 text-amber-800'}`}>{t.status === 'confirmed' ? 'Confirmed' : 'Requested'}</span>
-                      {t.phone && <a href={`tel:${t.phone}`} className="text-[9px] font-black uppercase text-indigo-600 shrink-0">Call</a>}
-                    </div>
-                    {t.message && <p className="text-[10px] text-slate-600 italic line-clamp-2">"{t.message}"</p>}
-                    <div className="flex gap-2">
-                      {t.status === 'requested' && <button onClick={() => setTourStatus(t, 'confirmed')} className="flex-1 h-7 rounded-lg bg-sky-600 text-white font-black uppercase text-[9px] tracking-widest">Confirm</button>}
-                      {t.status === 'confirmed' && <button onClick={() => setTourStatus(t, 'completed')} className="flex-1 h-7 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest">Mark done</button>}
-                      <button onClick={() => setTourStatus(t, 'cancelled')} className="h-7 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Cancel</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           {upcomingReservations.length > 0 && <ZoneLabel>Today on the floor</ZoneLabel>}
 
