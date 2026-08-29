@@ -155,6 +155,7 @@ import {
   CalendarDays,
   LogOut,
   ChevronRight,
+  ChevronDown,
   ChevronLeft,
   Upload,
   AlertCircle,
@@ -6432,20 +6433,22 @@ export default function BoothsPage() {
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl">
+        <DialogContent className="max-w-[min(96vw,42rem)] max-h-[92vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
             <DialogTitle className="text-xl font-black tracking-tight flex items-center gap-2">
               <Armchair className="h-5 w-5 text-slate-500" />
               {editingId ? 'Edit space' : 'Add space'}
             </DialogTitle>
             <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
-              Name it the way your renters know it
+              {editingId ? 'Open the section you came for — nothing else in the way' : 'Three answers and it exists'}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
+            {!editingId ? (
+              <>
             <div className="space-y-1">
-              <Label htmlFor="booth-name">Name</Label>
+              <Label htmlFor="booth-name">Name <span className="text-rose-500">*</span></Label>
               <Input
                 id="booth-name"
                 placeholder="Booth 1, Suite B, Chair 3…"
@@ -6478,7 +6481,7 @@ export default function BoothsPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label htmlFor="booth-rent">Base rent ($)</Label>
+                <Label htmlFor="booth-rent">Base rent ($) <span className="text-rose-500">*</span></Label>
                 <Input
                   id="booth-rent"
                   type="number"
@@ -6525,7 +6528,54 @@ export default function BoothsPage() {
               Not sure what to charge? Open the Pricing Advisor
             </Button>
 
-            {editingId && (
+                <p className="text-[11px] font-bold text-muted-foreground rounded-xl border-2 border-dashed p-3">
+                  That&apos;s everything a space needs to exist. Photos, day rentals, deposits and the
+                  floor plan are set up afterwards — open the space again and it&apos;s all here, in
+                  sections, instead of one long scroll.
+                </p>
+              </>
+            ) : (
+              <>
+            <details className="rounded-2xl border-2 group" open>
+              <summary className="cursor-pointer select-none list-none p-4 flex items-center justify-between gap-3">
+                <span className="text-[11px] font-black uppercase tracking-widest">Basics</span>
+                <span className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground">
+                  name, type, status<ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+                </span>
+              </summary>
+              <div className="p-4 pt-1 space-y-4">
+            <div className="space-y-1">
+              <Label htmlFor="booth-name">Name <span className="text-rose-500">*</span></Label>
+              <Input
+                id="booth-name"
+                placeholder="Booth 1, Suite B, Chair 3…"
+                value={form.name}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, name: e.target.value }))
+                }
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label>Type</Label>
+              <Select
+                value={form.typeValue}
+                onValueChange={(value) =>
+                  setForm((prev) => ({ ...prev, typeValue: value as Booth['type'] }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="booth">Booth</SelectItem>
+                  <SelectItem value="chair">Chair</SelectItem>
+                  <SelectItem value="room">Room</SelectItem>
+                  <SelectItem value="suite">Suite</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
               <div className="space-y-1">
                 <Label>Status</Label>
                 <Select
@@ -6546,7 +6596,6 @@ export default function BoothsPage() {
                   </SelectContent>
                 </Select>
               </div>
-            )}
 
             <div className="space-y-2">
               <Label>Included with this booth</Label>
@@ -6581,142 +6630,65 @@ export default function BoothsPage() {
                 }
               />
             </div>
+              </div>
+            </details>
 
-            <div className="space-y-1">
-              <Label>Photos</Label>
-              {form.photoUrls.length > 0 && (
-                <div className="grid grid-cols-3 gap-2 mb-2">
-                  {form.photoUrls.map((url, i) => (
-                    <div key={url} className="relative rounded-lg overflow-hidden border aspect-square">
-                      <img src={url} alt="" className="w-full h-full object-cover" />
-                      <button type="button" onClick={() => setForm(prev => ({ ...prev, photoUrls: prev.photoUrls.filter((_, j) => j !== i) }))}
-                        className="absolute top-1 right-1 h-5 w-5 rounded-full bg-black/60 text-white text-xs flex items-center justify-center">×</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <ImageUpload multiple clearOnUpload enableMarkup={false} storageFolder="uploads"
-                onImageUploaded={(url) => { if (url) setForm(prev => ({ ...prev, photoUrls: [...prev.photoUrls, url] })); }} />
-            </div>
-
-            <div className="space-y-1">
-              <Label>Listing description (public)</Label>
-              <Textarea rows={4} placeholder="Sell the space — light, equipment, vibe, what's included..."
-                value={form.listingDescription}
-                onChange={(e) => setForm(prev => ({ ...prev, listingDescription: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label>Video tour URL (YouTube, Vimeo, or direct .mp4)</Label>
-              <Input placeholder="https://youtube.com/watch?v=..."
-                value={form.videoUrl}
-                onChange={(e) => setForm(prev => ({ ...prev, videoUrl: e.target.value }))} />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Day-rental availability</Label>
-              <p className="text-[10px] font-bold text-muted-foreground -mt-1">Which days can this space be booked for day rentals? Leases are unaffected.</p>
-              <div className="flex flex-wrap gap-1.5">
-                {WEEKDAY_OPTIONS.map(({ value, label }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setForm(prev => ({
+            <details className="rounded-2xl border-2 group">
+              <summary className="cursor-pointer select-none list-none p-4 flex items-center justify-between gap-3">
+                <span className="text-[11px] font-black uppercase tracking-widest">Money</span>
+                <span className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground">
+                  rent, deposit, extra rates<ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+                </span>
+              </summary>
+              <div className="p-4 pt-1 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="booth-rent">Base rent ($) <span className="text-rose-500">*</span></Label>
+                <Input
+                  id="booth-rent"
+                  type="number"
+                  placeholder="250"
+                  value={form.baseRentDollars}
+                  onChange={(e) =>
+                    setForm((prev) => ({
                       ...prev,
-                      dayRentalDays: prev.dayRentalDays.includes(value)
-                        ? prev.dayRentalDays.filter(d => d !== value)
-                        : [...prev.dayRentalDays, value],
-                    }))}
-                    className={`h-9 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${form.dayRentalDays.includes(value) ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-400'}`}
-                  >
-                    {label}
-                  </button>
-                ))}
+                      baseRentDollars: e.target.value,
+                    }))
+                  }
+                />
               </div>
-              {form.dayRentalDays.length === 0 && <p className="text-[10px] font-black uppercase text-amber-600">⚠ No days selected — this space won't be bookable for day rentals at all.</p>}
+              <div className="space-y-1">
+                <Label>Frequency</Label>
+                <Select
+                  value={form.baseRentFrequency}
+                  onValueChange={(value) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      baseRentFrequency: value as RentFrequency,
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                    <SelectItem value="biweekly">Every 2 weeks</SelectItem>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            <div className="space-y-1">
-              <Label>Blackout dates</Label>
-              <Textarea rows={2} placeholder="2026-08-15, 2026-12-25 — closed dates, comma or newline separated"
-                value={form.blackoutDatesText}
-                onChange={(e) => setForm(prev => ({ ...prev, blackoutDatesText: e.target.value }))} />
-              <p className="text-[10px] font-bold text-muted-foreground">Format YYYY-MM-DD. These dates show closed in the planner and can't be booked.</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Shape on the floor plan</Label>
-              <div className="flex flex-wrap gap-1.5">
-                {([
-                  ['rect', '▭ Booth / suite'],
-                  ['square', '◻ Square table'],
-                  ['round', '● Round table'],
-                  ['oval', '⬭ Oval table'],
-                  ['chair', '🪑 Styling chair'],
-                  ['pedicure', '💺 Pedicure station'],
-                  ['sink', '🚿 Shampoo / sink'],
-                  ['dryer', '💨 Drying station'],
-                  ['desk', '🛎 Reception desk'],
-                  ['wall', '▬ Wall / divider'],
-                  ['door', '🚪 Door / entry'],
-                  ['plant', '🪴 Décor'],
-                ] as const).map(([v, l]) => (
-                  <button key={v} type="button" onClick={() => setForm(prev => ({ ...prev, shape: v }))}
-                    className={`h-9 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${form.shape === v ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-500'}`}>
-                    {l}
-                  </button>
-                ))}
-              </div>
-              <p className="text-[10px] font-bold text-muted-foreground">Purely visual — changes how this space draws on the floor plan.</p>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Booking slots (pre-set time products)</Label>
-              <p className="text-[10px] font-bold text-muted-foreground -mt-1">Define the exact packages guests can buy — half days, evenings, full days. When slots exist, guests pick from these instead of free times: you stay in control.</p>
-              <div className="flex flex-wrap gap-1.5">
-                <Button type="button" variant="outline" size="sm" onClick={() => setForm(prev => ({ ...prev, bookingSlots: [
-                  { label: 'Morning half-day', start: '09:00', end: '13:00', dollars: '' },
-                  { label: 'Afternoon half-day', start: '13:00', end: '17:00', dollars: '' },
-                ] }))}>AM / PM halves</Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => setForm(prev => ({ ...prev, bookingSlots: [
-                  { label: 'Full day', start: '09:00', end: '19:00', dollars: '' },
-                ] }))}>Full day</Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => setForm(prev => ({ ...prev, bookingSlots: [
-                  { label: 'Morning', start: '09:00', end: '13:00', dollars: '' },
-                  { label: 'Afternoon', start: '13:00', end: '17:00', dollars: '' },
-                  { label: 'Evening', start: '17:00', end: '21:00', dollars: '' },
-                ] }))}>Thirds</Button>
-              </div>
-              {form.bookingSlots.map((s, i) => (
-                <div key={i} className="grid grid-cols-[1fr_82px_82px_72px_32px] gap-1.5 items-center">
-                  <Input placeholder="Label" value={s.label} onChange={(e) => setForm(prev => ({ ...prev, bookingSlots: prev.bookingSlots.map((x, j) => j === i ? { ...x, label: e.target.value } : x) }))} />
-                  <Input type="time" value={s.start} onChange={(e) => setForm(prev => ({ ...prev, bookingSlots: prev.bookingSlots.map((x, j) => j === i ? { ...x, start: e.target.value } : x) }))} />
-                  <Input type="time" value={s.end} onChange={(e) => setForm(prev => ({ ...prev, bookingSlots: prev.bookingSlots.map((x, j) => j === i ? { ...x, end: e.target.value } : x) }))} />
-                  <Input type="number" placeholder="$" value={s.dollars} onChange={(e) => setForm(prev => ({ ...prev, bookingSlots: prev.bookingSlots.map((x, j) => j === i ? { ...x, dollars: e.target.value } : x) }))} />
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setForm(prev => ({ ...prev, bookingSlots: prev.bookingSlots.filter((_, j) => j !== i) }))}>×</Button>
-                </div>
-              ))}
-              <Button type="button" variant="outline" size="sm" onClick={() => setForm(prev => ({ ...prev, bookingSlots: [...prev.bookingSlots, { label: '', start: '09:00', end: '13:00', dollars: '' }] }))}>+ Add slot</Button>
-            </div>
-
-            <div className="space-y-1">
-              <Label>Hourly booking window</Label>
-              <p className="text-[10px] font-bold text-muted-foreground -mt-0.5">Only applies when this space has an hourly rate. Leave blank for all day.</p>
-              <div className="grid grid-cols-2 gap-3">
-                <Input type="time" value={form.openTime} onChange={(e) => setForm(prev => ({ ...prev, openTime: e.target.value }))} />
-                <Input type="time" value={form.closeTime} onChange={(e) => setForm(prev => ({ ...prev, closeTime: e.target.value }))} />
-              </div>
-              <div className="pt-1">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Offer start times every</p>
-                <div className="flex gap-1 p-1 bg-slate-100 rounded-xl">
-                  {(['15', '30', '60'] as const).map(m => (
-                    <button key={m} type="button" onClick={() => setForm(prev => ({ ...prev, startIncrementMins: m }))}
-                      className={`flex-1 h-9 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${form.startIncrementMins === m ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>
-                      {m === '60' ? '1 hour' : `${m} min`}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
+            <Button
+              type="button"
+              variant="link"
+              className="px-0 h-auto text-sm"
+              onClick={() => setPricingOpen(true)}
+            >
+              <Calculator className="h-3.5 w-3.5 mr-1.5" />
+              Not sure what to charge? Open the Pricing Advisor
+            </Button>
 
             <div className="space-y-2">
               <Label>Deposit</Label>
@@ -6808,6 +6780,177 @@ export default function BoothsPage() {
                 + Add rate
               </Button>
             </div>
+              </div>
+            </details>
+
+            <details className="rounded-2xl border-2 group">
+              <summary className="cursor-pointer select-none list-none p-4 flex items-center justify-between gap-3">
+                <span className="text-[11px] font-black uppercase tracking-widest">Public listing</span>
+                <span className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground">
+                  photos, description, video<ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+                </span>
+              </summary>
+              <div className="p-4 pt-1 space-y-4">
+            <div className="space-y-1">
+              <Label>Photos</Label>
+              {form.photoUrls.length > 0 && (
+                <div className="grid grid-cols-3 gap-2 mb-2">
+                  {form.photoUrls.map((url, i) => (
+                    <div key={url} className="relative rounded-lg overflow-hidden border aspect-square">
+                      <img src={url} alt="" className="w-full h-full object-cover" />
+                      <button type="button" onClick={() => setForm(prev => ({ ...prev, photoUrls: prev.photoUrls.filter((_, j) => j !== i) }))}
+                        className="absolute top-1 right-1 h-5 w-5 rounded-full bg-black/60 text-white text-xs flex items-center justify-center">×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <ImageUpload multiple clearOnUpload enableMarkup={false} storageFolder="uploads"
+                onImageUploaded={(url) => { if (url) setForm(prev => ({ ...prev, photoUrls: [...prev.photoUrls, url] })); }} />
+            </div>
+
+            <div className="space-y-1">
+              <Label>Listing description (public)</Label>
+              <Textarea rows={4} placeholder="Sell the space — light, equipment, vibe, what's included..."
+                value={form.listingDescription}
+                onChange={(e) => setForm(prev => ({ ...prev, listingDescription: e.target.value }))} />
+            </div>
+
+            <div className="space-y-1">
+              <Label>Video tour URL (YouTube, Vimeo, or direct .mp4)</Label>
+              <Input placeholder="https://youtube.com/watch?v=..."
+                value={form.videoUrl}
+                onChange={(e) => setForm(prev => ({ ...prev, videoUrl: e.target.value }))} />
+            </div>
+              </div>
+            </details>
+
+            <details className="rounded-2xl border-2 group">
+              <summary className="cursor-pointer select-none list-none p-4 flex items-center justify-between gap-3">
+                <span className="text-[11px] font-black uppercase tracking-widest">Day rentals</span>
+                <span className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground">
+                  days, blackouts, slots, hours<ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+                </span>
+              </summary>
+              <div className="p-4 pt-1 space-y-4">
+            <div className="space-y-2">
+              <Label>Day-rental availability</Label>
+              <p className="text-[10px] font-bold text-muted-foreground -mt-1">Which days can this space be booked for day rentals? Leases are unaffected.</p>
+              <div className="flex flex-wrap gap-1.5">
+                {WEEKDAY_OPTIONS.map(({ value, label }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setForm(prev => ({
+                      ...prev,
+                      dayRentalDays: prev.dayRentalDays.includes(value)
+                        ? prev.dayRentalDays.filter(d => d !== value)
+                        : [...prev.dayRentalDays, value],
+                    }))}
+                    className={`h-9 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${form.dayRentalDays.includes(value) ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-400'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {form.dayRentalDays.length === 0 && <p className="text-[10px] font-black uppercase text-amber-600">⚠ No days selected — this space won't be bookable for day rentals at all.</p>}
+            </div>
+
+            <div className="space-y-1">
+              <Label>Blackout dates</Label>
+              <Textarea rows={2} placeholder="2026-08-15, 2026-12-25 — closed dates, comma or newline separated"
+                value={form.blackoutDatesText}
+                onChange={(e) => setForm(prev => ({ ...prev, blackoutDatesText: e.target.value }))} />
+              <p className="text-[10px] font-bold text-muted-foreground">Format YYYY-MM-DD. These dates show closed in the planner and can't be booked.</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Booking slots (pre-set time products)</Label>
+              <p className="text-[10px] font-bold text-muted-foreground -mt-1">Define the exact packages guests can buy — half days, evenings, full days. When slots exist, guests pick from these instead of free times: you stay in control.</p>
+              <div className="flex flex-wrap gap-1.5">
+                <Button type="button" variant="outline" size="sm" onClick={() => setForm(prev => ({ ...prev, bookingSlots: [
+                  { label: 'Morning half-day', start: '09:00', end: '13:00', dollars: '' },
+                  { label: 'Afternoon half-day', start: '13:00', end: '17:00', dollars: '' },
+                ] }))}>AM / PM halves</Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setForm(prev => ({ ...prev, bookingSlots: [
+                  { label: 'Full day', start: '09:00', end: '19:00', dollars: '' },
+                ] }))}>Full day</Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setForm(prev => ({ ...prev, bookingSlots: [
+                  { label: 'Morning', start: '09:00', end: '13:00', dollars: '' },
+                  { label: 'Afternoon', start: '13:00', end: '17:00', dollars: '' },
+                  { label: 'Evening', start: '17:00', end: '21:00', dollars: '' },
+                ] }))}>Thirds</Button>
+              </div>
+              {form.bookingSlots.map((s, i) => (
+                <div key={i} className="grid grid-cols-[1fr_82px_82px_72px_32px] gap-1.5 items-center">
+                  <Input placeholder="Label" value={s.label} onChange={(e) => setForm(prev => ({ ...prev, bookingSlots: prev.bookingSlots.map((x, j) => j === i ? { ...x, label: e.target.value } : x) }))} />
+                  <Input type="time" value={s.start} onChange={(e) => setForm(prev => ({ ...prev, bookingSlots: prev.bookingSlots.map((x, j) => j === i ? { ...x, start: e.target.value } : x) }))} />
+                  <Input type="time" value={s.end} onChange={(e) => setForm(prev => ({ ...prev, bookingSlots: prev.bookingSlots.map((x, j) => j === i ? { ...x, end: e.target.value } : x) }))} />
+                  <Input type="number" placeholder="$" value={s.dollars} onChange={(e) => setForm(prev => ({ ...prev, bookingSlots: prev.bookingSlots.map((x, j) => j === i ? { ...x, dollars: e.target.value } : x) }))} />
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setForm(prev => ({ ...prev, bookingSlots: prev.bookingSlots.filter((_, j) => j !== i) }))}>×</Button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm" onClick={() => setForm(prev => ({ ...prev, bookingSlots: [...prev.bookingSlots, { label: '', start: '09:00', end: '13:00', dollars: '' }] }))}>+ Add slot</Button>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Hourly booking window</Label>
+              <p className="text-[10px] font-bold text-muted-foreground -mt-0.5">Only applies when this space has an hourly rate. Leave blank for all day.</p>
+              <div className="grid grid-cols-2 gap-3">
+                <Input type="time" value={form.openTime} onChange={(e) => setForm(prev => ({ ...prev, openTime: e.target.value }))} />
+                <Input type="time" value={form.closeTime} onChange={(e) => setForm(prev => ({ ...prev, closeTime: e.target.value }))} />
+              </div>
+              <div className="pt-1">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Offer start times every</p>
+                <div className="flex gap-1 p-1 bg-slate-100 rounded-xl">
+                  {(['15', '30', '60'] as const).map(m => (
+                    <button key={m} type="button" onClick={() => setForm(prev => ({ ...prev, startIncrementMins: m }))}
+                      className={`flex-1 h-9 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${form.startIncrementMins === m ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>
+                      {m === '60' ? '1 hour' : `${m} min`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+              </div>
+            </details>
+
+            <details className="rounded-2xl border-2 group">
+              <summary className="cursor-pointer select-none list-none p-4 flex items-center justify-between gap-3">
+                <span className="text-[11px] font-black uppercase tracking-widest">Floor plan</span>
+                <span className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground">
+                  shape on the map<ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+                </span>
+              </summary>
+              <div className="p-4 pt-1 space-y-4">
+            <div className="space-y-1.5">
+              <Label>Shape on the floor plan</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {([
+                  ['rect', '▭ Booth / suite'],
+                  ['square', '◻ Square table'],
+                  ['round', '● Round table'],
+                  ['oval', '⬭ Oval table'],
+                  ['chair', '🪑 Styling chair'],
+                  ['pedicure', '💺 Pedicure station'],
+                  ['sink', '🚿 Shampoo / sink'],
+                  ['dryer', '💨 Drying station'],
+                  ['desk', '🛎 Reception desk'],
+                  ['wall', '▬ Wall / divider'],
+                  ['door', '🚪 Door / entry'],
+                  ['plant', '🪴 Décor'],
+                ] as const).map(([v, l]) => (
+                  <button key={v} type="button" onClick={() => setForm(prev => ({ ...prev, shape: v }))}
+                    className={`h-9 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${form.shape === v ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-500'}`}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] font-bold text-muted-foreground">Purely visual — changes how this space draws on the floor plan.</p>
+            </div>
+              </div>
+            </details>
+              </>
+            )}
           </div>
 
           <DialogFooter>
