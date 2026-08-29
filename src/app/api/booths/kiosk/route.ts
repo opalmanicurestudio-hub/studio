@@ -16,6 +16,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { brandedEmailHtml } from '@/lib/email-template';
+import { sendNotification } from '@/lib/notify';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { resolveDayUseAgreement, buildSignedRecord } from '@/lib/esign';
 import { resolveIncidentalPolicy } from '@/lib/incidentals';
@@ -755,6 +757,42 @@ export async function POST(req: NextRequest) {
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({ id: nRef.id, type: 'booth_tour', read: false, createdAt: nowIso, link: '/pipeline',
         message: `📅 Tour ${status === 'confirmed' ? 'booked' : 'requested'}: ${name} — ${date} at ${time}${status === 'requested' ? ' (needs your OK)' : ''}` });
+
+      // ── The prospect's copy ──────────────────────────────────────────────
+      // Until now the tour existed everywhere except in the hands of the
+      // person taking it: planner, pipeline, owner notification — and the
+      // prospect walked away with nothing to hold. OPT-IN by design
+      // (tenantData.prospectEmailsEnabled === true): this goes out under the
+      // studio's name, so it does not send until the owner has read the
+      // wording and turned it on. Best-effort — the tour is already booked
+      // whether or not the email lands.
+      const tenantDoc = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      if (tenantDoc.prospectEmailsEnabled === true && String(email || '').includes('@')) {
+        try {
+          const studioName = tenantDoc.name || tenantDoc.businessName || 'The studio';
+          const firstName = String(name || '').split(' ')[0] || 'there';
+          const confirmed = status === 'confirmed';
+          const html = brandedEmailHtml({
+            studioName,
+            title: confirmed ? 'Your tour is booked' : 'Tour request received',
+            bodyLines: [
+              `Hi ${firstName} — ${confirmed
+                ? `you're set for ${date} at ${time}.`
+                : `we got your request for ${date} at ${time} and will confirm shortly.`}`,
+              `Come as you are: the tour takes about ${durMins} minutes and there's nothing to bring or prepare.`,
+              `If the time stops working, just reply to this email and we'll find another.`,
+            ],
+            footerNote: `Sent by ${studioName}. You're receiving this because you ${confirmed ? 'booked' : 'requested'} a tour with us.`,
+          });
+          await sendNotification(db, {
+            tenantId, channel: 'email', to: email,
+            subject: confirmed
+              ? `Tour booked — ${date} at ${time}`
+              : `Tour request received — ${date} at ${time}`,
+            html, kind: 'tour_confirmation',
+          });
+        } catch (err) { console.error('[kiosk] tour confirmation email failed (tour is safe)', err); }
+      }
 
       return NextResponse.json({ ok: true, status, autoConfirmed: status === 'confirmed' });
     }
