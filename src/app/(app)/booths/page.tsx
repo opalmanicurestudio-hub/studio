@@ -58,12 +58,18 @@ import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 // Reads the ?tab= query in isolation and lifts it to the page. Rendered inside a
 // <Suspense> boundary so useSearchParams() doesn't force /booths into a
 // client-only bailout during static prerender.
-function TabQuerySync({ onTab }: { onTab: (t: 'spaces' | 'ops' | 'money') => void }) {
+function TabQuerySync({ onTab, onLease }: { onTab: (t: 'spaces' | 'ops' | 'money') => void; onLease?: (renterId: string) => void }) {
   const searchParams = useSearchParams();
   const tab = searchParams.get('tab');
+  // ?lease=<renterId> — the Renters page hands off here for the one wizard
+  // that still lives on this page. Fires once per id.
+  const lease = searchParams.get('lease');
   useEffect(() => {
     if (tab === 'spaces' || tab === 'ops' || tab === 'money') onTab(tab);
   }, [tab, onTab]);
+  useEffect(() => {
+    if (lease && onLease) onLease(lease);
+  }, [lease, onLease]);
   return null;
 }
 import {
@@ -4947,7 +4953,7 @@ export default function BoothsPage() {
 
         {/* Sync the active tab from the URL (?tab=), isolated in Suspense. */}
         <Suspense fallback={null}>
-          <TabQuerySync onTab={setTab} />
+          <TabQuerySync onTab={setTab} onLease={openLeaseWizard} />
         </Suspense>
 
         {/* Tab strip */}
@@ -5560,213 +5566,6 @@ export default function BoothsPage() {
               </a>
             </div>
           </div>
-
-          <ZoneLabel>Directory</ZoneLabel>
-
-          <div id="ops-people" className="space-y-3 scroll-mt-14">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="text-xs font-black uppercase tracking-widest">People</h2>
-              <span className="h-5 min-w-5 px-1.5 bg-slate-700 text-white text-[9px] font-black rounded-full flex items-center justify-center">{peopleCounts.all}</span>
-              <span className="text-[10px] font-bold text-muted-foreground hidden sm:inline">everyone who's touched your business — one list</span>
-              <button onClick={openCreateRenter} className="ml-auto h-8 px-3 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest shrink-0">+ Renter</button>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <input
-                value={peopleQuery}
-                onChange={e => setPeopleQuery(e.target.value)}
-                placeholder="Search name, phone, email…"
-                className="h-9 w-full sm:w-60 rounded-xl border-2 px-3 text-sm font-medium"
-              />
-              <div className="flex gap-1 p-1 bg-white rounded-xl border overflow-x-auto max-w-full">
-                {([['all', 'All'], ['monthly', 'Monthly'], ['day', 'Day & hourly'], ['prospects', 'Prospects'], ['attention', 'Attention']] as const).map(([id, label]) => (
-                  <button
-                    key={id}
-                    onClick={() => setPeopleFilter(id)}
-                    className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest whitespace-nowrap transition-colors ${peopleFilter === id ? 'bg-slate-900 text-white' : 'text-muted-foreground hover:text-slate-700'}`}
-                  >
-                    {label}{peopleCounts[id] > 0 ? ` ${peopleCounts[id]}` : ''}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {/* One status language, explained once — colored dots, no emoji */}
-            <p className="text-[9px] font-bold text-muted-foreground flex items-center gap-x-2 gap-y-1 flex-wrap">
-              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500 inline-block" /> active</span>
-              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-slate-400 inline-block" /> quiet 60+ days</span>
-              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500 inline-block" /> needs attention</span>
-              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-sky-400 inline-block" /> new</span>
-              <span className="text-slate-400">— everyone's a renter: monthly, day/hourly, or prospect</span>
-            </p>
-            {renters.isLoading && peopleShown.length === 0 ? (
-              <p className="text-xs text-muted-foreground py-3">Loading people…</p>
-            ) : peopleShown.length === 0 ? (
-              <p className="text-xs text-muted-foreground py-3">{peopleQuery ? 'No one matches that search.' : 'No one here yet — approve an application or add a renter.'}</p>
-            ) : (
-              <div className="grid gap-2.5 md:grid-cols-2">
-                {peopleShown.map((g: any) => {
-                  const rtLinked = g.isRenter && g.renterId ? renterById.get(g.renterId) : undefined;
-                  const lease = rtLinked ? occupyingLeaseByRenter.get(rtLinked.id) : undefined;
-                  const booth = lease ? boothById.get(lease.boothId) : undefined;
-                  const openProfile = () => { if (rtLinked) setProfileRenter(rtLinked); else setProfileContact(g); };
-                  const photo = g.photoUrl || (rtLinked as any)?.avatarUrl || null;
-                  const DOT: Record<string, string> = { attention: 'bg-red-500', active: 'bg-emerald-500', quiet: 'bg-slate-400', new: 'bg-sky-400', past: 'bg-slate-300' };
-                  const MODE: Record<string, string> = { monthly: 'Monthly', day: 'Day', prospect: 'Prospect' };
-                  // ONE info line — the single most useful fact for this person.
-                  const infoLine = rtLinked
-                    ? (lease && booth
-                        ? `${booth.name} · ${formatCents(lease.rentAmountCents)}/${lease.frequency}${g.standing === 'attention' ? ' · owes / expired docs' : ''}`
-                        : 'No space assigned yet')
-                    : g.visits > 0
-                      ? `${g.visits} visit${g.visits === 1 ? '' : 's'} · $${(g.totalCents / 100).toFixed(0)} lifetime · last ${g.lastDate}${g.standing === 'quiet' ? ' · worth a win-back text' : ''}`
-                      : `${g.stage === 'tour' ? 'Toured' : g.stage === 'applicant' ? 'Applied' : 'Inquired'}${g.lastDate ? ` · ${g.lastDate}` : ''}${g.nextFollowUpAt ? ` · follow up ${g.nextFollowUpAt}` : ''}`;
-                  return (
-                    <div key={g.key} className="rounded-2xl border-2 bg-white px-3.5 py-3 flex items-center gap-3">
-                      {/* Avatar + standing dot — the ONE status signal */}
-                      <button onClick={openProfile} className="relative shrink-0 active:scale-95 transition-transform">
-                        <span className="w-11 h-11 rounded-xl overflow-hidden flex items-center justify-center font-black text-sm bg-slate-100 text-slate-600 block">
-                          {photo ? <img src={photo} alt="" className="w-11 h-11 object-cover" /> : g.name.charAt(0).toUpperCase()}
-                        </span>
-                        <span className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white ${DOT[g.standing] || DOT.new}`} />
-                      </button>
-                      <button onClick={openProfile} className="flex-1 min-w-0 text-left">
-                        <p className="text-sm font-black truncate">
-                          {g.name}
-                          <span className="ml-1.5 align-middle text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 bg-slate-100 text-slate-500">{MODE[g.mode] || ''}</span>
-                          {g.tier === 'regular' && !g.isRenter && <span className="ml-1 align-middle text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 bg-emerald-100 text-emerald-700">Lease-ready</span>}
-                          {passLeftFor(g.phone, g.email) > 0 && (
-                            <span className="ml-1 align-middle text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 bg-violet-100 text-violet-700 inline-flex items-center gap-0.5">
-                              <Ticket className="h-2.5 w-2.5" /> {passLeftFor(g.phone, g.email)}
-                            </span>
-                          )}
-                          {g.lastRating && <span className="ml-1 text-amber-500 text-[10px]">{'★'.repeat(g.lastRating)}</span>}
-                        </p>
-                        <p className="text-[10px] font-bold text-muted-foreground truncate">{infoLine}</p>
-                      </button>
-                      {/* Icon actions — tap logs itself to their timeline */}
-                      <div className="flex gap-1 shrink-0">
-                        {g.phone && (
-                          <a href={`tel:${g.phone}`} onClick={() => handleTouch(g, 'call')} title="Call"
-                            className="h-9 w-9 rounded-xl border-2 flex items-center justify-center text-slate-500 hover:text-slate-900 hover:border-slate-300 transition-colors">
-                            <Phone className="h-4 w-4" />
-                          </a>
-                        )}
-                        {g.phone && (
-                          <a href={`sms:${g.phone}`} onClick={() => handleTouch(g, 'text')} title="Text"
-                            className="h-9 w-9 rounded-xl border-2 flex items-center justify-center text-slate-500 hover:text-slate-900 hover:border-slate-300 transition-colors">
-                            <MessageCircle className="h-4 w-4" />
-                          </a>
-                        )}
-                        {g.email && (
-                          <a href={`mailto:${g.email}`} onClick={() => handleTouch(g, 'email')} title="Email"
-                            className="h-9 w-9 rounded-xl border-2 flex items-center justify-center text-slate-500 hover:text-slate-900 hover:border-slate-300 transition-colors">
-                            <Mail className="h-4 w-4" />
-                          </a>
-                        )}
-                        {rtLinked && (
-                          <OverflowMenu
-                            align="right"
-                            items={[
-                              { label: 'Edit renter', onClick: () => openEditRenter(rtLinked) },
-                              {
-                                label: 'Send portal link',
-                                onClick: async () => {
-                                  // Their PERSONAL magic link: opening it signs them straight
-                                  // in — no code, no SMS needed (the no-Twilio path). The
-                                  // token lives on their renter record; resending reuses it.
-                                  // Portal page: src/app/rent/[tenantId] (/rent), or set
-                                  // renterPortalPath on the tenant if yours lives elsewhere.
-                                  const path = (selectedTenant as any)?.renterPortalPath || '/rent';
-                                  let tok = (rtLinked as any).portalToken as string | undefined;
-                                  if (!tok || String(tok).length < 12) {
-                                    tok = (typeof crypto !== 'undefined' && (crypto as any).randomUUID)
-                                      ? (crypto as any).randomUUID().replace(/-/g, '')
-                                      : `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
-                                    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'renters', rtLinked.id), { portalToken: tok }); }
-                                    catch { toast({ variant: 'destructive', title: 'Could not create their link', description: 'Try again.' }); return; }
-                                  }
-                                  const link = `${shareOrigin}${path}/${tenantId}?rt=${tok}`;
-                                  const msg = `Your renter portal for ${(selectedTenant as any)?.name || 'the studio'} — pay rent, get receipts, report issues, manage your card. This link signs you in: ${link}`;
-                                  try { await navigator.clipboard.writeText(link); toast({ title: 'Personal sign-in link copied', description: `Opening it logs ${g.name || 'them'} straight in — paste it into any text or email.` }); }
-                                  catch { window.prompt('Copy this link', link); }
-                                  if (g.phone) window.location.href = `sms:${g.phone}?&body=${encodeURIComponent(msg)}`;
-                                },
-                              },
-                              ...(lease
-                                ? [{ label: 'End lease', danger: true, onClick: () => setEndLeaseTarget(rtLinked) }]
-                                : [{ label: '+ Assign a space', onClick: () => openLeaseWizard(rtLinked.id) }]),
-                              { label: 'Change status', onClick: () => { setStatusTarget(rtLinked); setNewStatus(rtLinked.status === 'active' ? 'on_leave' : 'active'); } },
-                              ...[new Date().getFullYear(), new Date().getFullYear() - 1].map(yr => ({
-                                label: `${yr} statement`,
-                                onClick: () => window.open(`/api/booths/statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(rtLinked.id)}&year=${yr}`, '_blank'),
-                              })),
-                            ]}
-                          />
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ── MONEY TAB ────────────────────────────────────────────────── */}
-      {tab === 'money' && (
-        <div className="px-4 sm:px-6 md:px-8 py-5 space-y-4">
-          {/* ── Mobile jump bar — same pattern as Operations ── */}
-          <div className="sm:hidden sticky top-0 z-30 -mx-4 px-4 py-2 bg-slate-50/95 backdrop-blur border-b flex gap-1.5 overflow-x-auto">
-            {([['money-collections', 'Collections'], ['money-passes', 'Passes'], ['money-reviews', 'Reviews']] as const).map(([id, label]) => (
-              <button key={id}
-                onClick={() => { try { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch { /* older browsers */ } }}
-                className="h-8 px-3 rounded-full border-2 bg-white text-[10px] font-black uppercase tracking-widest text-slate-600 whitespace-nowrap shrink-0 active:scale-95 transition-transform">
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {/* ── BUSINESS SCORECARD — swipeable card row on phones, grid on desktop ── */}
-          <div className="flex gap-2 overflow-x-auto snap-x snap-mandatory pb-1 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:overflow-visible">
-            <div className="rounded-2xl border-2 bg-white px-3 py-2.5 min-w-[46%] snap-start sm:min-w-0">
-              <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Occupancy</p>
-              <p className={`text-2xl font-black tracking-tighter ${moneyStats.occupancyPct >= 80 ? 'text-emerald-600' : moneyStats.occupancyPct >= 50 ? 'text-amber-600' : 'text-red-600'}`}>{moneyStats.occupancyPct}%</p>
-              <p className="text-[9px] font-bold text-muted-foreground">{moneyStats.occupied} of {moneyStats.rentable} stations leased</p>
-            </div>
-            <div className="rounded-2xl border-2 bg-white px-3 py-2.5 min-w-[46%] snap-start sm:min-w-0">
-              <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Revenue this month</p>
-              <p className="text-2xl font-black tracking-tighter text-slate-900">${(moneyStats.totalCents / 100).toFixed(0)}</p>
-              <p className="text-[9px] font-bold text-muted-foreground">${(moneyStats.rentCents / 100).toFixed(0)} rent · ${(moneyStats.dayCents / 100).toFixed(0)} bookings</p>
-            </div>
-            <div className="rounded-2xl border-2 bg-white px-3 py-2.5 min-w-[46%] snap-start sm:min-w-0">
-              <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Per station</p>
-              <p className="text-2xl font-black tracking-tighter text-slate-900">${(moneyStats.perStationCents / 100).toFixed(0)}</p>
-              <p className="text-[9px] font-bold text-muted-foreground">avg revenue / station / mo</p>
-            </div>
-            <div className={`rounded-2xl border-2 px-3 py-2.5 min-w-[46%] snap-start sm:min-w-0 ${moneyStats.vacancyMoCents > 0 ? 'border-red-200 bg-red-50' : 'bg-white'}`}>
-              <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Vacancy cost</p>
-              <p className={`text-2xl font-black tracking-tighter ${moneyStats.vacancyMoCents > 0 ? 'text-red-600' : 'text-emerald-600'}`}>${(moneyStats.vacancyMoCents / 100).toFixed(0)}</p>
-              <p className="text-[9px] font-bold text-muted-foreground">{moneyStats.vacancyMoCents > 0 ? 'left on the table / mo' : 'nothing sitting empty'}</p>
-            </div>
-          </div>
-
-          <ZoneLabel>Collections</ZoneLabel>
-
-          <div id="ops-collections" className="scroll-mt-14">
-            <div className="rounded-2xl border-2 border-dashed p-5 flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <p className="font-black text-sm uppercase">Rent money moved</p>
-                <p className="text-xs font-bold text-muted-foreground mt-0.5">
-                  Due and late rent, autopay, receipts and swaps all live on the Rent page — one home for the money instead of two summaries.
-                </p>
-              </div>
-              <a href="/rent"
-                 className="shrink-0 h-10 px-4 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
-                <CircleDollarSign className="h-3.5 w-3.5" /> Open
-              </a>
-            </div>
-          </div>
-
 
           <ZoneLabel>Products</ZoneLabel>
 
