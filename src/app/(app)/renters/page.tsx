@@ -14,7 +14,9 @@
 // the full card — still lives in the hub until its zone moves here too.
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, doc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { endLease, offboardingTodos } from '@/lib/booth-rental-service';
+import { useToast } from '@/hooks/use-toast';
 import { useFirebase } from '@/firebase';
 import { useLocation } from '@/context/LocationContext';
 import { cn } from '@/lib/utils';
@@ -64,6 +66,10 @@ export default function RentersPage() {
   const [reservations, setReservations] = useState<R[]>([]);
   const [amenityRequests, setAmenityRequests] = useState<R[]>([]);
   const [profileRenter, setProfileRenter] = useState<R | null>(null);
+  const [editing, setEditing] = useState<R | null>(null);
+  const [ending, setEnding] = useState<R | null>(null);
+  const [busy, setBusy] = useState(false);
+  const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'active' | 'setup' | 'leave' | 'past'>('active');
 
@@ -236,10 +242,6 @@ export default function RentersPage() {
                     <ExternalLink className="h-3 w-3" /> Their booking page
                   </a>
                 )}
-                <a href="/booths?tab=ops#ops-people"
-                  className="ml-auto flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                  Full card <ArrowRight className="h-3 w-3" />
-                </a>
               </div>
             </div>
           ))}
@@ -255,7 +257,6 @@ export default function RentersPage() {
         const myLease = leases.find((l) => l.renterId === profileRenter.id
           && ['active', 'on_leave', 'pending_signature'].includes(String(l.status)));
         const booth = myLease ? booths.find((b) => b.id === myLease.boothId) : undefined;
-        const toHub = () => { window.location.href = '/booths?tab=ops#ops-people'; };
         return (
           <RenterProfileDrawer
             renter={profileRenter}
@@ -267,10 +268,92 @@ export default function RentersPage() {
             tenantId={tenantId}
             firestore={firestore}
             onClose={() => setProfileRenter(null)}
-            onEdit={toHub}
-            onLease={toHub}
-            onEndLease={toHub}
+            onEdit={() => { const r = profileRenter; setProfileRenter(null); setEditing({ ...r }); }}
+            onLease={() => { window.location.href = `/booths?lease=${profileRenter.id}`; }}
+            onEndLease={() => { const r = profileRenter; setProfileRenter(null); setEnding(r); }}
           />
+        );
+      })()}
+
+      {editing && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-3" onClick={() => setEditing(null)}>
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
+            <p className="text-[11px] font-black uppercase tracking-widest">Edit renter</p>
+            {([['firstName', 'First name'], ['lastName', 'Last name'], ['email', 'Email'], ['phone', 'Phone'],
+              ['specialty', 'Specialty'], ['businessName', 'Business name']] as [string, string][]).map(([k, label]) => (
+              <label key={k} className="block">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{label}</span>
+                <input value={editing[k] || ''} onChange={(e) => setEditing({ ...editing, [k]: e.target.value })}
+                  className="mt-1 w-full rounded-xl border-2 px-3 py-2 text-sm font-bold" />
+              </label>
+            ))}
+            <div className="flex gap-2 pt-1">
+              <button disabled={busy} onClick={async () => {
+                if (!firestore || !tenantId) return;
+                setBusy(true);
+                try {
+                  await updateDoc(doc(firestore, 'tenants', tenantId, 'renters', editing.id), {
+                    firstName: editing.firstName || '', lastName: editing.lastName || '',
+                    email: editing.email || '', phone: editing.phone || '',
+                    specialty: editing.specialty || '', businessName: editing.businessName || '',
+                    updatedAt: new Date().toISOString(),
+                  });
+                  toast({ title: 'Saved', description: `${editing.firstName} ${editing.lastName}` });
+                  setEditing(null);
+                } catch { toast({ title: 'Could not save', description: 'Try again.' }); }
+                setBusy(false);
+              }} className="flex-1 rounded-2xl bg-slate-900 py-3 text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-50">
+                {busy ? 'Saving…' : 'Save'}
+              </button>
+              <button onClick={() => setEditing(null)} className="rounded-2xl bg-slate-100 px-5 py-3 text-[11px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {ending && (() => {
+        const lease = leases.find((l) => l.renterId === ending.id && ['active', 'on_leave', 'pending_signature'].includes(String(l.status)));
+        const others = leases.filter((l) => l.renterId === ending.id && l.id !== lease?.id && ['active', 'on_leave', 'pending_signature'].includes(String(l.status)));
+        const todos = lease ? offboardingTodos(lease) : [];
+        return (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-3" onClick={() => setEnding(null)}>
+            <div className="w-full max-w-md rounded-2xl bg-white p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
+              <p className="text-[11px] font-black uppercase tracking-widest">End lease</p>
+              <p className="text-sm font-bold">
+                This ends <strong>{ending.firstName} {ending.lastName}</strong>&apos;s lease immediately and frees the booth. It can&apos;t be undone.
+              </p>
+              {others.length > 0 ? (
+                <p className="text-xs font-bold">They still rent {others.length === 1 ? 'another space' : `${others.length} other spaces`}, so they stay an active renter and keep taking bookings.</p>
+              ) : (
+                <div className="rounded-xl border-2 p-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest">Also happens</p>
+                  <p className="text-xs font-bold">They&apos;re marked Past and stop being bookable, so clients can&apos;t book someone who has left. Re-leasing them later turns it all back on.</p>
+                </div>
+              )}
+              {todos.length > 0 && (
+                <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3 space-y-1">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">Still yours to settle</p>
+                  {todos.map((t) => <p key={t} className="text-xs font-bold text-amber-900">{t}</p>)}
+                  <p className="text-[10px] font-bold text-amber-700">Not done automatically — money doesn&apos;t move on a status change.</p>
+                </div>
+              )}
+              <div className="flex gap-2 pt-1">
+                <button disabled={busy || !lease} onClick={async () => {
+                  if (!firestore || !tenantId || !lease) return;
+                  setBusy(true);
+                  try {
+                    await endLease(firestore, tenantId, lease, ending.id, leases);
+                    toast({ title: 'Lease ended', description: `${ending.firstName} ${ending.lastName}` });
+                    setEnding(null);
+                  } catch { toast({ title: 'Could not end lease', description: 'Try again.' }); }
+                  setBusy(false);
+                }} className="flex-1 rounded-2xl bg-rose-600 py-3 text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-50">
+                  {busy ? 'Ending…' : lease ? 'End lease' : 'No active lease'}
+                </button>
+                <button onClick={() => setEnding(null)} className="rounded-2xl bg-slate-100 px-5 py-3 text-[11px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
+              </div>
+            </div>
+          </div>
         );
       })()}
     </div>
