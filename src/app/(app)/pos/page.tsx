@@ -10,6 +10,7 @@ import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
 import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { DeskAvailabilityPanel } from '@/components/pos/DeskAvailabilityPanel';
+import { GuestsTodayPanel } from '@/components/pos/GuestsTodayPanel';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
@@ -1629,6 +1630,7 @@ function POSPage() {
                     toast({ title: 'Added to the ticket', description: `${line.label} — take payment at checkout.` });
                   }}
                 />
+                <GuestsTodayPanel tenantId={tenantId} />
               </div>
             )}
 
