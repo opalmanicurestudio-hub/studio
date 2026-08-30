@@ -22,6 +22,7 @@ import {
   Users, AlertTriangle, CheckCircle2, Loader, Phone, Mail,
   ArrowRight, Armchair, Moon, ExternalLink,
 } from 'lucide-react';
+import { RenterProfileDrawer } from '@/components/renters/RenterProfileDrawer';
 
 type R = any;
 
@@ -60,6 +61,9 @@ export default function RentersPage() {
   const [leases, setLeases] = useState<R[]>([]);
   const [staff, setStaff] = useState<R[]>([]);
   const [booths, setBooths] = useState<R[]>([]);
+  const [reservations, setReservations] = useState<R[]>([]);
+  const [amenityRequests, setAmenityRequests] = useState<R[]>([]);
+  const [profileRenter, setProfileRenter] = useState<R | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'active' | 'setup' | 'leave' | 'past'>('active');
 
@@ -70,7 +74,8 @@ export default function RentersPage() {
         (s) => { set(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))); if (done) setLoading(false); },
         () => { if (done) setLoading(false); });
     const unsubs = [sub('renters', setRenters, true), sub('leases', setLeases),
-      sub('staff', setStaff), sub('booths', setBooths)];
+      sub('staff', setStaff), sub('booths', setBooths),
+      sub('boothReservations', setReservations), sub('amenityRequests', setAmenityRequests)];
     return () => unsubs.forEach((u) => u());
   }, [firestore, tenantId]);
 
@@ -181,7 +186,7 @@ export default function RentersPage() {
           {visible.map(({ r, unsigned, spaces, rent, freq, ownMode, book, needsSetup, noPortal }) => (
             <div key={r.id} className={cn('rounded-2xl border-2 p-4 space-y-3',
               needsSetup ? 'border-rose-300 bg-rose-50' : unsigned ? 'border-amber-300 bg-amber-50' : 'border-slate-200')}>
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start justify-between gap-3 cursor-pointer" onClick={() => setProfileRenter(r)}>
                 <div className="min-w-0">
                   <p className="font-black text-sm truncate">{r.firstName} {r.lastName}</p>
                   <p className="text-[11px] font-bold text-muted-foreground mt-0.5 truncate">
@@ -242,9 +247,32 @@ export default function RentersPage() {
       )}
 
       <p className="text-[10px] font-bold text-muted-foreground">
-        Leases, documents and money live on the full card in the Booth Hub — this page is for
-        seeing the whole roster and who on it needs you.
+        Tap anyone for their full card — leases, money, documents and activity, right here.
+        Editing details, new leases and offboarding still start in the Booth Hub.
       </p>
+
+      {profileRenter && (() => {
+        const myLease = leases.find((l) => l.renterId === profileRenter.id
+          && ['active', 'on_leave', 'pending_signature'].includes(String(l.status)));
+        const booth = myLease ? booths.find((b) => b.id === myLease.boothId) : undefined;
+        const toHub = () => { window.location.href = '/booths?tab=ops#ops-people'; };
+        return (
+          <RenterProfileDrawer
+            renter={profileRenter}
+            lease={myLease}
+            booth={booth}
+            reservations={reservations}
+            amenityRequests={amenityRequests}
+            w9={undefined}
+            tenantId={tenantId}
+            firestore={firestore}
+            onClose={() => setProfileRenter(null)}
+            onEdit={toHub}
+            onLease={toHub}
+            onEndLease={toHub}
+          />
+        );
+      })()}
     </div>
   );
 }
