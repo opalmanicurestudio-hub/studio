@@ -5287,13 +5287,6 @@ export default function BoothsPage() {
         <div className="px-4 sm:px-6 md:px-8 py-5 space-y-6">
           {/* ── Mobile jump bar — thumb-reach navigation for a long page ── */}
           <div className="sm:hidden sticky top-0 z-30 -mx-4 px-4 py-2 bg-slate-50/95 backdrop-blur border-b flex gap-1.5 overflow-x-auto">
-            {([['ops-rentals', 'Rentals'], ['ops-maint', 'Maintenance'], ['ops-people', 'People']] as const).map(([id, label]) => (
-              <button key={id}
-                onClick={() => { try { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch { /* older browsers */ } }}
-                className="h-8 px-3 rounded-full border-2 bg-white text-[10px] font-black uppercase tracking-widest text-slate-600 whitespace-nowrap shrink-0 active:scale-95 transition-transform">
-                {label}
-              </button>
-            ))}
           </div>
 
           {/* ── NEEDS ATTENTION THIS WEEK — the one digest ── */}
@@ -5378,23 +5371,6 @@ export default function BoothsPage() {
               </div>
               <a href="/maintenance"
                 className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 shrink-0 flex items-center">Workers</a>
-            </div>
-          </div>
-
-          <ZoneLabel>Pipeline — new business</ZoneLabel>
-
-          <div id="ops-tours" className="scroll-mt-14">
-            <div id="ops-apps" className="rounded-2xl border-2 border-dashed p-5 flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <p className="font-black text-sm uppercase">Leads moved</p>
-                <p className="text-xs font-bold text-muted-foreground mt-0.5">
-                  Tours and applications now live on their own page, ordered by who has been waiting longest — including converting a lead into a renter.
-                </p>
-              </div>
-              <a href="/pipeline"
-                 className="shrink-0 h-10 px-4 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
-                <Users className="h-3.5 w-3.5" /> Open
-              </a>
             </div>
           </div>
 
@@ -5550,23 +5526,6 @@ export default function BoothsPage() {
               are the same humans at different stages of one journey, so they
               live in ONE searchable list. Filter chips slice it; renters get
               the full management card, everyone else a contact card. ── */}
-          <ZoneLabel>Facility</ZoneLabel>
-
-          <div id="ops-maint" className="scroll-mt-14">
-            <div className="rounded-2xl border-2 border-dashed p-5 flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <p className="font-black text-sm uppercase">Maintenance moved</p>
-                <p className="text-xs font-bold text-muted-foreground mt-0.5">
-                  Tickets, workers and preventive plans now have their own page — they cover the whole studio, not just rented booths.
-                </p>
-              </div>
-              <a href="/maintenance"
-                 className="shrink-0 h-10 px-4 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
-                <Wrench className="h-3.5 w-3.5" /> Open
-              </a>
-            </div>
-          </div>
-
           <ZoneLabel>Products</ZoneLabel>
 
           {/* ── DAY PASSES — prepaid bundles: cash today, loyalty tomorrow ── */}
