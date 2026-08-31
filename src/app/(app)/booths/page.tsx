@@ -4477,6 +4477,20 @@ export default function BoothsPage() {
     }
     setSaving(true);
     const now = new Date().toISOString();
+    // dayUseEnabled is what the booking APIs check before they will sell a day
+    // or an hour ("That space is not set up for day use."), and nothing in this
+    // app has ever set it — every space was created with it false. It is not a
+    // separate decision, though: a space offers day use exactly when it has a
+    // day or hourly rate AND at least one weekday open. Derive it from what she
+    // already filled in rather than asking her the same question twice.
+    const allRates = [
+      { frequency: form.baseRentFrequency, amountCents: Math.round(toNumber(form.baseRentDollars) * 100) },
+      ...form.extraRates.map((r) => ({ frequency: r.frequency, amountCents: Math.round(toNumber(r.dollars) * 100) })),
+    ].filter((r) => r.amountCents > 0);
+    const shortRates = allRates.filter((r) => !['monthly', 'weekly', 'biweekly'].includes(r.frequency));
+    const dayUseEnabled = shortRates.length > 0 && form.dayRentalDays.length > 0;
+    const dayUseHourlyCents = shortRates.find((r) => r.frequency === 'hourly')?.amountCents ?? null;
+    const dayUseDailyCents = shortRates.find((r) => r.frequency === 'daily')?.amountCents ?? null;
     try {
       if (editingId) {
         await updateDoc(
@@ -4495,6 +4509,9 @@ export default function BoothsPage() {
             amenities: form.amenities,
             photoUrls: form.photoUrls,
             listed: form.listed,
+            dayUseEnabled,
+            dayUseHourlyCents,
+            dayUseDailyCents,
             listingDescription: form.listingDescription.trim(),
             videoUrl: form.videoUrl.trim(),
             dayRentalDays: form.dayRentalDays,
@@ -4562,6 +4579,9 @@ export default function BoothsPage() {
               depositRequired: form.depositType !== 'none',
               balanceMode: form.balanceMode,
               listed: form.listed,
+              dayUseEnabled,
+              dayUseHourlyCents,
+              dayUseDailyCents,
             });
           }
         } catch { /* update path already includes these; this is a safety net */ }
