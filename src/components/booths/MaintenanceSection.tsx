@@ -581,7 +581,7 @@ export function MaintenanceSection({
       });
       const nRef = doc(collection(firestore, 'tenants', tenantId, 'notifications'));
       await setDoc(nRef, {
-        id: nRef.id, type: 'maintenance_collision', read: false, createdAt: nowIso, link: '/booths?tab=ops#ops-rentals',
+        id: nRef.id, type: 'maintenance_collision', read: false, createdAt: nowIso, link: '/pos?tab=spaces',
         message: `${ticket.boothName || 'A space'} went out of service with ${upcoming.length} paid rental${upcoming.length === 1 ? '' : 's'} booked on it — first is ${first.name || 'a guest'} on ${first.startDate}.`,
       });
     } catch (err) {
