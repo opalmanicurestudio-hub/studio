@@ -2064,7 +2064,7 @@ export async function POST(req: NextRequest) {
       const notifRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await notifRef.set({
         id: notifRef.id, userId: null, read: false, createdAt: nowIso,
-        type: 'booth_reservation', link: '/booths',
+        type: 'booth_reservation', link: '/pos?tab=spaces',
         message: `${r.name || 'A renter'} checked in to ${r.boothName || 'their space'} (self check-in).`,
       });
       const needsBalance = (r.balanceDueCents || 0) > 0 && !r.balancePaid;
@@ -2136,7 +2136,7 @@ export async function POST(req: NextRequest) {
         const notifRef = db.collection(`tenants/${tenantId}/notifications`).doc();
         await notifRef.set({
           id: notifRef.id, userId: null, read: false, createdAt: now.toISOString(),
-          type: 'booth_reservation', link: '/booths',
+          type: 'booth_reservation', link: '/pos?tab=spaces',
           message: `${r.name || 'A renter'} checked out of ${r.boothName || 'their space'} — ${bits.join(', ')}.`,
         });
       }
@@ -2336,7 +2336,7 @@ export async function POST(req: NextRequest) {
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({
         id: nRef.id, userId: null, read: false, createdAt: nowIso,
-        type: 'booth_reservation', link: '/booths',
+        type: 'booth_reservation', link: '/pos?tab=spaces',
         message: `${r.name || 'A renter'} wants to reschedule ${r.boothName || 'their space'} (${r.startDate})${note ? `: “${note}”` : ''} — use Reschedule on their booking card.`,
       });
       return NextResponse.json({ ok: true });
