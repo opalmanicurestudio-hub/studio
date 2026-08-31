@@ -18,6 +18,7 @@ import { collection, doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { endLease, offboardingTodos } from '@/lib/booth-rental-service';
 import { useToast } from '@/hooks/use-toast';
 import { useFirebase } from '@/firebase';
+import { useTenant } from '@/context/TenantContext';
 import { useLocation } from '@/context/LocationContext';
 import { cn } from '@/lib/utils';
 import {
@@ -55,9 +56,10 @@ function bookableThroughStudio(staffDoc: any): { ok: boolean; why: string } {
 const OCCUPYING = ['active', 'on_leave', 'pending_signature'];
 
 export default function RentersPage() {
-  const { firestore, user } = useFirebase() as any;
+  const { firestore } = useFirebase() as any;
   const { selectedLocationId } = useLocation();
-  const tenantId = user?.tenantId || (user as any)?.uid || null;
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id ?? null;
 
   const [renters, setRenters] = useState<R[]>([]);
   const [leases, setLeases] = useState<R[]>([]);
@@ -253,7 +255,7 @@ export default function RentersPage() {
         Editing details, new leases and offboarding still start in the Booth Hub.
       </p>
 
-      {profileRenter && (() => {
+      {profileRenter && tenantId && (() => {
         const myLease = leases.find((l) => l.renterId === profileRenter.id
           && ['active', 'on_leave', 'pending_signature'].includes(String(l.status)));
         const booth = myLease ? booths.find((b) => b.id === myLease.boothId) : undefined;
