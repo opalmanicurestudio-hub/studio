@@ -456,7 +456,7 @@ export async function POST(req: NextRequest) {
       }).catch(() => { /* the booking stands whether or not the email lands */ });
 
       const nRef = db.collection(`tenants/${tid}/notifications`).doc();
-      await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/booths',
+      await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/pos?tab=spaces',
         message: `Desk booking: ${resData.name} — ${resData.boothName}, ${date} · ${unitsLabel} ($${(amountCents / 100).toFixed(2)}${paid ? '' : ' — unpaid'})` });
       await logAuditAdmin(db, tid, {
         action: 'booth.desk_booked', targetType: 'boothReservation', targetId: ref.id,
@@ -838,7 +838,7 @@ export async function POST(req: NextRequest) {
         const pd = passDoc.data() as any;
         const daysLeft = Math.max(0, (Number(pd.daysTotal) || 0) - (Number(pd.daysUsed) || 0) - passDaysNeeded);
         const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-        await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowPass, link: '/booths',
+        await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowPass, link: '/pos?tab=spaces',
           message: `Pass booking: ${resData.name} — ${resData.boothName}, ${startDate}${endDate !== startDate ? ` → ${endDate}` : ''} (${passDaysNeeded} pass day${passDaysNeeded === 1 ? '' : 's'} used · ${daysLeft} left)` });
         await logAuditAdmin(db, tenantId, {
           action: 'booth.pass_redeemed', targetType: 'boothReservation', targetId: passRef.id,
@@ -1116,7 +1116,7 @@ export async function GET(req: NextRequest) {
       }
       await purRef.set({ status: 'completed', completedAt: nowIso, passId: passRef.id, stripePaymentIntentId: piId }, { merge: true });
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-      await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/booths',
+      await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/pos?tab=spaces',
         message: `Day pass sold online: ${pur.name} bought ${pur.packLabel} ($${((pur.amountCents || 0) / 100).toFixed(2)})` });
       await logAuditAdmin(db, tenantId, {
         action: 'booth.pass_sold', targetType: 'boothPass', targetId: passRef.id,
@@ -1166,7 +1166,7 @@ export async function GET(req: NextRequest) {
     if (conflicted) {
       await resRef.set({ status: 'payment_received_conflict', confirmedAt: nowIso }, { merge: true });
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-      await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/booths',
+      await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/pos?tab=spaces',
         message: `⚠ PAID but dates conflict: ${r.name} paid for ${r.boothName} ${r.startDate} → ${r.endDate}. Refund or rebook needed.` });
       return NextResponse.json({ ok: false, confirmed: false, error: 'Payment received, but those dates were just taken. The studio will contact you to reschedule or refund.' });
     }
@@ -1189,7 +1189,7 @@ export async function GET(req: NextRequest) {
     await persistDayUseSignature(db, tenantId, reservationId, r);
     const availability = await syncReservationAvailability(db, tenantId, reservationId, r, true);
     const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-    await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/booths',
+    await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/pos?tab=spaces',
       message: `💰 Day rental booked & paid: ${r.name} — ${r.boothName}, ${r.startDate} → ${r.endDate} ($${(r.amountCents / 100).toFixed(2)})`
         + (availability.granted > 0 ? ` · bookable ${availability.granted === 1 ? 'that day' : `${availability.granted} days`}` : '')
         + (availability.skipped.length > 0 ? ` · not bookable: ${availability.skipped.join('; ')}` : '') });
@@ -1473,7 +1473,7 @@ export async function PATCH(req: NextRequest) {
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({
         id: nRef.id, userId: null, read: false, createdAt: nowIso,
-        type: 'booth_reservation', link: '/booths',
+        type: 'booth_reservation', link: '/pos?tab=spaces',
         message: `${r.name || 'A guest'}'s booking moved to ${fmt(startDate, startTime, endTime)} (${r.boothName || 'space'}).`,
       });
       return NextResponse.json({ ok: true, startDate, endDate, startTime, endTime });
