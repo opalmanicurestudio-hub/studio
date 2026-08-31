@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
       try {
         const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
         await nRef.set({
-          id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/booths',
+          id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/pos?tab=spaces',
           message: `Cancellation requested: ${r.name || 'A guest'} — ${r.boothName || 'space'}, ${reservationWhenLabel(r)}. Approve/refund from Booth Hub.`,
         });
       } catch { /* bell is a bonus */ }
