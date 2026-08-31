@@ -20,6 +20,8 @@ import { useToast } from '@/hooks/use-toast';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useLocation } from '@/context/LocationContext';
+import { AppHeader } from '@/components/shared/AppHeader';
+import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { cn } from '@/lib/utils';
 import {
   Users, AlertTriangle, CheckCircle2, Loader, Phone, Mail,
@@ -145,14 +147,25 @@ export default function RentersPage() {
   ];
 
   return (
-    <div className="p-4 sm:p-6 space-y-6 max-w-[1000px] mx-auto w-full">
-      <header className="space-y-1">
-        <h1 className="flex items-center gap-2 text-2xl font-black uppercase tracking-tight">
-          <Users className="h-5 w-5 text-primary shrink-0" /> Renters
-        </h1>
-        <p className="text-xs font-bold text-muted-foreground">
-          Everyone renting from you — with the ones losing bookable days sorted to the top.
-        </p>
+    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+      <AppHeader title="Renters" />
+      <div className="flex-1 w-full max-w-[1000px] mx-auto min-w-0 p-4 sm:p-6 md:p-8 space-y-6">
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-1 min-w-0">
+          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground opacity-60">
+            Booth rental
+          </p>
+          <h1 className="flex items-center gap-2.5 text-3xl md:text-4xl font-black uppercase tracking-tighter leading-none">
+            <span className="grid h-9 w-9 place-items-center rounded-2xl border-2 border-primary/15 bg-primary/5 shrink-0">
+              <Users className="h-4 w-4 text-primary" />
+            </span>
+            Renters
+          </h1>
+          <p className="text-xs font-bold text-muted-foreground max-w-prose">
+            Everyone renting from you — with the ones losing bookable days sorted to the top.
+          </p>
+        </div>
+        <div className="shrink-0"><LocationSwitcher /></div>
       </header>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -358,6 +371,7 @@ export default function RentersPage() {
           </div>
         );
       })()}
+      </div>
     </div>
   );
 }
