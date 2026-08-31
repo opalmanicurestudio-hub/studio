@@ -21,6 +21,8 @@ import { collection, doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useLocation } from '@/context/LocationContext';
+import { AppHeader } from '@/components/shared/AppHeader';
+import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { createRenter } from '@/lib/booth-rental-service';
 import { linkContactRenter } from '@/lib/booth-contacts';
 import { cn } from '@/lib/utils';
@@ -234,14 +236,25 @@ export default function PipelinePage() {
   ];
 
   return (
-    <div className="p-4 sm:p-6 space-y-6 max-w-[1000px] mx-auto w-full">
-      <header className="space-y-1">
-        <h1 className="flex items-center gap-2 text-2xl font-black uppercase tracking-tight">
-          <Users className="h-5 w-5 text-primary shrink-0" /> Pipeline
-        </h1>
-        <p className="text-xs font-bold text-muted-foreground">
-          Everyone between first enquiry and a signed lease, ordered by who has been waiting longest.
-        </p>
+    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+      <AppHeader title="Pipeline" />
+      <div className="flex-1 w-full max-w-[1000px] mx-auto min-w-0 p-4 sm:p-6 md:p-8 space-y-6">
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-1 min-w-0">
+          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground opacity-60">
+            Booth rental
+          </p>
+          <h1 className="flex items-center gap-2.5 text-3xl md:text-4xl font-black uppercase tracking-tighter leading-none">
+            <span className="grid h-9 w-9 place-items-center rounded-2xl border-2 border-primary/15 bg-primary/5 shrink-0">
+              <Users className="h-4 w-4 text-primary" />
+            </span>
+            Pipeline
+          </h1>
+          <p className="text-xs font-bold text-muted-foreground max-w-prose">
+            Everyone between first enquiry and a signed lease, ordered by who has been waiting longest.
+          </p>
+        </div>
+        <div className="shrink-0"><LocationSwitcher /></div>
       </header>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -355,6 +368,7 @@ export default function PipelinePage() {
       <p className="text-[10px] font-bold text-muted-foreground">
         Convert makes someone a renter right here; giving them a lease happens in the Booth Hub, where the booths are.
       </p>
+      </div>
     </div>
   );
 }
