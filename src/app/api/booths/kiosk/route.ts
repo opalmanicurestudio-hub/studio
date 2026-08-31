@@ -277,7 +277,7 @@ export async function POST(req: NextRequest) {
       }, { merge: true });
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({
-        id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/booths',
+        id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/pos?tab=spaces',
         message: `👋 Kiosk check-in: ${r.name} — ${r.boothName}${r.bookingType === 'hourly' && r.endTime ? ` (until ${r.endTime})` : ''}`,
       });
       return NextResponse.json({ ok: true, firstName: (r.name || 'Guest').split(' ')[0], boothName: r.boothName, endTime: r.bookingType === 'hourly' ? r.endTime : null });
@@ -664,7 +664,7 @@ export async function POST(req: NextRequest) {
       const nowIso = new Date().toISOString();
       await ref.set({ cancelRequestedAt: nowIso, cancelReason: String(reason || '').slice(0, 500), status: 'cancel_requested' }, { merge: true });
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-      await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/booths',
+      await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/pos?tab=spaces',
         message: `🚫 Cancellation requested: ${r.name} — ${r.boothName}, ${r.startDate}${r.bookingType === 'hourly' && r.startTime ? ` ${r.startTime}` : ''}. Review to refund or decline.${reason ? ` Reason: "${String(reason).slice(0, 100)}"` : ''}` });
       return NextResponse.json({ ok: true });
     }
