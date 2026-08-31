@@ -338,6 +338,9 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   }, [firestore, tenantId]);
 
   const visible = useMemo(() => (booths || []).filter((b: any) => {
+    // The owner's explicit call comes first. Absent flag = listed, so every
+    // space that predates the switch keeps showing exactly as it did.
+    if (b.listed === false) return false;
     const opts = Array.isArray(b.pricingOptions) && b.pricingOptions.length > 0
       ? b.pricingOptions : [{ frequency: b.baseRentFrequency || 'monthly' }];
     const hasLease = opts.some((o: any) => ['monthly', 'weekly', 'biweekly'].includes(o.frequency));
