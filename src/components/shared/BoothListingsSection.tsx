@@ -170,6 +170,37 @@ function BookingCalendar({
   );
 }
 
+// ─── What a space is actually offering, right now ───────────────────────────
+// Publishing used to follow STATUS: the query asked for vacant spaces and
+// showed whatever came back. That is wrong in both directions — a space with
+// a full-time renter can still sell its open day-rental days, and a space
+// under an exclusive lease must never be offered as a lease again. These
+// three helpers are the single source of truth for both questions, and every
+// price, badge and action in the section reads them.
+const LEASE_FREQUENCIES = ['monthly', 'weekly', 'biweekly'];
+
+function ratesOfBooth(b: any): { frequency: string; amountCents: number }[] {
+  const opts = Array.isArray(b?.pricingOptions) ? b.pricingOptions.filter((o: any) => o && o.amountCents > 0) : [];
+  if (opts.length > 0) return opts;
+  return b?.baseRentCents ? [{ frequency: b.baseRentFrequency || 'monthly', amountCents: b.baseRentCents }] : [];
+}
+
+// A lease is only on offer while the space is genuinely free. 'partial' means
+// someone already holds part of the week; 'occupied' means all of it.
+function leaseRatesOf(b: any): { frequency: string; amountCents: number }[] {
+  if (b?.status !== 'vacant') return [];
+  return ratesOfBooth(b).filter((r) => LEASE_FREQUENCIES.includes(r.frequency));
+}
+
+// Day and hourly rates survive a shared lease — the booking calendar already
+// gates each date against the space's open weekdays, its blackout dates and
+// everything already booked, so a partially-let space can safely sell what is
+// left. An exclusive lease ('occupied') and anything in maintenance cannot.
+function dayRatesOf(b: any): { frequency: string; amountCents: number }[] {
+  if (b?.status !== 'vacant' && b?.status !== 'partial') return [];
+  return ratesOfBooth(b).filter((r) => !LEASE_FREQUENCIES.includes(r.frequency));
+}
+
 export function BoothListingsSection({ tenantId, config, db }: { tenantId: string; config: any; db?: Firestore }) {
   const firestore = db || getFirestore();
   const [booths, setBooths] = useState<any[] | null>(null);
@@ -330,7 +361,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
     let cancelled = false;
     (async () => {
       try {
-        const snap = await getDocs(query(collection(firestore, `tenants/${tenantId}/booths`), where('status', '==', 'vacant')));
+        const snap = await getDocs(collection(firestore, `tenants/${tenantId}/booths`));
         if (!cancelled) setBooths(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })));
       } catch { if (!cancelled) setBooths([]); }
     })();
@@ -341,12 +372,15 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
     // The owner's explicit call comes first. Absent flag = listed, so every
     // space that predates the switch keeps showing exactly as it did.
     if (b.listed === false) return false;
-    const opts = Array.isArray(b.pricingOptions) && b.pricingOptions.length > 0
-      ? b.pricingOptions : [{ frequency: b.baseRentFrequency || 'monthly' }];
-    const hasLease = opts.some((o: any) => ['monthly', 'weekly', 'biweekly'].includes(o.frequency));
-    const hasDay = opts.some((o: any) => !['monthly', 'weekly', 'biweekly'].includes(o.frequency));
+    // A space out of service is never on offer, whatever its rates say.
+    if (b.status === 'maintenance') return false;
+    // One page per location when the section names one; without it, every
+    // location's spaces share the page exactly as before.
+    if (config.locationId && b.locationId && b.locationId !== config.locationId) return false;
+    const hasLease = leaseRatesOf(b).length > 0;
+    const hasDay = dayRatesOf(b).length > 0;
     return (hasLease && config.showMonthly !== false) || (hasDay && config.showDaily !== false);
-  }), [booths, config.showMonthly, config.showDaily]);
+  }), [booths, config.showMonthly, config.showDaily, config.locationId]);
 
   const photosOf = (b: any): string[] => (Array.isArray(b.photoUrls) && b.photoUrls.length > 0) ? b.photoUrls : (b.photoUrl ? [b.photoUrl] : []);
   // v55 — video tours: YouTube/Vimeo links become embeds, direct files
@@ -364,17 +398,14 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const blurbOf = (b: any) => b.listingDescription || b.notes || '';
   // v50 — multi-pricing: pricingOptions[] is authoritative when present;
   // legacy base fields remain the fallback so old assets render unchanged.
-  const ratesOf = (b: any): { frequency: string; amountCents: number }[] => {
-    const opts = Array.isArray(b.pricingOptions) ? b.pricingOptions.filter((o: any) => o && o.amountCents > 0) : [];
-    if (opts.length > 0) return opts;
-    return b.baseRentCents ? [{ frequency: b.baseRentFrequency || 'monthly', amountCents: b.baseRentCents }] : [];
-  };
-  const LEASE_FREQS = ['monthly', 'weekly', 'biweekly'];
-  const leaseRates = (b: any) => ratesOf(b).filter(r => LEASE_FREQS.includes(r.frequency));
-  const dayRates = (b: any) => ratesOf(b).filter(r => !LEASE_FREQS.includes(r.frequency));
-  const dailyRateOf = (b: any) => ratesOf(b).find((r: any) => r.frequency === 'daily' && r.amountCents > 0);
-  const hourlyRateOf = (b: any) => ratesOf(b).find((r: any) => r.frequency === 'hourly' && r.amountCents > 0);
-  const primaryRate = (b: any) => leaseRates(b)[0] || ratesOf(b)[0] || { frequency: 'monthly', amountCents: 0 };
+  const leaseRates = leaseRatesOf;
+  const dayRates = dayRatesOf;
+  const dailyRateOf = (b: any) => dayRates(b).find((r: any) => r.frequency === 'daily' && r.amountCents > 0);
+  const hourlyRateOf = (b: any) => dayRates(b).find((r: any) => r.frequency === 'hourly' && r.amountCents > 0);
+  // Everything a visitor can actually buy on this space today. A partly-let
+  // space still shows its day rate; it must never quote the monthly one.
+  const offeredRates = (b: any) => [...leaseRates(b), ...dayRates(b)];
+  const primaryRate = (b: any) => offeredRates(b)[0] || { frequency: 'monthly', amountCents: 0 };
   const priceOf = (b: any) => { const r = primaryRate(b); return { amount: Math.round(r.amountCents / 100), suffix: FREQ_LABEL[r.frequency] || '/mo' }; };
   const isLease = (b: any) => leaseRates(b).length > 0;
 
@@ -673,7 +704,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
 
   const PriceTag = ({ b, light }: { b: any; light?: boolean }) => {
     const { amount, suffix } = priceOf(b);
-    const others = ratesOf(b).slice(1);
+    const others = offeredRates(b).slice(1);
     return (
       <div className="shrink-0 text-right">
         <p>
@@ -1058,7 +1089,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                     <div className="space-y-4 py-1">
                       <div>
                         <h3 className="font-black text-xl tracking-tight">{applyFor.name || 'This space'}</h3>
-                        <p className="text-xs opacity-60 font-bold mt-0.5">{((isLease(applyFor) ? leaseRates(applyFor) : ratesOf(applyFor)).slice(0, 2).map((r: any) => `$${Math.round(r.amountCents / 100).toLocaleString()}${FREQ_LABEL[r.frequency] || ''}`).join(' · ')) || ''} · We respond within one business day.</p>
+                        <p className="text-xs opacity-60 font-bold mt-0.5">{((isLease(applyFor) ? leaseRates(applyFor) : dayRates(applyFor)).slice(0, 2).map((r: any) => `$${Math.round(r.amountCents / 100).toLocaleString()}${FREQ_LABEL[r.frequency] || ''}`).join(' · ')) || ''} · We respond within one business day.</p>
                       </div>
                       {(ratingOf(applyFor) || blurbOf(applyFor) || (Array.isArray(applyFor.amenities) && applyFor.amenities.length > 0)) && (
                         <div className="rounded-2xl bg-slate-50 border-2 border-slate-100 p-3.5 space-y-2.5">
@@ -1069,8 +1100,8 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                           {Array.isArray(applyFor.amenities) && applyFor.amenities.length > 0 && (
                             <div className="flex flex-wrap gap-1.5">{applyFor.amenities.map((a: string) => (<span key={a} className="text-[10px] font-bold text-slate-600 bg-white border rounded-full px-2.5 py-1">✓ {a}</span>))}</div>
                           )}
-                          {ratesOf(applyFor).length > 1 && (
-                            <div className="flex flex-wrap gap-x-3 gap-y-1 pt-0.5">{ratesOf(applyFor).map((rt: any) => (<span key={rt.frequency} className="text-[10px] font-black text-slate-500"><span className="uppercase tracking-wide">{rt.frequency}</span> ${(rt.amountCents / 100).toFixed(rt.amountCents % 100 === 0 ? 0 : 2)}</span>))}</div>
+                          {offeredRates(applyFor).length > 1 && (
+                            <div className="flex flex-wrap gap-x-3 gap-y-1 pt-0.5">{offeredRates(applyFor).map((rt: any) => (<span key={rt.frequency} className="text-[10px] font-black text-slate-500"><span className="uppercase tracking-wide">{rt.frequency}</span> ${(rt.amountCents / 100).toFixed(rt.amountCents % 100 === 0 ? 0 : 2)}</span>))}</div>
                           )}
                         </div>
                       )}
