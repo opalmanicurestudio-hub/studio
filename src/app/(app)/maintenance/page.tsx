@@ -17,6 +17,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import { useFirebase, useMemoFirebase, useCollection, useDoc } from '@/firebase';
+import { useTenant } from '@/context/TenantContext';
 import { doc } from 'firebase/firestore';
 import { useLocation } from '@/context/LocationContext';
 import { MaintenanceSection } from '@/components/booths/MaintenanceSection';
@@ -25,9 +26,10 @@ import { Wrench, AlertTriangle, CircleDot, CalendarClock, Loader } from 'lucide-
 import { cn } from '@/lib/utils';
 
 export default function MaintenancePage() {
-  const { firestore, firebaseApp, user } = useFirebase() as any;
+  const { firestore, firebaseApp } = useFirebase() as any;
   const { selectedLocationId } = useLocation();
-  const tenantId = user?.tenantId || (user as any)?.uid || null;
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id ?? null;
 
   const storage = useMemo(() => (firebaseApp ? getStorage(firebaseApp) : null), [firebaseApp]);
 
