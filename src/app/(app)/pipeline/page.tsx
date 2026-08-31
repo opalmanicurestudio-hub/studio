@@ -19,6 +19,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { collection, doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { useFirebase } from '@/firebase';
+import { useTenant } from '@/context/TenantContext';
 import { useLocation } from '@/context/LocationContext';
 import { createRenter } from '@/lib/booth-rental-service';
 import { linkContactRenter } from '@/lib/booth-contacts';
@@ -79,10 +80,11 @@ function urgencyOf(r: Row, todayIso: string): { rank: number; label: string; ton
 }
 
 export default function PipelinePage() {
-  const { firestore, user } = useFirebase() as any;
+  const { firestore } = useFirebase() as any;
   const { selectedLocationId } = useLocation();
   const { toast } = useToast();
-  const tenantId = user?.tenantId || (user as any)?.uid || null;
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id ?? null;
 
   const [apps, setApps] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
