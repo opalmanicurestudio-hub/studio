@@ -975,6 +975,35 @@ export interface CreateBoothInput {
   dayUseBufferMinutes?: number;
 }
 
+/**
+ * Firestore REJECTS `undefined` outright — it is not the same as "leave the
+ * field out", and this app does not enable ignoreUndefinedProperties. Any
+ * optional input that arrives unset therefore kills the ENTIRE write with
+ * "Unsupported field value: undefined (found in field X)". createLocation
+ * learned this the hard way; createBooth and createRenter had the same hole,
+ * so the lesson now lives in one helper both of them use.
+ */
+function withoutUndefined<T extends Record<string, any>>(obj: T): T {
+  const out: Record<string, any> = {};
+  for (const key of Object.keys(obj)) {
+    if (obj[key] !== undefined) out[key] = obj[key];
+  }
+  return out as T;
+}
+
+/**
+ * Fields the booth dialog sends that are NOT part of the typed input above.
+ * They used to be dropped on the floor by this whitelist, so a brand-new
+ * space lost its rental days, blackout dates, opening hours, booking slots,
+ * deposit terms and floor shape until someone opened it and saved again.
+ */
+const BOOTH_CREATE_PASSTHROUGH = [
+  'dayRentalDays', 'blackoutDates', 'openTime', 'closeTime',
+  'startIncrementMins', 'bookingSlots', 'shape', 'listed',
+  'depositType', 'depositPercent', 'depositFlatCents',
+  'breakevenHourlyCents', 'depositRequired', 'balanceMode',
+] as const;
+
 export async function createBooth(
   firestore: Firestore,
   input: CreateBoothInput
@@ -1006,8 +1035,13 @@ export async function createBooth(
     createdAt: now,
     updatedAt: now,
   };
+  const extras: Record<string, any> = {};
+  for (const key of BOOTH_CREATE_PASSTHROUGH) {
+    const value = (input as any)[key];
+    if (value !== undefined) extras[key] = value;
+  }
   const ref = doc(collection(firestore, BOOTH_RENTAL_COLLECTIONS.booths(input.tenantId)));
-  await writeBatch(firestore).set(ref, boothDoc).commit();
+  await writeBatch(firestore).set(ref, { ...withoutUndefined(boothDoc), ...extras }).commit();
   return ref.id;
 }
 
@@ -1071,7 +1105,7 @@ export async function createRenter(
     updatedAt: now,
   };
   const ref = doc(collection(firestore, BOOTH_RENTAL_COLLECTIONS.renters(input.tenantId)));
-  await writeBatch(firestore).set(ref, renterDoc).commit();
+  await writeBatch(firestore).set(ref, withoutUndefined(renterDoc)).commit();
   return ref.id;
 }
 
