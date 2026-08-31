@@ -152,7 +152,7 @@ export async function GET(req: NextRequest) {
     // Tell the owner — the renter completed this on their own phone.
     try {
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-      await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: new Date().toISOString(), link: '/booths',
+      await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: new Date().toISOString(), link: '/pos?tab=spaces',
         message: `Card on file added: ${renter.firstName || ''} ${renter.lastName || ''} (${brand} ····${last4}) — rent auto-collect is ready.` });
     } catch { /* best-effort */ }
 
