@@ -222,6 +222,43 @@ import { ImageUpload } from '@/components/shared/ImageUpload';
 
 // ─── Canvas constants ─────────────────────────────────────────────────────────
 
+// ── Shapes on the floor ─────────────────────────────────────────────────────
+// One list, used by the dialog picker, the design-mode picker and the quick-add
+// palette, so the three can never drift apart.
+const FLOOR_SHAPES: { value: string; label: string; w: number; h: number }[] = [
+  { value: 'rect',     label: '▭ Booth / suite',     w: 140, h: 100 },
+  { value: 'square',   label: '◻ Square table',      w: 160, h: 160 },
+  { value: 'round',    label: '● Round table',       w: 120, h: 120 },
+  { value: 'oval',     label: '⬭ Oval table',        w: 160, h: 100 },
+  { value: 'chair',    label: '🪑 Styling chair',    w: 80,  h: 80  },
+  { value: 'pedicure', label: '💺 Pedicure station', w: 100, h: 100 },
+  { value: 'sink',     label: '🚿 Shampoo / sink',   w: 80,  h: 80  },
+  { value: 'dryer',    label: '💨 Drying station',   w: 80,  h: 80  },
+  { value: 'desk',     label: '🛎 Reception desk',   w: 200, h: 80  },
+  { value: 'wall',     label: '▬ Wall / divider',    w: 240, h: 20  },
+  { value: 'door',     label: '🚪 Door / entry',     w: 80,  h: 20  },
+  { value: 'plant',    label: '🪴 Décor',            w: 60,  h: 60  },
+];
+// A circle drawn in a 140x100 box is an ellipse, and a wall 100px deep is a
+// room. These two families have to hold their proportions or the shape you
+// picked is not the shape you get; everything else keeps whatever size you
+// dragged it to.
+const SQUARE_SHAPES = ['round', 'chair', 'pedicure', 'sink', 'dryer', 'plant'];
+const THIN_SHAPES = ['wall', 'door'];
+
+/** The box a shape needs, given the box it currently has. */
+function sizeForShape(shape: string, w: number, h: number): { w: number; h: number } {
+  const def = FLOOR_SHAPES.find((s) => s.value === shape);
+  if (SQUARE_SHAPES.includes(shape)) {
+    const side = Math.max(40, Math.min(240, Math.round((w + h) / 2)));
+    return { w: side, h: side };
+  }
+  if (THIN_SHAPES.includes(shape)) {
+    return { w: Math.max(40, w), h: Math.min(h, def?.h ?? 20) };
+  }
+  return { w, h };
+}
+
 const CANVAS_W = 1200;
 const CANVAS_H = 800;
 const GRID = 20;
@@ -4379,6 +4416,26 @@ export default function BoothsPage() {
     } catch { toast({ variant: 'destructive', title: 'Could not add', description: 'Try again.' }); }
   };
 
+  // Design mode's shape picker: writes the new shape AND the box it needs, so
+  // the change is visible the moment it is tapped rather than after a reload.
+  const applyShape = async (booth: Booth, shape: string) => {
+    if (!tenantId) return;
+    const lp = localPos[booth.id];
+    const cur = {
+      x: lp?.x ?? booth.canvasX, y: lp?.y ?? booth.canvasY,
+      w: lp?.w ?? booth.canvasW, h: lp?.h ?? booth.canvasH,
+    };
+    const next = sizeForShape(shape, cur.w, cur.h);
+    setLocalPos((prev) => ({ ...prev, [booth.id]: { x: cur.x, y: cur.y, w: next.w, h: next.h } }));
+    try {
+      await updateDoc(doc(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId), booth.id), {
+        shape, canvasW: next.w, canvasH: next.h, updatedAt: new Date().toISOString(),
+      });
+    } catch {
+      toast({ variant: 'destructive', title: 'Shape not saved', description: 'It stayed as it was — try again.' });
+    }
+  };
+
   const autoArrangeBooths = async () => {
     if (!tenantId) return;
     const unplaced = (booths.data ?? []).filter(
@@ -4545,6 +4602,13 @@ export default function BoothsPage() {
               .filter(s => s.label.trim() && s.start && s.end && toNumber(s.dollars) > 0)
               .map(s => ({ label: s.label.trim(), startTime: s.start, endTime: s.end, amountCents: Math.round(toNumber(s.dollars) * 100) })),
             shape: form.shape || 'rect',
+            ...(() => {
+              const b = (booths.data ?? []).find((x) => x.id === editingId);
+              if (!b) return {};
+              const lp = localPos[b.id];
+              const sized = sizeForShape(form.shape || 'rect', lp?.w ?? b.canvasW, lp?.h ?? b.canvasH);
+              return { canvasW: sized.w, canvasH: sized.h };
+            })(),
             updatedAt: now,
           }
         );
@@ -5179,7 +5243,7 @@ export default function BoothsPage() {
             </div>
           ) : spaceView === 'list' ? (
             <div className="space-y-3">
-              {sortedBooths.map((booth: Booth) => {
+              {sortedBooths.filter((b) => (b as any).status !== 'inactive').map((booth: Booth) => {
                 const ds = displayStatus(booth);
                 const sc = BOOTH_STATUS_COLORS[ds] ?? BOOTH_STATUS_COLORS.vacant;
                 const lease = activeLeaseByBooth.get(booth.id);
@@ -5241,6 +5305,22 @@ export default function BoothsPage() {
                       <button onClick={saveFloorScale} className="h-8 px-2.5 rounded-lg bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest">Set</button>
                     </span>
                   </div>
+                  {selectedBooth && (
+                    <div className="rounded-xl border-2 bg-white px-3 py-2 space-y-1.5">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+                        Shape of {selectedBooth.name}
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {FLOOR_SHAPES.map((sh) => (
+                          <button key={sh.value} type="button" onClick={() => applyShape(selectedBooth, sh.value)}
+                            aria-pressed={((selectedBooth as any).shape || 'rect') === sh.value}
+                            className={`h-10 px-3 rounded-lg border-2 text-[10px] font-black uppercase tracking-wide transition-colors active:scale-95 ${((selectedBooth as any).shape || 'rect') === sh.value ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
+                            {sh.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               {floorEvents.length > 0 && (
@@ -6076,27 +6156,15 @@ export default function BoothsPage() {
             <div className="space-y-1.5">
               <Label>Shape on the floor plan</Label>
               <div className="flex flex-wrap gap-1.5">
-                {([
-                  ['rect', '▭ Booth / suite'],
-                  ['square', '◻ Square table'],
-                  ['round', '● Round table'],
-                  ['oval', '⬭ Oval table'],
-                  ['chair', '🪑 Styling chair'],
-                  ['pedicure', '💺 Pedicure station'],
-                  ['sink', '🚿 Shampoo / sink'],
-                  ['dryer', '💨 Drying station'],
-                  ['desk', '🛎 Reception desk'],
-                  ['wall', '▬ Wall / divider'],
-                  ['door', '🚪 Door / entry'],
-                  ['plant', '🪴 Décor'],
-                ] as const).map(([v, l]) => (
-                  <button key={v} type="button" onClick={() => setForm(prev => ({ ...prev, shape: v }))}
-                    className={`h-9 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${form.shape === v ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-500'}`}>
-                    {l}
+                {FLOOR_SHAPES.map((sh) => (
+                  <button key={sh.value} type="button" onClick={() => setForm(prev => ({ ...prev, shape: sh.value }))}
+                    aria-pressed={form.shape === sh.value}
+                    className={`h-10 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${form.shape === sh.value ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-500'}`}>
+                    {sh.label}
                   </button>
                 ))}
               </div>
-              <p className="text-[10px] font-bold text-muted-foreground">Purely visual — changes how this space draws on the floor plan.</p>
+              <p className="text-[10px] font-bold text-muted-foreground">Changes how this space draws on the floor plan. Round and wall shapes take their proportions on save; anything else keeps the size you dragged it to.</p>
             </div>
               </div>
             </details>
