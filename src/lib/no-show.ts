@@ -62,7 +62,7 @@ async function notifyOwner(db: Db, tenantId: string, message: string) {
   const ref = db.collection(`tenants/${tenantId}/notifications`).doc();
   await ref.set({
     id: ref.id, userId: null, read: false, createdAt: new Date().toISOString(),
-    type: 'booth_no_show', link: '/booths', message,
+    type: 'booth_no_show', link: '/pos?tab=spaces', message,
   });
 }
 
