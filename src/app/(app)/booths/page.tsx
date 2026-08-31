@@ -301,6 +301,7 @@ interface BoothFormState {
   status: BoothStatus;
   amenities: string[];
   photoUrls: string[];
+  listed: boolean;
   listingDescription: string;
   videoUrl: string;
   dayRentalDays: number[];
@@ -325,6 +326,7 @@ const EMPTY_FORM: BoothFormState = {
   status: 'vacant',
   amenities: [],
   photoUrls: [],
+  listed: true,
   listingDescription: '',
   videoUrl: '',
   dayRentalDays: [0, 1, 2, 3, 4, 5, 6],
@@ -4425,6 +4427,7 @@ export default function BoothsPage() {
       status: booth.status,
       amenities: booth.amenities ?? [],
       photoUrls: (booth as any).photoUrls ?? [],
+      listed: (booth as any).listed !== false,
       listingDescription: (booth as any).listingDescription ?? '',
       videoUrl: (booth as any).videoUrl ?? '',
       dayRentalDays: Array.isArray((booth as any).dayRentalDays) ? (booth as any).dayRentalDays : [0, 1, 2, 3, 4, 5, 6],
@@ -4449,7 +4452,29 @@ export default function BoothsPage() {
   };
 
   const handleSave = async () => {
-    if (!form.name.trim() || !tenantId || !selectedLocationId) return;
+    // Every reason a save can't proceed now SAYS SO. This handler used to
+    // return silently on a missing name, tenant or location — the button
+    // did nothing, the dialog stayed open, and there was no way to tell a
+    // refused save from a slow one.
+    if (!form.name.trim()) {
+      toast({ variant: 'destructive', title: 'Name this space', description: 'A space needs a name before it can be saved.' });
+      return;
+    }
+    if (!tenantId || !selectedLocationId) {
+      toast({ variant: 'destructive', title: 'No location selected', description: 'Pick a location in the header, then save again.' });
+      return;
+    }
+    // A photo that never reached Storage comes back as a base64 data URL.
+    // Storing those inflates the space document until Firestore refuses the
+    // whole write (1MB per document) — which is how a photo problem turns
+    // into "the space won't save at all". Refuse them here instead.
+    const inlinePhotos = form.photoUrls.filter((u) => typeof u === 'string' && u.startsWith('data:'));
+    if (inlinePhotos.length > 0) {
+      setForm((prev) => ({ ...prev, photoUrls: prev.photoUrls.filter((u) => !(typeof u === 'string' && u.startsWith('data:'))) }));
+      toast({ variant: 'destructive', title: `${inlinePhotos.length} photo${inlinePhotos.length > 1 ? 's' : ''} never uploaded`,
+        description: 'Those photos did not reach Storage, so they have been removed. Save the rest, then re-add them.' });
+      return;
+    }
     setSaving(true);
     const now = new Date().toISOString();
     try {
@@ -4469,6 +4494,7 @@ export default function BoothsPage() {
             status: form.status,
             amenities: form.amenities,
             photoUrls: form.photoUrls,
+            listed: form.listed,
             listingDescription: form.listingDescription.trim(),
             videoUrl: form.videoUrl.trim(),
             dayRentalDays: form.dayRentalDays,
@@ -4535,11 +4561,23 @@ export default function BoothsPage() {
               breakevenHourlyCents: form.depositType === 'breakeven' ? Math.max(0, Math.round(Number(form.depositValue) * 100) || 0) : null,
               depositRequired: form.depositType !== 'none',
               balanceMode: form.balanceMode,
+              listed: form.listed,
             });
           }
         } catch { /* update path already includes these; this is a safety net */ }
       }
       setDialogOpen(false);
+    } catch (err: any) {
+      const msg = String(err?.message || err || '');
+      toast({
+        variant: 'destructive',
+        title: 'Space not saved',
+        description: /permission|insufficient/i.test(msg)
+          ? 'Firestore refused the write — nothing was saved.'
+          : /too large|longer than|exceeds maximum/i.test(msg)
+          ? 'This space carries too much data to save — remove a photo and try again.'
+          : msg || 'Something went wrong and nothing was saved. Try again.',
+      });
     } finally {
       setSaving(false);
     }
@@ -5854,6 +5892,18 @@ export default function BoothsPage() {
                 </span>
               </summary>
               <div className="p-4 pt-1 space-y-4">
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div><p className="text-sm font-medium">Show on the public booking page</p>
+                <p className="text-xs text-muted-foreground">
+                  {form.listed
+                    ? (form.status === 'vacant'
+                      ? 'Listed publicly while this space is vacant.'
+                      : `Hidden right now — a space only lists while it is vacant, and this one is ${form.status}.`)
+                    : 'Hidden from the public page, whatever its status.'}
+                </p></div>
+              <Switch checked={form.listed} onCheckedChange={(c) => setForm(prev => ({ ...prev, listed: c }))} />
+            </div>
+
             <div className="space-y-1">
               <Label>Photos</Label>
               {form.photoUrls.length > 0 && (
@@ -5868,7 +5918,15 @@ export default function BoothsPage() {
                 </div>
               )}
               <ImageUpload multiple clearOnUpload enableMarkup={false} storageFolder="uploads"
-                onImageUploaded={(url) => { if (url) setForm(prev => ({ ...prev, photoUrls: [...prev.photoUrls, url] })); }} />
+                onImageUploaded={(url) => {
+                  if (!url) return;
+                  if (url.startsWith('data:')) {
+                    toast({ variant: 'destructive', title: 'Photo not saved',
+                      description: 'It never reached Storage, so it was not attached. Check the Storage rules for tenants/{id}/uploads.' });
+                    return;
+                  }
+                  setForm(prev => ({ ...prev, photoUrls: [...prev.photoUrls, url] }));
+                }} />
             </div>
 
             <div className="space-y-1">
