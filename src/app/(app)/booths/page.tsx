@@ -2922,6 +2922,15 @@ export default function BoothsPage() {
 
   // ── Floor plan layout state ─────────────────────────────────────────────────
   const [locked, setLocked] = useState(true);
+  const [floorZoom, setFloorZoom] = useState(1);
+  const floorZoomRef = useRef(1);
+  const floorViewportRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => { floorZoomRef.current = floorZoom; }, [floorZoom]);
+  const fitFloor = useCallback(() => {
+    const w = floorViewportRef.current?.clientWidth || 0;
+    if (!w) return;
+    setFloorZoom(Math.min(1, Math.max(0.2, Math.round((w / CANVAS_W) * 100) / 100)));
+  }, []);
   const [historyOpen, setHistoryOpen] = useState(false);
   // Optional real floor image / blueprint behind the canvas, per location — the
   // command-center backdrop you position stations onto. Stored on the tenant,
@@ -4126,6 +4135,12 @@ export default function BoothsPage() {
 
   // ── Drag handlers (pointer events → works for mouse & touch) ───────────────
 
+  useEffect(() => {
+    if (!isMobile || spaceView !== 'floor' || tab !== 'spaces') return;
+    const t = setTimeout(fitFloor, 0);
+    return () => clearTimeout(t);
+  }, [isMobile, spaceView, tab, fitFloor]);
+
   const beginDrag = useCallback(
     (e: React.PointerEvent, boothId: string, mode: 'move' | 'resize') => {
       if (locked) return;
@@ -4163,8 +4178,9 @@ export default function BoothsPage() {
     const handlePointerMove = (e: PointerEvent) => {
       const d = dragRef.current;
       if (!d) return;
-      const dx = e.clientX - d.startMouseX;
-      const dy = e.clientY - d.startMouseY;
+      const z = floorZoomRef.current || 1;
+      const dx = (e.clientX - d.startMouseX) / z;
+      const dy = (e.clientY - d.startMouseY) / z;
 
       if (d.mode === 'move') {
         let nx = Math.max(0, Math.min(CANVAS_W - d.startBoothW, snap(d.startBoothX + dx)));
@@ -5049,7 +5065,7 @@ export default function BoothsPage() {
               </button>
             </div>
             <div className="flex gap-2 items-center">
-              {spaceView === 'floor' && !isMobile && locked && (
+              {spaceView === 'floor' && locked && (
                 <div className="flex gap-1 p-1 bg-white rounded-xl border" title="What should the floor show? Now = live status · Money = earnings & vacancy cost · Next = upcoming arrivals">
                   {([['now', 'Now'], ['money', 'Money'], ['schedule', 'Next']] as const).map(([id, label]) => (
                     <button key={id} onClick={() => setLens(id)}
@@ -5059,7 +5075,7 @@ export default function BoothsPage() {
                   ))}
                 </div>
               )}
-              {spaceView === 'floor' && !isMobile && (
+              {spaceView === 'floor' && (
                 <div className="flex gap-1 p-1 bg-white rounded-xl border" title="Live = watch the floor · Design = arrange it">
                   <button
                     onClick={() => setLocked(true)}
@@ -5082,7 +5098,7 @@ export default function BoothsPage() {
                   { label: 'Pricing advisor', onClick: () => setPricingOpen(true) },
                   { label: 'Walk-in kiosk', onClick: () => setKioskOpen(true) },
                   { label: 'Automations', onClick: () => setAutoSettingsOpen(true) },
-                  ...(spaceView === 'floor' && !isMobile ? [{ label: 'Auto-arrange layout', onClick: autoArrangeBooths, disabled: layoutSaving }] : []),
+                  ...(spaceView === 'floor' ? [{ label: 'Auto-arrange layout', onClick: autoArrangeBooths, disabled: layoutSaving }] : []),
                 ]}
               />
             </div>
@@ -5190,25 +5206,6 @@ export default function BoothsPage() {
                 );
               })}
             </div>
-          ) : isMobile ? (
-            <div className="grid grid-cols-2 gap-3">
-              {sortedBooths.map((booth: Booth) => {
-                const lease = activeLeaseByBooth.get(booth.id);
-                const renter = lease ? renterById.get(lease.renterId) : undefined;
-                const ds = displayStatus(booth);
-                const sc = BOOTH_STATUS_COLORS[ds] ?? BOOTH_STATUS_COLORS.vacant;
-                return (
-                  <button key={booth.id} onClick={() => setSelectedId(booth.id)} className="rounded-2xl border-2 p-3 text-left space-y-1 active:scale-[0.98] transition-transform" style={{ borderColor: sc.border, background: sc.bg }}>
-                    <div className="flex items-center justify-between gap-1">
-                      <p className="font-black text-xs uppercase truncate">{booth.name}</p>
-                      <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 text-white shrink-0" style={{ background: sc.border }}>{BOOTH_STATUS_LABELS[ds] ?? ds}</span>
-                    </div>
-                    {renter && <p className="text-[10px] font-bold truncate opacity-70">{renter.firstName} {renter.lastName}</p>}
-                    {booth.baseRentCents > 0 && <p className="text-[10px] font-black">{formatCents(booth.baseRentCents)}<span className="font-normal opacity-50">/{booth.baseRentFrequency || 'mo'}</span></p>}
-                  </button>
-                );
-              })}
-            </div>
           ) : (
             <div className="relative">
               {!locked && (
@@ -5232,7 +5229,7 @@ export default function BoothsPage() {
                       ['plant', '🪴 Plant'],
                     ] as const).map(([shape, label]) => (
                       <button key={shape} onClick={() => quickAddElement(shape)}
-                        className="h-8 px-2.5 rounded-lg border-2 text-[10px] font-black uppercase tracking-wide text-slate-600 hover:border-slate-400 active:scale-95 transition-all">
+                        className="h-10 px-3 rounded-lg border-2 text-[10px] font-black uppercase tracking-wide text-slate-600 hover:border-slate-400 active:scale-95 transition-all">
                         {label}
                       </button>
                     ))}
@@ -5264,10 +5261,23 @@ export default function BoothsPage() {
                   )}
                 </div>
               )}
-              <div className="h-[380px] sm:h-[500px] lg:h-[600px] overflow-auto rounded-xl border border-border bg-muted/30 touch-pan-x touch-pan-y">
+              <div className="mb-2 flex items-center gap-1.5">
+                <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Zoom</span>
+                <button type="button" onClick={() => setFloorZoom(z => Math.max(0.2, Math.round((z - 0.1) * 100) / 100))}
+                  aria-label="Zoom out" className="h-9 w-9 rounded-lg border-2 text-sm font-black text-slate-600 active:scale-95">–</button>
+                <span className="min-w-[3.5rem] text-center text-[11px] font-black tabular-nums">{Math.round(floorZoom * 100)}%</span>
+                <button type="button" onClick={() => setFloorZoom(z => Math.min(1, Math.round((z + 0.1) * 100) / 100))}
+                  aria-label="Zoom in" className="h-9 w-9 rounded-lg border-2 text-sm font-black text-slate-600 active:scale-95">+</button>
+                <button type="button" onClick={fitFloor}
+                  className="h-9 px-3 rounded-lg border-2 text-[10px] font-black uppercase tracking-widest text-slate-600 active:scale-95">Fit</button>
+              </div>
+              <div ref={floorViewportRef} className="h-[380px] sm:h-[500px] lg:h-[600px] overflow-auto rounded-xl border border-border bg-muted/30 touch-pan-x touch-pan-y">
                 <div
                   className="relative"
-                  style={{ width: CANVAS_W, height: CANVAS_H, backgroundImage: (locked || floorBgUrl) ? undefined : 'radial-gradient(circle, var(--border) 1px, transparent 1px)', backgroundSize: `${GRID}px ${GRID}px` }}
+                  style={{ width: CANVAS_W, height: CANVAS_H,
+                    transform: `scale(${floorZoom})`, transformOrigin: 'top left',
+                    marginRight: -(CANVAS_W * (1 - floorZoom)), marginBottom: -(CANVAS_H * (1 - floorZoom)),
+                    backgroundImage: (locked || floorBgUrl) ? undefined : 'radial-gradient(circle, var(--border) 1px, transparent 1px)', backgroundSize: `${GRID}px ${GRID}px` }}
                   onClick={e => { if (e.target === e.currentTarget) setSelectedId(null); }}
                 >
                   {floorBgUrl && (
