@@ -244,6 +244,11 @@ const FLOOR_SHAPES: { value: string; label: string; w: number; h: number }[] = [
 // picked is not the shape you get; everything else keeps whatever size you
 // dragged it to.
 const SQUARE_SHAPES = ['round', 'chair', 'pedicure', 'sink', 'dryer', 'plant'];
+const FLOOR_LAYERS: Record<string, number> = { wall: 1, door: 2, plant: 3, square: 4 };
+function layerFor(shape: string, selected: boolean): number {
+  if (selected) return 15;
+  return FLOOR_LAYERS[shape] ?? 8;
+}
 const THIN_SHAPES = ['wall', 'door'];
 
 /** The box a shape needs, given the box it currently has. */
@@ -1229,6 +1234,9 @@ function BoothCanvasCard({
         top: booth.canvasY,
         width: booth.canvasW,
         height: booth.canvasH,
+        transform: (booth as any).rotation ? `rotate(${(booth as any).rotation}deg)` : undefined,
+        transformOrigin: 'center center',
+        zIndex: layerFor((booth as any).shape || 'rect', !!selected),
         touchAction: locked ? undefined : 'none',
       }}
       onPointerDown={(e) => !locked && onDragStart(e, booth.id)}
@@ -4173,6 +4181,35 @@ export default function BoothsPage() {
   // ── Drag handlers (pointer events → works for mouse & touch) ───────────────
 
   useEffect(() => {
+    if (locked || !selectedId || spaceView !== 'floor' || tab !== 'spaces') return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+      const step = e.shiftKey ? 1 : GRID;
+      const move: Record<string, [number, number]> = {
+        ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step],
+      };
+      const d = move[e.key];
+      if (!d) return;
+      e.preventDefault();
+      const b = (booths.data ?? []).find((x) => x.id === selectedId);
+      if (!b) return;
+      const lp = localPos[b.id];
+      const cur = { x: lp?.x ?? b.canvasX, y: lp?.y ?? b.canvasY, w: lp?.w ?? b.canvasW, h: lp?.h ?? b.canvasH };
+      const x = Math.max(0, Math.min(CANVAS_W - cur.w, cur.x + d[0]));
+      const y = Math.max(0, Math.min(CANVAS_H - cur.h, cur.y + d[1]));
+      setLocalPos((prev) => ({ ...prev, [b.id]: { ...cur, x, y } }));
+      if (tenantId) {
+        updateDoc(doc(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId), b.id), {
+          canvasX: x, canvasY: y, updatedAt: new Date().toISOString(),
+        }).catch(() => { /* the next drag or nudge writes again */ });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [locked, selectedId, spaceView, tab, booths.data, localPos, tenantId, firestore]);
+
+  useEffect(() => {
     if (!isMobile || spaceView !== 'floor' || tab !== 'spaces') return;
     const t = setTimeout(fitFloor, 0);
     return () => clearTimeout(t);
@@ -4433,6 +4470,70 @@ export default function BoothsPage() {
       });
     } catch {
       toast({ variant: 'destructive', title: 'Shape not saved', description: 'It stayed as it was — try again.' });
+    }
+  };
+
+  // Rotate in 15-degree steps — enough to run a wall down a diagonal without
+  // turning the floor into a drafting exercise.
+  const rotateElement = async (booth: Booth, delta: number) => {
+    if (!tenantId) return;
+    const next = ((((booth as any).rotation || 0) + delta) % 360 + 360) % 360;
+    try {
+      await updateDoc(doc(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId), booth.id), {
+        rotation: next, updatedAt: new Date().toISOString(),
+      });
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not rotate', description: 'Try again.' });
+    }
+  };
+
+  // Six identical stations should be one station copied five times, not six
+  // trips through the dialog. A copy is always a FRESH space: no lease, no
+  // renter, no history — only the look and the money settings carry over.
+  const duplicateElement = async (booth: Booth) => {
+    if (!tenantId || !selectedLocationId) return;
+    const src: any = { ...booth, ...(localPos[booth.id] ? { canvasX: localPos[booth.id].x, canvasY: localPos[booth.id].y, canvasW: localPos[booth.id].w, canvasH: localPos[booth.id].h } : {}) };
+    try {
+      const now = new Date().toISOString();
+      const ref = doc(collection(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId)));
+      await setDoc(ref, {
+        id: ref.id, locationId: selectedLocationId,
+        name: `${src.name} copy`, type: src.type || '', notes: '',
+        baseRentCents: src.baseRentCents || 0, baseRentFrequency: src.baseRentFrequency || 'monthly',
+        pricingOptions: Array.isArray(src.pricingOptions) ? src.pricingOptions : [],
+        amenities: Array.isArray(src.amenities) ? src.amenities : [],
+        photoUrls: [], listingDescription: '', videoUrl: '',
+        dayRentalDays: Array.isArray(src.dayRentalDays) ? src.dayRentalDays : [0, 1, 2, 3, 4, 5, 6],
+        blackoutDates: [], listed: src.listed !== false,
+        dayUseEnabled: !!src.dayUseEnabled,
+        status: src.status === 'inactive' ? 'inactive' : 'vacant',
+        shape: src.shape || 'rect', rotation: src.rotation || 0,
+        canvasX: Math.min(CANVAS_W - (src.canvasW || 140), (src.canvasX || 0) + GRID),
+        canvasY: Math.min(CANVAS_H - (src.canvasH || 100), (src.canvasY || 0) + GRID),
+        canvasW: src.canvasW || 140, canvasH: src.canvasH || 100,
+        sortOrder: (src.sortOrder ?? 0) + 1, currentLeaseId: null,
+        createdAt: now, updatedAt: now,
+      });
+      setSelectedId(ref.id);
+      toast({ title: `${src.name} copied`, description: 'The copy is selected — drag it into place.' });
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not copy', description: 'Try again.' });
+    }
+  };
+
+  // Removing from the floor is a real delete, so a space someone is renting is
+  // refused outright rather than quietly taking their station off the plan.
+  const removeFromFloor = async (booth: Booth) => {
+    if (!tenantId) return;
+    if (activeLeaseByBooth.get(booth.id)) {
+      toast({ variant: 'destructive', title: 'Someone is renting this', description: `End the lease on ${booth.name} before removing it.` });
+      return;
+    }
+    setSelectedId(null);
+    try {
+      await deleteDoc(doc(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId), booth.id));
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not remove', description: 'Try again.' });
     }
   };
 
@@ -5275,7 +5376,7 @@ export default function BoothsPage() {
               {!locked && (
                 <div className="mb-2 space-y-1.5">
                   <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-700 flex items-center gap-2 flex-wrap">
-                    <Unlock className="h-3 w-3 shrink-0" /> Drag booths to reposition, drag the corner to resize — edges snap and align automatically.
+                    <Unlock className="h-3 w-3 shrink-0" /> Drag to move, corner to resize, arrow keys to nudge — edges snap and align. Tap anything to rotate, copy or remove it.
                     <span className="ml-auto flex items-center gap-2">
                       <span className="text-slate-500">Floor image:</span>
                       <ImageUpload enableMarkup={false} clearOnUpload storageFolder="floorplans" onImageUploaded={(url) => { if (url) saveFloorBg(url); }} />
@@ -5307,9 +5408,26 @@ export default function BoothsPage() {
                   </div>
                   {selectedBooth && (
                     <div className="rounded-xl border-2 bg-white px-3 py-2 space-y-1.5">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">
-                        Shape of {selectedBooth.name}
-                      </p>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mr-auto">
+                          {selectedBooth.name}
+                        </p>
+                        <button type="button" onClick={() => rotateElement(selectedBooth, -15)}
+                          aria-label="Rotate left 15 degrees"
+                          className="h-9 px-2.5 rounded-lg border-2 text-[11px] font-black text-slate-600 active:scale-95">↺</button>
+                        <span className="min-w-[2.75rem] text-center text-[10px] font-black tabular-nums text-slate-500">
+                          {(selectedBooth as any).rotation || 0}°
+                        </span>
+                        <button type="button" onClick={() => rotateElement(selectedBooth, 15)}
+                          aria-label="Rotate right 15 degrees"
+                          className="h-9 px-2.5 rounded-lg border-2 text-[11px] font-black text-slate-600 active:scale-95">↻</button>
+                        <button type="button" onClick={() => rotateElement(selectedBooth, 90)}
+                          className="h-9 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 active:scale-95">90°</button>
+                        <button type="button" onClick={() => duplicateElement(selectedBooth)}
+                          className="h-9 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 active:scale-95">Copy</button>
+                        <button type="button" onClick={() => removeFromFloor(selectedBooth)}
+                          className="h-9 px-2.5 rounded-lg border-2 border-red-200 text-[9px] font-black uppercase tracking-widest text-red-600 active:scale-95">Remove</button>
+                      </div>
                       <div className="flex flex-wrap gap-1.5">
                         {FLOOR_SHAPES.map((sh) => (
                           <button key={sh.value} type="button" onClick={() => applyShape(selectedBooth, sh.value)}
