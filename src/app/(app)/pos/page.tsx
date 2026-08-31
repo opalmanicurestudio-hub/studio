@@ -314,6 +314,10 @@ function POSPage() {
   // vice versa. Persisted only for the session (not saved), defaults to
   // Floor since that's the higher-frequency screen.
   const [activeFloorTab, setActiveFloorTab] = useState<'floor' | 'retail' | 'waitlist' | 'spaces'>('floor');
+  // Notifications about day guests deep-link here with ?tab=spaces.
+  useEffect(() => {
+    try { if (new URLSearchParams(window.location.search).get('tab') === 'spaces') setActiveFloorTab('spaces'); } catch { /* ssr */ }
+  }, []);
   const [isScanLookupOpen, setIsScanLookupOpen] = useState(false);
   const [isCameraScanOpen, setIsCameraScanOpen] = useState(false);
   const [scanQuery, setScanQuery] = useState('');
