@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
     });
     const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
     await nRef.set({
-      id: nRef.id, type: 'sms', read: false, createdAt: nowIso, link: '/booths',
+      id: nRef.id, type: 'sms', read: false, createdAt: nowIso, link: '/renters',
       message: `Text from ${senderName}${senderType !== 'unknown' ? ` (${senderType})` : ''}: "${(body || `${mediaCount} photo(s)`).slice(0, 140)}"${threaded ? ` — added to ticket "${threaded}"` : ''}`,
     });
 
