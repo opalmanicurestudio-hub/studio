@@ -187,9 +187,27 @@ export default function PipelinePage() {
         createdAt: new Date().toISOString(),
       });
       const link = `${typeof window !== 'undefined' ? window.location.origin : ''}/tour-invite/${tenantId}/${token}`;
-      try { await navigator.clipboard.writeText(link); } catch { window.prompt('Copy this link:', link); }
+      try { await navigator.clipboard.writeText(link); } catch { /* the email below is the real delivery */ }
       setOfferFor(''); setOfferSlots(['', '', '']);
-      toast({ title: 'Link copied', description: `Send it to ${r.name} — they pick a time or send you theirs.` });
+
+      // Email it. Logged, policy-governed and delivery-tracked like every
+      // other message — a link sitting on a clipboard reaches nobody.
+      let sent: any = null;
+      try {
+        const res = await fetch('/api/booths/notify', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'tour-invite', tenantId, inviteId: token }),
+        });
+        sent = await res.json();
+      } catch { /* reported below */ }
+
+      if (sent?.ok) {
+        toast({ title: `Times sent to ${r.name}`, description: 'Emailed, and the link is on your clipboard too.' });
+      } else if (sent?.error) {
+        toast({ title: 'Link copied — not emailed', description: sent.error });
+      } else {
+        toast({ title: 'Link copied', description: `Send it to ${r.name} — they pick a time or send you theirs.` });
+      }
     } catch {
       toast({ title: 'Could not create the invite', description: 'Try again in a moment.' });
     }
