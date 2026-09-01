@@ -71,6 +71,9 @@ export interface GuestBookEntry {
   lostReason: string | null;
   ownerNotes: string | null;
   convertedRenterId: string | null;
+  photoUrl: string | null;
+  /** Owner-written journey entries from the contact record. */
+  history: any[];
 }
 
 export interface GuestBookInput {
@@ -209,6 +212,8 @@ export function buildGuestBook(input: GuestBookInput): GuestBookEntry[] {
       lostReason: c?.lostReason || null,
       ownerNotes: c?.ownerNotes || null,
       convertedRenterId: c?.convertedRenterId || (g.isRenter ? g.renterId : null),
+      photoUrl: c?.photoUrl || null,
+      history: Array.isArray(c?.history) ? c.history : [],
     };
   });
 
