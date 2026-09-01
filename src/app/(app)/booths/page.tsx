@@ -315,6 +315,8 @@ interface BoothFormState {
   bookingSlots: { label: string; start: string; end: string; dollars: string }[];
   shape: string;
   startIncrementMins: string;   // '15' | '30' | '60' — hourly start-time grid
+  dayUseMinHours: string;       // shortest bookable block, in hours
+  dayUseBufferMinutes: string;  // turnover gap enforced between bookings
   depositType: string;      // 'none' | 'flat' | 'percent' | 'breakeven'
   depositValue: string;     // dollars for flat, % for percent, ignored for breakeven/none
   balanceMode: string;
@@ -340,6 +342,8 @@ const EMPTY_FORM: BoothFormState = {
   bookingSlots: [],
   shape: 'rect',
   startIncrementMins: '30',
+  dayUseMinHours: '',
+  dayUseBufferMinutes: '',
   depositType: 'none',
   depositValue: '',
   balanceMode: 'in_person',
@@ -3319,13 +3323,13 @@ export default function BoothsPage() {
         items.push({
           kind: 'maint',
           text: `OVERDUE ticket: ${t.title}${t.assigneeName ? ` (${t.assigneeName})` : ' — unassigned'}`,
-          actionLabel: 'Open queue', run: () => { try { document.getElementById('ops-maint')?.scrollIntoView({ behavior: 'smooth' }); } catch { /* anchor */ } },
+          actionLabel: 'Open queue', run: () => { window.location.href = '/maintenance'; },
         });
       } else if (!t.assigneeId && (t.priority === 'urgent' || t.priority === 'high')) {
         items.push({
           kind: 'maint',
           text: `${t.priority === 'urgent' ? 'Urgent' : 'High'} ticket needs a worker: ${t.title}`,
-          actionLabel: 'Assign', run: () => { try { document.getElementById('ops-maint')?.scrollIntoView({ behavior: 'smooth' }); } catch { /* anchor */ } },
+          actionLabel: 'Assign', run: () => { window.location.href = '/maintenance'; },
         });
       }
     }
@@ -4529,6 +4533,8 @@ export default function BoothsPage() {
       notes: booth.notes ?? '',
       baseRentDollars: (booth.baseRentCents / 100).toString(),
       startIncrementMins: (booth as any).startIncrementMins ? String((booth as any).startIncrementMins) : '30',
+      dayUseMinHours: (booth as any).dayUseMinHours ? String((booth as any).dayUseMinHours) : '',
+      dayUseBufferMinutes: (booth as any).dayUseBufferMinutes ? String((booth as any).dayUseBufferMinutes) : '',
       depositType: (booth as any).depositType || ((booth as any).depositPercent > 0 ? 'percent' : 'none'),
       depositValue: (booth as any).depositType === 'flat'
         ? String(((booth as any).depositFlatCents || 0) / 100)
@@ -4641,6 +4647,8 @@ export default function BoothsPage() {
             openTime: form.openTime || null,
             closeTime: form.closeTime || null,
             startIncrementMins: Number(form.startIncrementMins) || 30,
+            dayUseMinHours: Number(form.dayUseMinHours) > 0 ? Number(form.dayUseMinHours) : null,
+            dayUseBufferMinutes: Number(form.dayUseBufferMinutes) > 0 ? Number(form.dayUseBufferMinutes) : null,
             bookingSlots: form.bookingSlots
               .filter(s => s.label.trim() && s.start && s.end && toNumber(s.dollars) > 0)
               .map(s => ({ label: s.label.trim(), startTime: s.start, endTime: s.end, amountCents: Math.round(toNumber(s.dollars) * 100) })),
@@ -4683,6 +4691,8 @@ export default function BoothsPage() {
           openTime: form.openTime || null,
           closeTime: form.closeTime || null,
           startIncrementMins: Number(form.startIncrementMins) || 30,
+          dayUseMinHours: Number(form.dayUseMinHours) > 0 ? Number(form.dayUseMinHours) : null,
+          dayUseBufferMinutes: Number(form.dayUseBufferMinutes) > 0 ? Number(form.dayUseBufferMinutes) : null,
           bookingSlots: form.bookingSlots
               .filter(s => s.label.trim() && s.start && s.end && toNumber(s.dollars) > 0)
               .map(s => ({ label: s.label.trim(), startTime: s.start, endTime: s.end, amountCents: Math.round(toNumber(s.dollars) * 100) })),
@@ -5079,7 +5089,10 @@ export default function BoothsPage() {
   const selectedLeaseBooth = boothById.get(leaseForm.boothId);
 
 
-  const opsBadge = pendingApps.length + upcomingReservations.filter(r => r.status === 'confirmed' || r.status === 'checked_in').length;
+  // Count only what Operations itself holds. Applications live on /pipeline
+  // and day guests on /pos?tab=spaces — badging them here meant a number that
+  // never went down no matter what she did on this page.
+  const opsBadge = weeklyDigest.length;
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50">
@@ -5160,7 +5173,8 @@ export default function BoothsPage() {
 
       {/* ── SPACES TAB ───────────────────────────────────────────────── */}
       {tab === 'spaces' && (
-        <div className="px-4 sm:px-6 md:px-8 py-5 space-y-4">
+        <div className="px-4 sm:px-6 md:px-8 pt-5 space-y-4"
+          style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}>
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex gap-1 p-1 bg-white rounded-xl border">
               <button onClick={() => setSpaceView('floor')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${spaceView === 'floor' ? 'bg-slate-900 text-white' : 'text-muted-foreground hover:text-slate-700'}`}>
@@ -5379,7 +5393,7 @@ export default function BoothsPage() {
                         <button type="button" onClick={() => removeFromFloor(selectedBooth)}
                           className="h-9 px-2.5 rounded-lg border-2 border-red-200 text-[9px] font-black uppercase tracking-widest text-red-600 active:scale-95">Remove</button>
                       </div>
-                      <div className="space-y-2 max-h-52 overflow-y-auto overscroll-contain">
+                      <div className="space-y-2 max-h-[45vh] overflow-y-auto overscroll-contain">
                         {FLOOR_SHAPE_GROUPS.map((grp) => (
                           <div key={grp}>
                             <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1">{grp}</p>
@@ -5431,7 +5445,7 @@ export default function BoothsPage() {
                 <button type="button" onClick={fitFloor}
                   className="h-9 px-3 rounded-lg border-2 text-[10px] font-black uppercase tracking-widest text-slate-600 active:scale-95">Fit</button>
               </div>
-              <div ref={floorViewportRef} className="h-[380px] sm:h-[500px] lg:h-[600px] overflow-auto rounded-xl border border-border bg-muted/30 touch-pan-x touch-pan-y">
+              <div ref={floorViewportRef} className="h-[60vh] min-h-[380px] sm:h-[500px] lg:h-[600px] overflow-auto rounded-xl border border-border bg-muted/30 touch-pan-x touch-pan-y">
                 <div
                   className="relative"
                   style={{ width: CANVAS_W, height: CANVAS_H,
@@ -5512,7 +5526,8 @@ export default function BoothsPage() {
 
       {/* ── OPERATIONS TAB ───────────────────────────────────────────── */}
       {tab === 'ops' && (
-        <div className="px-4 sm:px-6 md:px-8 py-5 space-y-6">
+        <div className="px-4 sm:px-6 md:px-8 pt-5 space-y-6"
+          style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}>
           {/* ── NEEDS ATTENTION THIS WEEK — the one digest ── */}
           {weeklyDigest.length > 0 && (
             <div className="rounded-2xl border-2 border-slate-300 bg-white p-4 space-y-2">
@@ -6213,6 +6228,22 @@ export default function BoothsPage() {
               <div className="grid grid-cols-2 gap-3">
                 <Input type="time" value={form.openTime} onChange={(e) => setForm(prev => ({ ...prev, openTime: e.target.value }))} />
                 <Input type="time" value={form.closeTime} onChange={(e) => setForm(prev => ({ ...prev, closeTime: e.target.value }))} />
+              </div>
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <div className="space-y-1">
+                  <Label htmlFor="booth-min-hours">Shortest booking</Label>
+                  <Input id="booth-min-hours" type="number" inputMode="numeric" min={0} step={1} placeholder="1"
+                    value={form.dayUseMinHours}
+                    onChange={(e) => setForm(prev => ({ ...prev, dayUseMinHours: e.target.value }))} />
+                  <p className="text-[10px] font-bold text-muted-foreground">Hours. Blank = one hour.</p>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="booth-buffer">Turnover gap</Label>
+                  <Input id="booth-buffer" type="number" inputMode="numeric" min={0} step={5} placeholder="0"
+                    value={form.dayUseBufferMinutes}
+                    onChange={(e) => setForm(prev => ({ ...prev, dayUseBufferMinutes: e.target.value }))} />
+                  <p className="text-[10px] font-bold text-muted-foreground">Minutes held after each booking for cleaning or reset.</p>
+                </div>
               </div>
               <div className="pt-1">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Offer start times every</p>
