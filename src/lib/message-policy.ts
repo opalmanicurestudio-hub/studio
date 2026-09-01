@@ -355,6 +355,53 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     timing: 'immediate',
   },
   {
+    id: 'booth_application_ack', group: 'Renters', label: 'We got your enquiry',
+    when: 'Someone applies, asks a question or joins the waitlist from your booking page.',
+    channels: ['email'], canDisable: true,
+    tokens: ['{{client_first}}', '{{studio}}', '{{space}}'],
+    defaultSubject: 'Thanks — we have your enquiry',
+    defaultBody: '{{client_first}}, thanks for getting in touch about {{space}}.\n\nA real person is reading this. We will come back to you with next steps, usually within a day or two.',
+    timing: 'immediate',
+  },
+  {
+    id: 'booth_application_owner', group: 'Renters', label: 'Alert me: new enquiry',
+    when: 'Any enquiry, application, tour request or waitlist signup reaches your pipeline.',
+    channels: ['email'], canDisable: true,
+    tokens: ['{{client_first}}', '{{space}}', '{{link}}'],
+    defaultSubject: 'New enquiry — {{client_first}}',
+    defaultBody: '{{client_first}} came through your booking page about {{space}}.\n\nOpen the pipeline: {{link}}',
+    timing: 'immediate',
+  },
+  {
+    id: 'tour_invite', group: 'Renters', label: 'Tour times offered',
+    when: 'You send a prospect times to come and see a space.',
+    channels: ['email'], canDisable: true,
+    tokens: ['{{client_first}}', '{{space}}', '{{when}}', '{{link}}', '{{studio}}', '{{address}}'],
+    requiredTokens: ['{{link}}'],
+    defaultSubject: 'Pick a time to visit — {{space}}',
+    defaultBody: '{{client_first}}, we would love to show you around {{space}}.\n\nTimes we have open: {{when}}.\n\nPick one, or send back times that suit you better: {{link}}',
+    timing: 'immediate',
+  },
+  {
+    id: 'tour_invite_answered', group: 'Renters', label: 'Alert me: they answered',
+    when: 'A prospect picks one of your tour times, or asks for different ones.',
+    channels: ['email'], canDisable: true,
+    tokens: ['{{client_first}}', '{{when}}', '{{link}}'],
+    defaultSubject: 'Tour times answered — {{client_first}}',
+    defaultBody: '{{client_first}} answered your tour invitation ({{when}}).\n\nOpen the pipeline: {{link}}',
+    timing: 'immediate',
+  },
+  {
+    id: 'tour_confirmation', group: 'Renters', label: 'Tour booked',
+    when: 'A tour is booked from your booking page or the tour link.',
+    channels: ['email'], canDisable: true,
+    tokens: ['{{client_first}}', '{{when}}', '{{studio}}', '{{address}}'],
+    requiredTokens: ['{{when}}'],
+    defaultSubject: 'Tour booked — {{when}}',
+    defaultBody: '{{client_first}}, you are set for {{when}}.\n\nThere is nothing to bring or prepare. If the time stops working, just reply and we will find another.\n\n{{address}}',
+    timing: 'immediate',
+  },
+  {
     id: 'renter_signin_code', group: 'Renters', label: 'Renter sign-in code',
     when: 'A booth renter asks for a code to open their portal.',
     channels: ['email', 'sms'], canDisable: false,
@@ -644,6 +691,92 @@ export function inQuietHours(qh: QuietHours, date: Date): boolean {
   return qh.startHour > qh.endHour
     ? (h >= qh.startHour || h < qh.endHour)   // wraps midnight
     : (h >= qh.startHour && h < qh.endHour);
+}
+
+/* ═══ ADDRESS RELEASE ══════════════════════════════════════════════════════
+ * A street address is not the same class of information as a time. Somebody
+ * who has merely enquired should not necessarily learn where you are, and a
+ * home studio has a real reason to hold it back until a visit is actually
+ * happening. Yet nothing can hold back what it cannot render, so the address
+ * is available as a TOKEN and this resolver decides what that token becomes.
+ *
+ *   always       — render it (the behaviour everything had before this)
+ *   on_confirm   — only once the booking or tour is confirmed
+ *   before_event — only inside N hours of the start time, and confirmed
+ *
+ * When it is held back the token is not blank — a blank line reads like a
+ * bug and prompts a phone call. It becomes the area plus a plain sentence
+ * saying when the full address arrives. */
+export type AddressRelease = 'always' | 'on_confirm' | 'before_event';
+
+export interface AddressPolicy {
+  mode: AddressRelease;
+  /** Hours before the start, for 'before_event'. */
+  offsetHours: number;
+  /** What to say instead — a neighbourhood, district or town. */
+  areaLabel: string;
+}
+
+export function resolveAddressPolicy(tenant: any): AddressPolicy {
+  const a = (tenant && tenant.addressPolicy) || {};
+  const mode: AddressRelease = ['always', 'on_confirm', 'before_event'].includes(a.mode) ? a.mode : 'always';
+  const n = Number(a.offsetHours);
+  const areaFallback = String(tenant?.address?.city || tenant?.address?.town || '').trim();
+  return {
+    mode,
+    offsetHours: Number.isFinite(n) && n > 0 && n <= 720 ? n : 24,
+    areaLabel: String(a.areaLabel || areaFallback || '').trim(),
+  };
+}
+
+export interface AddressContext {
+  /** The full address, as it would be printed. */
+  fullAddress: string;
+  /** Is the thing this message is about actually confirmed? */
+  confirmed?: boolean;
+  /** ISO start time of the visit, when there is one. */
+  eventStartIso?: string | null;
+  /** Injectable for tests. */
+  now?: Date;
+}
+
+export interface AddressDecision {
+  /** What the {{address}} token becomes. */
+  text: string;
+  revealed: boolean;
+  /** Why, in the owner's words — logged, never sent. */
+  reason: string;
+}
+
+export function resolveAddressForMessage(policy: AddressPolicy, ctx: AddressContext): AddressDecision {
+  const full = String(ctx.fullAddress || '').trim();
+  if (!full) return { text: '', revealed: false, reason: 'no address on file' };
+  if (policy.mode === 'always') return { text: full, revealed: true, reason: 'always shared' };
+
+  const held = (why: string): AddressDecision => ({
+    text: policy.areaLabel
+      ? `${policy.areaLabel} — we will send the full address ${why}.`
+      : `We will send the full address ${why}.`,
+    revealed: false,
+    reason: `held back: ${why}`,
+  });
+
+  if (!ctx.confirmed) return held('once your visit is confirmed');
+  if (policy.mode === 'on_confirm') return { text: full, revealed: true, reason: 'confirmed' };
+
+  // before_event: confirmed AND inside the window.
+  const start = ctx.eventStartIso ? new Date(ctx.eventStartIso) : null;
+  if (!start || isNaN(start.getTime())) {
+    // No known start time and the owner asked for a countdown — confirmation
+    // is the most we can honestly go on.
+    return { text: full, revealed: true, reason: 'confirmed, no start time to count from' };
+  }
+  const now = ctx.now || new Date();
+  const hoursAway = (start.getTime() - now.getTime()) / 3600000;
+  if (hoursAway <= policy.offsetHours) {
+    return { text: full, revealed: true, reason: `inside ${policy.offsetHours}h of the visit` };
+  }
+  return held(`${policy.offsetHours} hours before your visit`);
 }
 
 export interface ResolvedMessage {
