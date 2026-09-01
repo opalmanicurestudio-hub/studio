@@ -14,14 +14,9 @@ import { cn } from '@/lib/utils';
 import { auditEntry } from '@/lib/audit';
 import { FileText, Scissors, FileSignature, MoreHorizontal } from 'lucide-react';
 import { contactKey as boothContactKey } from '@/lib/booth-contacts';
+import { buildGuestBook } from '@/lib/guest-book';
 
 type OverflowItem = { label: string; onClick: () => void; danger?: boolean; disabled?: boolean };
-const FREQ_TO_MONTHLY: Record<string, number> = {
-  daily: 30,
-  weekly: 4.33,
-  biweekly: 2.17,
-  monthly: 1,
-};
 
 
 // ── Duplicated from the booth hub (byte-for-byte; no cross-route imports) ──
@@ -96,89 +91,16 @@ export function GuestsToday({ tenantId, firestore, reservations, boothById, tena
   const [incidentalDesc, setIncidentalDesc] = useState('');
   const [incidentalCat, setIncidentalCat] = useState('');
   const [incidentalBusyId, setIncidentalBusyId] = useState<string | null>(null);
-const guestBook = useMemo(() => {
-    const norm = (v: any) => (v || '').trim().toLowerCase();
-    const byContact = new Map<string, any>();
-    const get = (phone: any, email: any, name: any) => {
-      const key = norm(phone) || norm(email);
-      if (!key) return null;
-      let g = byContact.get(key);
-      if (!g) {
-        g = { key, name: name || 'Guest', phone: phone || '', email: email || '',
-          visits: 0, totalCents: 0, lastDate: '', firstDate: '9999',
-          stage: 'inquiry', stageRank: 0, tags: new Set<string>() };
-        byContact.set(key, g);
-      }
-      if (name && (!g.name || g.name === 'Guest')) g.name = name;
-      if (phone && !g.phone) g.phone = phone;
-      if (email && !g.email) g.email = email;
-      return g;
-    };
-    const STAGE_RANK: Record<string, number> = { inquiry: 0, tour: 1, applicant: 2, guest: 3, renter: 4, repeat: 5 };
-    const promote = (g: any, stage: string) => { if (STAGE_RANK[stage] > g.stageRank) { g.stage = stage; g.stageRank = STAGE_RANK[stage]; } };
-
-    // Reservations — paid guests, lifetime value, ratings
-    for (const r of reservations) {
-      if (!['confirmed', 'checked_in', 'completed', 'cancel_requested'].includes(r.status)) continue;
-      const g = get(r.phone, r.email, r.name); if (!g) continue;
-      if (['confirmed', 'checked_in', 'completed'].includes(r.status)) {
-        g.visits += 1;
-        g.totalCents += (r.amountCents || 0) + (r.overageStatus === 'charged' ? (r.overageDueCents || 0) : 0);
-        // Rolling 90-day visit count — powers the recurring-guest tier.
-        const vt = new Date(r.createdAt || r.startDate || 0).getTime();
-        if (vt >= Date.now() - 90 * 24 * 60 * 60 * 1000) g.visits90 = (g.visits90 || 0) + 1;
-        promote(g, g.visits > 1 ? 'repeat' : 'guest');
-      }
-      if ((r.startDate || '') > g.lastDate) { g.lastDate = r.startDate; }
-      if ((r.startDate || '') < g.firstDate) g.firstDate = r.startDate;
-      if (Number(r.rating) >= 1 && (r.reviewedAt || '') > (g.lastReviewedAt || '')) { g.lastRating = r.rating; g.lastReviewedAt = r.reviewedAt || ''; }
-    }
-    // Applications & tours — the top of the funnel, never lost
-    for (const app of applications) {
-      const g = get(app.phone, app.email, app.name); if (!g) continue;
-      const when = String(app.decidedAt || app.createdAt || '').slice(0, 10);
-      if (when && when > g.lastDate) g.lastDate = when;
-      if (when && when < g.firstDate) g.firstDate = when;
-      const kind = app.kind || 'application';
-      if (kind === 'tour') { promote(g, 'tour'); g.tags.add('toured'); }
-      else { promote(g, 'applicant'); }
-      if (app.status === 'approved') g.tags.add('approved');
-    }
-    // Leases — renters, valued with their rent
-    for (const l of (leases.data || [])) {
-      if (!['active', 'on_leave', 'pending_signature'].includes(l.status)) continue;
-      const rt = renterById.get(l.renterId);
-      if (!rt) continue;
-      const g = get(rt.phone, rt.email, `${rt.firstName || ''} ${rt.lastName || ''}`.trim()); if (!g) continue;
-      promote(g, 'renter');
-      g.tags.add('renter');
-      g.isRenter = true; g.renterId = rt.id;
-      g.monthlyRentCents = (l.rentAmountCents || 0) * (FREQ_TO_MONTHLY[l.frequency] ?? 1);
-    }
-    const arr = Array.from(byContact.values()).map(g => {
-      const c = contactByKey.get(g.key);
-      return {
-        ...g,
-        // Recurring-guest tier — same thresholds the server uses at booking
-        // time (booth-recognition.ts): resident renter, regular (4+ visits in
-        // 90 days), returning (2+ ever), new. Computed, never stored.
-        tier: g.isRenter ? 'resident'
-          : (g.visits90 || 0) >= 4 ? 'regular'
-          : g.visits >= 2 ? 'returning'
-          : 'new',
-        tags: Array.from(g.tags),
-        // Persisted journey overlay (undefined until the owner acts on them).
-        pipelineStage: c?.pipelineStage || null,
-        nextFollowUpAt: c?.nextFollowUpAt || null,
-        lostReason: c?.lostReason || null,
-        ownerNotes: c?.ownerNotes || null,
-        convertedRenterId: c?.convertedRenterId || (g.isRenter ? g.renterId : null),
-        photoUrl: c?.photoUrl || null,
-        history: Array.isArray(c?.history) ? c.history : [],
-      };
-    });
-    return arr.sort((a, b) => (b.lastDate || '').localeCompare(a.lastDate || ''));
-  }, [reservations, applications, leases.data, renterById, contactByKey]);
+  // One person, one row — the merge itself lives in src/lib/guest-book.ts so
+  // this component, the hub and the pipeline all answer "who is this?" the
+  // same way. It used to be an 80-line memo copied into each of them.
+  const guestBook = useMemo(() => buildGuestBook({
+    reservations,
+    applications,
+    leases: leases.data || [],
+    renterById,
+    contactByKey,
+  }), [reservations, applications, leases.data, renterById, contactByKey]);
   const tierByContact = useMemo(() => {
     const m = new Map<string, string>();
     for (const g of guestBook) m.set(g.key, g.tier);
