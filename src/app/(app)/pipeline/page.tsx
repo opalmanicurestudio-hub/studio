@@ -17,7 +17,7 @@
 // answers one question — who is waiting on me — and hands off for the rest.
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { collection, doc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useLocation } from '@/context/LocationContext';
@@ -25,11 +25,12 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { createRenter } from '@/lib/booth-rental-service';
 import { linkContactRenter } from '@/lib/booth-contacts';
+import { nanoid } from 'nanoid';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import {
   Users, CalendarClock, AlertTriangle, CheckCircle2, Loader,
-  Phone, Mail, ArrowRight, Flame,
+  Phone, Mail, Flame,
 } from 'lucide-react';
 
 type Row = {
@@ -81,6 +82,16 @@ function urgencyOf(r: Row, todayIso: string): { rank: number; label: string; ton
   return { rank: 2, label: r.kind === 'application' ? 'New application' : 'New enquiry', tone: 'slate' };
 }
 
+const whenTime = (iso: string): string => {
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return 'that time';
+    const day = d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
+    const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    return `${day} ${time}`;
+  } catch { return 'that time'; }
+};
+
 export default function PipelinePage() {
   const { firestore } = useFirebase() as any;
   const { selectedLocationId } = useLocation();
@@ -122,6 +133,103 @@ export default function PipelinePage() {
       }, () => setLoading(false));
     return () => unsub();
   }, [firestore, tenantId]);
+
+  // ── TOUR INVITES ──────────────────────────────────────────────────────────
+  // The rental twin of the hiring funnel's interview invites: offer a prospect
+  // two or three times, let them pick or counter, then put the answer through
+  // the real tour scheduler. Same collection shape, same trust model, same
+  // capability-URL pattern as tenants/{t}/interviewInvites.
+  const [invites, setInvites] = useState<any[]>([]);
+  const [offerFor, setOfferFor] = useState<string>('');
+  const [offerSlots, setOfferSlots] = useState<string[]>(['', '', '']);
+
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const unsub = onSnapshot(collection(firestore, 'tenants', tenantId, 'tourInvites'),
+      (s) => setInvites(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))),
+      () => {});
+    return () => unsub();
+  }, [firestore, tenantId]);
+
+  // Newest invite per lead — an older, superseded offer must never outrank the
+  // one the prospect is actually looking at.
+  const inviteByApp = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const inv of invites) {
+      if (!inv.applicationId) continue;
+      const prev = m.get(inv.applicationId);
+      if (!prev || String(inv.createdAt || '') > String(prev.createdAt || '')) m.set(inv.applicationId, inv);
+    }
+    return m;
+  }, [invites]);
+
+  const sendTourTimes = async (r: Row) => {
+    if (!firestore || !tenantId) return;
+    const slots = offerSlots
+      .map((x) => x.trim()).filter(Boolean)
+      .map((x) => { const d = new Date(x); return isNaN(d.getTime()) ? '' : d.toISOString(); })
+      .filter(Boolean);
+    if (slots.length === 0) {
+      toast({ title: 'Pick at least one time', description: 'Offer up to three and let them choose.' });
+      return;
+    }
+    setBusy(r.id);
+    try {
+      const token = nanoid();
+      await setDoc(doc(firestore, 'tenants', tenantId, 'tourInvites', token), {
+        id: token,
+        applicationId: r.id,
+        firstName: String(r.name || 'there').split(' ')[0],
+        spaceName: r.boothName || '',
+        slots: slots.slice(0, 3),
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+      });
+      const link = `${typeof window !== 'undefined' ? window.location.origin : ''}/tour-invite/${tenantId}/${token}`;
+      try { await navigator.clipboard.writeText(link); } catch { window.prompt('Copy this link:', link); }
+      setOfferFor(''); setOfferSlots(['', '', '']);
+      toast({ title: 'Link copied', description: `Send it to ${r.name} — they pick a time or send you theirs.` });
+    } catch {
+      toast({ title: 'Could not create the invite', description: 'Try again in a moment.' });
+    }
+    setBusy('');
+  };
+
+  // Confirming goes through /api/booths/kiosk tour-book — the same scheduler
+  // the public tour page uses — so a tour booked from here is clash-checked
+  // and lands in /tours like every other one. An invite answer is never a
+  // booking on its own.
+  const confirmTour = async (r: Row, inv: any, iso: string) => {
+    if (!firestore || !tenantId || !iso) return;
+    setBusy(r.id);
+    try {
+      const d = new Date(iso);
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const res = await fetch('/api/booths/kiosk', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'tour-book', tenantId,
+          date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+          time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+          name: r.name, phone: r.phone, email: r.email,
+          message: r.boothName ? `Interested in ${r.boothName}` : '',
+        }),
+      });
+      const out = await res.json();
+      if (!out.ok) {
+        toast({ title: res.status === 409 ? 'That time just went' : 'Could not book it',
+          description: out.error || 'Offer another time.' });
+        setBusy(''); return;
+      }
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'tourInvites', inv.id), {
+        status: 'scheduled', chosenSlot: iso, scheduledAt: new Date().toISOString(),
+      });
+      toast({ title: 'Tour booked', description: `${r.name} — it is on the tour schedule now.` });
+    } catch {
+      toast({ title: 'Could not book it', description: 'Try again in a moment.' });
+    }
+    setBusy('');
+  };
 
   const todayIso = useMemo(() => {
     const d = new Date();
@@ -333,6 +441,37 @@ export default function PipelinePage() {
                 )}
                 {OPEN_STATUSES.includes(r.status) && (
                   <>
+                    {(() => {
+                      const inv = inviteByApp.get(r.id);
+                      if (inv && inv.status === 'pending') {
+                        return (
+                          <span className="rounded-xl border-2 border-sky-200 bg-sky-50 px-3 py-2 text-[11px] font-black uppercase tracking-widest text-sky-700">
+                            Times sent · waiting
+                          </span>
+                        );
+                      }
+                      if (inv && inv.status === 'accepted' && inv.chosenSlot) {
+                        return (
+                          <button onClick={() => confirmTour(r, inv, inv.chosenSlot)} disabled={!!busy}
+                            className="rounded-xl bg-indigo-600 px-3 py-2 text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-50">
+                            {busy === r.id ? '…' : `Confirm ${whenTime(inv.chosenSlot)}`}
+                          </button>
+                        );
+                      }
+                      if (inv && inv.status === 'scheduled') {
+                        return (
+                          <span className="rounded-xl border-2 border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-black uppercase tracking-widest text-emerald-700">
+                            Tour booked
+                          </span>
+                        );
+                      }
+                      return (
+                        <button onClick={() => { setOfferFor(offerFor === r.id ? '' : r.id); setOfferSlots(['', '', '']); }} disabled={!!busy}
+                          className="rounded-xl border-2 bg-white px-3 py-2 text-[11px] font-black uppercase tracking-widest text-slate-600 disabled:opacity-50">
+                          Tour times
+                        </button>
+                      );
+                    })()}
                     {r.status === 'new' && (
                       <button onClick={() => setStatus(r, 'in_review', 'Marked contacted')} disabled={!!busy}
                         className="rounded-xl bg-slate-900 px-3 py-2 text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-50">
@@ -355,11 +494,61 @@ export default function PipelinePage() {
                     </button>
                   </>
                 )}
-                <a href="/booths?tab=ops#ops-apps"
-                  className="ml-auto flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                  Full detail <ArrowRight className="h-3 w-3" />
-                </a>
               </div>
+
+              {(() => {
+                const inv = inviteByApp.get(r.id);
+                if (!inv || inv.status !== 'countered') return null;
+                const theirs: string[] = Array.isArray(inv.proposedSlots) ? inv.proposedSlots : [];
+                return (
+                  <div className="rounded-2xl border-2 border-amber-200 bg-amber-50/50 p-3 space-y-2">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">
+                      None of those worked — they are free at
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {theirs.map((iso) => (
+                        <button key={iso} onClick={() => confirmTour(r, inv, iso)} disabled={!!busy}
+                          className="rounded-xl bg-slate-900 px-3 py-2 text-[11px] font-black text-white disabled:opacity-50">
+                          {whenTime(iso)}
+                        </button>
+                      ))}
+                      {theirs.length === 0 && <p className="text-[11px] font-bold text-amber-800">They did not give times — call them.</p>}
+                    </div>
+                    {inv.prospectNote && <p className="text-[11px] font-bold text-amber-900">“{inv.prospectNote}”</p>}
+                    <button onClick={() => { setOfferFor(r.id); setOfferSlots(['', '', '']); }}
+                      className="text-[10px] font-black uppercase tracking-widest text-amber-700 underline">
+                      Offer different times instead
+                    </button>
+                  </div>
+                );
+              })()}
+
+              {offerFor === r.id && (
+                <div className="rounded-2xl border-2 bg-white p-3 space-y-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    Offer up to three times
+                  </p>
+                  {offerSlots.map((val, i) => (
+                    <input key={i} type="datetime-local" value={val}
+                      aria-label={`Tour time option ${i + 1}`}
+                      onChange={(e) => setOfferSlots((prev) => prev.map((v, j) => (j === i ? e.target.value : v)))}
+                      className="w-full h-11 px-3 rounded-xl border-2 text-sm font-bold" />
+                  ))}
+                  <div className="flex gap-2">
+                    <button onClick={() => sendTourTimes(r)} disabled={!!busy}
+                      className="flex-1 h-11 rounded-xl bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest disabled:opacity-50">
+                      {busy === r.id ? '…' : 'Create link'}
+                    </button>
+                    <button onClick={() => setOfferFor('')}
+                      className="h-11 px-4 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest text-slate-600">
+                      Cancel
+                    </button>
+                  </div>
+                  <p className="text-[10px] font-bold text-muted-foreground">
+                    The link is copied for you to send. They pick one or send back times that work.
+                  </p>
+                </div>
+              )}
             </div>
           ))}
         </div>
