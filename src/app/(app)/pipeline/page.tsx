@@ -25,12 +25,13 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { createRenter } from '@/lib/booth-rental-service';
 import { linkContactRenter } from '@/lib/booth-contacts';
+import { buildGuestBook, guestMatches, STAGE_LABEL, type GuestBookEntry } from '@/lib/guest-book';
 import { nanoid } from 'nanoid';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import {
   Users, CalendarClock, AlertTriangle, CheckCircle2, Loader,
-  Phone, Mail, Flame,
+  Phone, Mail, Flame, Search, Star,
 } from 'lucide-react';
 
 type Row = {
@@ -101,7 +102,7 @@ export default function PipelinePage() {
 
   const [apps, setApps] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'attention' | 'tours' | 'open' | 'done'>('attention');
+  const [filter, setFilter] = useState<'attention' | 'tours' | 'open' | 'done' | 'people'>('attention');
   const [busy, setBusy] = useState('');
 
   useEffect(() => {
@@ -231,6 +232,51 @@ export default function PipelinePage() {
     setBusy('');
   };
 
+  // ── PEOPLE (the CRM view) ─────────────────────────────────────────────────
+  // A lead, a day guest and a renter are the same human seen at three moments.
+  // These four collections are what it takes to say so: stays, enquiries and
+  // tours, leases (with the renter records that hold the contact details a
+  // lease does not), and the managed overlay. The merge itself lives in
+  // src/lib/guest-book.ts so this page and the hub can't drift apart.
+  const [stays, setStays] = useState<any[]>([]);
+  const [leases, setLeases] = useState<any[]>([]);
+  const [renters, setRenters] = useState<any[]>([]);
+  const [contactDocs, setContactDocs] = useState<any[]>([]);
+  const [peopleSearch, setPeopleSearch] = useState('');
+
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const subs = [
+      ['bookings', setStays], ['leases', setLeases],
+      ['renters', setRenters], ['contacts', setContactDocs],
+    ].map(([name, set]: any) => onSnapshot(
+      collection(firestore, 'tenants', tenantId, name),
+      (snap: any) => set(snap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))),
+      () => {},
+    ));
+    return () => subs.forEach((u) => u());
+  }, [firestore, tenantId]);
+
+  const renterById = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const r of renters) m.set(r.id, r);
+    return m;
+  }, [renters]);
+
+  const contactByKey = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const c of contactDocs) if (c.key) m.set(c.key, c);
+    return m;
+  }, [contactDocs]);
+
+  const people = useMemo(() => buildGuestBook({
+    reservations: stays, applications: apps, leases, renterById, contactByKey,
+  }), [stays, apps, leases, renterById, contactByKey]);
+
+  const visiblePeople = useMemo(
+    () => people.filter((g) => guestMatches(g, peopleSearch)),
+    [people, peopleSearch]);
+
   const todayIso = useMemo(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -341,6 +387,7 @@ export default function PipelinePage() {
     ['tours', 'Tours'],
     ['open', 'All open'],
     ['done', 'Closed'],
+    ['people', 'People'],
   ];
 
   return (
@@ -383,7 +430,96 @@ export default function PipelinePage() {
         ))}
       </div>
 
-      {loading ? (
+      {filter === 'people' ? (
+        <div className="space-y-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <input value={peopleSearch} onChange={(e) => setPeopleSearch(e.target.value)}
+              placeholder="Search by name, phone or email"
+              aria-label="Search people"
+              className="w-full h-12 pl-9 pr-3 rounded-2xl border-2 bg-white text-sm font-bold" />
+          </div>
+          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+            {visiblePeople.length} {visiblePeople.length === 1 ? 'person' : 'people'} · everyone who has enquired, toured, booked a day or rented
+          </p>
+
+          {visiblePeople.length === 0 ? (
+            <div className="rounded-2xl border-2 border-dashed p-8 text-center">
+              <p className="text-sm font-black">Nobody matches that.</p>
+            </div>
+          ) : visiblePeople.slice(0, 200).map((g: GuestBookEntry) => (
+            <div key={g.key} className="rounded-2xl border-2 bg-white p-4 space-y-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-black text-sm truncate">{g.name}</p>
+                  <p className="text-[11px] font-bold text-muted-foreground mt-0.5 truncate">
+                    {[g.phone, g.email].filter(Boolean).join(' · ') || 'No contact details'}
+                  </p>
+                </div>
+                <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest',
+                  g.stage === 'renter' ? 'bg-emerald-200 text-emerald-900'
+                    : g.stage === 'repeat' ? 'bg-indigo-200 text-indigo-900'
+                    : g.stage === 'guest' ? 'bg-sky-100 text-sky-800'
+                    : 'bg-slate-100 text-slate-600')}>
+                  {STAGE_LABEL[g.stage]}
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-bold text-muted-foreground">
+                {g.visits > 0 && <span>{g.visits} {g.visits === 1 ? 'stay' : 'stays'}</span>}
+                {g.totalCents > 0 && <span>${(g.totalCents / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })} spent</span>}
+                {g.monthlyRentCents > 0 && <span>${(g.monthlyRentCents / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}/mo rent</span>}
+                {g.lastRating ? (
+                  <span className="flex items-center gap-1"><Star className="h-3 w-3" />{g.lastRating}</span>
+                ) : null}
+                {g.firstDate && <span>since {when(g.firstDate)}</span>}
+                {g.lastDate && <span>last {when(g.lastDate)}</span>}
+              </div>
+
+              {(g.tags.length > 0 || g.tier !== 'new') && (
+                <div className="flex flex-wrap gap-1.5">
+                  {g.tier !== 'new' && (
+                    <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-white">
+                      {g.tier}
+                    </span>
+                  )}
+                  {g.tags.map((t) => (
+                    <span key={t} className="rounded-full border-2 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-slate-500">
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center gap-2">
+                {g.phone && (
+                  <a href={`tel:${g.phone}`} className="flex items-center gap-1.5 rounded-xl border-2 bg-white px-3 py-2 text-[11px] font-black">
+                    <Phone className="h-3 w-3" /> Call
+                  </a>
+                )}
+                {g.email && (
+                  <a href={`mailto:${g.email}`} className="flex items-center gap-1.5 rounded-xl border-2 bg-white px-3 py-2 text-[11px] font-black">
+                    <Mail className="h-3 w-3" /> Email
+                  </a>
+                )}
+                {g.convertedRenterId && (
+                  <a href="/renters" className="rounded-xl border-2 bg-white px-3 py-2 text-[11px] font-black uppercase tracking-widest text-slate-600">
+                    Renter card
+                  </a>
+                )}
+              </div>
+
+              {g.ownerNotes && <p className="text-[11px] font-bold text-muted-foreground">{g.ownerNotes}</p>}
+            </div>
+          ))}
+
+          {visiblePeople.length > 200 && (
+            <p className="text-[10px] font-bold text-muted-foreground text-center">
+              Showing the 200 most recently active — search to narrow.
+            </p>
+          )}
+        </div>
+      ) : loading ? (
         <div className="flex items-center gap-2 py-10 text-muted-foreground">
           <Loader className="h-4 w-4 animate-spin" />
           <span className="text-[11px] font-black uppercase tracking-widest">Loading the pipeline…</span>
