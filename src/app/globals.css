@@ -214,15 +214,20 @@ body {
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
   }
 
-  /* things you read ON TOP of other things stay legible */
+  /* Things you read — and type into — ON TOP of other things are PAPER, not
+     glass. At 86% over the page's radial tints these panels read grey and
+     murky on a phone, which is exactly wrong for a form. They are now solid
+     white with no blur. Second reason, not cosmetic: backdrop-filter on a
+     fixed panel is the standing suspect for iOS Safari drawing dialogs
+     displaced after a scroll — no filter, no compositor bug to hit. */
   [role="dialog"] .bg-white,
   [role="dialog"] .bg-card,
   [data-radix-popper-content-wrapper] .bg-white,
   .bg-popover,
   .bg-background {
-    background-color: rgb(var(--glass-surface) / var(--glass-panel));
-    backdrop-filter: blur(var(--glass-blur)) saturate(120%);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(120%);
+    background-color: rgb(var(--glass-surface));
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 
   /* opt-in helper for anything new */
