@@ -53,28 +53,6 @@ function tourFmt12(mins: number): string {
 }
 // Returns null when no weekly schedule is configured (caller falls back to the
 // legacy manual list). Returns [] when configured but nothing upcoming fits.
-function genTourSlots(sched: any, now: Date): Array<{ label: string; startIso: string; endIso: string }> | null {
-  if (!sched || typeof sched !== 'object' || !sched.enabled) return null;
-  const days: number[] = Array.isArray(sched.days) ? sched.days.map(Number) : [];
-  const startM = tourParse12(sched.start || '10:00 AM');
-  const endM = tourParse12(sched.end || '12:00 PM');
-  const step = Math.max(5, Number(sched.slotMin) || 20);
-  const weeks = Math.min(8, Math.max(1, Number(sched.weeksAhead) || 2));
-  if (!days.length || startM == null || endM == null || endM <= startM) return [];
-  const out: Array<{ label: string; startIso: string; endIso: string }> = [];
-  const horizon = new Date(now.getFullYear(), now.getMonth(), now.getDate() + weeks * 7);
-  const cur = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  for (; cur <= horizon; cur.setDate(cur.getDate() + 1)) {
-    if (!days.includes(cur.getDay())) continue;
-    for (let m = startM; m + step <= endM; m += step) {
-      const dt = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate(), Math.floor(m / 60), m % 60);
-      if (dt.getTime() <= now.getTime()) continue;
-      const dtEnd = new Date(dt.getTime() + step * 60000);
-      out.push({ label: `${TOUR_DOW_SHORT[dt.getDay()]} ${TOUR_MON_SHORT[dt.getMonth()]} ${dt.getDate()} · ${tourFmt12(m)}`, startIso: dt.toISOString(), endIso: dtEnd.toISOString() });
-    }
-  }
-  return out.slice(0, 48);
-}
 
 // ─── BookingCalendar (v90) — dependency-free month grid ──────────────────────
 // A purpose-built booking calendar: proper 7-col grid, weekday header,
@@ -226,14 +204,9 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   // v53 — owner-configured tour availability + application agreement.
   // v92 — tour times now auto-generate from a weekly schedule (config.tourSchedule)
   // and stay current; falls back to the legacy manual list if no schedule is set.
-  const scheduledTours = !!(config.tourSchedule && config.tourSchedule.enabled);
-  const tourSlotObjs = useMemo(() => {
-    const gen = genTourSlots(config.tourSchedule, new Date());
-    if (gen) return gen;
-    const legacy = Array.isArray(config.tourSlots) ? config.tourSlots.filter(Boolean) : [];
-    return legacy.map((s: string) => ({ label: s, startIso: '', endIso: '' }));
-  }, [config.tourSchedule, config.tourSlots]);
-  const tourSlots: string[] = useMemo(() => tourSlotObjs.map(o => o.label), [tourSlotObjs]);
+  // Tour times are no longer derived from page config here — the server owns
+  // them (see the tour-slots fetch below). config.tourSchedule stays readable
+  // by older pages; nothing in this component reads it now.
   const agreementText: string = typeof config.applicationAgreement === 'string' ? config.applicationAgreement.trim() : '';
   // A paid day/hourly guest ALWAYS signs real terms: the owner's custom
   // booking terms if written, else the built-in protective default. (The
@@ -243,9 +216,66 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const [tourSlot, setTourSlot] = useState('');
   const [tourStartIso, setTourStartIso] = useState('');
   const [tourEndIso, setTourEndIso] = useState('');
-  const pickTour = (o: { label: string; startIso: string; endIso: string }) => {
-    if (tourSlot === o.label) { setTourSlot(''); setTourStartIso(''); setTourEndIso(''); }
-    else { setTourSlot(o.label); setTourStartIso(o.startIso); setTourEndIso(o.endIso); }
+  const [tourDate, setTourDate] = useState('');
+  const [tourTimes, setTourTimes] = useState<string[] | null>(null);
+  const [tourTimesLoading, setTourTimesLoading] = useState(false);
+  const [toursOff, setToursOff] = useState(false);
+  const [tourDurationMins, setTourDurationMins] = useState(30);
+
+  // The next three weeks, in the visitor's own timezone. Which of these days
+  // actually offer tours is the server's call, not this component's.
+  const tourDateOptions = useMemo(() => {
+    const out: string[] = [];
+    const pad = (n: number) => String(n).padStart(2, '0');
+    for (let i = 0; i < 21; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() + i);
+      out.push(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
+    }
+    return out;
+  }, []);
+
+  useEffect(() => {
+    // Keyed on the date alone: tourDate is only ever set from the tour picker,
+    // and inquiryKind is declared further down this component (referencing it
+    // here is a temporal-dead-zone error).
+    if (!tourDate || !tenantId) { return; }
+    let cancelled = false;
+    setTourTimesLoading(true);
+    setTourTimes(null);
+    fetch('/api/booths/kiosk', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'tour-slots', tenantId, date: tourDate }),
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (cancelled) return;
+        if (d?.ok) {
+          setTourTimes(Array.isArray(d.slots) ? d.slots : []);
+          setToursOff(!!d.toursOff);
+          if (d.durationMins) setTourDurationMins(Number(d.durationMins) || 30);
+        } else {
+          setTourTimes([]);
+        }
+      })
+      .catch(() => { if (!cancelled) setTourTimes([]); })
+      .finally(() => { if (!cancelled) setTourTimesLoading(false); });
+    return () => { cancelled = true; };
+  }, [tourDate, tenantId]);
+
+  // Picking a server time is what fills the three fields the submit path sends.
+  const pickTourTime = (hhmm: string) => {
+    const start = new Date(`${tourDate}T${hhmm}:00`);
+    if (isNaN(start.getTime())) return;
+    if (tourStartIso === start.toISOString()) {
+      setTourSlot(''); setTourStartIso(''); setTourEndIso('');
+      return;
+    }
+    const end = new Date(start.getTime() + tourDurationMins * 60000);
+    const d = new Date(`${tourDate}T00:00:00`);
+    setTourStartIso(start.toISOString());
+    setTourEndIso(end.toISOString());
+    setTourSlot(`${TOUR_DOW_SHORT[d.getDay()]} ${TOUR_MON_SHORT[d.getMonth()]} ${d.getDate()} · ${tourFmt12(start.getHours() * 60 + start.getMinutes())}`);
   };
   const [agreed, setAgreed] = useState(false);
   const [agreementOpen, setAgreementOpen] = useState(false);
@@ -426,14 +456,14 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
       if (d.ok && Array.isArray(d.bookedDates)) setBookedDates(new Set(d.bookedDates));
     }).catch(() => {});
     setGranularity(slotsOf(b).length > 0 ? 'hourly' : dailyRateOf(b) ? 'daily' : hourlyRateOf(b) ? 'hourly' : 'daily');
-    setInquiryKind('application'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setTourStartIso(''); setTourEndIso(''); setAgreed(false); setSignName(''); setShowVideo(false); setReserveStep('type'); setHourlyMode('slots'); setPickedStart(''); setPickedHours(0); setComp({ doingServices: false, licenseNumber: '', insuranceCarrier: '', insuranceConfirmed: false, idAck: false }); setCompDocs({});
+    setInquiryKind('application'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setTourStartIso(''); setTourEndIso(''); setTourDate(''); setTourTimes(null); setToursOff(false); setAgreed(false); setSignName(''); setShowVideo(false); setReserveStep('type'); setHourlyMode('slots'); setPickedStart(''); setPickedHours(0); setComp({ doingServices: false, licenseNumber: '', insuranceCarrier: '', insuranceConfirmed: false, idAck: false }); setCompDocs({});
   };
   const openInquiry = (b: any | null, kind: 'tour' | 'question' | 'waitlist') => {
     setApplyFor(b || { id: null, name: null, pricingOptions: [], photoUrls: [] });
     // Tour/question/waitlist aren't day reservations — force a non-'day' mode so
     // the contact fields (gated on applyMode !== 'day') always show, even for a
     // space that only offers day rentals.
-    setInquiryKind(kind); setApplyMode('lease'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setTourStartIso(''); setTourEndIso(''); setAgreed(false); setSignName(''); setShowVideo(false);
+    setInquiryKind(kind); setApplyMode('lease'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setTourStartIso(''); setTourEndIso(''); setTourDate(''); setTourTimes(null); setToursOff(false); setAgreed(false); setSignName(''); setShowVideo(false);
   };
   // Open a space into the guided chooser (capability-aware: only shows the
   // actions this space actually offers).
@@ -1222,74 +1252,57 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                   )}
 
                   {/* Dates — different question per product */}
-                  {inquiryKind === 'tour' ? (
-                    <div className="space-y-2">
-                      {scheduledTours && tourSlots.length > 0 ? (
-                        // Weekly schedule → concrete, always-current times. The slot
-                        // already carries the date, so no separate date field is needed.
-                        <div>
-                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Pick a tour time</p>
-                          <div className="flex flex-wrap gap-1.5 max-h-52 overflow-y-auto">
-                            {tourSlotObjs.map(o => (
-                              <button key={o.label} type="button" onClick={() => pickTour(o)}
-                                className={`h-9 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${tourSlot === o.label ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
-                                {o.label}
+{inquiryKind === 'tour' ? (
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Pick a day</p>
+                        <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5 max-h-40 overflow-y-auto pr-0.5">
+                          {tourDateOptions.map(diso => {
+                            const d = new Date(diso + 'T00:00:00');
+                            const sel = tourDate === diso;
+                            return (
+                              <button key={diso} type="button"
+                                onClick={() => { setTourDate(diso); setTourSlot(''); setTourStartIso(''); setTourEndIso(''); }}
+                                className={`h-14 rounded-2xl border-2 flex flex-col items-center justify-center gap-0.5 transition-colors active:scale-[0.97] ${sel ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-700 hover:border-slate-400'}`}>
+                                <span className="text-[9px] font-black uppercase tracking-widest opacity-70">{TOUR_DOW_SHORT[d.getDay()]}</span>
+                                <span className="text-sm font-black leading-none">{TOUR_MON_SHORT[d.getMonth()]} {d.getDate()}</span>
                               </button>
-                            ))}
-                          </div>
+                            );
+                          })}
                         </div>
-                      ) : scheduledTours ? (
-                        <p className="text-[11px] font-medium text-slate-500 py-2">No tour times available in the next few weeks — send your request and we'll reach out to arrange one.</p>
-                      ) : (
-                        <>
-                          <div>
-                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Pick a day</p>
-                            {(() => {
-                              const dates = availableDates(applyFor);
-                              if (dates.length === 0) return <p className="text-[11px] font-medium text-slate-500">Send your request and we'll arrange a time.</p>;
-                              return (
-                                <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-40 overflow-y-auto pr-0.5">
-                                  {dates.map(diso => {
-                                    const d = new Date(diso + 'T00:00:00'); const sel = form.moveIn === diso;
-                                    return (
-                                      <button key={diso} type="button" onClick={() => { setForm(f => ({ ...f, moveIn: diso })); setTourSlot(''); setTourStartIso(''); setTourEndIso(''); }}
-                                        className={`h-14 rounded-2xl border-2 flex flex-col items-center justify-center gap-0.5 transition-colors active:scale-[0.97] ${sel ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-700 hover:border-slate-400'}`}>
-                                        <span className="text-[9px] font-black uppercase tracking-widest opacity-70">{TOUR_DOW_SHORT[d.getDay()]}</span>
-                                        <span className="text-sm font-black leading-none">{TOUR_MON_SHORT[d.getMonth()]} {d.getDate()}</span>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              );
-                            })()}
-                          </div>
-                          {form.moveIn && (
-                            <div>
-                              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Pick a time</p>
+                      </div>
+
+                      {tourDate && (
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Pick a time</p>
+                          {tourTimesLoading ? (
+                            <p className="text-[11px] font-medium text-slate-500 py-2">Checking what's open…</p>
+                          ) : toursOff ? (
+                            <p className="text-[11px] font-medium text-slate-500 py-2">Tours aren't being booked online right now — send your request and we'll arrange one.</p>
+                          ) : (tourTimes && tourTimes.length > 0) ? (
+                            <>
                               <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
-                                {(() => {
-                                  const openM = toMin((applyFor as any).openTime || '10:00');
-                                  const closeM = toMin((applyFor as any).closeTime || '17:00');
-                                  const times: number[] = [];
-                                  for (let m = (closeM > openM ? openM : 600); m + 30 <= (closeM > openM ? closeM : 1020); m += 30) times.push(m);
-                                  return times.map(m => {
-                                    const hh = String(Math.floor(m / 60)).padStart(2, '0'); const mm = String(m % 60).padStart(2, '0');
-                                    const st = new Date(`${form.moveIn}T${hh}:${mm}:00`);
-                                    const sel = tourStartIso === st.toISOString();
-                                    return (
-                                      <button key={m} type="button" onClick={() => { const en = new Date(st.getTime() + 30 * 60000); const d = new Date(form.moveIn + 'T00:00:00'); setTourStartIso(st.toISOString()); setTourEndIso(en.toISOString()); setTourSlot(`${TOUR_DOW_SHORT[d.getDay()]} ${TOUR_MON_SHORT[d.getMonth()]} ${d.getDate()} · ${t12(`${hh}:${mm}`)}`); }}
-                                        className={`h-9 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${sel ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
-                                        {t12(`${hh}:${mm}`)}
-                                      </button>
-                                    );
-                                  });
-                                })()}
+                                {tourTimes.map(hhmm => {
+                                  const sel = tourStartIso === (() => { const st = new Date(`${tourDate}T${hhmm}:00`); return isNaN(st.getTime()) ? '' : st.toISOString(); })();
+                                  return (
+                                    <button key={hhmm} type="button" onClick={() => pickTourTime(hhmm)}
+                                      className={`h-10 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${sel ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
+                                      {t12(hhmm)}
+                                    </button>
+                                  );
+                                })}
                               </div>
-                            </div>
+                              <p className="text-[10px] font-bold text-muted-foreground mt-1.5">
+                                {tourDurationMins} minutes · times already booked are not shown.
+                              </p>
+                            </>
+                          ) : (
+                            <p className="text-[11px] font-medium text-slate-500 py-2">Nothing open that day. Try another, or send your request and we'll arrange a time.</p>
                           )}
-                        </>
+                        </div>
                       )}
                     </div>
+                  
                   ) : inquiryKind !== 'application' ? null : applyMode === 'lease' ? (
                     <div>
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">When are you looking to start?</p>
