@@ -722,6 +722,18 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
         message: `${inquiryKind === 'tour' ? 'Tour request' : inquiryKind === 'question' ? 'Question' : inquiryKind === 'waitlist' ? 'Waitlist signup' : lease ? 'Space application' : 'Day-rental request'}: ${form.name.trim()} — ${applyFor.name || 'Any space'}${nicheValue ? ` (${nicheValue})` : ''}`,
         link: '/pipeline',
       });
+
+      // The in-app notification above only helps someone already looking at
+      // the app. This is the part that reaches the owner wherever they are,
+      // and tells the person who just applied that it arrived. Best-effort:
+      // the application is already saved either way.
+      try {
+        await fetch('/api/booths/notify', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'application-received', tenantId, applicationId: appRef.id }),
+        });
+      } catch { /* the lead is safe; the email is not worth losing it over */ }
+
       setSubmitted(true);
     } catch { /* dialog stays open for retry */ }
     finally { setSubmitting(false); }
