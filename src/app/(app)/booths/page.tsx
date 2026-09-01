@@ -58,14 +58,17 @@ import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 // Reads the ?tab= query in isolation and lifts it to the page. Rendered inside a
 // <Suspense> boundary so useSearchParams() doesn't force /booths into a
 // client-only bailout during static prerender.
-function TabQuerySync({ onTab, onLease }: { onTab: (t: 'spaces' | 'ops' | 'money') => void; onLease?: (renterId: string) => void }) {
+function TabQuerySync({ onTab, onLease }: { onTab: (t: 'spaces' | 'ops') => void; onLease?: (renterId: string) => void }) {
   const searchParams = useSearchParams();
   const tab = searchParams.get('tab');
   // ?lease=<renterId> — the Renters page hands off here for the one wizard
   // that still lives on this page. Fires once per id.
   const lease = searchParams.get('lease');
   useEffect(() => {
-    if (tab === 'spaces' || tab === 'ops' || tab === 'money') onTab(tab);
+    // ?tab=money still arrives from old links; the Money tab folded into /rent,
+    // so those land on Operations rather than a blank page.
+    if (tab === 'money') onTab('ops');
+    else if (tab === 'spaces' || tab === 'ops') onTab(tab);
   }, [tab, onTab]);
   useEffect(() => {
     if (lease && onLease) onLease(lease);
@@ -1967,8 +1970,8 @@ export default function BoothsPage() {
   const [view, setView] = useState<'floor' | 'list' | 'renters' | 'money'>('floor');
   // v61 — three-tab command center (declared here, with the other hooks,
   // never after an early return)
-  const [tab, setTab] = useState<'spaces' | 'ops' | 'money'>('ops');
-  // Tab is URL-addressable (?tab=spaces|ops|money) so the sidebar can deep-link
+  const [tab, setTab] = useState<'spaces' | 'ops'>('spaces');
+  // Tab is URL-addressable (?tab=spaces|ops) so the sidebar can deep-link
   // straight into the hub's sections, and each tab is bookmarkable / shareable
   // with a working back button. The URL is READ via <TabQuerySync/> below, which
   // is wrapped in a <Suspense> boundary — calling useSearchParams() directly in
@@ -1977,7 +1980,7 @@ export default function BoothsPage() {
   const router = useRouter();
   const pathname = usePathname();
   // Write the tab back to the URL when the user switches tabs in-page.
-  const selectTab = (id: 'spaces' | 'ops' | 'money') => {
+  const selectTab = (id: 'spaces' | 'ops') => {
     setTab(id);
     try {
       const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
@@ -2273,7 +2276,7 @@ export default function BoothsPage() {
   // v57 — transactions (booth income ledger view)
   const [boothTxns, setBoothTxns] = useState<any[]>([]);
   useEffect(() => {
-    if (!firestore || !tenantId || tab !== 'money') return;
+    if (!firestore || !tenantId || tab !== 'ops') return;
     const unsub = onSnapshot(
       query(collection(firestore, 'tenants', tenantId, 'transactions'), where('source', '==', 'booth_rent')),
       (snap) => setBoothTxns(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))),
@@ -3255,7 +3258,7 @@ export default function BoothsPage() {
         items.push({
           kind: row.open.status === 'late' ? 'late' : 'due',
           text: `${who} owes $${(row.owedCents / 100).toFixed(0)}${row.open.status === 'late' ? ' — LATE' : ` · due ${row.open.dueDate}`}`,
-          actionLabel: 'Collect', run: () => selectTab('money'),
+          actionLabel: 'Collect', run: () => { window.location.href = '/rent'; },
         });
       }
     }
@@ -5139,7 +5142,6 @@ export default function BoothsPage() {
           {([
             { id: 'spaces', label: 'Spaces', badge: null },
             { id: 'ops', label: 'Operations', badge: opsBadge > 0 ? opsBadge : null },
-            { id: 'money', label: 'Money', badge: null },
           ] as const).map(t => (
             <button
               key={t.id}
@@ -5511,10 +5513,6 @@ export default function BoothsPage() {
       {/* ── OPERATIONS TAB ───────────────────────────────────────────── */}
       {tab === 'ops' && (
         <div className="px-4 sm:px-6 md:px-8 py-5 space-y-6">
-          {/* ── Mobile jump bar — thumb-reach navigation for a long page ── */}
-          <div className="sm:hidden sticky top-0 z-30 -mx-4 px-4 py-2 bg-slate-50/95 backdrop-blur border-b flex gap-1.5 overflow-x-auto">
-          </div>
-
           {/* ── NEEDS ATTENTION THIS WEEK — the one digest ── */}
           {weeklyDigest.length > 0 && (
             <div className="rounded-2xl border-2 border-slate-300 bg-white p-4 space-y-2">
@@ -5722,18 +5720,22 @@ export default function BoothsPage() {
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-[min(96vw,42rem)] max-h-[92vh] overflow-y-auto rounded-2xl">
-          <DialogHeader>
+        <DialogContent className="flex flex-col overflow-hidden p-0 gap-0 rounded-t-3xl
+          left-0 bottom-0 top-auto w-full max-w-none translate-x-0 translate-y-0 h-[92dvh] max-h-[92dvh]
+          sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:-translate-x-1/2 sm:-translate-y-1/2
+          sm:h-auto sm:max-h-[92vh] sm:w-full sm:max-w-[min(96vw,44rem)] sm:rounded-2xl">
+          <div className="shrink-0 px-5 pt-5 pb-3 border-b">
+            <span aria-hidden className="sm:hidden mx-auto mb-3 block h-1 w-10 rounded-full bg-slate-200" />
             <DialogTitle className="text-xl font-black tracking-tight flex items-center gap-2">
               <Armchair className="h-5 w-5 text-slate-500" />
-              {editingId ? 'Edit space' : 'Add space'}
+              {editingId ? form.name.trim() || 'Edit space' : 'Add space'}
             </DialogTitle>
             <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
               {editingId ? 'Open the section you came for — nothing else in the way' : 'Three answers and it exists'}
             </DialogDescription>
-          </DialogHeader>
+          </div>
 
-          <div className="space-y-4">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4 space-y-4">
             {!editingId ? (
               <>
             <div className="space-y-1">
@@ -5826,11 +5828,12 @@ export default function BoothsPage() {
             ) : (
               <>
             <details className="rounded-2xl border-2 group" open>
-              <summary className="cursor-pointer select-none list-none p-4 flex items-center justify-between gap-3">
-                <span className="text-[11px] font-black uppercase tracking-widest">Basics</span>
-                <span className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground">
-                  name, type, status<ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+              <summary className="cursor-pointer select-none list-none p-4 min-h-[3.5rem] flex items-center justify-between gap-3 active:bg-slate-50">
+                <span className="min-w-0">
+                  <span className="block text-[11px] font-black uppercase tracking-widest">Basics</span>
+                  <span className="block text-[10px] font-bold text-muted-foreground truncate">{form.name.trim() || 'Unnamed'}{form.typeValue ? ` · ${form.typeValue}` : ''} · {form.status}</span>
                 </span>
+                <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
               </summary>
               <div className="p-4 pt-1 space-y-4">
             <div className="space-y-1">
@@ -5923,11 +5926,12 @@ export default function BoothsPage() {
             </details>
 
             <details className="rounded-2xl border-2 group">
-              <summary className="cursor-pointer select-none list-none p-4 flex items-center justify-between gap-3">
-                <span className="text-[11px] font-black uppercase tracking-widest">Money</span>
-                <span className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground">
-                  rent, deposit, extra rates<ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+              <summary className="cursor-pointer select-none list-none p-4 min-h-[3.5rem] flex items-center justify-between gap-3 active:bg-slate-50">
+                <span className="min-w-0">
+                  <span className="block text-[11px] font-black uppercase tracking-widest">Money</span>
+                  <span className="block text-[10px] font-bold text-muted-foreground truncate">{form.baseRentDollars ? `$${form.baseRentDollars}/${form.baseRentFrequency}` : 'No rent set'}{form.extraRates.length ? ` · +${form.extraRates.length} rate${form.extraRates.length > 1 ? 's' : ''}` : ''}</span>
                 </span>
+                <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
               </summary>
               <div className="p-4 pt-1 space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -6073,11 +6077,12 @@ export default function BoothsPage() {
             </details>
 
             <details className="rounded-2xl border-2 group">
-              <summary className="cursor-pointer select-none list-none p-4 flex items-center justify-between gap-3">
-                <span className="text-[11px] font-black uppercase tracking-widest">Public listing</span>
-                <span className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground">
-                  photos, description, video<ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+              <summary className="cursor-pointer select-none list-none p-4 min-h-[3.5rem] flex items-center justify-between gap-3 active:bg-slate-50">
+                <span className="min-w-0">
+                  <span className="block text-[11px] font-black uppercase tracking-widest">Public listing</span>
+                  <span className="block text-[10px] font-bold text-muted-foreground truncate">{form.listed ? 'Listed' : 'Hidden'}{form.photoUrls.length ? ` · ${form.photoUrls.length} photo${form.photoUrls.length > 1 ? 's' : ''}` : ' · no photos'}</span>
                 </span>
+                <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
               </summary>
               <div className="p-4 pt-1 space-y-4">
             <div className="flex items-center justify-between rounded-lg border p-3">
@@ -6134,11 +6139,12 @@ export default function BoothsPage() {
             </details>
 
             <details className="rounded-2xl border-2 group">
-              <summary className="cursor-pointer select-none list-none p-4 flex items-center justify-between gap-3">
-                <span className="text-[11px] font-black uppercase tracking-widest">Day rentals</span>
-                <span className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground">
-                  days, blackouts, slots, hours<ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+              <summary className="cursor-pointer select-none list-none p-4 min-h-[3.5rem] flex items-center justify-between gap-3 active:bg-slate-50">
+                <span className="min-w-0">
+                  <span className="block text-[11px] font-black uppercase tracking-widest">Day rentals</span>
+                  <span className="block text-[10px] font-bold text-muted-foreground truncate">{form.dayRentalDays.length ? `${form.dayRentalDays.length} day${form.dayRentalDays.length > 1 ? 's' : ''} open` : 'Not offered'}</span>
                 </span>
+                <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
               </summary>
               <div className="p-4 pt-1 space-y-4">
             <div className="space-y-2">
@@ -6224,11 +6230,12 @@ export default function BoothsPage() {
             </details>
 
             <details className="rounded-2xl border-2 group">
-              <summary className="cursor-pointer select-none list-none p-4 flex items-center justify-between gap-3">
-                <span className="text-[11px] font-black uppercase tracking-widest">Floor plan</span>
-                <span className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground">
-                  shape on the map<ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+              <summary className="cursor-pointer select-none list-none p-4 min-h-[3.5rem] flex items-center justify-between gap-3 active:bg-slate-50">
+                <span className="min-w-0">
+                  <span className="block text-[11px] font-black uppercase tracking-widest">Floor plan</span>
+                  <span className="block text-[10px] font-bold text-muted-foreground truncate">{FLOOR_SHAPES.find((sh) => sh.value === (form.shape || 'rect'))?.label || 'Rectangle'}</span>
                 </span>
+                <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
               </summary>
               <div className="p-4 pt-1 space-y-4">
             <div className="space-y-1.5">
@@ -6264,14 +6271,15 @@ export default function BoothsPage() {
             )}
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+          <div className="shrink-0 border-t bg-white px-5 py-3 flex gap-2 sm:justify-end"
+            style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
+            <Button variant="outline" className="h-12 flex-1 sm:flex-none sm:h-10" onClick={() => setDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleSave} disabled={saving || !form.name.trim()}>
-              {saving ? 'Saving…' : editingId ? 'Save changes' : 'Add booth'}
+            <Button className="h-12 flex-1 sm:flex-none sm:h-10" onClick={handleSave} disabled={saving || !form.name.trim()}>
+              {saving ? 'Saving…' : editingId ? 'Save changes' : 'Add space'}
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
