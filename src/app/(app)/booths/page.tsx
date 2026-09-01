@@ -207,6 +207,7 @@ import {
   slotsOverlap,
 } from '@/lib/booth-rental-types';
 import { auditEntry } from '@/lib/audit';
+import { FLOOR_SHAPES, FLOOR_SHAPE_GROUPS, FloorGlyph, sizeForShape, layerFor, shapeClass, decorChrome, isContainerShape } from '@/components/booths/FloorShapes';
 import {
   useBoothRentalCollections,
   useBoothIndex,
@@ -221,48 +222,6 @@ import { dueAtFor as ticketDueAtFor, isTicketOverdue, pickRotationWorker } from 
 import { ImageUpload } from '@/components/shared/ImageUpload';
 
 // ─── Canvas constants ─────────────────────────────────────────────────────────
-
-// ── Shapes on the floor ─────────────────────────────────────────────────────
-// One list, used by the dialog picker, the design-mode picker and the quick-add
-// palette, so the three can never drift apart.
-const FLOOR_SHAPES: { value: string; label: string; w: number; h: number }[] = [
-  { value: 'rect',     label: '▭ Booth / suite',     w: 140, h: 100 },
-  { value: 'square',   label: '◻ Square table',      w: 160, h: 160 },
-  { value: 'round',    label: '● Round table',       w: 120, h: 120 },
-  { value: 'oval',     label: '⬭ Oval table',        w: 160, h: 100 },
-  { value: 'chair',    label: '🪑 Styling chair',    w: 80,  h: 80  },
-  { value: 'pedicure', label: '💺 Pedicure station', w: 100, h: 100 },
-  { value: 'sink',     label: '🚿 Shampoo / sink',   w: 80,  h: 80  },
-  { value: 'dryer',    label: '💨 Drying station',   w: 80,  h: 80  },
-  { value: 'desk',     label: '🛎 Reception desk',   w: 200, h: 80  },
-  { value: 'wall',     label: '▬ Wall / divider',    w: 240, h: 20  },
-  { value: 'door',     label: '🚪 Door / entry',     w: 80,  h: 20  },
-  { value: 'plant',    label: '🪴 Décor',            w: 60,  h: 60  },
-];
-// A circle drawn in a 140x100 box is an ellipse, and a wall 100px deep is a
-// room. These two families have to hold their proportions or the shape you
-// picked is not the shape you get; everything else keeps whatever size you
-// dragged it to.
-const SQUARE_SHAPES = ['round', 'chair', 'pedicure', 'sink', 'dryer', 'plant'];
-const FLOOR_LAYERS: Record<string, number> = { wall: 1, door: 2, plant: 3, square: 4 };
-function layerFor(shape: string, selected: boolean): number {
-  if (selected) return 15;
-  return FLOOR_LAYERS[shape] ?? 8;
-}
-const THIN_SHAPES = ['wall', 'door'];
-
-/** The box a shape needs, given the box it currently has. */
-function sizeForShape(shape: string, w: number, h: number): { w: number; h: number } {
-  const def = FLOOR_SHAPES.find((s) => s.value === shape);
-  if (SQUARE_SHAPES.includes(shape)) {
-    const side = Math.max(40, Math.min(240, Math.round((w + h) / 2)));
-    return { w: side, h: side };
-  }
-  if (THIN_SHAPES.includes(shape)) {
-    return { w: Math.max(40, w), h: Math.min(h, def?.h ?? 20) };
-  }
-  return { w, h };
-}
 
 const CANVAS_W = 1200;
 const CANVAS_H = 800;
@@ -1243,26 +1202,13 @@ function BoothCanvasCard({
       onClick={() => onClick(booth.id)}
     >
       <div
-        className={`w-full h-full flex flex-col overflow-hidden transition-shadow ${
-          (booth as any).shape === 'round' ? 'rounded-full items-center justify-center text-center p-1.5'
-          : (booth as any).shape === 'oval' ? 'rounded-[50%] items-center justify-center text-center p-1.5'
-          : ['chair', 'pedicure', 'sink', 'dryer', 'plant'].includes((booth as any).shape) ? 'rounded-2xl items-center justify-center text-center p-1'
-          : (booth as any).shape === 'desk' ? 'rounded-t-3xl rounded-b-lg items-center justify-center text-center p-1.5'
-          : ['wall', 'door'].includes((booth as any).shape) ? 'rounded-sm justify-center p-1'
-          : (booth as any).shape === 'square' ? 'rounded-lg p-2.5'
-          : 'rounded-xl p-2.5'
-        }`}
+        className={`w-full h-full flex flex-col overflow-hidden transition-shadow ${shapeClass((booth as any).shape || 'rect')}`}
         style={{
-          background: (booth as any).shape === 'wall' ? '#cbd5e1'
-            : (booth as any).shape === 'door' ? 'repeating-linear-gradient(45deg,#e2e8f0,#e2e8f0 4px,#f8fafc 4px,#f8fafc 8px)'
-            : (booth as any).shape === 'plant' ? '#ecfdf5'
-            : lensMode ? lensInfo!.bg
-            : colors.bg,
-          border: (booth as any).shape === 'wall' ? '2px solid #94a3b8'
-            : (booth as any).shape === 'door' ? '2px dashed #94a3b8'
-            : (booth as any).shape === 'plant' ? '2px solid #a7f3d0'
-            : lensMode ? `2px solid ${selected ? lensInfo!.border : lensInfo!.border + '99'}`
-            : `2px solid ${selected ? colors.border : colors.border + '99'}`,
+          background: decorChrome((booth as any).shape)?.background
+            ?? (lensMode ? lensInfo!.bg : colors.bg),
+          border: decorChrome((booth as any).shape)?.border
+            ?? (lensMode ? `2px solid ${selected ? lensInfo!.border : lensInfo!.border + '99'}`
+              : `2px solid ${selected ? colors.border : colors.border + '99'}`),
           boxShadow: lensMode ? (selected ? `0 0 0 2px ${lensInfo!.border}44` : undefined)
             : overtime ? '0 0 0 3px #ef444455, 0 0 18px 2px #ef444466'
             : isLive ? '0 0 0 3px #6366f155, 0 0 16px 2px #6366f144'
@@ -1276,12 +1222,11 @@ function BoothCanvasCard({
             <span className={`relative inline-flex rounded-full h-3.5 w-3.5 border-2 border-white ${overtime ? 'bg-red-500' : isLive ? 'bg-indigo-500' : 'bg-emerald-400'}`} />
           </span>
         )}
-        {(booth as any).shape === 'chair' && <span className="text-base leading-none">🪑</span>}
-        {(booth as any).shape === 'pedicure' && <span className="text-base leading-none">💺</span>}
-        {(booth as any).shape === 'sink' && <span className="text-base leading-none">🚿</span>}
-        {(booth as any).shape === 'dryer' && <span className="text-base leading-none">💨</span>}
-        {(booth as any).shape === 'plant' && <span className="text-base leading-none">🪴</span>}
-        {(booth as any).shape === 'door' && <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Entry</span>}
+        {!isContainerShape((booth as any).shape || 'rect') && (
+          <span className="opacity-70" style={{ color: (booth as any).shape === 'screen' ? '#e2e8f0' : colors.text }}>
+            <FloorGlyph shape={(booth as any).shape || 'rect'} className={booth.canvasW <= 60 || booth.canvasH <= 40 ? 'h-3.5 w-3.5' : 'h-5 w-5'} />
+          </span>
+        )}
         <div className="flex items-center justify-between gap-1 mb-1">
           <span
             className="text-xs font-semibold truncate leading-none"
@@ -4424,17 +4369,11 @@ export default function BoothsPage() {
   // the floor as one tap, no full booth dialog. They're status:'inactive'
   // (never bookable, never counted as vacant) with no rate, purely so the
   // map reads like the actual studio.
-  const quickAddElement = async (shape: 'wall' | 'door' | 'square' | 'chair' | 'sink' | 'plant') => {
+  const quickAddElement = async (shape: string) => {
     if (!tenantId || !selectedLocationId) return;
-    const DEFS: Record<string, { name: string; w: number; h: number }> = {
-      wall: { name: 'Wall', w: 240, h: 20 },
-      door: { name: 'Door', w: 80, h: 20 },
-      square: { name: 'Zone', w: 160, h: 160 },
-      chair: { name: 'Chair', w: 80, h: 80 },
-      sink: { name: 'Wash', w: 80, h: 80 },
-      plant: { name: 'Plant', w: 60, h: 60 },
-    };
-    const dd = DEFS[shape];
+    const def = FLOOR_SHAPES.find((x) => x.value === shape);
+    if (!def) return;
+    const dd = { name: def.label, w: def.w, h: def.h };
     try {
       const now = new Date().toISOString();
       const ref = doc(collection(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId)));
@@ -5384,20 +5323,30 @@ export default function BoothsPage() {
                     </span>
                   </div>
                   <div className="rounded-xl border-2 bg-white px-3 py-2 flex items-center gap-2 flex-wrap">
-                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 shrink-0">Add to floor:</span>
-                    {([
-                      ['wall', '▬ Wall'],
-                      ['door', '🚪 Door'],
-                      ['square', '⬛ Zone'],
-                      ['chair', '🪑 Chair'],
-                      ['sink', '🚿 Wash'],
-                      ['plant', '🪴 Plant'],
-                    ] as const).map(([shape, label]) => (
-                      <button key={shape} onClick={() => quickAddElement(shape)}
-                        className="h-10 px-3 rounded-lg border-2 text-[10px] font-black uppercase tracking-wide text-slate-600 hover:border-slate-400 active:scale-95 transition-all">
-                        {label}
-                      </button>
-                    ))}
+                    <details className="group/add w-full">
+                      <summary className="flex items-center gap-2 cursor-pointer list-none">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Add to floor</span>
+                        <ChevronDown className="h-3.5 w-3.5 text-slate-400 transition-transform group-open/add:rotate-180" />
+                        <span className="text-[9px] font-bold text-slate-400">{FLOOR_SHAPES.length} elements</span>
+                      </summary>
+                      <div className="pt-2 space-y-2">
+                        {FLOOR_SHAPE_GROUPS.map((grp) => (
+                          <div key={grp}>
+                            <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1">{grp}</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {FLOOR_SHAPES.filter((sh) => sh.group === grp).map((sh) => (
+                                <button key={sh.value} type="button" onClick={() => quickAddElement(sh.value)}
+                                  title={sh.hint}
+                                  className="h-11 px-2.5 rounded-lg border-2 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wide text-slate-600 hover:border-slate-400 active:scale-95 transition-all">
+                                  <FloorGlyph shape={sh.value} className="h-4 w-4 shrink-0" />
+                                  {sh.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
                     <span className="ml-auto flex items-center gap-1.5">
                       <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Room width</span>
                       <input type="number" inputMode="numeric" min={0} value={scaleDraft} onChange={e => setScaleDraft(e.target.value)}
@@ -5428,13 +5377,24 @@ export default function BoothsPage() {
                         <button type="button" onClick={() => removeFromFloor(selectedBooth)}
                           className="h-9 px-2.5 rounded-lg border-2 border-red-200 text-[9px] font-black uppercase tracking-widest text-red-600 active:scale-95">Remove</button>
                       </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {FLOOR_SHAPES.map((sh) => (
-                          <button key={sh.value} type="button" onClick={() => applyShape(selectedBooth, sh.value)}
-                            aria-pressed={((selectedBooth as any).shape || 'rect') === sh.value}
-                            className={`h-10 px-3 rounded-lg border-2 text-[10px] font-black uppercase tracking-wide transition-colors active:scale-95 ${((selectedBooth as any).shape || 'rect') === sh.value ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
-                            {sh.label}
-                          </button>
+                      <div className="space-y-2 max-h-52 overflow-y-auto overscroll-contain">
+                        {FLOOR_SHAPE_GROUPS.map((grp) => (
+                          <div key={grp}>
+                            <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1">{grp}</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {FLOOR_SHAPES.filter((sh) => sh.group === grp).map((sh) => {
+                                const on = ((selectedBooth as any).shape || 'rect') === sh.value;
+                                return (
+                                  <button key={sh.value} type="button" onClick={() => applyShape(selectedBooth, sh.value)}
+                                    aria-pressed={on} title={sh.hint}
+                                    className={`h-11 px-2.5 rounded-lg border-2 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wide transition-colors active:scale-95 ${on ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
+                                    <FloorGlyph shape={sh.value} className="h-4 w-4 shrink-0" />
+                                    {sh.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
                         ))}
                       </div>
                     </div>
@@ -6273,13 +6233,27 @@ export default function BoothsPage() {
               <div className="p-4 pt-1 space-y-4">
             <div className="space-y-1.5">
               <Label>Shape on the floor plan</Label>
-              <div className="flex flex-wrap gap-1.5">
-                {FLOOR_SHAPES.map((sh) => (
-                  <button key={sh.value} type="button" onClick={() => setForm(prev => ({ ...prev, shape: sh.value }))}
-                    aria-pressed={form.shape === sh.value}
-                    className={`h-10 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${form.shape === sh.value ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-500'}`}>
-                    {sh.label}
-                  </button>
+              <div className="space-y-2.5">
+                {FLOOR_SHAPE_GROUPS.map((grp) => (
+                  <div key={grp}>
+                    <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1">{grp}</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                      {FLOOR_SHAPES.filter((sh) => sh.group === grp).map((sh) => {
+                        const on = form.shape === sh.value;
+                        return (
+                          <button key={sh.value} type="button" onClick={() => setForm(prev => ({ ...prev, shape: sh.value }))}
+                            aria-pressed={on}
+                            className={`min-h-[3rem] px-2.5 py-1.5 rounded-xl border-2 flex items-center gap-2 text-left transition-colors ${on ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600'}`}>
+                            <FloorGlyph shape={sh.value} className="h-5 w-5 shrink-0" />
+                            <span className="min-w-0">
+                              <span className="block text-[10px] font-black uppercase tracking-wide truncate">{sh.label}</span>
+                              <span className={`block text-[9px] font-bold truncate ${on ? 'text-white/60' : 'text-slate-400'}`}>{sh.hint}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 ))}
               </div>
               <p className="text-[10px] font-bold text-muted-foreground">Changes how this space draws on the floor plan. Round and wall shapes take their proportions on save; anything else keeps the size you dragged it to.</p>
