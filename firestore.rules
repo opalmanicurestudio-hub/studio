@@ -541,6 +541,26 @@ service cloud.firestore {
                 || (request.resource.data.applicantNote is string && request.resource.data.applicantNote.size() <= 500)));
     }
 
+    // Tour invites — the rental twin of interviewInvites above, same trust
+    // model: the doc id IS the capability, it holds only a first name, a space
+    // name and offered times, and the prospect may answer exactly once while
+    // it is pending. Nothing here books a tour; the owner confirms it through
+    // the scheduler, which is what writes /tours.
+    match /tenants/{tenantId}/tourInvites/{inviteId} {
+      allow get: if true;
+      allow list: if isManager(tenantId);
+      allow create, delete: if isManager(tenantId);
+      allow update: if isManager(tenantId)
+        || (resource.data.status == 'pending'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'chosenSlot', 'respondedAt', 'proposedSlots', 'prospectNote'])
+            && (request.resource.data.status == 'accepted'
+                || request.resource.data.status == 'needs_new_times'
+                || request.resource.data.status == 'countered')
+            && (!('proposedSlots' in request.resource.data) || request.resource.data.proposedSlots.size() <= 5)
+            && (!('prospectNote' in request.resource.data)
+                || (request.resource.data.prospectNote is string && request.resource.data.prospectNote.size() <= 500)));
+    }
+
     // v79 — LEGACY, compatibility window only. /api/checkins now writes
     // the scoped tenants/{id}/appointmentCheckIns (rules above) and
     // mirrors here so old readers keep working. TO CLOSE THIS HOLE:
