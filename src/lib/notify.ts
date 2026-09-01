@@ -54,6 +54,13 @@ export type NotifyInput = {
   recipientType?: 'client' | 'staff' | 'renter' | 'maintenance' | 'contact' | 'other';
   recipientId?: string | null;
   recipientName?: string | null;
+  /* ── Address release context ─────────────────────────────────────────────
+   * Whether this message may print the studio's street address is a policy
+   * decision, not a caller decision — so callers describe the SITUATION and
+   * the {{address}} token is resolved here. A caller that says nothing gets
+   * the unconfirmed treatment, which is the safe direction to be wrong in. */
+  eventConfirmed?: boolean;
+  eventStartIso?: string | null;
 };
 
 export type NotifyResult = {
@@ -94,6 +101,7 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
     enabled: true, subject: '', body: '', custom: false,
   };
   let tenantDoc: any = null;
+  let addressReason: string | null = null;
   if (kind) {
     try {
       const { resolveMessagePolicy } = await import('./message-policy');
@@ -113,7 +121,27 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
    * supplies the TOKENS; the owner supplies the sentence. */
   if (policy.custom && policy.body) {
     const { renderMessage } = await import('./message-policy');
-    const tokens = (input as any).tokens || {};
+    const tokens = { ...((input as any).tokens || {}) };
+    // {{address}} is resolved here, never by the caller, so one setting
+    // governs every message that mentions where you are.
+    if (tokens.address === undefined) {
+      try {
+        const { resolveAddressPolicy, resolveAddressForMessage } = await import('./message-policy');
+        const t = tenantDoc || {};
+        const full = [
+          t.address?.street || t.address?.line1, t.address?.line2,
+          t.address?.city, t.address?.state,
+          t.address?.zip || t.address?.postalCode,
+        ].filter(Boolean).join(', ') || String(t.address?.formatted || t.address || '');
+        const decision = resolveAddressForMessage(resolveAddressPolicy(t), {
+          fullAddress: full,
+          confirmed: input.eventConfirmed === true,
+          eventStartIso: input.eventStartIso || null,
+        });
+        tokens.address = decision.text;
+        addressReason = decision.reason;
+      } catch { tokens.address = ''; }
+    }
     const rendered = renderMessage(policy.body, tokens);
     if (rendered) {
       input = {
@@ -237,6 +265,7 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
       recipientType: input.recipientType || (input.clientId ? 'client' : 'other'),
       recipientId: input.recipientId || input.clientId || null,
       recipientName: input.recipientName || input.clientName || null,
+      addressRelease: addressReason,
       sentAt: new Date().toISOString(),
       // Journey fields — filled in later by the provider webhooks
       // (/api/webhooks/resend for email, /api/sms/status for texts).
