@@ -1,4 +1,4 @@
-"use client";
+""use client";
 
 // ─── PIPELINE ────────────────────────────────────────────────────────────────
 // Every prospect, from first enquiry to signed lease, on one screen.
@@ -26,6 +26,7 @@ import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { createRenter } from '@/lib/booth-rental-service';
 import { linkContactRenter } from '@/lib/booth-contacts';
 import { buildGuestBook, guestMatches, STAGE_LABEL, type GuestBookEntry } from '@/lib/guest-book';
+import { CommsTrail } from '@/components/shared/CommsTrail';
 import { nanoid } from 'nanoid';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
@@ -594,6 +595,14 @@ export default function PipelinePage() {
               </div>
 
               {g.ownerNotes && <p className="text-[11px] font-bold text-muted-foreground">{g.ownerNotes}</p>}
+
+              <CommsTrail
+                recipientType="contact"
+                recipientId={g.convertedRenterId || g.key}
+                contactPhone={g.phone}
+                contactEmail={g.email}
+                title="Messages to them"
+              />
             </div>
           ))}
 
@@ -785,6 +794,14 @@ export default function PipelinePage() {
                   </p>
                 </div>
               )}
+
+              <CommsTrail
+                recipientType="contact"
+                recipientId={r.id}
+                contactPhone={r.phone}
+                contactEmail={r.email}
+                title="Messages to them"
+              />
             </div>
           ))}
         </div>
