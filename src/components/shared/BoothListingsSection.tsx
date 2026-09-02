@@ -220,6 +220,8 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const [tourTimes, setTourTimes] = useState<string[] | null>(null);
   const [tourTimesLoading, setTourTimesLoading] = useState(false);
   const [toursOff, setToursOff] = useState(false);
+  const [tourAutoConfirm, setTourAutoConfirm] = useState(true);
+  const [tourBooked, setTourBooked] = useState(false);
   const [tourDurationMins, setTourDurationMins] = useState(30);
 
   // The next three weeks, in the visitor's own timezone. Which of these days
@@ -253,6 +255,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
         if (d?.ok) {
           setTourTimes(Array.isArray(d.slots) ? d.slots : []);
           setToursOff(!!d.toursOff);
+          if (typeof d.autoConfirm === 'boolean') setTourAutoConfirm(d.autoConfirm);
           if (d.durationMins) setTourDurationMins(Number(d.durationMins) || 30);
         } else {
           setTourTimes([]);
@@ -673,7 +676,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
           }),
         });
         const d2 = await res.json();
-        if (d2.ok) { setSubmitted(true); setSubmitting(false); setApplyFor(null); return; }
+        if (d2.ok) { setTourBooked(!!d2.autoConfirmed); setSubmitted(true); setSubmitting(false); setApplyFor(null); return; }
         if (res.status === 409) {
           alert(d2.error || 'That time was just taken — please pick another.');
           setTourSlot(''); setTourStartIso(''); setTourEndIso('');
@@ -734,6 +737,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
         });
       } catch { /* the lead is safe; the email is not worth losing it over */ }
 
+      setTourBooked(false);
       setSubmitted(true);
     } catch { /* dialog stays open for retry */ }
     finally { setSubmitting(false); }
@@ -1080,14 +1084,16 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                 <div className="mx-auto w-16 h-16 rounded-full bg-emerald-500 flex items-center justify-center text-white text-3xl font-black shadow-lg shadow-emerald-500/30 animate-in zoom-in duration-300">✓</div>
                 <div className="space-y-1">
                   <h3 className="font-black text-xl tracking-tight">
-                    {inquiryKind === 'tour' ? 'Tour requested!' : inquiryKind === 'question' ? 'Question sent!' : inquiryKind === 'waitlist' ? "You're on the waitlist!" : 'Application received!'}
+                    {inquiryKind === 'tour' ? (tourBooked ? "You're booked in!" : 'Tour requested!') : inquiryKind === 'question' ? 'Question sent!' : inquiryKind === 'waitlist' ? "You're on the waitlist!" : 'Application received!'}
                   </h3>
                   <p className="text-sm text-slate-500 font-medium">
                     {inquiryKind === 'tour' && tourSlot ? `${applyFor.name || 'The space'} · ${tourSlot}` : (applyFor.name || 'The space')}
                   </p>
                 </div>
                 <p className="text-[13px] text-slate-500 font-medium max-w-xs mx-auto leading-relaxed">
-                  {inquiryKind === 'tour' ? "We'll confirm your tour shortly by phone or email — keep an eye out." : inquiryKind === 'question' ? "We'll get back to you within one business day." : inquiryKind === 'waitlist' ? "We'll notify you the moment a spot opens up." : "We'll review your application and reach out within one business day."}
+                  {inquiryKind === 'tour' ? (tourBooked
+                    ? "That time is held for you. We've emailed the details — just reply if anything changes."
+                    : "We'll confirm your tour shortly by phone or email — keep an eye out.") : inquiryKind === 'question' ? "We'll get back to you within one business day." : inquiryKind === 'waitlist' ? "We'll notify you the moment a spot opens up." : "We'll review your application and reach out within one business day."}
                 </p>
                 <button onClick={() => setApplyFor(null)} className="h-12 px-10 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest active:scale-[0.98] transition-transform">Done</button>
               </div>
@@ -1306,6 +1312,9 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                               </div>
                               <p className="text-[10px] font-bold text-muted-foreground mt-1.5">
                                 {tourDurationMins} minutes · times already booked are not shown.
+                                {tourAutoConfirm
+                                  ? ' Your time is confirmed the moment you send this.'
+                                  : ' We confirm each visit personally — you will hear back shortly after you send this.'}
                               </p>
                             </>
                           ) : (
