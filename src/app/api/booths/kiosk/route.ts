@@ -795,7 +795,9 @@ export async function POST(req: NextRequest) {
         } catch (err) { console.error('[kiosk] tour confirmation email failed (tour is safe)', err); }
       }
 
-      return NextResponse.json({ ok: true, status, autoConfirmed: status === 'confirmed' });
+      // tourId so a caller that booked on someone's behalf can follow up on
+      // this exact tour (the pipeline's confirm-an-accepted-invite path does).
+      return NextResponse.json({ ok: true, status, autoConfirmed: status === 'confirmed', tourId: tourRef.id });
     }
 
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
