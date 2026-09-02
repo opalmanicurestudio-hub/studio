@@ -676,9 +676,10 @@ export async function POST(req: NextRequest) {
       const { date } = body;   // YYYY-MM-DD
       if (!date) return NextResponse.json({ ok: false, error: 'Missing date.' }, { status: 400 });
       const rules = await loadRules(db, tenantId);
-      if (!rules.toursEnabled) return NextResponse.json({ ok: true, slots: [], toursOff: true });
+      const autoConfirm = rules.tourAutoConfirm !== false;
+      if (!rules.toursEnabled) return NextResponse.json({ ok: true, slots: [], toursOff: true, autoConfirm });
       const dow = new Date(date + 'T00:00:00Z').getUTCDay();
-      if (!rules.tourDays.includes(dow)) return NextResponse.json({ ok: true, slots: [] });
+      if (!rules.tourDays.includes(dow)) return NextResponse.json({ ok: true, slots: [], autoConfirm });
 
       const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
       const pad = (n: number) => String(n).padStart(2, '0');
@@ -703,7 +704,7 @@ export async function POST(req: NextRequest) {
         if (new Date(`${date}T${hhmm}:00`).getTime() - now < leadMs) continue;   // lead-time
         slots.push(hhmm);
       }
-      return NextResponse.json({ ok: true, slots, durationMins: dur });
+      return NextResponse.json({ ok: true, slots, durationMins: dur, autoConfirm });
     }
 
     // 'tour-book': create the tour. auto-confirm or await approval per
