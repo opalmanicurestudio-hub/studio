@@ -30,6 +30,15 @@ const fmtDT = (iso: any) => {
 
 const STEPS = ['Sent', 'Delivered', 'Opened', 'Clicked'];
 
+/** Full stamp for the moments people actually ask about. */
+const fmtFull = (iso: any) => {
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    return `${d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })} · ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+  } catch { return ''; }
+};
+
 // Best-effort E.164 for matching messageLog's stored `to` numbers.
 const toE164ish = (raw: any): string | null => {
   const digits = String(raw || '').replace(/\D/g, '');
@@ -146,6 +155,24 @@ export function CommsTrail({
                         {i <= reached ? <CheckCircle2 className="w-2 h-2 mr-0.5" /> : null}{s}
                       </span>
                     ))}
+                  </div>
+                )}
+                {!failed && !skipped && (
+                  <div className="mt-1.5 space-y-0.5">
+                    {([
+                      ['Sent', m.sentAt, null],
+                      ['Delivered', m.deliveredAt, null],
+                      ['Opened', m.firstOpenedAt || m.openedAt, m.openCount],
+                      ['Clicked', m.firstClickedAt || m.clickedAt, m.clickCount],
+                    ] as const).map(([label, at, count]) => at ? (
+                      <p key={label} className="text-[8px] font-bold text-slate-500">
+                        <span className="uppercase tracking-wide text-slate-400">{label}</span>{' '}
+                        {fmtFull(at)}
+                        {typeof count === 'number' && count > 1 ? ` · ${count}×` : ''}
+                        {label === 'Opened' && m.firstOpenedAt && m.openedAt && m.openedAt !== m.firstOpenedAt
+                          ? ` · last ${fmtFull(m.openedAt)}` : ''}
+                      </p>
+                    ) : null)}
                   </div>
                 )}
                 {failed && (
