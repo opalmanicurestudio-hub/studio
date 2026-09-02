@@ -28,6 +28,13 @@ interface TourManagerDialogProps {
   printConfig?: TourPrintoutConfig | null;   // owner-customized sheet copy
   onConvert?: (tour: any) => void;           // convert this visitor to a renter
   onDone?: () => void;
+  /* The tours/{id} doc this visit is booked against, when there is one.
+   * This dialog has always written to boothApplications only, which was fine
+   * while the hub was the only place tours were read. The calendar, the slot
+   * checker and the pipeline's status strip all read tours/{id} — so a
+   * reschedule or a no-show recorded here has to land in BOTH or the two
+   * disagree, and the one people trust is the one on screen. */
+  tourId?: string | null;
 }
 
 const t12 = (hhmm: string): string => {
@@ -43,7 +50,7 @@ const fmtWhen = (iso?: string | null): string => {
   try { return d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch { return iso; }
 };
 
-export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tour, studioName, studioPhone, studioEmail, studioAddress, printConfig, onConvert, onDone }: TourManagerDialogProps) {
+export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tour, tourId, studioName, studioPhone, studioEmail, studioAddress, printConfig, onConvert, onDone }: TourManagerDialogProps) {
   const [busy, setBusy] = useState(false);
   const [notes, setNotes] = useState(tour?.tourNotes || '');
   const [rescheduling, setRescheduling] = useState(false);
@@ -57,10 +64,40 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
   const nowIso = () => new Date().toISOString();
   const status = tour?.status || 'new';
 
+  /* What the tours doc should say, given a change to the application. Only
+   * the fields the scheduler and the pipeline actually read — never a blind
+   * copy, which would drag application-only fields into the calendar. */
+  const tourMirror = (data: any): any | null => {
+    const out: any = {};
+    if (data.status === 'confirmed') out.status = 'confirmed';
+    if (data.status === 'no_show') { out.status = 'no_show'; out.decidedAt = data.tourOutcome?.at || nowIso(); }
+    if (data.status === 'closed') { out.status = 'completed'; out.decidedAt = data.tourOutcome?.at || nowIso(); }
+    if (data.tourStartIso) {
+      const st = new Date(data.tourStartIso);
+      if (!isNaN(st.getTime())) {
+        const pad = (n: number) => String(n).padStart(2, '0');
+        out.date = `${st.getFullYear()}-${pad(st.getMonth() + 1)}-${pad(st.getDate())}`;
+        out.time = `${pad(st.getHours())}:${pad(st.getMinutes())}`;
+        out.rescheduledAt = data.rescheduledAt || nowIso();
+        out.status = 'confirmed';
+      }
+    }
+    return Object.keys(out).length ? out : null;
+  };
+
   const patch = async (data: any) => {
     if (busy) return;
     setBusy(true);
-    try { await setDoc(ref(), data, { merge: true }); onDone?.(); }
+    try {
+      await setDoc(ref(), data, { merge: true });
+      const mirror = tourId ? tourMirror(data) : null;
+      if (mirror) {
+        try {
+          await setDoc(doc(firestore, 'tenants', tenantId, 'tours', tourId as string), mirror, { merge: true });
+        } catch { /* the application write stands; the strip re-syncs on next edit */ }
+      }
+      onDone?.();
+    }
     catch { /* surfaced by caller's live data */ }
     finally { setBusy(false); }
   };
