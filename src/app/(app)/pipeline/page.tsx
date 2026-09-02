@@ -32,7 +32,7 @@ import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import {
   Users, CalendarClock, AlertTriangle, CheckCircle2, Loader,
-  Phone, Mail, Flame, Search, Star,
+  Phone, Mail, Flame, Search, Star, ChevronDown, History as HistoryIcon,
 } from 'lucide-react';
 
 type Row = {
@@ -41,6 +41,7 @@ type Row = {
   status: string; createdAt: string;
   tourStartIso: string | null; tourDate: string | null; tourId: string | null;
   outcome: any; followUpNeeded: boolean;
+  decidedAt: string | null; convertedAt: string | null;
   rentalType: string | null; message: string;
   specialty: string | null; boothName: string | null; locationId: string | null;
 };
@@ -84,6 +85,54 @@ function urgencyOf(r: Row, todayIso: string): { rank: number; label: string; ton
   return { rank: 2, label: r.kind === 'application' ? 'New application' : 'New enquiry', tone: 'slate' };
 }
 
+type HistoryLine = { at: string; text: string; tone?: 'good' | 'bad' };
+
+function historyFor(r: Row, tour: any, invites: any[]): HistoryLine[] {
+  const out: HistoryLine[] = [];
+  const push = (at: any, text: string, tone?: 'good' | 'bad') => {
+    if (at) out.push({ at: String(at), text, tone });
+  };
+
+  push(r.createdAt, r.kind === 'tour' ? 'Asked to visit' : r.kind === 'application' ? 'Applied' : 'Got in touch');
+
+  if (tour) {
+    const slot = tour.date && tour.time ? whenTime(`${tour.date}T${tour.time}:00`) : '';
+    push(tour.createdAt, tour.status === 'requested' && !tour.decidedAt
+      ? `Requested ${slot}`
+      : `Booked ${slot}`);
+    if (tour.decidedAt) {
+      push(tour.decidedAt,
+        tour.status === 'confirmed' ? `You confirmed ${slot}`
+          : tour.status === 'declined' ? `You declined ${slot}`
+          : `Decision recorded`,
+        tour.status === 'declined' ? 'bad' : 'good');
+    }
+    if (tour.cancelledAt) push(tour.cancelledAt, `Tour cancelled${slot ? ` (was ${slot})` : ''}`, 'bad');
+    if (tour.rescheduledAt) push(tour.rescheduledAt, `Moved to ${slot}`, 'good');
+  }
+
+  for (const inv of invites) {
+    const offered = Array.isArray(inv.slots) ? inv.slots.length : 0;
+    push(inv.createdAt, `Offered ${offered} time${offered === 1 ? '' : 's'}`);
+    if (inv.sentAt) push(inv.sentAt, inv.sendStatus === 'sent' ? 'Times emailed' : `Times not emailed (${inv.sendStatus || 'unknown'})`,
+      inv.sendStatus === 'sent' ? undefined : 'bad');
+    if (inv.respondedAt) {
+      push(inv.respondedAt,
+        inv.status === 'accepted' ? `They picked ${whenTime(inv.chosenSlot || '')}`
+          : inv.status === 'countered' ? 'They sent times of their own'
+          : 'They asked for different times',
+        inv.status === 'accepted' ? 'good' : undefined);
+    }
+    if (inv.scheduledAt) push(inv.scheduledAt, 'You booked their pick', 'good');
+  }
+
+  if (r.outcome) push(r.decidedAt || r.createdAt, `Outcome recorded: ${r.outcome.interest || 'noted'}`);
+  if (r.convertedAt) push(r.convertedAt, 'Became a renter', 'good');
+  if (r.status === 'declined' && r.decidedAt) push(r.decidedAt, 'Lead declined', 'bad');
+
+  return out.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+}
+
 const whenTime = (iso: string): string => {
   try {
     const d = new Date(iso);
@@ -123,6 +172,8 @@ export default function PipelinePage() {
             tourId: a.tourId || null,
             tourDate: a.tourDate || null,
             outcome: a.tourOutcome || null,
+            decidedAt: a.decidedAt || null,
+            convertedAt: a.convertedAt || null,
             followUpNeeded: a.followUpNeeded === true,
             rentalType: a.rentalType || null,
             message: a.message || '',
@@ -149,6 +200,7 @@ export default function PipelinePage() {
   const [tours, setTours] = useState<any[]>([]);
   const [invites, setInvites] = useState<any[]>([]);
   const [offerFor, setOfferFor] = useState<string>('');
+  const [historyOpen, setHistoryOpen] = useState<string>('');
   const [offerSlots, setOfferSlots] = useState<string[]>(['', '', '']);
 
   useEffect(() => {
@@ -212,6 +264,31 @@ export default function PipelinePage() {
       });
     } catch {
       toast({ title: 'Could not save that', description: 'Try again in a moment.' });
+    }
+    setBusy('');
+  };
+
+  const cancelTour = async (r: Row, tourId: string) => {
+    if (!firestore || !tenantId) return;
+    setBusy(r.id);
+    try {
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'tours', tourId), {
+        status: 'cancelled', cancelledAt: new Date().toISOString(),
+      });
+      let mail: any = null;
+      try {
+        const res = await fetch('/api/booths/notify', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'tour-cancelled', tenantId, tourId }),
+        });
+        mail = await res.json();
+      } catch { /* reported below */ }
+      toast({
+        title: 'Tour cancelled',
+        description: mail?.ok ? `${r.name} has been told.` : 'Saved — but the message did not go out.',
+      });
+    } catch {
+      toast({ title: 'Could not cancel', description: 'Try again in a moment.' });
     }
     setBusy('');
   };
@@ -650,6 +727,26 @@ export default function PipelinePage() {
                 </span>
               </div>
 
+              {(() => {
+                const t = r.tourId ? tourById.get(r.tourId) : null;
+                if (!t) return null;
+                const slot = t.date && t.time ? whenTime(`${t.date}T${t.time}:00`) : 'time to confirm';
+                const map: Record<string, [string, string]> = {
+                  confirmed: ['Confirmed', 'border-emerald-200 bg-emerald-50 text-emerald-800'],
+                  requested: ['Awaiting your OK', 'border-amber-200 bg-amber-50 text-amber-900'],
+                  declined: ['Declined', 'border-red-200 bg-red-50 text-red-700'],
+                  cancelled: ['Cancelled', 'border-slate-200 bg-slate-50 text-slate-500'],
+                };
+                const [label, tone] = map[String(t.status)] || ['Booked', 'border-slate-200 bg-slate-50 text-slate-600'];
+                return (
+                  <div className={cn('flex items-center gap-2 rounded-xl border-2 px-3 py-2', tone)}>
+                    <CalendarClock className="h-3.5 w-3.5 shrink-0" />
+                    <span className="text-[11px] font-black uppercase tracking-widest">{label}</span>
+                    <span className="text-[11px] font-bold">{slot}</span>
+                  </div>
+                );
+              })()}
+
               {r.outcome?.interest && (
                 <p className="flex items-center gap-1.5 text-[11px] font-bold">
                   <Flame className="h-3.5 w-3.5 shrink-0" /> Interest: {r.outcome.interest}
@@ -708,6 +805,21 @@ export default function PipelinePage() {
                           <span className="rounded-xl border-2 border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-black uppercase tracking-widest text-emerald-700">
                             Tour booked
                           </span>
+                        );
+                      }
+                      const t = r.tourId ? tourById.get(r.tourId) : null;
+                      if (t && t.status === 'confirmed') {
+                        return (
+                          <>
+                            <button onClick={() => { setOfferFor(offerFor === r.id ? '' : r.id); setOfferSlots(['', '', '']); }} disabled={!!busy}
+                              className="rounded-xl border-2 bg-white px-3 py-2 text-[11px] font-black uppercase tracking-widest text-slate-600 disabled:opacity-50">
+                              Reschedule
+                            </button>
+                            <button onClick={() => cancelTour(r, t.id)} disabled={!!busy}
+                              className="rounded-xl border-2 border-red-200 bg-white px-3 py-2 text-[11px] font-black uppercase tracking-widest text-red-600 disabled:opacity-50">
+                              Cancel tour
+                            </button>
+                          </>
                         );
                       }
                       return (
@@ -802,6 +914,40 @@ export default function PipelinePage() {
                 contactEmail={r.email}
                 title="Messages to them"
               />
+
+              {(() => {
+                const lines = historyFor(r, r.tourId ? tourById.get(r.tourId) : null,
+                  invites.filter((i) => i.applicationId === r.id));
+                if (lines.length === 0) return null;
+                const isOpen = historyOpen === r.id;
+                return (
+                  <div className="rounded-2xl border-2 overflow-hidden">
+                    <button type="button" onClick={() => setHistoryOpen(isOpen ? '' : r.id)}
+                      aria-expanded={isOpen}
+                      className="w-full px-3 py-2.5 flex items-center justify-between gap-2 bg-white">
+                      <span className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-slate-600">
+                        <HistoryIcon className="h-3 w-3 text-primary" /> History
+                        <span className="rounded-full border-2 px-1.5 text-[8px]">{lines.length}</span>
+                      </span>
+                      <ChevronDown className={cn('h-3.5 w-3.5 text-slate-400 transition-transform', isOpen && 'rotate-180')} />
+                    </button>
+                    {isOpen && (
+                      <div className="px-3 pb-3 space-y-1.5 bg-white">
+                        {lines.map((l, i) => (
+                          <div key={`${l.at}-${i}`} className="flex items-start gap-2">
+                            <span className={cn('mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full',
+                              l.tone === 'good' ? 'bg-emerald-500' : l.tone === 'bad' ? 'bg-red-500' : 'bg-slate-300')} />
+                            <p className="text-[11px] font-bold leading-snug">
+                              {l.text}
+                              <span className="ml-1.5 font-medium text-muted-foreground">{when(l.at)}</span>
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           ))}
         </div>
