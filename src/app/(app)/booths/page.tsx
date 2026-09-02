@@ -1,4 +1,4 @@
-the'use client';
+'use client';
 
 /**
  * BoothsPage — the single unified surface for booths, renters, and
