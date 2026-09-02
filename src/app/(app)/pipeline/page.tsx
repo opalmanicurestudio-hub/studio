@@ -1,4 +1,4 @@
-""use client";
+"use client";
 
 // ─── PIPELINE ────────────────────────────────────────────────────────────────
 // Every prospect, from first enquiry to signed lease, on one screen.
