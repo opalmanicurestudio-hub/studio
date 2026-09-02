@@ -23,6 +23,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
@@ -74,10 +75,22 @@ export async function POST(req: NextRequest) {
     if (type === 'email.opened') {
       patch.openedAt = at;          // latest open — "they saw it"
       patch.opened = true;
+      patch.openCount = FieldValue.increment(1);
+      // First open is the one that answers "did this reach them, and when" —
+      // set once and never overwritten, unlike openedAt above.
+      if (!(idxSnap.data() as any)?.firstOpenSeen) {
+        patch.firstOpenedAt = at;
+        await idxSnap.ref.set({ firstOpenSeen: true }, { merge: true });
+      }
     }
     if (type === 'email.clicked') {
       patch.clickedAt = at;
       patch.clicked = true;
+      patch.clickCount = FieldValue.increment(1);
+      if (!(idxSnap.data() as any)?.firstClickSeen) {
+        patch.firstClickedAt = at;
+        await idxSnap.ref.set({ firstClickSeen: true }, { merge: true });
+      }
       if (evt?.data?.click?.link) patch.clickedUrl = String(evt.data.click.link).slice(0, 300);
     }
     if (type === 'email.bounced') {
