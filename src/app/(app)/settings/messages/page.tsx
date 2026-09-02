@@ -14,7 +14,7 @@
 //     client's inbox.
 
 import { doc, updateDoc, type Firestore } from 'firebase/firestore';
-import { ArrowLeft, Clock, Lock, Mail, MessageSquare, Moon, Pencil, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Clock, Lock, Mail, MapPin, MessageSquare, Moon, Pencil, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
 import React, { useMemo, useState } from 'react';
 
@@ -25,7 +25,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import {
-  MESSAGE_KINDS, resolveQuietHours, validateOverride, type MessageKindDef,
+  MESSAGE_KINDS, resolveQuietHours, resolveAddressPolicy, validateOverride, type MessageKindDef,
 } from '@/lib/message-policy';
 import { cn } from '@/lib/utils';
 
@@ -51,6 +51,8 @@ export default function MessageSettingsPage() {
   const kinds = useMemo(() => MESSAGE_KINDS.filter((k) => k.group === group), [group]);
   const qh = useMemo(() => resolveQuietHours(selectedTenant), [selectedTenant]);
   const [qhDraft, setQhDraft] = useState<Record<string, string>>({});
+  const addr = useMemo(() => resolveAddressPolicy(selectedTenant), [selectedTenant]);
+  const [addrDraft, setAddrDraft] = useState<Record<string, string>>({});
 
   const save = async (key: string, field: string, value: any, label: string) => {
     if (!firestore || !tenantId || !isMgr || busy) return;
@@ -109,7 +111,10 @@ export default function MessageSettingsPage() {
               What goes out, and what it says{isMgr ? '' : ' · view only'}
             </p>
           </div>
-          <Mail className="h-5 w-5 text-muted-foreground" />
+          <Link href="/messages/log"
+            className="h-9 shrink-0 inline-flex items-center gap-1.5 rounded-xl border-2 bg-white px-2.5 text-[9px] font-black uppercase tracking-widest text-slate-600">
+            <Mail className="h-3.5 w-3.5" /> Delivery log
+          </Link>
         </div>
         <div className="max-w-2xl mx-auto px-4 pb-3 flex gap-1.5 overflow-x-auto">
           {GROUPS.map((g) => (
@@ -168,6 +173,77 @@ export default function MessageSettingsPage() {
                   className="h-8 rounded-lg border-2 px-2.5 font-black uppercase text-[8px] tracking-widest">
                   Set
                 </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Where you are is not the same class of information as when. One
+            setting governs every message that carries {{address}}. */}
+        <Card className="border-2 rounded-[2rem] bg-white">
+          <CardContent className="p-4 space-y-3">
+            <div className="min-w-0">
+              <p className="flex items-center gap-1.5 text-sm font-black"><MapPin className="h-3.5 w-3.5" /> Sharing your address</p>
+              <p className="mt-0.5 text-[11px] font-bold leading-relaxed text-muted-foreground">
+                When a message may print your street address. Held back, it shows the area instead and says when the full address arrives — never a blank line.
+              </p>
+            </div>
+
+            <div className="grid gap-1.5">
+              {([
+                ['always', 'Always', 'Anyone who gets a message sees it.'],
+                ['on_confirm', 'Once confirmed', 'Only after the visit or booking is actually confirmed.'],
+                ['before_event', 'Shortly before', 'Confirmed, and only inside a window you choose.'],
+              ] as const).map(([mode, label, note]) => (
+                <button key={mode} type="button" disabled={!isMgr || busy === 'addr'}
+                  aria-pressed={addr.mode === mode}
+                  onClick={() => void save('addr', 'addressPolicy', { ...addr, mode }, 'Address sharing')}
+                  className={cn('rounded-2xl border-2 px-3 py-2.5 text-left transition-colors disabled:opacity-40',
+                    addr.mode === mode ? 'border-foreground bg-foreground text-background' : 'bg-white hover:border-primary/40')}>
+                  <span className="block text-[11px] font-black uppercase tracking-widest">{label}</span>
+                  <span className={cn('block text-[10px] font-bold', addr.mode === mode ? 'opacity-70' : 'text-muted-foreground')}>{note}</span>
+                </button>
+              ))}
+            </div>
+
+            {addr.mode === 'before_event' && (
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Hours before</span>
+                <input inputMode="numeric" aria-label="Hours before the visit to share the address"
+                  value={addrDraft.offsetHours !== undefined ? addrDraft.offsetHours : String(addr.offsetHours)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddrDraft((d) => ({ ...d, offsetHours: e.target.value.replace(/[^0-9]/g, '') }))}
+                  disabled={!isMgr}
+                  className="h-8 w-16 rounded-lg border-2 bg-white px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
+                <Button size="sm" variant="outline" disabled={!isMgr || busy === 'addr-offset'}
+                  onClick={() => {
+                    const n = Number(addrDraft.offsetHours ?? String(addr.offsetHours));
+                    void save('addr-offset', 'addressPolicy',
+                      { ...addr, offsetHours: Number.isFinite(n) && n > 0 && n <= 720 ? n : addr.offsetHours },
+                      'Address sharing');
+                  }}
+                  className="h-8 rounded-lg border-2 px-2.5 font-black uppercase text-[8px] tracking-widest">
+                  Set
+                </Button>
+              </div>
+            )}
+
+            {addr.mode !== 'always' && (
+              <div className="space-y-1">
+                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Say this instead</p>
+                <div className="flex items-center gap-2">
+                  <input aria-label="Area shown before the address is released"
+                    placeholder="e.g. Downtown Burlington"
+                    value={addrDraft.areaLabel !== undefined ? addrDraft.areaLabel : addr.areaLabel}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddrDraft((d) => ({ ...d, areaLabel: e.target.value }))}
+                    disabled={!isMgr}
+                    className="h-9 flex-1 rounded-lg border-2 bg-white px-2.5 text-sm font-bold outline-none focus:border-foreground/60" />
+                  <Button size="sm" variant="outline" disabled={!isMgr || busy === 'addr-area'}
+                    onClick={() => void save('addr-area', 'addressPolicy',
+                      { ...addr, areaLabel: String(addrDraft.areaLabel ?? addr.areaLabel).slice(0, 80) }, 'Address sharing')}
+                    className="h-9 rounded-lg border-2 px-2.5 font-black uppercase text-[8px] tracking-widest">
+                    Set
+                  </Button>
+                </div>
               </div>
             )}
           </CardContent>
