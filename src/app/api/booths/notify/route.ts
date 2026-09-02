@@ -20,6 +20,7 @@
  * POST { action: 'tour-invite-answered',  tenantId, inviteId }
  * POST { action: 'tour-decision',         tenantId, tourId, decision }
  * POST { action: 'tour-cancelled',        tenantId, tourId }
+ * POST { action: 'tour-rescheduled',      tenantId, tourId, previousIso }
  * POST { action: 'application-received',  tenantId, applicationId }
  */
 
@@ -371,6 +372,54 @@ export async function POST(req: NextRequest) {
         tenantId, to: String(tour.phone || ''), kind: 'tour_cancelled',
         recipientId: tourId, recipientName: tour.name || null,
         text: `${studioName}: sorry, we've had to cancel ${whenText}. Pick another time here: ${rebook}`,
+      });
+      return NextResponse.json({ ok: emailStatus === 'sent' || smsStatus === 'sent', status: emailStatus, sms: smsStatus });
+    }
+
+    /* ── A booked tour was moved ────────────────────────────────────────────
+     * Moving somebody's visit and not telling them is how a confirmed tour
+     * becomes a no-show. Says the new time first — that is the only thing
+     * they need — and names the old one only so they know which visit this
+     * is about. Email and text, because a time change is time-sensitive. */
+    if (action === 'tour-rescheduled') {
+      const { tourId, previousIso } = body;
+      const tourSnap = await db.doc(`tenants/${tenantId}/tours/${tourId}`).get();
+      if (!tourSnap.exists) {
+        return NextResponse.json({ ok: false, error: 'Tour not found.' }, { status: 404 });
+      }
+      const tour = tourSnap.data() as any;
+      const startIso = tour.date && tour.time ? `${tour.date}T${tour.time}:00` : '';
+      const whenText = startIso ? whenLabel(startIso) : 'a new time';
+      const wasText = previousIso ? whenLabel(String(previousIso)) : '';
+      const to = String(tour.email || '').trim();
+
+      let emailStatus = 'skipped_no_email';
+      if (to.includes('@')) {
+        const r = await sendNotification(db, {
+          tenantId, channel: 'email', to,
+          subject: `Moved — your visit is now ${whenText}`,
+          html: brandedEmailHtml({
+            studioName,
+            title: 'Your visit has moved',
+            bodyLines: [
+              `Hi ${firstNameOf(tour.name)} — your visit is now ${whenText}.`,
+              wasText ? `It was ${wasText}. Sorry for the change.` : 'Sorry for the change.',
+              'If the new time does not work, reply to this email and we will find another.',
+            ],
+            footerNote: `Sent by ${studioName}. You're receiving this because you booked a visit with us.`,
+          }),
+          kind: 'tour_rescheduled',
+          recipientType: 'contact', recipientId: tourId, recipientName: tour.name || null,
+          eventConfirmed: true, eventStartIso: startIso || null,
+          tokens: { client_first: firstNameOf(tour.name), when: whenText, studio: studioName },
+        });
+        emailStatus = r.status;
+      }
+      const smsStatus = await alsoText(db, {
+        tenantId, to: String(tour.phone || ''), kind: 'tour_rescheduled',
+        recipientId: tourId, recipientName: tour.name || null,
+        eventConfirmed: true, eventStartIso: startIso || null,
+        text: `${studioName}: your visit has moved to ${whenText}${wasText ? ` (was ${wasText})` : ''}. Reply here if that does not work.`,
       });
       return NextResponse.json({ ok: emailStatus === 'sent' || smsStatus === 'sent', status: emailStatus, sms: smsStatus });
     }
