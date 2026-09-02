@@ -138,9 +138,13 @@ const whenTime = (iso: string): string => {
   try {
     const d = new Date(iso);
     if (isNaN(d.getTime())) return 'that time';
-    const day = d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
+    const sameYear = d.getFullYear() === new Date().getFullYear();
+    const day = d.toLocaleDateString(undefined, {
+      weekday: 'short', month: 'short', day: 'numeric',
+      ...(sameYear ? {} : { year: 'numeric' }),
+    });
     const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-    return `${day} ${time}`;
+    return `${day} · ${time}`;
   } catch { return 'that time'; }
 };
 
