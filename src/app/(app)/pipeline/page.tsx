@@ -33,7 +33,7 @@ import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import {
   Users, CalendarClock, AlertTriangle, CheckCircle2, Loader,
-  Phone, Mail, Flame, Search, Star, ChevronDown, History as HistoryIcon,
+  Phone, Mail, Flame, Search, Star, ChevronDown, ClipboardCheck, History as HistoryIcon,
 } from 'lucide-react';
 
 type Row = {
@@ -208,17 +208,21 @@ export default function PipelinePage() {
   // outcome that decides whether this lead is hot. It already existed, mounted
   // only in the booth hub, which is not where anyone follows a lead any more.
   const [managingTour, setManagingTour] = useState<any>(null);
+  const [tasks, setTasks] = useState<any[]>([]);
   const [offerSlots, setOfferSlots] = useState<string[]>(['', '', '']);
 
   useEffect(() => {
     if (!firestore || !tenantId) return;
+    const unsubTasks = onSnapshot(collection(firestore, 'tenants', tenantId, 'tasks'),
+      (s) => setTasks(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))),
+      () => setTasks([]));
     const unsubTours = onSnapshot(collection(firestore, 'tenants', tenantId, 'tours'),
       (s) => setTours(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))),
       () => {});
     const unsub = onSnapshot(collection(firestore, 'tenants', tenantId, 'tourInvites'),
       (s) => setInvites(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))),
       () => {});
-    return () => { unsub(); unsubTours(); };
+    return () => { unsub(); unsubTours(); unsubTasks(); };
   }, [firestore, tenantId]);
 
   // Newest invite per lead — an older, superseded offer must never outrank the
@@ -232,6 +236,29 @@ export default function PipelinePage() {
     }
     return m;
   }, [invites]);
+
+  // Open follow-ups, keyed by the lead they belong to.
+  const followUpsByLead = useMemo(() => {
+    const m = new Map<string, any[]>();
+    for (const t of tasks) {
+      if (t.done || !t.relatedTourId) continue;
+      const list = m.get(t.relatedTourId) || [];
+      list.push(t);
+      m.set(t.relatedTourId, list);
+    }
+    return m;
+  }, [tasks]);
+
+  const completeTask = async (taskId: string) => {
+    if (!firestore || !tenantId) return;
+    try {
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'tasks', taskId), {
+        done: true, doneAt: new Date().toISOString(),
+      });
+    } catch {
+      toast({ title: 'Could not tick that off', description: 'Try again in a moment.' });
+    }
+  };
 
   const tourById = useMemo(() => {
     const m = new Map<string, any>();
@@ -760,6 +787,20 @@ export default function PipelinePage() {
                 </p>
               )}
               {r.message && <p className="text-[11px] font-bold text-muted-foreground line-clamp-2">{r.message}</p>}
+
+              {(followUpsByLead.get(r.id) || []).map((t: any) => (
+                <div key={t.id} className="flex items-center gap-2 rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-2">
+                  <ClipboardCheck className="h-3.5 w-3.5 shrink-0 text-amber-700" />
+                  <span className="min-w-0 flex-1 text-[11px] font-bold text-amber-900 truncate">
+                    {t.title || 'Follow up'}
+                    {t.createdAt ? <span className="font-medium opacity-70"> · set {when(t.createdAt)}</span> : null}
+                  </span>
+                  <button onClick={() => completeTask(t.id)}
+                    className="shrink-0 rounded-lg bg-amber-700 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-white">
+                    Done
+                  </button>
+                </div>
+              ))}
 
               <div className="flex flex-wrap items-center gap-2">
                 {r.phone && (
