@@ -102,6 +102,17 @@ export default function TourInvitePage() {
       if (extra?.prospectNote) payload.prospectNote = extra.prospectNote;
       await updateDoc(doc(db, `tenants/${tenantId}/tourInvites/${token}`), payload);
       setInvite((prev: any) => ({ ...prev, ...payload }));
+
+      // Tell the owner. Their answer used to land in Firestore and stop there,
+      // so it was only ever found by someone happening to open the pipeline.
+      // Best-effort by design: the answer is already saved, and a failed
+      // alert must not make the prospect think their reply did not go through.
+      try {
+        await fetch('/api/booths/notify', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'tour-invite-answered', tenantId, inviteId: token }),
+        });
+      } catch { /* the answer stands either way */ }
     } catch (e) {
       console.error(e);
       setError('That did not go through. Please try again, or reply to the message we sent you.');
