@@ -27,6 +27,7 @@ import { createRenter } from '@/lib/booth-rental-service';
 import { linkContactRenter } from '@/lib/booth-contacts';
 import { buildGuestBook, guestMatches, STAGE_LABEL, type GuestBookEntry } from '@/lib/guest-book';
 import { CommsTrail } from '@/components/shared/CommsTrail';
+import { TourManagerDialog } from '@/components/booths/TourManagerDialog';
 import { nanoid } from 'nanoid';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
@@ -151,6 +152,7 @@ export default function PipelinePage() {
   const tenantId = selectedTenant?.id ?? null;
 
   const [apps, setApps] = useState<Row[]>([]);
+  const [appDocs, setAppDocs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'attention' | 'tours' | 'open' | 'done' | 'people'>('attention');
   const [busy, setBusy] = useState('');
@@ -159,6 +161,7 @@ export default function PipelinePage() {
     if (!firestore || !tenantId) return;
     const unsub = onSnapshot(collection(firestore, 'tenants', tenantId, 'boothApplications'),
       (s) => {
+        setAppDocs(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
         setApps(s.docs.map((d) => {
           const a: any = d.data() || {};
           return {
@@ -201,6 +204,10 @@ export default function PipelinePage() {
   const [invites, setInvites] = useState<any[]>([]);
   const [offerFor, setOfferFor] = useState<string>('');
   const [historyOpen, setHistoryOpen] = useState<string>('');
+  // The tour manager — check-in, no-show, notes, printed prep sheet and the
+  // outcome that decides whether this lead is hot. It already existed, mounted
+  // only in the booth hub, which is not where anyone follows a lead any more.
+  const [managingTour, setManagingTour] = useState<any>(null);
   const [offerSlots, setOfferSlots] = useState<string[]>(['', '', '']);
 
   useEffect(() => {
@@ -840,6 +847,15 @@ export default function PipelinePage() {
                       Close
                     </button>
                     {r.kind === 'tour' && (
+                  <button onClick={() => setManagingTour(appDocs.find((a: any) => a.id === r.id) || null)}
+                    className={cn('rounded-xl px-3 py-2 text-[11px] font-black uppercase tracking-widest',
+                      !r.outcome && (r.tourStartIso || '').slice(0, 10) < todayIso && (r.tourStartIso || '')
+                        ? 'bg-rose-600 text-white'
+                        : 'border-2 bg-white text-slate-600')}>
+                    {r.outcome ? 'Tour notes' : 'Record outcome'}
+                  </button>
+                )}
+                {r.kind === 'tour' && (
                       <button onClick={() => setStatus(r, 'no_show', 'Marked no-show')} disabled={!!busy}
                         className="rounded-xl border-2 bg-white px-3 py-2 text-[11px] font-black uppercase tracking-widest text-slate-600 disabled:opacity-50">
                         No-show
@@ -956,6 +972,23 @@ export default function PipelinePage() {
       <p className="text-[10px] font-bold text-muted-foreground">
         Convert makes someone a renter right here; giving them a lease happens in the Booth Hub, where the booths are.
       </p>
+
+      {managingTour && tenantId && (
+        <TourManagerDialog
+          open={!!managingTour}
+          onOpenChange={(o) => { if (!o) setManagingTour(null); }}
+          firestore={firestore}
+          tenantId={tenantId}
+          tour={managingTour}
+          tourId={managingTour.tourId || null}
+          studioName={(selectedTenant as any)?.name || null}
+          studioPhone={(selectedTenant as any)?.phone || null}
+          studioEmail={(selectedTenant as any)?.email || null}
+          studioAddress={(selectedTenant as any)?.address || null}
+          printConfig={(selectedTenant as any)?.tourPrintoutConfig || null}
+          onConvert={(t) => { const row = apps.find((x) => x.id === t.id); setManagingTour(null); if (row) void convert(row); }}
+        />
+      )}
       </div>
     </div>
   );
