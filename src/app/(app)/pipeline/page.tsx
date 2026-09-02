@@ -38,7 +38,7 @@ type Row = {
   id: string; name: string; phone: string; email: string;
   kind: 'tour' | 'application' | 'question' | 'waitlist';
   status: string; createdAt: string;
-  tourStartIso: string | null; tourDate: string | null;
+  tourStartIso: string | null; tourDate: string | null; tourId: string | null;
   outcome: any; followUpNeeded: boolean;
   rentalType: string | null; message: string;
   specialty: string | null; boothName: string | null; locationId: string | null;
@@ -119,6 +119,7 @@ export default function PipelinePage() {
             status: String(a.status || 'new'),
             createdAt: a.createdAt || '',
             tourStartIso: a.tourStartIso || null,
+            tourId: a.tourId || null,
             tourDate: a.tourDate || null,
             outcome: a.tourOutcome || null,
             followUpNeeded: a.followUpNeeded === true,
@@ -140,16 +141,24 @@ export default function PipelinePage() {
   // two or three times, let them pick or counter, then put the answer through
   // the real tour scheduler. Same collection shape, same trust model, same
   // capability-URL pattern as tenants/{t}/interviewInvites.
+  // With auto-confirm off, a tour arrives as 'requested' and sits there. The
+  // application row shows the enquiry; the TOUR doc holds the state that
+  // decides whether anyone is actually expected. Read it so the row can ask
+  // for the decision instead of the owner having to notice.
+  const [tours, setTours] = useState<any[]>([]);
   const [invites, setInvites] = useState<any[]>([]);
   const [offerFor, setOfferFor] = useState<string>('');
   const [offerSlots, setOfferSlots] = useState<string[]>(['', '', '']);
 
   useEffect(() => {
     if (!firestore || !tenantId) return;
+    const unsubTours = onSnapshot(collection(firestore, 'tenants', tenantId, 'tours'),
+      (s) => setTours(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))),
+      () => {});
     const unsub = onSnapshot(collection(firestore, 'tenants', tenantId, 'tourInvites'),
       (s) => setInvites(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))),
       () => {});
-    return () => unsub();
+    return () => { unsub(); unsubTours(); };
   }, [firestore, tenantId]);
 
   // Newest invite per lead — an older, superseded offer must never outrank the
@@ -163,6 +172,48 @@ export default function PipelinePage() {
     }
     return m;
   }, [invites]);
+
+  const tourById = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const t of tours) m.set(t.id, t);
+    return m;
+  }, [tours]);
+
+  // Approve or decline in one tap. The tour doc is the record the calendar and
+  // the slot checker read, so it moves first; the lead row follows it; the
+  // prospect is told last but always — a decision nobody hears about is the
+  // same as no decision.
+  const decideTour = async (r: Row, tourId: string, decision: 'approve' | 'decline') => {
+    if (!firestore || !tenantId) return;
+    setBusy(r.id);
+    try {
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'tours', tourId), {
+        status: decision === 'approve' ? 'confirmed' : 'declined',
+        decidedAt: new Date().toISOString(),
+      });
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'boothApplications', r.id), {
+        status: decision === 'approve' ? 'approved' : 'declined',
+        decidedAt: new Date().toISOString(),
+      });
+      let mail: any = null;
+      try {
+        const res = await fetch('/api/booths/notify', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'tour-decision', tenantId, tourId, decision }),
+        });
+        mail = await res.json();
+      } catch { /* reported below */ }
+      toast({
+        title: decision === 'approve' ? 'Tour confirmed' : 'Tour declined',
+        description: mail?.ok
+          ? `${r.name} has been emailed.`
+          : `Saved${mail?.status === 'skipped_no_email' ? ' — no email on file, so tell them yourself.' : ' — the email did not go out.'}`,
+      });
+    } catch {
+      toast({ title: 'Could not save that', description: 'Try again in a moment.' });
+    }
+    setBusy('');
+  };
 
   const sendTourTimes = async (r: Row) => {
     if (!firestore || !tenantId) return;
@@ -593,6 +644,22 @@ export default function PipelinePage() {
                     <Mail className="h-3 w-3" /> Email
                   </a>
                 )}
+                {(() => {
+                  const t = r.tourId ? tourById.get(r.tourId) : null;
+                  if (!t || t.status !== 'requested') return null;
+                  return (
+                    <>
+                      <button onClick={() => decideTour(r, t.id, 'approve')} disabled={!!busy}
+                        className="rounded-xl bg-emerald-600 px-3 py-2 text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-50">
+                        {busy === r.id ? '…' : 'Approve tour'}
+                      </button>
+                      <button onClick={() => decideTour(r, t.id, 'decline')} disabled={!!busy}
+                        className="rounded-xl border-2 border-red-200 bg-white px-3 py-2 text-[11px] font-black uppercase tracking-widest text-red-600 disabled:opacity-50">
+                        Decline
+                      </button>
+                    </>
+                  );
+                })()}
                 {OPEN_STATUSES.includes(r.status) && (
                   <>
                     {(() => {
