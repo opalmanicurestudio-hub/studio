@@ -13,9 +13,12 @@
 //     never fires twice for the same milestone. Re-running the sweep is a no-op.
 //   - Each item is wrapped in its own try/catch: one malformed doc can't stop
 //     the rest, and a whole category failing can't stop the others.
-//   - No external side effects (no emails/SMS) — purely in-app notifications,
-//     matching the rest of the nightly cron. Email can be layered on later by
-//     calling sendNotification() alongside pushNotification().
+//   - In-app notifications for the owner, plus — for TOURS only — an email and
+//     text to the VISITOR the day before. A visitor who booked a week ago has
+//     heard nothing since, which is where no-shows come from. Both legs are
+//     stamped by the same tourReminderSentAt field as the in-app nudge, so a
+//     re-run still cannot double-send, and both are best-effort: a failed
+//     message never stops the sweep or the stamp.
 //
 // All date math is UTC. Times shown in tour reminders come from the stored
 // human-readable slot label (already localized when booked), never reformatted
@@ -179,6 +182,54 @@ export async function runReminderSweep(db: Db, tenantId: string, now: Date = new
           type: 'tour_reminder', link: '/pipeline',
           message: `Upcoming tour: ${t.name || 'A visitor'} at ${t.boothName || 'your studio'} ${when}.`,
         });
+
+        // ── And the visitor, who until now heard nothing at all ──
+        // Only for a tour that is actually ON: a request still waiting on the
+        // owner's decision must not be reminded about as though it were
+        // confirmed. The address token resolves against this visit, so a shop
+        // holding its address until "shortly before" releases it right here.
+        try {
+          const tourConfirmed = String(t.status || '').toLowerCase() !== 'requested';
+          if (tourConfirmed) {
+            const { sendNotification } = await import('./notify');
+            const visitorFirst = String(t.name || '').trim().split(' ')[0] || 'there';
+            const studio = String(tenantData.name || tenantData.businessName || '').trim() || 'your studio';
+            const whenPlain = t.tourSlot || relDay(daysUntil(startDateStr, todayStr) ?? 0, startDateStr);
+            const emailTo = String(t.email || '').trim();
+            const phoneTo = String(t.phone || '').trim();
+
+            if (emailTo.includes('@')) {
+              await sendNotification(db, {
+                tenantId, channel: 'email', to: emailTo,
+                subject: `Seeing you ${whenPlain}`,
+                html: brandedEmailHtml({
+                  studioName: studio,
+                  title: 'Your visit is coming up',
+                  bodyLines: [
+                    `Hi ${visitorFirst} — just a reminder that we are expecting you ${whenPlain}.`,
+                    'Nothing to bring or prepare. If the time no longer works, reply to this email and we will find another.',
+                  ],
+                  footerNote: `Sent by ${studio}. You're receiving this because you booked a visit with us.`,
+                }),
+                kind: 'tour_reminder',
+                recipientType: 'contact', recipientId: doc.id, recipientName: t.name || null,
+                eventConfirmed: true, eventStartIso: t.tourStartIso || null,
+                tokens: { client_first: visitorFirst, when: whenPlain, studio },
+              });
+            }
+
+            if (phoneTo.replace(/[^0-9]/g, '').length >= 10) {
+              await sendNotification(db, {
+                tenantId, channel: 'sms', to: phoneTo,
+                text: `${studio}: reminder — we're expecting you ${whenPlain}. Reply here if the time no longer works.`,
+                kind: 'tour_reminder',
+                recipientType: 'contact', recipientId: doc.id, recipientName: t.name || null,
+                eventConfirmed: true, eventStartIso: t.tourStartIso || null,
+              });
+            }
+          }
+        } catch { /* the owner's nudge and the stamp still stand */ }
+
         await doc.ref.set({ tourReminderSentAt: iso(now) }, { merge: true });
         counts.tourReminders++;
       } catch { /* skip this tour */ }
