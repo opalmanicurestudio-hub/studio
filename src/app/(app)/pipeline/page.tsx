@@ -294,7 +294,22 @@ export default function PipelinePage() {
       await updateDoc(doc(firestore, 'tenants', tenantId, 'tourInvites', inv.id), {
         status: 'scheduled', chosenSlot: iso, scheduledAt: new Date().toISOString(),
       });
-      toast({ title: 'Tour booked', description: `${r.name} — it is on the tour schedule now.` });
+
+      // tour-book only emails the visitor when the shop has prospect emails
+      // switched on, which leaves someone who just picked a time hearing
+      // nothing. A confirmation they asked for is not marketing — send it.
+      let mail: any = null;
+      try {
+        const res2 = await fetch('/api/booths/notify', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'tour-decision', tenantId, tourId: out.tourId || out.id, decision: 'approve' }),
+        });
+        mail = await res2.json();
+      } catch { /* the booking stands */ }
+      toast({
+        title: 'Tour booked',
+        description: mail?.ok ? `${r.name} has been confirmed by email.` : `${r.name} — it is on the tour schedule now.`,
+      });
     } catch {
       toast({ title: 'Could not book it', description: 'Try again in a moment.' });
     }
