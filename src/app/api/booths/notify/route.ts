@@ -29,6 +29,35 @@ import { getAdminDb } from '@/lib/firebase-admin';
 
 const firstNameOf = (full: any) => String(full || '').trim().split(' ')[0] || 'there';
 
+/**
+ * Send the same message as a text, when we have a number to send it to.
+ * Deliberately best-effort and non-blocking: an email that landed must never
+ * be undone by a missing SMS provider, and sendNotification already logs the
+ * skip with its reason.
+ */
+async function alsoText(db: any, opts: {
+  tenantId: string; to: string; text: string; kind: string;
+  recipientId?: string | null; recipientName?: string | null;
+  eventConfirmed?: boolean; eventStartIso?: string | null;
+}): Promise<string> {
+  const digits = String(opts.to || '').replace(/[^0-9]/g, '');
+  if (digits.length < 10) return 'skipped_no_number';
+  try {
+    const r = await sendNotification(db, {
+      tenantId: opts.tenantId, channel: 'sms', to: opts.to,
+      text: opts.text, kind: opts.kind,
+      recipientType: 'contact',
+      recipientId: opts.recipientId || null,
+      recipientName: opts.recipientName || null,
+      eventConfirmed: opts.eventConfirmed,
+      eventStartIso: opts.eventStartIso || null,
+    });
+    return r.status;
+  } catch {
+    return 'failed';
+  }
+}
+
 const whenLabel = (iso: string): string => {
   try {
     const d = new Date(iso);
@@ -109,13 +138,25 @@ export async function POST(req: NextRequest) {
         },
       });
 
+      let phone = String(inv.phone || '').trim();
+      if (!phone && inv.applicationId) {
+        const appSnap = await db.doc(`tenants/${tenantId}/boothApplications/${inv.applicationId}`).get();
+        phone = String((appSnap.data() as any)?.phone || '').trim();
+      }
+      const smsStatus = await alsoText(db, {
+        tenantId, to: phone, kind: 'tour_invite',
+        recipientId: inv.applicationId || inviteId, recipientName: inv.firstName || null,
+        text: `${studioName}: hi ${firstNameOf(inv.firstName)} — pick a time to come and see ${inv.spaceName || 'the space'}: ${link}`,
+      });
+
       await db.doc(`tenants/${tenantId}/tourInvites/${inviteId}`).set({
         sentAt: new Date().toISOString(),
         sentTo: to,
         sendStatus: result.status,
+        smsStatus,
       }, { merge: true });
 
-      return NextResponse.json({ ok: result.ok, status: result.status, error: result.error || null });
+      return NextResponse.json({ ok: result.ok, status: result.status, sms: smsStatus, error: result.error || null });
     }
 
     /* ── An application landed ──────────────────────────────────────────────
@@ -276,7 +317,15 @@ export async function POST(req: NextRequest) {
         eventStartIso: startIso || null,
         tokens: { client_first: firstNameOf(tour.name), when: whenText, studio: studioName },
       });
-      return NextResponse.json({ ok: r.ok, status: r.status, error: r.error || null });
+      const smsStatus = await alsoText(db, {
+        tenantId, to: String(tour.phone || ''), kind: approved ? 'tour_confirmation' : 'tour_declined',
+        recipientId: tourId, recipientName: tour.name || null,
+        eventConfirmed: approved, eventStartIso: startIso || null,
+        text: approved
+          ? `${studioName}: you're confirmed for ${whenText}. Reply here if anything changes.`
+          : `${studioName}: sorry, ${whenText} won't work. Pick another time that suits you: ${origin}/tour/${tenantId}`,
+      });
+      return NextResponse.json({ ok: r.ok, status: r.status, sms: smsStatus, error: r.error || null });
     }
 
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
