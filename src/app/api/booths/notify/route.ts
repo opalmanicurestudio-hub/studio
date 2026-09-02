@@ -19,6 +19,7 @@
  * POST { action: 'tour-invite',           tenantId, inviteId }
  * POST { action: 'tour-invite-answered',  tenantId, inviteId }
  * POST { action: 'tour-decision',         tenantId, tourId, decision }
+ * POST { action: 'tour-cancelled',        tenantId, tourId }
  * POST { action: 'application-received',  tenantId, applicationId }
  */
 
@@ -326,6 +327,52 @@ export async function POST(req: NextRequest) {
           : `${studioName}: sorry, ${whenText} won't work. Pick another time that suits you: ${origin}/tour/${tenantId}`,
       });
       return NextResponse.json({ ok: r.ok, status: r.status, sms: smsStatus, error: r.error || null });
+    }
+
+    /* ── A booked tour was cancelled ────────────────────────────────────────
+     * Different from a decline: they already had a confirmed time and may be
+     * planning their day around it. This one is never optional and never
+     * silent — it goes by email and text, and it always offers the way back. */
+    if (action === 'tour-cancelled') {
+      const { tourId } = body;
+      const tourSnap = await db.doc(`tenants/${tenantId}/tours/${tourId}`).get();
+      if (!tourSnap.exists) {
+        return NextResponse.json({ ok: false, error: 'Tour not found.' }, { status: 404 });
+      }
+      const tour = tourSnap.data() as any;
+      const startIso = tour.date && tour.time ? `${tour.date}T${tour.time}:00` : '';
+      const whenText = startIso ? whenLabel(startIso) : 'your visit';
+      const to = String(tour.email || '').trim();
+      const rebook = `${origin}/tour/${tenantId}`;
+
+      let emailStatus = 'skipped_no_email';
+      if (to.includes('@')) {
+        const r = await sendNotification(db, {
+          tenantId, channel: 'email', to,
+          subject: `Cancelled — ${whenText}`,
+          html: brandedEmailHtml({
+            studioName,
+            title: 'We have had to cancel',
+            bodyLines: [
+              `Hi ${firstNameOf(tour.name)} — we're sorry, we've had to cancel ${whenText}.`,
+              'We would still like to show you around. Pick any time that suits you and we will be there.',
+            ],
+            cta: { label: 'Pick another time', url: rebook },
+            footerNote: `Sent by ${studioName}. You're receiving this because you booked a visit with us.`,
+          }),
+          kind: 'tour_cancelled',
+          recipientType: 'contact', recipientId: tourId, recipientName: tour.name || null,
+          eventConfirmed: false, eventStartIso: startIso || null,
+          tokens: { client_first: firstNameOf(tour.name), when: whenText, studio: studioName, link: rebook },
+        });
+        emailStatus = r.status;
+      }
+      const smsStatus = await alsoText(db, {
+        tenantId, to: String(tour.phone || ''), kind: 'tour_cancelled',
+        recipientId: tourId, recipientName: tour.name || null,
+        text: `${studioName}: sorry, we've had to cancel ${whenText}. Pick another time here: ${rebook}`,
+      });
+      return NextResponse.json({ ok: emailStatus === 'sent' || smsStatus === 'sent', status: emailStatus, sms: smsStatus });
     }
 
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
