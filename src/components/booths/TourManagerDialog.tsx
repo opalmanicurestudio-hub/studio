@@ -108,6 +108,8 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
 
   const saveReschedule = async () => {
     if (!rDate || !/^\d{2}:\d{2}$/.test(rTime)) return;
+    // Remember where it was, so the message can say what changed.
+    const previousIso = tour?.tourStartIso || null;
     const st = new Date(`${rDate}T${rTime}:00`);
     const en = new Date(st.getTime() + 30 * 60000);
     const d = new Date(`${rDate}T00:00:00`);
@@ -119,6 +121,17 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
       tourTimeTBD: false, rescheduledAt: nowIso(),
       status: status === 'no_show' || status === 'closed' ? 'confirmed' : status,
     });
+    // Tell them. Moving somebody's visit in silence is how a confirmed tour
+    // turns into a no-show — and this dialog has always moved it in silence.
+    // Best-effort: the new time is already saved either way.
+    if (tourId) {
+      try {
+        await fetch('/api/booths/notify', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'tour-rescheduled', tenantId, tourId, previousIso }),
+        });
+      } catch { /* the move stands */ }
+    }
     setRescheduling(false);
   };
 
