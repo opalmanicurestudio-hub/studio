@@ -111,7 +111,7 @@ export default function MessageSettingsPage() {
               What goes out, and what it says{isMgr ? '' : ' · view only'}
             </p>
           </div>
-          <Link href="/messages/log"
+          <Link href="/message-log"
             className="h-9 shrink-0 inline-flex items-center gap-1.5 rounded-xl border-2 bg-white px-2.5 text-[9px] font-black uppercase tracking-widest text-slate-600">
             <Mail className="h-3.5 w-3.5" /> Delivery log
           </Link>
