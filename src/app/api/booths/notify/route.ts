@@ -21,6 +21,7 @@
  * POST { action: 'tour-decision',         tenantId, tourId, decision }
  * POST { action: 'tour-cancelled',        tenantId, tourId }
  * POST { action: 'tour-rescheduled',      tenantId, tourId, previousIso }
+ * POST { action: 'tour-host-assigned',    tenantId, tourId, staffId }
  * POST { action: 'application-received',  tenantId, applicationId }
  */
 
@@ -420,6 +421,59 @@ export async function POST(req: NextRequest) {
         recipientId: tourId, recipientName: tour.name || null,
         eventConfirmed: true, eventStartIso: startIso || null,
         text: `${studioName}: your visit has moved to ${whenText}${wasText ? ` (was ${wasText})` : ''}. Reply here if that does not work.`,
+      });
+      return NextResponse.json({ ok: emailStatus === 'sent' || smsStatus === 'sent', status: emailStatus, sms: smsStatus });
+    }
+
+    /* ── Somebody was put in charge of a visit ──────────────────────────────
+     * Assigning a host in an app the host may not be looking at is the same
+     * as not assigning one. This tells the person on the hook: who is coming,
+     * when, and what they asked about. It goes to the STAFF member, so it
+     * carries the address unconditionally — the address policy governs what
+     * visitors are told, not what your own team is told. */
+    if (action === 'tour-host-assigned') {
+      const { tourId, staffId } = body;
+      const [tourSnap, staffSnap] = await Promise.all([
+        db.doc(`tenants/${tenantId}/tours/${tourId}`).get(),
+        db.doc(`tenants/${tenantId}/staff/${staffId}`).get(),
+      ]);
+      if (!tourSnap.exists || !staffSnap.exists) {
+        return NextResponse.json({ ok: false, error: 'Tour or team member not found.' }, { status: 404 });
+      }
+      const tour = tourSnap.data() as any;
+      const member = staffSnap.data() as any;
+      const memberName = `${member.firstName || ''} ${member.lastName || ''}`.trim() || member.name || 'there';
+      const startIso = tour.date && tour.time ? `${tour.date}T${tour.time}:00` : '';
+      const whenText = startIso ? whenLabel(startIso) : 'a time to be confirmed';
+      const visitor = tour.name || 'A visitor';
+      const to = String(member.email || '').trim();
+
+      let emailStatus = 'skipped_no_email';
+      if (to.includes('@')) {
+        const r = await sendNotification(db, {
+          tenantId, channel: 'email', to,
+          subject: `You're showing ${visitor} round — ${whenText}`,
+          html: brandedEmailHtml({
+            studioName,
+            title: 'A visit is yours',
+            bodyLines: [
+              `${memberName} — you're showing ${visitor} round on ${whenText}.`,
+              [tour.boothName ? `They asked about ${tour.boothName}.` : '', tour.message ? `They said: “${String(tour.message).slice(0, 300)}”` : '']
+                .filter(Boolean).join(' ') || 'They did not leave any notes.',
+              [tour.phone, tour.email].filter(Boolean).join(' · ') || 'No contact details on file.',
+            ],
+            cta: { label: 'Open the pipeline', url: `${origin}/pipeline` },
+            footerNote: `Sent to you because you work at ${studioName}.`,
+          }),
+          kind: 'tour_host_assigned',
+          recipientType: 'staff', recipientId: staffId, recipientName: memberName,
+        });
+        emailStatus = r.status;
+      }
+      const smsStatus = await alsoText(db, {
+        tenantId, to: String(member.phone || ''), kind: 'tour_host_assigned',
+        recipientId: staffId, recipientName: memberName,
+        text: `${studioName}: you're showing ${visitor} round ${whenText}${tour.boothName ? ` (${tour.boothName})` : ''}.`,
       });
       return NextResponse.json({ ok: emailStatus === 'sent' || smsStatus === 'sent', status: emailStatus, sms: smsStatus });
     }
