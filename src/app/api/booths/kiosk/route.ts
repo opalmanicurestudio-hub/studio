@@ -763,12 +763,17 @@ export async function POST(req: NextRequest) {
       // Until now the tour existed everywhere except in the hands of the
       // person taking it: planner, pipeline, owner notification — and the
       // prospect walked away with nothing to hold. OPT-IN by design
-      // (tenantData.prospectEmailsEnabled === true): this goes out under the
-      // studio's name, so it does not send until the owner has read the
-      // wording and turned it on. Best-effort — the tour is already booked
-      // whether or not the email lands.
+      // This one is NOT gated on prospectEmailsEnabled. That opt-in exists so
+      // a shop can withhold outreach it has not read the wording of — but a
+      // confirmation for a booking somebody just made is transactional, not
+      // outreach. Withholding it means a visitor books a time and hears
+      // nothing at all, which is how they stop believing the booking worked.
+      // Turn the KIND off in message settings if it is genuinely unwanted;
+      // that switch is the honest one, and it logs the suppression.
+      // Best-effort — the tour is already booked whether or not this lands.
       const tenantDoc = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
-      if (tenantDoc.prospectEmailsEnabled === true && String(email || '').includes('@')) {
+      let emailed = false;
+      if (String(email || '').includes('@')) {
         try {
           const studioName = tenantDoc.name || tenantDoc.businessName || 'The studio';
           const firstName = String(name || '').split(' ')[0] || 'there';
@@ -785,19 +790,23 @@ export async function POST(req: NextRequest) {
             ],
             footerNote: `Sent by ${studioName}. You're receiving this because you ${confirmed ? 'booked' : 'requested'} a tour with us.`,
           });
-          await sendNotification(db, {
+          const sent = await sendNotification(db, {
             tenantId, channel: 'email', to: email,
             subject: confirmed
               ? `Tour booked — ${date} at ${time}`
               : `Tour request received — ${date} at ${time}`,
             html, kind: 'tour_confirmation',
+            recipientType: 'contact', recipientId: tourRef.id, recipientName: name || null,
+            eventConfirmed: confirmed,
+            eventStartIso: `${date}T${time}:00`,
           });
+          emailed = sent.status === 'sent';
         } catch (err) { console.error('[kiosk] tour confirmation email failed (tour is safe)', err); }
       }
 
       // tourId so a caller that booked on someone's behalf can follow up on
       // this exact tour (the pipeline's confirm-an-accepted-invite path does).
-      return NextResponse.json({ ok: true, status, autoConfirmed: status === 'confirmed', tourId: tourRef.id });
+      return NextResponse.json({ ok: true, status, autoConfirmed: status === 'confirmed', tourId: tourRef.id, emailed });
     }
 
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
