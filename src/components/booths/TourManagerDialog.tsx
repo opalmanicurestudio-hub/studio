@@ -135,8 +135,20 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
 
   const noShow = () => patch({ status: 'no_show', tourOutcome: { showed: false, at: nowIso(), ...by() } }).then(() => onOpenChange(false));
 
-  const assignHost = (h: { id: string; name: string } | null) =>
-    patch({ hostId: h?.id || null, hostName: h?.name || null, hostAssignedAt: nowIso(), hostAssignedBy: actorName || null });
+  const assignHost = async (h: { id: string; name: string } | null) => {
+    await patch({ hostId: h?.id || null, hostName: h?.name || null, hostAssignedAt: nowIso(), hostAssignedBy: actorName || null });
+    // Telling the app is not telling the person. Only on assignment — an
+    // unassignment is a correction, and mailing somebody to say a visit is no
+    // longer theirs is noise.
+    if (h && tourId) {
+      try {
+        await fetch('/api/booths/notify', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'tour-host-assigned', tenantId, tourId, staffId: h.id }),
+        });
+      } catch { /* the assignment stands */ }
+    }
+  };
 
   const saveReschedule = async () => {
     if (!rDate || !/^\d{2}:\d{2}$/.test(rTime)) return;
