@@ -25,8 +25,8 @@ import { useToast } from '@/hooks/use-toast';
 import { AppointmentAuthoritySettings } from '@/components/settings/AppointmentAuthoritySettings';
 import { BlockPolicySettings } from '@/components/settings/BlockPolicySettings';
 import {
-  DEFAULT_BOOKING_MODE, resolveBookingMode, resolveDepositPolicy,
-  type BookingMode, type DepositOutcome,
+  DEFAULT_BOOKING_MODE, resolveBookingMode, resolveDepositPolicy, resolveRebookDeposit,
+  type BookingMode, type DepositOutcome, type RebookDepositMode,
 } from '@/lib/deposit-policy';
 import { cn } from '@/lib/utils';
 
@@ -84,6 +84,8 @@ export default function BookingSettingsPage() {
 
   const bm = useMemo(() => resolveBookingMode(selectedTenant), [selectedTenant]);
   const dp = useMemo(() => resolveDepositPolicy(selectedTenant), [selectedTenant]);
+  const rb = useMemo(() => resolveRebookDeposit(selectedTenant), [selectedTenant]);
+  const [rbPct, setRbPct] = useState<string>('');
   const staffRole = String((selectedTenant as any)?.staffMember?.role || 'owner').toLowerCase();
   const isMgr = ['owner', 'admin'].includes(staffRole);
   const depositsLive = (selectedTenant as any)?.depositsLive === true;
@@ -248,6 +250,67 @@ export default function BookingSettingsPage() {
             <p className="text-[10px] font-bold leading-relaxed text-muted-foreground">
               Individual services can override this, and a client marked trusted always books instantly — except when their own no-show history says otherwise.
             </p>
+          </CardContent>
+        </Card>
+
+        {/* Rebooking at the counter is a different act from booking online —
+            the client is in front of you and their card is often already on
+            file. Until now a rebook just inherited the service's rule. */}
+        <Card className="border-2 rounded-[2rem] bg-white">
+          <CardContent className="p-5 space-y-4">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Rebooking at the counter</p>
+              <p className="mt-1 text-[10px] font-bold leading-relaxed text-muted-foreground">
+                When you rebook someone who has just been in, taking the deposit there and then is easy — or you may want no friction at all for a regular.
+              </p>
+            </div>
+
+            <div className="grid gap-1.5">
+              {([
+                ['same', 'Treat it like any booking', "Whatever the service normally asks for. Nothing changes."],
+                ['always', 'Always take a deposit', 'Even for services that ask for none — a percentage of the price.'],
+                ['never', 'Never take one', 'No deposit on a counter rebook.'],
+              ] as [RebookDepositMode, string, string][]).map(([mode, label, note]) => (
+                <button key={mode} type="button" disabled={!isMgr || busy === 'rebook'}
+                  aria-pressed={rb.mode === mode}
+                  onClick={() => void save('rebook', 'rebookDeposit', { ...rb, mode }, 'Rebooking deposits')}
+                  className={cn('rounded-2xl border-2 px-3 py-2.5 text-left transition-colors disabled:opacity-40',
+                    rb.mode === mode ? 'border-foreground bg-foreground text-background' : 'bg-white hover:border-primary/40')}>
+                  <span className="block text-[11px] font-black uppercase tracking-widest">{label}</span>
+                  <span className={cn('block text-[10px] font-bold', rb.mode === mode ? 'opacity-70' : 'text-muted-foreground')}>{note}</span>
+                </button>
+              ))}
+            </div>
+
+            {rb.mode === 'always' && (
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Percent of price</span>
+                <input inputMode="numeric" aria-label="Percent of the price to take on a rebook"
+                  value={rbPct !== '' ? rbPct : String(rb.fallbackPercent)}
+                  onChange={(e) => setRbPct(e.target.value.replace(/[^0-9]/g, ''))}
+                  disabled={!isMgr}
+                  className="h-8 w-16 rounded-lg border-2 bg-white px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
+                <Button size="sm" variant="outline" disabled={!isMgr || busy === 'rebook-pct'}
+                  onClick={() => {
+                    const n = Number(rbPct !== '' ? rbPct : rb.fallbackPercent);
+                    void save('rebook-pct', 'rebookDeposit',
+                      { ...rb, fallbackPercent: n > 0 && n <= 100 ? n : rb.fallbackPercent },
+                      'Rebooking deposits');
+                  }}
+                  className="h-8 rounded-lg border-2 px-2.5 font-black uppercase text-[8px] tracking-widest">
+                  Set
+                </Button>
+                <span className="text-[10px] font-bold text-muted-foreground">
+                  Only when the service asks for nothing itself.
+                </span>
+              </div>
+            )}
+
+            {rb.mode === 'never' && (
+              <p className="rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-2 text-[10px] font-bold leading-relaxed text-amber-800">
+                Guardian still overrides this. A client whose own no-show history has triggered the shield is asked for a deposit anyway — otherwise the protection would quietly disappear for the people it exists for.
+              </p>
+            )}
           </CardContent>
         </Card>
 
