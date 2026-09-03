@@ -35,6 +35,13 @@ interface TourManagerDialogProps {
    * reschedule or a no-show recorded here has to land in BOTH or the two
    * disagree, and the one people trust is the one on screen. */
   tourId?: string | null;
+  /* Who is operating this dialog. Every lifecycle action is stamped with it,
+   * so the history can say "confirmed by Dana" rather than leaving the shop to
+   * guess which of them dealt with it. */
+  actorName?: string | null;
+  /* People who can host a visit — the roster, so a tour can be handed to a
+   * specific person instead of belonging to nobody. */
+  hosts?: { id: string; name: string }[];
 }
 
 const t12 = (hhmm: string): string => {
@@ -50,7 +57,7 @@ const fmtWhen = (iso?: string | null): string => {
   try { return d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch { return iso; }
 };
 
-export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tour, tourId, studioName, studioPhone, studioEmail, studioAddress, printConfig, onConvert, onDone }: TourManagerDialogProps) {
+export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tour, tourId, actorName, hosts, studioName, studioPhone, studioEmail, studioAddress, printConfig, onConvert, onDone }: TourManagerDialogProps) {
   const [busy, setBusy] = useState(false);
   const [notes, setNotes] = useState(tour?.tourNotes || '');
   const [rescheduling, setRescheduling] = useState(false);
@@ -70,6 +77,8 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
   const tourMirror = (data: any): any | null => {
     const out: any = {};
     if (data.status === 'confirmed') out.status = 'confirmed';
+    if (data.status === 'checked_in') { out.status = 'checked_in'; out.checkedInAt = data.tourCheckedInAt || nowIso(); }
+    if (data.hostId !== undefined) { out.hostId = data.hostId; out.hostName = data.hostName || null; }
     if (data.status === 'no_show') { out.status = 'no_show'; out.decidedAt = data.tourOutcome?.at || nowIso(); }
     if (data.status === 'closed') { out.status = 'completed'; out.decidedAt = data.tourOutcome?.at || nowIso(); }
     if (data.tourStartIso) {
@@ -102,9 +111,32 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
     finally { setBusy(false); }
   };
 
-  const confirm = () => patch({ status: 'confirmed', confirmedAt: nowIso() });
-  const checkIn = () => patch({ status: 'checked_in', tourCheckedInAt: nowIso() });
-  const noShow = () => patch({ status: 'no_show', tourOutcome: { showed: false, at: nowIso() } }).then(() => onOpenChange(false));
+  const by = () => (actorName ? { by: actorName } : {});
+
+  // Confirming here now does what approving in the pipeline does: it tells the
+  // visitor. The two were the same decision reached from different screens,
+  // and only one of them was speaking to the person waiting on the answer.
+  const confirm = async () => {
+    await patch({ status: 'confirmed', confirmedAt: nowIso(), confirmedBy: actorName || null });
+    if (tourId) {
+      try {
+        await fetch('/api/booths/notify', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'tour-decision', tenantId, tourId, decision: 'approve' }),
+        });
+      } catch { /* the confirmation stands */ }
+    }
+  };
+
+  // Check-in is the arrival stamp: they are HERE. It sends nothing — the
+  // person is standing in front of you — but it does move the tour doc, so
+  // the floor and the calendar agree with the pipeline.
+  const checkIn = () => patch({ status: 'checked_in', tourCheckedInAt: nowIso(), checkedInBy: actorName || null });
+
+  const noShow = () => patch({ status: 'no_show', tourOutcome: { showed: false, at: nowIso(), ...by() } }).then(() => onOpenChange(false));
+
+  const assignHost = (h: { id: string; name: string } | null) =>
+    patch({ hostId: h?.id || null, hostName: h?.name || null, hostAssignedAt: nowIso(), hostAssignedBy: actorName || null });
 
   const saveReschedule = async () => {
     if (!rDate || !/^\d{2}:\d{2}$/.test(rTime)) return;
@@ -155,7 +187,7 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
   const completeTour = async () => {
     await patch({
       status: 'closed',
-      tourOutcome: { showed: true, interest: interest || null, nextStep: nextStep || null, notes: notes || null, at: nowIso() },
+      tourOutcome: { showed: true, interest: interest || null, nextStep: nextStep || null, notes: notes || null, at: nowIso(), by: actorName || null },
     });
     // Spin off a follow-up task when there's a next step.
     if (nextStep && nextStep !== 'None') {
@@ -251,6 +283,32 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Notes</p>
             <textarea value={notes} onChange={e => setNotes(e.target.value)} onBlur={saveNotes} rows={2} placeholder="What did they want, first impressions, follow-up…" className="w-full rounded-xl border-2 px-3 py-2 text-sm font-medium resize-none" />
           </div>
+
+          {Array.isArray(hosts) && hosts.length > 0 && (
+            <div className="rounded-2xl border-2 p-3 space-y-2">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                Who is showing them round
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {hosts.map((h) => {
+                  const on = tour?.hostId === h.id;
+                  return (
+                    <button key={h.id} type="button" disabled={busy}
+                      onClick={() => assignHost(on ? null : h)}
+                      aria-pressed={on}
+                      className={`h-10 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${on ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600'}`}>
+                      {h.name}
+                    </button>
+                  );
+                })}
+              </div>
+              {tour?.hostName && (
+                <p className="text-[10px] font-bold text-muted-foreground">
+                  {tour.hostName} is hosting{tour.hostAssignedBy ? ` — assigned by ${tour.hostAssignedBy}` : ''}.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Lifecycle actions */}
           {!outcomeOpen ? (
