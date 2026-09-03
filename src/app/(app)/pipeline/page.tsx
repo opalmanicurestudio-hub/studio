@@ -101,9 +101,14 @@ function historyFor(r: Row, tour: any, invites: any[]): HistoryLine[] {
     push(tour.createdAt, tour.status === 'requested' && !tour.decidedAt
       ? `Requested ${slot}`
       : `Booked ${slot}`);
+    if (tour.hostAssignedAt) {
+      push(tour.hostAssignedAt,
+        `${tour.hostName || 'Someone'} assigned to host${tour.hostAssignedBy ? ` by ${tour.hostAssignedBy}` : ''}`);
+    }
+    if (tour.checkedInAt) push(tour.checkedInAt, 'They arrived — checked in', 'good');
     if (tour.decidedAt) {
       push(tour.decidedAt,
-        tour.status === 'confirmed' ? `You confirmed ${slot}`
+        tour.status === 'confirmed' ? `Confirmed ${slot}`
           : tour.status === 'declined' ? `You declined ${slot}`
           : `Decision recorded`,
         tour.status === 'declined' ? 'bad' : 'good');
@@ -127,7 +132,10 @@ function historyFor(r: Row, tour: any, invites: any[]): HistoryLine[] {
     if (inv.scheduledAt) push(inv.scheduledAt, 'You booked their pick', 'good');
   }
 
-  if (r.outcome) push(r.decidedAt || r.createdAt, `Outcome recorded: ${r.outcome.interest || 'noted'}`);
+  if (r.outcome) {
+    push(r.outcome.at || r.decidedAt || r.createdAt,
+      `Outcome recorded: ${r.outcome.interest || (r.outcome.showed === false ? 'no-show' : 'noted')}${r.outcome.by ? ` by ${r.outcome.by}` : ''}`);
+  }
   if (r.convertedAt) push(r.convertedAt, 'Became a renter', 'good');
   if (r.status === 'declined' && r.decidedAt) push(r.decidedAt, 'Lead declined', 'bad');
 
@@ -213,10 +221,14 @@ export default function PipelinePage() {
   // only in the booth hub, which is not where anyone follows a lead any more.
   const [managingTour, setManagingTour] = useState<any>(null);
   const [tasks, setTasks] = useState<any[]>([]);
+  const [staff, setStaff] = useState<any[]>([]);
   const [offerSlots, setOfferSlots] = useState<string[]>(['', '', '']);
 
   useEffect(() => {
     if (!firestore || !tenantId) return;
+    const unsubStaff = onSnapshot(collection(firestore, 'tenants', tenantId, 'staff'),
+      (s) => setStaff(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))),
+      () => setStaff([]));
     const unsubTasks = onSnapshot(collection(firestore, 'tenants', tenantId, 'tasks'),
       (s) => setTasks(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))),
       () => setTasks([]));
@@ -226,7 +238,7 @@ export default function PipelinePage() {
     const unsub = onSnapshot(collection(firestore, 'tenants', tenantId, 'tourInvites'),
       (s) => setInvites(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))),
       () => {});
-    return () => { unsub(); unsubTours(); unsubTasks(); };
+    return () => { unsub(); unsubTours(); unsubTasks(); unsubStaff(); };
   }, [firestore, tenantId]);
 
   // Newest invite per lead — an older, superseded offer must never outrank the
@@ -263,6 +275,15 @@ export default function PipelinePage() {
       toast({ title: 'Could not tick that off', description: 'Try again in a moment.' });
     }
   };
+
+  // Anyone still with the business can host a visit.
+  const hosts = useMemo(() => staff
+    .filter((m: any) => m.status !== 'terminated' && m.archived !== true)
+    .map((m: any) => ({
+      id: m.id,
+      name: `${m.firstName || ''} ${m.lastName || ''}`.trim() || m.name || m.displayName || 'Team member',
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name)), [staff]);
 
   const tourById = useMemo(() => {
     const m = new Map<string, any>();
@@ -781,6 +802,9 @@ export default function PipelinePage() {
                     <CalendarClock className="h-3.5 w-3.5 shrink-0" />
                     <span className="text-[11px] font-black uppercase tracking-widest">{label}</span>
                     <span className="text-[11px] font-bold">{slot}</span>
+                    {t.hostName && (
+                      <span className="ml-auto text-[10px] font-bold opacity-80">with {t.hostName}</span>
+                    )}
                   </div>
                 );
               })()}
@@ -1026,6 +1050,8 @@ export default function PipelinePage() {
           tenantId={tenantId}
           tour={managingTour}
           tourId={managingTour.tourId || null}
+          actorName={(selectedTenant as any)?.ownerName || (selectedTenant as any)?.name || null}
+          hosts={hosts}
           studioName={(selectedTenant as any)?.name || null}
           studioPhone={(selectedTenant as any)?.phone || null}
           studioEmail={(selectedTenant as any)?.email || null}
