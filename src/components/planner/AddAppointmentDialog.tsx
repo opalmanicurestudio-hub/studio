@@ -57,7 +57,7 @@ import {
   Workflow
 } from 'lucide-react';
 import { cn, safeNumber } from '@/lib/utils';
-import { computeDepositCents } from '@/lib/deposit-policy';
+import { computeDepositCents, resolveRebookDeposit } from '@/lib/deposit-policy';
 import { type Client, type Service, type Appointment, type Staff, type PricingTier } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO, endOfDay, subMinutes, differenceInMinutes } from 'date-fns';
 import { nanoid } from 'nanoid';
@@ -319,17 +319,28 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
     const guardianActive  = selectedTenant?.guardianProtocolEnabled !== false;
     const isGuardianForced = guardianActive && poorHistory && selectedService.depositType === 'none';
 
+    // A rebook is its own case: the client is at the counter, not online. The
+    // shop decides whether that means take it now, skip it, or treat it like
+    // any other booking — see resolveRebookDeposit. Guardian still wins.
+    const rebook = resolveRebookDeposit(selectedTenant);
+    const isRebook = !!appointmentToRebook;
+
     const cents = computeDepositCents({
       service: selectedService,
       price: selectedService.price,
       depositsLive: !!selectedTenant?.depositsLive,
       poorHistory,
       guardianActive,
+      isRebook,
+      rebook,
     });
     if (cents <= 0) return null;
 
-    return { amount: cents / 100, type: selectedService.depositType, isGuardianForced };
-  }, [selectedService, selectedClient, selectedTenant]);
+    const rebookForced = isRebook && rebook.mode === 'always' && !isGuardianForced
+      && selectedService.depositType === 'none';
+
+    return { amount: cents / 100, type: selectedService.depositType, isGuardianForced, rebookForced };
+  }, [selectedService, selectedClient, selectedTenant, appointmentToRebook]);
 
   const steps = useMemo(() => {
     const flow: Step[] = ['details', 'timing'];
@@ -938,8 +949,18 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                             <div className="p-8 rounded-2xl bg-primary/5 border border-primary/15 text-center space-y-3">
                                 <p className="text-[11px] font-medium uppercase tracking-wider text-primary/70">Deposit due to book</p>
                                 <p className="text-4xl font-semibold text-primary tracking-tight font-mono">${depositDetails.amount.toFixed(2)}</p>
-                                <div className="pt-4 border-t border-primary/10">
+                                <div className="pt-4 border-t border-primary/10 space-y-2">
                                     <Badge variant="outline" className="bg-white border text-primary font-medium text-[10px] h-6 px-3 capitalize">{depositDetails.type || 'standard'} deposit</Badge>
+                                    {depositDetails.rebookForced && (
+                                        <p className="text-[10px] font-bold text-primary/70">
+                                            Your rebooking rule takes a deposit on every rebook — this service does not ask for one on its own.
+                                        </p>
+                                    )}
+                                    {depositDetails.isGuardianForced && (
+                                        <p className="text-[10px] font-bold text-amber-700">
+                                            Guardian is holding a deposit because of this client's own no-show history, whatever the service or your rebooking rule says.
+                                        </p>
+                                    )}
                                 </div>
                             </div>
                             <div className="space-y-4 text-left">
