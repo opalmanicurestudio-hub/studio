@@ -22,6 +22,44 @@ export type DepositOutcome = 'refund' | 'rollover' | 'forfeit';
 // What initiated the close-out of the appointment.
 export type CancelTrigger = 'client_cancel' | 'no_show' | 'studio_cancel';
 
+/* ── Rebooking ───────────────────────────────────────────────────────────────
+ * Rebooking at the counter is not the same act as booking online. The person
+ * is standing in front of you, has just paid, and their card is often already
+ * on file — so a shop may want the deposit taken there and then while it is
+ * easy, or may want the friction gone entirely for someone they trust.
+ * Until now neither was possible: a rebook simply inherited the service's
+ * ordinary deposit rule, whatever that was.
+ *
+ *   'same'   — behave exactly as any other booking (the default; nothing
+ *              changes for a shop that never touches this setting)
+ *   'always' — collect on every rebook, even where the service asks for
+ *              nothing, using rebookDepositFallbackPercent of the price
+ *   'never'  — no deposit on a counter rebook
+ *
+ * One thing 'never' cannot do is silence Guardian. If a client's own no-show
+ * history has triggered the shield, the deposit still stands — otherwise the
+ * protection evaporates for exactly the people it exists for, and it does so
+ * invisibly. */
+export type RebookDepositMode = 'same' | 'always' | 'never';
+
+export interface RebookDepositRule {
+  mode: RebookDepositMode;
+  /** Used by 'always' when the service itself asks for nothing. */
+  fallbackPercent: number;
+}
+
+export const DEFAULT_REBOOK_DEPOSIT: RebookDepositRule = { mode: 'same', fallbackPercent: 25 };
+
+export function resolveRebookDeposit(tenant: any): RebookDepositRule {
+  const r = (tenant && tenant.rebookDeposit) || {};
+  const mode: RebookDepositMode = ['same', 'always', 'never'].includes(r.mode) ? r.mode : 'same';
+  const pct = Number(r.fallbackPercent);
+  return {
+    mode,
+    fallbackPercent: Number.isFinite(pct) && pct > 0 && pct <= 100 ? pct : DEFAULT_REBOOK_DEPOSIT.fallbackPercent,
+  };
+}
+
 export interface DepositPolicy {
   // Cancellations made at least this many hours before the start time are treated
   // as "early" (good faith). Inside the window counts as "late".
@@ -136,6 +174,10 @@ export interface DepositAmountInput {
   depositsLive: boolean; // tenant.depositsLive === true
   poorHistory?: boolean; // client has a weak no-show/cancel record (guardian surcharge)
   guardianActive?: boolean;
+  /** True when this booking is a rebook taken at the counter. */
+  isRebook?: boolean;
+  /** The shop's rebook rule — resolveRebookDeposit(tenant). */
+  rebook?: RebookDepositRule;
 }
 
 export function computeDepositCents(input: DepositAmountInput): number {
@@ -143,6 +185,19 @@ export function computeDepositCents(input: DepositAmountInput): number {
   if (!depositsLive || !service) return 0;
   const guardianActive = input.guardianActive !== false;
   const poorHistory = !!input.poorHistory;
+
+  /* Rebooking overrides, applied before the service's own rule. Guardian is
+   * deliberately checked FIRST so 'never' cannot switch off the shield. */
+  const guardianForcing = guardianActive && poorHistory;
+  if (input.isRebook && !guardianForcing) {
+    const rebook = input.rebook || DEFAULT_REBOOK_DEPOSIT;
+    if (rebook.mode === 'never') return 0;
+    if (rebook.mode === 'always') {
+      const fromService = serviceDepositCents(service, price);
+      if (fromService > 0) return fromService;
+      return Math.round((price || 0) * (rebook.fallbackPercent / 100) * 100);
+    }
+  }
 
   const type = service.depositType;
   if (type === 'none' && (!poorHistory || !guardianActive)) return 0;
@@ -154,6 +209,18 @@ export function computeDepositCents(input: DepositAmountInput): number {
    * A second implementation here would drift from it. */
   if (type === 'breakeven') return Math.round((service.cost || 0) * 100);
 
+  if (type === 'deposit') {
+    if (service.depositSubType === 'percentage') return Math.round(price * ((service.depositAmount || 0) / 100) * 100);
+    return Math.round((service.depositAmount || 0) * 100);
+  }
+  return 0;
+}
+
+/** What the SERVICE alone asks for, ignoring history and rebooking. */
+function serviceDepositCents(service: any, price: number): number {
+  const type = service?.depositType;
+  if (type === 'full') return Math.round((price || 0) * 100);
+  if (type === 'breakeven') return Math.round((service.cost || 0) * 100);
   if (type === 'deposit') {
     if (service.depositSubType === 'percentage') return Math.round(price * ((service.depositAmount || 0) / 100) * 100);
     return Math.round((service.depositAmount || 0) * 100);
