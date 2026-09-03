@@ -222,6 +222,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const [toursOff, setToursOff] = useState(false);
   const [tourAutoConfirm, setTourAutoConfirm] = useState(true);
   const [tourBooked, setTourBooked] = useState(false);
+  const [tourEmailed, setTourEmailed] = useState(false);
   const [tourDurationMins, setTourDurationMins] = useState(30);
 
   // The next three weeks, in the visitor's own timezone. Which of these days
@@ -466,7 +467,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
     // Tour/question/waitlist aren't day reservations — force a non-'day' mode so
     // the contact fields (gated on applyMode !== 'day') always show, even for a
     // space that only offers day rentals.
-    setInquiryKind(kind); setApplyMode('lease'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setTourStartIso(''); setTourEndIso(''); setTourDate(''); setTourTimes(null); setToursOff(false); setAgreed(false); setSignName(''); setShowVideo(false);
+    setInquiryKind(kind); setApplyMode('lease'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setTourStartIso(''); setTourEndIso(''); setTourDate(''); setTourTimes(null); setToursOff(false); setTourBooked(false); setTourEmailed(false); setAgreed(false); setSignName(''); setShowVideo(false);
   };
   // Open a space into the guided chooser (capability-aware: only shows the
   // actions this space actually offers).
@@ -676,7 +677,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
           }),
         });
         const d2 = await res.json();
-        if (d2.ok) { setTourBooked(!!d2.autoConfirmed); setSubmitted(true); setSubmitting(false); setApplyFor(null); return; }
+        if (d2.ok) { setTourBooked(!!d2.autoConfirmed); setTourEmailed(!!d2.emailed); setSubmitted(true); setSubmitting(false); return; }
         if (res.status === 409) {
           alert(d2.error || 'That time was just taken — please pick another.');
           setTourSlot(''); setTourStartIso(''); setTourEndIso('');
@@ -1092,7 +1093,9 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                 </div>
                 <p className="text-[13px] text-slate-500 font-medium max-w-xs mx-auto leading-relaxed">
                   {inquiryKind === 'tour' ? (tourBooked
-                    ? "That time is held for you. We've emailed the details — just reply if anything changes."
+                    ? (tourEmailed
+                      ? "That time is held for you. We've emailed the details — just reply if anything changes."
+                      : "That time is held for you. Save it in your calendar and we'll see you then.")
                     : "We'll confirm your tour shortly by phone or email — keep an eye out.") : inquiryKind === 'question' ? "We'll get back to you within one business day." : inquiryKind === 'waitlist' ? "We'll notify you the moment a spot opens up." : "We'll review your application and reach out within one business day."}
                 </p>
                 <button onClick={() => setApplyFor(null)} className="h-12 px-10 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest active:scale-[0.98] transition-transform">Done</button>
