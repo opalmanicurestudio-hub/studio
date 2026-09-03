@@ -28,6 +28,7 @@ import { linkContactRenter } from '@/lib/booth-contacts';
 import { buildGuestBook, guestMatches, STAGE_LABEL, type GuestBookEntry } from '@/lib/guest-book';
 import { CommsTrail } from '@/components/shared/CommsTrail';
 import { TourManagerDialog } from '@/components/booths/TourManagerDialog';
+import { resolveActiveStaffId } from '@/lib/staff-identity';
 import { nanoid } from 'nanoid';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
@@ -157,7 +158,7 @@ const whenTime = (iso: string): string => {
 };
 
 export default function PipelinePage() {
-  const { firestore } = useFirebase() as any;
+  const { firestore, user } = useFirebase() as any;
   const { selectedLocationId } = useLocation();
   const { toast } = useToast();
   const { selectedTenant } = useTenant();
@@ -284,6 +285,20 @@ export default function PipelinePage() {
       name: `${m.firstName || ''} ${m.lastName || ''}`.trim() || m.name || m.displayName || 'Team member',
     }))
     .sort((a, b) => a.name.localeCompare(b.name)), [staff]);
+
+  // WHO is doing this. The team shares one studio login and identifies
+  // individually by PIN, so the signed-in uid is the fallback, not the answer:
+  // resolveActiveStaffId prefers the PIN identity held for this tab. Falls
+  // back to the business name only when nobody can be resolved, which on a
+  // solo shop is still true rather than merely convenient.
+  const actorName = useMemo(() => {
+    const staffId = resolveActiveStaffId(user?.uid || null);
+    const me = staffId ? staff.find((m: any) => m.id === staffId) : null;
+    const named = me
+      ? `${me.firstName || ''} ${me.lastName || ''}`.trim() || me.name || me.displayName
+      : '';
+    return named || user?.displayName || (selectedTenant as any)?.name || null;
+  }, [staff, user, selectedTenant]);
 
   const tourById = useMemo(() => {
     const m = new Map<string, any>();
@@ -1050,7 +1065,7 @@ export default function PipelinePage() {
           tenantId={tenantId}
           tour={managingTour}
           tourId={managingTour.tourId || null}
-          actorName={(selectedTenant as any)?.ownerName || (selectedTenant as any)?.name || null}
+          actorName={actorName}
           hosts={hosts}
           studioName={(selectedTenant as any)?.name || null}
           studioPhone={(selectedTenant as any)?.phone || null}
