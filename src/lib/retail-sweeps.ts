@@ -37,15 +37,27 @@ export interface SweepResult {
 
 const empty = (): SweepResult => ({ scanned: 0, actioned: 0, emailed: 0, errors: [] });
 
-async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
-  const key = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM;
-  if (!key || !from || !to) return false;
+/**
+ * Every sweep email goes through the mailroom. This helper used to POST to
+ * Resend on its own, so the customer-facing nudges the sweeps send (stalled
+ * parcels, expired requests, deposit outcomes) and the owner alerts never
+ * appeared in the delivery log and ignored message settings. `kind` names
+ * what it is; owner-facing ones are tagged so the log can tell "we told the
+ * customer" from "we told the shop".
+ */
+async function sendEmail(
+  db: any, tenantId: string, kind: string,
+  to: string, subject: string, html: string,
+  who?: { type?: 'client' | 'other'; id?: string | null; name?: string | null },
+): Promise<boolean> {
+  if (!to) return false;
   try {
-    const r = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to: [to], subject, html }),
+    const { sendNotification } = await import('./notify');
+    const r = await sendNotification(db, {
+      tenantId, channel: 'email', to, subject, html, kind,
+      recipientType: who?.type || 'client',
+      recipientId: who?.id || null,
+      recipientName: who?.name || null,
     });
     return r.ok;
   } catch {
@@ -129,7 +141,7 @@ export async function sweepStalledShipments(
             <p style="font-size:14px;color:#334155;line-height:1.7;margin:12px 0 0">Nothing is needed from you today.</p>
             ${link ? emailButton(link, 'View my order', brand) : ''}`,
             { preheader: `No carrier scan in ${quietDays} days \u2014 we are on it`, title: 'Your parcel has gone quiet', tag: num });
-          emailed = await sendEmail(order.customerEmail, `${brand.shopName} \u2014 we are chasing your parcel ${num}`, html);
+          emailed = await sendEmail(db, tenantId, 'order_delayed', order.customerEmail, `${brand.shopName} \u2014 we are chasing your parcel ${num}`, html, { id: order.id || null, name: order.customerName || null });
         }
 
         await markerRef.set({
@@ -218,7 +230,7 @@ export async function sweepRecoveryDeadlines(
       <p style="font-size:11px;color:#94a3b8;margin:12px 0 0">You are getting this because these claims are filed and unpaid. Record a payment or mark them denied and they stop appearing.</p>`,
       { preheader: `${money(total)} in claims closing`, title: overdue.length ? 'Claims past their deadline' : 'Claim deadlines closing' });
 
-    const sent = await sendEmail(to, `${brand.shopName} \u2014 ${money(total)} in claims need attention`, html);
+    const sent = await sendEmail(db, tenantId, 'owner_claims_digest', to, `${brand.shopName} \u2014 ${money(total)} in claims need attention`, html, { type: 'other', name: 'Owner' });
     await markerRef.set({ at: new Date(now).toISOString(), soon: soon.length, overdue: overdue.length, emailed: sent });
     res.actioned += soon.length + overdue.length;
     if (sent) res.emailed += 1;
@@ -358,7 +370,7 @@ export async function sweepExpiredRequests(
           ${paras}
           ${bookUrl ? emailButton(bookUrl, 'View available times', brand) : ''}`,
           { preheader: msg.subject, title: msg.subject, tag: 'Booking' });
-        if (await sendEmail(email, `${brand.shopName} \u2014 ${msg.subject}`, html)) res.emailed += 1;
+        if (await sendEmail(db, tenantId, 'request_declined', email, `${brand.shopName} \u2014 ${msg.subject}`, html, { id: d.id, name: apt.clientName || null })) res.emailed += 1;
       } catch (e: any) {
         res.errors.push(`request ${d.id}: ${String(e?.message || e).slice(0, 120)}`);
       }
@@ -428,7 +440,7 @@ export async function sweepPendingRequestNudge(
       <p style="font-size:11px;color:#94a3b8;margin:12px 0 0">Expired requests decline themselves and free the slot \u2014 answering beats letting that happen.</p>`,
       { preheader: `${urgent.length} request${urgent.length === 1 ? '' : 's'} waiting`, title: 'Requests waiting on you' });
 
-    const sent = await sendEmail(to, `${brand.shopName} \u2014 ${urgent.length} booking request${urgent.length === 1 ? '' : 's'} waiting`, html);
+    const sent = await sendEmail(db, tenantId, 'owner_requests_waiting', to, `${brand.shopName} \u2014 ${urgent.length} booking request${urgent.length === 1 ? '' : 's'} waiting`, html, { type: 'other', name: 'Owner' });
     await markerRef.set({ at: new Date(now).toISOString(), count: urgent.length, emailed: sent });
     res.actioned += urgent.length;
     if (sent) res.emailed += 1;
@@ -515,7 +527,7 @@ export async function sweepUnpaidAccepted(
                 .map((l) => `<p style="font-size:14px;color:#334155;line-height:1.7;margin:0 0 12px">${l.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`).join('');
               const html = brandedEmail(brand, `${paras}${origin ? emailButton(`${origin}/book/${tenantId}`, 'View available times', brand) : ''}`,
                 { preheader: msg.subject, title: msg.subject, tag: 'Booking' });
-              if (await sendEmail(email, `${brand.shopName} \u2014 ${msg.subject}`, html)) res.emailed += 1;
+              if (await sendEmail(db, tenantId, 'request_declined', email, `${brand.shopName} \u2014 ${msg.subject}`, html, { id: d.id, name: apt.clientName || null })) res.emailed += 1;
             }
           }
           continue;
@@ -558,7 +570,7 @@ export async function sweepUnpaidAccepted(
                       .map((l) => `<p style="font-size:14px;color:#334155;line-height:1.7;margin:0 0 12px">${l.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`).join('');
                     const html = brandedEmail(brand, `${paras}${link ? emailButton(link, 'Manage my visit', brand) : ''}`,
                       { preheader: msg.subject, title: msg.subject, tag: 'Booking' });
-                    if (await sendEmail(email, `${brand.shopName} \u2014 ${msg.subject}`, html)) res.emailed += 1;
+                    if (await sendEmail(db, tenantId, 'deposit_charged', email, `${brand.shopName} \u2014 ${msg.subject}`, html, { id: d.id, name: apt.clientName || null })) res.emailed += 1;
                   }
                 }
                 continue;
@@ -584,7 +596,7 @@ export async function sweepUnpaidAccepted(
               .map((l) => `<p style="font-size:14px;color:#334155;line-height:1.7;margin:0 0 12px">${l.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`).join('');
             const html = brandedEmail(brand, `${paras}${link ? emailButton(link, 'Pay deposit', brand) : ''}`,
               { preheader: msg.subject, title: msg.subject, tag: 'Booking' });
-            if (await sendEmail(email, `${brand.shopName} \u2014 ${msg.subject}`, html)) res.emailed += 1;
+            if (await sendEmail(db, tenantId, 'deposit_failed', email, `${brand.shopName} \u2014 ${msg.subject}`, html, { id: d.id, name: apt.clientName || null })) res.emailed += 1;
             await markerRef.set({ at: new Date(now).toISOString(), appointmentId: d.id });
             res.actioned += 1;
           }
