@@ -587,6 +587,90 @@ export async function GET(req: NextRequest) {
   }
   results.tourFollowUps = toursFlagged;
 
+  // ── Requests nobody answered ──────────────────────────────────────────────
+  // With approval switched on, a tour request the owner never decides on sits
+  // at "Awaiting your OK" past its own date, forever — still blocking the slot
+  // in the checker, still on the pipeline as if a decision were coming. Worse,
+  // the person who asked is still waiting. The day after the requested time
+  // has gone, this closes it as expired, frees the slot, and tells them —
+  // warmly, with the link to pick a fresh time. Once, never twice.
+  let toursExpired = 0;
+  for (const tDoc of allTenantsSnap.docs) {
+    try {
+      const tenantData = tDoc.data() as any;
+      const tz = tenantTimeZone(tenantData);
+      const todayLocal = todayIn(tz);
+      const toursSnap = await db.collection(`tenants/${tDoc.id}/tours`)
+        .where('status', '==', 'requested').get();
+      if (toursSnap.empty) continue;
+
+      const studio = String(tenantData.name || tenantData.businessName || '').trim() || 'The studio';
+      const origin = process.env.NEXT_PUBLIC_APP_URL || 'https://studio-one-blue.vercel.app';
+      const nowIso = new Date().toISOString();
+      let expiredHere = 0;
+      const names: string[] = [];
+
+      for (const td of toursSnap.docs) {
+        const t: any = td.data() || {};
+        if (!t.date || String(t.date) >= todayLocal) continue;     // still ahead of us
+        if (t.expiredAt) continue;
+
+        await td.ref.set({ status: 'expired', expiredAt: nowIso }, { merge: true });
+        // The lead follows the tour: an expired request is a decision that was
+        // never made, which is its own kind of answer.
+        const appId = String(t.applicationId || '');
+        if (appId) {
+          await db.doc(`tenants/${tDoc.id}/boothApplications/${appId}`)
+            .set({ status: 'expired', expiredAt: nowIso, followUpNeeded: true }, { merge: true })
+            .catch(() => { /* the tour is already closed */ });
+        }
+
+        // Tell them. They asked for a time and heard nothing; silence past the
+        // date reads as "we ignored you". A message with the door open reads
+        // as "we missed it, come back".
+        const to = String(t.email || '').trim();
+        if (to.includes('@')) {
+          try {
+            const { sendNotification } = await import('@/lib/notify');
+            const first = String(t.name || '').trim().split(' ')[0] || 'there';
+            await sendNotification(db, {
+              tenantId: tDoc.id, channel: 'email', to,
+              subject: 'We missed your visit request — sorry',
+              html: brandedEmailHtml({
+                studioName: studio,
+                title: 'We missed your request',
+                bodyLines: [
+                  `Hi ${first} — you asked to visit us on ${t.date}${t.time ? ` at ${t.time}` : ''} and we did not get back to you in time. That is on us.`,
+                  'We would still love to show you around. Pick any time that suits you and it goes straight onto our calendar.',
+                ],
+                cta: { label: 'Pick a new time', url: `${origin}/tour/${tDoc.id}` },
+                footerNote: `Sent by ${studio}. You're receiving this because you asked to visit us.`,
+              }),
+              kind: 'tour_request_expired',
+              recipientType: 'contact', recipientId: td.id, recipientName: t.name || null,
+              eventConfirmed: false,
+            });
+          } catch { /* best-effort */ }
+        }
+        expiredHere++; toursExpired++;
+        if (names.length < 3) names.push(t.name || 'Someone');
+      }
+
+      if (expiredHere > 0) {
+        // The owner hears about it too — a request that slipped is a process
+        // problem worth noticing, not just a record to tidy.
+        const nRef = db.collection(`tenants/${tDoc.id}/notifications`).doc();
+        await nRef.set({
+          id: nRef.id, type: 'tour_request_expired', read: false, createdAt: nowIso, link: '/pipeline',
+          message: expiredHere === 1
+            ? `${names[0]} asked for a tour and never got an answer — the request has expired and they've been invited to pick a new time.`
+            : `${expiredHere} tour requests went unanswered past their dates (${names.join(', ')}${expiredHere > 3 ? ', …' : ''}) — each has been invited to rebook.`,
+        });
+      }
+    } catch (e) { console.error('[cron/nightly] tour request expiry', tDoc.id, e); }
+  }
+  results.tourRequestsExpired = toursExpired;
+
   // ── Reminder suite — for EVERY tenant, emit idempotent in-app reminders for
   // upcoming tours, rent coming due, credential/license expiry, and leases up
   // for renewal. Isolated in its own loop + try/catch so a reminder failure can
