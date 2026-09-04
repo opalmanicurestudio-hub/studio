@@ -91,6 +91,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/comp
 import { motion, AnimatePresence } from 'framer-motion';
 import { StoreCreditHistory } from '@/components/clients/StoreCreditHistory';
 import { Wallet } from 'lucide-react';
+import { isPoorHistory } from '@/lib/deposit-policy';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -512,7 +513,9 @@ export default function ClientDetailPage() {
       rescheduleTotal: safeNumber(client?.rescheduleCount)
   }), [client]);
 
-  const isHighRisk = useMemo(() => (noShowTotal + cancelTotal) > 2, [noShowTotal, cancelTotal]);
+  const isHighRisk = useMemo(
+    () => isPoorHistory({ noShowCount: noShowTotal, cancellationCount: cancelTotal }, selectedTenant),
+    [noShowTotal, cancelTotal, selectedTenant]);
 
   if (isUserLoading || isTenantLoading || clientLoading) {
       return <div className="flex min-h-screen w-full flex-col bg-slate-50/50"><AppHeader title="Profile" /><main className="flex-1 p-4 md:p-10 flex items-center justify-center"><Loader className="w-8 h-8 animate-spin text-primary" /></main></div>;
