@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
   if (a.empty && b.empty) return NextResponse.json(UNIFORM);
 
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
-  const RESEND_FROM = process.env.RESEND_FROM;
+  const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
   if (!RESEND_API_KEY || !RESEND_FROM) return NextResponse.json(UNIFORM); // no transport — exchange path still works
 
   const tenantSnap = await db.collection('tenants').doc(tenantId).get();
@@ -71,12 +71,10 @@ export async function POST(req: NextRequest) {
   const link = accountUrl(origin, tenantId, email);
 
   try {
-    await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: RESEND_FROM,
-        to: [email],
+    const { sendNotification } = await import('@/lib/notify');
+    await sendNotification(db, {
+      tenantId, channel: 'email',
+        to: email,
         subject: `Your orders at ${shopName}`,
         html: await (async () => {
           const emailBrand = await getEmailBrand(db, tenantId);
@@ -87,7 +85,7 @@ export async function POST(req: NextRequest) {
             <p style="color:#94a3b8;font-size:11px;margin:16px 0 0">This link works for 30 days. If you didn\u2019t request it, you can safely ignore this email.</p>`,
             { preheader: 'Your secure sign-in link \u2014 works for 30 days', title: 'Your account link' });
         })(),
-      }),
+      kind: 'account_signin_link', recipientType: 'client',
     });
   } catch {
     // swallow — response stays uniform
