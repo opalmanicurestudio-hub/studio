@@ -65,20 +65,31 @@ function fromFor(displayName: string): string {
   return `${displayName} <notifications@${process.env.RESEND_SENDING_DOMAIN || 'clarityflow.app'}>`;
 }
 
-async function sendEmail(opts: { from: string; to: string; subject: string; html: string }): Promise<{ ok: boolean; error?: string }> {
-  const key = process.env.RESEND_API_KEY;
-  if (!key) return { ok: false, error: 'RESEND_API_KEY not configured' };
+/**
+ * Every dispatch email goes through sendNotification. This helper used to POST
+ * straight to Resend, which meant the whole hiring funnel — receipts, owner
+ * alerts, interview confirmations, queued replies — plus staff document
+ * notices were invisible in the delivery log and outside message settings.
+ * `from` stays in the signature so the call sites read unchanged; the address
+ * itself is resolved centrally now, so it cannot disagree with the rest of
+ * the app.
+ */
+async function sendEmail(opts: {
+  from: string; to: string; subject: string; html: string;
+  db: any; tenantId: string; kind: string;
+  recipientType?: 'client' | 'staff' | 'renter' | 'maintenance' | 'contact' | 'other';
+  recipientId?: string | null; recipientName?: string | null;
+}): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(opts),
+    const { sendNotification } = await import('@/lib/notify');
+    const r = await sendNotification(opts.db, {
+      tenantId: opts.tenantId, channel: 'email', to: opts.to,
+      subject: opts.subject, html: opts.html, kind: opts.kind,
+      recipientType: opts.recipientType || 'contact',
+      recipientId: opts.recipientId || null,
+      recipientName: opts.recipientName || null,
     });
-    if (!res.ok) {
-      const text = await res.text();
-      return { ok: false, error: text.slice(0, 500) };
-    }
-    return { ok: true };
+    return r.ok ? { ok: true } : { ok: false, error: r.error || r.status };
   } catch (e: any) {
     return { ok: false, error: String(e?.message || e).slice(0, 500) };
   }
@@ -115,6 +126,7 @@ async function notifyOwner(db: any, tenantId: string, subject: string, title: st
   const ownerEmail = await ownerEmailFor(db, tenantId);
   if (!ownerEmail) return;
   await sendEmail({
+    db, tenantId, kind: 'hiring_owner_alert', recipientType: 'other', recipientName: 'Owner',
     from: fromFor('ClarityFlow'),
     to: ownerEmail,
     subject,
@@ -167,6 +179,7 @@ async function handleMessages(db: any, tenantId: string, applicationId: string) 
     const subject = String(msg.subject || `A message from ${businessName}`).slice(0, 200);
     const bodyHtml = esc(String(msg.body).slice(0, 5000)).replace(/\n/g, '<br/>');
     const result = await sendEmail({
+      db, tenantId, kind: 'applicant_message', recipientId: applicationId, recipientName: msg.toName || null,
       from: fromFor(businessName),
       to: String(msg.to),
       subject,
@@ -231,6 +244,7 @@ async function handleApplication(db: any, tenantId: string, applicationId: strin
     const first = esc(String(app.name || 'there').split(' ')[0]);
     const subject = `We got your application — ${businessName}`;
     const result = await sendEmail({
+      db, tenantId, kind: 'applicant_receipt', recipientId: applicationId, recipientName: app.name || null,
       from: fromFor(businessName),
       to: String(app.email),
       subject,
@@ -313,6 +327,7 @@ async function handleInterview(db: any, tenantId: string, token: string) {
 
   if (accepted && applicantEmail) {
     await sendEmail({
+      db, tenantId, kind: 'interview_confirmed', recipientId: invite.applicationId || null, recipientName: invite.firstName || null,
       from: fromFor(businessName),
       to: applicantEmail,
       subject: `Interview confirmed — ${whenText}`,
@@ -422,6 +437,8 @@ async function handleDocument(db: any, tenantId: string, documentId: string) {
   let sent = 0;
   for (const m of recipients) {
     const result = await sendEmail({
+      db, tenantId, kind: 'staff_document_notice', recipientType: 'staff', recipientId: m.id || null,
+      recipientName: m.name || null,
       from: fromFor(businessName),
       to: String(m.email),
       subject,
