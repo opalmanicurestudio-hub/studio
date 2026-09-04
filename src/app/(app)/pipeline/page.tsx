@@ -17,7 +17,7 @@
 // answers one question — who is waiting on me — and hands off for the rest.
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { collection, doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useLocation } from '@/context/LocationContext';
@@ -519,11 +519,26 @@ export default function PipelinePage() {
 
   useEffect(() => {
     if (!firestore || !tenantId) return;
+    // Bounded where growth is unbounded. Bookings are the one collection here
+    // that grows every single day; everything the People view derives from
+    // them — visits, spend, recency, tier — is about the last two years at
+    // most, so that is all we load. Leases, renters and contacts are roster-
+    // sized and stay whole. If the window ever needs widening, it is one
+    // number, here.
+    const horizon = new Date();
+    horizon.setFullYear(horizon.getFullYear() - 2);
+    const horizonIso = horizon.toISOString().slice(0, 10);
+    const stayQuery = query(
+      collection(firestore, 'tenants', tenantId, 'bookings'),
+      where('startDate', '>=', horizonIso),
+    );
     const subs = [
-      ['bookings', setStays], ['leases', setLeases],
-      ['renters', setRenters], ['contacts', setContactDocs],
-    ].map(([name, set]: any) => onSnapshot(
-      collection(firestore, 'tenants', tenantId, name),
+      [stayQuery, setStays],
+      [collection(firestore, 'tenants', tenantId, 'leases'), setLeases],
+      [collection(firestore, 'tenants', tenantId, 'renters'), setRenters],
+      [collection(firestore, 'tenants', tenantId, 'contacts'), setContactDocs],
+    ].map(([src, set]: any) => onSnapshot(
+      src,
       (snap: any) => set(snap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))),
       () => {},
     ));
