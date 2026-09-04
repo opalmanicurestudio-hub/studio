@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
   let emailed = false;
 
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
-  const RESEND_FROM = process.env.RESEND_FROM;
+  const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
   if (emailAllowed && RESEND_API_KEY && RESEND_FROM && ticket.customerEmail) {
     const origin = req.nextUrl.origin;
     const link = `${origin}/shop/${tenantId}/order/${ticket.orderId}`;
@@ -93,17 +93,14 @@ export async function POST(req: NextRequest) {
         <p style="font-size:11px;color:#94a3b8;margin:18px 0 0;border-top:1px solid #e2e8f0;padding-top:10px;line-height:1.6">You wrote: \u201c${String(ticket.message || '').slice(0, 240).replace(/</g, '&lt;')}${String(ticket.message || '').length > 240 ? '\u2026' : ''}\u201d</p>`,
         { preheader: `${staffName} at ${emailBrand.shopName} replied about order ${num}` });
 
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          from: RESEND_FROM,
-          to: [ticket.customerEmail],
-          subject: `${emailBrand.shopName} \u2014 about your order ${num}`,
-          html,
-        }),
+      const { sendNotification } = await import('@/lib/notify');
+      const r = await sendNotification(db, {
+        tenantId, channel: 'email', to: ticket.customerEmail,
+        subject: `${emailBrand.shopName} \u2014 about your order ${num}`,
+        html, kind: 'support_reply', recipientType: 'client',
+        recipientId: ticket.orderId || null, recipientName: ticket.customerName || null,
       });
-      emailed = res.ok;
+      emailed = r.ok;
     } catch {
       emailed = false;
     }
