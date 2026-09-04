@@ -85,6 +85,7 @@ import {
   verifySlotOpen,
   fetchDayAppointments,
 } from '@/lib/voice/server-availability';
+import { isPoorHistory } from '@/lib/deposit-policy';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -245,7 +246,7 @@ export async function POST(req: NextRequest) {
           : 0;
         const cancellationWindowHours = Number(svc?.cancellationWindowHours) || Number(tenant.cancellationWindowHours) || 24;
         const isFeeFree = hoursUntilStart >= cancellationWindowHours;
-        const poorHistory = (Number(clientDocForGate?.noShowCount) || 0) + (Number(clientDocForGate?.cancellationCount) || 0) > 2;
+        const poorHistory = isPoorHistory(clientDocForGate, tenant);
         const hasOutstandingBalance = (Number(clientDocForGate?.outstandingBalance) || 0) > 0;
         const safeToConsider = !!clientDocForGate && !poorHistory && !hasOutstandingBalance;
 
@@ -482,7 +483,7 @@ export async function POST(req: NextRequest) {
         const rescheduleFeeAmount = Number(tenant.rescheduleFee) || 0;
         const rescheduleWindowHours = Number(tenant.rescheduleFeeWindowHours) || 0;
         const isFeeFree = !(rescheduleFeeAmount > 0 && rescheduleWindowHours > 0 && hoursUntilOriginal < rescheduleWindowHours);
-        const poorHistory = (Number(clientDocForGate?.noShowCount) || 0) + (Number(clientDocForGate?.cancellationCount) || 0) > 2;
+        const poorHistory = isPoorHistory(clientDocForGate, tenant);
         const hasOutstandingBalance = (Number(clientDocForGate?.outstandingBalance) || 0) > 0;
         const safeToConsider = !!clientDocForGate && !poorHistory && !hasOutstandingBalance;
 
