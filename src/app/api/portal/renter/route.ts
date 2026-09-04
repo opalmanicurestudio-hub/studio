@@ -159,24 +159,26 @@ async function deliverCode(db: any, tenantId: string, contact: string, code: str
       let studioName = 'The studio';
       try { studioName = ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.name || studioName; } catch { /* cosmetic */ }
       const { brandedEmailHtml } = await import('@/lib/email-template');
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
-        body: JSON.stringify({
-          from: process.env.NOTIFY_FROM_EMAIL || 'ClarityFlow <onboarding@resend.dev>',
-          to: [contactIsEmail ? contact.trim() : fallbackEmail],
-          subject: `Your sign-in code — ${studioName}`,
-          text: `Your renter portal sign-in code is ${code}. It expires in 10 minutes. Didn't request this? Ignore it.`,
-          html: brandedEmailHtml({
-            studioName,
-            title: 'Your sign-in code',
-            bodyLines: ['Use this code to sign in to your renter portal. It expires in 10 minutes.'],
-            bigCode: code,
-            footerNote: `Didn't request this? You can safely ignore it. Sent by ${studioName}.`,
-          }),
+      // Through the logged sender, as a mandatory kind: a sign-in code the
+      // owner cannot see in the delivery log is a support call waiting to
+      // happen ("I never got my code" — did it bounce, or was it never sent?).
+      const { sendNotification } = await import('@/lib/notify');
+      const sent = await sendNotification(db, {
+        tenantId, channel: 'email',
+        to: (contactIsEmail ? contact.trim() : fallbackEmail) || '',
+        subject: `Your sign-in code — ${studioName}`,
+        text: `Your renter portal sign-in code is ${code}. It expires in 10 minutes. Didn't request this? Ignore it.`,
+        html: brandedEmailHtml({
+          studioName,
+          title: 'Your sign-in code',
+          bodyLines: ['Use this code to sign in to your renter portal. It expires in 10 minutes.'],
+          bigCode: code,
+          footerNote: `Didn't request this? You can safely ignore it. Sent by ${studioName}.`,
         }),
+        kind: 'renter_signin_code',
+        recipientType: 'renter', recipientName: name || null,
       });
-      if (res.ok) {
+      if (sent.ok) {
         const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
         await nRef.set({
           id: nRef.id, userId: null, read: false, createdAt: new Date().toISOString(),
@@ -664,25 +666,23 @@ async function swapNotify(
     ? `${origin}/rent/${tenantId}${target.portalToken ? `?rt=${encodeURIComponent(target.portalToken)}` : ''}`
     : '';
 
-  if (comms.swapNotifyEmail !== false && target.email && /@/.test(target.email) && process.env.RESEND_API_KEY) {
+  if (comms.swapNotifyEmail !== false && target.email && /@/.test(target.email)) {
     try {
       const { brandedEmailHtml } = await import('@/lib/email-template');
-      await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
-        body: JSON.stringify({
-          from: process.env.NOTIFY_FROM_EMAIL || 'ClarityFlow <onboarding@resend.dev>',
-          to: [target.email],
-          subject,
-          text: `${headline}\n\n${lines.join('\n')}${portalUrl ? `\n\n${portalUrl}` : ''}`,
-          html: brandedEmailHtml({
-            studioName,
-            title: headline,
-            bodyLines: lines,
-            ...(portalUrl ? { cta: { label: 'Open my portal', url: portalUrl } } : {}),
-            footerNote: `Day swaps are between you and the other professional — rent is not affected. Sent by ${studioName}.`,
-          }),
+      const { sendNotification } = await import('@/lib/notify');
+      await sendNotification(db, {
+        tenantId, channel: 'email', to: target.email,
+        subject,
+        text: `${headline}\n\n${lines.join('\n')}${portalUrl ? `\n\n${portalUrl}` : ''}`,
+        html: brandedEmailHtml({
+          studioName,
+          title: headline,
+          bodyLines: lines,
+          ...(portalUrl ? { cta: { label: 'Open my portal', url: portalUrl } } : {}),
+          footerNote: `Day swaps are between you and the other professional — rent is not affected. Sent by ${studioName}.`,
         }),
+        kind: 'renter_day_swap',
+        recipientType: 'renter', recipientName: target.name || null,
       });
     } catch { /* the swap stands whether or not the email lands */ }
   }
