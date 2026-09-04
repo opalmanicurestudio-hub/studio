@@ -127,26 +127,27 @@ export async function POST(req: NextRequest) {
         const gate = await gateMessage(getAdminDb(), String(tenantId || ''), 'receipt');
         if (!gate.send) return NextResponse.json({ ok: false, reason: gate.reason });
       } catch { /* fail open — never lose a receipt over a settings lookup */ }
-      const resendKey = process.env.RESEND_API_KEY;
-      if (!resendKey) {
-        return NextResponse.json({ ok: false, reason: 'Email not configured (RESEND_API_KEY missing)' });
+      // Through the mailroom. This used to POST to Resend from a hardcoded
+      // receipts@<domain> address with its own env name (RESEND_FROM_DOMAIN,
+      // the FOURTH name for the same setting in this codebase) — and never
+      // reached the delivery log, so a customer asking "where's my receipt?"
+      // had no answer. The policy gate above is kept; the log now records the
+      // send itself.
+      if (!tenantId) {
+        return NextResponse.json({ ok: false, reason: 'Missing tenant' }, { status: 400 });
       }
-      const res = await fetch('https://api.resend.com/emails', {
-        method:  'POST',
-        headers: { 'Authorization': `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          from:    `${receipt.studioName} <receipts@${process.env.RESEND_FROM_DOMAIN || 'clarityflow.app'}>`,
-          to:      [contact],
-          subject: `Your receipt from ${receipt.studioName}`,
-          html:    buildEmailHtml(receipt, tenantId
-            ? await getEmailBrand(getAdminDb(), tenantId)
-            : { shopName: receipt.studioName, brandColor: '#16171a' }),
-        }),
+      const { sendNotification } = await import('@/lib/notify');
+      const sent = await sendNotification(getAdminDb(), {
+        tenantId: String(tenantId), channel: 'email', to: contact,
+        subject: `Your receipt from ${receipt.studioName}`,
+        html: buildEmailHtml(receipt, await getEmailBrand(getAdminDb(), tenantId)),
+        kind: 'receipt',
+        recipientType: 'client',
+        recipientName: receipt.clientName || null,
       });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        console.error('[send-receipt] Resend error:', data);
-        return NextResponse.json({ ok: false, reason: data?.message || 'Email send failed' });
+      if (!sent.ok) {
+        console.error('[send-receipt] not sent:', sent.status, sent.error);
+        return NextResponse.json({ ok: false, reason: sent.error || sent.status });
       }
       return NextResponse.json({ ok: true, emailSent: true });
     }
