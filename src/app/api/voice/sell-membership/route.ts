@@ -23,6 +23,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyVoiceSecret, parseVoiceToolRequest } from '@/lib/voice/voice-utils';
 import { loadTenantContext } from '@/lib/voice/server-availability';
 import { enrollMembership } from '@/lib/memberships/enroll-membership';
+import { isPoorHistory } from '@/lib/deposit-policy';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -80,7 +81,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const poorHistory = (Number(client.noShowCount) || 0) + (Number(client.cancellationCount) || 0) > 2;
+    const poorHistory = isPoorHistory(client, tenant);
     const hasOutstandingBalance = (Number(client.outstandingBalance) || 0) > 0;
     const safeToConsider = !poorHistory && !hasOutstandingBalance;
     const canAutoSell = tenant.voiceAgent?.autoSellOfferings === true && safeToConsider;
