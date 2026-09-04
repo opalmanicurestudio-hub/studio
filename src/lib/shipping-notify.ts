@@ -186,11 +186,18 @@ export async function sendCarrierUpdate(opts: {
   origin: string;
   tenantId: string;
   orderId: string;
+  /** Admin Firestore, for the delivery log. Falls back to the marker's own db. */
+  db?: any;
 }): Promise<NotifyResult> {
   const { markerRef, order, tenant, update, origin, tenantId, orderId } = opts;
+  // markerRef is a DocumentReference; its .firestore is the same Admin db
+  // every caller already holds, so nobody has to thread a new argument.
+  const db = opts.db || (markerRef as any)?.firestore;
 
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
-  const RESEND_FROM = process.env.RESEND_FROM;
+  // The address itself is resolved centrally now (either env name works);
+  // this only decides whether email is configured at all.
+  const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
   const to = String(order?.customerEmail || '').trim();
   if (!to) return { ok: false, reason: 'no_customer_email' };
   if (!RESEND_API_KEY || !RESEND_FROM) return { ok: false, reason: 'email_not_configured' };
@@ -244,20 +251,23 @@ export async function sendCarrierUpdate(opts: {
     ${contact ? `<p style="margin:18px 0 0;padding-top:12px;border-top:1px solid #e2e8f0;font-size:11px;line-height:1.6;color:#94a3b8;text-align:center">${esc(contact)}</p>` : ''}`,
     { preheader: copy.subject, title: esc(copy.title), tag: num ? esc(num) : undefined });
 
+  // Through the mailroom: logged, tracked to delivered/opened, and under the
+  // same from-address as everything else. The policy check above stays as a
+  // fast pre-check; sendNotification re-applies it and records a skip.
   let sent = false;
   try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: RESEND_FROM,
-        to,
-        subject: num ? `${copy.subject} — order ${num}` : copy.subject,
-        html,
-      }),
+    const { sendNotification } = await import('@/lib/notify');
+    const r = await sendNotification(db, {
+      tenantId, channel: 'email', to,
+      subject: num ? `${copy.subject} — order ${num}` : copy.subject,
+      html,
+      kind: update.status === 'DELAYED' ? 'order_delayed' : 'order_shipped',
+      recipientType: 'client',
+      recipientId: orderId,
+      recipientName: order?.customerName || null,
     });
-    sent = res.ok;
-    if (!res.ok) console.error('[shipping-notify] Resend rejected:', (await res.text()).slice(0, 160));
+    sent = r.ok;
+    if (!r.ok) console.error('[shipping-notify] not sent:', r.status, r.error);
   } catch (e: any) {
     console.error('[shipping-notify] send failed:', e?.message || e);
   }
