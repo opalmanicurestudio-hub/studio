@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
     if (!claimed) return NextResponse.json({ ok: true, sent: false });
 
     const RESEND_API_KEY = process.env.RESEND_API_KEY;
-    const RESEND_FROM = process.env.RESEND_FROM;
+    const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
     const to = String(claimed.customerEmail || '').trim();
     if (!RESEND_API_KEY || !RESEND_FROM || !to) {
       return NextResponse.json({ ok: true, sent: false, why: 'email not configured' });
@@ -116,15 +116,13 @@ export async function POST(req: NextRequest) {
       </p>`,
       { preheader: `New ship-by date: ${pretty} \u2014 or cancel for a full refund` });
 
-    await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: RESEND_FROM,
-        to: [to],
+    const { sendNotification } = await import('@/lib/notify');
+    await sendNotification(db, {
+      tenantId, channel: 'email',
+        to: to,
         subject: `Your order is running late \u2014 ${brand.shopName}`,
         html,
-      }),
+      kind: 'order_delayed', recipientType: 'client',
     });
 
     return NextResponse.json({ ok: true, sent: true });
