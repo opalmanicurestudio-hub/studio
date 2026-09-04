@@ -143,6 +143,9 @@ function historyFor(r: Row, tour: any, invites: any[]): HistoryLine[] {
   return out.sort((a, b) => String(b.at).localeCompare(String(a.at)));
 }
 
+/** The label a destructive button shows once it has been tapped once. */
+const armedLabel = (isArmed: boolean, idle: string, sure: string) => (isArmed ? sure : idle);
+
 const whenTime = (iso: string): string => {
   try {
     const d = new Date(iso);
@@ -221,6 +224,19 @@ export default function PipelinePage() {
   // outcome that decides whether this lead is hot. It already existed, mounted
   // only in the booth hub, which is not where anyone follows a lead any more.
   const [managingTour, setManagingTour] = useState<any>(null);
+
+  // Which destructive button is currently asking "are you sure?" — keyed by
+  // lead id + action so only ONE can be armed at a time. Arms for 5 seconds.
+  const [armed, setArmed] = useState<string>('');
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(''), 5000);
+    return () => clearTimeout(t);
+  }, [armed]);
+  const arm = (key: string, run: () => void) => {
+    if (armed === key) { setArmed(''); run(); }
+    else setArmed(key);
+  };
   const [tasks, setTasks] = useState<any[]>([]);
   const [staff, setStaff] = useState<any[]>([]);
   const [offerSlots, setOfferSlots] = useState<string[]>(['', '', '']);
@@ -312,6 +328,16 @@ export default function PipelinePage() {
   // same as no decision.
   const decideTour = async (r: Row, tourId: string, decision: 'approve' | 'decline') => {
     if (!firestore || !tenantId) return;
+    // A request whose time has already passed cannot be approved into the
+    // past — it can only be declined, which sends them the rebook link.
+    if (decision === 'approve') {
+      const t = tourById.get(tourId);
+      const start = t?.date && t?.time ? new Date(`${t.date}T${t.time}:00`) : null;
+      if (start && !isNaN(start.getTime()) && start.getTime() < Date.now()) {
+        toast({ title: 'That time has already passed', description: 'Decline it — they get a link to pick a fresh time.' });
+        return;
+      }
+    }
     setBusy(r.id);
     try {
       await updateDoc(doc(firestore, 'tenants', tenantId, 'tours', tourId), {
@@ -380,6 +406,13 @@ export default function PipelinePage() {
     setBusy(r.id);
     try {
       const token = nanoid();
+      // Retire any earlier offer still open for this lead. The old link keeps
+      // resolving, but it can no longer be answered — its status is no longer
+      // 'pending', which is the only state the rules let a prospect update.
+      const stale = invites.filter((i) => i.applicationId === r.id && i.status === 'pending');
+      await Promise.all(stale.map((i) => updateDoc(doc(firestore, 'tenants', tenantId, 'tourInvites', i.id), {
+        status: 'superseded', supersededAt: new Date().toISOString(), supersededBy: token,
+      }).catch(() => { /* best-effort */ })));
       await setDoc(doc(firestore, 'tenants', tenantId, 'tourInvites', token), {
         id: token,
         applicationId: r.id,
@@ -423,6 +456,10 @@ export default function PipelinePage() {
   // booking on its own.
   const confirmTour = async (r: Row, inv: any, iso: string) => {
     if (!firestore || !tenantId || !iso) return;
+    if (new Date(iso).getTime() < Date.now()) {
+      toast({ title: 'That time has already passed', description: 'Offer them new times instead.' });
+      return;
+    }
     setBusy(r.id);
     try {
       const d = new Date(iso);
@@ -596,11 +633,24 @@ export default function PipelinePage() {
     if (!firestore || !tenantId) return;
     setBusy(r.id);
     try {
+      const now = new Date().toISOString();
       await updateDoc(doc(firestore, 'tenants', tenantId, 'boothApplications', r.id), {
         status,
         followUpNeeded: false,
-        [`${status}At`]: new Date().toISOString(),
+        [`${status}At`]: now,
+        // A no-show from the row is the same fact as a no-show from the tour
+        // manager; write it the same way so the history and the outcome agree.
+        ...(status === 'no_show' ? { tourOutcome: { showed: false, at: now, by: actorName || null } } : {}),
       });
+      // A closed or declined lead must not leave a confirmed visit sitting on
+      // the calendar with nobody attached to it. The tour follows the lead.
+      const live = r.tourId ? tourById.get(r.tourId) : null;
+      if (live && ['confirmed', 'requested'].includes(String(live.status)) && ['closed', 'declined', 'no_show'].includes(status)) {
+        await updateDoc(doc(firestore, 'tenants', tenantId, 'tours', live.id), {
+          status: status === 'no_show' ? 'no_show' : 'cancelled',
+          ...(status === 'no_show' ? { decidedAt: now } : { cancelledAt: now }),
+        }).catch(() => { /* the lead change stands */ });
+      }
       toast({ title: note, description: r.name });
     } catch {
       toast({ title: 'That did not save', description: 'Try again in a moment.' });
@@ -865,9 +915,11 @@ export default function PipelinePage() {
                         className="rounded-xl bg-emerald-600 px-3 py-2 text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-50">
                         {busy === r.id ? '…' : 'Approve tour'}
                       </button>
-                      <button onClick={() => decideTour(r, t.id, 'decline')} disabled={!!busy}
-                        className="rounded-xl border-2 border-red-200 bg-white px-3 py-2 text-[11px] font-black uppercase tracking-widest text-red-600 disabled:opacity-50">
-                        Decline
+                      <button onClick={() => arm(`${r.id}:decline-tour`, () => decideTour(r, t.id, 'decline'))} disabled={!!busy}
+                        aria-live="polite"
+                        className={cn('rounded-xl border-2 px-3 py-2 text-[11px] font-black uppercase tracking-widest disabled:opacity-50',
+                          armed === `${r.id}:decline-tour` ? 'bg-red-600 border-red-600 text-white' : 'border-red-200 bg-white text-red-600')}>
+                        {armedLabel(armed === `${r.id}:decline-tour`, 'Decline', 'Tap again to decline')}
                       </button>
                     </>
                   );
@@ -906,9 +958,11 @@ export default function PipelinePage() {
                               className="rounded-xl border-2 bg-white px-3 py-2 text-[11px] font-black uppercase tracking-widest text-slate-600 disabled:opacity-50">
                               Reschedule
                             </button>
-                            <button onClick={() => cancelTour(r, t.id)} disabled={!!busy}
-                              className="rounded-xl border-2 border-red-200 bg-white px-3 py-2 text-[11px] font-black uppercase tracking-widest text-red-600 disabled:opacity-50">
-                              Cancel tour
+                            <button onClick={() => arm(`${r.id}:cancel-tour`, () => cancelTour(r, t.id))} disabled={!!busy}
+                              aria-live="polite"
+                              className={cn('rounded-xl border-2 px-3 py-2 text-[11px] font-black uppercase tracking-widest disabled:opacity-50',
+                                armed === `${r.id}:cancel-tour` ? 'bg-red-600 border-red-600 text-white' : 'border-red-200 bg-white text-red-600')}>
+                              {armedLabel(armed === `${r.id}:cancel-tour`, 'Cancel tour', 'Tap again to cancel')}
                             </button>
                           </>
                         );
@@ -926,10 +980,19 @@ export default function PipelinePage() {
                         {busy === r.id ? '…' : 'Contacted'}
                       </button>
                     )}
-                    <button onClick={() => setStatus(r, 'closed', 'Closed out')} disabled={!!busy}
-                      className="rounded-xl border-2 bg-white px-3 py-2 text-[11px] font-black uppercase tracking-widest text-slate-600 disabled:opacity-50">
-                      Close
-                    </button>
+                    {(() => {
+                      const live = r.tourId ? tourById.get(r.tourId) : null;
+                      const hasLive = !!live && ['confirmed', 'requested'].includes(String(live.status));
+                      const on = armed === `${r.id}:close`;
+                      return (
+                        <button onClick={() => arm(`${r.id}:close`, () => setStatus(r, 'closed', 'Closed out'))} disabled={!!busy}
+                          aria-live="polite"
+                          className={cn('rounded-xl border-2 px-3 py-2 text-[11px] font-black uppercase tracking-widest disabled:opacity-50',
+                            on ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white text-slate-600')}>
+                          {on ? (hasLive ? 'Tap again — also cancels their tour' : 'Tap again to close') : 'Close'}
+                        </button>
+                      );
+                    })()}
                     {r.kind === 'tour' && (
                   <button onClick={() => setManagingTour(appDocs.find((a: any) => a.id === r.id) || null)}
                     className={cn('rounded-xl px-3 py-2 text-[11px] font-black uppercase tracking-widest',
@@ -940,14 +1003,18 @@ export default function PipelinePage() {
                   </button>
                 )}
                 {r.kind === 'tour' && (
-                      <button onClick={() => setStatus(r, 'no_show', 'Marked no-show')} disabled={!!busy}
-                        className="rounded-xl border-2 bg-white px-3 py-2 text-[11px] font-black uppercase tracking-widest text-slate-600 disabled:opacity-50">
-                        No-show
+                      <button onClick={() => arm(`${r.id}:no-show`, () => setStatus(r, 'no_show', 'Marked no-show'))} disabled={!!busy}
+                        aria-live="polite"
+                        className={cn('rounded-xl border-2 px-3 py-2 text-[11px] font-black uppercase tracking-widest disabled:opacity-50',
+                          armed === `${r.id}:no-show` ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white text-slate-600')}>
+                        {armedLabel(armed === `${r.id}:no-show`, 'No-show', 'Tap again — no-show')}
                       </button>
                     )}
-                    <button onClick={() => convert(r)} disabled={!!busy}
-                      className="rounded-xl bg-emerald-600 px-3 py-2 text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-50">
-                      {busy === r.id ? '…' : 'Convert'}
+                    <button onClick={() => arm(`${r.id}:convert`, () => convert(r))} disabled={!!busy}
+                      aria-live="polite"
+                      className={cn('rounded-xl px-3 py-2 text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-50',
+                        armed === `${r.id}:convert` ? 'bg-emerald-800' : 'bg-emerald-600')}>
+                      {busy === r.id ? '…' : armedLabel(armed === `${r.id}:convert`, 'Convert', 'Tap again — make them a renter')}
                     </button>
                   </>
                 )}
