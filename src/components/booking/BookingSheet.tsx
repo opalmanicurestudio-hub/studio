@@ -23,7 +23,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { cn, safeNumber } from '@/lib/utils';
-import { computeDepositCents } from '@/lib/deposit-policy';
+import { computeDepositCents, isPoorHistory } from '@/lib/deposit-policy';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../ui/card';
 import {
   startOfWeek, addDays, isSameDay, format, setHours, setMinutes,
@@ -364,7 +364,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   }, [service, selectedStaffId, selectedTierId, staff]);
 
   const depositAmount = useMemo(() => {
-    const poorHistory = !!(matchedClient && (safeNumber(matchedClient.noShowCount) + safeNumber(matchedClient.cancellationCount)) > 2);
+    const poorHistory = isPoorHistory(matchedClient, tenant);
     const cents = computeDepositCents({
       service,
       price,
