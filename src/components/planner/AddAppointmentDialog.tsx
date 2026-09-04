@@ -57,7 +57,7 @@ import {
   Workflow
 } from 'lucide-react';
 import { cn, safeNumber } from '@/lib/utils';
-import { computeDepositCents, resolveRebookDeposit } from '@/lib/deposit-policy';
+import { computeDepositCents, resolveRebookDeposit, isPoorHistory } from '@/lib/deposit-policy';
 import { type Client, type Service, type Appointment, type Staff, type PricingTier } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO, endOfDay, subMinutes, differenceInMinutes } from 'date-fns';
 import { nanoid } from 'nanoid';
@@ -315,7 +315,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
  const depositDetails = useMemo(() => {
     if (!selectedService) return null;
 
-    const poorHistory     = !!(selectedClient && (safeNumber(selectedClient.noShowCount) + safeNumber(selectedClient.cancellationCount)) > 2);
+    const poorHistory     = isPoorHistory(selectedClient, selectedTenant);
     const guardianActive  = selectedTenant?.guardianProtocolEnabled !== false;
     const isGuardianForced = guardianActive && poorHistory && selectedService.depositType === 'none';
 
@@ -771,7 +771,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                         {(selectedClient.outstandingBalance || 0) > 0 && (
                                             <span className="inline-flex items-center gap-1 text-[10px] font-medium text-red-600 bg-red-50 border border-red-200 rounded-full px-2 py-0.5">Owes ${safeNumber(selectedClient.outstandingBalance).toFixed(2)}</span>
                                         )}
-                                        {(safeNumber(selectedClient.noShowCount) + safeNumber(selectedClient.cancellationCount)) > 2 && (
+                                        {isPoorHistory(selectedClient, selectedTenant) && (
                                             <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5"><ShieldCheck className="w-2.5 h-2.5" /> Deposit protected</span>
                                         )}
                                     </div>
