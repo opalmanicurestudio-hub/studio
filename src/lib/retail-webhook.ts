@@ -438,7 +438,7 @@ export async function sendOrderConfirmation(
   session: any
 ): Promise<void> {
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
-  const RESEND_FROM = process.env.RESEND_FROM;
+  const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
   const to = String(order.customerEmail || '').trim();
   if (!RESEND_API_KEY || !RESEND_FROM || !to) return;
 
@@ -521,18 +521,17 @@ export async function sendOrderConfirmation(
     ${emailButton(`${origin}/shop/${tenantId}/order/${orderId}`, 'View my order', emailBrand)}`;
   const html = brandedEmail(emailBrand, emailBody, { preheader: `Order ${num} confirmed` });
 
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      from: RESEND_FROM,
-      to: [to],
-      subject: `${shopName} \u2014 order ${num} confirmed`,
-      html,
-    }),
+  // Through the mailroom: the confirmation is the one retail email a customer
+  // will go looking for, so it has to be findable in the delivery log.
+  const { sendNotification } = await import('./notify');
+  const r = await sendNotification(db, {
+    tenantId, channel: 'email', to,
+    subject: `${shopName} \u2014 order ${num} confirmed`,
+    html, kind: 'order_confirmation',
+    recipientType: 'client', recipientId: orderId, recipientName: order.customerName || null,
   });
-  if (!res.ok) {
-    console.error('[connect-webhook] Resend rejected confirmation:', (await res.text()).slice(0, 160));
+  if (!r.ok) {
+    console.error('[connect-webhook] confirmation not sent:', r.status, r.error);
   }
 }
 
@@ -589,7 +588,7 @@ async function sendCartRecovery(
 ): Promise<void> {
   try {
     const RESEND_API_KEY = process.env.RESEND_API_KEY;
-    const RESEND_FROM = process.env.RESEND_FROM;
+    const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
     const to = String(order?.customerEmail || '').trim();
     if (!RESEND_API_KEY || !RESEND_FROM || !to) return;
 
@@ -639,17 +638,14 @@ async function sendCartRecovery(
       <p style="font-size:12px;color:#94a3b8;line-height:1.6">Stock isn't held forever, so popular items can sell out. If you already placed this order or changed your mind, just ignore this — you won't hear from us about it again.</p>`;
     const html = brandedEmail(emailBrand, recoveryBody, { preheader: 'Your cart is still saved — nothing was charged' });
 
-    await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: RESEND_FROM,
-        to: [to],
-        subject: `Your cart at ${shopName} is still saved`,
-        html,
-      }),
+    const { sendNotification } = await import('./notify');
+    const r = await sendNotification(db, {
+      tenantId, channel: 'email', to,
+      subject: `Your cart at ${shopName} is still saved`,
+      html, kind: 'cart_recovery',
+      recipientType: 'client', recipientId: order?.id || null, recipientName: order?.customerName || null,
     });
-    console.log(`[connect-webhook] Cart recovery email sent for expired order to ${to}`);
+    console.log(`[connect-webhook] Cart recovery email ${r.ok ? 'sent' : r.status} for expired order to ${to}`);
   } catch (e: any) {
     console.warn('[connect-webhook] Cart recovery email failed (non-fatal):', e?.message || e);
   }
@@ -708,7 +704,7 @@ export async function sendStoreCreditEmail(
   }
 ): Promise<boolean> {
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
-  const RESEND_FROM = process.env.RESEND_FROM;
+  const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
   const to = String(args.toEmail || '').trim();
   if (!RESEND_API_KEY || !RESEND_FROM || !to) return false;
 
@@ -750,18 +746,15 @@ export async function sendStoreCreditEmail(
 
   const html = brandedEmail(emailBrand, emailBody, { preheader: `${money(args.grantedCents)} in store credit added \u2014 balance ${money(args.balanceCents)}` });
 
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      from: RESEND_FROM,
-      to: [to],
-      subject: `${emailBrand.shopName} \u2014 ${money(args.grantedCents)} store credit added`,
-      html,
-    }),
+  const { sendNotification } = await import('./notify');
+  const r = await sendNotification(db, {
+    tenantId, channel: 'email', to,
+    subject: `${emailBrand.shopName} \u2014 ${money(args.grantedCents)} store credit added`,
+    html, kind: 'store_credit_granted',
+    recipientType: 'client', recipientName: args.toName || null,
   });
-  if (!res.ok) {
-    console.error('[credit-email] Resend rejected:', (await res.text()).slice(0, 160));
+  if (!r.ok) {
+    console.error('[credit-email] not sent:', r.status, r.error);
     return false;
   }
   return true;
