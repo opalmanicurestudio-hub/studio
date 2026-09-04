@@ -10,6 +10,11 @@
 //   RESEND_API_KEY      — from the Resend dashboard
 //   NOTIFY_FROM_EMAIL   — e.g. "Opal Manicure Studio <hello@yourdomain.com>"
 //                         (domain must be verified in Resend)
+//   RESEND_FROM         — accepted as an alias for the same thing. The rent
+//                         and retail senders grew up reading this name while
+//                         this file read the other; a shop that set only one
+//                         had half its mail going out from onboarding@resend.dev,
+//                         which Resend only delivers to the account owner.
 // Without a key, sends are recorded as 'skipped_no_provider' — the
 // timeline stays honest instead of silently pretending.
 //
@@ -78,6 +83,18 @@ const mask = (to: string) => {
   const dg = to.replace(/\D/g, '');
   return dg.length >= 4 ? `•••-${dg.slice(-4)}` : '•••';
 };
+
+/**
+ * The sender address, from whichever env var the shop actually set. Two
+ * names have been in use across the codebase; either works now. The
+ * onboarding@resend.dev fallback is a development address — Resend delivers
+ * it only to the account owner's own inbox — so a shop still on it will see
+ * every message to anyone else bounce, and the log will say so.
+ */
+export function resolveFromAddress(): string {
+  const raw = String(process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM || '').trim();
+  return raw || 'ClarityFlow <onboarding@resend.dev>';
+}
 
 export async function sendNotification(db: any, input: NotifyInput): Promise<NotifyResult> {
   const { tenantId, channel, to, kind } = input;
@@ -197,7 +214,7 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
           body: JSON.stringify({
-            from: process.env.NOTIFY_FROM_EMAIL || 'ClarityFlow <onboarding@resend.dev>',
+            from: resolveFromAddress(),
             to: [to],
             subject: input.subject || 'A note from your studio',
             html,
