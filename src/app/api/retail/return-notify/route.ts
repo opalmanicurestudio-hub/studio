@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
     const order = orderSnap.exists ? (orderSnap.data() as any) : {};
     const to = str(order.customerEmail, 200);
     const RESEND_API_KEY = process.env.RESEND_API_KEY;
-    const RESEND_FROM = process.env.RESEND_FROM;
+    const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
     if (!to || !RESEND_API_KEY || !RESEND_FROM) {
       return NextResponse.json({ ok: true, sent: false, message: 'No recipient or email not configured.' });
     }
@@ -142,17 +142,15 @@ export async function POST(req: NextRequest) {
       ${origin ? emailButton(`${origin}/shop/${tenantId}/order/${ret.orderId}`, 'View my order', emailBrand) : ''}`,
       { preheader: `Return received for order ${num}` });
 
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: RESEND_FROM, to: [to],
-        subject: `${emailBrand.shopName} \u2014 return received for order ${num}`,
-        html,
-      }),
+    const { sendNotification } = await import('@/lib/notify');
+    const r = await sendNotification(db, {
+      tenantId, channel: 'email', to,
+      subject: `${emailBrand.shopName} \u2014 return received for order ${num}`,
+      html, kind: 'return_received', recipientType: 'client',
+      recipientId: ret.orderId || null, recipientName: order?.customerName || null,
     });
 
-    return NextResponse.json({ ok: true, sent: res.ok });
+    return NextResponse.json({ ok: true, sent: r.ok });
   } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : 'Notify failed.' }, { status: 500 });
   }
