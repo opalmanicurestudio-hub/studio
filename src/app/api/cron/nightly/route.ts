@@ -34,20 +34,28 @@ export const maxDuration = 300; // allow up to 5 min on Vercel Pro
 
 // Branded rent emails ride the same Resend + RESEND_FROM address the rest of
 // the app's mail uses — tenant name as display name, fail-soft everywhere.
-async function sendRentEmail(opts: { to: string; fromName: string; subject: string; html: string }): Promise<boolean> {
-  const key = process.env.RESEND_API_KEY;
-  if (!key || !opts.to) return false;
-  const rf = String(process.env.RESEND_FROM || '').trim();
-  const m = rf.match(/<([^>]+)>/);
-  const addr = (m ? m[1] : rf).trim();
-  const from = addr.includes('@') ? `${opts.fromName} <${addr}>` : `${opts.fromName} <notifications@clarityflow.app>`;
+/**
+ * Rent mail goes through sendNotification like every other message. It used
+ * to POST straight to Resend from here, so it never appeared in the delivery
+ * log, was never tracked to delivered/opened, and could not be switched or
+ * reworded in message settings. The kind names already existed in the
+ * catalogue; the sends simply bypassed them.
+ */
+async function sendRentEmail(opts: {
+  db: any; tenantId: string; to: string; fromName: string; subject: string; html: string;
+  kind: string; recipientId?: string | null; recipientName?: string | null;
+}): Promise<boolean> {
+  if (!opts.to) return false;
   try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to: opts.to, subject: opts.subject, html: opts.html }),
+    const { sendNotification } = await import('@/lib/notify');
+    const r = await sendNotification(opts.db, {
+      tenantId: opts.tenantId, channel: 'email', to: opts.to,
+      subject: opts.subject, html: opts.html, kind: opts.kind,
+      recipientType: 'renter',
+      recipientId: opts.recipientId || null,
+      recipientName: opts.recipientName || null,
     });
-    return res.ok;
+    return r.ok;
   } catch {
     return false;
   }
@@ -420,6 +428,8 @@ export async function GET(req: NextRequest) {
               const businessName = String((tDoc.data() as any)?.name || 'ClarityFlow');
               const payLink = await renterPortalLink(db, tDoc.id, lease.renterId, r);
               await sendRentEmail({
+                db, tenantId: tDoc.id, kind: 'rent_overdue',
+                recipientId: lease.renterId || null, recipientName: renterName,
                 to: r.email, fromName: businessName,
                 subject: `Rent past due — $${owed.toFixed(2)} owed`,
                 html: brandedEmailHtml({
