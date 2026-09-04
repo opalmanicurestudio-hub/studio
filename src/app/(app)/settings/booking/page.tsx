@@ -25,7 +25,7 @@ import { useToast } from '@/hooks/use-toast';
 import { AppointmentAuthoritySettings } from '@/components/settings/AppointmentAuthoritySettings';
 import { BlockPolicySettings } from '@/components/settings/BlockPolicySettings';
 import {
-  DEFAULT_BOOKING_MODE, resolveBookingMode, resolveDepositPolicy, resolveRebookDeposit,
+  DEFAULT_BOOKING_MODE, resolveBookingMode, resolveDepositPolicy, resolveRebookDeposit, resolveGuardian,
   type BookingMode, type DepositOutcome, type RebookDepositMode,
 } from '@/lib/deposit-policy';
 import { cn } from '@/lib/utils';
@@ -86,6 +86,8 @@ export default function BookingSettingsPage() {
   const dp = useMemo(() => resolveDepositPolicy(selectedTenant), [selectedTenant]);
   const rb = useMemo(() => resolveRebookDeposit(selectedTenant), [selectedTenant]);
   const [rbPct, setRbPct] = useState<string>('');
+  const gp = useMemo(() => resolveGuardian(selectedTenant), [selectedTenant]);
+  const [gDraft, setGDraft] = useState<Record<string, string>>({});
   const staffRole = String((selectedTenant as any)?.staffMember?.role || 'owner').toLowerCase();
   const isMgr = ['owner', 'admin'].includes(staffRole);
   const depositsLive = (selectedTenant as any)?.depositsLive === true;
@@ -250,6 +252,59 @@ export default function BookingSettingsPage() {
             <p className="text-[10px] font-bold leading-relaxed text-muted-foreground">
               Individual services can override this, and a client marked trusted always books instantly — except when their own no-show history says otherwise.
             </p>
+          </CardContent>
+        </Card>
+
+        {/* Guardian's two numbers. Both were in the code — half the price, and
+            more than two strikes — with the threshold repeated in eleven
+            places. One definition now, and it belongs to the shop. */}
+        <Card className="border-2 rounded-[2rem] bg-white">
+          <CardContent className="p-5 space-y-4">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Guardian — clients who let you down</p>
+              <p className="mt-1 text-[10px] font-bold leading-relaxed text-muted-foreground">
+                When someone's own record of no-shows and cancellations passes your limit, a deposit is held even on services that normally ask for none — and no other setting can waive it.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="min-w-[7.5rem] text-[9px] font-black uppercase tracking-widest text-muted-foreground">Strikes allowed</span>
+              <input inputMode="numeric" aria-label="Strikes allowed before Guardian holds a deposit"
+                value={gDraft.riskThreshold !== undefined ? gDraft.riskThreshold : String(gp.riskThreshold)}
+                onChange={(e) => setGDraft((d) => ({ ...d, riskThreshold: e.target.value.replace(/[^0-9]/g, '') }))}
+                disabled={!isMgr}
+                className="h-8 w-16 rounded-lg border-2 bg-white px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
+              <Button size="sm" variant="outline" disabled={!isMgr || busy === 'guardian-thr'}
+                onClick={() => {
+                  const n = Number(gDraft.riskThreshold ?? String(gp.riskThreshold));
+                  void save('guardian-thr', 'guardianPolicy',
+                    { ...gp, riskThreshold: Number.isFinite(n) && n >= 0 && n <= 20 ? n : gp.riskThreshold },
+                    'Guardian');
+                }}
+                className="h-8 rounded-lg border-2 px-2.5 font-black uppercase text-[8px] tracking-widest">Set</Button>
+            </div>
+            <p className="text-[10px] font-bold leading-relaxed text-muted-foreground">
+              No-shows and cancellations counted together. At {gp.riskThreshold}, someone is protected against on their {gp.riskThreshold + 1}
+              {gp.riskThreshold + 1 === 1 ? 'st' : gp.riskThreshold + 1 === 2 ? 'nd' : gp.riskThreshold + 1 === 3 ? 'rd' : 'th'}. Zero means the very first one counts.
+            </p>
+
+            <div className="flex items-center gap-2">
+              <span className="min-w-[7.5rem] text-[9px] font-black uppercase tracking-widest text-muted-foreground">Percent held</span>
+              <input inputMode="numeric" aria-label="Percent of the price Guardian holds"
+                value={gDraft.percent !== undefined ? gDraft.percent : String(gp.percent)}
+                onChange={(e) => setGDraft((d) => ({ ...d, percent: e.target.value.replace(/[^0-9]/g, '') }))}
+                disabled={!isMgr}
+                className="h-8 w-16 rounded-lg border-2 bg-white px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
+              <Button size="sm" variant="outline" disabled={!isMgr || busy === 'guardian-pct'}
+                onClick={() => {
+                  const n = Number(gDraft.percent ?? String(gp.percent));
+                  void save('guardian-pct', 'guardianPolicy',
+                    { ...gp, percent: n > 0 && n <= 100 ? n : gp.percent },
+                    'Guardian');
+                }}
+                className="h-8 rounded-lg border-2 px-2.5 font-black uppercase text-[8px] tracking-widest">Set</Button>
+              <span className="text-[10px] font-bold text-muted-foreground">of the service price.</span>
+            </div>
           </CardContent>
         </Card>
 
