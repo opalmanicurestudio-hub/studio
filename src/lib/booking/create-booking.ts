@@ -51,7 +51,7 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import { nanoid } from 'nanoid';
 import { randomInt } from 'crypto';
-import { computeDepositCents } from '@/lib/deposit-policy';
+import { computeDepositCents, isPoorHistory } from '@/lib/deposit-policy';
 import {
   stripUndefined,
   localDateStr,
@@ -185,7 +185,7 @@ export async function createBooking(
 
   const poorHistory = !!(
     clientDoc &&
-    (Number(clientDoc.noShowCount) || 0) + (Number(clientDoc.cancellationCount) || 0) > 2
+    isPoorHistory(clientDoc, tenant)
   );
 
   // v10 — the tenant-wide instant/approval switch (input.mode) stays a
