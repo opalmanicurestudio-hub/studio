@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
     const brand = await getEmailBrand(db, tenantId);
     const origin = process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '';
     const RESEND_API_KEY = process.env.RESEND_API_KEY;
-    const RESEND_FROM = process.env.RESEND_FROM;
+    const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
     let cancelledOrders = 0;
     let refundCents = 0;
     let emailed = 0;
@@ -158,14 +158,12 @@ export async function POST(req: NextRequest) {
           </p>`,
           { preheader: `Refunding $${(outcome.lineRefund / 100).toFixed(2)} \u2014 your pre-order can\u2019t be fulfilled` });
 
-        await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            from: RESEND_FROM, to: [to],
+        const { sendNotification } = await import('@/lib/notify');
+        await sendNotification(db, {
+          tenantId, channel: 'email', to: to,
             subject: `About your pre-order \u2014 ${brand.shopName}`,
             html,
-          }),
+          kind: 'preorder_cancelled', recipientType: 'client',
         });
         emailed += 1;
       } catch (e: any) {
