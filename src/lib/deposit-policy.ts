@@ -40,6 +40,42 @@ export type CancelTrigger = 'client_cancel' | 'no_show' | 'studio_cancel';
  * history has triggered the shield, the deposit still stands — otherwise the
  * protection evaporates for exactly the people it exists for, and it does so
  * invisibly. */
+/* ── Guardian ────────────────────────────────────────────────────────────────
+ * Two numbers decided how hard the shield hits, and both were written into the
+ * code rather than the shop's settings: half the price, and "more than two"
+ * strikes. The threshold was spelled out separately in ELEVEN places — the
+ * booking dialog, the public sheet, four voice routes, the client badge and
+ * the server booking path — so nobody could move it, and anyone who tried
+ * would have had to find all eleven.
+ *
+ * One definition now, and both numbers belong to the tenant. */
+export interface GuardianPolicy {
+  /** Percent of the price held when the shield fires on a no-deposit service. */
+  percent: number;
+  /** Strikes (no-shows + cancellations) ABOVE which a client counts as risky. */
+  riskThreshold: number;
+}
+
+export const DEFAULT_GUARDIAN: GuardianPolicy = { percent: 50, riskThreshold: 2 };
+
+export function resolveGuardian(tenant: any): GuardianPolicy {
+  const g = (tenant && tenant.guardianPolicy) || {};
+  const pct = Number(g.percent);
+  const thr = Number(g.riskThreshold);
+  return {
+    percent: Number.isFinite(pct) && pct > 0 && pct <= 100 ? pct : DEFAULT_GUARDIAN.percent,
+    riskThreshold: Number.isFinite(thr) && thr >= 0 && thr <= 20 ? thr : DEFAULT_GUARDIAN.riskThreshold,
+  };
+}
+
+/** The single answer to "does this client's record count against them?" */
+export function isPoorHistory(client: any, tenant?: any): boolean {
+  if (!client) return false;
+  const { riskThreshold } = resolveGuardian(tenant);
+  const strikes = (Number(client.noShowCount) || 0) + (Number(client.cancellationCount) || 0);
+  return strikes > riskThreshold;
+}
+
 export type RebookDepositMode = 'same' | 'always' | 'never';
 
 export interface RebookDepositRule {
@@ -201,7 +237,10 @@ export function computeDepositCents(input: DepositAmountInput): number {
 
   const type = service.depositType;
   if (type === 'none' && (!poorHistory || !guardianActive)) return 0;
-  if (guardianActive && poorHistory && type === 'none') return Math.round(Math.ceil(price * 0.5) * 100);
+  if (guardianActive && poorHistory && type === 'none') {
+    const pct = resolveGuardian(input.tenant).percent;
+    return Math.round(Math.ceil(price * (pct / 100)) * 100);
+  }
   if (type === 'full')      return Math.round((price || 0) * 100);
   /* Product cost only. The FULL breakeven — TMHR time + materials + burdened
    * labour — already exists per service as the "matrix basis" used by the
