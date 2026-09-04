@@ -142,7 +142,7 @@ export async function POST(req: NextRequest) {
    * dashboard refunds recorded via "Mark done manually" don't double-send;
    * best-effort — the refund succeeded regardless. */
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
-  const RESEND_FROM = process.env.RESEND_FROM;
+  const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
   if (RESEND_API_KEY && RESEND_FROM && order.customerEmail) {
     try {
       const emailBrand = await getEmailBrand(db, tenantId);
@@ -157,14 +157,12 @@ export async function POST(req: NextRequest) {
         <p style="font-size:11px;color:#64748b;margin:14px 0 0">Order ${num} \u00b7 refund reference ${refundId.slice(-8)}</p>
         ${emailButton(link, 'View my order', emailBrand)}`,
         { preheader: `$${(cents / 100).toFixed(2)} refunded on order ${num} \u2014 allow 5\u201310 business days` });
-      await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          from: RESEND_FROM, to: [order.customerEmail],
-          subject: `${emailBrand.shopName} \u2014 your $${(cents / 100).toFixed(2)} refund is on its way`,
-          html,
-        }),
+      const { sendNotification } = await import('@/lib/notify');
+      await sendNotification(db, {
+        tenantId, channel: 'email', to: order.customerEmail,
+        subject: `${emailBrand.shopName} \u2014 your $${(cents / 100).toFixed(2)} refund is on its way`,
+        html, kind: 'refund_issued', recipientType: 'client',
+        recipientId: orderId || null, recipientName: order.customerName || null,
       });
     } catch { /* the refund stands; the order page shows it regardless */ }
   }
