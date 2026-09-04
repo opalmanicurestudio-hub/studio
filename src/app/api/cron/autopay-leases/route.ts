@@ -32,20 +32,31 @@ import { brandedEmailHtml } from '@/lib/email-template';
 
 // Branded rent emails ride the same Resend + RESEND_FROM address the rest of
 // the app's mail uses — tenant name as display name, fail-soft everywhere.
-async function sendRentEmail(opts: { to: string; fromName: string; subject: string; html: string }): Promise<boolean> {
-  const key = process.env.RESEND_API_KEY;
-  if (!key || !opts.to) return false;
-  const rf = String(process.env.RESEND_FROM || '').trim();
-  const m = rf.match(/<([^>]+)>/);
-  const addr = (m ? m[1] : rf).trim();
-  const from = addr.includes('@') ? `${opts.fromName} <${addr}>` : `${opts.fromName} <notifications@clarityflow.app>`;
+/**
+ * Rent mail goes through sendNotification like every other message now.
+ * It used to POST straight to Resend from here, which meant three things the
+ * owner could not see or control: no row in the delivery log (so "did the
+ * receipt go?" had no answer), no delivered/opened tracking, and no switch or
+ * wording in message settings — the only control was the raw rentComms flag.
+ * The kinds below already existed in the catalogue; the sends just never
+ * used them. fromName is kept only for the signature: the from-address is the
+ * platform's verified sender either way.
+ */
+async function sendRentEmail(opts: {
+  db: any; tenantId: string; to: string; fromName: string; subject: string; html: string;
+  kind: string; recipientType?: 'renter' | 'other'; recipientId?: string | null; recipientName?: string | null;
+}): Promise<boolean> {
+  if (!opts.to) return false;
   try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to: opts.to, subject: opts.subject, html: opts.html }),
+    const { sendNotification } = await import('@/lib/notify');
+    const r = await sendNotification(opts.db, {
+      tenantId: opts.tenantId, channel: 'email', to: opts.to,
+      subject: opts.subject, html: opts.html, kind: opts.kind,
+      recipientType: opts.recipientType || 'renter',
+      recipientId: opts.recipientId || null,
+      recipientName: opts.recipientName || null,
     });
-    return res.ok;
+    return r.ok;
   } catch {
     return false;
   }
@@ -294,6 +305,8 @@ export async function POST(req: NextRequest) {
         if (!failureReason) {
           if (comms.sendReceipts !== false && renter?.email) {
             await sendRentEmail({
+              db, tenantId, kind: 'rent_receipt',
+              recipientId: lease.renterId || null, recipientName: `${renter?.firstName || ''} ${renter?.lastName || ''}`.trim() || null,
               to: renter.email, fromName: businessName,
               subject: `Rent paid — ${amountStr} (${boothName})`,
               html: brandedEmailHtml({
@@ -311,6 +324,8 @@ export async function POST(req: NextRequest) {
         } else {
           if (renter?.email) {
             await sendRentEmail({
+              db, tenantId, kind: 'rent_failed',
+              recipientId: lease.renterId || null, recipientName: `${renter?.firstName || ''} ${renter?.lastName || ''}`.trim() || null,
               to: renter.email, fromName: businessName,
               subject: 'Action needed — your rent payment didn\u2019t go through',
               html: brandedEmailHtml({
@@ -330,6 +345,7 @@ export async function POST(req: NextRequest) {
             if (ownerEmail) {
               const rn = `${renter?.firstName || ''} ${renter?.lastName || ''}`.trim() || 'A renter';
               await sendRentEmail({
+                db, tenantId, kind: 'rent_failed', recipientType: 'other', recipientName: 'Owner',
                 to: ownerEmail, fromName: 'ClarityFlow',
                 subject: `Autopay declined — ${rn} (${amountStr})`,
                 html: brandedEmailHtml({
