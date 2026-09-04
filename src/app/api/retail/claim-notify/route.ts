@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
   if (!tenantId || !claimId) return NextResponse.json({ error: 'Missing details' }, { status: 400 });
 
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
-  const RESEND_FROM = process.env.RESEND_FROM;
+  const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
   if (!RESEND_API_KEY || !RESEND_FROM) return NextResponse.json({ ok: true, sent: false, why: 'email not configured' });
 
   const db = getAdminDb();
@@ -84,12 +84,14 @@ export async function POST(req: NextRequest) {
         <p style="font-size:14px;color:#334155;line-height:1.6">You can answer (and add photos) right on your order page \u2014 the review continues as soon as it arrives.</p>
         ${orderLink ? emailButton(orderLink, 'Answer on my order page', emailBrand) : ''}`,
         { preheader: 'One more thing to review your report' });
-      await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: RESEND_FROM, to: [String(reqData.customerEmail).trim()], subject: `One more thing about your report \u2014 ${emailBrand.shopName}`, html }),
+      const { sendNotification } = await import('@/lib/notify');
+      const r = await sendNotification(db, {
+        tenantId, channel: 'email', to: String(reqData.customerEmail).trim(),
+        subject: `One more thing about your report \u2014 ${emailBrand.shopName}`, html,
+        kind: 'claim_info_request', recipientType: 'client',
+        recipientId: reqData.orderId || null, recipientName: reqData.customerName || null,
       });
-      return NextResponse.json({ ok: true, sent: true });
+      return NextResponse.json({ ok: true, sent: r.ok });
     } catch (err: any) {
       console.error('[claim-notify] info request ping failed:', err?.message);
       return NextResponse.json({ ok: true, sent: false });
@@ -139,19 +141,17 @@ export async function POST(req: NextRequest) {
       <p style="font-size:12px;color:#94a3b8;line-height:1.6">Order #${String(decision.orderNumber ?? '').padStart(4, '0')} at ${shopName}.</p>`,
       { preheader: approved ? 'Your report was approved' : 'An update on your report' });
 
-    await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: RESEND_FROM,
-        to: [String(decision.customerEmail).trim()],
-        subject: approved
-          ? `Your report was approved — refund on the way from ${shopName}`
-          : `About your report to ${shopName}`,
-        html,
-      }),
+    const { sendNotification } = await import('@/lib/notify');
+    const r = await sendNotification(db, {
+      tenantId, channel: 'email', to: String(decision.customerEmail).trim(),
+      subject: approved
+        ? `Your report was approved — refund on the way from ${shopName}`
+        : `About your report to ${shopName}`,
+      html,
+      kind: approved ? 'claim_approved' : 'claim_decision', recipientType: 'client',
+      recipientId: decision.orderId || null, recipientName: decision.customerName || null,
     });
-    return NextResponse.json({ ok: true, sent: true });
+    return NextResponse.json({ ok: true, sent: r.ok });
   } catch (e: any) {
     return NextResponse.json({ ok: true, sent: false, why: String(e?.message || '').slice(0, 120) });
   }
