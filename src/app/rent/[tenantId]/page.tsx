@@ -30,6 +30,7 @@ import {
   Armchair, CalendarDays, Clock, CreditCard, LogOut, Loader,
   CheckCircle2, Sparkles, ChevronRight, Receipt, AlertTriangle,
   Wallet, KeyRound, Phone, RefreshCw, Repeat, X,
+  MessageSquare,
 } from 'lucide-react';
 
 // Local YYYY-MM-DD — the UTC-slice version flips to tomorrow in the evening.
@@ -44,6 +45,55 @@ const fmtTime = (t?: string | null) => {
   if (!t) return '';
   try { return format(parseISO(`2000-01-01T${t}:00`), 'h:mm a'); } catch { return t; }
 };
+
+// ─── Messages with the studio ─────────────────────────────────────────────────
+// The renter's side of the one conversation. Replies are on the record the
+// instant they're sent, and the studio is told in-app.
+function RenterThread({ tenantId, token, studioName }: { tenantId: string; token: string; studioName: string }) {
+  const [msgs, setMsgs] = useState<any[] | null>(null);
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    const d = await api({ action: 'thread-list', tenantId, token });
+    setMsgs(d?.ok ? [...(d.messages || [])].reverse() : []);
+  }, [tenantId, token]);
+  useEffect(() => { void load(); }, [load]);
+  const send = async () => {
+    const text = draft.trim(); if (!text || busy) return;
+    setBusy(true);
+    const d = await api({ action: 'thread-send', tenantId, token, text });
+    setBusy(false);
+    if (d?.ok) { setDraft(''); void load(); }
+  };
+  return (
+    <section className="space-y-3">
+      <SectionTitle icon={MessageSquare}>Messages with {studioName}</SectionTitle>
+      <div className="p-4 rounded-3xl bg-white border-2 border-slate-100 space-y-3">
+        <div className="space-y-2 max-h-72 overflow-y-auto">
+          {msgs === null ? <p className="text-[11px] text-slate-500">Loading…</p>
+            : msgs.length === 0 ? <p className="text-[11px] text-slate-500">Nothing yet. Ask a question, report something, or just say hi — it's all kept on your account.</p>
+            : msgs.map((m) => (
+              <div key={m.id} className={cn('max-w-[88%] rounded-2xl px-3.5 py-2.5', m.direction === 'inbound' ? 'ml-auto bg-slate-900 text-white' : 'mr-auto bg-slate-100')}>
+                <p className="text-xs font-medium whitespace-pre-wrap leading-snug">{m.text}</p>
+                <p className={cn('mt-1 text-[9px] font-bold', m.direction === 'inbound' ? 'text-white/60' : 'text-slate-500')}>
+                  {m.direction === 'inbound' ? 'You' : (m.byName || studioName)} · {fmtDate(m.createdAt)}
+                </p>
+              </div>
+            ))}
+        </div>
+        <div className="flex gap-2">
+          <textarea value={draft} onChange={(e) => setDraft(e.target.value.slice(0, 2000))} rows={2}
+            placeholder="Write to the studio…" aria-label="Message to the studio"
+            className="flex-1 rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm outline-none focus:border-slate-900" />
+          <button type="button" onClick={send} disabled={busy || !draft.trim()}
+            className="h-11 self-end rounded-2xl bg-slate-900 px-4 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">
+            {busy ? '…' : 'Send'}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 const api = async (payload: any) => {
   const res = await fetch('/api/portal/renter', {
@@ -1769,6 +1819,10 @@ export default function RenterPortalPage() {
                   <p className="text-[9px] font-bold uppercase tracking-widest text-slate-300 text-center">Prefer cash or check? Pay at the front desk — it posts here too.</p>
                 </div>
               </section>
+            )}
+
+            {session?.token && data?.renter?.id && (
+              <RenterThread tenantId={tenantId} token={session.token} studioName={data?.studioName || data?.tenant?.name || 'the studio'} />
             )}
 
             {session?.token && (
