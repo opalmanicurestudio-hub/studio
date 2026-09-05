@@ -44,6 +44,8 @@ import {
   Ban,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { buildRentSchedule, type ScheduledCharge } from '@/lib/rent-schedule';
+import { CalendarClock as CalendarClockIcon } from 'lucide-react';
 import {
   Booth,
   Renter,
@@ -198,6 +200,78 @@ const RENT_COMMS_DEFAULTS: any = {
 
 // Rent notifications — the per-business comms knobs the crons read
 // (tenants/{t}.rentComms). Late-fee amounts and grace stay per-lease.
+/**
+ * What autopay is ABOUT to do. The autopay cron decides at noon UTC on the
+ * lease's due day; until this card there was no way to see that coming — only
+ * the receipts and declines afterwards. Same rule the cron uses (rent-schedule
+ * lifts it out), so what this shows is what will happen, not an estimate.
+ */
+function RentScheduleCard({ rows, renterById, boothById }: {
+  rows: ScheduledCharge[];
+  renterById: Map<string, any>;
+  boothById: Map<string, any>;
+}) {
+  const money = (c: number) => `$${(c / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const when = (isoDate: string) => {
+    const d = new Date(isoDate + 'T00:00:00');
+    if (isNaN(d.getTime())) return isoDate;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const days = Math.round((d.getTime() - today.getTime()) / 86400000);
+    const label = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    return days === 0 ? `Today · ${label}` : days === 1 ? `Tomorrow · ${label}` : days < 7 ? `In ${days} days · ${label}` : label;
+  };
+  const chip = (r: ScheduledCharge) => {
+    if (r.readiness === 'ready') {
+      if (r.lastAttempt && !r.lastAttempt.ok) return ['Last one declined', 'bg-red-100 text-red-800'];
+      return ['Autopay ready', 'bg-emerald-100 text-emerald-800'];
+    }
+    if (r.readiness === 'no_card') return ['No card on file', 'bg-amber-100 text-amber-900'];
+    if (r.readiness === 'manual') return ['Pays manually', 'bg-slate-100 text-slate-600'];
+    return ['No schedule', 'bg-slate-100 text-slate-500'];
+  };
+  const upcoming = rows.slice(0, 12);
+  const dueSum = rows.reduce((n, r) => n + (r.readiness === 'ready' ? r.amountCents : 0), 0);
+  const trouble = rows.filter((r) => r.readiness === 'no_card' || (r.lastAttempt && !r.lastAttempt.ok)).length;
+
+  return (
+    <Card className="rounded-[2rem] border-2">
+      <CardHeader className="p-5 pb-2">
+        <CardTitle className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest">
+          <CalendarClockIcon className="h-3.5 w-3.5" /> Scheduled
+        </CardTitle>
+        <p className="text-[11px] font-bold text-slate-500">
+          What autopay will draft next, and whether it can.
+          {rows.length > 0 && ` ${money(dueSum)} set to collect automatically`}
+          {trouble > 0 && ` · ${trouble} need${trouble === 1 ? 's' : ''} attention`}.
+        </p>
+      </CardHeader>
+      <CardContent className="p-5 pt-2 space-y-2">
+        {upcoming.length === 0 ? (
+          <p className="text-[11px] font-bold text-slate-500">No active leases with a due day yet.</p>
+        ) : upcoming.map((r) => {
+          const renter = renterById.get(r.renterId);
+          const booth = boothById.get(r.boothId);
+          const [label, tone] = chip(r);
+          const name = renter ? `${renter.firstName || ''} ${renter.lastName || ''}`.trim() || 'Renter' : 'Renter';
+          return (
+            <div key={r.leaseId} className="flex items-center gap-3 rounded-2xl border-2 bg-white px-3.5 py-2.5">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-black">{name}<span className="font-bold text-slate-400"> · {booth?.name || 'Space'}</span></p>
+                <p className="text-[11px] font-bold text-slate-500">
+                  {when(r.date)} · {money(r.amountCents)} {r.frequency}
+                  {r.lastAttempt ? ` · last ${r.lastAttempt.ok ? 'paid' : `declined (${r.lastAttempt.note})`} ${r.lastAttempt.date}` : ''}
+                </p>
+              </div>
+              <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest', tone)}>{label}</span>
+            </div>
+          );
+        })}
+        {rows.length > 12 && <p className="text-[10px] font-bold text-slate-400">Showing the next 12 of {rows.length}.</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
 function RentCommsCard({ tenantId, firestore, tenant }: { tenantId: string; firestore: any; tenant: any }) {
   const [cfg, setCfg] = useState<any>({ ...RENT_COMMS_DEFAULTS, ...(tenant?.rentComms || {}) });
   const [saved, setSaved] = useState(false);
@@ -599,6 +673,20 @@ export default function RentRollPage() {
     () => (leases ?? []).filter((l) => l.status === 'active'),
     [leases]
   );
+
+  const scheduleRenterById = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const r of (renters ?? []) as any[]) m.set(r.id, r);
+    return m;
+  }, [renters]);
+  const scheduleBoothById = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const b of (booths ?? []) as any[]) m.set(b.id, b);
+    return m;
+  }, [booths]);
+  const rentSchedule = useMemo(
+    () => buildRentSchedule((leases ?? []) as any[], scheduleRenterById, (ledger ?? []) as any[], todayIso),
+    [leases, scheduleRenterById, ledger, todayIso]);
 
   const leaseByRenter = useMemo(() => {
     const map = new Map<string, Lease>();
@@ -1358,6 +1446,7 @@ export default function RentRollPage() {
           </div>
         </DialogContent>
       </Dialog>
+      {tenantId && <RentScheduleCard rows={rentSchedule} renterById={scheduleRenterById} boothById={scheduleBoothById} />}
       {tenantId && <RenterProvidersCard tenantId={tenantId} firestore={firestore} renters={(renters || []) as any[]} staff={(allStaff || []) as any[]} allAppointments={(allAppointments || []) as any[]} />}
       {tenantId && <RenterSwapsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
       {tenantId && <RentCommsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
