@@ -34,19 +34,14 @@ export function nextChargeDate(lease: any, fromIso: string): string | null {
   if (freq === 'monthly') {
     const dueDay = Number(lease?.dueDay);
     if (!Number.isFinite(dueDay) || dueDay < 1 || dueDay > 31) return null;
-    // Same month if the day hasn't passed; otherwise the next month that HAS
-    // that day. This mirrors the cron exactly: it compares day-of-month, so a
-    // lease due on the 31st is not charged at all in a 30-day month and a
-    // lease due on the 29th–31st skips February. Showing the true next date
-    // is the point — a schedule that shows a charge the cron will never make
-    // is worse than none. (That cron behaviour is itself worth fixing; when
-    // it is, this clamp goes with it.)
-    for (let k = 0; k < 13; k++) {
+    // Same month if the day hasn't passed; otherwise next month. A due day
+    // the month does not have falls on its last day — the cron now agrees, so
+    // a lease due on the 31st drafts on Sep 30, not Oct 31.
+    for (let k = 0; k < 2; k++) {
       let mo = from.mo + k, y = from.y;
-      while (mo > 12) { mo -= 12; y += 1; }
-      if (dueDay > daysInMonth(y, mo)) continue;
-      if (k === 0 && dueDay < from.d) continue;
-      return iso(y, mo, dueDay);
+      if (mo > 12) { mo -= 12; y += 1; }
+      const d = Math.min(dueDay, daysInMonth(y, mo));
+      if (k === 1 || d >= from.d) return iso(y, mo, d);
     }
     return null;
   }
