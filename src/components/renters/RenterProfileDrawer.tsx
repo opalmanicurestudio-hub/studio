@@ -445,6 +445,55 @@ export function RenterProfileDrawer({
                   </button>
                 ) : null}
               </div>
+
+              {/* Autopay — the switch that never existed. The cron has always
+                  required renter.autopayEnabled and nothing ever set it, so no
+                  renter has ever been drafted. Only enableable with a card on
+                  file, and it says which card, so what will be charged is
+                  never a guess. */}
+              {(() => {
+                const r: any = renter;
+                const hasCard = !!(r.cardOnFile && r.stripeCustomerId && (r.stripePaymentMethodId || r.defaultPaymentMethodId));
+                const on = r.autopayEnabled === true;
+                const toggle = async () => {
+                  if (!hasCard && !on) { drawerToast({ title: 'No card on file', description: 'Add a card first — autopay needs something to draft from.' }); return; }
+                  try {
+                    await setDoc(doc(firestore, 'tenants', tenantId, 'renters', r.id), {
+                      autopayEnabled: !on,
+                      autopayChangedAt: new Date().toISOString(),
+                      autopayChangedBy: 'owner',
+                    }, { merge: true });
+                    writeBoothAudit(firestore, tenantId, {
+                      action: !on ? 'renter.autopay_on' : 'renter.autopay_off', targetType: 'renter', targetId: r.id,
+                      summary: `${!on ? 'Turned on' : 'Turned off'} autopay for ${r.firstName || ''} ${r.lastName || ''}`.trim(),
+                      actor: { type: 'user' },
+                    });
+                    drawerToast({ title: !on ? 'Autopay on' : 'Autopay off', description: !on ? 'Rent drafts on each due day from the card on file.' : 'They pay by hand from now on.' });
+                  } catch {
+                    drawerToast({ title: 'Could not save', description: 'Try again in a moment.' });
+                  }
+                };
+                return (
+                  <button type="button" onClick={toggle} aria-pressed={on}
+                    className={cn('w-full rounded-2xl border-2 px-4 py-3 flex items-center justify-between gap-3 text-left transition-colors',
+                      on ? 'border-emerald-300 bg-emerald-50' : 'bg-white')}>
+                    <span className="min-w-0">
+                      <span className="block text-[11px] font-black uppercase tracking-widest">Autopay</span>
+                      <span className="block text-[10px] font-bold text-muted-foreground">
+                        {on
+                          ? `Drafts rent on each due day from ${r.cardBrand || 'the card'} ····${r.cardLast4 || ''}.`
+                          : hasCard ? `Off — pays by hand. Card ····${r.cardLast4 || ''} is on file if you want to turn it on.`
+                          : 'Off — no card on file yet.'}
+                      </span>
+                    </span>
+                    <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest',
+                      on ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500')}>
+                      {on ? 'On' : 'Off'}
+                    </span>
+                  </button>
+                );
+              })()}
+
               {txns === null ? <p className="text-xs text-muted-foreground text-center py-4">Loading…</p> : (
                 <>
                   {(txns.length + myReservations.length) === 0 && <p className="text-xs text-muted-foreground text-center py-4">No payments on record.</p>}
