@@ -187,6 +187,32 @@ export async function GET(req: NextRequest) {
         batch.set(ref, inv);
         if (names.length < 3) names.push(inv.renterName);
         rentInvoiced++;
+
+        // Tell the renter it's due today. Autopay renters are told there is
+        // nothing to do; manual payers get the pay link. Switchable and
+        // rewordable in message settings as 'rent_invoiced'.
+        const rd = renterSnap.data() as any;
+        if (rd && String(rd.email || '').includes('@')) {
+          try {
+            const { sendNotification } = await import('@/lib/notify');
+            const first = String(rd.firstName || '').trim() || 'there';
+            const amount = `$${(inv.amountCents / 100).toFixed(2)}`;
+            const payUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'https://studio-one-blue.vercel.app'}/rent/${tDoc.id}`;
+            const studio = String(tenantData.name || tenantData.businessName || '').trim() || 'The studio';
+            await sendNotification(db, {
+              tenantId: tDoc.id, channel: 'email', to: rd.email,
+              subject: `Rent due today — ${amount}`,
+              html: brandedEmailHtml({ studioName: studio, title: 'Rent is due today', bodyLines: [
+                `Hi ${first} — rent of ${amount} for ${inv.boothName} is due today.`,
+                rd.autopayEnabled === true
+                  ? 'You are on autopay, so there is nothing to do — we will send a receipt once it goes through.'
+                  : 'You can pay from your portal in a tap, or at the front desk.',
+              ], ...(rd.autopayEnabled === true ? {} : { cta: { label: 'Pay now', url: payUrl } }), footerNote: `Sent by ${studio}.` }),
+              kind: 'rent_invoiced', recipientType: 'renter', recipientId: lease.renterId, recipientName: inv.renterName,
+              tokens: { renter_first: first, amount, when: today, link: payUrl, studio },
+            });
+          } catch { /* the invoice stands */ }
+        }
       }
       const nRef = db.collection(`tenants/${tDoc.id}/notifications`).doc();
       batch.set(nRef, {
@@ -257,7 +283,7 @@ export async function GET(req: NextRequest) {
               html: brandedEmailHtml({ studioName: studio, title: `Rent is ${step} days late`, bodyLines, cta: { label: 'Pay now', url: payUrl }, footerNote: `Sent by ${studio}.` }),
               kind: 'rent_dunning', recipientType: 'renter', recipientId: renterId,
               recipientName: `${renter.firstName || ''} ${renter.lastName || ''}`.trim() || null,
-              tokens: { client_first: first, when: String(inv.dueDate || ''), studio, link: payUrl },
+              tokens: { renter_first: first, amount, days_late: step, when: String(inv.dueDate || ''), studio, link: payUrl },
             });
           }
           if (String(renter.phone || '').replace(/[^0-9]/g, '').length >= 10) {
@@ -288,6 +314,7 @@ export async function GET(req: NextRequest) {
                 'Settle it and booking reopens straight away. If something is going on, reply — we would rather know.',
               ], cta: { label: 'Settle now', url: payUrl }, footerNote: `Sent by ${studio}.` }),
               kind: 'renter_barred_notice', recipientType: 'renter', recipientId: renterId,
+              tokens: { renter_first: first, amount: `$${(owedCents / 100).toFixed(2)}`, link: payUrl, studio },
             });
           }
           autoBarred++;
