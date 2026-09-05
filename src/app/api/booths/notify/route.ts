@@ -482,6 +482,39 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: emailStatus === 'sent' || smsStatus === 'sent', status: emailStatus, sms: smsStatus });
     }
 
+    /* ── A renter was barred by hand ────────────────────────────────────────
+     * The nightly job sends its own notice when the policy bars someone; this
+     * is the same message for a manual bar from /rent. Same kind, so a shop
+     * that switches it off in message settings switches off both. */
+    if (action === 'renter-barred') {
+      const { renterId } = body;
+      const rSnap = await db.doc(`tenants/${tenantId}/renters/${renterId}`).get();
+      if (!rSnap.exists) return NextResponse.json({ ok: false, error: 'Renter not found.' }, { status: 404 });
+      const r = rSnap.data() as any;
+      const to = String(r.email || '').trim();
+      if (!to.includes('@')) return NextResponse.json({ ok: true, status: 'skipped_no_email' });
+      const payUrl = `${origin}/rent/${tenantId}`;
+      const out = await sendNotification(db, {
+        tenantId, channel: 'email', to,
+        subject: `Booking paused — outstanding balance with ${studioName}`,
+        html: brandedEmailHtml({
+          studioName,
+          title: 'Booking is paused',
+          bodyLines: [
+            `Hi ${firstNameOf(`${r.firstName || ''} ${r.lastName || ''}`)} — booking with us is paused until your outstanding balance is settled.`,
+            'Settle it and booking reopens straight away. If something is going on, reply — we would rather know.',
+          ],
+          cta: { label: 'Settle now', url: payUrl },
+          footerNote: `Sent by ${studioName}.`,
+        }),
+        kind: 'renter_barred_notice', recipientType: 'renter', recipientId: renterId,
+        recipientName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || null,
+      });
+      await alsoText(db, { tenantId, to: String(r.phone || ''), kind: 'renter_barred_notice', recipientId: renterId,
+        text: `${studioName}: booking is paused until your outstanding balance is settled. Settle here: ${payUrl}` });
+      return NextResponse.json({ ok: out.ok, status: out.status });
+    }
+
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
   } catch (err: any) {
     console.error('[booths/notify]', err);
