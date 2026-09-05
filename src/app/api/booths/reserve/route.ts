@@ -632,9 +632,11 @@ export async function POST(req: NextRequest) {
       if (recognition?.renterId) {
         const rSnap = await db.doc(`tenants/${tenantId}/renters/${recognition.renterId}`).get();
         if ((rSnap.data() as any)?.doNotRent === true) {
+          const { resolveCollectionsPolicy } = await import('@/lib/collections-policy');
+          const tSnapWall = await db.doc(`tenants/${tenantId}`).get();
           return NextResponse.json({
             ok: false,
-            error: 'There is an outstanding balance on your account with us. Please get in touch with the studio to settle it before booking.',
+            error: resolveCollectionsPolicy(tSnapWall.data()).wallMessage,
           }, { status: 403 });
         }
       }
