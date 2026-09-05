@@ -21,6 +21,7 @@ import { logAuditAdmin } from '@/lib/audit';
 import { runReminderSweep } from '@/lib/reminders';
 import { brandedEmailHtml } from '@/lib/email-template';
 import { buildRentInvoice, leasesToInvoice, invoiceKey } from '@/lib/rent-invoices';
+import { resolveCollectionsPolicy, dunningStepsDue, daysLate } from '@/lib/collections-policy';
 import { sweepNoShows } from '@/lib/no-show';
 import { reconcileReservations } from '@/lib/stock-reconcile';
 import { sweepStaleCurbside } from '@/lib/stock-reconcile';
@@ -203,6 +204,113 @@ export async function GET(req: NextRequest) {
     } catch (e) { console.error('[cron/nightly] rent invoicing', tDoc.id, e); }
   }
   results.rentInvoiced = rentInvoiced;
+
+  // ── Collections — escalation and barring, per the SHOP's policy ─────────
+  // Runs after the late sweep so it only ever sees invoices already judged
+  // late. With the default policy this block does nothing at all: no steps,
+  // no auto-bar. Every consequence below exists only because the owner
+  // switched it on in /rent → Collections.
+  let dunningSent = 0, autoBarred = 0;
+  for (const tDoc of (await db.collection('tenants').get()).docs) {
+    try {
+      const tenantData = tDoc.data() as any;
+      const policy = resolveCollectionsPolicy(tenantData);
+      if (policy.dunningDays.length === 0 && policy.autoBarAfterDaysLate === null && !policy.autoBarOnLeaseEndOwing) continue;
+      const today = todayIn(tenantTimeZone(tenantData));
+      const studio = String(tenantData.name || tenantData.businessName || '').trim() || 'The studio';
+      const origin = process.env.NEXT_PUBLIC_APP_URL || 'https://studio-one-blue.vercel.app';
+      const lateSnap = await db.collection(`tenants/${tDoc.id}/rentInvoices`).where('status', '==', 'late').get();
+      if (lateSnap.empty && !policy.autoBarOnLeaseEndOwing) continue;
+
+      const byRenter = new Map<string, any[]>();
+      for (const d of lateSnap.docs) {
+        const inv = { id: d.id, ...(d.data() as any) };
+        const list = byRenter.get(inv.renterId) || []; list.push(inv); byRenter.set(inv.renterId, list);
+      }
+
+      for (const [renterId, invs] of byRenter) {
+        const rSnap = await db.doc(`tenants/${tDoc.id}/renters/${renterId}`).get();
+        const renter = (rSnap.data() as any) || {};
+        const first = String(renter.firstName || '').trim() || 'there';
+        const owedCents = invs.reduce((n, i) => n + (Number(i.amountCents) || 0) + (Number(i.lateFeeCents) || 0) - (Number(i.paidCents) || 0), 0);
+        const oldestDays = Math.max(...invs.map((i) => daysLate(String(i.dueDate || ''), today)));
+        const payUrl = `${origin}/rent/${tDoc.id}`;
+
+        // Escalating notices — one per step per invoice, ever.
+        for (const inv of invs) {
+          const sent: number[] = Array.isArray(inv.dunningSentDays) ? inv.dunningSentDays : [];
+          const due = dunningStepsDue(policy, String(inv.dueDate || ''), today, sent);
+          if (due.length === 0) continue;
+          const step = Math.max(...due);
+          const { sendNotification } = await import('@/lib/notify');
+          const amount = `$${(((Number(inv.amountCents) || 0) + (Number(inv.lateFeeCents) || 0) - (Number(inv.paidCents) || 0)) / 100).toFixed(2)}`;
+          const bodyLines = [
+            `Hi ${first} — rent of ${amount} due ${inv.dueDate} is now ${step} days late.`,
+            policy.autoBarAfterDaysLate !== null && step < policy.autoBarAfterDaysLate
+              ? `If it isn't settled by ${policy.autoBarAfterDaysLate} days late, booking with us will be paused until it is.`
+              : 'Please settle it, or reply if you need to work something out — we would rather talk than chase.',
+          ];
+          if (String(renter.email || '').includes('@')) {
+            await sendNotification(db, {
+              tenantId: tDoc.id, channel: 'email', to: renter.email,
+              subject: `Rent ${step} days late — ${amount}`,
+              html: brandedEmailHtml({ studioName: studio, title: `Rent is ${step} days late`, bodyLines, cta: { label: 'Pay now', url: payUrl }, footerNote: `Sent by ${studio}.` }),
+              kind: 'rent_dunning', recipientType: 'renter', recipientId: renterId,
+              recipientName: `${renter.firstName || ''} ${renter.lastName || ''}`.trim() || null,
+              tokens: { client_first: first, when: String(inv.dueDate || ''), studio, link: payUrl },
+            });
+          }
+          if (String(renter.phone || '').replace(/[^0-9]/g, '').length >= 10) {
+            await sendNotification(db, {
+              tenantId: tDoc.id, channel: 'sms', to: renter.phone,
+              text: `${studio}: rent of ${amount} (due ${inv.dueDate}) is ${step} days late. Pay here: ${payUrl}`,
+              kind: 'rent_dunning', recipientType: 'renter', recipientId: renterId,
+            });
+          }
+          await db.doc(`tenants/${tDoc.id}/rentInvoices/${inv.id}`).set({ dunningSentDays: [...sent, ...due], updatedAt: new Date().toISOString() }, { merge: true });
+          dunningSent++;
+        }
+
+        // Automatic bar — only if the shop set a day, and only once.
+        if (policy.autoBarAfterDaysLate !== null && oldestDays >= policy.autoBarAfterDaysLate && renter.doNotRent !== true && owedCents > 0) {
+          const nowIso = new Date().toISOString();
+          await rSnap.ref.set({ doNotRent: true, doNotRentAt: nowIso, doNotRentReason: `Rent ${oldestDays} days late (automatic, per collections policy)`, doNotRentBy: 'system' }, { merge: true });
+          const nRef = db.collection(`tenants/${tDoc.id}/notifications`).doc();
+          await nRef.set({ id: nRef.id, type: 'renter_barred', read: false, createdAt: nowIso, link: '/rent',
+            message: `${renter.firstName || 'A renter'} ${renter.lastName || ''} was barred from booking — rent ${oldestDays} days late, per your collections policy.`.replace(/\s+/g, ' ') });
+          if (policy.notifyOnBar && String(renter.email || '').includes('@')) {
+            const { sendNotification } = await import('@/lib/notify');
+            await sendNotification(db, {
+              tenantId: tDoc.id, channel: 'email', to: renter.email,
+              subject: `Booking paused — outstanding rent with ${studio}`,
+              html: brandedEmailHtml({ studioName: studio, title: 'Booking is paused', bodyLines: [
+                `Hi ${first} — with rent now ${oldestDays} days late, booking with us is paused until the balance is settled.`,
+                'Settle it and booking reopens straight away. If something is going on, reply — we would rather know.',
+              ], cta: { label: 'Settle now', url: payUrl }, footerNote: `Sent by ${studio}.` }),
+              kind: 'renter_barred_notice', recipientType: 'renter', recipientId: renterId,
+            });
+          }
+          autoBarred++;
+        }
+      }
+
+      // Lease ended owing — bar automatically if the shop chose that.
+      if (policy.autoBarOnLeaseEndOwing) {
+        const renterIds = new Set(Array.from(byRenter.keys()));
+        for (const renterId of renterIds) {
+          const activeLease = await db.collection(`tenants/${tDoc.id}/leases`).where('renterId', '==', renterId).where('status', '==', 'active').limit(1).get();
+          if (!activeLease.empty) continue;
+          const rRef = db.doc(`tenants/${tDoc.id}/renters/${renterId}`);
+          const r = (await rRef.get()).data() as any;
+          if (!r || r.doNotRent === true) continue;
+          await rRef.set({ doNotRent: true, doNotRentAt: new Date().toISOString(), doNotRentReason: 'Lease ended with rent owing (automatic, per collections policy)', doNotRentBy: 'system' }, { merge: true });
+          autoBarred++;
+        }
+      }
+    } catch (e) { console.error('[cron/nightly] collections', tDoc.id, e); }
+  }
+  results.dunningSent = dunningSent;
+  results.autoBarred = autoBarred;
 
   // ── v70: recurring bill scheduler — for EVERY tenant (bills exist
   // without banks), ensure each bill definition has its next unpaid
