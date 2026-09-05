@@ -21,6 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import { Coffee, CreditCard, FileText, Paperclip, X } from 'lucide-react';
 import type { Renter, Lease, Booth } from '@/lib/booth-rental-types';
 import { formatCents, RENTER_STATUS_LABELS } from '@/lib/booth-rental-types';
+import { buildRenterTimeline, withRunningBalance, TIMELINE_ACTOR_LABEL, type TimelineEntry } from '@/lib/renter-timeline';
 
 const BOOTH_DEFAULT_INCIDENTALS: { label: string; capCents: number }[] = [
   { label: 'Cleaning fee', capCents: 7500 },
@@ -143,6 +144,37 @@ export function RenterProfileDrawer({
     finally { setRenterChargingId(null); }
   };
   const [txns, setTxns] = useState<any[] | null>(null);
+  // The account record — invoices, the rent ledger, every message sent to
+  // them, and their maintenance tickets. Read once when the card opens.
+  const [record, setRecord] = useState<{ invoices: any[]; ledger: any[]; messages: any[]; tickets: any[] } | null>(null);
+  useEffect(() => {
+    if (!firestore || !tenantId || !renter?.id) return;
+    let cancelled = false;
+    (async () => {
+      const pull = async (col: string, field: string, value: string) => {
+        try {
+          const snap = await getDocs(query(collection(firestore, 'tenants', tenantId, col), where(field, '==', value)));
+          return snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+        } catch { return []; }
+      };
+      const [invoices, ledger, byId, tickets] = await Promise.all([
+        pull('rentInvoices', 'renterId', renter.id),
+        pull('rentLedger', 'renterId', renter.id),
+        pull('messageLog', 'recipientId', renter.id),
+        pull('tickets', 'renterId', renter.id),
+      ]);
+      // Messages are also matched by the address they went to — a notice sent
+      // against a tour or invoice id still belongs on this person's record.
+      const byAddr = [
+        ...(renter.email ? await pull('messageLog', 'to', String(renter.email).trim().toLowerCase()) : []),
+        ...(renter.phone ? await pull('messageLog', 'to', String(renter.phone).replace(/[^0-9+]/g, '')) : []),
+      ];
+      const seen = new Set(byId.map((m) => m.id));
+      const messages = [...byId, ...byAddr.filter((m) => !seen.has(m.id))];
+      if (!cancelled) setRecord({ invoices, ledger, messages, tickets });
+    })();
+    return () => { cancelled = true; };
+  }, [firestore, tenantId, renter?.id, renter?.email, renter?.phone]);
 
   const fullName = `${renter.firstName} ${renter.lastName}`.trim();
 
@@ -203,6 +235,12 @@ export function RenterProfileDrawer({
   }, [txns, myReservations, thisYear]);
 
   // Activity timeline: lease events + reservation lifecycle stamps
+  const timeline = useMemo(() => withRunningBalance(buildRenterTimeline({
+    renter, leases: lease ? [lease] : [], invoices: record?.invoices || [], ledger: record?.ledger || [],
+    messages: record?.messages || [], tickets: record?.tickets || [], reservations: myReservations,
+    boothById: booth ? new Map([[booth.id, booth]]) : undefined,
+  })), [renter, lease, booth, record, myReservations]);
+
   const activity = useMemo(() => {
     const items: { at: string; label: string }[] = [];
     if ((renter as any).appliedAt) items.push({ at: String((renter as any).appliedAt).slice(0, 10), label: 'Applied via website' });
@@ -593,20 +631,47 @@ export function RenterProfileDrawer({
           )}
 
           {ptab === 'activity' && (
-            activity.length === 0 ? <p className="text-xs text-muted-foreground text-center py-6">No activity yet.</p> : (
+            record === null ? <p className="text-xs text-muted-foreground text-center py-6">Reading the account…</p>
+            : timeline.length === 0 ? <p className="text-xs text-muted-foreground text-center py-6">{activity.length ? 'Loading…' : 'No activity yet.'}</p> : (
               <div className="space-y-0">
-                {activity.map((a, i) => (
-                  <div key={i} className="flex gap-3 pb-4 relative">
-                    <div className="flex flex-col items-center">
-                      <div className="h-2.5 w-2.5 rounded-full bg-slate-900 mt-1 shrink-0" />
-                      {i < activity.length - 1 && <div className="w-px flex-1 bg-slate-200 mt-1" />}
+                <div className="flex items-center justify-between pb-3">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{timeline.length} events · money, notices, tickets, changes</p>
+                  <a href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(renter.id)}&mode=full`}
+                    target="_blank" rel="noopener" className="text-[9px] font-black uppercase tracking-widest text-slate-900 underline">Print full record</a>
+                </div>
+                {timeline.map((e, i) => {
+                  const tone = ({
+                    late_fee: 'bg-red-500', autopay_failed: 'bg-red-500', barred: 'bg-slate-900', notice: 'bg-amber-500',
+                    payment: 'bg-emerald-500', part_payment: 'bg-emerald-400', autopay_ok: 'bg-emerald-500', credit: 'bg-emerald-400',
+                    write_off: 'bg-slate-400', ticket_opened: 'bg-orange-500', ticket_resolved: 'bg-emerald-500',
+                    message_in: 'bg-sky-500', message_out: 'bg-sky-300',
+                  } as Record<string, string>)[e.kind] || 'bg-slate-900';
+                  const money = typeof e.amountCents === 'number' && e.kind !== 'booking';
+                  return (
+                    <div key={`${e.at}-${i}`} className="flex gap-3 pb-4 relative">
+                      <div className="flex flex-col items-center">
+                        <div className={cn('h-2.5 w-2.5 rounded-full mt-1 shrink-0', tone)} />
+                        {i < timeline.length - 1 && <div className="w-px flex-1 bg-slate-200 mt-1" />}
+                      </div>
+                      <div className="min-w-0 flex-1 -mt-0.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-xs font-bold leading-snug">{e.title}</p>
+                          {money && (
+                            <p className={cn('text-xs font-black tabular-nums shrink-0', (e.amountCents as number) < 0 ? 'text-emerald-700' : 'text-slate-900')}>
+                              {(e.amountCents as number) < 0 ? '−' : '+'}{formatCents(Math.abs(e.amountCents as number))}
+                            </p>
+                          )}
+                        </div>
+                        {e.detail && <p className="text-[10px] font-medium text-slate-600 leading-snug">{e.detail}</p>}
+                        <p className="text-[10px] font-bold text-muted-foreground">
+                          {fmtStamp(e.at)}
+                          {e.actor ? ` · ${TIMELINE_ACTOR_LABEL[e.actor] || e.actor}` : ''}
+                          {typeof (e as any).balanceCents === 'number' ? ` · balance ${formatCents(Math.max((e as any).balanceCents, 0))}` : ''}
+                        </p>
+                      </div>
                     </div>
-                    <div className="min-w-0 -mt-0.5">
-                      <p className="text-xs font-bold leading-snug">{a.label}</p>
-                      <p className="text-[10px] font-bold text-muted-foreground">{fmtStamp(a.at)}</p>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )
           )}
