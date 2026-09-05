@@ -22,6 +22,7 @@ import { Coffee, CreditCard, FileText, Paperclip, X } from 'lucide-react';
 import type { Renter, Lease, Booth } from '@/lib/booth-rental-types';
 import { formatCents, RENTER_STATUS_LABELS } from '@/lib/booth-rental-types';
 import { buildRenterTimeline, withRunningBalance, TIMELINE_ACTOR_LABEL, type TimelineEntry } from '@/lib/renter-timeline';
+import { depositPosition, DEPOSIT_STATUS_LABEL } from '@/lib/deposit-accounting';
 
 const BOOTH_DEFAULT_INCIDENTALS: { label: string; capCents: number }[] = [
   { label: 'Cleaning fee', capCents: 7500 },
@@ -146,6 +147,10 @@ export function RenterProfileDrawer({
   const [txns, setTxns] = useState<any[] | null>(null);
   // The conversation — live, so a reply shows the moment it lands.
   const [thread, setThread] = useState<any[] | null>(null);
+  const [dedAmt, setDedAmt] = useState('');
+  const [dedReason, setDedReason] = useState('');
+  const [refundArm, setRefundArm] = useState(false);
+  useEffect(() => { if (!refundArm) return; const t = setTimeout(() => setRefundArm(false), 5000); return () => clearTimeout(t); }, [refundArm]);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   useEffect(() => {
@@ -513,6 +518,89 @@ export function RenterProfileDrawer({
                   </button>
                 ) : null}
               </div>
+
+              {/* Deposit — held, deducted, returnable. Derived from the ledger so
+                  it is the same number on the statement and the move-out sheet.
+                  Every change is a deliberate ledger line with a reason. */}
+              {lease && (() => {
+                const dep = depositPosition(lease, record?.ledger || []);
+                if (dep.status === 'none') return null;
+                const write = async (type: string, cents: number, description: string) => {
+                  if (!firestore || !tenantId || cents <= 0) return;
+                  const nowIso = new Date().toISOString();
+                  const ref = doc(collection(firestore, 'tenants', tenantId, 'rentLedger'));
+                  await setDoc(ref, {
+                    leaseId: lease.id, renterId: renter.id, boothId: lease.boothId || null,
+                    type, status: 'paid', amountCents: type === 'deposit_deduction' || type === 'deposit_charge' ? cents : -cents,
+                    description, note: '', dueDate: null, paidAt: nowIso.slice(0, 10), method: type === 'deposit_refund' ? 'refund' : null,
+                    stripePaymentIntentId: null, appliesToEntryIds: [], createdBy: 'owner', createdAt: nowIso, updatedAt: nowIso,
+                  });
+                  writeBoothAudit(firestore, tenantId, {
+                    action: `booth.${type}`, targetType: 'lease', targetId: lease.id,
+                    summary: `${description} — $${(cents / 100).toFixed(2)} for ${renter.firstName || ''} ${renter.lastName || ''}`.trim(),
+                    amount: cents / 100, actor: { type: 'user' },
+                  });
+                  setRecord((r) => r ? { ...r, ledger: [...r.ledger, { id: ref.id, leaseId: lease.id, type, status: 'paid', amountCents: type === 'deposit_deduction' || type === 'deposit_charge' ? cents : -cents, description, createdAt: nowIso }] } : r);
+                };
+                return (
+                  <div className="rounded-2xl border-2 p-3.5 space-y-2.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-[11px] font-black uppercase tracking-widest">Deposit</p>
+                        <p className="text-[10px] font-bold text-muted-foreground">
+                          {DEPOSIT_STATUS_LABEL[dep.status]} · agreed {formatCents(dep.agreedCents)}{dep.refundable ? '' : ' · non-refundable'}
+                          {dep.conditions ? ` · ${dep.conditions}` : ''}
+                        </p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Returnable</p>
+                        <p className="text-lg font-black tabular-nums leading-none">{formatCents(dep.returnableCents)}</p>
+                      </div>
+                    </div>
+                    {dep.status === 'not_collected' && (
+                      <button type="button" onClick={() => write('deposit_charge', dep.agreedCents, 'Deposit collected')}
+                        className="h-10 w-full rounded-xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white">
+                        Record deposit received · {formatCents(dep.agreedCents)}
+                      </button>
+                    )}
+                    {dep.deductions.length > 0 && (
+                      <div className="space-y-1">
+                        {dep.deductions.map((d) => (
+                          <div key={d.id} className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5">
+                            <p className="text-[11px] font-bold truncate">{d.reason}<span className="text-muted-foreground font-medium"> · {d.at}</span></p>
+                            <p className="text-[11px] font-black tabular-nums text-red-700 shrink-0">−{formatCents(d.cents)}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {(dep.status === 'held' || dep.status === 'partly_returned') && (
+                      <div className="space-y-2">
+                        <div className="flex gap-2">
+                          <input value={dedAmt} onChange={(e) => setDedAmt(e.target.value.replace(/[^0-9.]/g, ''))} inputMode="decimal" placeholder="0.00" aria-label="Deduction amount"
+                            className="h-10 w-24 rounded-xl border-2 px-2.5 text-sm font-bold outline-none focus:border-slate-900" />
+                          <input value={dedReason} onChange={(e) => setDedReason(e.target.value.slice(0, 120))} placeholder="Reason — goes on their statement" aria-label="Deduction reason"
+                            className="h-10 flex-1 rounded-xl border-2 px-2.5 text-sm font-bold outline-none focus:border-slate-900" />
+                          <button type="button" disabled={!(Number(dedAmt) > 0) || !dedReason.trim()}
+                            onClick={async () => { await write('deposit_deduction', Math.round(Number(dedAmt) * 100), dedReason.trim()); setDedAmt(''); setDedReason(''); drawerToast({ title: 'Deduction recorded' }); }}
+                            className="h-10 rounded-xl border-2 border-amber-300 px-3 text-[9px] font-black uppercase tracking-widest text-amber-800 disabled:opacity-40">
+                            Deduct
+                          </button>
+                        </div>
+                        <div className="flex gap-2">
+                          <button type="button" disabled={dep.returnableCents <= 0}
+                            onClick={() => { if (refundArm) { void write('deposit_refund', dep.returnableCents, 'Deposit refunded').then(() => drawerToast({ title: 'Refund recorded', description: 'Move the money by whatever means you use — this records that you did.' })); setRefundArm(false); } else setRefundArm(true); }}
+                            className={cn('h-10 flex-1 rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-40', refundArm ? 'bg-emerald-700 text-white' : 'border-2 border-emerald-300 text-emerald-800')}>
+                            {refundArm ? `Tap again — record ${formatCents(dep.returnableCents)} refunded` : `Refund ${formatCents(dep.returnableCents)}`}
+                          </button>
+                          <a href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(renter.id)}&mode=deposit`}
+                            target="_blank" rel="noopener"
+                            className="h-10 inline-flex items-center rounded-xl border-2 px-3 text-[9px] font-black uppercase tracking-widest text-slate-600">Deposit sheet</a>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Autopay — the switch that never existed. The cron has always
                   required renter.autopayEnabled and nothing ever set it, so no
