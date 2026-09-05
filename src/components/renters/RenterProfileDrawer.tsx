@@ -266,9 +266,9 @@ export function RenterProfileDrawer({
   // Activity timeline: lease events + reservation lifecycle stamps
   const timeline = useMemo(() => withRunningBalance(buildRenterTimeline({
     renter, leases: lease ? [lease] : [], invoices: record?.invoices || [], ledger: record?.ledger || [],
-    messages: record?.messages || [], tickets: record?.tickets || [], reservations: myReservations,
+    messages: record?.messages || [], tickets: record?.tickets || [], reservations: myReservations, thread: thread || [],
     boothById: booth ? new Map([[booth.id, booth]]) : undefined,
-  })), [renter, lease, booth, record, myReservations]);
+  })), [renter, lease, booth, record, myReservations, thread]);
 
   const activity = useMemo(() => {
     const items: { at: string; label: string }[] = [];
