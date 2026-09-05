@@ -626,6 +626,18 @@ export async function POST(req: NextRequest) {
     let renterDiscountCents = 0;
     try {
       recognition = await recognizeContact(db, tenantId, phone, email);
+      // A renter barred over an unpaid balance is refused here, at the one
+      // place a day rental is actually created — not warned, refused. The
+      // message names the way back so it reads as a locked door, not a wall.
+      if (recognition?.renterId) {
+        const rSnap = await db.doc(`tenants/${tenantId}/renters/${recognition.renterId}`).get();
+        if ((rSnap.data() as any)?.doNotRent === true) {
+          return NextResponse.json({
+            ok: false,
+            error: 'There is an outstanding balance on your account with us. Please get in touch with the studio to settle it before booking.',
+          }, { status: 403 });
+        }
+      }
       if (recognition?.isResident) {
         const tSnapEarly = await db.doc(`tenants/${tenantId}`).get();
         const pct = resolveRenterDayDiscount(tSnapEarly.data());
