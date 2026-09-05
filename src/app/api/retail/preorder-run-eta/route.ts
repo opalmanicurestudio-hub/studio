@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
     const brand = await getEmailBrand(db, tenantId);
     const origin = process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '';
     const RESEND_API_KEY = process.env.RESEND_API_KEY;
-    const RESEND_FROM = process.env.RESEND_FROM;
+    const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
     const pretty = (revisedAt as Date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     let updated = 0;
     let emailed = 0;
@@ -134,14 +134,12 @@ export async function POST(req: NextRequest) {
           <p style="font-size:12px;color:#94a3b8;line-height:1.6">Thanks for your patience \u2014 reply any time.</p>`,
           { preheader: `New date: ${pretty} \u2014 keep it or cancel for a full refund` });
 
-        await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            from: RESEND_FROM, to: [to],
+        const { sendNotification } = await import('@/lib/notify');
+        await sendNotification(db, {
+          tenantId, channel: 'email', to: to,
             subject: `Your pre-order: new date \u2014 ${brand.shopName}`,
             html,
-          }),
+          kind: 'preorder_eta', recipientType: 'client',
         });
         emailed += 1;
       } catch (e: any) {
