@@ -114,7 +114,7 @@ export async function POST(req: NextRequest) {
 
   const to = String(order.customerEmail || '').trim();
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
-  const RESEND_FROM = process.env.RESEND_FROM;
+  const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
   if (!to) return NextResponse.json({ ok: false, reason: 'no_customer_email' }, { status: 200 });
   if (!RESEND_API_KEY || !RESEND_FROM) {
     return NextResponse.json({ ok: false, reason: 'email_not_configured' }, { status: 200 });
@@ -168,21 +168,19 @@ export async function POST(req: NextRequest) {
 
   let sent = false;
   try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: RESEND_FROM,
+    const { sendNotification } = await import('@/lib/notify');
+    const res = await sendNotification(db, {
+      tenantId, channel: 'email',
         to,
         subject: backordered
           ? `Order ${num} — one item is coming separately`
           : `Order ${num} — one item was short`,
         html,
-      }),
+      kind: 'order_short', recipientType: 'client',
     });
     sent = res.ok;
     if (!res.ok) {
-      console.error('[short-notify] Resend rejected:', (await res.text()).slice(0, 160));
+      console.error('[short-notify] not sent:', res.status, res.error);
     }
   } catch (e: any) {
     console.error('[short-notify] send failed:', e?.message || e);
