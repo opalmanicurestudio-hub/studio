@@ -1733,6 +1733,39 @@ export default function RenterPortalPage() {
                       </button>
                     </div>
                   ))}
+                  {/* Autopay — their own switch. Reads the same flag the owner
+                      can set; refuses without a card on file. */}
+                  {(() => {
+                    const r: any = data?.renter || {};
+                    const on = r.autopayEnabled === true;
+                    return (
+                      <button type="button" disabled={actionBusy}
+                        onClick={async () => {
+                          if (!on && !r.cardOnFile) { toast({ variant: 'destructive', title: 'No card on file', description: 'Add a card first — autopay needs one to draft from.' }); return; }
+                          setActionBusy(true);
+                          const d = await api({ action: 'autopay-set', tenantId, token: session?.token, enabled: !on });
+                          setActionBusy(false);
+                          if (!d.ok) { toast({ variant: 'destructive', title: 'Could not change autopay', description: d.error || 'Try again in a moment.' }); return; }
+                          toast({ title: !on ? 'Autopay on' : 'Autopay off', description: !on ? 'Your rent drafts on each due day.' : 'You pay each invoice yourself from now on.' });
+                          refresh();
+                        }}
+                        aria-pressed={on}
+                        className={cn('w-full rounded-2xl border-2 px-4 py-3 flex items-center justify-between gap-3 text-left transition-colors disabled:opacity-50',
+                          on ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-white')}>
+                        <span className="min-w-0">
+                          <span className="block text-[11px] font-black uppercase tracking-widest text-slate-900">Autopay</span>
+                          <span className="block text-[10px] font-bold text-slate-500">
+                            {on
+                              ? `Your rent drafts on each due day from ${r.cardBrand || 'your card'} ····${r.cardLast4 || ''}. Nothing to remember.`
+                              : r.cardOnFile ? `Off — you pay each invoice yourself. Your ${r.cardBrand || 'card'} ····${r.cardLast4 || ''} is saved if you'd like it automatic.`
+                              : 'Off — add a card on file to turn this on.'}
+                          </span>
+                        </span>
+                        <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest',
+                          on ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500')}>{on ? 'On' : 'Off'}</span>
+                      </button>
+                    );
+                  })()}
                   <p className="text-[9px] font-bold uppercase tracking-widest text-slate-300 text-center">Prefer cash or check? Pay at the front desk — it posts here too.</p>
                 </div>
               </section>
