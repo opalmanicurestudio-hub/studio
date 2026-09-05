@@ -170,6 +170,14 @@ export function buildGuestBook(input: GuestBookInput): GuestBookEntry[] {
     if (app.status === 'converted') g.tags.add('converted');
   }
 
+  // Renters with no live lease still carry their flag — a barred former
+  // renter who re-applies must read as barred, not as a fresh enquiry.
+  for (const rt of renterById.values()) {
+    if (rt?.doNotRent !== true) continue;
+    const g = get(rt.phone, rt.email, `${rt.firstName || ''} ${rt.lastName || ''}`.trim());
+    if (g) { g.tags.add('barred'); if (!g.renterId) g.renterId = rt.id; }
+  }
+
   // Leases — renters, valued at their rent normalized to a month.
   for (const l of leases) {
     if (!['active', 'on_leave', 'pending_signature'].includes(l.status)) continue;
@@ -181,6 +189,7 @@ export function buildGuestBook(input: GuestBookInput): GuestBookEntry[] {
     g.tags.add('renter');
     g.isRenter = true;
     g.renterId = rt.id;
+    if (rt.doNotRent === true) g.tags.add('barred');
     g.monthlyRentCents = (l.rentAmountCents || 0) * (FREQ_TO_MONTHLY[l.frequency] ?? 1);
   }
 
