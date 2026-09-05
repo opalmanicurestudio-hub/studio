@@ -71,7 +71,7 @@ export type AutopayReadiness =
 export function autopayReadiness(lease: any, renter: any): AutopayReadiness {
   if (!lease?.dueDay && !lease?.firstChargeDate) return 'no_schedule';
   if (!renter?.autopayEnabled) return 'manual';
-  if (!renter?.stripeCustomerId || !renter?.defaultPaymentMethodId) return 'no_card';
+  if (!renter?.stripeCustomerId || !(renter?.stripePaymentMethodId || renter?.defaultPaymentMethodId)) return 'no_card';
   return 'ready';
 }
 
