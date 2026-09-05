@@ -248,17 +248,15 @@ export async function POST(req: NextRequest) {
 
   // Acknowledgment email (+ instant answer when calm and we have one). Best-effort.
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
-  const RESEND_FROM = process.env.RESEND_FROM;
+  const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
   if (ackAllowed && RESEND_API_KEY && RESEND_FROM && order.customerEmail) {
     const origin = req.nextUrl.origin;
     const link = `${origin}/shop/${tenantId}/order/${orderId}`;
     try {
-      await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          from: RESEND_FROM,
-          to: [order.customerEmail],
+      const { sendNotification } = await import('@/lib/notify');
+      await sendNotification(db, {
+        tenantId, channel: 'email',
+          to: order.customerEmail,
           subject: `We got your message \u2014 order #${String(order.orderNumber).padStart(4, '0')}`,
           html: await (async () => {
             const emailBrand = await getEmailBrand(db, tenantId);
@@ -271,7 +269,7 @@ export async function POST(req: NextRequest) {
               ${emailButton(link, 'View my order', emailBrand)}`,
               { preheader: urgent ? 'Flagged as a priority \u2014 a person is on it' : expectNote, title: 'We got your message', tag: `#${String(order.orderNumber).padStart(4, '0')}` });
           })(),
-        }),
+        kind: 'support_received', recipientType: 'client',
       });
     } catch {
       // acknowledgment email is best-effort
