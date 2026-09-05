@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   collection,
   doc,
@@ -826,6 +826,71 @@ export default function RentRollPage() {
     return list;
   }, [renters, ledgerByRenter, summary.pastDueRenterIds]);
 
+  // Current = has an active lease (or is marked active). Former = no longer
+  // renting but still on the books. A former renter who owes nothing simply
+  // drops off; one who owes stays until it is collected, written off, or
+  // deliberately barred — and looks different from a current renter so the
+  // two are never read as the same situation.
+  const currentRenters = useMemo(() => rosterRenters.filter((r) => r.status === 'active' || leaseByRenter.has(r.id)), [rosterRenters, leaseByRenter]);
+  const formerOwing = useMemo(() => rosterRenters.filter((r) => {
+    if (r.status === 'active' || leaseByRenter.has(r.id)) return false;
+    const bal = computeBalanceCents(ledgerByRenter.get(r.id) ?? []);
+    return bal > 0 || (r as any).doNotRent === true;
+  }), [rosterRenters, leaseByRenter, ledgerByRenter]);
+  const [formerBusy, setFormerBusy] = useState<string>('');
+  const [armed, setArmed] = useState<string>('');
+  useEffect(() => { if (!armed) return; const t = setTimeout(() => setArmed(''), 5000); return () => clearTimeout(t); }, [armed]);
+  const arm = (key: string, run: () => void) => { if (armed === key) { setArmed(''); run(); } else setArmed(key); };
+
+  // Bar / unbar. The flag is enforced at the public booking route and shown
+  // in the pipeline and on their guest-book row — a wall, not a note.
+  const setDoNotRent = async (r: any, on: boolean) => {
+    if (!firestore || !tenantId) return;
+    setFormerBusy(r.id);
+    try {
+      await setDoc(doc(firestore, 'tenants', tenantId, 'renters', r.id), {
+        doNotRent: on, doNotRentAt: on ? new Date().toISOString() : null,
+        doNotRentReason: on ? 'Unpaid balance' : null,
+      }, { merge: true });
+      setCycleResult(on ? `${r.firstName} ${r.lastName} can no longer book or apply until this is cleared.` : `${r.firstName} ${r.lastName} can book again.`);
+    } catch { setCycleResult('Could not save that \u2014 try again.'); }
+    setFormerBusy('');
+  };
+
+  // Write off. The balance becomes a ledger line of its own (so the money is
+  // never quietly forgotten), every open invoice is voided, and the renter
+  // drops out of Owed. Barring is a separate decision — a write-off is not
+  // forgiveness, and forgiveness is not a write-off.
+  const writeOff = async (r: any) => {
+    if (!firestore || !tenantId) return;
+    const bal = computeBalanceCents(ledgerByRenter.get(r.id) ?? []);
+    if (bal <= 0) return;
+    setFormerBusy(r.id);
+    try {
+      const nowIso = new Date().toISOString();
+      const batch = writeBatch(firestore);
+      const wRef = doc(collection(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId)));
+      batch.set(wRef, {
+        leaseId: leaseByRenter.get(r.id)?.id ?? '', renterId: r.id, boothId: null,
+        type: 'payment', status: 'waived', amountCents: -bal,
+        description: 'Balance written off', dueDate: null, paidAt: todayIso, method: 'write_off',
+        stripePaymentIntentId: null, appliesToEntryIds: [], createdBy: 'owner',
+        note: 'Written off as uncollectable', createdAt: nowIso, updatedAt: nowIso,
+      });
+      for (const e of (ledgerByRenter.get(r.id) ?? [])) {
+        if (e.type === 'rent_charge' && !['paid', 'waived', 'refunded'].includes(String(e.status))) {
+          batch.update(doc(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId), e.id), { status: 'waived', updatedAt: nowIso });
+        }
+      }
+      for (const i of ((invoices ?? []) as any[]).filter((i) => i.renterId === r.id && (i.status === 'due' || i.status === 'late'))) {
+        batch.update(doc(firestore, 'tenants', tenantId, 'rentInvoices', i.id), { status: 'void', voidedAt: nowIso, voidReason: 'written_off', updatedAt: nowIso });
+      }
+      await batch.commit();
+      setCycleResult(`Wrote off ${formatCents(bal)} for ${r.firstName} ${r.lastName}.`);
+    } catch { setCycleResult('Could not write that off \u2014 try again.'); }
+    setFormerBusy('');
+  };
+
   if (!tenantId) {
     return (
       <div className="p-8 text-sm text-muted-foreground">
@@ -1268,8 +1333,64 @@ export default function RentRollPage() {
         </Card>
       )}
 
+      {formerOwing.length > 0 && (
+        <Card className="rounded-[2rem] border-2 border-slate-300">
+          <CardHeader className="p-5 pb-2">
+            <CardTitle className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest">
+              <AlertTriangle className="h-3.5 w-3.5" /> Former renters who still owe
+            </CardTitle>
+            <p className="text-[11px] font-bold text-slate-500">
+              No lease, nothing more coming due. Collect it, write it off, or bar them from booking until it is cleared.
+            </p>
+          </CardHeader>
+          <CardContent className="p-5 pt-2 space-y-2">
+            {formerOwing.map((r) => {
+              const bal = computeBalanceCents(ledgerByRenter.get(r.id) ?? []);
+              const barred = (r as any).doNotRent === true;
+              const busy = formerBusy === r.id;
+              return (
+                <div key={r.id} className={cn('rounded-2xl border-2 px-4 py-3 space-y-2.5', barred ? 'border-slate-900 bg-slate-50' : 'bg-white')}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-black text-sm truncate">{r.firstName} {r.lastName}</p>
+                      <p className="text-[10px] font-bold text-muted-foreground">
+                        Former renter{(r as any).leaseEndedAt ? ` · left ${String((r as any).leaseEndedAt).slice(0, 10)}` : ''}
+                        {barred ? ' · barred from booking' : ''}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Owes</p>
+                      <p className="text-xl font-black tabular-nums leading-none text-red-700">{formatCents(Math.max(bal, 0))}</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button onClick={() => openPaymentDialog(r)} disabled={bal <= 0 || busy}
+                      className="h-11 flex-1 min-w-[9rem] rounded-xl font-black uppercase text-[10px] tracking-widest">
+                      <HandCoins className="h-3.5 w-3.5 mr-1.5" /> Record payment
+                    </Button>
+                    <Button variant="outline" onClick={() => setDoNotRent(r, !barred)} disabled={busy}
+                      className={cn('h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest', barred ? 'bg-slate-900 text-white border-slate-900' : '')}>
+                      {barred ? 'Allow booking' : 'Bar from booking'}
+                    </Button>
+                    {bal > 0 && (
+                      <Button variant="outline" onClick={() => arm(`${r.id}:writeoff`, () => writeOff(r))} disabled={busy}
+                        className={cn('h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest',
+                          armed === `${r.id}:writeoff` ? 'bg-red-600 border-red-600 text-white' : 'border-red-200 text-red-700')}>
+                        {armed === `${r.id}:writeoff` ? 'Tap again to write off' : 'Write off'}
+                      </Button>
+                    )}
+                    <Button variant="outline" onClick={() => setHistoryRenter(r)} aria-label="Payment history"
+                      className="h-11 w-11 shrink-0 rounded-xl border-2 p-0"><History className="h-4 w-4" /></Button>
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
+
       <div className="space-y-3">
-        {rosterRenters.map((renter) => {
+        {currentRenters.map((renter) => {
           const entries = ledgerByRenter.get(renter.id) ?? [];
           const lease = leaseByRenter.get(renter.id);
           const booth = lease ? boothById.get(lease.boothId) : undefined;
