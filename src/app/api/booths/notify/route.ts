@@ -509,6 +509,7 @@ export async function POST(req: NextRequest) {
         }),
         kind: 'renter_barred_notice', recipientType: 'renter', recipientId: renterId,
         recipientName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || null,
+        tokens: { renter_first: firstNameOf(`${r.firstName || ''} ${r.lastName || ''}`), amount: '', link: payUrl, studio: studioName },
       });
       await alsoText(db, { tenantId, to: String(r.phone || ''), kind: 'renter_barred_notice', recipientId: renterId,
         text: `${studioName}: booking is paused until your outstanding balance is settled. Settle here: ${payUrl}` });
