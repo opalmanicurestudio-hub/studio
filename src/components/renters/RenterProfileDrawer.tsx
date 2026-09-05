@@ -16,7 +16,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { auditEntry } from '@/lib/audit';
-import { getDocs, query, where, doc, setDoc } from 'firebase/firestore';
+import { getDocs, query, where, doc, setDoc, onSnapshot, orderBy } from 'firebase/firestore';
 import { Badge } from '@/components/ui/badge';
 import { Coffee, CreditCard, FileText, Paperclip, X } from 'lucide-react';
 import type { Renter, Lease, Booth } from '@/lib/booth-rental-types';
@@ -101,7 +101,7 @@ export function RenterProfileDrawer({
   onRecordPayment?: (() => void) | null;
   onAddCard?: () => void;
 }) {
-  const [ptab, setPtab] = useState<'overview' | 'money' | 'documents' | 'activity'>('overview');
+  const [ptab, setPtab] = useState<'overview' | 'money' | 'documents' | 'messages' | 'activity'>('overview');
   const [noteDraft, setNoteDraft] = useState<string>(contactNote || '');
   const [chargeAmt, setChargeAmt] = useState('');
   const [chargeCat, setChargeCat] = useState('');
@@ -144,6 +144,35 @@ export function RenterProfileDrawer({
     finally { setRenterChargingId(null); }
   };
   const [txns, setTxns] = useState<any[] | null>(null);
+  // The conversation — live, so a reply shows the moment it lands.
+  const [thread, setThread] = useState<any[] | null>(null);
+  const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
+  useEffect(() => {
+    if (!firestore || !tenantId || !renter?.id) return;
+    const q = query(collection(firestore, 'tenants', tenantId, 'renterThreads', renter.id, 'messages'), orderBy('createdAt', 'asc'));
+    const unsub = onSnapshot(q, (snap) => {
+      setThread(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
+      setDoc(doc(firestore, 'tenants', tenantId, 'renterThreads', renter.id), { unreadForOwner: false, ownerSeenAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+    }, () => setThread([]));
+    return () => unsub();
+  }, [firestore, tenantId, renter?.id]);
+  const sendMessage = async () => {
+    const text = draft.trim();
+    if (!text || sending) return;
+    setSending(true);
+    try {
+      const res = await fetch('/api/booths/notify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'renter-message', tenantId, renterId: renter.id, text, byName: (drawerTenant as any)?.name || 'Studio' }),
+      });
+      const d = await res.json();
+      if (d?.ok) { setDraft(''); drawerToast({ title: 'Sent', description: `${d.emailStatus === 'sent' ? 'Emailed' : ''}${d.emailStatus === 'sent' && d.smsStatus === 'sent' ? ' and ' : ''}${d.smsStatus === 'sent' ? 'texted' : ''}${d.emailStatus !== 'sent' && d.smsStatus !== 'sent' ? 'Saved to the thread — no email or phone on file to deliver to.' : '.'}` }); }
+      else drawerToast({ title: 'Not sent', description: d?.error || 'Try again in a moment.' });
+    } catch { drawerToast({ title: 'Not sent', description: 'Try again in a moment.' }); }
+    setSending(false);
+  };
+
   // The account record — invoices, the rent ledger, every message sent to
   // them, and their maintenance tickets. Read once when the card opens.
   const [record, setRecord] = useState<{ invoices: any[]; ledger: any[]; messages: any[]; tickets: any[] } | null>(null);
@@ -274,6 +303,7 @@ export function RenterProfileDrawer({
     { id: 'overview', label: 'Overview' },
     { id: 'money', label: 'Money' },
     { id: 'documents', label: 'Docs' },
+    { id: 'messages', label: 'Messages' },
     { id: 'activity', label: 'Activity' },
   ] as const;
 
@@ -628,6 +658,37 @@ export function RenterProfileDrawer({
                 </div>
               )}
             </>
+          )}
+
+          {ptab === 'messages' && (
+            <div className="flex flex-col gap-3">
+              <p className="text-[10px] font-bold text-muted-foreground">
+                Everything here is on the record. What you send goes by email and text; their replies from the portal land here and you're told in-app.
+              </p>
+              <div className="space-y-2 max-h-[45vh] overflow-y-auto pr-1">
+                {thread === null ? <p className="text-xs text-muted-foreground text-center py-4">Loading…</p>
+                  : thread.length === 0 ? <p className="text-xs text-muted-foreground text-center py-4">No messages yet. Start the conversation below.</p>
+                  : thread.map((m) => (
+                    <div key={m.id} className={cn('max-w-[88%] rounded-2xl px-3.5 py-2.5', m.direction === 'inbound' ? 'mr-auto bg-slate-100' : 'ml-auto bg-slate-900 text-white')}>
+                      <p className="text-xs font-medium whitespace-pre-wrap leading-snug">{m.text}</p>
+                      <p className={cn('mt-1 text-[9px] font-bold', m.direction === 'inbound' ? 'text-muted-foreground' : 'text-white/60')}>
+                        {m.byName || (m.direction === 'inbound' ? 'Renter' : 'You')} · {fmtStamp(m.createdAt)}
+                        {m.direction === 'outbound' && m.emailStatus ? ` · ${m.emailStatus === 'sent' ? 'emailed' : 'email ' + String(m.emailStatus).replace(/_/g, ' ')}` : ''}
+                        {m.direction === 'outbound' && m.smsStatus === 'sent' ? ' · texted' : ''}
+                      </p>
+                    </div>
+                  ))}
+              </div>
+              <div className="flex gap-2">
+                <textarea value={draft} onChange={(e) => setDraft(e.target.value.slice(0, 2000))} rows={2}
+                  placeholder="Write to them…" aria-label="Message to renter"
+                  className="flex-1 rounded-2xl border-2 px-3.5 py-2.5 text-sm outline-none focus:border-slate-900" />
+                <button type="button" onClick={sendMessage} disabled={sending || !draft.trim()}
+                  className="h-11 self-end rounded-2xl bg-slate-900 px-4 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">
+                  {sending ? '…' : 'Send'}
+                </button>
+              </div>
+            </div>
           )}
 
           {ptab === 'activity' && (
