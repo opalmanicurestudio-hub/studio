@@ -482,6 +482,60 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: emailStatus === 'sent' || smsStatus === 'sent', status: emailStatus, sms: smsStatus });
     }
 
+    /* ── Portal invite ──────────────────────────────────────────────────────
+     * The only way into the portal until now was to already know the URL and
+     * have a phone or email on file — or to have received a rent notice,
+     * which minted a personal link as a side effect. This mints the same
+     * link on purpose and sends it. The renters page has said "No portal yet"
+     * against everyone forever, because nothing ever moved that status. */
+    if (action === 'portal-invite') {
+      const { renterId } = body;
+      const rRef = db.doc(`tenants/${tenantId}/renters/${renterId}`);
+      const rSnap = await rRef.get();
+      if (!rSnap.exists) return NextResponse.json({ ok: false, error: 'Renter not found.' }, { status: 404 });
+      const r = rSnap.data() as any;
+      let tok = r.portalToken;
+      if (!tok || String(tok).length < 12) {
+        tok = Array.from({ length: 2 }, () => Math.random().toString(36).slice(2, 10)).join('') + Date.now().toString(36);
+        await rRef.set({ portalToken: tok }, { merge: true });
+      }
+      const link = `${origin}/rent/${tenantId}?rt=${tok}`;
+      const first = firstNameOf(`${r.firstName || ''} ${r.lastName || ''}`);
+      const to = String(r.email || '').trim();
+      let emailStatus = 'skipped_no_email';
+      if (to.includes('@')) {
+        const out = await sendNotification(db, {
+          tenantId, channel: 'email', to,
+          subject: `Your renter portal at ${studioName}`,
+          html: brandedEmailHtml({
+            studioName,
+            title: 'Your portal',
+            bodyLines: [
+              `Hi ${first} — this is your personal link to your renter portal: rent and invoices, your card on file, autopay, documents, and your bookings.`,
+              'Keep this email; the link is yours and does not expire. If you ever lose it, ask us for a new one.',
+            ],
+            cta: { label: 'Open my portal', url: link },
+            footerNote: `Sent by ${studioName}. You're receiving this because you rent with us.`,
+          }),
+          kind: 'renter_portal_invite', recipientType: 'renter', recipientId: renterId,
+          recipientName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || null,
+          tokens: { renter_first: first, link, studio: studioName },
+        });
+        emailStatus = out.status;
+      }
+      const smsStatus = await alsoText(db, {
+        tenantId, to: String(r.phone || ''), kind: 'renter_portal_invite', recipientId: renterId,
+        recipientName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || null,
+        text: `${studioName}: your renter portal — rent, card, autopay, documents: ${link}`,
+      });
+      const sent = emailStatus === 'sent' || smsStatus === 'sent';
+      await rRef.set({
+        portalInviteStatus: r.portalInviteStatus === 'accepted' ? 'accepted' : (sent ? 'sent' : (r.portalInviteStatus || 'not_sent')),
+        portalInviteSentAt: sent ? new Date().toISOString() : (r.portalInviteSentAt || null),
+      }, { merge: true });
+      return NextResponse.json({ ok: sent, status: emailStatus, sms: smsStatus, link });
+    }
+
     /* ── A renter was barred by hand ────────────────────────────────────────
      * The nightly job sends its own notice when the policy bars someone; this
      * is the same message for a manual bar from /rent. Same kind, so a shop
