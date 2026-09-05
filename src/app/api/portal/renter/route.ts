@@ -2164,6 +2164,38 @@ export async function POST(req: NextRequest) {
     // Ownership chain verified server-side: invoice → lease → renter →
     // renter's contact must match this session. Works for every renter,
     // card on file or not (Checkout collects the card).
+    // ── thread-list / thread-send: the renter's side of the conversation ───
+    // Same thread the owner writes to from the renter card. A reply here is
+    // documented the instant it is written, and the owner is told in-app —
+    // no more "they texted me" with nothing on the record.
+    if (action === 'thread-list') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const snap = await db.collection(`tenants/${tenantId}/renterThreads/${session.renterId}/messages`)
+        .orderBy('createdAt', 'desc').limit(100).get();
+      await db.doc(`tenants/${tenantId}/renterThreads/${session.renterId}`).set({ unreadForRenter: false, renterSeenAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+      return NextResponse.json({ ok: true, messages: snap.docs.map((d) => {
+        const m = d.data() as any;
+        return { id: d.id, direction: m.direction, text: m.text, byName: m.byName || null, createdAt: m.createdAt };
+      }) });
+    }
+    if (action === 'thread-send') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const clean = String(body.text || '').trim().slice(0, 2000);
+      if (!clean) return NextResponse.json({ ok: false, error: 'Write something first.' }, { status: 400 });
+      const rSnap = await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get();
+      const r = (rSnap.data() as any) || {};
+      const nowIso = new Date().toISOString();
+      const mRef = db.collection(`tenants/${tenantId}/renterThreads/${session.renterId}/messages`).doc();
+      await mRef.set({ id: mRef.id, renterId: session.renterId, direction: 'inbound', text: clean, byName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || 'Renter', createdAt: nowIso });
+      await db.doc(`tenants/${tenantId}/renterThreads/${session.renterId}`).set({
+        renterId: session.renterId, lastAt: nowIso, lastText: clean.slice(0, 140), lastDirection: 'inbound', unreadForOwner: true,
+      }, { merge: true });
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({ id: nRef.id, type: 'renter_message', read: false, createdAt: nowIso, link: '/renters',
+        message: `${r.firstName || 'A renter'} ${r.lastName || ''}: “${clean.slice(0, 90)}${clean.length > 90 ? '…' : ''}”`.replace(/\s+/g, ' ') });
+      return NextResponse.json({ ok: true, id: mRef.id });
+    }
+
     // ── autopay-set: the renter's own switch ───────────────────────────────
     // Same flag the owner flips on the renter card; this is their side of it.
     // Refused without a card on file, because an autopay with nothing to draft
