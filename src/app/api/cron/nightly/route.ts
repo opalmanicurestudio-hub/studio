@@ -561,7 +561,9 @@ export async function GET(req: NextRequest) {
         graceEnd.setUTCDate(graceEnd.getUTCDate() + graceDays);
         if (todayStr <= graceEnd.toISOString().slice(0, 10)) continue;
         let feeCents = 0;
-        if (policy.enabled && !(v.lateFeeCents > 0)) {
+        // A fee the owner waived stays waived — feeWaivedAt is the stamp, and
+        // the sweep never puts a fee back on an invoice that carries it.
+        if (policy.enabled && !(v.lateFeeCents > 0) && !v.feeWaivedAt) {
           feeCents = policy.type === 'percent'
             ? Math.round((v.amountCents || 0) * (Number(policy.percent) || 0) / 100)
             : Math.max(0, Math.round(Number(policy.amountCents) || 0));
