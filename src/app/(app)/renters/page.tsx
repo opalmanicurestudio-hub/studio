@@ -76,6 +76,7 @@ export default function RentersPage() {
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'active' | 'setup' | 'leave' | 'past'>('active');
+  const [inviting, setInviting] = useState<string>('');
 
   useEffect(() => {
     if (!firestore || !tenantId) return;
@@ -232,10 +233,31 @@ export default function RentersPage() {
                       Lease unsigned
                     </span>
                   )}
-                  {noPortal && r.status !== 'past' && (
-                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-slate-500">
-                      No portal yet
-                    </span>
+                  {r.status !== 'past' && (
+                    r.portalInviteStatus === 'accepted' ? (
+                      <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-emerald-800">
+                        Uses portal
+                      </span>
+                    ) : (
+                      <button type="button" disabled={inviting === r.id}
+                        onClick={async () => {
+                          setInviting(r.id);
+                          try {
+                            const res = await fetch('/api/booths/notify', {
+                              method: 'POST', headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ action: 'portal-invite', tenantId, renterId: r.id }),
+                            });
+                            const d = await res.json();
+                            if (d?.ok) toast({ title: 'Portal link sent', description: `${r.firstName} has their personal link by ${d.status === 'sent' ? 'email' : ''}${d.status === 'sent' && d.sms === 'sent' ? ' and ' : ''}${d.sms === 'sent' ? 'text' : ''}.` });
+                            else toast({ title: 'Not sent', description: d?.error || 'No email or phone on their record.', variant: 'destructive' });
+                          } catch { toast({ title: 'Not sent', description: 'Try again in a moment.', variant: 'destructive' }); }
+                          setInviting('');
+                        }}
+                        className={cn('rounded-full border-2 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest disabled:opacity-50',
+                          r.portalInviteStatus === 'sent' ? 'border-sky-200 bg-sky-50 text-sky-700' : 'border-slate-300 bg-white text-slate-600')}>
+                        {inviting === r.id ? '…' : r.portalInviteStatus === 'sent' ? 'Resend portal link' : 'Send portal link'}
+                      </button>
+                    )
                   )}
                 </span>
               </div>
