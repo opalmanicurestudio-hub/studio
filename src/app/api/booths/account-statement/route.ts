@@ -3,6 +3,13 @@
  *
  * GET ?tenantId=&renterId=[&from=YYYY-MM-DD&to=YYYY-MM-DD]
  * GET ?tenantId=&renterId=&receipt=<rentLedger payment id>
+ * GET ?tenantId=&renterId=&mode=full[&from=&to=]
+ *
+ * mode=full is the FULL ACCOUNT RECORD: the same statement, followed by the
+ * whole timeline — every charge, payment, notice (with whether it was opened),
+ * maintenance ticket, lease event, autopay change and bar — from the shared
+ * renter-timeline module. When there is a dispute, this is the document: the
+ * account tells the entire story without anyone assembling it.
  *
  * The statement ends with a REMITTANCE STUB — the tear-off slip from a paper
  * bill: who to make the check out to, where to mail it, the account, the
@@ -37,6 +44,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { buildRenterTimeline, withRunningBalance, TIMELINE_ACTOR_LABEL } from '@/lib/renter-timeline';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -59,6 +67,7 @@ export async function GET(req: NextRequest) {
   const to = String(sp.get('to') || '').slice(0, 10);
   if (!tenantId || !renterId) return new NextResponse('Missing tenantId or renterId', { status: 400 });
   const receiptId = String(sp.get('receipt') || '').trim();
+  const fullMode = sp.get('mode') === 'full';
 
   const db = getAdminDb();
   const [tSnap, rSnap, invSnap, ledSnap] = await Promise.all([
@@ -67,6 +76,12 @@ export async function GET(req: NextRequest) {
     db.collection(`tenants/${tenantId}/rentInvoices`).where('renterId', '==', renterId).get(),
     db.collection(`tenants/${tenantId}/rentLedger`).where('renterId', '==', renterId).get(),
   ]);
+  // The rest of the record, only when it will be printed.
+  const [leaseSnap, msgSnap, tktSnap] = fullMode ? await Promise.all([
+    db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', renterId).get(),
+    db.collection(`tenants/${tenantId}/messageLog`).where('recipientId', '==', renterId).get(),
+    db.collection(`tenants/${tenantId}/tickets`).where('renterId', '==', renterId).get(),
+  ]) : [null, null, null];
   if (!rSnap.exists) return new NextResponse('Renter not found', { status: 404 });
   const tenant = (tSnap.data() as any) || {};
   const renter = rSnap.data() as any;
@@ -228,6 +243,27 @@ export async function GET(req: NextRequest) {
   <div class="big"><span>${closing > 0 ? 'Balance owing' : 'Balance'}</span><span>${money(closing)}</span></div>
 </div>
 <div class="foot">Late fees follow the lease's late-fee policy and grace period. Payments apply to the oldest open invoice first. Questions: ${esc(tenant.email || tenant.phone || studio)}.</div>
+${fullMode ? (() => {
+  const timeline = withRunningBalance(buildRenterTimeline({
+    renter,
+    leases: leaseSnap!.docs.map((d) => ({ id: d.id, ...(d.data() as any) })),
+    invoices: invSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })),
+    ledger: ledSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })),
+    messages: msgSnap!.docs.map((d) => ({ id: d.id, ...(d.data() as any) })),
+    tickets: tktSnap!.docs.map((d) => ({ id: d.id, ...(d.data() as any) })),
+  })).filter((e) => (!from || String(e.at).slice(0, 10) >= from) && (!to || String(e.at).slice(0, 10) <= to));
+  const stamp = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? String(iso) : d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', ...(String(iso).length > 10 ? { hour: 'numeric', minute: '2-digit' } : {}) }); };
+  return `
+<div class="card" style="margin-top:24px;page-break-before:always">
+  <div class="kicker">Full account record</div>
+  <div style="font-size:18px;font-weight:800;letter-spacing:-.02em;margin-bottom:12px">Every event on this account, newest first</div>
+  <table><thead><tr><th>When</th><th>Event</th><th>By</th><th class="n">Amount</th><th class="n">Balance</th></tr></thead><tbody>
+  ${timeline.map((e) => `<tr class="${e.kind}"><td style="white-space:nowrap">${stamp(e.at)}</td><td>${esc(e.title)}${e.detail ? `<div class="detail">${esc(e.detail)}</div>` : ''}</td><td class="detail">${esc(TIMELINE_ACTOR_LABEL[e.actor || ''] || e.actor || '')}</td><td class="n">${typeof e.amountCents === 'number' && e.kind !== 'booking' ? money(e.amountCents) : ''}</td><td class="n">${typeof (e as any).balanceCents === 'number' ? money(Math.max((e as any).balanceCents, 0)) : ''}</td></tr>`).join('')}
+  ${timeline.length === 0 ? '<tr><td colspan="5" class="muted">Nothing on record for this period.</td></tr>' : ''}
+  </tbody></table>
+  <div class="foot">Notices show how far they got — delivered, opened, clicked — from the delivery log. "Automatic" means the app acted under a policy you set; "You" means someone at the studio did it by hand.</div>
+</div>`;
+})() : ''}
 
 <div class="tear"></div>
 <div class="stub">
