@@ -707,6 +707,80 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, slots, durationMins: dur, autoConfirm });
     }
 
+    // ── tour-manage-*: the visitor moving or cancelling their own visit ──────
+    // Keyed by the manageToken on the tour doc. The cutoff is the shop's lead
+    // time: a visit cannot be changed from inside the window the shop would
+    // not accept a new booking in either. Moving reuses the same clash check
+    // as booking, so the visitor can only take a genuinely open time.
+    if (action === 'tour-manage-get' || action === 'tour-manage-cancel' || action === 'tour-manage-move') {
+      const { tourId, token } = body;
+      if (!tourId || !token) return NextResponse.json({ ok: false, error: 'Missing link.' }, { status: 400 });
+      const tourRef = db.doc(`tenants/${tenantId}/tours/${tourId}`);
+      const tourSnap = await tourRef.get();
+      const tour = tourSnap.exists ? (tourSnap.data() as any) : null;
+      if (!tour || !tour.manageToken || tour.manageToken !== String(token)) {
+        return NextResponse.json({ ok: false, error: 'This link is not valid.' }, { status: 404 });
+      }
+      const rules = await loadRules(db, tenantId);
+      const cutoffHours = Number(rules.bookingLeadHours) > 0 ? Number(rules.bookingLeadHours) : 2;
+      const startMs = tour.date && tour.time ? new Date(`${tour.date}T${tour.time}:00`).getTime() : NaN;
+      const changeable = ['confirmed', 'requested'].includes(String(tour.status))
+        && !isNaN(startMs) && startMs - Date.now() > cutoffHours * 3600000;
+      const tenantDoc = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      const studioName = tenantDoc.name || 'The studio';
+      const summary = {
+        name: tour.name || '', date: tour.date || '', time: tour.time || '',
+        status: tour.status, changeable, cutoffHours, studioName,
+      };
+
+      if (action === 'tour-manage-get') return NextResponse.json({ ok: true, tour: summary });
+      if (!changeable) {
+        return NextResponse.json({ ok: false, error: `Changes close ${cutoffHours} hours before the visit — please call or reply to your confirmation.`, tour: summary }, { status: 409 });
+      }
+
+      if (action === 'tour-manage-cancel') {
+        const nowIso = new Date().toISOString();
+        await tourRef.set({ status: 'cancelled', cancelledAt: nowIso, cancelledBy: 'visitor' }, { merge: true });
+        if (tour.applicationId) {
+          await db.doc(`tenants/${tenantId}/boothApplications/${tour.applicationId}`)
+            .set({ status: 'declined', declinedAt: nowIso, declinedBy: 'visitor' }, { merge: true }).catch(() => {});
+        }
+        {
+          const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+          await nRef.set({ id: nRef.id, type: 'booth_tour', read: false, createdAt: nowIso, link: '/pipeline',
+            message: `${tour.name || 'A visitor'} cancelled their tour for ${tour.date} at ${tour.time}.` });
+        }
+        return NextResponse.json({ ok: true, tour: { ...summary, status: 'cancelled', changeable: false } });
+      }
+
+      if (action === 'tour-manage-move') {
+        const { date, time } = body;
+        if (!date || !time) return NextResponse.json({ ok: false, error: 'Pick a new time.' }, { status: 400 });
+        const newStart = new Date(`${date}T${time}:00`).getTime();
+        if (isNaN(newStart) || newStart - Date.now() < cutoffHours * 3600000) {
+          return NextResponse.json({ ok: false, error: 'That time is too soon.' }, { status: 409 });
+        }
+        const clashSnap = await db.collection(`tenants/${tenantId}/tours`).where('date', '==', date).get();
+        if (clashSnap.docs.some(d => d.id !== tourId && (d.data() as any).time === time && ['requested', 'confirmed'].includes((d.data() as any).status))) {
+          return NextResponse.json({ ok: false, error: 'That time was just taken — pick another.' }, { status: 409 });
+        }
+        const nowIso = new Date().toISOString();
+        const previous = { date: tour.date, time: tour.time };
+        await tourRef.set({ date, time, rescheduledAt: nowIso, rescheduledBy: 'visitor', previous }, { merge: true });
+        if (tour.applicationId) {
+          await db.doc(`tenants/${tenantId}/boothApplications/${tour.applicationId}`).set({
+            tourSlot: `${date} ${time}`, tourStartIso: new Date(`${date}T${time}:00`).toISOString(), rescheduledAt: nowIso,
+          }, { merge: true }).catch(() => {});
+        }
+        {
+          const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+          await nRef.set({ id: nRef.id, type: 'booth_tour', read: false, createdAt: nowIso, link: '/pipeline',
+            message: `${tour.name || 'A visitor'} moved their tour from ${previous.date} ${previous.time} to ${date} ${time}.` });
+        }
+        return NextResponse.json({ ok: true, tour: { ...summary, date, time } });
+      }
+    }
+
     // 'tour-days': how many open times each day has across a range, so a
     // picker can draw only the days worth tapping. Same rules and the same
     // taken-slot maths as tour-slots, run once for the whole window instead of
@@ -791,10 +865,15 @@ export async function POST(req: NextRequest) {
         return `${date}T${eh}:${em}:00`;
       })();
       const tourRef = db.collection(`tenants/${tenantId}/tours`).doc();
+      // manageToken: the visitor's own key to move or cancel this visit from
+      // the link in their confirmation and reminder, without a login and
+      // without a phone call. Unguessable; checked by the tour-manage-*
+      // actions below; never shown to the owner.
+      const manageToken = (globalThis.crypto?.randomUUID?.() || `${Date.now()}${Math.random()}`).replace(/-/g, '');
       await tourRef.set({
         id: tourRef.id, date, time, durationMins: durMins,
         name, phone: phone || '', email: email || '', message: String(message || '').slice(0, 500),
-        status, createdAt: nowIso, tenantId,
+        status, createdAt: nowIso, tenantId, manageToken,
       });
       // Pipeline record — shows up in Contacts as 'Toured'
       const appRef = db.collection(`tenants/${tenantId}/boothApplications`).doc();
@@ -822,6 +901,7 @@ export async function POST(req: NextRequest) {
       // that switch is the honest one, and it logs the suppression.
       // Best-effort — the tour is already booked whether or not this lands.
       const tenantDoc = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      const manageUrl = `${req.nextUrl?.origin || ''}/tour-manage/${tenantId}/${tourRef.id}/${manageToken}`;
       let emailed = false;
       if (String(email || '').includes('@')) {
         try {
@@ -836,8 +916,11 @@ export async function POST(req: NextRequest) {
                 ? `you're set for ${date} at ${time}.`
                 : `we got your request for ${date} at ${time} and will confirm shortly.`}`,
               `Come as you are: the tour takes about ${durMins} minutes and there's nothing to bring or prepare.`,
-              `If the time stops working, just reply to this email and we'll find another.`,
+              confirmed
+                ? `If the time stops working, you can move or cancel it yourself with the button below.`
+                : `If the time stops working, just reply to this email and we'll find another.`,
             ],
+            ...(confirmed ? { cta: { label: 'Change or cancel my visit', url: manageUrl } } : {}),
             footerNote: `Sent by ${studioName}. You're receiving this because you ${confirmed ? 'booked' : 'requested'} a tour with us.`,
           });
           const sent = await sendNotification(db, {
