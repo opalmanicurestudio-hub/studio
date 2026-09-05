@@ -765,6 +765,11 @@ export async function POST(req: NextRequest) {
       await codesRef.set({ [key]: null }, { merge: true }); // single-use
       await recordStamp(db, tenantId, 'failedAt', true);
       const session = await createSession(db, tenantId, key, entry.name || null, entry.renterId || null);
+      if (entry.renterId) {
+        await db.doc(`tenants/${tenantId}/renters/${entry.renterId}`)
+          .set({ portalInviteStatus: 'accepted', portalFirstSeenAt: new Date().toISOString() }, { merge: true })
+          .catch(() => {});
+      }
       await logAuditAdmin(db, tenantId, {
         action: 'portal.renter_login',
         targetType: 'renterContact', targetId: maskContact(raw),
@@ -801,6 +806,11 @@ export async function POST(req: NextRequest) {
       }
       await recordStamp(db, tenantId, 'failedAt', true);
       const session = await createSession(db, tenantId, key, r.name || null, r.id);
+      if (r.portalInviteStatus !== 'accepted') {
+        await db.doc(`tenants/${tenantId}/renters/${r.id}`)
+          .set({ portalInviteStatus: 'accepted', portalFirstSeenAt: new Date().toISOString() }, { merge: true })
+          .catch(() => {});
+      }
       await logAuditAdmin(db, tenantId, {
         action: 'portal.renter_login',
         targetType: 'renter', targetId: r.id,
