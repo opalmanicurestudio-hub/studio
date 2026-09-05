@@ -215,8 +215,15 @@ export async function runReminderSweep(db: Db, tenantId: string, now: Date = new
                   title: 'Your visit is coming up',
                   bodyLines: [
                     `Hi ${visitorFirst} — just a reminder that we are expecting you ${whenPlain}.`,
-                    'Nothing to bring or prepare. If the time no longer works, reply to this email and we will find another.',
+                    t.manageToken
+                      ? 'Nothing to bring or prepare. If the time no longer works, you can move or cancel it yourself below.'
+                      : 'Nothing to bring or prepare. If the time no longer works, reply to this email and we will find another.',
                   ],
+                  // The visitor's own move/cancel link — only for tours that
+                  // carry a token (booked since it was introduced).
+                  ...(t.manageToken
+                    ? { cta: { label: 'Change or cancel my visit', url: `${process.env.NEXT_PUBLIC_APP_URL || 'https://studio-one-blue.vercel.app'}/tour-manage/${tenantId}/${doc.id}/${t.manageToken}` } }
+                    : {}),
                   footerNote: `Sent by ${studio}. You're receiving this because you booked a visit with us.`,
                 }),
                 kind: 'tour_reminder',
@@ -229,7 +236,9 @@ export async function runReminderSweep(db: Db, tenantId: string, now: Date = new
             if (phoneTo.replace(/[^0-9]/g, '').length >= 10) {
               await sendNotification(db, {
                 tenantId, channel: 'sms', to: phoneTo,
-                text: `${studio}: reminder — we're expecting you ${whenPlain}. Reply here if the time no longer works.`,
+                text: t.manageToken
+                  ? `${studio}: reminder — we're expecting you ${whenPlain}. Need to change it? ${process.env.NEXT_PUBLIC_APP_URL || 'https://studio-one-blue.vercel.app'}/tour-manage/${tenantId}/${doc.id}/${t.manageToken}`
+                  : `${studio}: reminder — we're expecting you ${whenPlain}. Reply here if the time no longer works.`,
                 kind: 'tour_reminder',
                 recipientType: 'contact', recipientId: doc.id, recipientName: t.name || null,
                 eventConfirmed: true, eventStartIso: t.tourStartIso || null,
