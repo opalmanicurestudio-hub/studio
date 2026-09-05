@@ -482,6 +482,59 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: emailStatus === 'sent' || smsStatus === 'sent', status: emailStatus, sms: smsStatus });
     }
 
+    /* ── Renter thread: owner → renter ──────────────────────────────────────
+     * One conversation per renter, at tenants/{t}/renterThreads/{renterId}/
+     * messages. Writing here is what makes it documented; sending it through
+     * the mailroom is what makes it reach them (email + text) and lands the
+     * delivery/opened status on the same record. Their reply from the portal
+     * comes back into the same thread (portal action 'thread-send'). Nothing
+     * about a renter should happen outside this thread. */
+    if (action === 'renter-message') {
+      const { renterId, text, byName } = body;
+      const clean = String(text || '').trim().slice(0, 2000);
+      if (!renterId || !clean) return NextResponse.json({ ok: false, error: 'Nothing to send.' }, { status: 400 });
+      const rSnap = await db.doc(`tenants/${tenantId}/renters/${renterId}`).get();
+      if (!rSnap.exists) return NextResponse.json({ ok: false, error: 'Renter not found.' }, { status: 404 });
+      const r = rSnap.data() as any;
+      const nowIso = new Date().toISOString();
+      const mRef = db.collection(`tenants/${tenantId}/renterThreads/${renterId}/messages`).doc();
+      const first = firstNameOf(`${r.firstName || ''} ${r.lastName || ''}`);
+      const portal = r.portalToken ? `${origin}/rent/${tenantId}?rt=${r.portalToken}` : `${origin}/rent/${tenantId}`;
+
+      let emailStatus = 'skipped_no_email', emailLogId: string | null = null;
+      const to = String(r.email || '').trim();
+      if (to.includes('@')) {
+        const out = await sendNotification(db, {
+          tenantId, channel: 'email', to,
+          subject: `A message from ${studioName}`,
+          html: brandedEmailHtml({
+            studioName, title: `Message from ${byName || studioName}`,
+            bodyLines: [`Hi ${first},`, ...clean.split(/\n{2,}/).map((p: string) => p.trim()).filter(Boolean)],
+            cta: { label: 'Reply in my portal', url: portal },
+            footerNote: `Sent by ${studioName}. Reply in your portal so we both keep a record.`,
+          }),
+          kind: 'renter_message', recipientType: 'renter', recipientId: renterId,
+          recipientName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || null,
+          tokens: { renter_first: first, studio: studioName, link: portal },
+        });
+        emailStatus = out.status; emailLogId = (out as any).logId || null;
+      }
+      const smsStatus = await alsoText(db, {
+        tenantId, to: String(r.phone || ''), kind: 'renter_message', recipientId: renterId,
+        text: `${studioName}: ${clean.length > 220 ? clean.slice(0, 217) + '…' : clean} — reply: ${portal}`,
+      });
+
+      await mRef.set({
+        id: mRef.id, renterId, direction: 'outbound', text: clean,
+        byName: byName || 'Studio', createdAt: nowIso,
+        emailStatus, smsStatus, emailLogId,
+      });
+      await db.doc(`tenants/${tenantId}/renterThreads/${renterId}`).set({
+        renterId, lastAt: nowIso, lastText: clean.slice(0, 140), lastDirection: 'outbound', unreadForRenter: true,
+      }, { merge: true });
+      return NextResponse.json({ ok: true, id: mRef.id, emailStatus, smsStatus });
+    }
+
     /* ── Portal invite ──────────────────────────────────────────────────────
      * The only way into the portal until now was to already know the URL and
      * have a phone or email on file — or to have received a rent notice,
