@@ -1486,6 +1486,11 @@ export default function RentRollPage() {
                     )}
                     <Button variant="outline" onClick={() => setHistoryRenter(r)} aria-label="Payment history"
                       className="h-11 w-11 shrink-0 rounded-xl border-2 p-0"><History className="h-4 w-4" /></Button>
+                    <a href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(r.id)}`}
+                      target="_blank" rel="noopener"
+                      className="h-11 inline-flex items-center rounded-xl border-2 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      <Receipt className="h-3.5 w-3.5 mr-1.5" /> Statement
+                    </a>
                   </div>
                 </div>
               );
@@ -1576,6 +1581,13 @@ export default function RentRollPage() {
                     >
                       <History className="h-4 w-4" />
                     </Button>
+                    <a
+                      href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(renter.id)}`}
+                      target="_blank" rel="noopener"
+                      className="h-11 inline-flex items-center rounded-xl border-2 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-600"
+                    >
+                      <Receipt className="h-3.5 w-3.5 mr-1.5" /> Statement
+                    </a>
                   </div>
                 </div>
               </CardContent>
