@@ -42,6 +42,7 @@ import {
   AlertTriangle,
   BadgeCheck,
   Ban,
+  ChevronDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { buildRentSchedule, type ScheduledCharge } from '@/lib/rent-schedule';
@@ -951,6 +952,7 @@ export default function RentRollPage() {
     return bal > 0 || (r as any).doNotRent === true;
   }), [rosterRenters, leaseByRenter, ledgerByRenter]);
   const [formerBusy, setFormerBusy] = useState<string>('');
+  const [owedOpen, setOwedOpen] = useState<string>('');
   const [armed, setArmed] = useState<string>('');
   useEffect(() => { if (!armed) return; const t = setTimeout(() => setArmed(''), 5000); return () => clearTimeout(t); }, [armed]);
   const arm = (key: string, run: () => void) => { if (armed === key) { setArmed(''); run(); } else setArmed(key); };
@@ -1330,6 +1332,59 @@ export default function RentRollPage() {
     }
   };
 
+  // Waive a late fee, or a whole invoice. Both are the owner's call and both
+  // leave a mark: the fee is zeroed with who/when/why on the invoice, or the
+  // invoice is voided with a reason — and a credit line goes to the ledger so
+  // the statement's running balance shows the waiver as a line, not a gap.
+  // The late sweep will not re-apply a waived fee (feeWaivedAt is the stamp).
+  const [waiveBusy, setWaiveBusy] = useState<string>('');
+  const [waiveReason, setWaiveReason] = useState<Record<string, string>>({});
+  const waiveInvoice = async (inv: any, what: 'fee' | 'invoice') => {
+    if (!firestore || !tenantId) return;
+    const key = `${inv.id}:${what}`;
+    setWaiveBusy(key);
+    try {
+      const nowIso = new Date().toISOString();
+      const reason = (waiveReason[inv.id] || '').trim() || (what === 'fee' ? 'Late fee waived' : 'Invoice waived');
+      const batch = writeBatch(firestore);
+      const invRef = doc(firestore, 'tenants', tenantId, 'rentInvoices', inv.id);
+      if (what === 'fee') {
+        const fee = Number(inv.lateFeeCents) || 0;
+        if (fee <= 0) { setWaiveBusy(''); return; }
+        batch.update(invRef, { lateFeeCents: 0, feeWaivedCents: fee, feeWaivedAt: nowIso, feeWaivedBy: 'owner', feeWaivedReason: reason, updatedAt: nowIso });
+        const cRef = doc(collection(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId)));
+        batch.set(cRef, {
+          leaseId: inv.leaseId || '', renterId: inv.renterId, boothId: inv.boothId || null,
+          type: 'credit', status: 'paid', amountCents: -fee,
+          description: `Late fee waived — rent due ${inv.dueDate}`, note: reason,
+          dueDate: null, paidAt: todayIso, method: 'waiver', stripePaymentIntentId: null,
+          appliesToEntryIds: [], createdBy: 'owner', createdAt: nowIso, updatedAt: nowIso,
+        });
+        setCycleResult(`Waived the ${formatCents(fee)} late fee on rent due ${inv.dueDate}.`);
+      } else {
+        const owed = (Number(inv.amountCents) || 0) + (Number(inv.lateFeeCents) || 0) - (Number(inv.paidCents) || 0);
+        batch.update(invRef, { status: 'void', voidedAt: nowIso, voidedBy: 'owner', voidReason: 'waived', voidNote: reason, updatedAt: nowIso });
+        if (owed > 0) {
+          const cRef = doc(collection(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId)));
+          batch.set(cRef, {
+            leaseId: inv.leaseId || '', renterId: inv.renterId, boothId: inv.boothId || null,
+            type: 'credit', status: 'paid', amountCents: -owed,
+            description: `Rent waived — due ${inv.dueDate}`, note: reason,
+            dueDate: null, paidAt: todayIso, method: 'waiver', stripePaymentIntentId: null,
+            appliesToEntryIds: [], createdBy: 'owner', createdAt: nowIso, updatedAt: nowIso,
+          });
+        }
+        if (inv.ledgerEntryId) {
+          batch.update(doc(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId), inv.ledgerEntryId), { status: 'waived', updatedAt: nowIso });
+        }
+        setCycleResult(`Waived the invoice due ${inv.dueDate}${owed > 0 ? ` (${formatCents(owed)})` : ''}.`);
+      }
+      await batch.commit();
+      setWaiveReason((m) => ({ ...m, [inv.id]: '' }));
+    } catch { setCycleResult('Could not waive that \u2014 try again.'); }
+    setWaiveBusy('');
+  };
+
   const handleWaive = async (entry: RentLedgerEntry) => {
     if (!firestore) return;
     await updateDoc(
@@ -1441,8 +1496,48 @@ export default function RentRollPage() {
                 <p className={cn('text-base font-black tabular-nums', r.late ? 'text-red-700' : 'text-slate-900')}>{formatCents(r.dueCents + r.lateCents + r.feeCents)}</p>
                 <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">{r.late ? 'Late' : 'Due'}</p>
               </div>
+              <button type="button" onClick={() => setOwedOpen(owedOpen === r.renterId ? '' : r.renterId)}
+                aria-expanded={owedOpen === r.renterId} aria-label="Show invoices"
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border-2 bg-white text-slate-600">
+                <ChevronDown className={cn('h-4 w-4 transition-transform', owedOpen === r.renterId && 'rotate-180')} />
+              </button>
             </div>
           ))}
+          {owedOpen && openInvoices.filter((i) => i.renterId === owedOpen).map((inv) => {
+            const fee = Number(inv.lateFeeCents) || 0;
+            const left = (Number(inv.amountCents) || 0) + fee - (Number(inv.paidCents) || 0);
+            return (
+              <div key={inv.id} className="ml-4 rounded-2xl border-2 border-dashed px-3.5 py-3 space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[12px] font-black">Rent due {inv.dueDate}<span className="font-bold text-slate-400"> · {inv.boothName}</span></p>
+                    <p className="text-[10px] font-bold text-muted-foreground">
+                      {formatCents(Number(inv.amountCents) || 0)} rent{fee > 0 ? ` + ${formatCents(fee)} late fee` : ''}{(Number(inv.paidCents) || 0) > 0 ? ` − ${formatCents(Number(inv.paidCents))} paid` : ''}
+                      {inv.feeWaivedAt ? ` · fee waived ${String(inv.feeWaivedAt).slice(0, 10)}` : ''}
+                    </p>
+                  </div>
+                  <p className="text-sm font-black tabular-nums shrink-0">{formatCents(Math.max(left, 0))}</p>
+                </div>
+                <input value={waiveReason[inv.id] || ''} onChange={(e) => setWaiveReason((m) => ({ ...m, [inv.id]: e.target.value.slice(0, 160) }))}
+                  placeholder="Reason (goes on their record and the statement)" aria-label="Waiver reason"
+                  className="h-9 w-full rounded-lg border-2 bg-white px-2.5 text-[11px] font-bold outline-none focus:border-foreground/60" />
+                <div className="flex flex-wrap gap-2">
+                  {fee > 0 && (
+                    <Button variant="outline" size="sm" disabled={!!waiveBusy}
+                      onClick={() => arm(`${inv.id}:fee`, () => waiveInvoice(inv, 'fee'))}
+                      className={cn('h-9 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest', armed === `${inv.id}:fee` ? 'bg-amber-600 border-amber-600 text-white' : 'border-amber-300 text-amber-800')}>
+                      {armed === `${inv.id}:fee` ? 'Tap again — waive fee' : `Waive ${formatCents(fee)} fee`}
+                    </Button>
+                  )}
+                  <Button variant="outline" size="sm" disabled={!!waiveBusy}
+                    onClick={() => arm(`${inv.id}:invoice`, () => waiveInvoice(inv, 'invoice'))}
+                    className={cn('h-9 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest', armed === `${inv.id}:invoice` ? 'bg-red-600 border-red-600 text-white' : 'border-red-200 text-red-700')}>
+                    {armed === `${inv.id}:invoice` ? 'Tap again — waive whole invoice' : 'Waive invoice'}
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
         </CardContent>
       </Card>
 
