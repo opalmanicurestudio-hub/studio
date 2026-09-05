@@ -46,6 +46,7 @@ import {
 import { cn } from '@/lib/utils';
 import { buildRentSchedule, type ScheduledCharge } from '@/lib/rent-schedule';
 import { buildRentInvoice, leasesToInvoice, invoiceKey } from '@/lib/rent-invoices';
+import { resolveCollectionsPolicy, type CollectionsPolicy } from '@/lib/collections-policy';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { CalendarClock as CalendarClockIcon } from 'lucide-react';
@@ -282,6 +283,101 @@ function RentScheduleCard({ rows, renterById, boothById, onEnableAutopay }: {
           );
         })}
         {rows.length > 12 && <p className="text-[10px] font-bold text-slate-400">Showing the next 12 of {rows.length}.</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Collections — what happens to someone who does not pay. Every consequence
+ * here is OFF until the shop turns it on; the code never decides to bar
+ * someone on its own. Saved on the tenant as collectionsPolicy.
+ */
+function CollectionsCard({ tenantId, firestore, tenant }: { tenantId: string; firestore: any; tenant: any }) {
+  const [cfg, setCfg] = useState<CollectionsPolicy>(() => resolveCollectionsPolicy(tenant));
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => { setCfg(resolveCollectionsPolicy(tenant)); }, [tenant]);
+
+  const save = async () => {
+    if (!firestore || !tenantId) return;
+    setSaving(true);
+    try {
+      await updateDoc(doc(firestore, `tenants/${tenantId}`), { collectionsPolicy: cfg });
+      setSaved(true); setTimeout(() => setSaved(false), 1800);
+    } finally { setSaving(false); }
+  };
+  const toggleDay = (d: number) => setCfg((c) => ({
+    ...c, dunningDays: c.dunningDays.includes(d) ? c.dunningDays.filter((x) => x !== d) : [...c.dunningDays, d].sort((a, b) => a - b),
+  }));
+  const Row = ({ title, note, on, onToggle }: { title: string; note: string; on: boolean; onToggle: () => void }) => (
+    <button type="button" onClick={onToggle} aria-pressed={on}
+      className={cn('w-full rounded-2xl border-2 px-4 py-3 flex items-center justify-between gap-3 text-left transition-colors', on ? 'border-slate-900 bg-slate-50' : 'bg-white')}>
+      <span className="min-w-0">
+        <span className="block text-[11px] font-black uppercase tracking-widest">{title}</span>
+        <span className="block text-[10px] font-bold text-muted-foreground">{note}</span>
+      </span>
+      <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest', on ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500')}>{on ? 'On' : 'Off'}</span>
+    </button>
+  );
+
+  return (
+    <Card className="rounded-[2rem] border-2">
+      <CardHeader className="p-5 pb-2">
+        <CardTitle className="text-[11px] font-black uppercase tracking-widest">Collections</CardTitle>
+        <p className="text-[11px] font-bold text-slate-500">
+          What happens when rent goes unpaid. Everything here is off until you switch it on — the app never bars anyone on its own.
+        </p>
+      </CardHeader>
+      <CardContent className="p-5 pt-2 space-y-4">
+        <div className="space-y-1.5">
+          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Escalating notices, days late</p>
+          <p className="text-[10px] font-bold text-muted-foreground">The first late notice always goes out. Tick the days you want a firmer follow-up. Each fires once per invoice, by email and text.</p>
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {[3, 7, 14, 21, 30].map((d) => {
+              const on = cfg.dunningDays.includes(d);
+              return (
+                <button key={d} type="button" onClick={() => toggleDay(d)} aria-pressed={on}
+                  className={cn('h-10 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-widest transition-colors', on ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>
+                  Day {d}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Bar from booking automatically</p>
+          <div className="flex flex-wrap gap-1.5">
+            {[null, 7, 14, 30, 60].map((d) => {
+              const on = cfg.autoBarAfterDaysLate === d;
+              return (
+                <button key={String(d)} type="button" onClick={() => setCfg((c) => ({ ...c, autoBarAfterDaysLate: d }))} aria-pressed={on}
+                  className={cn('h-10 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-widest transition-colors', on ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>
+                  {d === null ? 'Never — I decide' : `${d} days late`}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[10px] font-bold text-muted-foreground">Barring stops day bookings and flags them in your pipeline. You can always bar or unbar by hand on this page.</p>
+        </div>
+
+        <Row title="Bar when a lease ends owing" note="Someone who leaves with a balance can't book again until it's settled." on={cfg.autoBarOnLeaseEndOwing} onToggle={() => setCfg((c) => ({ ...c, autoBarOnLeaseEndOwing: !c.autoBarOnLeaseEndOwing }))} />
+        <Row title="Tell them when they're barred" note="A short notice with the amount and a pay link, whether you barred them or the policy did." on={cfg.notifyOnBar} onToggle={() => setCfg((c) => ({ ...c, notifyOnBar: !c.notifyOnBar }))} />
+
+        <div className="space-y-1.5">
+          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">What a barred renter sees when they try to book</p>
+          <textarea value={cfg.wallMessage} onChange={(e) => setCfg((c) => ({ ...c, wallMessage: e.target.value.slice(0, 300) }))}
+            rows={3} aria-label="Message shown to a barred renter"
+            className="w-full rounded-2xl border-2 bg-white px-3.5 py-2.5 text-sm font-medium outline-none focus:border-foreground/60" />
+        </div>
+
+        <div className="flex items-center justify-end gap-2">
+          {saved && <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Saved</span>}
+          <Button onClick={save} disabled={saving} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest">
+            {saving ? 'Saving…' : 'Save collections policy'}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
@@ -850,8 +946,17 @@ export default function RentRollPage() {
     try {
       await setDoc(doc(firestore, 'tenants', tenantId, 'renters', r.id), {
         doNotRent: on, doNotRentAt: on ? new Date().toISOString() : null,
-        doNotRentReason: on ? 'Unpaid balance' : null,
+        doNotRentReason: on ? 'Unpaid balance' : null, doNotRentBy: 'owner',
       }, { merge: true });
+      // Tell them, if the shop's policy says so — through the logged sender.
+      if (on && resolveCollectionsPolicy(selectedTenant).notifyOnBar) {
+        try {
+          await fetch('/api/booths/notify', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'renter-barred', tenantId, renterId: r.id }),
+          });
+        } catch { /* the bar stands */ }
+      }
       setCycleResult(on ? `${r.firstName} ${r.lastName} can no longer book or apply until this is cleared.` : `${r.firstName} ${r.lastName} can book again.`);
     } catch { setCycleResult('Could not save that \u2014 try again.'); }
     setFormerBusy('');
@@ -1747,6 +1852,7 @@ export default function RentRollPage() {
       {tenantId && <RenterProvidersCard tenantId={tenantId} firestore={firestore} renters={(renters || []) as any[]} staff={(allStaff || []) as any[]} allAppointments={(allAppointments || []) as any[]} />}
       {tenantId && <RenterSwapsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
       {tenantId && <RentCommsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
+      {tenantId && <CollectionsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
       </div>
     </div>
   );
