@@ -187,7 +187,7 @@ export async function POST(req: NextRequest) {
     // Email AFTER commit — a crash here loses one email, never the label.
     try {
       const RESEND_API_KEY = process.env.RESEND_API_KEY;
-      const RESEND_FROM = process.env.RESEND_FROM;
+      const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
       const to = String(order.customerEmail || '').trim();
       if (RESEND_API_KEY && RESEND_FROM && to) {
         const shopName = String(tenant.businessName || tenant.name || 'the shop');
@@ -207,10 +207,12 @@ export async function POST(req: NextRequest) {
           ${emailButton(String(txn.label_url || ''), 'Open my return label', emailBrand)}
           <p style="font-size:12px;color:#94a3b8;line-height:1.6">Tracking ${String(txn.tracking_number || '')}. Your refund moves once the return arrives and is checked in.</p>`,
           { preheader: 'Your return label is ready' });
-        await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from: RESEND_FROM, to: [to], subject: `Your return label from ${shopName}`, html }),
+        const { sendNotification } = await import('@/lib/notify');
+        await sendNotification(db, {
+          tenantId, channel: 'email', to,
+          subject: `Your return label from ${shopName}`, html,
+          kind: 'return_label', recipientType: 'client',
+          recipientId: orderId || null,
         });
       }
     } catch {
