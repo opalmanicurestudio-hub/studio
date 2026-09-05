@@ -2,6 +2,19 @@
  * /api/booths/account-statement
  *
  * GET ?tenantId=&renterId=[&from=YYYY-MM-DD&to=YYYY-MM-DD]
+ * GET ?tenantId=&renterId=&receipt=<rentLedger payment id>
+ *
+ * The statement ends with a REMITTANCE STUB — the tear-off slip from a paper
+ * bill: who to make the check out to, where to mail it, the account, the
+ * amount due, and "amount enclosed ____". Someone paying by cash or check
+ * sends the stub back (or hands it over), which is what makes the payment
+ * matchable when it arrives. Payable-to and the mailing address come from the
+ * shop's Collections settings, falling back to its name and address.
+ *
+ * With ?receipt=, the same route renders a PAYMENT RECEIPT for one recorded
+ * payment: date, method, amount, which invoices it settled, and the balance
+ * left afterwards — the piece of paper that goes back to the person who
+ * handed over cash.
  *
  * A print-ready account statement for one renter: every invoice (with its
  * late fee), every payment, every write-off, in date order, with a running
@@ -45,6 +58,7 @@ export async function GET(req: NextRequest) {
   const from = String(sp.get('from') || '').slice(0, 10);
   const to = String(sp.get('to') || '').slice(0, 10);
   if (!tenantId || !renterId) return new NextResponse('Missing tenantId or renterId', { status: 400 });
+  const receiptId = String(sp.get('receipt') || '').trim();
 
   const db = getAdminDb();
   const [tSnap, rSnap, invSnap, ledSnap] = await Promise.all([
@@ -58,6 +72,66 @@ export async function GET(req: NextRequest) {
   const renter = rSnap.data() as any;
   const studio = tenant.name || tenant.businessName || 'The studio';
   const addr = [tenant.address?.street || tenant.address?.line1, tenant.address?.city, tenant.address?.state, tenant.address?.zip || tenant.address?.postalCode].filter(Boolean).join(', ');
+
+  const remit = (tenant.collectionsPolicy || {}) as any;
+  const payableTo = String(remit.payableTo || '').trim() || studio;
+  const remitAddress = String(remit.remitAddress || '').trim() || addr;
+  const styles = `
+  *{box-sizing:border-box} body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#111;margin:0;padding:32px;max-width:860px}
+  h1{font-size:22px;margin:0 0 4px;letter-spacing:-.01em} .muted{color:#6b7280;font-size:12px}
+  .head{display:flex;justify-content:space-between;gap:24px;margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid #111}
+  .parties{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px;padding:16px;background:#f9fafb;border-radius:12px}
+  .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:#6b7280;margin-bottom:4px}
+  table{width:100%;border-collapse:collapse;font-size:13px} th{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:#6b7280;text-align:left;padding:8px 6px;border-bottom:1px solid #e5e7eb}
+  td{padding:9px 6px;border-bottom:1px solid #f3f4f6;vertical-align:top} td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  tr.late_fee td{color:#b91c1c} tr.payment td,tr.credit td{color:#047857} tr.write_off td{color:#6b7280;font-style:italic}
+  .detail{color:#6b7280;font-size:11px} .totals{margin-top:16px;margin-left:auto;width:320px;font-size:13px}
+  .totals div{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f3f4f6} .totals .big{font-size:18px;font-weight:700;border-top:2px solid #111;border-bottom:0;padding-top:10px}
+  .foot{margin-top:28px;font-size:11px;color:#6b7280}
+  .tear{margin-top:36px;border-top:2px dashed #9ca3af;padding-top:6px;position:relative}
+  .tear:before{content:"✂ detach and return with payment";position:absolute;top:-9px;left:0;background:#fff;padding-right:8px;font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.12em}
+  .stub{display:grid;grid-template-columns:1.2fr 1fr;gap:20px;margin-top:14px;padding:16px;border:2px solid #111;border-radius:12px;page-break-inside:avoid}
+  .stub .field{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid #e5e7eb;font-size:13px}
+  .stub .field span:last-child{font-variant-numeric:tabular-nums;text-align:right}
+  .stub .blank{border-bottom:1.5px solid #111;min-width:120px;display:inline-block}
+  .stamp{display:inline-block;padding:6px 12px;border:2px solid #047857;color:#047857;border-radius:8px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;font-size:12px}
+  @media print{body{padding:0} .noprint{display:none}}`;
+
+  /* ── Receipt for one payment ─────────────────────────────────────────── */
+  if (receiptId) {
+    const pd = ledSnap.docs.find((d) => d.id === receiptId);
+    if (!pd) return new NextResponse('Payment not found', { status: 404 });
+    const pay = pd.data() as any;
+    if (pay.type !== 'payment' || (Number(pay.amountCents) || 0) >= 0) return new NextResponse('Not a payment', { status: 400 });
+    const paidCents = -Number(pay.amountCents);
+    const applied = invSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
+      .filter((i) => i.ledgerEntryId === receiptId);
+    const balanceAfter = [...invSnap.docs.map((d) => d.data() as any)]
+      .filter((i) => i.status === 'due' || i.status === 'late')
+      .reduce((n, i) => n + (Number(i.amountCents) || 0) + (Number(i.lateFeeCents) || 0) - (Number(i.paidCents) || 0), 0);
+    const methodLabel: Record<string, string> = { cash: 'Cash', check: 'Check', zelle: 'Zelle', venmo: 'Venmo', card: 'Card', write_off: 'Write-off' };
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Receipt — ${esc(renter.firstName)} ${esc(renter.lastName)}</title><style>${styles}</style></head><body>
+<div class="head">
+  <div><h1>Payment receipt</h1><div class="muted">${esc(studio)}${addr ? ` · ${esc(addr)}` : ''}</div></div>
+  <div style="text-align:right"><div class="lbl">Receipt no.</div><div style="font-family:ui-monospace,monospace">${esc(receiptId.slice(0, 8).toUpperCase())}</div><div class="lbl" style="margin-top:8px">Date</div><div>${day(pay.paidAt || pay.createdAt)}</div></div>
+</div>
+<div class="parties">
+  <div><div class="lbl">Received from</div><div><strong>${esc(renter.firstName)} ${esc(renter.lastName)}</strong></div><div class="muted">${esc([renter.email, renter.phone].filter(Boolean).join(' · '))}</div></div>
+  <div><div class="lbl">Amount received</div><div style="font-size:26px;font-weight:700;color:#047857">${money(paidCents)}</div><div class="muted">by ${esc(methodLabel[String(pay.method || '')] || pay.method || pay.paymentMethod || 'payment')}${pay.note ? ` · ${esc(pay.note)}` : ''}</div></div>
+</div>
+<table><thead><tr><th>Applied to</th><th class="n">Amount</th></tr></thead><tbody>
+  ${applied.length ? applied.map((i) => `<tr><td>Rent — ${esc(i.boothName || 'space')} <span class="detail">due ${day(i.dueDate)}${(Number(i.lateFeeCents) || 0) > 0 ? ` incl. ${money(Number(i.lateFeeCents))} late fee` : ''}</span></td><td class="n">${money((Number(i.amountCents) || 0) + (Number(i.lateFeeCents) || 0))}${i.status !== 'paid' ? ' <span class="detail">(part)</span>' : ''}</td></tr>`).join('') : `<tr><td>On account</td><td class="n">${money(paidCents)}</td></tr>`}
+</tbody></table>
+<div class="totals">
+  <div><span>Received</span><span>${money(paidCents)}</span></div>
+  <div class="big"><span>Balance after this payment</span><span style="color:${balanceAfter > 0 ? '#b91c1c' : '#047857'}">${money(Math.max(balanceAfter, 0))}</span></div>
+</div>
+<p style="margin-top:20px"><span class="stamp">${balanceAfter > 0 ? 'Received — thank you' : 'Paid in full — thank you'}</span></p>
+<div class="foot">Keep this receipt for your records. Questions: ${esc(tenant.email || tenant.phone || studio)}.</div>
+<div class="noprint" style="margin-top:20px"><button onclick="window.print()" style="padding:10px 16px;border:2px solid #111;background:#111;color:#fff;border-radius:10px;font-weight:700">Print / Save as PDF</button></div>
+</body></html>`;
+    return new NextResponse(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+  }
 
   const lines: Line[] = [];
   const represented = new Set<string>();
@@ -118,21 +192,9 @@ export async function GET(req: NextRequest) {
   const credits = shown.filter((l) => l.cents < 0).reduce((n, l) => n + l.cents, 0);
   const closing = running;
 
+  const nextDue = invSnap.docs.map((d) => d.data() as any).filter((i) => i.status === 'due' || i.status === 'late').map((i) => String(i.dueDate || '')).sort()[0] || '';
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>Account statement — ${esc(renter.firstName)} ${esc(renter.lastName)}</title>
-<style>
-  *{box-sizing:border-box} body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#111;margin:0;padding:32px;max-width:860px}
-  h1{font-size:22px;margin:0 0 4px;letter-spacing:-.01em} .muted{color:#6b7280;font-size:12px}
-  .head{display:flex;justify-content:space-between;gap:24px;margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid #111}
-  .parties{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px;padding:16px;background:#f9fafb;border-radius:12px}
-  .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:#6b7280;margin-bottom:4px}
-  table{width:100%;border-collapse:collapse;font-size:13px} th{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:#6b7280;text-align:left;padding:8px 6px;border-bottom:1px solid #e5e7eb}
-  td{padding:9px 6px;border-bottom:1px solid #f3f4f6;vertical-align:top} td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-  tr.fee td{color:#b91c1c} tr.payment td,tr.credit td{color:#047857} tr.write_off td{color:#6b7280;font-style:italic}
-  .detail{color:#6b7280;font-size:11px} .totals{margin-top:16px;margin-left:auto;width:320px;font-size:13px}
-  .totals div{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f3f4f6} .totals .big{font-size:18px;font-weight:700;border-top:2px solid #111;border-bottom:0;padding-top:10px}
-  .foot{margin-top:28px;font-size:11px;color:#6b7280}
-  @media print{body{padding:0} .noprint{display:none}}
-</style></head><body>
+<style>${styles}</style></head><body>
 <div class="head">
   <div><h1>Account statement</h1><div class="muted">${esc(studio)}${addr ? ` · ${esc(addr)}` : ''}</div></div>
   <div style="text-align:right"><div class="lbl">Prepared</div><div>${day(new Date().toISOString())}</div>${from || to ? `<div class="lbl" style="margin-top:8px">Period</div><div>${from ? day(from) : 'Start'} – ${to ? day(to) : 'Today'}</div>` : ''}</div>
@@ -155,6 +217,25 @@ export async function GET(req: NextRequest) {
   <div class="big"><span>${closing > 0 ? 'Balance owing' : 'Balance'}</span><span>${money(closing)}</span></div>
 </div>
 <div class="foot">Late fees follow the lease's late-fee policy and grace period. Payments apply to the oldest open invoice first. Questions: ${esc(tenant.email || tenant.phone || studio)}.</div>
+
+<div class="tear"></div>
+<div class="stub">
+  <div>
+    <div class="lbl">Remit payment to</div>
+    <div><strong>${esc(payableTo)}</strong></div>
+    ${remitAddress ? `<div class="muted">${esc(remitAddress)}</div>` : ''}
+    <div class="muted" style="margin-top:8px">Make checks payable to ${esc(payableTo)}. Write the account number on the memo line, or return this slip with your payment.</div>
+    <div class="muted" style="margin-top:8px">Pay online any time: ${esc(`${(tenant.publicOrigin || process.env.NEXT_PUBLIC_APP_URL || '').replace(/\/+$/, '')}/rent/${tenantId}`)}</div>
+  </div>
+  <div>
+    <div class="field"><span>Account</span><span style="font-family:ui-monospace,monospace">${esc(renterId.slice(0, 8).toUpperCase())}</span></div>
+    <div class="field"><span>Renter</span><span>${esc(renter.firstName)} ${esc(renter.lastName)}</span></div>
+    <div class="field"><span>Statement date</span><span>${day(new Date().toISOString())}</span></div>
+    ${nextDue ? `<div class="field"><span>Oldest due date</span><span>${day(nextDue)}</span></div>` : ''}
+    <div class="field"><span><strong>Amount due</strong></span><span><strong>${money(Math.max(closing, 0))}</strong></span></div>
+    <div class="field" style="border-bottom:0"><span>Amount enclosed</span><span>$<span class="blank"></span></span></div>
+  </div>
+</div>
 <div class="noprint" style="margin-top:20px"><button onclick="window.print()" style="padding:10px 16px;border:2px solid #111;background:#111;color:#fff;border-radius:10px;font-weight:700">Print / Save as PDF</button></div>
 </body></html>`;
 
