@@ -302,13 +302,17 @@ export async function POST(req: NextRequest) {
         bodyLines: approved
           ? [
             `Hi ${firstNameOf(tour.name)} — you're set for ${whenText}.`,
-            'There is nothing to bring or prepare. If the time stops working, just reply to this email.',
+            tour.manageToken
+              ? 'There is nothing to bring or prepare. If the time stops working, you can move or cancel it yourself below.'
+              : 'There is nothing to bring or prepare. If the time stops working, just reply to this email.',
           ]
           : [
             `Hi ${firstNameOf(tour.name)} — sorry, we can't make ${whenText} work.`,
             'It is almost always a clash rather than a no. Pick another time that suits you and we will see you then.',
           ],
-        ...(approved ? {} : { cta: { label: 'Choose another time', url: `${origin}/tour/${tenantId}` } }),
+        ...(approved
+          ? (tour.manageToken ? { cta: { label: 'Change or cancel my visit', url: `${origin}/tour-manage/${tenantId}/${tourId}/${tour.manageToken}` } } : {})
+          : { cta: { label: 'Choose another time', url: `${origin}/tour/${tenantId}` } }),
         footerNote: `Sent by ${studioName}. You're receiving this because you asked to visit us.`,
       });
       const r = await sendNotification(db, {
