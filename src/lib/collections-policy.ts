@@ -27,6 +27,10 @@ export interface CollectionsPolicy {
   notifyOnBar: boolean;
   /** What a barred renter sees when they try to book. */
   wallMessage: string;
+  /** Printed on the statement's remittance slip. Blank = the shop's name. */
+  payableTo?: string;
+  /** Printed on the remittance slip. Blank = the shop's address. */
+  remitAddress?: string;
 }
 
 export const DEFAULT_COLLECTIONS: CollectionsPolicy = {
@@ -51,6 +55,8 @@ export function resolveCollectionsPolicy(tenant: any): CollectionsPolicy {
     autoBarOnLeaseEndOwing: c.autoBarOnLeaseEndOwing === true,
     notifyOnBar: c.notifyOnBar !== false,
     wallMessage: String(c.wallMessage || '').trim().slice(0, 300) || DEFAULT_COLLECTIONS.wallMessage,
+    payableTo: String(c.payableTo || '').trim().slice(0, 120),
+    remitAddress: String(c.remitAddress || '').trim().slice(0, 200),
   };
 }
 
