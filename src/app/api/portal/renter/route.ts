@@ -1310,6 +1310,7 @@ export async function POST(req: NextRequest) {
           firstName: renter.firstName || '', lastName: renter.lastName || '',
           businessName: renter.businessName || null,
           cardOnFile: !!renter.cardOnFile, cardBrand: renter.cardBrand || null, cardLast4: renter.cardLast4 || null,
+          autopayEnabled: renter.autopayEnabled === true,
         } : null,
         lease: lease ? {
           id: lease.id, boothName: leaseBoothName,
@@ -2153,6 +2154,28 @@ export async function POST(req: NextRequest) {
     // Ownership chain verified server-side: invoice → lease → renter →
     // renter's contact must match this session. Works for every renter,
     // card on file or not (Checkout collects the card).
+    // ── autopay-set: the renter's own switch ───────────────────────────────
+    // Same flag the owner flips on the renter card; this is their side of it.
+    // Refused without a card on file, because an autopay with nothing to draft
+    // from is a promise the shop cannot keep.
+    if (action === 'autopay-set') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const rRef = db.doc(`tenants/${tenantId}/renters/${session.renterId}`);
+      const rSnap = await rRef.get();
+      const r = (rSnap.data() as any) || {};
+      const on = body.enabled === true;
+      const hasCard = !!(r.cardOnFile && r.stripeCustomerId && (r.stripePaymentMethodId || r.defaultPaymentMethodId));
+      if (on && !hasCard) {
+        return NextResponse.json({ ok: false, error: 'Add a card first — autopay needs one to draft from.' }, { status: 400 });
+      }
+      const nowIso = new Date().toISOString();
+      await rRef.set({ autopayEnabled: on, autopayChangedAt: nowIso, autopayChangedBy: 'renter' }, { merge: true });
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({ id: nRef.id, type: 'renter_autopay', read: false, createdAt: nowIso, link: '/rent',
+        message: `${r.firstName || 'A renter'} ${r.lastName || ''} turned autopay ${on ? 'on' : 'off'} from their portal.`.replace(/\s+/g, ' ') });
+      return NextResponse.json({ ok: true, autopayEnabled: on });
+    }
+
     if (action === 'pay-invoice' || action === 'confirm-invoice') {
       const invoiceId = String(body.invoiceId || '');
       if (!invoiceId) return NextResponse.json({ ok: false, error: 'Missing invoice.' }, { status: 400 });
