@@ -209,10 +209,12 @@ const RENT_COMMS_DEFAULTS: any = {
  * the receipts and declines afterwards. Same rule the cron uses (rent-schedule
  * lifts it out), so what this shows is what will happen, not an estimate.
  */
-function RentScheduleCard({ rows, renterById, boothById }: {
+function RentScheduleCard({ rows, renterById, boothById, onEnableAutopay }: {
   rows: ScheduledCharge[];
   renterById: Map<string, any>;
   boothById: Map<string, any>;
+  /** Flip autopay on for a renter who has a card but is still paying by hand. */
+  onEnableAutopay?: (renterId: string) => void;
 }) {
   const money = (c: number) => `$${(c / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const when = (isoDate: string) => {
@@ -265,7 +267,17 @@ function RentScheduleCard({ rows, renterById, boothById }: {
                   {r.lastAttempt ? ` · last ${r.lastAttempt.ok ? 'paid' : `declined (${r.lastAttempt.note})`} ${r.lastAttempt.date}` : ''}
                 </p>
               </div>
-              <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest', tone)}>{label}</span>
+              {r.readiness === 'manual' && renter?.cardOnFile && onEnableAutopay ? (
+                // Every existing renter starts here — autopay unset, card on
+                // file. One tap moves them to "ready" without opening their
+                // card; the switch there does the same thing.
+                <button type="button" onClick={() => onEnableAutopay(r.renterId)}
+                  className="shrink-0 rounded-full border-2 border-emerald-300 bg-white px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-emerald-700 hover:bg-emerald-50">
+                  Turn on autopay
+                </button>
+              ) : (
+                <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest', tone)}>{label}</span>
+              )}
             </div>
           );
         })}
@@ -701,7 +713,7 @@ export default function RentRollPage() {
     const m = new Map<string, { renterId: string; renterName: string; boothName: string; dueCents: number; lateCents: number; feeCents: number; oldest: string; count: number; late: boolean }>();
     for (const i of openInvoices) {
       const cur = m.get(i.renterId) || { renterId: i.renterId, renterName: i.renterName || 'Renter', boothName: i.boothName || '', dueCents: 0, lateCents: 0, feeCents: 0, oldest: i.dueDate, count: 0, late: false };
-      const amt = Number(i.amountCents) || 0;
+      const amt = Math.max(0, (Number(i.amountCents) || 0) - (Number(i.paidCents) || 0));
       if (i.status === 'late') { cur.lateCents += amt; cur.late = true; } else cur.dueCents += amt;
       cur.feeCents += Number(i.lateFeeCents) || 0;
       cur.count += 1;
@@ -1006,6 +1018,35 @@ export default function RentRollPage() {
           ),
           { status: 'paid', paidAt: paymentForm.date, updatedAt: now }
         );
+      }
+
+      // 4. Settle the renter's open invoices, oldest first, with the same
+      //    money. Invoices are what the Owed card, the late sweep, the
+      //    reminder and the portal read — a cash payment that only touched the
+      //    ledger left all four still saying "owes". Whole invoices only; a
+      //    part-payment leaves the invoice open with the remainder recorded on
+      //    it so nobody is chased for money they've handed over.
+      let invoiceRemaining = amountCents;
+      const openForRenter = ((invoices ?? []) as any[])
+        .filter((i) => i.renterId === paymentRenter.id && (i.status === 'due' || i.status === 'late'))
+        .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
+      for (const inv of openForRenter) {
+        const owed = (Number(inv.amountCents) || 0) + (Number(inv.lateFeeCents) || 0) - (Number(inv.paidCents) || 0);
+        if (owed <= 0) continue;
+        const ref = doc(firestore, 'tenants', tenantId, 'rentInvoices', inv.id);
+        if (invoiceRemaining >= owed) {
+          invoiceRemaining -= owed;
+          batch.update(ref, {
+            status: 'paid', paidAt: paymentForm.date, paidVia: paymentForm.method,
+            paidCents: (Number(inv.paidCents) || 0) + owed, ledgerEntryId: paymentRef.id, updatedAt: now,
+          });
+        } else if (invoiceRemaining > 0) {
+          batch.update(ref, {
+            paidCents: (Number(inv.paidCents) || 0) + invoiceRemaining, ledgerEntryId: paymentRef.id, updatedAt: now,
+          });
+          invoiceRemaining = 0;
+        }
+        if (invoiceRemaining === 0) break;
       }
 
       await batch.commit();
@@ -1508,7 +1549,17 @@ export default function RentRollPage() {
           </div>
         </DialogContent>
       </Dialog>
-      {tenantId && <RentScheduleCard rows={rentSchedule} renterById={scheduleRenterById} boothById={scheduleBoothById} />}
+      {tenantId && (
+        <RentScheduleCard rows={rentSchedule} renterById={scheduleRenterById} boothById={scheduleBoothById}
+          onEnableAutopay={async (renterId) => {
+            if (!firestore) return;
+            const r = scheduleRenterById.get(renterId);
+            if (!r?.cardOnFile) return;
+            await setDoc(doc(firestore, 'tenants', tenantId, 'renters', renterId), {
+              autopayEnabled: true, autopayChangedAt: new Date().toISOString(), autopayChangedBy: 'owner',
+            }, { merge: true });
+          }} />
+      )}
       {tenantId && <RenterProvidersCard tenantId={tenantId} firestore={firestore} renters={(renters || []) as any[]} staff={(allStaff || []) as any[]} allAppointments={(allAppointments || []) as any[]} />}
       {tenantId && <RenterSwapsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
       {tenantId && <RentCommsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
