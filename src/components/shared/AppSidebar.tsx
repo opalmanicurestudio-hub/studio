@@ -111,13 +111,15 @@ const FINANCIAL_SUITE = [
   { href: '/reports',    icon: BarChart,      label: 'Analytics'         },
 ];
 
-// v49 — CONSOLIDATION: /booths is THE booth-rental hub. Renters, rent,
-// receipts, day guests, and the floor all live in its tabs, so the sidebar
-// carries exactly one entry — the hub's own tab strip handles the rest.
+// The hub is being taken apart into pages (the v49 note above this used to
+// say the opposite). Rent moved out of it in R5 — money, schedule, notices,
+// swaps — but never got a door: the only way in was a link buried on the
+// hub's Operations tab. Every page the rental module owns is listed here.
 const BOOTH_RENTAL = [
-  { href: '/booths', icon: Armchair, label: 'Booth Hub' },
-  { href: '/pipeline', icon: Users, label: 'Pipeline' },
-  { href: '/renters', icon: UserCheck, label: 'Renters' },
+  { href: '/booths',   icon: Armchair,  label: 'Spaces'   },
+  { href: '/pipeline', icon: Users,     label: 'Pipeline' },
+  { href: '/renters',  icon: UserCheck, label: 'Renters'  },
+  { href: '/rent',     icon: Wallet,    label: 'Rent'     },
 ];
 
 const EVENTS = [
