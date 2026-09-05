@@ -238,6 +238,29 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
     return out;
   }, []);
 
+  // Which of the next three weeks actually have an open time. A day chip that
+  // leads to "nothing open that day" is a dead end dressed as a choice, so the
+  // server is asked once, up front, and only days with times are drawn.
+  const [tourOpenDays, setTourOpenDays] = useState<Record<string, number> | null>(null);
+  useEffect(() => {
+    if (!tenantId || tourDateOptions.length === 0) return;
+    let cancelled = false;
+    fetch('/api/booths/kiosk', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'tour-days', tenantId, from: tourDateOptions[0], to: tourDateOptions[tourDateOptions.length - 1] }),
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (cancelled) return;
+        if (d?.ok && d.days && typeof d.days === 'object') setTourOpenDays(d.days);
+        else setTourOpenDays({});
+        if (typeof d?.toursOff === 'boolean') setToursOff(d.toursOff);
+        if (typeof d?.autoConfirm === 'boolean') setTourAutoConfirm(d.autoConfirm);
+      })
+      .catch(() => { if (!cancelled) setTourOpenDays({}); });
+    return () => { cancelled = true; };
+  }, [tenantId, tourDateOptions]);
+
   useEffect(() => {
     // Keyed on the date alone: tourDate is only ever set from the tour picker,
     // and inquiryKind is declared further down this component (referencing it
@@ -822,7 +845,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                     : 'Payment received — this space is yours.'}
                 </p>
               </div>
-              <div className="rounded-2xl border-2 bg-slate-50 p-4 text-left space-y-1">
+              <div className="rounded-2xl border-2 border-slate-200 bg-white p-4 text-left space-y-1">
                 <p className="font-black text-sm uppercase">{confirmedRes.boothName}</p>
                 <p className="text-xs font-bold text-slate-600">{confirmedRes.startDate} → {confirmedRes.endDate}</p>
               </div>
@@ -1071,7 +1094,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
       {/* ── Application dialog — immersive: photo strip + guided form ── */}
       {applyFor && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-6" onClick={() => !submitting && setApplyFor(null)}>
-          <div className="relative bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl overflow-hidden max-h-[92dvh] flex flex-col" onClick={e => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" className="relative bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl overflow-hidden max-h-[92dvh] flex flex-col" style={{ backgroundColor: '#fff' }} onClick={e => e.stopPropagation()}>
             {submitting && (
               <div className="absolute inset-0 z-20 bg-white/75 backdrop-blur-sm flex items-center justify-center">
                 <div className="flex flex-col items-center gap-3">
@@ -1143,7 +1166,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                         <p className="text-xs opacity-60 font-bold mt-0.5">{((isLease(applyFor) ? leaseRates(applyFor) : dayRates(applyFor)).slice(0, 2).map((r: any) => `$${Math.round(r.amountCents / 100).toLocaleString()}${FREQ_LABEL[r.frequency] || ''}`).join(' · ')) || ''} · We respond within one business day.</p>
                       </div>
                       {(ratingOf(applyFor) || blurbOf(applyFor) || (Array.isArray(applyFor.amenities) && applyFor.amenities.length > 0)) && (
-                        <div className="rounded-2xl bg-slate-50 border-2 border-slate-100 p-3.5 space-y-2.5">
+                        <div className="rounded-2xl bg-white border-2 border-slate-200 p-3.5 space-y-2.5">
                           {ratingOf(applyFor) && (
                             <div className="flex items-center gap-2"><Stars avg={ratingOf(applyFor)!.avg} /><span className="text-xs font-black">{ratingOf(applyFor)!.avg.toFixed(1)}</span><span className="text-[10px] font-bold text-slate-400">· {ratingOf(applyFor)!.count} review{ratingOf(applyFor)!.count === 1 ? '' : 's'}</span></div>
                           )}
@@ -1246,7 +1269,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                     <input type="text" value={form.nicheOther} onChange={e => setForm(f => ({ ...f, nicheOther: e.target.value }))} placeholder="Tell us your specialty" className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
                   )}
                   {config.applicationQualifiers && inquiryKind === 'application' && (
-                    <div className="space-y-3 rounded-2xl border-2 border-slate-100 bg-slate-50 p-3.5">
+                    <div className="space-y-3 rounded-2xl border-2 border-slate-200 bg-white p-3.5">
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">A few quick questions</p>
                       {[
                         { key: 'licensed', label: 'Are you licensed?', opts: ['Yes', 'No', 'In progress'] },
@@ -1277,8 +1300,15 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                     <div className="space-y-3">
                       <div>
                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Pick a day</p>
+                        {tourOpenDays === null ? (
+                          <p className="text-[11px] font-medium text-slate-500 py-2">Checking which days are open…</p>
+                        ) : toursOff ? (
+                          <p className="text-[11px] font-medium text-slate-500 py-2">Tours aren't being booked online right now — send your request and we'll arrange one.</p>
+                        ) : Object.keys(tourOpenDays).length === 0 ? (
+                          <p className="text-[11px] font-medium text-slate-500 py-2">No visiting times in the next three weeks — send your request and we'll arrange one.</p>
+                        ) : null}
                         <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5 max-h-40 overflow-y-auto pr-0.5">
-                          {tourDateOptions.map(diso => {
+                          {tourDateOptions.filter(diso => !tourOpenDays || (tourOpenDays[diso] || 0) > 0).map(diso => {
                             const d = new Date(diso + 'T00:00:00');
                             const sel = tourDate === diso;
                             return (
@@ -1417,7 +1447,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                                 {(() => {
                                   const dates = availableDates(applyFor);
                                   if (dates.length === 0) return (
-                                    <p className="text-[11px] font-medium text-slate-500 rounded-xl bg-slate-50 border-2 border-dashed px-3.5 py-3">No open days coming up — send a question and we'll help you find a time.</p>
+                                    <p className="text-[11px] font-medium text-slate-500 rounded-xl bg-white border-2 border-dashed border-slate-300 px-3.5 py-3">No open days coming up — send a question and we'll help you find a time.</p>
                                   );
                                   return (
                                     <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-56 overflow-y-auto pr-0.5">
@@ -1665,7 +1695,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                   {(applyMode !== 'day' || reserveStep === 'you') && (
                   <div className="space-y-3 animate-in fade-in duration-200">
                   {deferPaperwork && inquiryKind === 'application' && (compNeeded || requiredDocs.length > 0) && (
-                    <div className="rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 px-4 py-3">
+                    <div className="rounded-xl border-2 border-dashed border-slate-300 bg-white px-4 py-3">
                       <p className="text-[11px] font-bold text-slate-500 leading-snug">No paperwork needed yet — we'll collect your license, insurance{requiredDocs.length > 0 ? ' and documents' : ''} once your application is approved.</p>
                     </div>
                   )}
@@ -1706,7 +1736,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                         <button type="button" onClick={(e) => { e.preventDefault(); setAgreementOpen(o => !o); }} className="ml-auto text-indigo-600 underline underline-offset-2 font-black text-[10px] uppercase">{agreementOpen ? 'Hide terms' : 'Read terms'}</button>
                       </div>
                       {agreementOpen && (
-                        <p className="text-[11px] leading-relaxed text-slate-600 whitespace-pre-wrap max-h-48 overflow-y-auto border-2 rounded-lg p-2.5 bg-slate-50">{dayUseTermsPreview}</p>
+                        <p className="text-[11px] leading-relaxed text-slate-600 whitespace-pre-wrap max-h-48 overflow-y-auto border-2 border-slate-200 rounded-lg p-2.5 bg-white">{dayUseTermsPreview}</p>
                       )}
                       <div className="space-y-1">
                         <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500">Type your full legal name to sign</label>
