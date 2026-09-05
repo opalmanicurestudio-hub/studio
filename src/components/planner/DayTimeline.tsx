@@ -451,8 +451,15 @@ export const DayTimeline = ({
         return (
             <div key={item.id} className="absolute pr-2 z-10" style={style}>
                 <div className={cn('relative h-full rounded-xl sm:rounded-2xl border-2 overflow-hidden shadow-none transition-colors p-1.5 sm:p-2', scheme.bg, scheme.border)}>
+                    {/* A tour opens its LEAD in the pipeline — the place with the
+                        approve/confirm/outcome buttons — not the booth hub's old
+                        contact drawer, which is being retired. Day rentals still
+                        open the hub's contact card until the POS spaces tab grows
+                        its own. */}
                     <a
-                        href={(item.phone || item.email) ? `/booths?contact=${encodeURIComponent(item.phone || item.email)}` : '/booths'}
+                        href={isTour
+                            ? `/pipeline?lead=${encodeURIComponent(String(item.id).replace(/^tour-/, ''))}`
+                            : ((item.phone || item.email) ? `/booths?contact=${encodeURIComponent(item.phone || item.email)}` : '/booths')}
                         aria-label={`Open ${label.toLowerCase()} for ${item.guestName || item.name || 'guest'}`}
                         className="absolute inset-0 z-0"
                     />
