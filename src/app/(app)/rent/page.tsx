@@ -724,6 +724,52 @@ export default function RentRollPage() {
   }, [openInvoices]);
   const owedTotal = owedByRenter.reduce((n, r) => n + r.dueCents + r.lateCents + r.feeCents, 0);
 
+  // Unpaid ledger charges with no invoice — the old cycle's leftovers.
+  const uninvoicedCharges = useMemo(() => {
+    const invoiced = new Set(((invoices ?? []) as any[]).map((i) => String(i.ledgerEntryId || '')).filter(Boolean));
+    const byKey = new Set(((invoices ?? []) as any[]).map((i) => `${i.leaseId}|${i.dueDate}`));
+    return ((ledger ?? []) as any[]).filter((e) =>
+      e.type === 'rent_charge'
+      && (Number(e.amountCents) || 0) > 0
+      && !['paid', 'waived', 'refunded'].includes(String(e.status))
+      && !invoiced.has(e.id)
+      && !byKey.has(`${e.leaseId}|${e.dueDate}`));
+  }, [ledger, invoices]);
+
+  const [importing, setImporting] = useState(false);
+  const importCharges = async () => {
+    if (!firestore || !tenantId || uninvoicedCharges.length === 0) return;
+    setImporting(true);
+    try {
+      const batch = writeBatch(firestore);
+      const nowIso = new Date().toISOString();
+      for (const e of uninvoicedCharges) {
+        const lease = (leases ?? []).find((l) => l.id === e.leaseId);
+        const renter = scheduleRenterById.get(e.renterId);
+        const booth = scheduleBoothById.get(e.boothId || lease?.boothId || '');
+        const grace = Number(lease?.lateFeePolicy?.graceDays ?? 0);
+        const due = String(e.dueDate || '').slice(0, 10);
+        const graceEnd = new Date(due + 'T00:00:00'); graceEnd.setDate(graceEnd.getDate() + grace);
+        const isLate = !!due && graceEnd.getTime() < new Date(todayIso + 'T00:00:00').getTime();
+        const ref = doc(collection(firestore, 'tenants', tenantId, 'rentInvoices'));
+        batch.set(ref, {
+          id: ref.id, leaseId: e.leaseId || '', renterId: e.renterId, boothId: e.boothId || lease?.boothId || '',
+          renterName: renter ? `${renter.firstName || ''} ${renter.lastName || ''}`.trim() || 'Renter' : 'Renter',
+          boothName: booth?.name || 'Space',
+          amountCents: Number(e.amountCents) || 0, lateFeeCents: 0,
+          status: isLate ? 'late' : 'due', dueDate: due || todayIso, paidAt: null,
+          ledgerEntryId: e.id, dueSoonNotifiedAt: null,
+          source: 'imported', createdAt: nowIso, updatedAt: nowIso,
+        });
+      }
+      await batch.commit();
+      setCycleResult(`Brought ${uninvoicedCharges.length} open charge${uninvoicedCharges.length === 1 ? '' : 's'} into invoices.`);
+    } catch {
+      setCycleResult('Could not import those charges \u2014 try again.');
+    }
+    setImporting(false);
+  };
+
   const rentSchedule = useMemo(
     () => buildRentSchedule((leases ?? []) as any[], scheduleRenterById, (ledger ?? []) as any[], todayIso),
     [leases, scheduleRenterById, ledger, todayIso]);
@@ -1169,6 +1215,22 @@ export default function RentRollPage() {
           </p>
         </CardHeader>
         <CardContent className="p-5 pt-2 space-y-2">
+          {uninvoicedCharges.length > 0 && (
+            <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 px-3.5 py-3 flex items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-black text-amber-900">
+                  {uninvoicedCharges.length} unpaid charge{uninvoicedCharges.length === 1 ? '' : 's'} from the old rent cycle {uninvoicedCharges.length === 1 ? 'is' : 'are'} not invoiced yet.
+                </p>
+                <p className="text-[10px] font-bold text-amber-800">
+                  Bring them in and the late sweep, the reminders and the renter portal will see them too.
+                </p>
+              </div>
+              <Button size="sm" onClick={importCharges} disabled={importing}
+                className="h-10 shrink-0 rounded-xl bg-amber-700 hover:bg-amber-800 font-black uppercase text-[9px] tracking-widest">
+                {importing ? 'Working…' : 'Bring them in'}
+              </Button>
+            </div>
+          )}
           {owedByRenter.length === 0 ? (
             <p className="text-[11px] font-bold text-slate-500">Nothing outstanding. Invoices appear here on each lease's due day.</p>
           ) : owedByRenter.map((r) => (
@@ -1220,12 +1282,13 @@ export default function RentRollPage() {
                 : 'text-amber-600'
               : 'text-emerald-600';
           return (
-            <Card key={renter.id}>
-              <CardContent className="py-4">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium">
+            <Card key={renter.id} className={cn('rounded-[2rem] border-2', isPastDue && 'border-red-200')}>
+              <CardContent className="p-5">
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-black text-base truncate">
                         {renter.firstName} {renter.lastName}
                       </p>
                       {isPastDue && (
@@ -1241,52 +1304,52 @@ export default function RentRollPage() {
                         </Badge>
                       )}
                     </div>
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-[11px] font-bold text-muted-foreground">
                       {booth ? booth.name : 'No active lease'}
                       {lease &&
                         ` — ${formatCents(lease.rentAmountCents)} / ${FREQUENCY_LABELS[lease.frequency].toLowerCase()}`}
                     </p>
                   </div>
-
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <p className="text-xs text-muted-foreground">Balance</p>
-                      <p className={cn('text-lg font-semibold', balanceClass)}>
+                    <div className="text-right shrink-0">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Balance</p>
+                      <p className={cn('text-xl font-black tabular-nums leading-none', balanceClass)}>
                         {formatCents(Math.max(balance, 0))}
                       </p>
                     </div>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        onClick={() => openPaymentDialog(renter)}
-                        disabled={balance <= 0}
-                      >
-                        <HandCoins className="h-3.5 w-3.5 mr-1.5" />
-                        Record payment
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setChargeForm({
-                            description: '',
-                            amountDollars: '',
-                            dueDate: todayIso,
-                          });
-                          setChargeRenter(renter);
-                        }}
-                      >
-                        <Receipt className="h-3.5 w-3.5 mr-1.5" />
-                        Add charge
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setHistoryRenter(renter)}
-                      >
-                        <History className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      onClick={() => openPaymentDialog(renter)}
+                      disabled={balance <= 0}
+                      className="h-11 flex-1 min-w-[10rem] rounded-xl font-black uppercase text-[10px] tracking-widest"
+                    >
+                      <HandCoins className="h-3.5 w-3.5 mr-1.5" />
+                      Record payment
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setChargeForm({
+                          description: '',
+                          amountDollars: '',
+                          dueDate: todayIso,
+                        });
+                        setChargeRenter(renter);
+                      }}
+                      className="h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest"
+                    >
+                      <Receipt className="h-3.5 w-3.5 mr-1.5" />
+                      Add charge
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setHistoryRenter(renter)}
+                      aria-label={`Payment history for ${renter.firstName} ${renter.lastName}`}
+                      className="h-11 w-11 shrink-0 rounded-xl border-2 p-0"
+                    >
+                      <History className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
               </CardContent>
