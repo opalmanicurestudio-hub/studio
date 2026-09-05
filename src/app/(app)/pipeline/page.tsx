@@ -170,7 +170,7 @@ export default function PipelinePage() {
   const [apps, setApps] = useState<Row[]>([]);
   const [appDocs, setAppDocs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'attention' | 'tours' | 'open' | 'done' | 'people'>('attention');
+  const [filter, setFilter] = useState<'attention' | 'upcoming' | 'tours' | 'open' | 'done' | 'people'>('attention');
   const [busy, setBusy] = useState('');
 
   useEffect(() => {
@@ -231,6 +231,21 @@ export default function PipelinePage() {
   // Which lead has its secondary actions / activity expanded — one at a time.
   const [moreFor, setMoreFor] = useState<string>('');
   const [activityFor, setActivityFor] = useState<string>('');
+
+  // /pipeline?lead=<applicationId> — the planner's tour blocks land here. Show
+  // every lead so the target cannot be filtered out, expand its activity, and
+  // scroll it into view once the list has rendered. Fires once per id.
+  const [deepLinked, setDeepLinked] = useState<string>('');
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const id = new URLSearchParams(window.location.search).get('lead');
+    if (!id || id === deepLinked) return;
+    setDeepLinked(id);
+    setFilter('open');
+    setActivityFor(id);
+    setMoreFor(id);
+  }, [deepLinked]);
+
   useEffect(() => {
     if (!armed) return;
     const t = setTimeout(() => setArmed(''), 5000);
@@ -592,6 +607,26 @@ export default function PipelinePage() {
     let list = withUrgency;
     if (filter === 'attention') list = list.filter((x) => x.u.rank <= 1);
     if (filter === 'tours') list = list.filter((x) => x.r.kind === 'tour');
+    if (filter === 'upcoming') {
+      const now = Date.now();
+      const soon = now + 14 * 24 * 3600 * 1000;
+      const byAppId = new Map(scoped.map((r) => [r.id, r]));
+      return tours
+        .filter((t) => ['confirmed', 'requested', 'checked_in'].includes(String(t.status)) && t.date && t.time)
+        .map((t) => ({ t, at: new Date(`${t.date}T${t.time}:00`).getTime() }))
+        .filter(({ at }) => !isNaN(at) && at >= now - 3600 * 1000 && at <= soon)
+        .sort((a, b) => a.at - b.at)
+        .map(({ t, at }) => {
+          const r = byAppId.get(String(t.applicationId || ''));
+          const label = t.status === 'requested' ? 'Awaiting your OK'
+            : t.status === 'checked_in' ? 'Here now'
+            : at - now < 24 * 3600 * 1000 ? 'Within 24h' : whenTime(new Date(at).toISOString());
+          return r
+            ? { r, u: { rank: t.status === 'requested' ? 0 : 5, label, tone: t.status === 'requested' ? 'amber' : 'slate' } }
+            : null;
+        })
+        .filter(Boolean) as { r: Row; u: any }[];
+    }
     if (filter === 'done') {
       return scoped.filter((r) => !OPEN_STATUSES.includes(r.status))
         .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
@@ -601,6 +636,16 @@ export default function PipelinePage() {
     return list.slice().sort((a, b) =>
       a.u.rank - b.u.rank || String(a.r.createdAt).localeCompare(String(b.r.createdAt)));
   }, [withUrgency, filter, scoped]);
+
+  // Scroll the deep-linked lead into view once it has actually rendered.
+  // (Lives below `visible` on purpose — referencing it earlier is a TDZ error.)
+  useEffect(() => {
+    if (!deepLinked || loading) return;
+    const t = setTimeout(() => {
+      document.getElementById(`lead-${deepLinked}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 150);
+    return () => clearTimeout(t);
+  }, [deepLinked, loading, visible.length]);
 
   // ── Convert: the moment a lead becomes a renter ───────────────────────────
   // Deliberately the SAME semantics as the hub's convert (renter created with
@@ -688,6 +733,7 @@ export default function PipelinePage() {
 
   const FILTERS: [typeof filter, string][] = [
     ['attention', 'Needs you'],
+    ['upcoming', 'Upcoming'],
     ['tours', 'Tours'],
     ['open', 'All open'],
     ['done', 'Closed'],
@@ -850,7 +896,7 @@ export default function PipelinePage() {
       ) : (
         <div className="space-y-2">
           {visible.map(({ r, u }) => (
-            <div key={r.id} className={cn('rounded-2xl border-2 p-4 space-y-3',
+            <div key={r.id} id={`lead-${r.id}`} className={cn('rounded-2xl border-2 p-4 space-y-3',
               u.tone === 'rose' ? 'border-rose-300 bg-rose-50'
                 : u.tone === 'amber' ? 'border-amber-300 bg-amber-50' : 'border-slate-200')}>
               <div className="flex items-start justify-between gap-3">
