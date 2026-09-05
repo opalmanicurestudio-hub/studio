@@ -20,6 +20,7 @@ import { generateBillInstances } from '@/lib/bills-recurrence';
 import { logAuditAdmin } from '@/lib/audit';
 import { runReminderSweep } from '@/lib/reminders';
 import { brandedEmailHtml } from '@/lib/email-template';
+import { buildRentInvoice, leasesToInvoice, invoiceKey } from '@/lib/rent-invoices';
 import { sweepNoShows } from '@/lib/no-show';
 import { reconcileReservations } from '@/lib/stock-reconcile';
 import { sweepStaleCurbside } from '@/lib/stock-reconcile';
@@ -149,6 +150,59 @@ export async function GET(req: NextRequest) {
       results[tenantId] = { error: String(e?.message || e).slice(0, 200) };
     }
   }
+
+  // ── Rent invoices — one per lease per due day, made for the owner ────────
+  // The late sweep below, the due reminder, the planner and the renter portal
+  // all read rentInvoices; until now nothing wrote it, so none of them ever
+  // had anything to act on. Runs first so today's invoices exist before the
+  // sweep judges them. Idempotent on leaseId+dueDate. Starts clean: no
+  // back-fill of months that were never invoiced.
+  let rentInvoiced = 0;
+  for (const tDoc of (await db.collection('tenants').get()).docs) {
+    try {
+      const tenantData = tDoc.data() as any;
+      const today = todayIn(tenantTimeZone(tenantData));
+      const leasesSnap = await db.collection(`tenants/${tDoc.id}/leases`).where('status', '==', 'active').get();
+      if (leasesSnap.empty) continue;
+      const leases = leasesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+      const existingSnap = await db.collection(`tenants/${tDoc.id}/rentInvoices`).where('dueDate', '==', today).get();
+      const existing = new Set(existingSnap.docs.map((d) => invoiceKey(String((d.data() as any).leaseId || ''), today)));
+      const due = leasesToInvoice(leases, today, existing);
+      if (due.length === 0) continue;
+
+      const nowIso = new Date().toISOString();
+      const batch = db.batch();
+      const names: string[] = [];
+      for (const lease of due) {
+        const [renterSnap, boothSnap] = await Promise.all([
+          db.doc(`tenants/${tDoc.id}/renters/${lease.renterId}`).get(),
+          db.doc(`tenants/${tDoc.id}/booths/${lease.boothId}`).get(),
+        ]);
+        const ref = db.collection(`tenants/${tDoc.id}/rentInvoices`).doc();
+        const inv = buildRentInvoice({
+          id: ref.id, lease, renter: renterSnap.data(), booth: boothSnap.data(),
+          dueDate: today, source: 'nightly', nowIso,
+        });
+        batch.set(ref, inv);
+        if (names.length < 3) names.push(inv.renterName);
+        rentInvoiced++;
+      }
+      const nRef = db.collection(`tenants/${tDoc.id}/notifications`).doc();
+      batch.set(nRef, {
+        id: nRef.id, type: 'rent_invoiced', read: false, createdAt: nowIso, link: '/rent',
+        message: due.length === 1
+          ? `Rent invoiced: ${names[0]} — due today.`
+          : `Rent invoiced for ${due.length} renters (${names.join(', ')}${due.length > 3 ? ', …' : ''}) — due today.`,
+      });
+      await batch.commit();
+      await logAuditAdmin(db, tDoc.id, {
+        action: 'rent.invoice', targetType: 'rentInvoice',
+        summary: `Invoiced ${due.length} lease${due.length === 1 ? '' : 's'} for ${today}`,
+        actor: { type: 'system', name: 'rent-invoicer' },
+      });
+    } catch (e) { console.error('[cron/nightly] rent invoicing', tDoc.id, e); }
+  }
+  results.rentInvoiced = rentInvoiced;
 
   // ── v70: recurring bill scheduler — for EVERY tenant (bills exist
   // without banks), ensure each bill definition has its next unpaid
