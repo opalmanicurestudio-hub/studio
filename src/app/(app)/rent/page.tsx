@@ -365,6 +365,22 @@ function CollectionsCard({ tenantId, firestore, tenant }: { tenantId: string; fi
         <Row title="Bar when a lease ends owing" note="Someone who leaves with a balance can't book again until it's settled." on={cfg.autoBarOnLeaseEndOwing} onToggle={() => setCfg((c) => ({ ...c, autoBarOnLeaseEndOwing: !c.autoBarOnLeaseEndOwing }))} />
         <Row title="Tell them when they're barred" note="A short notice with the amount and a pay link, whether you barred them or the policy did." on={cfg.notifyOnBar} onToggle={() => setCfg((c) => ({ ...c, notifyOnBar: !c.notifyOnBar }))} />
 
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Make checks payable to</p>
+            <input value={(cfg as any).payableTo || ''} onChange={(e) => setCfg((c) => ({ ...c, payableTo: e.target.value.slice(0, 120) } as any))}
+              placeholder={tenant?.name || 'Your business name'} aria-label="Make checks payable to"
+              className="h-10 w-full rounded-xl border-2 bg-white px-3 text-sm font-bold outline-none focus:border-foreground/60" />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Mail payments to</p>
+            <input value={(cfg as any).remitAddress || ''} onChange={(e) => setCfg((c) => ({ ...c, remitAddress: e.target.value.slice(0, 200) } as any))}
+              placeholder="Your studio address, if different" aria-label="Mail payments to"
+              className="h-10 w-full rounded-xl border-2 bg-white px-3 text-sm font-bold outline-none focus:border-foreground/60" />
+          </div>
+          <p className="sm:col-span-2 text-[10px] font-bold text-muted-foreground">Printed on the tear-off remittance slip at the bottom of every statement.</p>
+        </div>
+
         <div className="space-y-1.5">
           <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">What a barred renter sees when they try to book</p>
           <textarea value={cfg.wallMessage} onChange={(e) => setCfg((c) => ({ ...c, wallMessage: e.target.value.slice(0, 300) }))}
@@ -773,6 +789,7 @@ export default function RentRollPage() {
   const [running, setRunning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [cycleResult, setCycleResult] = useState<string | null>(null);
+  const [lastReceipt, setLastReceipt] = useState<{ renterId: string; paymentId: string } | null>(null);
 
   const todayIso = toIsoDate(new Date());
   const cycleStartIso = useMemo(() => {
@@ -1267,6 +1284,8 @@ export default function RentRollPage() {
 
       await batch.commit();
       setPaymentRenter(null);
+      setCycleResult(`Recorded ${formatCents(amountCents)} from ${renterName}. `);
+      setLastReceipt({ renterId: paymentRenter.id, paymentId: paymentRef.id });
     } finally {
       setSaving(false);
     }
@@ -1361,7 +1380,13 @@ export default function RentRollPage() {
       </header>
 
       {cycleResult && (
-        <p className="text-[11px] font-bold text-muted-foreground">{cycleResult}</p>
+        <p className="text-[11px] font-bold text-muted-foreground">
+          {cycleResult}
+          {lastReceipt && (
+            <a href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(lastReceipt.renterId)}&receipt=${encodeURIComponent(lastReceipt.paymentId)}`}
+              target="_blank" rel="noopener" className="ml-1 underline text-slate-900">Print receipt</a>
+          )}
+        </p>
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -1833,6 +1858,13 @@ export default function RentRollPage() {
                       {isCredit ? '−' : ''}
                       {formatCents(Math.abs(entry.amountCents))}
                     </p>
+                    {entry.type === 'payment' && isCredit && historyRenter && (
+                      <a href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(historyRenter.id)}&receipt=${encodeURIComponent(entry.id)}`}
+                        target="_blank" rel="noopener" title="Print receipt"
+                        className="grid h-9 w-9 place-items-center rounded-lg border-2 bg-white text-slate-600">
+                        <Receipt className="h-3.5 w-3.5" />
+                      </a>
+                    )}
                     {canWaive && (
                       <Button
                         variant="ghost"
