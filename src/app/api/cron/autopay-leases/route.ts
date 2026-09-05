@@ -103,7 +103,13 @@ function isDueToday(lease: any, todayIso: string): boolean {
   const today = parts(todayIso);
   if (!today) return false;
   if (lease.frequency === 'monthly') {
-    return today.d === lease.dueDay;
+    // A lease due on the 31st was never charged in a 30-day month, and one
+    // due on the 29th–31st skipped February entirely: day-of-month equality
+    // has no answer for a day the month does not have. The rent falls due on
+    // the last day of any month too short for its due day.
+    const dim = new Date(Date.UTC(today.y, today.mo, 0)).getUTCDate();
+    const effective = Math.min(Number(lease.dueDay) || 0, dim);
+    return today.d === effective;
   }
   const anchor = parts(lease.firstChargeDate);
   if (!anchor) return false;
