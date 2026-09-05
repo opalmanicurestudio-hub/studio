@@ -34,7 +34,7 @@ import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import {
   Users, CalendarClock, AlertTriangle, CheckCircle2, Loader,
-  Phone, Mail, Flame, Search, Star, ChevronDown, ClipboardCheck, MoreHorizontal, History as HistoryIcon,
+  Phone, Mail, Flame, Search, Star, ChevronDown, ClipboardCheck, MoreHorizontal, ShieldOff, History as HistoryIcon,
 } from 'lucide-react';
 
 type Row = {
@@ -944,6 +944,21 @@ export default function PipelinePage() {
                 </p>
               )}
               {r.message && <p className="text-[11px] font-bold text-muted-foreground line-clamp-2">{r.message}</p>}
+
+              {(() => {
+                // A returning renter who was barred over an unpaid balance
+                // must not look like a fresh lead. Match on their contact
+                // details, the same way the guest book does.
+                const key = String(r.phone || '').trim().toLowerCase() || String(r.email || '').trim().toLowerCase();
+                const hit = key ? people.find((g) => g.key === key) : null;
+                if (!hit || !hit.tags.includes('barred')) return null;
+                return (
+                  <div className="flex items-center gap-2 rounded-xl border-2 border-slate-900 bg-slate-900 px-3 py-2 text-white">
+                    <ShieldOff className="h-3.5 w-3.5 shrink-0" />
+                    <span className="text-[11px] font-black uppercase tracking-widest">Barred — unpaid balance as a former renter</span>
+                  </div>
+                );
+              })()}
 
               {(followUpsByLead.get(r.id) || []).map((t: any) => (
                 <div key={t.id} className="flex items-center gap-2 rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-2">
