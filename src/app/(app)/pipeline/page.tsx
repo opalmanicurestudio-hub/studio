@@ -34,7 +34,7 @@ import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import {
   Users, CalendarClock, AlertTriangle, CheckCircle2, Loader,
-  Phone, Mail, Flame, Search, Star, ChevronDown, ClipboardCheck, History as HistoryIcon,
+  Phone, Mail, Flame, Search, Star, ChevronDown, ClipboardCheck, MoreHorizontal, History as HistoryIcon,
 } from 'lucide-react';
 
 type Row = {
@@ -228,6 +228,9 @@ export default function PipelinePage() {
   // Which destructive button is currently asking "are you sure?" — keyed by
   // lead id + action so only ONE can be armed at a time. Arms for 5 seconds.
   const [armed, setArmed] = useState<string>('');
+  // Which lead has its secondary actions / activity expanded — one at a time.
+  const [moreFor, setMoreFor] = useState<string>('');
+  const [activityFor, setActivityFor] = useState<string>('');
   useEffect(() => {
     if (!armed) return;
     const t = setTimeout(() => setArmed(''), 5000);
@@ -910,130 +913,171 @@ export default function PipelinePage() {
                 </div>
               ))}
 
-              <div className="flex flex-wrap items-center gap-2">
-                {r.phone && (
-                  <a href={`tel:${r.phone}`} className="flex items-center gap-1.5 rounded-xl border-2 bg-white px-3 py-2 text-[11px] font-black">
-                    <Phone className="h-3 w-3" /> Call
-                  </a>
-                )}
-                {r.email && (
-                  <a href={`mailto:${r.email}`} className="flex items-center gap-1.5 rounded-xl border-2 bg-white px-3 py-2 text-[11px] font-black">
-                    <Mail className="h-3 w-3" /> Email
-                  </a>
-                )}
-                {(() => {
-                  const t = r.tourId ? tourById.get(r.tourId) : null;
-                  if (!t || t.status !== 'requested') return null;
-                  return (
-                    <>
-                      <button onClick={() => decideTour(r, t.id, 'approve')} disabled={!!busy}
-                        className="rounded-xl bg-emerald-600 px-3 py-2 text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-50">
-                        {busy === r.id ? '…' : 'Approve tour'}
-                      </button>
-                      <button onClick={() => arm(`${r.id}:decline-tour`, () => decideTour(r, t.id, 'decline'))} disabled={!!busy}
-                        aria-live="polite"
-                        className={cn('rounded-xl border-2 px-3 py-2 text-[11px] font-black uppercase tracking-widest disabled:opacity-50',
-                          armed === `${r.id}:decline-tour` ? 'bg-red-600 border-red-600 text-white' : 'border-red-200 bg-white text-red-600')}>
-                        {armedLabel(armed === `${r.id}:decline-tour`, 'Decline', 'Tap again to decline')}
-                      </button>
-                    </>
-                  );
-                })()}
-                {OPEN_STATUSES.includes(r.status) && (
-                  <>
-                    {(() => {
-                      const inv = inviteByApp.get(r.id);
-                      if (inv && inv.status === 'pending') {
-                        return (
-                          <span className="rounded-xl border-2 border-sky-200 bg-sky-50 px-3 py-2 text-[11px] font-black uppercase tracking-widest text-sky-700">
-                            Times sent · waiting
-                          </span>
-                        );
-                      }
-                      if (inv && inv.status === 'accepted' && inv.chosenSlot) {
-                        return (
-                          <button onClick={() => confirmTour(r, inv, inv.chosenSlot)} disabled={!!busy}
-                            className="rounded-xl bg-indigo-600 px-3 py-2 text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-50">
-                            {busy === r.id ? '…' : `Confirm ${whenTime(inv.chosenSlot)}`}
-                          </button>
-                        );
-                      }
-                      if (inv && inv.status === 'scheduled') {
-                        return (
-                          <span className="rounded-xl border-2 border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-black uppercase tracking-widest text-emerald-700">
-                            Tour booked
-                          </span>
-                        );
-                      }
-                      const t = r.tourId ? tourById.get(r.tourId) : null;
-                      if (t && t.status === 'confirmed') {
-                        return (
-                          <>
-                            <button onClick={() => { setOfferFor(offerFor === r.id ? '' : r.id); setOfferSlots(['', '', '']); }} disabled={!!busy}
-                              className="rounded-xl border-2 bg-white px-3 py-2 text-[11px] font-black uppercase tracking-widest text-slate-600 disabled:opacity-50">
-                              Reschedule
-                            </button>
-                            <button onClick={() => arm(`${r.id}:cancel-tour`, () => cancelTour(r, t.id))} disabled={!!busy}
-                              aria-live="polite"
-                              className={cn('rounded-xl border-2 px-3 py-2 text-[11px] font-black uppercase tracking-widest disabled:opacity-50',
-                                armed === `${r.id}:cancel-tour` ? 'bg-red-600 border-red-600 text-white' : 'border-red-200 bg-white text-red-600')}>
-                              {armedLabel(armed === `${r.id}:cancel-tour`, 'Cancel tour', 'Tap again to cancel')}
-                            </button>
-                          </>
-                        );
-                      }
-                      return (
-                        <button onClick={() => { setOfferFor(offerFor === r.id ? '' : r.id); setOfferSlots(['', '', '']); }} disabled={!!busy}
-                          className="rounded-xl border-2 bg-white px-3 py-2 text-[11px] font-black uppercase tracking-widest text-slate-600 disabled:opacity-50">
-                          Tour times
-                        </button>
-                      );
-                    })()}
-                    {r.status === 'new' && (
-                      <button onClick={() => setStatus(r, 'in_review', 'Marked contacted')} disabled={!!busy}
-                        className="rounded-xl bg-slate-900 px-3 py-2 text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-50">
-                        {busy === r.id ? '…' : 'Contacted'}
-                      </button>
-                    )}
-                    {(() => {
-                      const live = r.tourId ? tourById.get(r.tourId) : null;
-                      const hasLive = !!live && ['confirmed', 'requested'].includes(String(live.status));
-                      const on = armed === `${r.id}:close`;
-                      return (
-                        <button onClick={() => arm(`${r.id}:close`, () => setStatus(r, 'closed', 'Closed out'))} disabled={!!busy}
-                          aria-live="polite"
-                          className={cn('rounded-xl border-2 px-3 py-2 text-[11px] font-black uppercase tracking-widest disabled:opacity-50',
-                            on ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white text-slate-600')}>
-                          {on ? (hasLive ? 'Tap again — also cancels their tour' : 'Tap again to close') : 'Close'}
-                        </button>
-                      );
-                    })()}
-                    {r.kind === 'tour' && (
-                  <button onClick={() => setManagingTour(appDocs.find((a: any) => a.id === r.id) || null)}
-                    className={cn('rounded-xl px-3 py-2 text-[11px] font-black uppercase tracking-widest',
-                      !r.outcome && (r.tourStartIso || '').slice(0, 10) < todayIso && (r.tourStartIso || '')
-                        ? 'bg-rose-600 text-white'
-                        : 'border-2 bg-white text-slate-600')}>
-                    {r.outcome ? 'Tour notes' : 'Record outcome'}
-                  </button>
-                )}
-                {r.kind === 'tour' && (
-                      <button onClick={() => arm(`${r.id}:no-show`, () => setStatus(r, 'no_show', 'Marked no-show'))} disabled={!!busy}
-                        aria-live="polite"
-                        className={cn('rounded-xl border-2 px-3 py-2 text-[11px] font-black uppercase tracking-widest disabled:opacity-50',
-                          armed === `${r.id}:no-show` ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white text-slate-600')}>
-                        {armedLabel(armed === `${r.id}:no-show`, 'No-show', 'Tap again — no-show')}
-                      </button>
-                    )}
-                    <button onClick={() => arm(`${r.id}:convert`, () => convert(r))} disabled={!!busy}
-                      aria-live="polite"
-                      className={cn('rounded-xl px-3 py-2 text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-50',
-                        armed === `${r.id}:convert` ? 'bg-emerald-800' : 'bg-emerald-600')}>
-                      {busy === r.id ? '…' : armedLabel(armed === `${r.id}:convert`, 'Convert', 'Tap again — make them a renter')}
+              {/* ── One next step, everything else behind More ──────────
+                  A lead has exactly one thing you should do next. That is
+                  the only button that gets colour and a full label; the
+                  rest still exist, one tap away, but they no longer compete
+                  for the eye. Destructive ones keep their two-tap arming. */}
+              {(() => {
+                const t = r.tourId ? tourById.get(r.tourId) : null;
+                const inv = inviteByApp.get(r.id);
+                const isOpen = OPEN_STATUSES.includes(r.status);
+                const past = !!(r.tourStartIso || '') && (r.tourStartIso || '').slice(0, 10) < todayIso;
+                const needsOutcome = r.kind === 'tour' && !r.outcome && past;
+                const requested = !!t && t.status === 'requested';
+                const confirmed = !!t && t.status === 'confirmed';
+                const moreOpen = moreFor === r.id;
+                const isBusy = busy === r.id;
+
+                const btn = 'rounded-xl px-3 py-2 text-[11px] font-black uppercase tracking-widest disabled:opacity-50';
+                const quiet = cn(btn, 'border-2 bg-white text-slate-600');
+                const danger = (key: string) => cn(btn, 'border-2',
+                  armed === key ? 'bg-red-600 border-red-600 text-white' : 'border-red-200 bg-white text-red-600');
+                const openOffer = () => { setOfferFor(offerFor === r.id ? '' : r.id); setOfferSlots(['', '', '']); };
+
+                // ── Primary ──
+                let primary: React.ReactNode = null;
+                let primaryKey = '';
+                if (requested) {
+                  primaryKey = 'approve';
+                  primary = (
+                    <button onClick={() => decideTour(r, t.id, 'approve')} disabled={!!busy}
+                      className={cn(btn, 'bg-emerald-600 text-white')}>
+                      {isBusy ? '…' : 'Approve tour'}
                     </button>
-                  </>
-                )}
-              </div>
+                  );
+                } else if (inv && inv.status === 'accepted' && inv.chosenSlot) {
+                  primaryKey = 'confirm';
+                  primary = (
+                    <button onClick={() => confirmTour(r, inv, inv.chosenSlot)} disabled={!!busy}
+                      className={cn(btn, 'bg-indigo-600 text-white')}>
+                      {isBusy ? '…' : `Confirm ${whenTime(inv.chosenSlot)}`}
+                    </button>
+                  );
+                } else if (inv && inv.status === 'pending') {
+                  primaryKey = 'waiting';
+                  primary = (
+                    <span className="rounded-xl border-2 border-sky-200 bg-sky-50 px-3 py-2 text-[11px] font-black uppercase tracking-widest text-sky-700">
+                      Times sent · waiting
+                    </span>
+                  );
+                } else if (needsOutcome) {
+                  primaryKey = 'outcome';
+                  primary = (
+                    <button onClick={() => setManagingTour(appDocs.find((a: any) => a.id === r.id) || null)}
+                      className={cn(btn, 'bg-rose-600 text-white')}>
+                      Record outcome
+                    </button>
+                  );
+                } else if (isOpen && r.status === 'new') {
+                  primaryKey = 'contacted';
+                  primary = (
+                    <button onClick={() => setStatus(r, 'in_review', 'Marked contacted')} disabled={!!busy}
+                      className={cn(btn, 'bg-slate-900 text-white')}>
+                      {isBusy ? '…' : 'Contacted'}
+                    </button>
+                  );
+                } else if (isOpen && !t) {
+                  primaryKey = 'offer';
+                  primary = (
+                    <button onClick={openOffer} disabled={!!busy} className={cn(btn, 'bg-slate-900 text-white')}>
+                      Tour times
+                    </button>
+                  );
+                } else if (isOpen) {
+                  primaryKey = 'convert';
+                  primary = (
+                    <button onClick={() => arm(`${r.id}:convert`, () => convert(r))} disabled={!!busy} aria-live="polite"
+                      className={cn(btn, 'text-white', armed === `${r.id}:convert` ? 'bg-emerald-800' : 'bg-emerald-600')}>
+                      {isBusy ? '…' : armedLabel(armed === `${r.id}:convert`, 'Convert', 'Tap again — make them a renter')}
+                    </button>
+                  );
+                }
+
+                // ── Secondary: only what applies, and never the primary twice ──
+                const secondary: React.ReactNode[] = [];
+                if (requested) secondary.push(
+                  <button key="decline" onClick={() => arm(`${r.id}:decline-tour`, () => decideTour(r, t.id, 'decline'))} disabled={!!busy}
+                    aria-live="polite" className={danger(`${r.id}:decline-tour`)}>
+                    {armedLabel(armed === `${r.id}:decline-tour`, 'Decline', 'Tap again to decline')}
+                  </button>);
+                if (confirmed && isOpen) secondary.push(
+                  <button key="resched" onClick={openOffer} disabled={!!busy} className={quiet}>Reschedule</button>,
+                  <button key="cancel" onClick={() => arm(`${r.id}:cancel-tour`, () => cancelTour(r, t.id))} disabled={!!busy}
+                    aria-live="polite" className={danger(`${r.id}:cancel-tour`)}>
+                    {armedLabel(armed === `${r.id}:cancel-tour`, 'Cancel tour', 'Tap again to cancel')}
+                  </button>);
+                if (isOpen && primaryKey !== 'offer' && !confirmed && !requested && inv?.status !== 'pending') secondary.push(
+                  <button key="offer" onClick={openOffer} disabled={!!busy} className={quiet}>Tour times</button>);
+                if (r.kind === 'tour' && primaryKey !== 'outcome') secondary.push(
+                  <button key="notes" onClick={() => setManagingTour(appDocs.find((a: any) => a.id === r.id) || null)} className={quiet}>
+                    {r.outcome ? 'Tour notes' : 'Record outcome'}
+                  </button>);
+                if (r.kind === 'tour' && isOpen) secondary.push(
+                  <button key="noshow" onClick={() => arm(`${r.id}:no-show`, () => setStatus(r, 'no_show', 'Marked no-show'))} disabled={!!busy}
+                    aria-live="polite"
+                    className={cn(btn, 'border-2', armed === `${r.id}:no-show` ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white text-slate-600')}>
+                    {armedLabel(armed === `${r.id}:no-show`, 'No-show', 'Tap again — no-show')}
+                  </button>);
+                if (isOpen && r.status === 'new' && primaryKey !== 'contacted') secondary.push(
+                  <button key="contacted" onClick={() => setStatus(r, 'in_review', 'Marked contacted')} disabled={!!busy} className={quiet}>Contacted</button>);
+                if (isOpen && primaryKey !== 'convert') secondary.push(
+                  <button key="convert" onClick={() => arm(`${r.id}:convert`, () => convert(r))} disabled={!!busy} aria-live="polite"
+                    className={cn(btn, 'border-2', armed === `${r.id}:convert` ? 'bg-emerald-700 border-emerald-700 text-white' : 'border-emerald-200 bg-white text-emerald-700')}>
+                    {armedLabel(armed === `${r.id}:convert`, 'Convert', 'Tap again — make them a renter')}
+                  </button>);
+                if (isOpen) {
+                  const hasLive = confirmed || requested;
+                  const on = armed === `${r.id}:close`;
+                  secondary.push(
+                    <button key="close" onClick={() => arm(`${r.id}:close`, () => setStatus(r, 'closed', 'Closed out'))} disabled={!!busy}
+                      aria-live="polite"
+                      className={cn(btn, 'border-2', on ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white text-slate-600')}>
+                      {on ? (hasLive ? 'Tap again — also cancels their tour' : 'Tap again to close') : 'Close'}
+                    </button>);
+                }
+
+                return (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      {r.phone && (
+                        <a href={`tel:${r.phone}`} aria-label={`Call ${r.name}`}
+                          className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border-2 bg-white text-slate-600">
+                          <Phone className="h-3.5 w-3.5" />
+                        </a>
+                      )}
+                      {r.email && (
+                        <a href={`mailto:${r.email}`} aria-label={`Email ${r.name}`}
+                          className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border-2 bg-white text-slate-600">
+                          <Mail className="h-3.5 w-3.5" />
+                        </a>
+                      )}
+                      {primary}
+                      <div className="ml-auto flex items-center gap-1.5">
+                        <button type="button" onClick={() => setActivityFor(activityFor === r.id ? '' : r.id)}
+                          aria-expanded={activityFor === r.id}
+                          className={cn('h-9 rounded-xl border-2 px-2.5 text-[9px] font-black uppercase tracking-widest',
+                            activityFor === r.id ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white text-slate-500')}>
+                          Activity
+                        </button>
+                        {secondary.length > 0 && (
+                          <button type="button" onClick={() => setMoreFor(moreOpen ? '' : r.id)}
+                            aria-expanded={moreOpen} aria-label="More actions"
+                            className={cn('grid h-9 w-9 place-items-center rounded-xl border-2 text-slate-600',
+                              moreOpen ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white')}>
+                            <MoreHorizontal className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {moreOpen && secondary.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-2 rounded-xl border-2 border-dashed p-2">
+                        {secondary}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {(() => {
                 const inv = inviteByApp.get(r.id);
@@ -1089,6 +1133,7 @@ export default function PipelinePage() {
                 </div>
               )}
 
+              {activityFor === r.id && (<>
               <CommsTrail
                 recipientType="contact"
                 recipientId={r.id}
@@ -1130,6 +1175,7 @@ export default function PipelinePage() {
                   </div>
                 );
               })()}
+              </>)}
             </div>
           ))}
         </div>
