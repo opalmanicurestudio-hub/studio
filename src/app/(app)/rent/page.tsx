@@ -45,6 +45,9 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { buildRentSchedule, type ScheduledCharge } from '@/lib/rent-schedule';
+import { buildRentInvoice, leasesToInvoice, invoiceKey } from '@/lib/rent-invoices';
+import { AppHeader } from '@/components/shared/AppHeader';
+import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { CalendarClock as CalendarClockIcon } from 'lucide-react';
 import {
   Booth,
@@ -684,6 +687,31 @@ export default function RentRollPage() {
     for (const b of (booths ?? []) as any[]) m.set(b.id, b);
     return m;
   }, [booths]);
+  // Invoices — what is owed. The late sweep, the reminder, the planner and
+  // the portal already read this collection; the page now does too, so every
+  // screen agrees on who is behind.
+  const invoicesRef = useMemoFirebase(
+    () => (firestore && tenantId ? collection(firestore, 'tenants', tenantId, 'rentInvoices') : null),
+    [firestore, tenantId]);
+  const { data: invoices } = useCollection<any>(invoicesRef);
+  const openInvoices = useMemo(() => ((invoices ?? []) as any[])
+    .filter((i) => i.status === 'due' || i.status === 'late')
+    .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate))), [invoices]);
+  const owedByRenter = useMemo(() => {
+    const m = new Map<string, { renterId: string; renterName: string; boothName: string; dueCents: number; lateCents: number; feeCents: number; oldest: string; count: number; late: boolean }>();
+    for (const i of openInvoices) {
+      const cur = m.get(i.renterId) || { renterId: i.renterId, renterName: i.renterName || 'Renter', boothName: i.boothName || '', dueCents: 0, lateCents: 0, feeCents: 0, oldest: i.dueDate, count: 0, late: false };
+      const amt = Number(i.amountCents) || 0;
+      if (i.status === 'late') { cur.lateCents += amt; cur.late = true; } else cur.dueCents += amt;
+      cur.feeCents += Number(i.lateFeeCents) || 0;
+      cur.count += 1;
+      if (String(i.dueDate) < cur.oldest) cur.oldest = i.dueDate;
+      m.set(i.renterId, cur);
+    }
+    return Array.from(m.values()).sort((a, b) => (b.late === a.late ? a.oldest.localeCompare(b.oldest) : b.late ? 1 : -1));
+  }, [openInvoices]);
+  const owedTotal = owedByRenter.reduce((n, r) => n + r.dueCents + r.lateCents + r.feeCents, 0);
+
   const rentSchedule = useMemo(
     () => buildRentSchedule((leases ?? []) as any[], scheduleRenterById, (ledger ?? []) as any[], todayIso),
     [leases, scheduleRenterById, ledger, todayIso]);
@@ -747,6 +775,34 @@ export default function RentRollPage() {
       </div>
     );
   }
+
+  // Invoice today's rent on demand. The nightly job does this at 7am; this
+  // is for the day you change a lease and don't want to wait. Same rule, same
+  // document, so nothing can be invoiced twice.
+  const invoiceToday = async () => {
+    if (!firestore || !tenantId) return;
+    setRunning(true);
+    setCycleResult(null);
+    try {
+      const existing = new Set(((invoices ?? []) as any[]).map((i) => invoiceKey(String(i.leaseId || ''), String(i.dueDate || ''))));
+      const due = leasesToInvoice((leases ?? []) as any[], todayIso, existing);
+      if (due.length === 0) { setCycleResult('Nothing is due today that isn\u2019t already invoiced.'); setRunning(false); return; }
+      const batch = writeBatch(firestore);
+      const nowIso = new Date().toISOString();
+      for (const lease of due) {
+        const ref = doc(collection(firestore, 'tenants', tenantId, 'rentInvoices'));
+        batch.set(ref, buildRentInvoice({
+          id: ref.id, lease, renter: scheduleRenterById.get(lease.renterId), booth: scheduleBoothById.get(lease.boothId),
+          dueDate: todayIso, source: 'manual', nowIso,
+        }));
+      }
+      await batch.commit();
+      setCycleResult(`Invoiced ${due.length} renter${due.length === 1 ? '' : 's'} for today.`);
+    } catch {
+      setCycleResult('Could not invoice today \u2014 try again.');
+    }
+    setRunning(false);
+  };
 
   const runRentCycle = async () => {
     if (!firestore) return;
@@ -1011,80 +1067,86 @@ export default function RentRollPage() {
     : [];
   const chargeSettlements = settleCharges(historyEntries);
 
+  const kpis: [string, string, string][] = [
+    ['Owed right now', formatCents(owedTotal), owedByRenter.length ? `${owedByRenter.length} renter${owedByRenter.length === 1 ? '' : 's'}` : 'everyone is current'],
+    ['Late', String(owedByRenter.filter((r) => r.late).length), 'past grace'],
+    ['Collected this month', formatCents(summary.collectedThisCycleCents), 'into the ledger'],
+    ['Drafting next', formatCents(rentSchedule.reduce((n, r) => n + (r.readiness === 'ready' ? r.amountCents : 0), 0)), 'on autopay'],
+  ];
+
   return (
-    <div className="p-6 md:p-8 space-y-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <CircleDollarSign className="h-6 w-6" />
+    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+      <AppHeader title="Rent" />
+      <div className="flex-1 w-full max-w-[1100px] mx-auto min-w-0 p-4 sm:p-6 md:p-8 space-y-6"
+        style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}>
+
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-1 min-w-0">
+          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground opacity-60">Booth rental</p>
+          <h1 className="flex items-center gap-2.5 text-3xl md:text-4xl font-black uppercase tracking-tighter leading-none">
+            <span className="grid h-9 w-9 place-items-center rounded-2xl border-2 border-primary/15 bg-primary/5 shrink-0">
+              <CircleDollarSign className="h-4 w-4 text-primary" />
+            </span>
             Rent
           </h1>
-          <p className="text-sm text-muted-foreground">
-            Who is paid up, who is behind, and what is due.
+          <p className="text-xs font-bold text-muted-foreground max-w-prose">
+            Invoices raise themselves on each due day. Who is behind, what is about to draft, and what has moved.
           </p>
         </div>
-        <Button onClick={runRentCycle} disabled={running || ledgerLoading}>
-          <PlayCircle className="h-4 w-4 mr-2" />
-          {running ? 'Running…' : 'Run rent cycle'}
-        </Button>
-      </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <LocationSwitcher />
+          <Button variant="outline" onClick={invoiceToday} disabled={running}
+            className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
+            <PlayCircle className="h-3.5 w-3.5 mr-1.5" />
+            {running ? 'Working…' : 'Invoice today'}
+          </Button>
+        </div>
+      </header>
 
       {cycleResult && (
-        <p className="text-sm text-muted-foreground">{cycleResult}</p>
+        <p className="text-[11px] font-bold text-muted-foreground">{cycleResult}</p>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Collected this month
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold">
-              {formatCents(summary.collectedThisCycleCents)}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Outstanding
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold">
-              {formatCents(summary.outstandingCents)}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Past due
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold">
-              {summary.pastDueRenterIds.length}
-              <span className="text-sm font-normal text-muted-foreground">
-                {' '}
-                renter{summary.pastDueRenterIds.length === 1 ? '' : 's'}
-              </span>
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Vacant booths
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold">{summary.vacantBooths}</p>
-          </CardContent>
-        </Card>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        {kpis.map(([label, value, sub]) => (
+          <div key={label} className="rounded-2xl border-2 bg-white p-3.5">
+            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{label}</p>
+            <p className="mt-1 text-2xl font-black tabular-nums leading-none">{value}</p>
+            <p className="mt-1 text-[10px] font-bold text-muted-foreground">{sub}</p>
+          </div>
+        ))}
       </div>
+
+      {/* Owed — from invoices, the collection every automation reads */}
+      <Card className="rounded-[2rem] border-2">
+        <CardHeader className="p-5 pb-2">
+          <CardTitle className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest">
+            <AlertTriangle className="h-3.5 w-3.5" /> Owed
+          </CardTitle>
+          <p className="text-[11px] font-bold text-slate-500">
+            Open invoices, oldest first. Late ones have passed their grace days and carry any fee the lease sets.
+          </p>
+        </CardHeader>
+        <CardContent className="p-5 pt-2 space-y-2">
+          {owedByRenter.length === 0 ? (
+            <p className="text-[11px] font-bold text-slate-500">Nothing outstanding. Invoices appear here on each lease's due day.</p>
+          ) : owedByRenter.map((r) => (
+            <div key={r.renterId} className={cn('flex items-center gap-3 rounded-2xl border-2 px-3.5 py-2.5', r.late ? 'border-red-200 bg-red-50/60' : 'bg-white')}>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-black">{r.renterName}<span className="font-bold text-slate-400"> · {r.boothName}</span></p>
+                <p className="text-[11px] font-bold text-slate-500">
+                  {r.count} invoice{r.count === 1 ? '' : 's'} · oldest due {r.oldest}
+                  {r.feeCents > 0 ? ` · ${formatCents(r.feeCents)} in late fees` : ''}
+                </p>
+              </div>
+              <div className="text-right shrink-0">
+                <p className={cn('text-base font-black tabular-nums', r.late ? 'text-red-700' : 'text-slate-900')}>{formatCents(r.dueCents + r.lateCents + r.feeCents)}</p>
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">{r.late ? 'Late' : 'Due'}</p>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
       {ledgerLoading && (
         <p className="text-sm text-muted-foreground">Loading the ledger…</p>
@@ -1450,6 +1512,7 @@ export default function RentRollPage() {
       {tenantId && <RenterProvidersCard tenantId={tenantId} firestore={firestore} renters={(renters || []) as any[]} staff={(allStaff || []) as any[]} allAppointments={(allAppointments || []) as any[]} />}
       {tenantId && <RenterSwapsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
       {tenantId && <RentCommsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
+      </div>
     </div>
   );
 }
