@@ -160,10 +160,24 @@ export async function POST(req: NextRequest) {
       const boothSnap = await db.doc(`tenants/${tenantId}/booths/${lease.boothId}`).get();
       const booth = boothSnap.data();
 
-      if (!renter?.autopayEnabled || !renter.stripeCustomerId || !renter.defaultPaymentMethodId) {
-        results.push({ leaseId: lease.id, ok: false, reason: 'autopay_not_configured' });
+      // A saved card is stored as stripePaymentMethodId (the portal and the
+      // setup-card link both write that); this cron was checking a field that
+      // nothing ever wrote, so every lease, every day, was "not configured"
+      // and nobody was ever drafted. Either name is honoured now.
+      const paymentMethodId = renter?.stripePaymentMethodId || renter?.defaultPaymentMethodId || null;
+      if (!renter?.autopayEnabled || !renter.stripeCustomerId || !paymentMethodId) {
+        results.push({
+          leaseId: lease.id, ok: false,
+          reason: !renter?.autopayEnabled ? 'autopay_off' : !renter?.stripeCustomerId ? 'no_stripe_customer' : 'no_card',
+        });
         continue;
       }
+
+      // The invoice this draft settles — raised by the nightly job this
+      // morning. Marked paid on success, left for the late sweep on decline.
+      const invSnap = await db.collection(`tenants/${tenantId}/rentInvoices`)
+        .where('leaseId', '==', lease.id).where('dueDate', '==', todayIso).limit(1).get();
+      const invoiceRef = invSnap.empty ? null : invSnap.docs[0].ref;
 
       const now = new Date().toISOString();
       let intent: Stripe.PaymentIntent | null = null;
@@ -175,7 +189,7 @@ export async function POST(req: NextRequest) {
             amount: lease.rentAmountCents,
             currency: 'usd',
             customer: renter.stripeCustomerId,
-            payment_method: renter.defaultPaymentMethodId,
+            payment_method: paymentMethodId,
             off_session: true,
             confirm: true,
             description: `Autopay rent — ${booth?.name ?? lease.boothId}`,
@@ -191,6 +205,12 @@ export async function POST(req: NextRequest) {
       const ledgerRef = db.collection(`tenants/${tenantId}/rentLedger`).doc();
       const notifRef = db.collection(`tenants/${tenantId}/notificationLog`).doc();
       const batch = db.batch();
+      if (intent && intent.status === 'succeeded' && invoiceRef) {
+        batch.set(invoiceRef, {
+          status: 'paid', paidAt: new Date().toISOString(), ledgerEntryId: ledgerRef.id,
+          paidVia: 'autopay', updatedAt: new Date().toISOString(),
+        }, { merge: true });
+      }
 
       if (intent && intent.status === 'succeeded') {
         const chargeId = resolveChargeId(intent);
