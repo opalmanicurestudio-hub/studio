@@ -707,6 +707,56 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, slots, durationMins: dur, autoConfirm });
     }
 
+    // 'tour-days': how many open times each day has across a range, so a
+    // picker can draw only the days worth tapping. Same rules and the same
+    // taken-slot maths as tour-slots, run once for the whole window instead of
+    // once per tap. One read for the range, not one per day.
+    if (action === 'tour-days') {
+      const { from, to } = body;   // YYYY-MM-DD, inclusive
+      if (!from || !to || String(to) < String(from)) {
+        return NextResponse.json({ ok: false, error: 'Missing range.' }, { status: 400 });
+      }
+      const rules = await loadRules(db, tenantId);
+      const autoConfirm = rules.tourAutoConfirm !== false;
+      if (!rules.toursEnabled) return NextResponse.json({ ok: true, days: {}, toursOff: true, autoConfirm });
+
+      const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const dur = rules.tourDurationMins || 30;
+      const startM = toMin(rules.tourWindowStart || '10:00');
+      const endM = toMin(rules.tourWindowEnd || '17:00');
+      const leadMs = (rules.bookingLeadHours || 0) * 3600000;
+      const now = Date.now();
+
+      const tourSnap = await db.collection(`tenants/${tenantId}/tours`)
+        .where('date', '>=', String(from)).where('date', '<=', String(to)).get();
+      const takenByDay = new Map<string, Set<string>>();
+      for (const d of tourSnap.docs) {
+        const t = d.data() as any;
+        if (!['requested', 'confirmed'].includes(t.status)) continue;
+        if (!takenByDay.has(t.date)) takenByDay.set(t.date, new Set());
+        takenByDay.get(t.date)!.add(t.time);
+      }
+
+      const days: Record<string, number> = {};
+      const cursor = new Date(String(from) + 'T00:00:00Z');
+      const last = new Date(String(to) + 'T00:00:00Z');
+      for (let guard = 0; cursor <= last && guard < 62; guard++, cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+        const date = cursor.toISOString().slice(0, 10);
+        if (!rules.tourDays.includes(cursor.getUTCDay())) continue;
+        const taken = takenByDay.get(date) || new Set<string>();
+        let open = 0;
+        for (let m = startM; m + dur <= endM; m += dur) {
+          const hhmm = `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
+          if (taken.has(hhmm)) continue;
+          if (new Date(`${date}T${hhmm}:00`).getTime() - now < leadMs) continue;
+          open++;
+        }
+        if (open > 0) days[date] = open;
+      }
+      return NextResponse.json({ ok: true, days, durationMins: dur, autoConfirm });
+    }
+
     // 'tour-book': create the tour. auto-confirm or await approval per
     // rules. Writes to /tours AND /boothApplications (kind:'tour') so it
     // flows into the CRM pipeline as a 'Toured' stage contact.
