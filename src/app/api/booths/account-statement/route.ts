@@ -77,11 +77,12 @@ export async function GET(req: NextRequest) {
     db.collection(`tenants/${tenantId}/rentLedger`).where('renterId', '==', renterId).get(),
   ]);
   // The rest of the record, only when it will be printed.
-  const [leaseSnap, msgSnap, tktSnap] = fullMode ? await Promise.all([
+  const [leaseSnap, msgSnap, tktSnap, thrSnap] = fullMode ? await Promise.all([
     db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', renterId).get(),
     db.collection(`tenants/${tenantId}/messageLog`).where('recipientId', '==', renterId).get(),
     db.collection(`tenants/${tenantId}/tickets`).where('renterId', '==', renterId).get(),
-  ]) : [null, null, null];
+    db.collection(`tenants/${tenantId}/renterThreads/${renterId}/messages`).get(),
+  ]) : [null, null, null, null];
   if (!rSnap.exists) return new NextResponse('Renter not found', { status: 404 });
   const tenant = (tSnap.data() as any) || {};
   const renter = rSnap.data() as any;
@@ -251,6 +252,7 @@ ${fullMode ? (() => {
     ledger: ledSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })),
     messages: msgSnap!.docs.map((d) => ({ id: d.id, ...(d.data() as any) })),
     tickets: tktSnap!.docs.map((d) => ({ id: d.id, ...(d.data() as any) })),
+    thread: thrSnap!.docs.map((d) => ({ id: d.id, ...(d.data() as any) })),
   })).filter((e) => (!from || String(e.at).slice(0, 10) >= from) && (!to || String(e.at).slice(0, 10) <= to));
   const stamp = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? String(iso) : d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', ...(String(iso).length > 10 ? { hour: 'numeric', minute: '2-digit' } : {}) }); };
   return `
