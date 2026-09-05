@@ -45,6 +45,8 @@ export interface TimelineInput {
   messages?: any[];        // messageLog rows for this renter
   tickets?: any[];
   reservations?: any[];
+  /** renterThreads/{renterId}/messages — the conversation itself. */
+  thread?: any[];
   boothById?: Map<string, any>;
 }
 
@@ -119,7 +121,9 @@ export function buildRenterTimeline(input: TimelineInput): TimelineEntry[] {
   }
 
   // ── Communications: every message, with how far it got ───────────────────
+  const threadLogIds = new Set((input.thread || []).map((m) => String(m.emailLogId || '')).filter(Boolean));
   for (const m of input.messages || []) {
+    if (threadLogIds.has(String(m.id))) continue;          // shown as the message itself
     const got = m.bouncedAt ? 'bounced' : m.status === 'failed' ? 'failed' : String(m.status || '').startsWith('skipped') ? 'not sent' : m.clickedAt ? 'clicked' : m.openedAt ? 'opened' : m.deliveredAt ? 'delivered' : 'sent';
     push({
       at: m.sentAt || m.createdAt, kind: m.direction === 'inbound' ? 'message_in' : (String(m.kind || '').includes('notice') || /overdue|dunning|barred|late/i.test(String(m.kind || '')) ? 'notice' : 'message_out'),
@@ -127,6 +131,25 @@ export function buildRenterTimeline(input: TimelineInput): TimelineEntry[] {
       detail: `${m.channel || 'email'} · ${got}${m.openedAt ? ` ${s10(m.openedAt)}` : ''}`,
       actor: m.direction === 'inbound' ? 'renter' : 'system', status: got, ref: { type: 'message', id: m.id },
     });
+  }
+
+  // ── The conversation — what was actually said, both ways ──────────────────
+  for (const m of input.thread || []) {
+    const inbound = m.direction === 'inbound';
+    push({
+      at: m.createdAt, kind: inbound ? 'message_in' : 'message_out',
+      title: inbound ? `Renter wrote` : `${m.byName || 'You'} wrote`,
+      detail: String(m.text || '').slice(0, 200),
+      actor: inbound ? 'renter' : 'owner',
+      status: inbound ? undefined : [m.emailStatus === 'sent' ? 'emailed' : null, m.smsStatus === 'sent' ? 'texted' : null].filter(Boolean).join(' · ') || undefined,
+      ref: { type: 'thread', id: m.id },
+    });
+  }
+
+  // ── Waivers, from the invoice stamps ──────────────────────────────────────
+  for (const i of input.invoices || []) {
+    if (i.feeWaivedAt) push({ at: i.feeWaivedAt, kind: 'credit', title: 'Late fee waived', detail: [i.feeWaivedReason, `rent due ${s10(i.dueDate)}`].filter(Boolean).join(' · '), amountCents: -cents(i.feeWaivedCents), actor: i.feeWaivedBy || 'owner', ref: { type: 'invoice', id: i.id } });
+    if (i.status === 'void' && i.voidReason === 'waived') push({ at: i.voidedAt || i.updatedAt, kind: 'credit', title: 'Invoice waived', detail: [i.voidNote, `rent due ${s10(i.dueDate)}`].filter(Boolean).join(' · '), actor: i.voidedBy || 'owner', ref: { type: 'invoice', id: i.id } });
   }
 
   // ── Maintenance ───────────────────────────────────────────────────────────
