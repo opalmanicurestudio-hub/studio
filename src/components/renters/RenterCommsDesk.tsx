@@ -224,6 +224,13 @@ export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, 
                 </div>
               </div>
               <p className="text-[12px] font-medium text-slate-800 whitespace-pre-wrap">{g.what}</p>
+              {Array.isArray(g.photoUrls) && g.photoUrls.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {g.photoUrls.map((u: string, i: number) => (
+                    <a key={i} href={u} target="_blank" rel="noopener" className="h-16 w-16 overflow-hidden rounded-xl border-2 bg-white"><img src={u} alt={`Photo ${i + 1} from ${g.ref}`} className="h-full w-full object-cover" /></a>
+                  ))}
+                </div>
+              )}
               {g.wanted && <p className="text-[11px] font-bold text-slate-600">What they'd like: <span className="font-medium">{g.wanted}</span></p>}
               <textarea value={reply[g.id] || ''} onChange={(e) => setReply((m) => ({ ...m, [g.id]: e.target.value }))} rows={2}
                 aria-label={`Reply to ${g.ref}`} placeholder="Your reply goes to their portal, email and phone, with the reference on it."
