@@ -32,6 +32,7 @@ import {
   Wallet, KeyRound, Phone, RefreshCw, Repeat, X,
   MessageSquare,
   CalendarClock,
+  ShieldAlert,
 } from 'lucide-react';
 
 // Local YYYY-MM-DD — the UTC-slice version flips to tomorrow in the evening.
@@ -51,6 +52,103 @@ const fmtTime = (t?: string | null) => {
 // The renter asks; the studio decides. Only treatments the shop offers are
 // shown, and a request changes nothing until it is approved. Banked days work
 // the same way: asking to spend them is not spending them.
+// ─── Concerns ────────────────────────────────────────────────────────────────
+// Raising something properly: a category, what happened, when, what they'd
+// like to see. It gets a reference number and a receipt, and its status shows
+// here until it is resolved. Replies from the studio arrive in the thread
+// below with the reference on them. A chat message is for "is the back door
+// locked?"; this is for the thing that needs to be on record.
+const CONCERN_CATEGORIES: [string, string][] = [
+  ['space', 'My space'], ['equipment', 'Equipment'], ['cleanliness', 'Cleanliness'], ['noise', 'Noise or disruption'],
+  ['another_renter', 'Another renter'], ['staff', 'A staff member'], ['billing', 'Rent or billing'], ['safety', 'Safety'],
+  ['access', 'Access or hours'], ['other', 'Something else'],
+];
+const CONCERN_STATUS: Record<string, string> = { open: 'Received', acknowledged: 'Being looked at', resolved: 'Resolved', closed: 'Closed' };
+function RenterConcerns({ tenantId, token }: { tenantId: string; token: string }) {
+  const [list, setList] = useState<any[] | null>(null);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ category: 'space', what: '', when: new Date().toISOString().slice(0, 10), wanted: '', confidential: false });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [justFiled, setJustFiled] = useState('');
+  const load = useCallback(async () => {
+    const d = await api({ action: 'concern-list', tenantId, token });
+    if (d?.ok) setList(d.concerns || []);
+  }, [tenantId, token]);
+  useEffect(() => { void load(); }, [load]);
+  const sensitive = ['another_renter', 'staff', 'safety'].includes(form.category);
+  const submit = async () => {
+    setBusy(true); setErr('');
+    const d = await api({ action: 'concern-file', tenantId, token, ...form, confidential: form.confidential || sensitive });
+    setBusy(false);
+    if (!d?.ok) { setErr(d?.error || 'Could not send that.'); return; }
+    setJustFiled(d.ref); setOpen(false);
+    setForm({ category: 'space', what: '', when: new Date().toISOString().slice(0, 10), wanted: '', confidential: false });
+    void load();
+  };
+  const openOnes = (list || []).filter((c) => c.status === 'open' || c.status === 'acknowledged');
+  const doneOnes = (list || []).filter((c) => !(c.status === 'open' || c.status === 'acknowledged')).slice(0, 5);
+  return (
+    <section className="space-y-3">
+      <SectionTitle icon={ShieldAlert}>Raise a concern</SectionTitle>
+      <div className="p-4 rounded-3xl bg-white border-2 border-slate-100 space-y-3">
+        {justFiled && (
+          <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-3.5 py-3">
+            <p className="text-[11px] font-black uppercase tracking-widest text-emerald-800">On file · {justFiled}</p>
+            <p className="text-[11px] font-bold text-emerald-900">Keep that reference. A receipt is on its way to your email, and you'll see replies below.</p>
+          </div>
+        )}
+        {openOnes.map((c) => (
+          <div key={c.id} className="rounded-2xl border-2 border-slate-200 bg-slate-50 px-3.5 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-black uppercase tracking-widest text-slate-700">{c.ref} · {(CONCERN_CATEGORIES.find(([k]) => k === c.category) || [])[1] || c.category}</p>
+              <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest', c.status === 'acknowledged' ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-700')}>{CONCERN_STATUS[c.status] || c.status}</span>
+            </div>
+            <p className="text-[11px] font-medium text-slate-700 mt-1 line-clamp-2">{c.what}</p>
+            <p className="text-[10px] font-bold text-slate-500 mt-1">Filed {fmtDate(String(c.filedAt).slice(0, 10))}{c.responses ? ` · ${c.responses} repl${c.responses === 1 ? 'y' : 'ies'} in your messages` : ''}</p>
+          </div>
+        ))}
+        {!open ? (
+          <button type="button" onClick={() => { setOpen(true); setJustFiled(''); }}
+            className="h-11 w-full rounded-2xl border-2 border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-700">
+            Raise a concern
+          </button>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold text-slate-500">For anything that should be on record. Quick questions belong in messages below.</p>
+            <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} aria-label="What is it about"
+              className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold bg-white">
+              {CONCERN_CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+            <input type="date" value={form.when} onChange={(e) => setForm((f) => ({ ...f, when: e.target.value }))} aria-label="When did it happen or start" className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold" />
+            <textarea value={form.what} onChange={(e) => setForm((f) => ({ ...f, what: e.target.value.slice(0, 2000) }))} rows={4} aria-label="What happened"
+              placeholder="What happened, in your words. Dates, names, what you've already tried." className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm" />
+            <textarea value={form.wanted} onChange={(e) => setForm((f) => ({ ...f, wanted: e.target.value.slice(0, 800) }))} rows={2} aria-label="What you would like to see happen"
+              placeholder="What would put this right? (optional)" className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm" />
+            <button type="button" aria-pressed={form.confidential || sensitive} onClick={() => setForm((f) => ({ ...f, confidential: !f.confidential }))} disabled={sensitive}
+              className={cn('h-10 w-full rounded-2xl border-2 px-3 text-left text-[10px] font-bold', (form.confidential || sensitive) ? 'border-slate-900 bg-slate-50 text-slate-900' : 'border-slate-200 text-slate-600')}>
+              {sensitive ? 'Treated as confidential — concerns about people always are' : form.confidential ? 'Confidential — for the studio owner only' : 'Mark confidential'}
+            </button>
+            {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+            <div className="flex gap-2">
+              <button type="button" onClick={submit} disabled={busy || form.what.trim().length < 10}
+                className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Sending…' : 'Put it on record'}</button>
+              <button type="button" onClick={() => setOpen(false)} className="h-11 rounded-2xl border-2 border-slate-200 px-4 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
+            </div>
+          </div>
+        )}
+        {doneOnes.length > 0 && (
+          <div className="space-y-1">
+            {doneOnes.map((c) => (
+              <p key={c.id} className="text-[10px] font-bold text-slate-500">{c.ref} · {CONCERN_STATUS[c.status] || c.status}{c.resolvedAt ? ` ${fmtDate(String(c.resolvedAt).slice(0, 10))}` : ''}{c.resolution ? ` — ${c.resolution}` : ''}</p>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function RenterLeave({ tenantId, token }: { tenantId: string; token: string }) {
   const [state, setState] = useState<{ policy: any; leaves: any[] } | null>(null);
   const [open, setOpen] = useState(false);
@@ -1950,6 +2048,10 @@ export default function RenterPortalPage() {
 
             {session?.token && data?.lease && (
               <RenterLeave tenantId={tenantId} token={session.token} />
+            )}
+
+            {session?.token && data?.renter?.id && (
+              <RenterConcerns tenantId={tenantId} token={session.token} />
             )}
 
             {session?.token && (
