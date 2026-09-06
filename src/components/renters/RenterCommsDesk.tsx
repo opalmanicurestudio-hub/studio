@@ -18,6 +18,7 @@ import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { GRIEVANCE_CATEGORY_LABEL, GRIEVANCE_STATUS_LABEL, isOpenGrievance } from '@/lib/grievances';
+import { RENTER_DOC_TEMPLATES, RENTER_DOC_FIELDS, renterDocVars, renderRenterDoc, unfilledPlaceholders, type RenterDocKind } from '@/lib/renter-documents';
 
 const ago = (iso: string) => {
   const ms = Date.now() - new Date(iso || 0).getTime();
@@ -28,12 +29,19 @@ const ago = (iso: string) => {
   return d === 1 ? 'yesterday' : `${d}d ago`;
 };
 
-export function RenterCommsDesk({ tenantId, firestore, renters, booths, leases, studioName, onOpenRenter }: {
-  tenantId: string; firestore: any; renters: any[]; booths: any[]; leases: any[]; studioName: string; onOpenRenter: (renterId: string) => void;
+export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, leases, studioName, onOpenRenter }: {
+  tenantId: string; firestore: any; tenant?: any; renters: any[]; booths: any[]; leases: any[]; studioName: string; onOpenRenter: (renterId: string) => void;
 }) {
   const [threads, setThreads] = useState<any[]>([]);
   const [concerns, setConcerns] = useState<any[]>([]);
-  const [tab, setTab] = useState<'inbox' | 'concerns' | 'everyone'>('inbox');
+  const [docs, setDocs] = useState<any[]>([]);
+  const [tab, setTab] = useState<'inbox' | 'concerns' | 'everyone' | 'documents'>('inbox');
+  const [docRenter, setDocRenter] = useState('');
+  const [docKind, setDocKind] = useState<RenterDocKind | ''>('');
+  const [docFields, setDocFields] = useState<Record<string, string>>({});
+  const [docBody, setDocBody] = useState('');
+  const [docTouched, setDocTouched] = useState(false);
+  const [docSent, setDocSent] = useState('');
   const [busy, setBusy] = useState('');
   const [reply, setReply] = useState<Record<string, string>>({});
   const [bText, setBText] = useState('');
@@ -47,7 +55,8 @@ export function RenterCommsDesk({ tenantId, firestore, renters, booths, leases, 
     if (!firestore || !tenantId) return;
     const u1 = onSnapshot(collection(firestore, 'tenants', tenantId, 'renterThreads'), (s) => setThreads(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))), () => setThreads([]));
     const u2 = onSnapshot(collection(firestore, 'tenants', tenantId, 'renterGrievances'), (s) => setConcerns(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))), () => setConcerns([]));
-    return () => { u1(); u2(); };
+    const u3 = onSnapshot(collection(firestore, 'tenants', tenantId, 'renterDocuments'), (s) => setDocs(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))), () => setDocs([]));
+    return () => { u1(); u2(); u3(); };
   }, [firestore, tenantId]);
   useEffect(() => { if (!sendArm) return; const t = setTimeout(() => setSendArm(false), 6000); return () => clearTimeout(t); }, [sendArm]);
 
@@ -91,6 +100,51 @@ export function RenterCommsDesk({ tenantId, firestore, renters, booths, leases, 
     } finally { setBusy(''); setSendArm(false); }
   };
 
+  // ── Documents: pick a renter and a template, fill the blanks, read the
+  // rendered text, send. The body is frozen at send; the renter signs THAT.
+  const docLease = useMemo(() => leases.find((l) => l.renterId === docRenter && ['active', 'on_leave'].includes(String(l.status))) || null, [leases, docRenter]);
+  const docPreview = useMemo(() => {
+    if (!docRenter || !docKind) return null;
+    const renter = renterById.get(docRenter);
+    const booth = docLease ? booths.find((b) => b.id === docLease.boothId) : null;
+    const vars = renterDocVars({ tenant, renter, lease: docLease, booth });
+    return renderRenterDoc(docKind, vars, docFields);
+  }, [docRenter, docKind, docFields, docLease, renterById, booths, tenant]);
+  useEffect(() => { if (docPreview && !docTouched) setDocBody(docPreview.body); }, [docPreview, docTouched]);
+  const pendingDocs = useMemo(() => docs.filter((d) => d.status === 'sent').sort((a, b) => String(a.sentAt).localeCompare(String(b.sentAt))), [docs]);
+  const doneDocs = useMemo(() => docs.filter((d) => d.status !== 'sent').sort((a, b) => String(b.signedAt || b.declinedAt || b.sentAt).localeCompare(String(a.signedAt || a.declinedAt || a.sentAt))).slice(0, 12), [docs]);
+  const docBlanks = unfilledPlaceholders(docBody);
+  const sendDoc = async () => {
+    if (!firestore || !docRenter || !docKind || !docPreview || docBlanks.length > 0) return;
+    setBusy('doc');
+    try {
+      const nowIso = new Date().toISOString();
+      const t = RENTER_DOC_TEMPLATES[docKind];
+      const meta: Record<string, any> = {};
+      if (docKind === 'renewal_offer') {
+        const cents = Math.round((Number(docFields.newRentAmount) || 0) * 100);
+        if (cents > 0) meta.newRentCents = cents;
+        if (docFields.newEndDate) meta.newEndDate = docFields.newEndDate;
+        if (docFields.renewalStart) meta.renewalStart = docFields.renewalStart;
+      }
+      const ref = doc(collection(firestore, 'tenants', tenantId, 'renterDocuments'));
+      await setDoc(ref, {
+        id: ref.id, renterId: docRenter, renterName: nameOf(docRenter), leaseId: docLease?.id || null,
+        kind: docKind, title: docPreview.title, body: docBody.trim(), action: t.action, status: 'sent',
+        sentAt: nowIso, sentBy: studioName, meta,
+      });
+      await fetch('/api/booths/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'renter-message', tenantId, renterId: docRenter, byName: studioName,
+          text: `${t.action === 'sign' ? 'A document to sign' : 'A document to read and acknowledge'}: "${docPreview.title}". Open your portal → Documents.` }) }).catch(() => null);
+      setDocSent(`Sent "${docPreview.title}" to ${nameOf(docRenter)}.`);
+      setDocKind(''); setDocFields({}); setDocBody(''); setDocTouched(false);
+    } finally { setBusy(''); }
+  };
+  const withdrawDoc = async (d: any) => {
+    if (!firestore) return;
+    await setDoc(doc(firestore, 'tenants', tenantId, 'renterDocuments', d.id), { status: 'withdrawn', withdrawnAt: new Date().toISOString() }, { merge: true }).catch(() => null);
+  };
+
   const Tab = ({ k, label, count, tone }: { k: typeof tab; label: string; count?: number; tone?: string }) => (
     <button type="button" onClick={() => setTab(k)} aria-pressed={tab === k}
       className={cn('h-10 rounded-xl border-2 px-3.5 text-[11px] font-black transition-all flex items-center gap-2', tab === k ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200')}>
@@ -105,6 +159,7 @@ export function RenterCommsDesk({ tenantId, firestore, renters, booths, leases, 
         <Tab k="inbox" label="Waiting on you" count={unread.length} tone="bg-amber-500 text-white" />
         <Tab k="concerns" label="Concerns" count={openConcerns.length} tone="bg-red-600 text-white" />
         <Tab k="everyone" label="Message everyone" />
+        <Tab k="documents" label="Documents" count={pendingDocs.length} tone="bg-slate-500 text-white" />
       </div>
 
       {tab === 'inbox' && (
@@ -161,6 +216,72 @@ export function RenterCommsDesk({ tenantId, firestore, renters, booths, leases, 
                   <p className="text-[11px] font-black">{g.renterName || nameOf(g.renterId)}<span className="font-bold text-slate-500"> · {g.ref} · {GRIEVANCE_CATEGORY_LABEL[g.category as keyof typeof GRIEVANCE_CATEGORY_LABEL] || g.category} · {GRIEVANCE_STATUS_LABEL[g.status as keyof typeof GRIEVANCE_STATUS_LABEL]} {String(g.resolvedAt || '').slice(0, 10)}</span></p>
                   {g.resolution && <p className="text-[11px] font-medium text-slate-600">{g.resolution}</p>}
                 </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'documents' && (
+        <div className="space-y-3">
+          <div className="rounded-2xl border-2 bg-slate-50 px-3.5 py-3 space-y-2">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Send a document</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <select value={docRenter} onChange={(e) => { setDocRenter(e.target.value); setDocTouched(false); }} aria-label="Renter" className="h-10 rounded-xl border-2 bg-white px-3 text-sm font-bold">
+                <option value="">Who is it for?</option>
+                {allRenters.map((r) => <option key={r.id} value={r.id}>{`${r.firstName || ''} ${r.lastName || ''}`.trim()}{boothNameOf(r.id) ? ` · ${boothNameOf(r.id)}` : ''}</option>)}
+              </select>
+              <select value={docKind} onChange={(e) => { setDocKind(e.target.value as RenterDocKind); setDocFields({}); setDocTouched(false); setDocSent(''); }} aria-label="Document" className="h-10 rounded-xl border-2 bg-white px-3 text-sm font-bold" disabled={!docRenter}>
+                <option value="">Which document?</option>
+                {(Object.keys(RENTER_DOC_TEMPLATES) as RenterDocKind[]).map((k) => <option key={k} value={k}>{RENTER_DOC_TEMPLATES[k].title}</option>)}
+              </select>
+            </div>
+            {docKind && <p className="text-[10px] font-bold text-slate-500">{RENTER_DOC_TEMPLATES[docKind].blurb}{docRenter && !docLease ? ' No active lease found for this renter — numbers will show as blanks.' : ''}</p>}
+            {docKind && RENTER_DOC_FIELDS[docKind].length > 0 && (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {RENTER_DOC_FIELDS[docKind].map((f) => f.multiline ? (
+                  <textarea key={f.key} value={docFields[f.key] || ''} onChange={(e) => { setDocFields((m) => ({ ...m, [f.key]: e.target.value })); setDocTouched(false); }} rows={2} aria-label={f.label} placeholder={`${f.label} — ${f.placeholder}`} className="sm:col-span-2 rounded-xl border-2 bg-white px-3 py-2 text-sm" />
+                ) : (
+                  <input key={f.key} type={f.type === 'date' ? 'date' : 'text'} inputMode={f.type === 'money' ? 'decimal' : undefined} value={docFields[f.key] || ''} onChange={(e) => { setDocFields((m) => ({ ...m, [f.key]: e.target.value })); setDocTouched(false); }} aria-label={f.label} placeholder={`${f.label}${f.placeholder ? ` — ${f.placeholder}` : ''}`} className="h-10 rounded-xl border-2 bg-white px-3 text-sm font-bold" />
+                ))}
+              </div>
+            )}
+            {docPreview && (
+              <div className="space-y-1.5">
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">{docPreview.title} · what they will {RENTER_DOC_TEMPLATES[docKind as RenterDocKind].action} — edit freely</p>
+                <textarea value={docBody} onChange={(e) => { setDocBody(e.target.value); setDocTouched(true); }} rows={12} aria-label="Document text" className="w-full rounded-xl border-2 bg-white px-3 py-2 text-[12px] leading-relaxed font-medium" />
+                {docBlanks.length > 0 && <p className="text-[10px] font-black text-red-700">Still blank: {docBlanks.join(', ')} — fill them above or edit them out of the text.</p>}
+                <div className="flex items-center gap-2">
+                  <Button onClick={sendDoc} disabled={busy === 'doc' || docBlanks.length > 0 || !docBody.trim()} className="h-10 flex-1 rounded-xl font-black uppercase text-[10px] tracking-widest">{busy === 'doc' ? 'Sending…' : `Send for ${RENTER_DOC_TEMPLATES[docKind as RenterDocKind].action === 'sign' ? 'signature' : 'acknowledgment'}`}</Button>
+                  {docTouched && <button type="button" onClick={() => { setDocTouched(false); if (docPreview) setDocBody(docPreview.body); }} className="h-10 rounded-xl border-2 bg-white px-3 text-[9px] font-black uppercase tracking-widest text-slate-600">Reset text</button>}
+                </div>
+                <p className="text-[9px] font-bold text-slate-400">The text is frozen when you send. Templates are starting points, not legal advice — the words you send are the words they sign.</p>
+              </div>
+            )}
+            {docSent && <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">{docSent}</p>}
+          </div>
+          {pendingDocs.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-[9px] font-black uppercase tracking-widest text-amber-800">Waiting on them</p>
+              {pendingDocs.map((d) => (
+                <div key={d.id} className="rounded-2xl border-2 border-amber-300 bg-amber-50 px-3.5 py-2.5 flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-black truncate"><button type="button" onClick={() => onOpenRenter(d.renterId)} className="underline decoration-2 underline-offset-2">{d.renterName}</button><span className="font-bold text-slate-500"> · {d.title} · sent {ago(d.sentAt)}</span></p>
+                  <div className="flex shrink-0 gap-1.5">
+                    <a href={`/api/booths/renter-document?tenantId=${encodeURIComponent(tenantId)}&id=${encodeURIComponent(d.id)}`} target="_blank" rel="noopener" className="h-8 inline-flex items-center rounded-lg border-2 bg-white px-2.5 text-[9px] font-black uppercase tracking-widest text-slate-700">View</a>
+                    <button type="button" onClick={() => withdrawDoc(d)} className="h-8 rounded-lg border-2 border-red-200 bg-white px-2.5 text-[9px] font-black uppercase tracking-widest text-red-700">Withdraw</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {doneDocs.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Recent</p>
+              {doneDocs.map((d) => (
+                <p key={d.id} className="text-[10px] font-bold text-slate-600 flex items-center justify-between gap-2">
+                  <span className="truncate">{d.renterName} · {d.title} · <span className={cn('font-black', d.status === 'signed' ? 'text-emerald-700' : d.status === 'declined' ? 'text-red-700' : 'text-slate-500')}>{d.status}</span>{d.signedName ? ` as ${d.signedName}` : ''}{d.declineNote ? ` — “${d.declineNote}”` : ''}</span>
+                  <a href={`/api/booths/renter-document?tenantId=${encodeURIComponent(tenantId)}&id=${encodeURIComponent(d.id)}`} target="_blank" rel="noopener" className="shrink-0 text-[9px] font-black uppercase tracking-widest underline">Print</a>
+                </p>
               ))}
             </div>
           )}
