@@ -23,6 +23,7 @@ import { useLocation } from '@/context/LocationContext';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { MaintenanceSection } from '@/components/booths/MaintenanceSection';
+import { InterruptionsCard } from '@/components/maintenance/InterruptionsCard';
 import { isTicketOverdue } from '@/lib/maintenance';
 import { Wrench, AlertTriangle, CircleDot, CalendarClock, Loader } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -122,6 +123,8 @@ export default function MaintenancePage() {
           tone={stats.unassigned > 0 ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-slate-200'} />
         <Stat icon={CalendarClock} label="Active plans" value={stats.plans} tone="border-slate-200" />
       </div>
+
+      {tenantId && <InterruptionsCard tenantId={tenantId} firestore={firestore} tenant={tenant} booths={sortedBooths} />}
 
       {loading ? (
         <div className="flex items-center gap-2 py-10 text-muted-foreground">
