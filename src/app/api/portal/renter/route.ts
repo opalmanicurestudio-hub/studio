@@ -69,7 +69,7 @@ function clampWeekToLease(week: any, lease: any): any {
   }
   return out;
 }
-import { dueAtFor, TICKET_STATUS_LABELS } from '@/lib/maintenance';
+import { dueAtFor, respondByFor, ticketAcknowledged, responseCommitments, TICKET_STATUS_LABELS } from '@/lib/maintenance';
 import { uploadTicketPhotoFromDataUrl, uploadPortalImageFromDataUrl, autoAssignTicket } from '@/lib/maintenance-server';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -853,6 +853,9 @@ export async function POST(req: NextRequest) {
       }
       const nowIso = new Date().toISOString();
       const ref = db.collection(`tenants/${tenantId}/tickets`).doc();
+      // Both clocks start from THIS shop's commitments, so what the renter was
+      // promised on the page is exactly what the ticket is measured against.
+      const ticketRules = ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.maintenanceRules || null;
       // Optional photo — "here's what it looks like" beats any description.
       let photoUrl: string | null = null;
       let photoError: string | undefined;
@@ -868,7 +871,8 @@ export async function POST(req: NextRequest) {
         reporter: { type: 'renter', name: session.name || 'Renter', phone: /\d{7,}/.test(key) ? key : '', renterId: session.renterId || null },
         assigneeId: null, assigneeName: null,
         updates: [{ at: nowIso, by: session.name || 'Renter', byType: 'renter', note: 'Ticket created', status: 'open', ...(photoUrl ? { photoUrl } : {}) }],
-        createdAt: nowIso, updatedAt: nowIso, dueAt: dueAtFor(priority), resolvedAt: null,
+        createdAt: nowIso, updatedAt: nowIso, resolvedAt: null,
+        dueAt: dueAtFor(priority, nowIso, ticketRules), respondBy: respondByFor(priority, nowIso, ticketRules),
       });
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/maintenance',
@@ -920,6 +924,8 @@ export async function POST(req: NextRequest) {
         .slice(0, 25)
         .map((t: any) => ({
           id: t.id, title: t.title, description: t.description,
+          dueAt: t.dueAt || null, respondBy: t.respondBy || null,
+          acknowledged: ticketAcknowledged(t),
           category: t.category, priority: t.priority,
           status: t.status, statusLabel: TICKET_STATUS_LABELS[t.status as keyof typeof TICKET_STATUS_LABELS] || t.status,
           boothName: t.boothName || null, createdAt: t.createdAt, resolvedAt: t.resolvedAt || null,
@@ -927,7 +933,8 @@ export async function POST(req: NextRequest) {
           photoUrls: Array.isArray(t.photoUrls) ? t.photoUrls : [],
           updates: (t.updates || []).map((u: any) => ({ at: u.at, by: u.by, byType: u.byType, note: u.note || null, status: u.status || null, photoUrl: u.photoUrl || null })),
         }));
-      return NextResponse.json({ ok: true, tickets: mine });
+      const rulesRaw = ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.maintenanceRules || null;
+      return NextResponse.json({ ok: true, tickets: mine, commitments: responseCommitments(rulesRaw) });
     }
 
     if (action === 'ticket-note') {
