@@ -138,6 +138,52 @@ export function abatementProposals(
   return out.sort((a, b) => a.renterName.localeCompare(b.renterName));
 }
 
+/**
+ * WHAT IT COST THE RENTER — their record, not the shop's.
+ *
+ * A rent credit makes the renter whole for the CHAIR. It does nothing for the
+ * clients they turned away, and that number is the one their own insurer or
+ * accountant asks for. So the renter keeps this log themselves, from the
+ * portal, while it is fresh: each day, how many appointments they lost, what
+ * they estimate it cost, a note. The shop can read it — it is part of the
+ * packet — but never edits it. A number the shop typed for the renter is
+ * worth nothing to the renter's insurer; a number the renter typed is.
+ */
+export interface LossEntry {
+  id: string;
+  interruptionId: string;
+  renterId: string;
+  renterName: string;
+  date: string;                 // YYYY-MM-DD
+  appointmentsLost: number;
+  lostCents: number;            // the renter's own estimate
+  note: string;
+  loggedAt: string;
+}
+
+export function lossTotals(entries: LossEntry[] | any[]): { days: number; appointmentsLost: number; lostCents: number } {
+  const days = new Set<string>();
+  let appointmentsLost = 0, lostCents = 0;
+  for (const e of entries || []) {
+    if (!e) continue;
+    days.add(String(e.date));
+    appointmentsLost += Math.max(0, Math.floor(Number(e.appointmentsLost) || 0));
+    lostCents += Math.max(0, Math.round(Number(e.lostCents) || 0));
+  }
+  return { days: days.size, appointmentsLost, lostCents };
+}
+
+/** Group a mixed list by renter, each with totals — for the card and the packet. */
+export function lossesByRenter(entries: LossEntry[] | any[]): { renterId: string; renterName: string; entries: LossEntry[]; totals: ReturnType<typeof lossTotals> }[] {
+  const m = new Map<string, LossEntry[]>();
+  for (const e of entries || []) { if (!e?.renterId) continue; const a = m.get(e.renterId) || []; a.push(e as LossEntry); m.set(e.renterId, a); }
+  return [...m.entries()].map(([renterId, list]) => ({
+    renterId, renterName: list[0]?.renterName || 'Renter',
+    entries: [...list].sort((a, b) => String(a.date).localeCompare(String(b.date))),
+    totals: lossTotals(list),
+  })).sort((a, b) => a.renterName.localeCompare(b.renterName));
+}
+
 /** The shop's total exposure for this interruption, before anything is approved. */
 export function exposureCents(proposals: AbatementProposal[]): { fullCents: number; paidCents: number; owedCents: number } {
   return proposals.reduce(
