@@ -179,7 +179,7 @@ export default function RentersPage() {
       </div>
 
       {tenantId && (
-        <RenterCommsDesk tenantId={tenantId} firestore={firestore} renters={renters} booths={booths} leases={leases}
+        <RenterCommsDesk tenantId={tenantId} firestore={firestore} tenant={selectedTenant} renters={renters} booths={booths} leases={leases}
           studioName={selectedTenant?.name || 'Studio'} onOpenRenter={(id) => { const r = renters.find((x) => x.id === id); if (r) setProfileRenter(r); }} />
       )}
 
