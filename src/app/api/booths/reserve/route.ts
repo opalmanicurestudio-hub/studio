@@ -31,6 +31,7 @@ import { resolveDayUseAgreement, buildSignedRecord } from '@/lib/esign';
 import { recognizeContact, resolveRenterDayDiscount } from '@/lib/booth-recognition';
 import { sendReservationConfirmation } from '@/lib/reservation-notify';
 import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
+import { subletOpenOn } from '@/lib/leave-policy';
 
 // The owner's custom booking terms, if they wrote any, from the booking-page
 // config. A miss is fine — resolveDayUseAgreement falls back to the built-in
@@ -248,17 +249,24 @@ async function findConflict(db: FirebaseFirestore.Firestore, tenantId: string, b
 // weekday indexes + optional HH:MM window; no times = whole day).
 async function leaseSlotConflict(db: FirebaseFirestore.Firestore, tenantId: string, boothId: string, proposed: { startDate: string; endDate: string; bookingType?: string; startTime?: string; endTime?: string }): Promise<string | null> {
   const snap = await db.collection(`tenants/${tenantId}/leases`).where('boothId', '==', boothId).get();
-  const slots = snap.docs
-    .map((d) => d.data() as any)
+  const held = snap.docs
+    .map((d) => ({ id: d.id, ...(d.data() as any) }))
     .filter((l) => ['active', 'on_leave', 'pending_signature'].includes(l.status)
-      && l.scheduleSlot && Array.isArray(l.scheduleSlot.days) && l.scheduleSlot.days.length > 0)
-    .map((l) => l.scheduleSlot);
-  if (!slots.length) return null;
+      && l.scheduleSlot && Array.isArray(l.scheduleSlot.days) && l.scheduleSlot.days.length > 0);
+  if (!held.length) return null;
+  // A renter on SUBLET leave has handed their days back for a fixed window.
+  // The window lives on the booth as two dates, and it is re-read here per
+  // day rather than trusted as a flag: the moment the window ends the chair
+  // is theirs again, even if nothing ran overnight to say so.
+  const bSnap = await db.doc(`tenants/${tenantId}/booths/${boothId}`).get();
+  const booth: any = bSnap.data() || {};
   const isHourly = proposed.bookingType === 'hourly' && proposed.startTime && proposed.endTime;
   for (let t = new Date(proposed.startDate + 'T00:00:00Z').getTime(), e = new Date(proposed.endDate + 'T00:00:00Z').getTime(); t <= e; t += DAY_MS) {
     const iso = new Date(t).toISOString().slice(0, 10);
     const dow = new Date(t).getUTCDay();
-    for (const s of slots) {
+    for (const l of held) {
+      if (subletOpenOn(booth, iso) && booth.subletLeaseId === l.id) continue;
+      const s = l.scheduleSlot;
       if (!s.days.includes(dow)) continue;
       const slotStart = s.startTime || '00:00';
       const slotEnd = s.endTime || '23:59';
@@ -306,7 +314,8 @@ export async function POST(req: NextRequest) {
         const dayRate = options.find((o) => o.frequency === 'daily' && o.amountCents > 0) || null;
         // Nothing sellable here — leave it out entirely rather than showing a
         // space the desk would only be disappointed by.
-        if (!b.dayUseEnabled || (!hourRate && !dayRate)) continue;
+        const subletOpen = subletOpenOn(b, date);
+        if ((!b.dayUseEnabled && !subletOpen) || (!hourRate && !dayRate)) continue;
 
         // Out of service is DIFFERENT from not-listed: the desk needs to see
         // it and know why, or they will quote a chair the planner shows as
@@ -343,6 +352,7 @@ export async function POST(req: NextRequest) {
         for (const ld of lSnap.docs) {
           const l: any = ld.data() || {};
           if (!['active', 'on_leave', 'pending_signature'].includes(String(l.status))) continue;
+          if (subletOpen && b.subletLeaseId === ld.id) continue;
           const slot = l.scheduleSlot;
           if (!slot || !Array.isArray(slot.days) || !slot.days.includes(dow)) continue;
           busy.push({
@@ -389,7 +399,9 @@ export async function POST(req: NextRequest) {
       const bSnap = await db.doc(`tenants/${tid}/booths/${boothId}`).get();
       if (!bSnap.exists) return NextResponse.json({ ok: false, error: 'That space is gone.' }, { status: 404 });
       const booth: any = bSnap.data();
-      if (!booth.dayUseEnabled) return NextResponse.json({ ok: false, error: 'That space is not set up for day use.' }, { status: 400 });
+      if (!booth.dayUseEnabled && !subletOpenOn(booth, date)) {
+        return NextResponse.json({ ok: false, error: 'That space is not set up for day use.' }, { status: 400 });
+      }
       // The one place the desk could sell a chair maintenance has taken down.
       // The public checkout already refuses anything not vacant/partial; the
       // desk path was written later and skipped it — which meant the planner
@@ -429,8 +441,11 @@ export async function POST(req: NextRequest) {
       const recognition = await recognizeContact(db, tid, phone || null, email || null).catch(() => null);
       const nowIso = new Date().toISOString();
       const ref = db.collection(`tenants/${tid}/boothReservations`).doc();
+      const subletOn = subletOpenOn(booth, date);
       const resData: any = {
         id: ref.id, tenantId: tid, boothId, boothName: booth.name || 'Space',
+        subletLeaseId: subletOn ? (booth.subletLeaseId || null) : null,
+        subletRenterId: subletOn ? (booth.subletRenterId || null) : null,
         startDate: date, endDate: date,
         bookingType: isHourly ? 'hourly' : 'daily',
         startTime: isHourly ? startTime : null,
@@ -541,7 +556,15 @@ export async function POST(req: NextRequest) {
     const booth = boothSnap.data() as any;
     // v85 — 'partial' booths (shared leases) take guest bookings too, just
     // never inside the resident renters' scheduled windows (checked below).
-    if (booth.status !== 'vacant' && booth.status !== 'partial') {
+    //
+    // A booth inside an approved SUBLET window reads as occupied — its lease
+    // is still live, the renter is simply away — so 'occupied' is allowed
+    // through for those dates only. Maintenance is NOT: an out-of-service
+    // chair stays out of service no matter who is on leave.
+    const subletDates = subletOpenOn(booth, startDate) && subletOpenOn(booth, endDate);
+    const statusOk = booth.status === 'vacant' || booth.status === 'partial'
+      || (subletDates && booth.status !== 'maintenance');
+    if (!statusOk) {
       return NextResponse.json({ ok: false, error: 'This space is no longer available.' }, { status: 409 });
     }
     const leaseClash = await leaseSlotConflict(db, tenantId, boothId, { startDate, endDate, bookingType, startTime, endTime });
