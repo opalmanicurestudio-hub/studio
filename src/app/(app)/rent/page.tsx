@@ -48,6 +48,7 @@ import { cn } from '@/lib/utils';
 import { buildRentSchedule, type ScheduledCharge } from '@/lib/rent-schedule';
 import { buildRentInvoice, leasesToInvoice, invoiceKey } from '@/lib/rent-invoices';
 import { resolveCollectionsPolicy, type CollectionsPolicy } from '@/lib/collections-policy';
+import { resolveLeavePolicy, addDays as addLeaseDays, LEAVE_TREATMENT_LABEL, LEAVE_TREATMENT_NOTE, LEAVE_TYPE_LABEL, bankedAvailable, redeemValueCents, subletWindowFields, SUBLET_CLEAR_FIELDS, type LeavePolicy, type LeaveTreatment } from '@/lib/leave-policy';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { CalendarClock as CalendarClockIcon } from 'lucide-react';
@@ -284,6 +285,208 @@ function RentScheduleCard({ rows, renterById, boothById, onEnableAutopay }: {
           );
         })}
         {rows.length > 12 && <p className="text-[10px] font-bold text-slate-400">Showing the next 12 of {rows.length}.</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Leave — what a renter can ask for when life happens, and the rent treatment
+ * the shop is willing to offer. Nothing is offered until the owner ticks it,
+ * and every request is decided by hand.
+ */
+function LeaveCard({ tenantId, firestore, tenant, leaves, leaseById, renterById }: { tenantId: string; firestore: any; tenant: any; leaves: any[]; leaseById: Map<string, any>; renterById: Map<string, any> }) {
+  const [cfg, setCfg] = useState<LeavePolicy>(() => resolveLeavePolicy(tenant));
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [deciding, setDeciding] = useState<string>('');
+  const [chosen, setChosen] = useState<Record<string, LeaveTreatment>>({});
+  useEffect(() => { setCfg(resolveLeavePolicy(tenant)); }, [tenant]);
+  const save = async () => {
+    if (!firestore || !tenantId) return;
+    setSaving(true);
+    try { await updateDoc(doc(firestore, `tenants/${tenantId}`), { leavePolicy: cfg }); setSaved(true); setTimeout(() => setSaved(false), 1800); }
+    finally { setSaving(false); }
+  };
+  const decide = async (l: any, status: 'approved' | 'declined') => {
+    if (!firestore || !tenantId) return;
+    const treatment = status === 'approved' ? (chosen[l.id] || l.preferred || cfg.offered[0]) : null;
+    if (status === 'approved' && !treatment) return;
+    setDeciding(l.id);
+    try {
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'renterLeaves', l.id), {
+        status, treatment, decidedAt: new Date().toISOString(), decidedBy: 'owner',
+      });
+      if (status === 'approved') {
+        await setDoc(doc(firestore, 'tenants', tenantId, 'renters', l.renterId), {
+          status: l.type === 'maternity' ? 'maternity_leave' : 'on_leave', leaveId: l.id,
+        }, { merge: true });
+        await setDoc(doc(firestore, 'tenants', tenantId, 'leases', l.leaseId), { status: 'on_leave', leaveId: l.id, leaveStartedAt: l.startDate }, { merge: true });
+        const boothId = leaseById.get(l.leaseId)?.boothId;
+        if (treatment === 'sublet' && boothId) {
+          await setDoc(doc(firestore, 'tenants', tenantId, 'booths', boothId), subletWindowFields(l), { merge: true });
+        }
+      }
+      try {
+        await fetch('/api/booths/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'leave-decision', tenantId, leaveId: l.id }) });
+      } catch { /* the decision stands */ }
+    } finally { setDeciding(''); }
+  };
+  const endNow = async (l: any) => {
+    if (!firestore || !tenantId) return;
+    setDeciding(l.id);
+    try {
+      const lease = leaseById.get(l.leaseId) || {};
+      const pausedDays = Number(l.pausedDays) || 0;
+      const patch: Record<string, any> = { status: 'active', leaveId: null, leaveEndedAt: new Date().toISOString() };
+      if (l.treatment === 'pause' && pausedDays > 0 && typeof lease.endDate === 'string' && lease.endDate) {
+        patch.endDate = addLeaseDays(lease.endDate, pausedDays);
+        patch.endDateExtendedByLeaveDays = (Number(lease.endDateExtendedByLeaveDays) || 0) + pausedDays;
+      }
+      await setDoc(doc(firestore, 'tenants', tenantId, 'leases', l.leaseId), patch, { merge: true });
+      if (l.treatment === 'sublet' && lease.boothId) {
+        await setDoc(doc(firestore, 'tenants', tenantId, 'booths', lease.boothId), SUBLET_CLEAR_FIELDS, { merge: true });
+      }
+      await setDoc(doc(firestore, 'tenants', tenantId, 'renters', l.renterId), { status: 'active', leaveId: null }, { merge: true });
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'renterLeaves', l.id), {
+        status: 'ended', endedAt: new Date().toISOString(), endedBy: 'owner',
+        leaseExtendedDays: l.treatment === 'pause' ? pausedDays : 0,
+      });
+    } finally { setDeciding(''); }
+  };
+  const decideRedeem = async (l: any, ok: boolean) => {
+    if (!firestore || !tenantId) return;
+    setDeciding(`r-${l.id}`);
+    try {
+      const days = Number(l.redeem?.days) || 0;
+      const lease = leaseById.get(l.leaseId) || {};
+      const cents = redeemValueCents(lease, days);
+      if (ok && cents > 0) {
+        const nowIso = new Date().toISOString();
+        const ref = doc(collection(firestore, 'tenants', tenantId, 'rentLedger'));
+        await setDoc(ref, {
+          leaseId: l.leaseId, renterId: l.renterId, boothId: lease.boothId || null,
+          type: 'leave_credit', status: 'paid', amountCents: -cents,
+          description: `${days} banked rental day${days === 1 ? '' : 's'} redeemed`,
+          note: String(l.redeem?.note || ''), dueDate: null, paidAt: nowIso.slice(0, 10), method: 'leave_credit',
+          stripePaymentIntentId: null, appliesToEntryIds: [], createdBy: 'owner', createdAt: nowIso, updatedAt: nowIso,
+        });
+      }
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'renterLeaves', l.id), {
+        redeem: { ...(l.redeem || {}), status: ok ? 'approved' : 'declined', decidedAt: new Date().toISOString(), creditCents: ok ? cents : 0 },
+        redeemedDays: ok ? (Number(l.redeemedDays) || 0) + days : (Number(l.redeemedDays) || 0),
+      });
+    } finally { setDeciding(''); }
+  };
+  const pending = leaves.filter((l) => l.status === 'requested');
+  const active = leaves.filter((l) => l.status === 'approved');
+  const redeems = leaves.filter((l) => l.redeem && l.redeem.status === 'requested');
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const Row = ({ t }: { t: LeaveTreatment }) => {
+    const on = cfg.offered.includes(t);
+    return (
+      <button type="button" aria-pressed={on} onClick={() => setCfg((c) => ({ ...c, offered: on ? c.offered.filter((x) => x !== t) : [...c.offered, t] }))}
+        className={cn('w-full rounded-2xl border-2 px-4 py-3 flex items-center justify-between gap-3 text-left transition-colors', on ? 'border-slate-900 bg-slate-50' : 'bg-white')}>
+        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest">{LEAVE_TREATMENT_LABEL[t]}</span><span className="block text-[10px] font-bold text-muted-foreground">{LEAVE_TREATMENT_NOTE[t]}</span></span>
+        <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest', on ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500')}>{on ? 'Offered' : 'Off'}</span>
+      </button>
+    );
+  };
+  return (
+    <Card className="rounded-[2rem] border-2">
+      <CardHeader className="p-5 pb-2">
+        <CardTitle className="text-[11px] font-black uppercase tracking-widest">Leave</CardTitle>
+        <p className="text-[11px] font-bold text-slate-500">Maternity, medical, family. What a renter can ask for, and what rent does while they're away. Nothing is offered until you tick it; every request is yours to decide.</p>
+      </CardHeader>
+      <CardContent className="p-5 pt-2 space-y-4">
+        {pending.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-[9px] font-black uppercase tracking-widest text-amber-800">Waiting on you</p>
+            {pending.map((l) => {
+              const r = renterById.get(l.renterId);
+              const pick = chosen[l.id] || l.preferred || cfg.offered[0];
+              return (
+                <div key={l.id} className="rounded-2xl border-2 border-amber-300 bg-amber-50 px-3.5 py-3 space-y-2">
+                  <p className="text-sm font-black">{r ? `${r.firstName} ${r.lastName}` : l.renterName}<span className="font-bold text-slate-500"> · {LEAVE_TYPE_LABEL[l.type as keyof typeof LEAVE_TYPE_LABEL] || l.type}</span></p>
+                  <p className="text-[11px] font-bold text-slate-700">{l.startDate} → {l.endDate} · {l.days} day{l.days === 1 ? '' : 's'}{l.preferred ? ` · they'd prefer: ${LEAVE_TREATMENT_LABEL[l.preferred as LeaveTreatment]}` : ''}</p>
+                  {l.note && <p className="text-[11px] font-medium text-slate-700">“{l.note}”</p>}
+                  <div className="flex flex-wrap gap-1.5">
+                    {cfg.offered.map((t) => (
+                      <button key={t} type="button" onClick={() => setChosen((m) => ({ ...m, [l.id]: t }))} aria-pressed={pick === t}
+                        className={cn('h-9 px-3 rounded-full border-2 text-[9px] font-black uppercase tracking-widest', pick === t ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-300 text-slate-600 bg-white')}>{LEAVE_TREATMENT_LABEL[t]}</button>
+                    ))}
+                  </div>
+                  {pick === 'sublet' && <p className="text-[10px] font-bold text-slate-600">Approving opens their space for day rentals from {l.startDate} to {l.endDate} — those dates only.</p>}
+                  <div className="flex gap-2">
+                    <Button onClick={() => decide(l, 'approved')} disabled={deciding === l.id || !pick} className="h-10 flex-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 font-black uppercase text-[10px] tracking-widest">{deciding === l.id ? '…' : `Approve · ${pick ? LEAVE_TREATMENT_LABEL[pick] : ''}`}</Button>
+                    <Button variant="outline" onClick={() => decide(l, 'declined')} disabled={deciding === l.id} className="h-10 rounded-xl border-2 border-red-200 text-red-700 font-black uppercase text-[10px] tracking-widest">Decline</Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {redeems.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-[9px] font-black uppercase tracking-widest text-amber-800">Banked days to approve</p>
+            {redeems.map((l) => {
+              const r = renterById.get(l.renterId);
+              const cents = redeemValueCents(leaseById.get(l.leaseId) || {}, Number(l.redeem?.days) || 0);
+              return (
+                <div key={`r-${l.id}`} className="rounded-2xl border-2 border-amber-300 bg-amber-50 px-3.5 py-3 space-y-2">
+                  <p className="text-sm font-black">{r ? `${r.firstName} ${r.lastName}` : l.renterName}<span className="font-bold text-slate-500"> · {l.redeem.days} day{l.redeem.days === 1 ? '' : 's'}</span></p>
+                  <p className="text-[11px] font-bold text-slate-700">Approving posts a {formatCents(cents)} credit against their rent. They have {bankedAvailable(l)} banked.</p>
+                  {l.redeem.note && <p className="text-[11px] font-medium text-slate-700">“{l.redeem.note}”</p>}
+                  <div className="flex gap-2">
+                    <Button onClick={() => decideRedeem(l, true)} disabled={deciding === `r-${l.id}`} className="h-10 flex-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 font-black uppercase text-[10px] tracking-widest">{deciding === `r-${l.id}` ? '…' : `Credit ${formatCents(cents)}`}</Button>
+                    <Button variant="outline" onClick={() => decideRedeem(l, false)} disabled={deciding === `r-${l.id}`} className="h-10 rounded-xl border-2 border-red-200 text-red-700 font-black uppercase text-[10px] tracking-widest">Decline</Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {active.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">On leave now</p>
+            {active.map((l) => { const r = renterById.get(l.renterId); const back = String(l.endDate) < todayIso; return (
+              <div key={l.id} className="rounded-2xl border-2 bg-white px-3.5 py-2.5 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[12px] font-black truncate">{r ? `${r.firstName} ${r.lastName}` : l.renterName}<span className="font-bold text-slate-500"> · {l.startDate} → {l.endDate}</span></p>
+                  <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest', back ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}>{back ? 'Due back' : (LEAVE_TREATMENT_LABEL[l.treatment as LeaveTreatment] || 'Approved')}</span>
+                </div>
+                <Button variant="outline" onClick={() => endNow(l)} disabled={deciding === l.id}
+                  className="h-9 w-full rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
+                  {deciding === l.id ? '…' : `End leave${l.treatment === 'pause' && Number(l.pausedDays) > 0 ? ` · extends lease ${l.pausedDays} day${Number(l.pausedDays) === 1 ? '' : 's'}` : ''}`}
+                </Button>
+              </div>
+            ); })}
+          </div>
+        )}
+        <div className="space-y-1.5">
+          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">What you offer</p>
+          {(['pause', 'reduced', 'bank', 'sublet'] as LeaveTreatment[]).map((t) => <Row key={t} t={t} />)}
+        </div>
+        <button type="button" aria-pressed={cfg.autoEnd} onClick={() => setCfg((c) => ({ ...c, autoEnd: !c.autoEnd }))}
+          className={cn('w-full rounded-2xl border-2 px-4 py-3 flex items-center justify-between gap-3 text-left', cfg.autoEnd ? 'border-slate-900 bg-slate-50' : 'bg-white')}>
+          <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest">Close a leave on its return date</span><span className="block text-[10px] font-bold text-muted-foreground">Rent goes back to normal on the day they said they'd be back. Off means the date raises a decision for you instead — a leave nobody closes never invoices again.</span></span>
+          <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest', cfg.autoEnd ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500')}>{cfg.autoEnd ? 'On' : 'Off'}</span>
+        </button>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {([['reducedPercent', 'Holding rate %', 0, 100], ['bankDaysPerWeek', 'Banked days / week', 0, 7], ['maxWeeks', 'Max weeks', 1, 104], ['noticeDays', 'Notice days', 0, 90]] as const).map(([k, label, lo, hi]) => (
+            <div key={k} className="space-y-1">
+              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{label}</p>
+              <input inputMode="numeric" aria-label={label} value={String((cfg as any)[k])}
+                onChange={(e) => { const n = Number(e.target.value.replace(/[^0-9]/g, '')); setCfg((c) => ({ ...c, [k]: Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : (c as any)[k] })); }}
+                className="h-9 w-full rounded-lg border-2 bg-white px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center justify-end gap-2">
+          {saved && <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Saved</span>}
+          <Button onClick={save} disabled={saving} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest">{saving ? 'Saving…' : 'Save leave policy'}</Button>
+        </div>
       </CardContent>
     </Card>
   );
@@ -813,6 +1016,16 @@ export default function RentRollPage() {
     for (const b of (booths ?? []) as any[]) m.set(b.id, b);
     return m;
   }, [booths]);
+  const scheduleLeaseById = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const l of (leases ?? []) as any[]) m.set(l.id, l);
+    return m;
+  }, [leases]);
+  const leavesRef = useMemoFirebase(
+    () => (firestore && tenantId ? collection(firestore, 'tenants', tenantId, 'renterLeaves') : null),
+    [firestore, tenantId]);
+  const { data: renterLeaves } = useCollection<any>(leavesRef);
+
   // Invoices — what is owed. The late sweep, the reminder, the planner and
   // the portal already read this collection; the page now does too, so every
   // screen agrees on who is behind.
@@ -1991,6 +2204,7 @@ export default function RentRollPage() {
       {tenantId && <RenterProvidersCard tenantId={tenantId} firestore={firestore} renters={(renters || []) as any[]} staff={(allStaff || []) as any[]} allAppointments={(allAppointments || []) as any[]} />}
       {tenantId && <RenterSwapsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
       {tenantId && <RentCommsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
+      {tenantId && <LeaveCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} leaves={(renterLeaves ?? []) as any[]} leaseById={scheduleLeaseById} renterById={scheduleRenterById} />}
       {tenantId && <CollectionsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
       </div>
     </div>
