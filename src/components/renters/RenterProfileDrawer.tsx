@@ -766,6 +766,7 @@ export function RenterProfileDrawer({
                   <p className="text-[11px] text-amber-700">Renter completes this in their portal → Documents tab.</p>
                 )}
               </div>
+              <RenterSignedDocs tenantId={tenantId} firestore={firestore} renterId={renter.id} />
               {Array.isArray((renter as any).applicationAttachments) && (renter as any).applicationAttachments.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground px-1">Application documents</p>
@@ -881,6 +882,52 @@ export function RenterProfileDrawer({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Signed documents (drawer Documents tab) ─────────────────────────────────
+// The renter's paper file: everything sent to them (summary, move-in report,
+// notices, renewals) with its state, and everything they have ever signed —
+// the lease included — from the same signedDocuments collection. Its own
+// component so its subscriptions live only while the tab is open.
+function RenterSignedDocs({ tenantId, firestore, renterId }: { tenantId: string; firestore: any; renterId: string }) {
+  const [sent, setSent] = useState<any[]>([]);
+  const [signed, setSigned] = useState<any[]>([]);
+  useEffect(() => {
+    if (!firestore || !tenantId || !renterId) return;
+    const u1 = onSnapshot(query(collection(firestore, 'tenants', tenantId, 'renterDocuments'), where('renterId', '==', renterId)),
+      (s) => setSent(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))), () => setSent([]));
+    const u2 = onSnapshot(query(collection(firestore, 'tenants', tenantId, 'signedDocuments'), where('subjectId', '==', renterId)),
+      (s) => setSigned(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))), () => setSigned([]));
+    return () => { u1(); u2(); };
+  }, [firestore, tenantId, renterId]);
+  const sentSorted = useMemo(() => [...sent].sort((a, b) => String(b.sentAt).localeCompare(String(a.sentAt))), [sent]);
+  const otherSigned = useMemo(() => {
+    const linked = new Set(sent.map((d) => d.signedDocumentId).filter(Boolean));
+    return signed.filter((x) => !linked.has(x.id)).sort((a, b) => String(b.signedAt).localeCompare(String(a.signedAt)));
+  }, [sent, signed]);
+  if (sentSorted.length === 0 && otherSigned.length === 0) {
+    return <p className="text-[11px] font-bold text-muted-foreground px-1">No documents sent or signed yet. Send one from Renters → Documents.</p>;
+  }
+  const tone = (st: string) => st === 'signed' ? 'text-emerald-700' : st === 'sent' ? 'text-amber-700' : st === 'declined' ? 'text-red-700' : 'text-slate-500';
+  const label = (d: any) => d.status === 'sent' ? `Waiting · sent ${String(d.sentAt).slice(0, 10)}` : d.status === 'signed' ? `${d.action === 'acknowledge' ? 'Acknowledged' : 'Signed'} ${String(d.signedAt).slice(0, 10)} as ${d.signedName}` : d.status === 'declined' ? `Declined ${String(d.declinedAt).slice(0, 10)}${d.declineNote ? ` — “${d.declineNote}”` : ''}` : 'Withdrawn';
+  return (
+    <div className="space-y-2">
+      <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground px-1">Documents &amp; signatures</p>
+      {sentSorted.map((d) => (
+        <a key={d.id} href={`/api/booths/renter-document?tenantId=${encodeURIComponent(tenantId)}&id=${encodeURIComponent(d.id)}`} target="_blank" rel="noreferrer"
+          className="rounded-xl border-2 px-3.5 py-2.5 flex items-center justify-between gap-2 hover:border-slate-400 transition-colors">
+          <span className="min-w-0"><span className="block text-xs font-black truncate flex items-center gap-1.5"><FileText className="h-3 w-3 shrink-0" /> {d.title}</span><span className={cn('block text-[10px] font-bold', tone(d.status))}>{label(d)}</span></span>
+          <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-slate-500">Open</span>
+        </a>
+      ))}
+      {otherSigned.map((x) => (
+        <div key={x.id} className="rounded-xl border-2 px-3.5 py-2.5">
+          <p className="text-xs font-black truncate flex items-center gap-1.5"><FileText className="h-3 w-3 shrink-0" /> {x.title || x.kind}</p>
+          <p className="text-[10px] font-bold text-emerald-700">Signed {String(x.signedAt).slice(0, 10)} as {x.signedName}{x.kind ? ` · ${String(x.kind).replace(/_/g, ' ')}` : ''}</p>
+        </div>
+      ))}
     </div>
   );
 }
