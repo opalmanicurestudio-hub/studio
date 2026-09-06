@@ -22,6 +22,7 @@ import { runReminderSweep } from '@/lib/reminders';
 import { brandedEmailHtml } from '@/lib/email-template';
 import { buildRentInvoice, leasesToInvoice, invoiceKey } from '@/lib/rent-invoices';
 import { resolveCollectionsPolicy, dunningStepsDue, daysLate } from '@/lib/collections-policy';
+import { resolveLeavePolicy, leaveCovering, rentUnderLeave, leavesDueToEnd, addDays, SUBLET_CLEAR_FIELDS } from '@/lib/leave-policy';
 import { sweepNoShows } from '@/lib/no-show';
 import { reconcileReservations } from '@/lib/stock-reconcile';
 import { sweepStaleCurbside } from '@/lib/stock-reconcile';
@@ -171,19 +172,37 @@ export async function GET(req: NextRequest) {
       const due = leasesToInvoice(leases, today, existing);
       if (due.length === 0) continue;
 
+      // Approved leave changes what is invoiced — paused, reduced, or full —
+      // and only APPROVED leave: a request still waiting on the owner is
+      // invoiced as normal, so a slow reply never silently costs the shop.
+      const leavePolicy = resolveLeavePolicy(tenantData);
+      const leavesSnap = await db.collection(`tenants/${tDoc.id}/renterLeaves`).where('status', '==', 'approved').get();
+      const leaves = leavesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+
       const nowIso = new Date().toISOString();
       const batch = db.batch();
       const names: string[] = [];
       for (const lease of due) {
+        const leave = leaveCovering(leaves, lease.id, today);
+        const treat = rentUnderLeave(leave, Number(lease.rentAmountCents) || 0, leavePolicy);
+        if (treat === null) {
+          // Paused: no invoice. Count the day toward the lease extension.
+          await db.doc(`tenants/${tDoc.id}/renterLeaves/${leave!.id}`).set({ pausedDays: (Number(leave!.pausedDays) || 0) + 1, lastPausedDue: today }, { merge: true });
+          continue;
+        }
+        if (leave?.treatment === 'bank') {
+          await db.doc(`tenants/${tDoc.id}/renterLeaves/${leave.id}`).set({ bankedDays: (Number(leave.bankedDays) || 0) + leavePolicy.bankDaysPerWeek, lastBankedDue: today }, { merge: true });
+        }
         const [renterSnap, boothSnap] = await Promise.all([
           db.doc(`tenants/${tDoc.id}/renters/${lease.renterId}`).get(),
           db.doc(`tenants/${tDoc.id}/booths/${lease.boothId}`).get(),
         ]);
         const ref = db.collection(`tenants/${tDoc.id}/rentInvoices`).doc();
         const inv = buildRentInvoice({
-          id: ref.id, lease, renter: renterSnap.data(), booth: boothSnap.data(),
+          id: ref.id, lease: { ...lease, rentAmountCents: treat.amountCents }, renter: renterSnap.data(), booth: boothSnap.data(),
           dueDate: today, source: 'nightly', nowIso,
         });
+        if (leave) (inv as any).leaveId = leave.id, (inv as any).leaveNote = treat.label;
         batch.set(ref, inv);
         if (names.length < 3) names.push(inv.renterName);
         rentInvoiced++;
@@ -230,6 +249,108 @@ export async function GET(req: NextRequest) {
     } catch (e) { console.error('[cron/nightly] rent invoicing', tDoc.id, e); }
   }
   results.rentInvoiced = rentInvoiced;
+
+  // ── Leave lifecycle — bring people home on the day they said ────────────
+  // Runs AFTER invoicing so a leave's last day is still honoured by the run
+  // that closes it. The direction matters: this restores normal rent rather
+  // than suspending it, which is why it is the one automation here that
+  // defaults on. A shop that turns autoEnd off gets a decision raised
+  // instead — never silence, because a leave nobody closes invoices nothing
+  // forever and that is how a chair sits empty and unbilled for a year.
+  let leavesEnded = 0, returnsDue = 0;
+  for (const tDoc of (await db.collection('tenants').get()).docs) {
+    try {
+      const tenantData = tDoc.data() as any;
+      const today = todayIn(tenantTimeZone(tenantData));
+      const lp = resolveLeavePolicy(tenantData);
+      const snap = await db.collection(`tenants/${tDoc.id}/renterLeaves`).where('status', '==', 'approved').get();
+      const openLeaves = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+      const overdue = leavesDueToEnd(openLeaves, today);
+      if (overdue.length === 0) continue;
+      const nowIso = new Date().toISOString();
+
+      for (const leave of overdue) {
+        if (!lp.autoEnd) {
+          if (leave.returnDueNotifiedAt) continue;
+          await db.doc(`tenants/${tDoc.id}/renterLeaves/${leave.id}`).set({ returnDueNotifiedAt: nowIso }, { merge: true });
+          const nRef = db.collection(`tenants/${tDoc.id}/notifications`).doc();
+          await nRef.set({
+            id: nRef.id, type: 'renter_leave', read: false, createdAt: nowIso, link: '/rent',
+            message: `${leave.renterName || 'A renter'} was due back on ${leave.endDate}. End their leave to put rent back to normal.`,
+          });
+          returnsDue++;
+          continue;
+        }
+
+        const leaseRef = db.doc(`tenants/${tDoc.id}/leases/${leave.leaseId}`);
+        const leaseSnap = await leaseRef.get();
+        const lease = (leaseSnap.data() as any) || {};
+
+        // A paused leave owes the renter the days it took. The lease end date
+        // moves out by exactly the number of due days that raised no invoice
+        // — a counted fact, not an estimate from the calendar.
+        const pausedDays = Number(leave.pausedDays) || 0;
+        const leasePatch: Record<string, any> = { status: 'active', leaveId: null, leaveEndedAt: nowIso };
+        if (leave.treatment === 'pause' && pausedDays > 0 && typeof lease.endDate === 'string' && lease.endDate) {
+          leasePatch.endDate = addDays(lease.endDate, pausedDays);
+          leasePatch.endDateExtendedByLeaveDays = (Number(lease.endDateExtendedByLeaveDays) || 0) + pausedDays;
+        }
+        if (leaseSnap.exists) await leaseRef.set(leasePatch, { merge: true });
+
+        // The sublet window closes with the leave. It is a date range, so it
+        // has already stopped selling on its own — this only tidies the booth
+        // so the next sublet starts from a clean field.
+        if (leave.treatment === 'sublet' && lease.boothId) {
+          await db.doc(`tenants/${tDoc.id}/booths/${lease.boothId}`).set(SUBLET_CLEAR_FIELDS, { merge: true }).catch(() => null);
+        }
+
+        await db.doc(`tenants/${tDoc.id}/renterLeaves/${leave.id}`).set({
+          status: 'ended', endedAt: nowIso, endedBy: 'system',
+          leaseExtendedDays: leave.treatment === 'pause' ? pausedDays : 0,
+        }, { merge: true });
+        await db.doc(`tenants/${tDoc.id}/renters/${leave.renterId}`).set({ status: 'active', leaveId: null }, { merge: true });
+
+        const nRef = db.collection(`tenants/${tDoc.id}/notifications`).doc();
+        await nRef.set({
+          id: nRef.id, type: 'renter_leave', read: false, createdAt: nowIso, link: '/rent',
+          message: `${leave.renterName || 'A renter'} is back from leave — rent is back to normal${leasePatch.endDate ? `, and their lease now ends ${leasePatch.endDate}` : ''}.`,
+        });
+        await logAuditAdmin(db, tDoc.id, {
+          action: 'renter.leave_ended', targetType: 'renterLeave', targetId: leave.id,
+          summary: `Leave ended on schedule (${leave.startDate} to ${leave.endDate})${pausedDays > 0 ? `, lease extended ${pausedDays} day${pausedDays === 1 ? '' : 's'}` : ''}`,
+          actor: { type: 'system', name: 'leave-sweeper' },
+        });
+        // Tell them, in the same voice everything else uses. A renter whose
+        // rent silently restarts finds out from an invoice; that is how a
+        // return becomes an argument.
+        try {
+          const rSnap = await db.doc(`tenants/${tDoc.id}/renters/${leave.renterId}`).get();
+          const renter = (rSnap.data() as any) || {};
+          const to = String(renter.email || '').trim();
+          if (to.includes('@')) {
+            const { sendNotification } = await import('@/lib/notify');
+            const studio = String(tenantData.name || tenantData.businessName || '').trim() || 'The studio';
+            const banked = Math.max(0, (Number(leave.bankedDays) || 0) - (Number(leave.redeemedDays) || 0));
+            const lines = [
+              `Hi ${String(renter.firstName || '').trim() || 'there'} — welcome back. Your time away ended ${leave.endDate}, and rent goes back to normal from here.`,
+            ];
+            if (leasePatch.endDate) lines.push(`Because rent was paused, your lease now runs to ${leasePatch.endDate} — the ${pausedDays} day${pausedDays === 1 ? '' : 's'} you missed were added back.`);
+            if (banked > 0) lines.push(`You have ${banked} banked rental day${banked === 1 ? '' : 's'} waiting. Ask to use them from your portal whenever you like.`);
+            await sendNotification(db, {
+              tenantId: tDoc.id, channel: 'email', to,
+              subject: 'Welcome back — your rent is back to normal',
+              html: brandedEmailHtml({ studioName: studio, title: 'Welcome back', bodyLines: lines, footerNote: `Sent by ${studio}.` }),
+              kind: 'leave_ended', recipientType: 'renter', recipientId: leave.renterId,
+              recipientName: `${renter.firstName || ''} ${renter.lastName || ''}`.trim() || null,
+            });
+          }
+        } catch { /* the leave still ended */ }
+        leavesEnded++;
+      }
+    } catch (e) { console.error('[cron/nightly] leave lifecycle', tDoc.id, e); }
+  }
+  results.leavesEnded = leavesEnded;
+  results.leaveReturnsDue = returnsDue;
 
   // ── Collections — escalation and barring, per the SHOP's policy ─────────
   // Runs after the late sweep so it only ever sees invoices already judged
