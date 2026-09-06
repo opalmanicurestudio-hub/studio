@@ -28,6 +28,7 @@ import {
   ArrowRight, Armchair, Moon, ExternalLink,
 } from 'lucide-react';
 import { RenterProfileDrawer } from '@/components/renters/RenterProfileDrawer';
+import { RenterCommsDesk } from '@/components/renters/RenterCommsDesk';
 
 type R = any;
 
@@ -176,6 +177,11 @@ export default function RentersPage() {
         <Stat icon={Moon} label="On leave" value={stats.leave} tone="border-slate-200" />
         <Stat icon={CheckCircle2} label="Past" value={stats.past} tone="border-slate-200" />
       </div>
+
+      {tenantId && (
+        <RenterCommsDesk tenantId={tenantId} firestore={firestore} renters={renters} booths={booths} leases={leases}
+          studioName={selectedTenant?.name || 'Studio'} onOpenRenter={(id) => { const r = renters.find((x) => x.id === id); if (r) setProfileRenter(r); }} />
+      )}
 
       <div className="flex flex-wrap gap-2">
         {FILTERS.map(([k, label]) => (
