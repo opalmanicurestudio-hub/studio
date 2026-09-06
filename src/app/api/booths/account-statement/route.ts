@@ -203,7 +203,7 @@ export async function GET(req: NextRequest) {
   <table><thead><tr><th>Item</th><th class="n">Amount</th></tr></thead><tbody>
     <tr><td>Agreed in the lease${dep.conditions ? `<div class="detail">${esc(dep.conditions)}</div>` : ''}${dep.refundable ? '' : '<div class="detail">Non-refundable</div>'}</td><td class="n">${money(dep.agreedCents)}</td></tr>
     <tr><td>Collected</td><td class="n">${money(dep.collectedCents)}</td></tr>
-    ${dep.deductions.map((d) => `<tr class="late_fee"><td>Deduction — ${esc(d.reason)}<div class="detail">${day(d.at)}${d.by ? ` · ${esc(d.by)}` : ''}</div></td><td class="n">−${money(d.cents)}</td></tr>`).join('')}
+    ${dep.deductions.map((d) => `<tr class="late_fee"><td>Deduction — ${esc(d.reason)}<div class="detail">${day(d.at)}${d.by ? ` · ${esc(d.by)}` : ''}${(d.evidenceUrls || []).length ? ` · ${(d.evidenceUrls || []).map((u, i) => `<a href="${esc(u)}" style="color:#64748b">photo ${i + 1}</a>`).join(', ')}` : ''}</div></td><td class="n">−${money(d.cents)}</td></tr>`).join('')}
     ${dep.refundedCents > 0 ? `<tr class="payment"><td>Refunded</td><td class="n">−${money(dep.refundedCents)}</td></tr>` : ''}
     ${dep.forfeitedCents > 0 ? `<tr class="write_off"><td>Applied to balance</td><td class="n">−${money(dep.forfeitedCents)}</td></tr>` : ''}
   </tbody></table>
