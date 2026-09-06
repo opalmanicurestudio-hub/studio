@@ -67,6 +67,8 @@ export interface Ticket {
   // Per-worker labor breakdown — who worked how long for how much.
   laborEntries?: { workerId: string; name: string; hours: number; cents: number; at: string }[];
   overdueNotifiedAt?: string | null;   // cron stamp — one nag, not nightly spam
+  respondBy?: string | null;           // response clock, from the shop's commitment
+  responseNotifiedAt?: string | null;  // cron stamp — one "nobody has answered this" nag
   // JOB CLOCK — start/stop sessions tapped from the tech portal. The
   // timer is EVIDENCE, not the pay input: it pre-fills the hours field
   // at resolve, and the owner sees timed vs claimed side by side. Pay
@@ -206,8 +208,63 @@ export const SLA_HOURS: Record<TicketPriority, number> = {
   low: 168,
 };
 
-export const dueAtFor = (priority: TicketPriority, fromIso?: string): string =>
-  new Date(new Date(fromIso || Date.now()).getTime() + (SLA_HOURS[priority] || 72) * 3600_000).toISOString();
+// RESPONSE — how long until someone has ACKNOWLEDGED the ticket (assigned it,
+// or written the first update). Separate from the fix clock on purpose: a
+// renter with a dead dryer can live with "Tuesday" if they hear it in an
+// hour; what they cannot live with is silence.
+export const RESPONSE_HOURS: Record<TicketPriority, number> = {
+  urgent: 1,
+  high: 4,
+  normal: 24,
+  low: 72,
+};
+
+/** The fix clock, from THIS shop's commitments when it has set them. */
+export const dueAtFor = (priority: TicketPriority, fromIso?: string, rules?: Partial<MaintenanceRules> | null): string => {
+  const hours = Number(rules?.fixHours?.[priority]) > 0 ? Number(rules!.fixHours![priority]) : (SLA_HOURS[priority] || 72);
+  return new Date(new Date(fromIso || Date.now()).getTime() + hours * 3600_000).toISOString();
+};
+
+/** The response clock — same shape, its own promise. */
+export const respondByFor = (priority: TicketPriority, fromIso?: string, rules?: Partial<MaintenanceRules> | null): string => {
+  const hours = Number(rules?.responseHours?.[priority]) > 0 ? Number(rules!.responseHours![priority]) : (RESPONSE_HOURS[priority] || 24);
+  return new Date(new Date(fromIso || Date.now()).getTime() + hours * 3600_000).toISOString();
+};
+
+/**
+ * Has anyone on the shop's side touched this yet? Assignment counts; so does
+ * any update not written by the reporter. The renter's own follow-up note
+ * does not — that is them waiting louder, not the shop answering.
+ */
+export const ticketAcknowledged = (t: Pick<Ticket, 'assigneeId' | 'updates' | 'status'>): boolean => {
+  if (t.status === 'resolved' || t.status === 'cancelled') return true;
+  if (t.assigneeId) return true;
+  return (t.updates || []).some((u, i) => i > 0 && u.byType !== 'renter');
+};
+
+export const isResponseOverdue = (t: Pick<Ticket, 'status' | 'assigneeId' | 'updates' | 'respondBy'>, nowIso?: string): boolean =>
+  (t.status === 'open' || t.status === 'in_progress') && !!t.respondBy && t.respondBy < (nowIso || new Date().toISOString()) && !ticketAcknowledged(t);
+
+/** Hours → the words a renter reads. */
+export const hoursLabel = (h: number): string =>
+  h < 24 ? `${h} hour${h === 1 ? '' : 's'}` : h % 24 === 0 ? `${h / 24} day${h === 24 ? '' : 's'}` : `${Math.round(h / 24)} days`;
+
+/**
+ * The shop's commitments in one list, for the portal and the policy page:
+ * "Safety or no-water: we respond within 1 hour and aim to fix within 4."
+ * Renters choose among high / normal / low; urgent is the shop's call, so it
+ * is shown as what the SHOP will do when it judges something urgent.
+ */
+export function responseCommitments(rules?: Partial<MaintenanceRules> | null): { priority: TicketPriority; label: string; respondHours: number; fixHours: number; renterCanPick: boolean }[] {
+  const r = normalizeRules(rules);
+  return (['urgent', 'high', 'normal', 'low'] as TicketPriority[]).map((p) => ({
+    priority: p,
+    label: TICKET_PRIORITY_LABELS[p],
+    respondHours: r.responseHours[p],
+    fixHours: r.fixHours[p],
+    renterCanPick: p !== 'urgent',
+  }));
+}
 
 export const TICKET_STATUS_LABELS: Record<TicketStatus, string> = {
   open: 'Open', in_progress: 'In progress', resolved: 'Resolved', cancelled: 'Cancelled',
@@ -257,6 +314,13 @@ export interface MaintenanceRules {
   // Per-mile reimbursement rate. 0 = mileage not reimbursed (field stays
   // hidden in the tech portal). E.g. 67 = $0.67/mile.
   mileageRateCents?: number;
+  // RESPONSE-TIME PROTOCOL — the shop's own promise per priority, in hours.
+  // Response = someone has acknowledged it; fix = it is resolved. Absent or
+  // 0 falls back to the app defaults (RESPONSE_HOURS / SLA_HOURS). The
+  // portal shows these to renters BEFORE they report, so "when will someone
+  // look at this?" is answered by the page, not by a text at 11pm.
+  responseHours?: Partial<Record<TicketPriority, number>>;
+  fixHours?: Partial<Record<TicketPriority, number>>;
 }
 // Total timed minutes across a ticket's work sessions. An open session
 // counts up to `now` (pass it in — keeps this pure and testable).
@@ -272,13 +336,23 @@ export function timedMinutesOf(
 }
 export const fmtMinutes = (m: number) => m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60 ? `${m % 60}m` : ''}`.trim();
 
-export function normalizeRules(raw: any): Required<MaintenanceRules> {
+export function normalizeRules(raw: any): Omit<Required<MaintenanceRules>, 'responseHours' | 'fixHours'> & { responseHours: Record<TicketPriority, number>; fixHours: Record<TicketPriority, number> } {
   const n = (v: any) => Math.max(0, Math.round(Number(v) || 0));
+  const hrs = (src: any, defaults: Record<TicketPriority, number>) => {
+    const out = { ...defaults };
+    for (const p of ['urgent', 'high', 'normal', 'low'] as TicketPriority[]) {
+      const v = Number(src?.[p]);
+      if (Number.isFinite(v) && v > 0 && v <= 24 * 60) out[p] = Math.round(v);
+    }
+    return out;
+  };
   return {
     autoApproveUnderCents: n(raw?.autoApproveUnderCents),
     requireQuoteOverCents: n(raw?.requireQuoteOverCents),
     receiptRequiredOverCents: n(raw?.receiptRequiredOverCents),
     mileageRateCents: n(raw?.mileageRateCents),
+    responseHours: hrs(raw?.responseHours, RESPONSE_HOURS),
+    fixHours: hrs(raw?.fixHours, SLA_HOURS),
   };
 }
 
