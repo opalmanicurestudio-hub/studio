@@ -212,6 +212,32 @@ export function subletOpenOn(booth: any, dateIso: string): boolean {
   return from <= dateIso && dateIso <= until;
 }
 
+/**
+ * What a sublet actually earned, and what of it has already been handed back.
+ *
+ * Counts only reservations that are real money in the till: a confirmed or
+ * checked-in booking, cancelled ones excluded, and holds that were never paid
+ * excluded. A day redeemed from a prepaid PASS contributes nothing here on
+ * purpose — that revenue was recognised when the pack was sold, so counting
+ * it again would credit the renter twice for one sale. The booking count is
+ * returned alongside the money so a small number is explicable rather than
+ * suspicious.
+ */
+export function subletIncome(reservations: any[] | null | undefined, leaseId: string, alreadyCreditedCents = 0): {
+  grossCents: number; bookings: number; passBookings: number; creditedCents: number; uncreditedCents: number;
+} {
+  let grossCents = 0, bookings = 0, passBookings = 0;
+  for (const r of reservations || []) {
+    if (!r || r.subletLeaseId !== leaseId) continue;
+    if (!['confirmed', 'checked_in', 'completed'].includes(String(r.status))) continue;
+    if (r.paidWithPassId) { passBookings++; bookings++; continue; }
+    grossCents += Math.max(0, Number(r.amountCents) || 0);
+    bookings++;
+  }
+  const creditedCents = Math.max(0, Number(alreadyCreditedCents) || 0);
+  return { grossCents, bookings, passBookings, creditedCents, uncreditedCents: Math.max(0, grossCents - creditedCents) };
+}
+
 /** The fields that open a booth for sublet, and the fields that close it. */
 export function subletWindowFields(leave: { id: string; leaseId: string; startDate: string; endDate: string; renterId: string }) {
   return {
