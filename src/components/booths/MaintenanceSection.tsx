@@ -18,7 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Wrench, Plus, Users, CalendarClock, BookUser, Phone, Mail, MessageCircle, FileClock, Shield } from 'lucide-react';
 import {
   dueAtFor, ticketBlocksBooth, isTicketOverdue, addDaysISO, PLAN_INTERVALS, pickRotationWorker,
-  timedMinutesOf, fmtMinutes,
+  timedMinutesOf, fmtMinutes, normalizeRules, respondByFor,
   TICKET_STATUS_LABELS, TICKET_STATUS_TONES, TICKET_PRIORITY_LABELS, TICKET_PRIORITY_TONES, TICKET_CATEGORIES,
   type TicketPriority, type TicketStatus,
 } from '@/lib/maintenance';
@@ -89,6 +89,7 @@ export function MaintenanceSection({
   // Approval RULES — the business writes its own policy
   const [rulesOpen, setRulesOpen] = useState(false);
   const [rulesDraft, setRulesDraft] = useState<{ auto: string; quote: string; receipt: string; mileage: string }>({ auto: '', quote: '', receipt: '', mileage: '' });
+  const [clockDraft, setClockDraft] = useState<Record<string, { respond: string; fix: string }>>({});
   const [rulesSaving, setRulesSaving] = useState(false);
   // Work order HISTORY — searchable archive with money totals + CSV
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -524,7 +525,7 @@ export function MaintenanceSection({
         reporter: { type: 'owner', name: me },
         assigneeId: worker?.id || null, assigneeName: worker?.name || null,
         updates: [{ at: nowIso, by: me, byType: 'owner', note: 'Ticket created', status: 'open', ...(createPhotos[0] ? { photoUrl: createPhotos[0] } : {}) }],
-        createdAt: nowIso, updatedAt: nowIso, dueAt: dueAtFor(form.priority), resolvedAt: null,
+        createdAt: nowIso, updatedAt: nowIso, dueAt: dueAtFor(form.priority, nowIso, rules), respondBy: respondByFor(form.priority, nowIso, rules), resolvedAt: null,
       };
       await setDoc(ref, ticket);
       await syncBooth(ticket.boothId, [...tickets, ticket]);
@@ -639,6 +640,8 @@ export function MaintenanceSection({
     const r = (rules || {}) as any;
     const d = (c: any) => (Number(c) || 0) > 0 ? String((Number(c) || 0) / 100) : '';
     setRulesDraft({ auto: d(r.autoApproveUnderCents), quote: d(r.requireQuoteOverCents), receipt: d(r.receiptRequiredOverCents), mileage: d(r.mileageRateCents) });
+    const nr = normalizeRules(r);
+    setClockDraft(Object.fromEntries((['urgent', 'high', 'normal', 'low'] as const).map((p) => [p, { respond: String(nr.responseHours[p]), fix: String(nr.fixHours[p]) }])));
     setRulesOpen(true);
   };
   const saveRules = async () => {
@@ -652,6 +655,8 @@ export function MaintenanceSection({
           requireQuoteOverCents: c(rulesDraft.quote),
           receiptRequiredOverCents: c(rulesDraft.receipt),
           mileageRateCents: c(rulesDraft.mileage),
+          responseHours: Object.fromEntries(Object.entries(clockDraft).map(([p, v]) => [p, Math.max(1, Math.round(Number(v.respond) || 0))])),
+          fixHours: Object.fromEntries(Object.entries(clockDraft).map(([p, v]) => [p, Math.max(1, Math.round(Number(v.fix) || 0))])),
         },
       });
       toast({ title: 'Rules saved', description: 'They apply to every tech and every ticket immediately — enforced by the server, not the honor system.' });
@@ -1544,6 +1549,27 @@ export function MaintenanceSection({
                 </div>
               </div>
             ))}
+            <div className="rounded-2xl border-2 p-3 space-y-2">
+              <p className="text-xs font-black">Response-time promise</p>
+              <p className="text-[10px] font-bold text-muted-foreground">Hours to first answer, and hours to fixed, per priority. Renters see these in their portal before they report anything; a ticket that passes either clock raises a notification. Two clocks, because "someone will look at it Tuesday" heard within the hour is fine — silence is not.</p>
+              <div className="grid grid-cols-[1fr_auto_auto] items-center gap-x-2 gap-y-1.5">
+                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Priority</span>
+                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">Answer within</span>
+                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">Fixed within</span>
+                {(['urgent', 'high', 'normal', 'low'] as const).map((p) => (
+                  <React.Fragment key={p}>
+                    <span className="text-[11px] font-black capitalize">{p}{p === 'urgent' ? <span className="block text-[9px] font-bold text-slate-400 normal-case">your call, not the renter's</span> : null}</span>
+                    <input type="number" inputMode="numeric" min={1} aria-label={`${p}: answer within hours`} value={clockDraft[p]?.respond ?? ''}
+                      onChange={(e) => setClockDraft((d) => ({ ...d, [p]: { respond: e.target.value, fix: d[p]?.fix ?? '' } }))}
+                      className="w-16 h-9 rounded-xl border-2 px-2 text-center text-sm font-bold" />
+                    <input type="number" inputMode="numeric" min={1} aria-label={`${p}: fixed within hours`} value={clockDraft[p]?.fix ?? ''}
+                      onChange={(e) => setClockDraft((d) => ({ ...d, [p]: { respond: d[p]?.respond ?? '', fix: e.target.value } }))}
+                      className="w-16 h-9 rounded-xl border-2 px-2 text-center text-sm font-bold" />
+                  </React.Fragment>
+                ))}
+              </div>
+              <p className="text-[9px] font-bold text-slate-400">In hours. 24 = a day, 168 = a week.</p>
+            </div>
             <button onClick={saveRules} disabled={rulesSaving}
               className="w-full h-11 rounded-xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
               {rulesSaving ? 'Saving…' : 'Save rules'}
