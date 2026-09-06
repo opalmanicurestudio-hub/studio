@@ -4,6 +4,16 @@
  * GET ?tenantId=&renterId=[&from=YYYY-MM-DD&to=YYYY-MM-DD]
  * GET ?tenantId=&renterId=&receipt=<rentLedger payment id>
  * GET ?tenantId=&renterId=&mode=full[&from=&to=]
+ * GET ?tenantId=&renterId=&mode=deposit      — deposit accounting
+ * GET ?tenantId=&renterId=&mode=final        — move-out / final statement
+ *
+ * mode=deposit: agreed, collected, each deduction with its reason and date,
+ * refunded, and what is returnable now — the document a deposit dispute is
+ * settled with. mode=final: what they still owe (rent incl. fees, other
+ * charges), the deposit position, and the net — refund due to them or
+ * balance due from them — signed off by both parties. Both read the same
+ * arithmetic as the renter card (deposit-accounting), so no two documents
+ * can disagree about the money.
  *
  * mode=full is the FULL ACCOUNT RECORD: the same statement, followed by the
  * whole timeline — every charge, payment, notice (with whether it was opened),
@@ -45,6 +55,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { buildRenterTimeline, withRunningBalance, TIMELINE_ACTOR_LABEL } from '@/lib/renter-timeline';
+import { depositPosition, moveOutSummary, DEPOSIT_STATUS_LABEL } from '@/lib/deposit-accounting';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -67,7 +78,10 @@ export async function GET(req: NextRequest) {
   const to = String(sp.get('to') || '').slice(0, 10);
   if (!tenantId || !renterId) return new NextResponse('Missing tenantId or renterId', { status: 400 });
   const receiptId = String(sp.get('receipt') || '').trim();
-  const fullMode = sp.get('mode') === 'full';
+  const mode = String(sp.get('mode') || '');
+  const fullMode = mode === 'full';
+  const depositMode = mode === 'deposit';
+  const finalMode = mode === 'final';
 
   const db = getAdminDb();
   const [tSnap, rSnap, invSnap, ledSnap] = await Promise.all([
@@ -77,6 +91,9 @@ export async function GET(req: NextRequest) {
     db.collection(`tenants/${tenantId}/rentLedger`).where('renterId', '==', renterId).get(),
   ]);
   // The rest of the record, only when it will be printed.
+  const leaseDocs = (depositMode || finalMode)
+    ? (await db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', renterId).get()).docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
+    : [];
   const [leaseSnap, msgSnap, tktSnap, thrSnap] = fullMode ? await Promise.all([
     db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', renterId).get(),
     db.collection(`tenants/${tenantId}/messageLog`).where('recipientId', '==', renterId).get(),
@@ -155,6 +172,71 @@ export async function GET(req: NextRequest) {
 </div>
 <p style="margin-top:20px"><span class="stamp">${balanceAfter > 0 ? 'Received — thank you' : 'Paid in full — thank you'}</span></p>
 <div class="foot">Keep this receipt for your records. Questions: ${esc(tenant.email || tenant.phone || studio)}.</div>
+<div class="noprint" style="margin-top:20px"><button class="btn" onclick="window.print()">Print / Save as PDF</button></div>
+</body></html>`;
+    return new NextResponse(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+  }
+
+  if (depositMode || finalMode) {
+    const ledger = ledSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+    const invoices = invSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+    // The lease this is about: the live one, else the most recently ended.
+    const lease = leaseDocs.find((l) => ['active', 'on_leave', 'pending_signature'].includes(String(l.status)))
+      || [...leaseDocs].sort((a, b) => String(b.endedAt || b.endDate || '').localeCompare(String(a.endedAt || a.endDate || '')))[0];
+    if (!lease) return new NextResponse('No lease on record for this renter', { status: 404 });
+    const dep = depositPosition(lease, ledger);
+    const mo = moveOutSummary(lease, invoices, ledger);
+    const space = lease.boothName || 'space';
+    const title = depositMode ? 'Deposit accounting' : 'Move-out statement';
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${title} — ${esc(renter.firstName)} ${esc(renter.lastName)}</title><style>${styles}</style></head><body>
+<div class="head">
+  <div><div class="kicker">Booth rental</div><h1>${title}</h1><div class="muted">${esc(studio)}${addr ? ` · ${esc(addr)}` : ''}</div></div>
+  <div style="text-align:right"><div class="lbl">Prepared</div><div>${day(new Date().toISOString())}</div><div class="lbl" style="margin-top:8px">Lease</div><div>${esc(space)} · ${day(lease.startDate)}${lease.endDate || lease.endedAt ? ` – ${day(lease.endedAt || lease.endDate)}` : ' – present'}</div></div>
+</div>
+<div class="parties">
+  <div><div class="lbl">Renter</div><div><strong>${esc(renter.firstName)} ${esc(renter.lastName)}</strong></div><div class="muted">${esc([renter.email, renter.phone].filter(Boolean).join(' · '))}</div></div>
+  <div><div class="lbl">${finalMode ? (mo.netCents >= 0 ? 'Refund due to renter' : 'Balance due from renter') : 'Returnable today'}</div><div style="font-size:26px;font-weight:800;letter-spacing:-.02em;color:${(finalMode ? mo.netCents : dep.returnableCents) >= 0 ? '#047857' : '#b91c1c'}">${money(Math.abs(finalMode ? mo.netCents : dep.returnableCents))}</div><div class="muted">${DEPOSIT_STATUS_LABEL[dep.status]}</div></div>
+</div>
+
+<div class="card">
+  <div class="kicker">Deposit</div>
+  <table><thead><tr><th>Item</th><th class="n">Amount</th></tr></thead><tbody>
+    <tr><td>Agreed in the lease${dep.conditions ? `<div class="detail">${esc(dep.conditions)}</div>` : ''}${dep.refundable ? '' : '<div class="detail">Non-refundable</div>'}</td><td class="n">${money(dep.agreedCents)}</td></tr>
+    <tr><td>Collected</td><td class="n">${money(dep.collectedCents)}</td></tr>
+    ${dep.deductions.map((d) => `<tr class="late_fee"><td>Deduction — ${esc(d.reason)}<div class="detail">${day(d.at)}${d.by ? ` · ${esc(d.by)}` : ''}</div></td><td class="n">−${money(d.cents)}</td></tr>`).join('')}
+    ${dep.refundedCents > 0 ? `<tr class="payment"><td>Refunded</td><td class="n">−${money(dep.refundedCents)}</td></tr>` : ''}
+    ${dep.forfeitedCents > 0 ? `<tr class="write_off"><td>Applied to balance</td><td class="n">−${money(dep.forfeitedCents)}</td></tr>` : ''}
+  </tbody></table>
+  <div class="totals">
+    <div><span>Held by the studio</span><span>${money(dep.heldCents)}</span></div>
+    <div><span>Less deductions</span><span>−${money(dep.deductedCents)}</span></div>
+    <div class="big"><span>Returnable</span><span>${money(dep.returnableCents)}</span></div>
+  </div>
+</div>
+
+${finalMode ? `
+<div class="card">
+  <div class="kicker">Still owed at move-out</div>
+  <table><thead><tr><th>Item</th><th class="n">Amount</th></tr></thead><tbody>
+    ${invoices.filter((i) => i.leaseId === lease.id && (i.status === 'due' || i.status === 'late')).map((i) => `<tr><td>Rent due ${day(i.dueDate)}${(Number(i.lateFeeCents) || 0) > 0 ? `<div class="detail">incl. ${money(Number(i.lateFeeCents))} late fee</div>` : ''}${(Number(i.paidCents) || 0) > 0 ? `<div class="detail">less ${money(Number(i.paidCents))} paid</div>` : ''}</td><td class="n">${money((Number(i.amountCents) || 0) + (Number(i.lateFeeCents) || 0) - (Number(i.paidCents) || 0))}</td></tr>`).join('')}
+    ${mo.otherChargesCents > 0 ? `<tr><td>Other open charges<div class="detail">keys, damages, incidentals</div></td><td class="n">${money(mo.otherChargesCents)}</td></tr>` : ''}
+    ${mo.owedCents === 0 ? '<tr><td class="muted">Nothing outstanding</td><td class="n">$0.00</td></tr>' : ''}
+  </tbody></table>
+  <div class="totals">
+    <div><span>Owed by renter</span><span>${money(mo.owedCents)}</span></div>
+    <div><span>Deposit returnable</span><span>${money(dep.returnableCents)}</span></div>
+    <div class="big"><span>${mo.netCents >= 0 ? 'Refund due to renter' : 'Balance due from renter'}</span><span style="color:${mo.netCents >= 0 ? '#047857' : '#b91c1c'}">${money(Math.abs(mo.netCents))}</span></div>
+  </div>
+</div>
+<div class="card" style="page-break-inside:avoid">
+  <div class="kicker">Acknowledged</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:8px">
+    <div><div style="border-bottom:2px solid #0f172a;height:40px"></div><div class="lbl" style="margin-top:6px">Renter · date</div></div>
+    <div><div style="border-bottom:2px solid #0f172a;height:40px"></div><div class="lbl" style="margin-top:6px">${esc(studio)} · date</div></div>
+  </div>
+  <div class="foot">Keys, access cards and studio property returned: ☐ Yes ☐ No — note: ______________________</div>
+</div>` : ''}
+<div class="foot">${depositMode ? 'Deductions are itemised with their reason and date. Anything not listed here has not been deducted.' : 'The deposit returnable is applied against the balance owed; the difference is what moves, and in which direction.'} Questions: ${esc(tenant.email || tenant.phone || studio)}.</div>
 <div class="noprint" style="margin-top:20px"><button class="btn" onclick="window.print()">Print / Save as PDF</button></div>
 </body></html>`;
     return new NextResponse(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
