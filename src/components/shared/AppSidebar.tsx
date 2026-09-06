@@ -324,6 +324,21 @@ export function AppSidebar() {
     return () => unsub();
   }, [firestore, tenantId]);
 
+  /* Renters who are waiting on the studio: an unread reply in their thread,
+   * or a concern nobody has acknowledged. One number on the Renters entry,
+   * because "did anyone write back?" should be answerable from any page. */
+  const [rentersBadgeCount, setRentersBadgeCount] = useState(0);
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    let threads = 0, concerns = 0;
+    const unsubT = onSnapshot(query(collection(firestore, `tenants/${tenantId}/renterThreads`), where('unreadForOwner', '==', true)),
+      (snap) => { threads = snap.size; setRentersBadgeCount(threads + concerns); }, () => { /* non-fatal */ });
+    const unsubC = onSnapshot(query(collection(firestore, `tenants/${tenantId}/renterGrievances`), where('status', '==', 'open')),
+      (snap) => { concerns = snap.size; setRentersBadgeCount(threads + concerns); }, () => { /* non-fatal */ });
+    return () => { unsubT(); unsubC(); };
+  }, [firestore, tenantId]);
+  const rentalBadges = rentersBadgeCount > 0 ? { '/renters': rentersBadgeCount } : undefined;
+
   /* Show Requests whenever the shop RUNS approval mode, not only when the
    * queue is non-empty. Hiding it at zero seemed tidy, but it means an owner
    * who has just switched approval on has no way to find the screen, cannot
@@ -432,7 +447,7 @@ export function AppSidebar() {
           {isOwner && (
             <>
               <SidebarSeparator className="my-1 opacity-20" />
-              <NavSection label="Booth Rental" items={BOOTH_RENTAL} />
+              <NavSection label="Booth Rental" items={BOOTH_RENTAL} badges={rentalBadges} />
             </>
           )}
 
