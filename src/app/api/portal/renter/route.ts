@@ -2164,6 +2164,79 @@ export async function POST(req: NextRequest) {
     // Ownership chain verified server-side: invoice → lease → renter →
     // renter's contact must match this session. Works for every renter,
     // card on file or not (Checkout collects the card).
+    // ── leave-list / leave-request / leave-redeem ──────────────────────────
+    // The renter asks; the owner decides. Nothing here changes rent — it
+    // records a request and raises a decision. Banked days are the same
+    // shape: asking to spend them is not spending them.
+    if (action === 'leave-list') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const snap = await db.collection(`tenants/${tenantId}/renterLeaves`).where('renterId', '==', session.renterId).get();
+      const { resolveLeavePolicy } = await import('@/lib/leave-policy');
+      const tenantDoc = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      return NextResponse.json({
+        ok: true, policy: resolveLeavePolicy(tenantDoc),
+        leaves: snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).sort((a, b) => String(b.requestedAt).localeCompare(String(a.requestedAt))),
+      });
+    }
+    if (action === 'leave-request') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const { resolveLeavePolicy, leaveDays } = await import('@/lib/leave-policy');
+      const tenantDoc = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      const policy = resolveLeavePolicy(tenantDoc);
+      if (policy.offered.length === 0) return NextResponse.json({ ok: false, error: 'Leave is not offered here yet \u2014 message the studio.' }, { status: 400 });
+      const type = ['maternity', 'medical', 'family', 'personal', 'other'].includes(body.type) ? body.type : 'other';
+      const startDate = String(body.startDate || '').slice(0, 10), endDate = String(body.endDate || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate) || endDate < startDate) {
+        return NextResponse.json({ ok: false, error: 'Pick a start and an expected return.' }, { status: 400 });
+      }
+      const leaseSnap = await db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', session.renterId).where('status', '==', 'active').limit(1).get();
+      if (leaseSnap.empty) return NextResponse.json({ ok: false, error: 'No active lease to take leave from.' }, { status: 400 });
+      const preferred = policy.offered.includes(body.preferred) ? body.preferred : null;
+      const nowIso = new Date().toISOString();
+      const ref = db.collection(`tenants/${tenantId}/renterLeaves`).doc();
+      const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      await ref.set({
+        id: ref.id, renterId: session.renterId, leaseId: leaseSnap.docs[0].id, type, startDate, endDate,
+        days: leaveDays(startDate, endDate), preferred, treatment: null, status: 'requested',
+        note: String(body.note || '').trim().slice(0, 600), requestedAt: nowIso,
+        renterName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || 'Renter',
+      });
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({
+        id: nRef.id, type: 'renter_leave', read: false, createdAt: nowIso, link: '/rent',
+        message: `${r.firstName || 'A renter'} ${r.lastName || ''} requested ${type} leave, ${startDate} to ${endDate} \u2014 needs your decision.`.replace(/\s+/g, ' '),
+      });
+      return NextResponse.json({ ok: true, id: ref.id });
+    }
+    if (action === 'leave-redeem') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const { bankedAvailable, redeemValueCents } = await import('@/lib/leave-policy');
+      const leaveId = String(body.leaveId || '');
+      const lRef = db.doc(`tenants/${tenantId}/renterLeaves/${leaveId}`);
+      const lSnap = await lRef.get();
+      const leave = (lSnap.data() as any) || null;
+      if (!lSnap.exists || leave.renterId !== session.renterId) return NextResponse.json({ ok: false, error: 'That leave is not yours.' }, { status: 403 });
+      if (leave.redeem && leave.redeem.status === 'requested') return NextResponse.json({ ok: false, error: 'You already have a request waiting on the studio.' }, { status: 400 });
+      const available = bankedAvailable(leave);
+      const days = Math.max(1, Math.min(available, Math.floor(Number(body.days) || 0)));
+      if (available <= 0) return NextResponse.json({ ok: false, error: 'No banked days left to use.' }, { status: 400 });
+      const leaseSnap = await db.doc(`tenants/${tenantId}/leases/${leave.leaseId}`).get();
+      const nowIso = new Date().toISOString();
+      await lRef.set({
+        redeem: {
+          days, note: String(body.note || '').trim().slice(0, 400), requestedAt: nowIso,
+          status: 'requested', creditCents: redeemValueCents((leaseSnap.data() as any) || {}, days),
+        },
+      }, { merge: true });
+      const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({
+        id: nRef.id, type: 'renter_leave', read: false, createdAt: nowIso, link: '/rent',
+        message: `${r.firstName || 'A renter'} asked to use ${days} banked rental day${days === 1 ? '' : 's'} \u2014 approve it to credit their rent.`,
+      });
+      return NextResponse.json({ ok: true, days });
+    }
+
     // ── thread-list / thread-send: the renter's side of the conversation ───
     // Same thread the owner writes to from the renter card. A reply here is
     // documented the instant it is written, and the owner is told in-app —
