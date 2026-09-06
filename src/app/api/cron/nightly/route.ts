@@ -23,6 +23,7 @@ import { brandedEmailHtml } from '@/lib/email-template';
 import { buildRentInvoice, leasesToInvoice, invoiceKey } from '@/lib/rent-invoices';
 import { resolveCollectionsPolicy, dunningStepsDue, daysLate } from '@/lib/collections-policy';
 import { resolveLeavePolicy, leaveCovering, rentUnderLeave, leavesDueToEnd, addDays, SUBLET_CLEAR_FIELDS } from '@/lib/leave-policy';
+import { ticketAcknowledged, respondByFor } from '@/lib/maintenance';
 import { sweepNoShows } from '@/lib/no-show';
 import { reconcileReservations } from '@/lib/stock-reconcile';
 import { sweepStaleCurbside } from '@/lib/stock-reconcile';
@@ -1040,6 +1041,7 @@ export async function GET(req: NextRequest) {
     try {
       const tid = tDoc.id;
       const todayStr = todayIn(tenantTimeZone(tDoc.data() as any));
+      const planRules = (tDoc.data() as any)?.maintenanceRules || null;
       const plansSnap = await db.collection(`tenants/${tid}/maintenancePlans`).get();
       for (const pDoc of plansSnap.docs) {
         const p = pDoc.data() as any;
@@ -1063,7 +1065,7 @@ export async function GET(req: NextRequest) {
           assigneeId: p.assigneeId || null, assigneeName: p.assigneeName || null,
           planId: pDoc.id,
           updates: [{ at: nowIso, by: 'Preventive plan', byType: 'system', note: `Scheduled ${every}-day maintenance`, status: 'open' }],
-          createdAt: nowIso, updatedAt: nowIso, dueAt: dueAtFor(p.priority || 'normal'), resolvedAt: null,
+          createdAt: nowIso, updatedAt: nowIso, dueAt: dueAtFor(p.priority || 'normal', nowIso, planRules), respondBy: respondByFor(p.priority || 'normal', nowIso, planRules), resolvedAt: null,
         });
         batch.set(pDoc.ref, {
           lastRunAt: todayStr,
@@ -1149,7 +1151,7 @@ export async function GET(req: NextRequest) {
   // their SLA deadline exactly ONCE (overdueNotifiedAt stamp): a notification
   // for the owner, and — when SMS is configured — a nudge text to the
   // assigned worker. Isolated loop; ticket failures never touch money jobs.
-  const slaTotals = { overdueFlagged: 0, techNudges: 0 };
+  const slaTotals = { overdueFlagged: 0, techNudges: 0, responseFlagged: 0 };
   for (const tDoc of allTenantsSnap.docs) {
     try {
       const tid = tDoc.id;
@@ -1158,6 +1160,16 @@ export async function GET(req: NextRequest) {
       for (const d of snap.docs) {
         const t = d.data() as any;
         const openish = t.status === 'open' || t.status === 'in_progress';
+        // Response clock — a ticket nobody has acknowledged past the shop's
+        // own promise. Flagged once. This is the "silence" failure the
+        // protocol exists to catch; the fix clock below is the other one.
+        if (openish && t.respondBy && t.respondBy < nowIso && !t.responseNotifiedAt && !ticketAcknowledged(t)) {
+          await d.ref.set({ responseNotifiedAt: nowIso }, { merge: true });
+          slaTotals.responseFlagged += 1;
+          const rRef = db.collection(`tenants/${tid}/notifications`).doc();
+          await rRef.set({ id: rRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/maintenance',
+            message: `Nobody has answered "${t.title}"${t.boothName ? ` (${t.boothName})` : ''} — ${t.priority} priority, reported ${String(t.createdAt).slice(0, 10)}${t.reporter?.type === 'renter' ? ' by a renter who can see the clock' : ''}. Assign it or add a note.` });
+        }
         if (!openish || !t.dueAt || t.dueAt >= nowIso || t.overdueNotifiedAt) continue;
         await d.ref.set({ overdueNotifiedAt: nowIso }, { merge: true });
         slaTotals.overdueFlagged += 1;
