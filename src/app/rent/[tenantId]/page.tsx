@@ -409,6 +409,7 @@ function RenterConcerns({ tenantId, token }: { tenantId: string; token: string }
   const [list, setList] = useState<any[] | null>(null);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ category: 'space', what: '', when: new Date().toISOString().slice(0, 10), wanted: '', confidential: false });
+  const [photos, setPhotos] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [justFiled, setJustFiled] = useState('');
@@ -420,10 +421,10 @@ function RenterConcerns({ tenantId, token }: { tenantId: string; token: string }
   const sensitive = ['another_renter', 'staff', 'safety'].includes(form.category);
   const submit = async () => {
     setBusy(true); setErr('');
-    const d = await api({ action: 'concern-file', tenantId, token, ...form, confidential: form.confidential || sensitive });
+    const d = await api({ action: 'concern-file', tenantId, token, ...form, confidential: form.confidential || sensitive, photos });
     setBusy(false);
     if (!d?.ok) { setErr(d?.error || 'Could not send that.'); return; }
-    setJustFiled(d.ref); setOpen(false);
+    setJustFiled(d.ref); setOpen(false); setPhotos([]);
     setForm({ category: 'space', what: '', when: new Date().toISOString().slice(0, 10), wanted: '', confidential: false });
     void load();
   };
@@ -466,6 +467,21 @@ function RenterConcerns({ tenantId, token }: { tenantId: string; token: string }
               placeholder="What happened, in your words. Dates, names, what you've already tried." className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm" />
             <textarea value={form.wanted} onChange={(e) => setForm((f) => ({ ...f, wanted: e.target.value.slice(0, 800) }))} rows={2} aria-label="What you would like to see happen"
               placeholder="What would put this right? (optional)" className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm" />
+            <div className="flex flex-wrap items-center gap-2">
+              {photos.map((p, i) => (
+                <button key={i} type="button" onClick={() => setPhotos((ps) => ps.filter((_, j) => j !== i))} aria-label={`Remove photo ${i + 1}`} className="relative h-14 w-14 overflow-hidden rounded-xl border-2 border-slate-200">
+                  <img src={p} alt="" className="h-full w-full object-cover" />
+                  <span className="absolute inset-x-0 bottom-0 bg-slate-900/80 text-[8px] font-black uppercase tracking-widest text-white">Remove</span>
+                </button>
+              ))}
+              {photos.length < 3 && (
+                <label className="h-14 rounded-xl border-2 border-dashed border-slate-300 px-3 inline-flex items-center text-[10px] font-black uppercase tracking-widest text-slate-600 cursor-pointer">
+                  {photos.length ? 'Add another' : 'Add a photo'}
+                  <input type="file" accept="image/*" capture="environment" className="sr-only" aria-label="Add a photo to this concern"
+                    onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (!f) return; try { const d: string = await downscaleImageToDataUrl(f, { maxDim: 1400 }); setPhotos((ps) => [...ps, d].slice(0, 3)); } catch { setErr('Could not read that photo.'); } }} />
+                </label>
+              )}
+            </div>
             <button type="button" aria-pressed={form.confidential || sensitive} onClick={() => setForm((f) => ({ ...f, confidential: !f.confidential }))} disabled={sensitive}
               className={cn('h-10 w-full rounded-2xl border-2 px-3 text-left text-[10px] font-bold', (form.confidential || sensitive) ? 'border-slate-900 bg-slate-50 text-slate-900' : 'border-slate-200 text-slate-600')}>
               {sensitive ? 'Treated as confidential — concerns about people always are' : form.confidential ? 'Confidential — for the studio owner only' : 'Mark confidential'}
