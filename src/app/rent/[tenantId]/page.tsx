@@ -35,6 +35,7 @@ import {
   ShieldAlert,
   Wrench,
   CloudLightning,
+  FileSignature,
 } from 'lucide-react';
 
 // Local YYYY-MM-DD — the UTC-slice version flips to tomorrow in the evening.
@@ -54,6 +55,107 @@ const fmtTime = (t?: string | null) => {
 // The renter asks; the studio decides. Only treatments the shop offers are
 // shown, and a request changes nothing until it is approved. Banked days work
 // the same way: asking to spend them is not spending them.
+// ─── Documents ───────────────────────────────────────────────────────────────
+// The paperwork after the lease, read and signed here. Signing is typing your
+// full name — the same way the lease was signed — and the record lands beside
+// it, with the exact text, the time, and the device. Declining is allowed and
+// is a message to the studio, not a silent no.
+const DOC_STATUS: Record<string, string> = { sent: 'Waiting for you', signed: 'Signed', declined: 'Declined', withdrawn: 'Withdrawn by the studio' };
+function RenterDocuments({ tenantId, token }: { tenantId: string; token: string }) {
+  const [state, setState] = useState<{ documents: any[]; signed: any[]; portalToken: string | null } | null>(null);
+  const [openId, setOpenId] = useState('');
+  const [name, setName] = useState('');
+  const [declining, setDeclining] = useState('');
+  const [declineNote, setDeclineNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const load = useCallback(async () => {
+    const d = await api({ action: 'documents-list', tenantId, token });
+    if (d?.ok) setState({ documents: d.documents || [], signed: d.signed || [], portalToken: d.portalToken || null });
+  }, [tenantId, token]);
+  useEffect(() => { void load(); }, [load]);
+  if (!state) return null;
+  const pending = state.documents.filter((d) => d.status === 'sent');
+  const past = state.documents.filter((d) => d.status !== 'sent').slice(0, 6);
+  if (pending.length === 0 && past.length === 0 && state.signed.length === 0) return null;
+  const sign = async (id: string) => {
+    setBusy(true); setErr('');
+    const d = await api({ action: 'document-sign', tenantId, token, documentId: id, signedName: name });
+    setBusy(false);
+    if (!d?.ok) { setErr(d?.error || 'Could not sign.'); return; }
+    setOpenId(''); setName(''); void load();
+  };
+  const decline = async (id: string) => {
+    setBusy(true); setErr('');
+    const d = await api({ action: 'document-decline', tenantId, token, documentId: id, note: declineNote });
+    setBusy(false);
+    if (!d?.ok) { setErr(d?.error || 'Could not send that.'); return; }
+    setDeclining(''); setDeclineNote(''); setOpenId(''); void load();
+  };
+  const printUrl = (id: string) => `/api/booths/renter-document?tenantId=${encodeURIComponent(tenantId)}&id=${encodeURIComponent(id)}${state.portalToken ? `&renter=${encodeURIComponent(state.portalToken)}` : ''}`;
+  return (
+    <section className="space-y-3">
+      <SectionTitle icon={FileSignature}>Documents</SectionTitle>
+      <div className="p-4 rounded-3xl bg-white border-2 border-slate-100 space-y-3">
+        {pending.map((d) => {
+          const isOpen = openId === d.id;
+          const verb = d.action === 'acknowledge' ? 'acknowledge' : 'sign';
+          return (
+            <div key={d.id} className="rounded-2xl border-2 border-amber-300 bg-amber-50 px-3.5 py-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[12px] font-black">{d.title}</p>
+                <span className="shrink-0 rounded-full bg-amber-200 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-amber-900">To {verb}</span>
+              </div>
+              <p className="text-[10px] font-bold text-amber-900">Sent {fmtDate(String(d.sentAt).slice(0, 10))} by {d.sentBy}</p>
+              {!isOpen ? (
+                <button type="button" onClick={() => { setOpenId(d.id); setErr(''); }} className="h-11 w-full rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white">Read it</button>
+              ) : (
+                <div className="space-y-2">
+                  <div className="max-h-80 overflow-y-auto overscroll-contain rounded-2xl bg-white border-2 border-slate-200 px-3.5 py-3 text-[12px] leading-relaxed font-medium text-slate-800 whitespace-pre-wrap">{d.body}</div>
+                  {declining === d.id ? (
+                    <div className="space-y-2">
+                      <textarea value={declineNote} onChange={(e) => setDeclineNote(e.target.value.slice(0, 600))} rows={2} aria-label="Why you are declining" placeholder="Tell the studio why (optional). This goes to them as a message." className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm bg-white" />
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => decline(d.id)} disabled={busy} className="h-11 flex-1 rounded-2xl border-2 border-red-300 bg-white text-[10px] font-black uppercase tracking-widest text-red-700 disabled:opacity-40">{busy ? '…' : 'Decline this document'}</button>
+                        <button type="button" onClick={() => setDeclining('')} className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Back</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <input value={name} onChange={(e) => setName(e.target.value.slice(0, 120))} aria-label="Type your full name to sign" placeholder="Type your full name to sign" autoComplete="name" className="h-11 w-full rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
+                      <p className="text-[9px] font-bold text-slate-500">Typing your name and tapping {verb} is your signature. The exact text above, the time and this device are recorded with it.</p>
+                      {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => sign(d.id)} disabled={busy || name.trim().length < 2} className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? '…' : verb === 'sign' ? 'Sign' : 'Acknowledge'}</button>
+                        <button type="button" onClick={() => setDeclining(d.id)} className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Decline</button>
+                        <a href={printUrl(d.id)} target="_blank" rel="noopener" className="h-11 inline-flex items-center rounded-2xl border-2 border-slate-200 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Print</a>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {(past.length > 0 || state.signed.length > 0) && (
+          <div className="space-y-1">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">On file</p>
+            {past.map((d) => (
+              <p key={d.id} className="text-[10px] font-bold text-slate-600 flex items-center justify-between gap-2">
+                <span className="truncate">{d.title} · {DOC_STATUS[d.status] || d.status}{d.signedAt ? ` ${fmtDate(String(d.signedAt).slice(0, 10))}` : ''}</span>
+                {d.status === 'signed' && <a href={printUrl(d.id)} target="_blank" rel="noopener" className="shrink-0 text-[9px] font-black uppercase tracking-widest underline">Print</a>}
+              </p>
+            ))}
+            {state.signed.filter((sd) => !past.some((d) => d.signedDocumentId === sd.id)).map((sd) => (
+              <p key={sd.id} className="text-[10px] font-bold text-slate-600">{sd.title} · Signed {fmtDate(String(sd.signedAt).slice(0, 10))}</p>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 // ─── Closures — what it cost you ─────────────────────────────────────────────
 // Shown only when the studio has recorded an interruption that touched this
 // renter's space. A rent credit covers the chair; this covers the clients they
@@ -2286,6 +2388,10 @@ export default function RenterPortalPage() {
 
             {session?.token && data?.lease && (
               <RenterLeave tenantId={tenantId} token={session.token} />
+            )}
+
+            {session?.token && data?.renter?.id && (
+              <RenterDocuments tenantId={tenantId} token={session.token} />
             )}
 
             {session?.token && data?.renter?.id && (
