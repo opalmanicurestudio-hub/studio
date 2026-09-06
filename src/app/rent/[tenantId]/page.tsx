@@ -33,6 +33,7 @@ import {
   MessageSquare,
   CalendarClock,
   ShieldAlert,
+  Wrench,
 } from 'lucide-react';
 
 // Local YYYY-MM-DD — the UTC-slice version flips to tomorrow in the evening.
@@ -52,6 +53,159 @@ const fmtTime = (t?: string | null) => {
 // The renter asks; the studio decides. Only treatments the shop offers are
 // shown, and a request changes nothing until it is approved. Banked days work
 // the same way: asking to spend them is not spending them.
+// ─── Maintenance ─────────────────────────────────────────────────────────────
+// Report a problem with the space, see the studio's promise BEFORE reporting,
+// then watch the ticket move. The two clocks are the studio's own commitments
+// (set in Maintenance → Rules), so what this page promises is exactly what
+// the ticket is measured against. A photo beats any description.
+const TICKET_CATS: [string, string][] = [
+  ['equipment', 'Equipment'], ['plumbing', 'Plumbing / water'], ['electrical', 'Electrical / power'], ['cleaning', 'Cleaning'],
+  ['safety', 'Safety'], ['request', 'A request'], ['other', 'Something else'],
+];
+const TSTATUS: Record<string, string> = { open: 'Open', in_progress: 'In progress', resolved: 'Resolved', cancelled: 'Cancelled' };
+const hrs = (h: number) => (h < 24 ? `${h} hr${h === 1 ? '' : 's'}` : h % 24 === 0 ? `${h / 24} day${h === 24 ? '' : 's'}` : `${Math.round(h / 24)} days`);
+const clock = (iso: string | null, done: boolean) => {
+  if (!iso || done) return null;
+  const ms = new Date(iso).getTime() - Date.now();
+  const h = Math.round(Math.abs(ms) / 3_600_000);
+  return ms >= 0 ? `${h < 1 ? 'under an hour' : hrs(h)} left` : `${hrs(Math.max(1, h))} over`;
+};
+function RenterMaintenance({ tenantId, token }: { tenantId: string; token: string }) {
+  const [state, setState] = useState<{ tickets: any[]; commitments: any[] } | null>(null);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ title: '', category: 'equipment', priority: 'normal', description: '', photoData: '' });
+  const [noteFor, setNoteFor] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [expanded, setExpanded] = useState('');
+  const load = useCallback(async () => {
+    const d = await api({ action: 'my-tickets', tenantId, token });
+    if (d?.ok) setState({ tickets: d.tickets || [], commitments: d.commitments || [] });
+  }, [tenantId, token]);
+  useEffect(() => { void load(); }, [load]);
+  const readPhoto = (file: File | undefined, cb: (dataUrl: string) => void) => {
+    if (!file) return;
+    if (file.size > 6 * 1024 * 1024) { setErr('That photo is over 6MB — try a smaller one.'); return; }
+    const r = new FileReader(); r.onload = () => cb(String(r.result || '')); r.readAsDataURL(file);
+  };
+  const submit = async () => {
+    setBusy(true); setErr('');
+    const d = await api({ action: 'create-ticket', tenantId, token, ...form });
+    setBusy(false);
+    if (!d?.ok) { setErr(d?.error || 'Could not send that.'); return; }
+    setOpen(false); setForm({ title: '', category: 'equipment', priority: 'normal', description: '', photoData: '' }); void load();
+  };
+  const addNote = async (ticketId: string, photoData?: string) => {
+    setBusy(true); setErr('');
+    const d = await api({ action: 'ticket-note', tenantId, token, ticketId, note: note.trim(), photoData: photoData || '' });
+    setBusy(false);
+    if (!d?.ok) { setErr(d?.error || 'Could not send that.'); return; }
+    setNote(''); setNoteFor(''); void load();
+  };
+  if (!state) return null;
+  const openT = state.tickets.filter((t) => t.status === 'open' || t.status === 'in_progress');
+  const doneT = state.tickets.filter((t) => !(t.status === 'open' || t.status === 'in_progress')).slice(0, 5);
+  const promise = state.commitments.filter((c) => c.renterCanPick);
+  const urgent = state.commitments.find((c) => c.priority === 'urgent');
+  return (
+    <section className="space-y-3">
+      <SectionTitle icon={Wrench}>Something broken?</SectionTitle>
+      <div className="p-4 rounded-3xl bg-white border-2 border-slate-100 space-y-3">
+        {promise.length > 0 && (
+          <div className="rounded-2xl bg-slate-50 border-2 border-slate-100 px-3.5 py-3">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-1.5">The studio's promise</p>
+            <div className="space-y-1">
+              {promise.map((c) => (
+                <p key={c.priority} className="text-[11px] font-bold text-slate-700"><span className="capitalize font-black">{c.label}</span> · answered within {hrs(c.respondHours)}, fixed within {hrs(c.fixHours)}</p>
+              ))}
+              {urgent && <p className="text-[10px] font-bold text-slate-500">Safety or no-water issues the studio judges urgent: answered within {hrs(urgent.respondHours)}, fixed within {hrs(urgent.fixHours)}.</p>}
+            </div>
+          </div>
+        )}
+
+        {openT.map((t) => {
+          const done = t.status === 'resolved' || t.status === 'cancelled';
+          const ans = clock(t.respondBy, t.acknowledged || done);
+          const fix = clock(t.dueAt, done);
+          const isOpen = expanded === t.id;
+          return (
+            <div key={t.id} className="rounded-2xl border-2 border-slate-200 px-3.5 py-3 space-y-1.5">
+              <button type="button" onClick={() => setExpanded(isOpen ? '' : t.id)} aria-expanded={isOpen} className="w-full text-left">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[12px] font-black truncate">{t.title}</p>
+                  <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest', t.status === 'in_progress' ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-700')}>{TSTATUS[t.status] || t.status}</span>
+                </div>
+                <p className="text-[10px] font-bold text-slate-500">
+                  {t.priority} · reported {fmtDate(String(t.createdAt).slice(0, 10))}
+                  {t.assigneeName ? ` · ${t.assigneeName} has it` : t.acknowledged ? ' · seen by the studio' : ans ? ` · answer due: ${ans}` : ''}
+                  {fix ? ` · fix due: ${fix}` : ''}
+                </p>
+              </button>
+              {isOpen && (
+                <div className="space-y-1.5 pt-1">
+                  {t.description && <p className="text-[11px] font-medium text-slate-700 whitespace-pre-wrap">{t.description}</p>}
+                  {(t.updates || []).slice(1).map((u: any, i: number) => (
+                    <p key={i} className="text-[10px] font-medium text-slate-600"><span className="font-black">{fmtDate(String(u.at).slice(0, 10))} · {u.by}</span>{u.note ? ` — ${u.note}` : ''}{u.status ? ` (${TSTATUS[u.status] || u.status})` : ''}{u.photoUrl ? ' · photo' : ''}</p>
+                  ))}
+                  {noteFor === t.id ? (
+                    <div className="space-y-1.5">
+                      <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, 1000))} rows={2} aria-label="Add to this ticket" placeholder="Still happening? Something changed?" className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm" />
+                      <div className="flex gap-2">
+                        <button type="button" disabled={busy || !note.trim()} onClick={() => addNote(t.id)} className="h-10 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">Add note</button>
+                        <label className="h-10 rounded-2xl border-2 border-slate-200 px-3 inline-flex items-center text-[10px] font-black uppercase tracking-widest text-slate-700 cursor-pointer">
+                          Photo<input type="file" accept="image/*" capture="environment" className="sr-only" aria-label="Add a photo to this ticket" onChange={(e) => readPhoto(e.target.files?.[0], (d) => addNote(t.id, d))} />
+                        </label>
+                        <button type="button" onClick={() => { setNoteFor(''); setNote(''); }} className="h-10 rounded-2xl border-2 border-slate-200 px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => setNoteFor(t.id)} className="h-9 w-full rounded-2xl border-2 border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-700">Add a note or photo</button>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {!open ? (
+          <button type="button" onClick={() => setOpen(true)} className="h-11 w-full rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white">Report a problem</button>
+        ) : (
+          <div className="space-y-2">
+            <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value.slice(0, 120) }))} aria-label="What's wrong, in a few words" placeholder="Dryer at my station won't turn on" className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold" />
+            <div className="grid grid-cols-2 gap-2">
+              <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} aria-label="Category" className="h-11 rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold bg-white">
+                {TICKET_CATS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+              <select value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))} aria-label="How urgent" className="h-11 rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold bg-white">
+                <option value="high">High · can't work</option>
+                <option value="normal">Normal · a nuisance</option>
+                <option value="low">Low · whenever</option>
+              </select>
+            </div>
+            <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value.slice(0, 2000) }))} rows={3} aria-label="Details" placeholder="What's happening, since when, what you've tried." className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm" />
+            <label className="h-11 w-full rounded-2xl border-2 border-slate-200 inline-flex items-center justify-center text-[10px] font-black uppercase tracking-widest text-slate-700 cursor-pointer">
+              {form.photoData ? 'Photo attached · tap to change' : 'Add a photo'}
+              <input type="file" accept="image/*" capture="environment" className="sr-only" aria-label="Photo of the problem" onChange={(e) => readPhoto(e.target.files?.[0], (d) => setForm((f) => ({ ...f, photoData: d })))} />
+            </label>
+            {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+            <div className="flex gap-2">
+              <button type="button" onClick={submit} disabled={busy || !form.title.trim()} className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Sending…' : 'Send it'}</button>
+              <button type="button" onClick={() => setOpen(false)} className="h-11 rounded-2xl border-2 border-slate-200 px-4 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
+            </div>
+          </div>
+        )}
+        {err && !open && <p className="text-xs font-bold text-red-600">{err}</p>}
+        {doneT.length > 0 && (
+          <div className="space-y-1">
+            {doneT.map((t) => <p key={t.id} className="text-[10px] font-bold text-slate-500">{t.title} · {TSTATUS[t.status] || t.status}{t.resolvedAt ? ` ${fmtDate(String(t.resolvedAt).slice(0, 10))}` : ''}</p>)}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 // ─── Concerns ────────────────────────────────────────────────────────────────
 // Raising something properly: a category, what happened, when, what they'd
 // like to see. It gets a reference number and a receipt, and its status shows
@@ -2048,6 +2202,10 @@ export default function RenterPortalPage() {
 
             {session?.token && data?.lease && (
               <RenterLeave tenantId={tenantId} token={session.token} />
+            )}
+
+            {session?.token && data?.renter?.id && (
+              <RenterMaintenance tenantId={tenantId} token={session.token} />
             )}
 
             {session?.token && data?.renter?.id && (
