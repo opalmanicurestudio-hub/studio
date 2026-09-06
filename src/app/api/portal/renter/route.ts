@@ -2171,6 +2171,67 @@ export async function POST(req: NextRequest) {
     // Ownership chain verified server-side: invoice → lease → renter →
     // renter's contact must match this session. Works for every renter,
     // card on file or not (Checkout collects the card).
+    // ── interruption-list / interruption-loss: what a closure cost THEM ──────
+    // Interruptions touching the renter's space (open, or resolved in the last
+    // 120 days), with the remedy notes the shop chose to share, and the
+    // renter's own loss entries. The shop reads the log; only the renter
+    // writes it — a number the shop typed for them is worth nothing to the
+    // renter's insurer.
+    if (action === 'interruption-list') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const { affectsBooth, lossTotals } = await import('@/lib/interruptions');
+      const leaseSnap = await db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', session.renterId).get();
+      const myBooths = new Set(leaseSnap.docs.map((d) => (d.data() as any)).filter((l) => ['active', 'on_leave'].includes(String(l.status))).map((l) => String(l.boothId || '')));
+      const cutoff = new Date(Date.now() - 120 * 86_400_000).toISOString().slice(0, 10);
+      const iSnap = await db.collection(`tenants/${tenantId}/interruptions`).get();
+      const mine = iSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
+        .filter((r) => [...myBooths].some((b) => affectsBooth(r, b)))
+        .filter((r) => r.status === 'open' || String(r.endDate || r.startDate) >= cutoff)
+        .sort((a, b) => String(b.startDate).localeCompare(String(a.startDate)));
+      if (mine.length === 0) return NextResponse.json({ ok: true, interruptions: [] });
+      const lSnap = await db.collection(`tenants/${tenantId}/interruptionLosses`).where('renterId', '==', session.renterId).get();
+      const losses = lSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+      const renter = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      return NextResponse.json({
+        ok: true, portalToken: renter.portalToken || null,
+        interruptions: mine.map((r) => {
+          const own = losses.filter((l) => l.interruptionId === r.id).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+          return {
+            id: r.id, title: r.title, type: r.type, startDate: r.startDate, endDate: r.endDate || null, status: r.status,
+            updates: (r.remedy || []).filter((x: any) => x.sharedWithRenters).map((x: any) => ({ at: x.at, text: x.text })),
+            losses: own.map((l) => ({ id: l.id, date: l.date, appointmentsLost: l.appointmentsLost, lostCents: l.lostCents, note: l.note })),
+            totals: lossTotals(own),
+          };
+        }),
+      });
+    }
+    if (action === 'interruption-loss') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const interruptionId = String(body.interruptionId || '');
+      const iSnap = await db.doc(`tenants/${tenantId}/interruptions/${interruptionId}`).get();
+      if (!iSnap.exists) return NextResponse.json({ ok: false, error: 'That closure is not on record.' }, { status: 404 });
+      const rec = iSnap.data() as any;
+      const date = String(body.date || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return NextResponse.json({ ok: false, error: 'Pick the day.' }, { status: 400 });
+      const last = rec.endDate || new Date().toISOString().slice(0, 10);
+      if (date < String(rec.startDate) || date > String(last)) return NextResponse.json({ ok: false, error: `That day is outside the closure (${rec.startDate} to ${last}).` }, { status: 400 });
+      const appointmentsLost = Math.max(0, Math.min(200, Math.floor(Number(body.appointmentsLost) || 0)));
+      const lostCents = Math.max(0, Math.min(5_000_000, Math.round(Number(body.lostCents) || 0)));
+      if (appointmentsLost === 0 && lostCents === 0) return NextResponse.json({ ok: false, error: 'Enter appointments lost, an amount, or both.' }, { status: 400 });
+      const dup = await db.collection(`tenants/${tenantId}/interruptionLosses`).where('renterId', '==', session.renterId).where('interruptionId', '==', interruptionId).where('date', '==', date).limit(1).get();
+      const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      const nowIso = new Date().toISOString();
+      const entry = {
+        interruptionId, renterId: session.renterId, renterName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || 'Renter',
+        date, appointmentsLost, lostCents, note: String(body.note || '').trim().slice(0, 500), loggedAt: nowIso,
+      };
+      // One entry per day: logging the same day again REPLACES it, so a
+      // corrected number never sits next to the wrong one it corrected.
+      const ref = dup.empty ? db.collection(`tenants/${tenantId}/interruptionLosses`).doc() : dup.docs[0].ref;
+      await ref.set({ id: ref.id, ...entry }, { merge: true });
+      return NextResponse.json({ ok: true, id: ref.id, replaced: !dup.empty });
+    }
+
     // ── concern-list / concern-file: a grievance, raised properly ───────────
     // The structured record lives in renterGrievances; the CONVERSATION about
     // it lives in the renter's thread like everything else, so the drawer,
