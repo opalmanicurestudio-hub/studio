@@ -2164,6 +2164,74 @@ export async function POST(req: NextRequest) {
     // Ownership chain verified server-side: invoice → lease → renter →
     // renter's contact must match this session. Works for every renter,
     // card on file or not (Checkout collects the card).
+    // ── concern-list / concern-file: a grievance, raised properly ───────────
+    // The structured record lives in renterGrievances; the CONVERSATION about
+    // it lives in the renter's thread like everything else, so the drawer,
+    // the timeline and the account record show it with no extra plumbing.
+    // Filing sends a receipt with the reference — a receipt, not a decision.
+    if (action === 'concern-list') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const snap = await db.collection(`tenants/${tenantId}/renterGrievances`).where('renterId', '==', session.renterId).get();
+      return NextResponse.json({ ok: true, concerns: snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).sort((a, b) => String(b.filedAt).localeCompare(String(a.filedAt))) });
+    }
+    if (action === 'concern-file') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const { GRIEVANCE_CATEGORY_LABEL, CONFIDENTIAL_BY_DEFAULT, makeGrievanceRef } = await import('@/lib/grievances');
+      const category = Object.prototype.hasOwnProperty.call(GRIEVANCE_CATEGORY_LABEL, body.category) ? body.category : 'other';
+      const what = String(body.what || '').trim().slice(0, 2000);
+      const wanted = String(body.wanted || '').trim().slice(0, 800);
+      const when = /^\d{4}-\d{2}-\d{2}$/.test(String(body.when || '')) ? String(body.when) : new Date().toISOString().slice(0, 10);
+      if (what.length < 10) return NextResponse.json({ ok: false, error: 'Tell us what happened \u2014 a sentence or two.' }, { status: 400 });
+      const openSnap = await db.collection(`tenants/${tenantId}/renterGrievances`).where('renterId', '==', session.renterId).where('status', 'in', ['open', 'acknowledged']).get();
+      if (openSnap.size >= 5) return NextResponse.json({ ok: false, error: 'You have five concerns open already \u2014 let us work through those first.' }, { status: 429 });
+      const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      const renterName = `${r.firstName || ''} ${r.lastName || ''}`.trim() || 'Renter';
+      const nowIso = new Date().toISOString();
+      const ref = makeGrievanceRef(nowIso);
+      const confidential = typeof body.confidential === 'boolean' ? body.confidential : CONFIDENTIAL_BY_DEFAULT.includes(category);
+      const gRef = db.collection(`tenants/${tenantId}/renterGrievances`).doc();
+      await gRef.set({
+        id: gRef.id, ref, renterId: session.renterId, renterName, category, what, when, wanted, confidential,
+        status: 'open', filedAt: nowIso, acknowledgedAt: null, resolvedAt: null, resolution: null, responses: 0,
+      });
+      // The line in their thread: what the drawer, timeline and account record read.
+      const mRef = db.collection(`tenants/${tenantId}/renterThreads/${session.renterId}/messages`).doc();
+      await mRef.set({
+        id: mRef.id, renterId: session.renterId, direction: 'inbound', createdAt: nowIso, grievanceId: gRef.id,
+        text: `Raised a concern ${ref} \u00b7 ${GRIEVANCE_CATEGORY_LABEL[category as keyof typeof GRIEVANCE_CATEGORY_LABEL]}${confidential ? ' \u00b7 confidential' : ''}\n\n${what}${wanted ? `\n\nWhat they would like: ${wanted}` : ''}`,
+      });
+      await db.doc(`tenants/${tenantId}/renterThreads/${session.renterId}`).set({
+        renterId: session.renterId, lastAt: nowIso, lastText: `Concern ${ref} \u00b7 ${GRIEVANCE_CATEGORY_LABEL[category as keyof typeof GRIEVANCE_CATEGORY_LABEL]}`, lastDirection: 'inbound', unreadForOwner: true,
+      }, { merge: true });
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({ id: nRef.id, type: 'renter_concern', read: false, createdAt: nowIso, link: '/renters',
+        message: `${renterName} raised a concern (${ref}) \u2014 ${GRIEVANCE_CATEGORY_LABEL[category as keyof typeof GRIEVANCE_CATEGORY_LABEL]}.` });
+      // The receipt. Reference, what we have on file, what happens next.
+      const to = String(r.email || '').trim();
+      if (to.includes('@')) {
+        try {
+          let studioName = 'The studio';
+          try { studioName = ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.name || studioName; } catch { /* cosmetic */ }
+          const { brandedEmailHtml } = await import('@/lib/email-template');
+          const { sendNotification } = await import('@/lib/notify');
+          await sendNotification(db, {
+            tenantId, channel: 'email', to,
+            subject: `We have your concern \u2014 ${ref}`,
+            html: brandedEmailHtml({
+              studioName, title: 'Received',
+              bodyLines: [
+                `Hi ${r.firstName || 'there'} \u2014 your concern is on file as ${ref} (${GRIEVANCE_CATEGORY_LABEL[category as keyof typeof GRIEVANCE_CATEGORY_LABEL]}).`,
+                'Keep that reference; quote it if you follow up. You will see its status in your portal, and every reply we send lands there too.',
+              ],
+              footerNote: `Sent by ${studioName}.`,
+            }),
+            kind: 'grievance_received', recipientType: 'renter', recipientId: session.renterId, recipientName: renterName,
+          });
+        } catch { /* the record stands; the receipt is best-effort */ }
+      }
+      return NextResponse.json({ ok: true, id: gRef.id, ref });
+    }
+
     // ── leave-list / leave-request / leave-redeem ──────────────────────────
     // The renter asks; the owner decides. Nothing here changes rent — it
     // records a request and raises a decision. Banked days are the same
