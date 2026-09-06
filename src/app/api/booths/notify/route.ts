@@ -489,6 +489,118 @@ export async function POST(req: NextRequest) {
      * delivery/opened status on the same record. Their reply from the portal
      * comes back into the same thread (portal action 'thread-send'). Nothing
      * about a renter should happen outside this thread. */
+    /* ── Floor broadcast ──────────────────────────────────────────
+     * One message to every renter on the list — the whole floor, or the
+     * subset the owner picked. Each renter gets their OWN copy through their
+     * OWN thread (email + text + thread line, with delivery status), never a
+     * group email that exposes everyone's address. The server resolves the
+     * audience so a stale list on the client cannot message someone who left
+     * yesterday. */
+    if (action === 'renter-broadcast') {
+      const { text, byName, audience, renterIds } = body;
+      const clean = String(text || '').trim().slice(0, 2000);
+      if (!clean) return NextResponse.json({ ok: false, error: 'Nothing to send.' }, { status: 400 });
+      const snap = await db.collection(`tenants/${tenantId}/renters`).get();
+      const pick = new Set<string>(Array.isArray(renterIds) ? renterIds.map(String) : []);
+      const mode = String(audience || 'active');
+      const targets = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((r) => {
+        if (mode === 'picked') return pick.has(r.id);
+        if (mode === 'all') return ['active', 'on_leave', 'maternity_leave', 'pending'].includes(String(r.status));
+        return String(r.status) === 'active';
+      });
+      if (targets.length === 0) return NextResponse.json({ ok: false, error: 'Nobody matched that audience.' }, { status: 400 });
+      const nowIso = new Date().toISOString();
+      const bRef = db.collection(`tenants/${tenantId}/renterBroadcasts`).doc();
+      let sent = 0, emailed = 0, texted = 0;
+      for (const r of targets) {
+        const first = firstNameOf(`${r.firstName || ''} ${r.lastName || ''}`);
+        const portal = r.portalToken ? `${origin}/rent/${tenantId}?rt=${r.portalToken}` : `${origin}/rent/${tenantId}`;
+        let emailStatus = 'skipped_no_email', emailLogId: string | null = null;
+        const to = String(r.email || '').trim();
+        if (to.includes('@')) {
+          const out = await sendNotification(db, {
+            tenantId, channel: 'email', to,
+            subject: `A note to everyone from ${studioName}`,
+            html: brandedEmailHtml({
+              studioName, title: `From ${byName || studioName}`,
+              bodyLines: [`Hi ${first},`, ...clean.split(/\n{2,}/).map((p: string) => p.trim()).filter(Boolean)],
+              cta: { label: 'Reply in my portal', url: portal },
+              footerNote: `Sent to every renter by ${studioName}. Replies come only to the studio.`,
+            }),
+            kind: 'renter_broadcast', recipientType: 'renter', recipientId: r.id,
+            recipientName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || null,
+            tokens: { renter_first: first, studio: studioName, link: portal },
+          });
+          emailStatus = out.status; emailLogId = (out as any).logId || null;
+          if (out.status === 'sent') emailed++;
+        }
+        const smsStatus = await alsoText(db, {
+          tenantId, to: String(r.phone || ''), kind: 'renter_broadcast', recipientId: r.id,
+          text: `${studioName} to all renters: ${clean.length > 200 ? clean.slice(0, 197) + '\u2026' : clean} \u2014 ${portal}`,
+        });
+        if (smsStatus === 'sent') texted++;
+        const mRef = db.collection(`tenants/${tenantId}/renterThreads/${r.id}/messages`).doc();
+        await mRef.set({ id: mRef.id, renterId: r.id, direction: 'outbound', text: clean, byName: byName || 'Studio', createdAt: nowIso, emailStatus, smsStatus, emailLogId, broadcastId: bRef.id });
+        await db.doc(`tenants/${tenantId}/renterThreads/${r.id}`).set({ renterId: r.id, lastAt: nowIso, lastText: clean.slice(0, 140), lastDirection: 'outbound', unreadForRenter: true }, { merge: true });
+        sent++;
+      }
+      await bRef.set({ id: bRef.id, text: clean, byName: byName || 'Studio', audience: mode, createdAt: nowIso, recipients: sent, emailed, texted, renterIds: targets.map((r) => r.id) });
+      return NextResponse.json({ ok: true, id: bRef.id, recipients: sent, emailed, texted });
+    }
+
+    /* ── Concern response ────────────────────────────────────────
+     * Acknowledge, reply, or resolve a concern. The status change is the
+     * structured part; the words go out through the renter's thread with
+     * the reference on them, so the reply is on the record with delivery
+     * status like any other message. */
+    if (action === 'concern-respond') {
+      const { grievanceId, text, byName, status } = body;
+      const gRef = db.doc(`tenants/${tenantId}/renterGrievances/${grievanceId}`);
+      const gSnap = await gRef.get();
+      if (!gSnap.exists) return NextResponse.json({ ok: false, error: 'Concern not found.' }, { status: 404 });
+      const g = gSnap.data() as any;
+      const next = ['acknowledged', 'resolved', 'closed'].includes(String(status)) ? String(status) : null;
+      const clean = String(text || '').trim().slice(0, 2000);
+      const nowIso = new Date().toISOString();
+      const patch: Record<string, any> = {};
+      if (next === 'acknowledged' && g.status === 'open') { patch.status = 'acknowledged'; patch.acknowledgedAt = nowIso; }
+      if (next === 'resolved' || next === 'closed') { patch.status = next; patch.resolvedAt = nowIso; if (clean) patch.resolution = clean; }
+      if (clean) patch.responses = (Number(g.responses) || 0) + 1;
+      if (Object.keys(patch).length === 0) return NextResponse.json({ ok: false, error: 'Nothing to do.' }, { status: 400 });
+      await gRef.set(patch, { merge: true });
+      const { GRIEVANCE_STATUS_LABEL } = await import('@/lib/grievances');
+      const statusWord = GRIEVANCE_STATUS_LABEL[(patch.status || g.status) as keyof typeof GRIEVANCE_STATUS_LABEL] || String(patch.status || g.status);
+      const line = clean || (next === 'acknowledged' ? 'We have read your concern and are looking into it.' : `Marked ${statusWord.toLowerCase()}.`);
+      const rSnap = await db.doc(`tenants/${tenantId}/renters/${g.renterId}`).get();
+      const r = (rSnap.data() as any) || {};
+      const first = firstNameOf(`${r.firstName || ''} ${r.lastName || ''}`);
+      const portal = r.portalToken ? `${origin}/rent/${tenantId}?rt=${r.portalToken}` : `${origin}/rent/${tenantId}`;
+      let emailStatus = 'skipped_no_email', emailLogId: string | null = null;
+      const to = String(r.email || '').trim();
+      if (to.includes('@')) {
+        const out = await sendNotification(db, {
+          tenantId, channel: 'email', to,
+          subject: `${g.ref} \u00b7 ${statusWord}`,
+          html: brandedEmailHtml({
+            studioName, title: `Your concern ${g.ref}`,
+            bodyLines: [`Hi ${first} \u2014 status: ${statusWord}.`, ...line.split(/\n{2,}/).map((p: string) => p.trim()).filter(Boolean)],
+            cta: { label: 'See it in my portal', url: portal },
+            footerNote: `Sent by ${byName || studioName}. Reply in your portal so we both keep a record.`,
+          }),
+          kind: 'renter_message', recipientType: 'renter', recipientId: g.renterId,
+          recipientName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || null,
+          tokens: { renter_first: first, studio: studioName, link: portal },
+        });
+        emailStatus = out.status; emailLogId = (out as any).logId || null;
+      }
+      const smsStatus = await alsoText(db, { tenantId, to: String(r.phone || ''), kind: 'renter_message', recipientId: g.renterId,
+        text: `${studioName} re ${g.ref} (${statusWord}): ${line.length > 180 ? line.slice(0, 177) + '\u2026' : line} \u2014 ${portal}` });
+      const mRef = db.collection(`tenants/${tenantId}/renterThreads/${g.renterId}/messages`).doc();
+      await mRef.set({ id: mRef.id, renterId: g.renterId, direction: 'outbound', text: `${g.ref} \u00b7 ${statusWord}\n\n${line}`, byName: byName || 'Studio', createdAt: nowIso, emailStatus, smsStatus, emailLogId, grievanceId });
+      await db.doc(`tenants/${tenantId}/renterThreads/${g.renterId}`).set({ renterId: g.renterId, lastAt: nowIso, lastText: `${g.ref} \u00b7 ${statusWord}`, lastDirection: 'outbound', unreadForRenter: true }, { merge: true });
+      return NextResponse.json({ ok: true, status: patch.status || g.status, emailStatus, smsStatus });
+    }
+
     if (action === 'renter-message') {
       const { renterId, text, byName } = body;
       const clean = String(text || '').trim().slice(0, 2000);
