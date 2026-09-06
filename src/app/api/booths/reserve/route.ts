@@ -824,6 +824,8 @@ export async function POST(req: NextRequest) {
           boothName: booth.name || 'Space',
           locationId: booth.locationId || null,
           name: String(name).slice(0, 120), phone: String(phone || '').slice(0, 40), email: String(email || '').slice(0, 160),
+          subletLeaseId: subletOpenOn(booth, startDate) ? (booth.subletLeaseId || null) : null,
+          subletRenterId: subletOpenOn(booth, startDate) ? (booth.subletRenterId || null) : null,
           startDate, endDate, numDays,
           amountCents: 0, originalAmountCents: amountCents, netDueCents: 0,
           depositCents: 0, balanceDueCents: 0, balanceMode: null, balancePaid: true,
@@ -894,9 +896,12 @@ export async function POST(req: NextRequest) {
 
     const resRef = db.collection(`tenants/${tenantId}/boothReservations`).doc();
     const nowIso = new Date().toISOString();
+    const subletPaid = subletOpenOn(booth, startDate);
     await resRef.set({
       id: resRef.id, tenantId, boothId,
       boothName: booth.name || 'Space',
+      subletLeaseId: subletPaid ? (booth.subletLeaseId || null) : null,
+      subletRenterId: subletPaid ? (booth.subletRenterId || null) : null,
       locationId: booth.locationId || null,
       name: String(name).slice(0, 120), phone: String(phone || '').slice(0, 40), email: String(email || '').slice(0, 160),
       startDate, endDate, numDays, amountCents: chargeCents,
