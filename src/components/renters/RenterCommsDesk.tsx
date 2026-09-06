@@ -18,6 +18,7 @@ import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { GRIEVANCE_CATEGORY_LABEL, GRIEVANCE_STATUS_LABEL, isOpenGrievance } from '@/lib/grievances';
+import { credentialViews, isProblem, stateLabel, CREDENTIAL_LABEL } from '@/lib/compliance';
 import { RENTER_DOC_TEMPLATES, RENTER_DOC_FIELDS, renterDocVars, renderRenterDoc, unfilledPlaceholders, type RenterDocKind } from '@/lib/renter-documents';
 
 const ago = (iso: string) => {
@@ -35,7 +36,8 @@ export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, 
   const [threads, setThreads] = useState<any[]>([]);
   const [concerns, setConcerns] = useState<any[]>([]);
   const [docs, setDocs] = useState<any[]>([]);
-  const [tab, setTab] = useState<'inbox' | 'concerns' | 'everyone' | 'documents'>('inbox');
+  const [tab, setTab] = useState<'inbox' | 'concerns' | 'everyone' | 'documents' | 'coverage'>('inbox');
+  const [askSent, setAskSent] = useState<Record<string, boolean>>({});
   const [docRenter, setDocRenter] = useState('');
   const [docKind, setDocKind] = useState<RenterDocKind | ''>('');
   const [docFields, setDocFields] = useState<Record<string, string>>({});
@@ -145,6 +147,30 @@ export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, 
     await setDoc(doc(firestore, 'tenants', tenantId, 'renterDocuments', d.id), { status: 'withdrawn', withdrawnAt: new Date().toISOString() }, { merge: true }).catch(() => null);
   };
 
+  // ── Coverage: who is insured and licensed, at a glance. "Required" comes
+  // from the shop's own onboarding rules; a missing document is only a
+  // problem when the shop says it must be there.
+  const coverage = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return renters.filter((r) => ['active', 'on_leave', 'maternity_leave'].includes(String(r.status)))
+      .map((r) => ({ renter: r, views: credentialViews(r, tenant, today) }))
+      .map((x) => ({ ...x, problems: x.views.filter(isProblem) }))
+      .sort((a, b) => (b.problems.length - a.problems.length) || `${a.renter.firstName} ${a.renter.lastName}`.localeCompare(`${b.renter.firstName} ${b.renter.lastName}`));
+  }, [renters, tenant]);
+  const coverageProblems = coverage.reduce((n, x) => n + x.problems.length, 0);
+  const askFor = async (renterId: string, kind: 'insurance' | 'license', state: string) => {
+    setBusy(`ask-${renterId}-${kind}`);
+    try {
+      const what = CREDENTIAL_LABEL[kind].toLowerCase();
+      const text = state === 'expired' ? `Your ${what} on file has expired. Please upload the renewed one in your portal → Insurance & licence.`
+        : state === 'expiring' ? `Your ${what} on file expires soon. When you have the renewal, upload it in your portal → Insurance & licence.`
+        : `We need a copy of your ${what} on file to rent here. Please add it in your portal → Insurance & licence — expiry date and a photo of the document.`;
+      await fetch('/api/booths/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'renter-message', tenantId, renterId, byName: studioName, text }) });
+      setAskSent((m) => ({ ...m, [`${renterId}-${kind}`]: true }));
+    } finally { setBusy(''); }
+  };
+
   const Tab = ({ k, label, count, tone }: { k: typeof tab; label: string; count?: number; tone?: string }) => (
     <button type="button" onClick={() => setTab(k)} aria-pressed={tab === k}
       className={cn('h-10 rounded-xl border-2 px-3.5 text-[11px] font-black transition-all flex items-center gap-2', tab === k ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200')}>
@@ -160,6 +186,7 @@ export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, 
         <Tab k="concerns" label="Concerns" count={openConcerns.length} tone="bg-red-600 text-white" />
         <Tab k="everyone" label="Message everyone" />
         <Tab k="documents" label="Documents" count={pendingDocs.length} tone="bg-slate-500 text-white" />
+        <Tab k="coverage" label="Coverage" count={coverageProblems} tone="bg-red-600 text-white" />
       </div>
 
       {tab === 'inbox' && (
@@ -219,6 +246,42 @@ export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, 
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {tab === 'coverage' && (
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-bold text-slate-500">
+            Insurance and licence on file for everyone renting now. Expiring means within 30 days. {(tenant?.bookingPageSettings?.automationRules?.requireInsurance || tenant?.bookingPageSettings?.automationRules?.requireLicense) ? 'Missing counts as a problem because your onboarding rules require it.' : 'Nothing is required by your onboarding rules, so missing is information, not a problem — turn requirements on under the booking page settings if you want the nightly to chase them.'}
+          </p>
+          {coverage.length === 0 && <p className="text-[11px] font-bold text-muted-foreground">No current renters.</p>}
+          {coverage.map(({ renter: r, views }) => (
+            <div key={r.id} className="rounded-2xl border-2 bg-white px-3.5 py-2.5 space-y-1.5">
+              <p className="text-[12px] font-black"><button type="button" onClick={() => onOpenRenter(r.id)} className="underline decoration-2 underline-offset-2">{`${r.firstName || ''} ${r.lastName || ''}`.trim()}</button>{boothNameOf(r.id) ? <span className="font-bold text-slate-500"> · {boothNameOf(r.id)}</span> : null}</p>
+              {views.map((v) => {
+                const bad = isProblem(v);
+                const key = `${r.id}-${v.kind}`;
+                return (
+                  <div key={v.kind} className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-bold truncate">
+                      <span className={cn('inline-block h-2 w-2 rounded-full mr-1.5 align-middle', v.state === 'ok' ? 'bg-emerald-500' : v.state === 'expiring' ? 'bg-amber-500' : bad ? 'bg-red-600' : 'bg-slate-300')} />
+                      {CREDENTIAL_LABEL[v.kind]} <span className={cn('font-black', bad ? 'text-red-700' : v.state === 'ok' ? 'text-emerald-700' : 'text-slate-500')}>· {stateLabel(v)}</span>
+                      {v.kind === 'insurance' && v.carrier ? <span className="font-medium text-slate-500"> · {v.carrier}{v.policyNumber ? ` ${v.policyNumber}` : ''}</span> : null}
+                    </p>
+                    <div className="flex shrink-0 gap-1.5">
+                      {v.docUrl && <a href={v.docUrl} target="_blank" rel="noopener" className="h-8 inline-flex items-center rounded-lg border-2 bg-white px-2.5 text-[9px] font-black uppercase tracking-widest text-slate-700">See</a>}
+                      {(bad || v.state === 'missing') && (
+                        <button type="button" disabled={busy === `ask-${key}` || askSent[key]} onClick={() => askFor(r.id, v.kind, v.state)}
+                          className={cn('h-8 rounded-lg border-2 px-2.5 text-[9px] font-black uppercase tracking-widest', askSent[key] ? 'border-emerald-200 text-emerald-700 bg-white' : 'border-slate-900 bg-slate-900 text-white')}>
+                          {askSent[key] ? 'Asked ✓' : busy === `ask-${key}` ? '…' : 'Ask for it'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
         </div>
       )}
 
