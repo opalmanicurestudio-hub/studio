@@ -34,6 +34,7 @@ import {
   CalendarClock,
   ShieldAlert,
   Wrench,
+  CloudLightning,
 } from 'lucide-react';
 
 // Local YYYY-MM-DD — the UTC-slice version flips to tomorrow in the evening.
@@ -53,6 +54,89 @@ const fmtTime = (t?: string | null) => {
 // The renter asks; the studio decides. Only treatments the shop offers are
 // shown, and a request changes nothing until it is approved. Banked days work
 // the same way: asking to spend them is not spending them.
+// ─── Closures — what it cost you ─────────────────────────────────────────────
+// Shown only when the studio has recorded an interruption that touched this
+// renter's space. A rent credit covers the chair; this covers the clients they
+// turned away — the number THEIR insurer or accountant will ask for. They
+// write it, day by day, while it is fresh. The studio can read it, never edit
+// it. "Print my statement" is their slice of the packet, signed by them.
+const ITYPE: Record<string, string> = { flood: 'Flood / water damage', fire: 'Fire / smoke', power: 'Power loss', water: 'No running water', weather: 'Weather', closure: 'Forced closure', other: 'Closure' };
+function RenterInterruptions({ tenantId, token }: { tenantId: string; token: string }) {
+  const [state, setState] = useState<{ interruptions: any[]; portalToken: string | null } | null>(null);
+  const [logFor, setLogFor] = useState('');
+  const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), appointmentsLost: '', lost: '', note: '' });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const load = useCallback(async () => {
+    const d = await api({ action: 'interruption-list', tenantId, token });
+    if (d?.ok) setState({ interruptions: d.interruptions || [], portalToken: d.portalToken || null });
+  }, [tenantId, token]);
+  useEffect(() => { void load(); }, [load]);
+  if (!state || state.interruptions.length === 0) return null;
+  const submit = async (id: string) => {
+    setBusy(true); setErr('');
+    const d = await api({ action: 'interruption-loss', tenantId, token, interruptionId: id, date: form.date, appointmentsLost: Number(form.appointmentsLost) || 0, lostCents: Math.round((Number(form.lost) || 0) * 100), note: form.note });
+    setBusy(false);
+    if (!d?.ok) { setErr(d?.error || 'Could not save that.'); return; }
+    setLogFor(''); setForm({ date: new Date().toISOString().slice(0, 10), appointmentsLost: '', lost: '', note: '' }); void load();
+  };
+  return (
+    <section className="space-y-3">
+      <SectionTitle icon={CloudLightning}>Closures · what it cost you</SectionTitle>
+      {state.interruptions.map((r) => (
+        <div key={r.id} className="p-4 rounded-3xl bg-white border-2 border-slate-100 space-y-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[12px] font-black truncate">{r.title}</p>
+              <p className="text-[10px] font-bold text-slate-500">{ITYPE[r.type] || 'Closure'} · {fmtDate(r.startDate)}{r.endDate ? ` – ${fmtDate(r.endDate)}` : ' – ongoing'}</p>
+            </div>
+            <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest', r.status === 'open' ? 'bg-red-600 text-white' : 'bg-slate-200 text-slate-700')}>{r.status === 'open' ? 'Ongoing' : 'Over'}</span>
+          </div>
+          {r.updates.length > 0 && (
+            <div className="space-y-1">
+              {r.updates.slice(-3).map((u: any, i: number) => <p key={i} className="text-[10px] font-medium text-slate-600"><span className="font-black">{fmtDate(String(u.at).slice(0, 10))}</span> · {u.text}</p>)}
+            </div>
+          )}
+          <div className="rounded-2xl bg-slate-50 border-2 border-slate-100 px-3.5 py-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Your loss log</p>
+              <p className="text-[11px] font-black tabular-nums">{r.totals.appointmentsLost} appt{r.totals.appointmentsLost === 1 ? '' : 's'} · ${(r.totals.lostCents / 100).toFixed(2)} · {r.totals.days} day{r.totals.days === 1 ? '' : 's'}</p>
+            </div>
+            {r.losses.length === 0 && <p className="text-[10px] font-bold text-slate-500">Nothing logged yet. A rent credit covers the chair — this is for the clients you couldn't see, the number your own insurer or accountant will ask for. Log it while it's fresh.</p>}
+            {r.losses.map((l: any) => (
+              <p key={l.id} className="text-[10px] font-medium text-slate-700"><span className="font-black">{fmtDate(l.date)}</span> · {l.appointmentsLost} appt{l.appointmentsLost === 1 ? '' : 's'} · ${(l.lostCents / 100).toFixed(2)}{l.note ? ` — ${l.note}` : ''}</p>
+            ))}
+            {logFor === r.id ? (
+              <div className="space-y-2">
+                <input type="date" value={form.date} min={r.startDate} max={r.endDate || undefined} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} aria-label="Which day" className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold bg-white" />
+                <div className="grid grid-cols-2 gap-2">
+                  <input inputMode="numeric" value={form.appointmentsLost} onChange={(e) => setForm((f) => ({ ...f, appointmentsLost: e.target.value.replace(/[^0-9]/g, '') }))} aria-label="Appointments you couldn't do" placeholder="Appts lost" className="h-11 rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold bg-white" />
+                  <input inputMode="decimal" value={form.lost} onChange={(e) => setForm((f) => ({ ...f, lost: e.target.value.replace(/[^0-9.]/g, '') }))} aria-label="Income lost, dollars" placeholder="$ lost (your estimate)" className="h-11 rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold bg-white" />
+                </div>
+                <input value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value.slice(0, 500) }))} aria-label="Note" placeholder="Who you rescheduled, what you refunded (optional)" className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm bg-white" />
+                {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => submit(r.id)} disabled={busy || !form.date} className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Saving…' : 'Save this day'}</button>
+                  <button type="button" onClick={() => setLogFor('')} className="h-11 rounded-2xl border-2 border-slate-200 px-4 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
+                </div>
+                <p className="text-[9px] font-bold text-slate-400">One entry per day. Saving a day again replaces it.</p>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <button type="button" onClick={() => { setLogFor(r.id); setErr(''); }} className="h-10 flex-1 rounded-2xl border-2 border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-700">Log a day</button>
+                {r.losses.length > 0 && state.portalToken && (
+                  <a href={`/api/booths/interruption-packet?tenantId=${encodeURIComponent(tenantId)}&id=${encodeURIComponent(r.id)}&renter=${encodeURIComponent(state.portalToken)}`} target="_blank" rel="noopener"
+                    className="h-10 inline-flex items-center rounded-2xl border-2 border-slate-200 px-3 text-[10px] font-black uppercase tracking-widest text-slate-700">Print my statement</a>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 // ─── Maintenance ─────────────────────────────────────────────────────────────
 // Report a problem with the space, see the studio's promise BEFORE reporting,
 // then watch the ticket move. The two clocks are the studio's own commitments
@@ -2202,6 +2286,10 @@ export default function RenterPortalPage() {
 
             {session?.token && data?.lease && (
               <RenterLeave tenantId={tenantId} token={session.token} />
+            )}
+
+            {session?.token && data?.renter?.id && (
+              <RenterInterruptions tenantId={tenantId} token={session.token} />
             )}
 
             {session?.token && data?.renter?.id && (
