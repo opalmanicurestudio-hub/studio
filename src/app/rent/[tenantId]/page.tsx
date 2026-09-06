@@ -31,6 +31,7 @@ import {
   CheckCircle2, Sparkles, ChevronRight, Receipt, AlertTriangle,
   Wallet, KeyRound, Phone, RefreshCw, Repeat, X,
   MessageSquare,
+  CalendarClock,
 } from 'lucide-react';
 
 // Local YYYY-MM-DD — the UTC-slice version flips to tomorrow in the evening.
@@ -45,6 +46,128 @@ const fmtTime = (t?: string | null) => {
   if (!t) return '';
   try { return format(parseISO(`2000-01-01T${t}:00`), 'h:mm a'); } catch { return t; }
 };
+
+// ─── Leave ───────────────────────────────────────────────────────────────────
+// The renter asks; the studio decides. Only treatments the shop offers are
+// shown, and a request changes nothing until it is approved. Banked days work
+// the same way: asking to spend them is not spending them.
+function RenterLeave({ tenantId, token }: { tenantId: string; token: string }) {
+  const [state, setState] = useState<{ policy: any; leaves: any[] } | null>(null);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ type: 'maternity', startDate: '', endDate: '', preferred: '', note: '' });
+  const [redeemFor, setRedeemFor] = useState('');
+  const [redeemDays, setRedeemDays] = useState('1');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const load = useCallback(async () => {
+    const d = await api({ action: 'leave-list', tenantId, token });
+    if (d?.ok) setState({ policy: d.policy, leaves: d.leaves || [] });
+  }, [tenantId, token]);
+  useEffect(() => { void load(); }, [load]);
+  if (!state || state.policy.offered.length === 0) return null;
+  const TL: Record<string, string> = { pause: 'Pause rent', reduced: 'Reduced holding rate', bank: 'Keep paying, bank days', sublet: 'Sublet while away' };
+  const pending = state.leaves.find((l) => l.status === 'requested');
+  const active = state.leaves.find((l) => l.status === 'approved');
+  const banked = state.leaves
+    .filter((l) => ['approved', 'ended'].includes(l.status))
+    .map((l) => ({ ...l, left: Math.max(0, (Number(l.bankedDays) || 0) - (Number(l.redeemedDays) || 0)) }))
+    .filter((l) => l.left > 0 || (l.redeem && l.redeem.status === 'requested'));
+  const submit = async () => {
+    setBusy(true); setErr('');
+    const d = await api({ action: 'leave-request', tenantId, token, ...form });
+    setBusy(false);
+    if (!d?.ok) { setErr(d?.error || 'Could not send that.'); return; }
+    setOpen(false); setForm({ type: 'maternity', startDate: '', endDate: '', preferred: '', note: '' }); void load();
+  };
+  const askRedeem = async (leaveId: string, max: number) => {
+    setBusy(true); setErr('');
+    const d = await api({ action: 'leave-redeem', tenantId, token, leaveId, days: Math.max(1, Math.min(max, Number(redeemDays) || 1)) });
+    setBusy(false);
+    if (!d?.ok) { setErr(d?.error || 'Could not send that.'); return; }
+    setRedeemFor(''); setRedeemDays('1'); void load();
+  };
+  return (
+    <section className="space-y-3">
+      <SectionTitle icon={CalendarClock}>Time away</SectionTitle>
+      <div className="p-4 rounded-3xl bg-white border-2 border-slate-100 space-y-3">
+        {active && (
+          <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-3.5 py-3">
+            <p className="text-[11px] font-black uppercase tracking-widest text-emerald-800">On leave · {fmtDate(active.startDate)} – {fmtDate(active.endDate)}</p>
+            <p className="text-[11px] font-bold text-emerald-900">{TL[active.treatment] || active.treatment}{active.treatment === 'bank' && active.bankedDays ? ` · ${active.bankedDays} day${active.bankedDays === 1 ? '' : 's'} banked so far` : ''}{active.treatment === 'pause' && active.pausedDays ? ` · lease extends ${active.pausedDays} day${active.pausedDays === 1 ? '' : 's'}` : ''}</p>
+          </div>
+        )}
+        {pending && (
+          <div className="rounded-2xl border-2 border-amber-200 bg-amber-50 px-3.5 py-3">
+            <p className="text-[11px] font-black uppercase tracking-widest text-amber-800">Requested · {fmtDate(pending.startDate)} – {fmtDate(pending.endDate)}</p>
+            <p className="text-[11px] font-bold text-amber-900">Waiting on the studio. Rent continues as normal until it is approved.</p>
+          </div>
+        )}
+
+        {banked.map((l) => (
+          <div key={`bank-${l.id}`} className="rounded-2xl border-2 border-slate-200 bg-slate-50 px-3.5 py-3 space-y-2">
+            <p className="text-[11px] font-black uppercase tracking-widest text-slate-700">{l.left} banked rental day{l.left === 1 ? '' : 's'}</p>
+            {l.redeem && l.redeem.status === 'requested' ? (
+              <p className="text-[11px] font-bold text-amber-800">You asked to use {l.redeem.days} — waiting on the studio.</p>
+            ) : redeemFor === l.id ? (
+              <div className="flex gap-2">
+                <input inputMode="numeric" aria-label="Days to use" value={redeemDays}
+                  onChange={(e) => setRedeemDays(e.target.value.replace(/[^0-9]/g, ''))}
+                  className="h-11 w-20 rounded-2xl border-2 border-slate-200 px-3 text-center text-sm font-bold" />
+                <button type="button" disabled={busy} onClick={() => askRedeem(l.id, l.left)}
+                  className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">Ask to use them</button>
+                <button type="button" onClick={() => setRedeemFor('')} className="h-11 rounded-2xl border-2 border-slate-200 px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => { setRedeemFor(l.id); setRedeemDays(String(l.left)); }}
+                className="h-11 w-full rounded-2xl border-2 border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-700">Use banked days</button>
+            )}
+          </div>
+        ))}
+
+        {!open ? (
+          <button type="button" onClick={() => setOpen(true)} disabled={!!pending}
+            className="h-11 w-full rounded-2xl border-2 border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-700 disabled:opacity-50">
+            {pending ? 'Request pending' : 'Request time away'}
+          </button>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold text-slate-500">
+              {state.policy.noticeDays > 0 ? `The studio asks for ${state.policy.noticeDays} days' notice where possible. ` : ''}Up to {state.policy.maxWeeks} weeks.
+            </p>
+            <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))} aria-label="Type of leave"
+              className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold bg-white">
+              {[['maternity', 'Maternity / parental'], ['medical', 'Medical'], ['family', 'Family'], ['personal', 'Personal'], ['other', 'Other']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+            <div className="grid grid-cols-2 gap-2">
+              <input type="date" value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} aria-label="First day away" className="h-11 rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold" />
+              <input type="date" value={form.endDate} onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))} aria-label="Expected return" className="h-11 rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold" />
+            </div>
+            <div>
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">How you'd prefer rent handled</p>
+              <div className="flex flex-wrap gap-1.5">
+                {state.policy.offered.map((t: string) => (
+                  <button key={t} type="button" onClick={() => setForm((f) => ({ ...f, preferred: f.preferred === t ? '' : t }))}
+                    className={cn('h-10 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-widest', form.preferred === t ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>
+                    {TL[t]}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[9px] font-bold text-slate-400 mt-1">A preference, not a promise — the studio decides.</p>
+            </div>
+            <textarea value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value.slice(0, 600) }))} rows={2} placeholder="Anything the studio should know (optional)" aria-label="Note"
+              className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm" />
+            <div className="flex gap-2">
+              <button type="button" onClick={submit} disabled={busy || !form.startDate || !form.endDate}
+                className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Sending…' : 'Send request'}</button>
+              <button type="button" onClick={() => setOpen(false)} className="h-11 rounded-2xl border-2 border-slate-200 px-4 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
+            </div>
+          </div>
+        )}
+        {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+      </div>
+    </section>
+  );
+}
 
 // ─── Messages with the studio ─────────────────────────────────────────────────
 // The renter's side of the one conversation. Replies are on the record the
@@ -1823,6 +1946,10 @@ export default function RenterPortalPage() {
 
             {session?.token && data?.renter?.id && (
               <RenterThread tenantId={tenantId} token={session.token} studioName={data?.studioName || data?.tenant?.name || 'the studio'} />
+            )}
+
+            {session?.token && data?.lease && (
+              <RenterLeave tenantId={tenantId} token={session.token} />
             )}
 
             {session?.token && (
