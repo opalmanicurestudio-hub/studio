@@ -374,6 +374,15 @@ export default function RentersPage() {
                   <p className="text-[10px] font-bold text-amber-700">Not done automatically — money doesn&apos;t move on a status change.</p>
                 </div>
               )}
+              {/* The move-out sheet: what they owe, what you hold, which way the
+                  money goes. Print it now, before the lease is gone from view. */}
+              {lease && (
+                <a href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId || '')}&renterId=${encodeURIComponent(ending.id)}&mode=final`}
+                  target="_blank" rel="noopener"
+                  className="flex items-center justify-between rounded-xl border-2 px-3 py-2.5 text-[11px] font-black uppercase tracking-widest text-slate-700">
+                  <span>Print move-out statement</span><span className="text-slate-400">↗</span>
+                </a>
+              )}
               <div className="flex gap-2 pt-1">
                 <button disabled={busy || !lease} onClick={async () => {
                   if (!firestore || !tenantId || !lease) return;
