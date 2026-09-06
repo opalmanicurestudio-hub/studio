@@ -535,7 +535,48 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, id: mRef.id, emailStatus, smsStatus });
     }
 
-    /* ── Portal invite ──────────────────────────────────────────────────────
+    /* ── Leave decision ────────────────────────────────────────
+     * Approved or declined, the renter is told the same way everything else
+     * is — email and text, on the record. Approval names the rent treatment
+     * in plain words so there is no later argument about what was agreed. */
+    if (action === 'leave-decision') {
+      const { leaveId } = body;
+      const lSnap = await db.doc(`tenants/${tenantId}/renterLeaves/${leaveId}`).get();
+      if (!lSnap.exists) return NextResponse.json({ ok: false, error: 'Leave not found.' }, { status: 404 });
+      const l = lSnap.data() as any;
+      const rSnap = await db.doc(`tenants/${tenantId}/renters/${l.renterId}`).get();
+      const r = (rSnap.data() as any) || {};
+      const { LEAVE_TREATMENT_LABEL, LEAVE_TREATMENT_NOTE } = await import('@/lib/leave-policy');
+      const approved = l.status === 'approved';
+      const first = firstNameOf(`${r.firstName || ''} ${r.lastName || ''}`);
+      const when = `${l.startDate} to ${l.endDate}`;
+      const treat = approved && l.treatment ? `${LEAVE_TREATMENT_LABEL[l.treatment as keyof typeof LEAVE_TREATMENT_LABEL]} — ${LEAVE_TREATMENT_NOTE[l.treatment as keyof typeof LEAVE_TREATMENT_NOTE]}` : '';
+      const to = String(r.email || '').trim();
+      let emailStatus = 'skipped_no_email';
+      if (to.includes('@')) {
+        const out = await sendNotification(db, {
+          tenantId, channel: 'email', to,
+          subject: approved ? `Your time away is approved — ${when}` : 'About your time away request',
+          html: brandedEmailHtml({
+            studioName, title: approved ? 'Approved' : 'Not this time',
+            bodyLines: approved
+              ? [`Hi ${first} — your time away from ${when} is approved.`, `Rent while you're away: ${treat}`, 'Your space is yours to come back to. Take care of yourself.']
+              : [`Hi ${first} — we couldn't approve time away from ${when} as requested.`, 'Reply in your portal and we can find something that works.'],
+            footerNote: `Sent by ${studioName}.`,
+          }),
+          kind: approved ? 'leave_approved' : 'leave_declined', recipientType: 'renter', recipientId: l.renterId,
+          recipientName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || null,
+        });
+        emailStatus = out.status;
+      }
+      await alsoText(db, { tenantId, to: String(r.phone || ''), kind: approved ? 'leave_approved' : 'leave_declined', recipientId: l.renterId,
+        text: approved
+          ? `${studioName}: your time away ${when} is approved. Rent while away: ${l.treatment ? LEAVE_TREATMENT_LABEL[l.treatment as keyof typeof LEAVE_TREATMENT_LABEL] : 'as agreed'}.`
+          : `${studioName}: we couldn't approve time away ${when} as requested — reply in your portal and we can work it out.` });
+      return NextResponse.json({ ok: true, status: emailStatus });
+    }
+
+    /* ── Portal invite ─────────────────────────────────────────
      * The only way into the portal until now was to already know the URL and
      * have a phone or email on file — or to have received a rent notice,
      * which minted a personal link as a side effect. This mints the same
