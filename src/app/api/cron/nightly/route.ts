@@ -154,6 +154,35 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // ── Scheduled rent changes — a signed renewal whose start date has come ─
+  // The renter signed the new rent weeks ago; the lease waited. Today the
+  // number moves, once, with the old one kept beside it. Runs BEFORE
+  // invoicing so the first invoice on or after the start date is at the new
+  // rate — no "we'll fix it next month".
+  let rentChangesApplied = 0;
+  for (const tDoc of (await db.collection('tenants').get()).docs) {
+    try {
+      const today = todayIn(tenantTimeZone(tDoc.data() as any));
+      const snap = await db.collection(`tenants/${tDoc.id}/leases`).where('scheduledRent.from', '<=', today).get();
+      for (const d of snap.docs) {
+        const l = d.data() as any;
+        const sr = l.scheduledRent;
+        if (!sr || !Number.isFinite(Number(sr.cents)) || Number(sr.cents) <= 0) continue;
+        await d.ref.set({
+          rentAmountCents: Math.round(Number(sr.cents)), previousRentAmountCents: Number(l.rentAmountCents) || 0,
+          rentChangedAt: new Date().toISOString(), rentChangedFromDocumentId: sr.documentId || null, scheduledRent: null,
+        }, { merge: true });
+        await logAuditAdmin(db, tDoc.id, {
+          action: 'lease.rent_changed', targetType: 'lease', targetId: d.id,
+          summary: `Rent moved to ${(Number(sr.cents) / 100).toFixed(2)} per the signed renewal (from ${sr.from})`,
+          actor: { type: 'system', name: 'renewal-scheduler' },
+        });
+        rentChangesApplied++;
+      }
+    } catch (e) { console.error('[cron/nightly] scheduled rent', tDoc.id, e); }
+  }
+  results.rentChangesApplied = rentChangesApplied;
+
   // ── Rent invoices — one per lease per due day, made for the owner ────────
   // The late sweep below, the due reminder, the planner and the renter portal
   // all read rentInvoices; until now nothing wrote it, so none of them ever
