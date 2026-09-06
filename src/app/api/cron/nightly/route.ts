@@ -835,6 +835,22 @@ export async function GET(req: NextRequest) {
         for (const rDoc of renters.docs) {
           const r = rDoc.data() as any;
           if (!r?.phone || r.status === 'former') continue;
+          // Required-but-never-provided: one ask per 30 days, only when the
+          // shop's own onboarding rules say the document must be on file.
+          // Not required → not chased; a missing document is then just a
+          // fact on the Coverage tab.
+          const reqRules = ((tDoc.data() as any)?.bookingPageSettings?.automationRules || {}) as any;
+          for (const [kind, urlField, reqFlag] of [['insurance', 'insuranceDocUrl', 'requireInsurance'], ['license', 'licenseDocUrl', 'requireLicense']] as const) {
+            if (reqRules[reqFlag] !== true || r[urlField] || r.status === 'pending') continue;
+            const stamp = `${kind}MissingNaggedAt`;
+            const last = String(r[stamp] || '').slice(0, 10);
+            if (last && last > todayIn(tz, new Date(Date.now() - 30 * 86400000))) continue;
+            const link = await renterPortalLink(db, tid, rDoc.id, r);
+            const sent = await sendTenantSms(db, tid, r.phone,
+              `We need a copy of your ${kind} on file to rent here. Add it in your portal (Insurance & licence) — expiry date plus a photo:${link ? ` ${link}` : ''}`,
+              { email: r.email || null, subject: `Your ${kind} — we need a copy on file` });
+            if (sent.ok) { await rDoc.ref.set({ [stamp]: todayStr }, { merge: true }); nudgeTotals.credExpiry++; }
+          }
           for (const [field, label] of [['licenseExpiry', 'license'], ['insuranceExpiry', 'insurance']] as const) {
             const exp = String(r[field] || '').slice(0, 10);
             if (!exp || exp > cutoff) continue;
@@ -842,7 +858,7 @@ export async function GET(req: NextRequest) {
             if (r[stampField] === exp) continue;
             const link = await renterPortalLink(db, tid, rDoc.id, r);
             const sent = await sendTenantSms(db, tid, r.phone,
-              `Your ${label} on file ${exp < todayStr ? 'expired' : 'expires'} ${exp}. Upload the renewed one in your portal (Documents):${link ? ` ${link}` : ''}`,
+              `Your ${label} on file ${exp < todayStr ? 'expired' : 'expires'} ${exp}. Upload the renewed one in your portal (Insurance & licence):${link ? ` ${link}` : ''}`,
               { email: r.email || null, subject: `Your ${label} ${exp < todayStr ? 'expired' : 'expires soon'}` });
             if (sent.ok) { await rDoc.ref.set({ [stampField]: exp }, { merge: true }); nudgeTotals.credExpiry++; }
           }
