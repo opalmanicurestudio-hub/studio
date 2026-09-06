@@ -48,7 +48,7 @@ import { cn } from '@/lib/utils';
 import { buildRentSchedule, type ScheduledCharge } from '@/lib/rent-schedule';
 import { buildRentInvoice, leasesToInvoice, invoiceKey } from '@/lib/rent-invoices';
 import { resolveCollectionsPolicy, type CollectionsPolicy } from '@/lib/collections-policy';
-import { resolveLeavePolicy, addDays as addLeaseDays, LEAVE_TREATMENT_LABEL, LEAVE_TREATMENT_NOTE, LEAVE_TYPE_LABEL, bankedAvailable, redeemValueCents, subletWindowFields, SUBLET_CLEAR_FIELDS, type LeavePolicy, type LeaveTreatment } from '@/lib/leave-policy';
+import { resolveLeavePolicy, addDays as addLeaseDays, subletIncome, LEAVE_TREATMENT_LABEL, LEAVE_TREATMENT_NOTE, LEAVE_TYPE_LABEL, bankedAvailable, redeemValueCents, subletWindowFields, SUBLET_CLEAR_FIELDS, type LeavePolicy, type LeaveTreatment } from '@/lib/leave-policy';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { CalendarClock as CalendarClockIcon } from 'lucide-react';
@@ -295,7 +295,7 @@ function RentScheduleCard({ rows, renterById, boothById, onEnableAutopay }: {
  * the shop is willing to offer. Nothing is offered until the owner ticks it,
  * and every request is decided by hand.
  */
-function LeaveCard({ tenantId, firestore, tenant, leaves, leaseById, renterById }: { tenantId: string; firestore: any; tenant: any; leaves: any[]; leaseById: Map<string, any>; renterById: Map<string, any> }) {
+function LeaveCard({ tenantId, firestore, tenant, leaves, leaseById, renterById, reservations }: { tenantId: string; firestore: any; tenant: any; leaves: any[]; leaseById: Map<string, any>; renterById: Map<string, any>; reservations: any[] }) {
   const [cfg, setCfg] = useState<LeavePolicy>(() => resolveLeavePolicy(tenant));
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -352,6 +352,26 @@ function LeaveCard({ tenantId, firestore, tenant, leaves, leaseById, renterById 
       await updateDoc(doc(firestore, 'tenants', tenantId, 'renterLeaves', l.id), {
         status: 'ended', endedAt: new Date().toISOString(), endedBy: 'owner',
         leaseExtendedDays: l.treatment === 'pause' ? pausedDays : 0,
+      });
+    } finally { setDeciding(''); }
+  };
+  const creditSublet = async (l: any, cents: number) => {
+    if (!firestore || !tenantId || cents <= 0) return;
+    setDeciding(`s-${l.id}`);
+    try {
+      const lease = leaseById.get(l.leaseId) || {};
+      const nowIso = new Date().toISOString();
+      const ref = doc(collection(firestore, 'tenants', tenantId, 'rentLedger'));
+      await setDoc(ref, {
+        leaseId: l.leaseId, renterId: l.renterId, boothId: lease.boothId || null,
+        type: 'sublet_credit', status: 'paid', amountCents: -cents,
+        description: 'Day rentals of their space while on leave',
+        note: '', dueDate: null, paidAt: nowIso.slice(0, 10), method: 'sublet_credit',
+        stripePaymentIntentId: null, appliesToEntryIds: [], createdBy: 'owner', createdAt: nowIso, updatedAt: nowIso,
+      });
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'renterLeaves', l.id), {
+        subletCreditedCents: (Number(l.subletCreditedCents) || 0) + cents,
+        subletCreditedAt: nowIso,
       });
     } finally { setDeciding(''); }
   };
@@ -456,6 +476,23 @@ function LeaveCard({ tenantId, firestore, tenant, leaves, leaseById, renterById 
                   <p className="text-[12px] font-black truncate">{r ? `${r.firstName} ${r.lastName}` : l.renterName}<span className="font-bold text-slate-500"> · {l.startDate} → {l.endDate}</span></p>
                   <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest', back ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}>{back ? 'Due back' : (LEAVE_TREATMENT_LABEL[l.treatment as LeaveTreatment] || 'Approved')}</span>
                 </div>
+                {l.treatment === 'sublet' && (() => {
+                  const inc = subletIncome(reservations, l.leaseId, Number(l.subletCreditedCents) || 0);
+                  if (inc.bookings === 0) return <p className="text-[10px] font-bold text-muted-foreground">Their space is listed for day rentals until {l.endDate}. Nothing booked yet.</p>;
+                  return (
+                    <div className="rounded-xl bg-slate-50 border-2 px-3 py-2 space-y-1.5">
+                      <p className="text-[11px] font-bold text-slate-700">
+                        {formatCents(inc.grossCents)} from {inc.bookings} booking{inc.bookings === 1 ? '' : 's'} while away
+                        {inc.passBookings > 0 ? ` · ${inc.passBookings} paid by prepaid pass, already earned at pack sale` : ''}
+                        {inc.creditedCents > 0 ? ` · ${formatCents(inc.creditedCents)} already credited` : ''}
+                      </p>
+                      <Button variant="outline" onClick={() => creditSublet(l, inc.uncreditedCents)} disabled={deciding === `s-${l.id}` || inc.uncreditedCents <= 0}
+                        className="h-9 w-full rounded-xl border-2 font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
+                        {deciding === `s-${l.id}` ? '…' : inc.uncreditedCents > 0 ? `Credit ${formatCents(inc.uncreditedCents)} to their rent` : 'All of it credited'}
+                      </Button>
+                    </div>
+                  );
+                })()}
                 <Button variant="outline" onClick={() => endNow(l)} disabled={deciding === l.id}
                   className="h-9 w-full rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
                   {deciding === l.id ? '…' : `End leave${l.treatment === 'pause' && Number(l.pausedDays) > 0 ? ` · extends lease ${l.pausedDays} day${Number(l.pausedDays) === 1 ? '' : 's'}` : ''}`}
@@ -1021,6 +1058,10 @@ export default function RentRollPage() {
     for (const l of (leases ?? []) as any[]) m.set(l.id, l);
     return m;
   }, [leases]);
+  const reservationsRef = useMemoFirebase(
+    () => (firestore && tenantId ? collection(firestore, 'tenants', tenantId, 'boothReservations') : null),
+    [firestore, tenantId]);
+  const { data: boothReservations } = useCollection<any>(reservationsRef);
   const leavesRef = useMemoFirebase(
     () => (firestore && tenantId ? collection(firestore, 'tenants', tenantId, 'renterLeaves') : null),
     [firestore, tenantId]);
@@ -2204,7 +2245,7 @@ export default function RentRollPage() {
       {tenantId && <RenterProvidersCard tenantId={tenantId} firestore={firestore} renters={(renters || []) as any[]} staff={(allStaff || []) as any[]} allAppointments={(allAppointments || []) as any[]} />}
       {tenantId && <RenterSwapsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
       {tenantId && <RentCommsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
-      {tenantId && <LeaveCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} leaves={(renterLeaves ?? []) as any[]} leaseById={scheduleLeaseById} renterById={scheduleRenterById} />}
+      {tenantId && <LeaveCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} leaves={(renterLeaves ?? []) as any[]} leaseById={scheduleLeaseById} renterById={scheduleRenterById} reservations={(boothReservations ?? []) as any[]} />}
       {tenantId && <CollectionsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
       </div>
     </div>
