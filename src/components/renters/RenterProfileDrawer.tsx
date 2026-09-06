@@ -23,6 +23,7 @@ import type { Renter, Lease, Booth } from '@/lib/booth-rental-types';
 import { formatCents, RENTER_STATUS_LABELS } from '@/lib/booth-rental-types';
 import { buildRenterTimeline, withRunningBalance, TIMELINE_ACTOR_LABEL, type TimelineEntry } from '@/lib/renter-timeline';
 import { depositPosition, DEPOSIT_STATUS_LABEL } from '@/lib/deposit-accounting';
+import { ImageUpload } from '@/components/shared/ImageUpload';
 
 const BOOTH_DEFAULT_INCIDENTALS: { label: string; capCents: number }[] = [
   { label: 'Cleaning fee', capCents: 7500 },
@@ -150,6 +151,10 @@ export function RenterProfileDrawer({
   const [dedAmt, setDedAmt] = useState('');
   const [dedReason, setDedReason] = useState('');
   const [refundArm, setRefundArm] = useState(false);
+  const [forfeitArm, setForfeitArm] = useState(false);
+  const [dedPhotos, setDedPhotos] = useState<string[]>([]);
+  const [docPick, setDocPick] = useState(false);
+  useEffect(() => { if (!forfeitArm) return; const t = setTimeout(() => setForfeitArm(false), 5000); return () => clearTimeout(t); }, [forfeitArm]);
   useEffect(() => { if (!refundArm) return; const t = setTimeout(() => setRefundArm(false), 5000); return () => clearTimeout(t); }, [refundArm]);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -496,10 +501,37 @@ export function RenterProfileDrawer({
 
           {ptab === 'money' && (
             <>
-              <div className="rounded-2xl bg-slate-900 text-white px-4 py-3">
-                <p className="text-[9px] font-black uppercase tracking-widest text-white/50">{thisYear} total paid</p>
-                <p className="text-2xl font-black tracking-tighter">${ytdTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+              <div className="rounded-2xl bg-slate-900 text-white px-4 py-3 flex items-end justify-between gap-3">
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-white/50">{thisYear} total paid</p>
+                  <p className="text-2xl font-black tracking-tighter">${ytdTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                </div>
+                <button type="button" onClick={() => setDocPick((v) => !v)} aria-expanded={docPick}
+                  className="h-9 rounded-xl border-2 border-white/30 px-3 text-[9px] font-black uppercase tracking-widest text-white">
+                  Documents
+                </button>
               </div>
+              {docPick && (
+                <div className="grid grid-cols-2 gap-1.5">
+                  {([
+                    ['Account statement', '', 'Balance, every charge and payment, with a remittance slip'],
+                    ['Full account record', '&mode=full', 'The statement plus every notice, message, ticket and change'],
+                    ['Deposit accounting', '&mode=deposit', 'Held, deductions with reasons and photos, returnable'],
+                    ['Move-out statement', '&mode=final', 'What is owed, the deposit, and which way the money goes'],
+                  ] as const).map(([label, q, note]) => (
+                    <a key={label} href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(renter.id)}${q}`}
+                      target="_blank" rel="noopener" className="rounded-xl border-2 bg-white px-3 py-2.5">
+                      <span className="block text-[10px] font-black uppercase tracking-widest">{label}</span>
+                      <span className="block text-[9px] font-bold text-muted-foreground leading-snug">{note}</span>
+                    </a>
+                  ))}
+                  <a href={`/api/booths/statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(renter.id)}&year=${thisYear}`}
+                    target="_blank" rel="noopener" className="rounded-xl border-2 bg-white px-3 py-2.5 col-span-2">
+                    <span className="block text-[10px] font-black uppercase tracking-widest">{thisYear} annual statement</span>
+                    <span className="block text-[9px] font-bold text-muted-foreground leading-snug">Total rent paid this year — for their bookkeeping</span>
+                  </a>
+                </div>
+              )}
               {/* Money actions — record a payment or get their card on file,
                   right where you're already looking at their money. */}
               <div className="grid grid-cols-2 gap-2">
@@ -525,22 +557,22 @@ export function RenterProfileDrawer({
               {lease && (() => {
                 const dep = depositPosition(lease, record?.ledger || []);
                 if (dep.status === 'none') return null;
-                const write = async (type: string, cents: number, description: string) => {
+                const write = async (type: string, cents: number, description: string, evidenceUrls: string[] = []) => {
                   if (!firestore || !tenantId || cents <= 0) return;
                   const nowIso = new Date().toISOString();
                   const ref = doc(collection(firestore, 'tenants', tenantId, 'rentLedger'));
                   await setDoc(ref, {
                     leaseId: lease.id, renterId: renter.id, boothId: lease.boothId || null,
                     type, status: 'paid', amountCents: type === 'deposit_deduction' || type === 'deposit_charge' ? cents : -cents,
-                    description, note: '', dueDate: null, paidAt: nowIso.slice(0, 10), method: type === 'deposit_refund' ? 'refund' : null,
-                    stripePaymentIntentId: null, appliesToEntryIds: [], createdBy: 'owner', createdAt: nowIso, updatedAt: nowIso,
+                    description, note: '', dueDate: null, paidAt: nowIso.slice(0, 10), method: type === 'deposit_refund' ? 'refund' : type === 'deposit_forfeit' ? 'forfeit' : null,
+                    evidenceUrls, stripePaymentIntentId: null, appliesToEntryIds: [], createdBy: 'owner', createdAt: nowIso, updatedAt: nowIso,
                   });
                   writeBoothAudit(firestore, tenantId, {
                     action: `booth.${type}`, targetType: 'lease', targetId: lease.id,
                     summary: `${description} — $${(cents / 100).toFixed(2)} for ${renter.firstName || ''} ${renter.lastName || ''}`.trim(),
                     amount: cents / 100, actor: { type: 'user' },
                   });
-                  setRecord((r) => r ? { ...r, ledger: [...r.ledger, { id: ref.id, leaseId: lease.id, type, status: 'paid', amountCents: type === 'deposit_deduction' || type === 'deposit_charge' ? cents : -cents, description, createdAt: nowIso }] } : r);
+                  setRecord((r) => r ? { ...r, ledger: [...r.ledger, { id: ref.id, leaseId: lease.id, type, status: 'paid', amountCents: type === 'deposit_deduction' || type === 'deposit_charge' ? cents : -cents, description, evidenceUrls, createdAt: nowIso }] } : r);
                 };
                 return (
                   <div className="rounded-2xl border-2 p-3.5 space-y-2.5">
@@ -567,7 +599,14 @@ export function RenterProfileDrawer({
                       <div className="space-y-1">
                         {dep.deductions.map((d) => (
                           <div key={d.id} className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5">
-                            <p className="text-[11px] font-bold truncate">{d.reason}<span className="text-muted-foreground font-medium"> · {d.at}</span></p>
+                            <p className="text-[11px] font-bold truncate">
+                              {d.reason}<span className="text-muted-foreground font-medium"> · {d.at}</span>
+                              {(d.evidenceUrls || []).length > 0 && (
+                                <span className="ml-1.5 text-muted-foreground font-medium">
+                                  {d.evidenceUrls!.map((u, i) => <a key={u} href={u} target="_blank" rel="noopener" className="underline mr-1">photo {i + 1}</a>)}
+                                </span>
+                              )}
+                            </p>
                             <p className="text-[11px] font-black tabular-nums text-red-700 shrink-0">−{formatCents(d.cents)}</p>
                           </div>
                         ))}
@@ -581,10 +620,23 @@ export function RenterProfileDrawer({
                           <input value={dedReason} onChange={(e) => setDedReason(e.target.value.slice(0, 120))} placeholder="Reason — goes on their statement" aria-label="Deduction reason"
                             className="h-10 flex-1 rounded-xl border-2 px-2.5 text-sm font-bold outline-none focus:border-slate-900" />
                           <button type="button" disabled={!(Number(dedAmt) > 0) || !dedReason.trim()}
-                            onClick={async () => { await write('deposit_deduction', Math.round(Number(dedAmt) * 100), dedReason.trim()); setDedAmt(''); setDedReason(''); drawerToast({ title: 'Deduction recorded' }); }}
+                            onClick={async () => { await write('deposit_deduction', Math.round(Number(dedAmt) * 100), dedReason.trim(), dedPhotos); setDedAmt(''); setDedReason(''); setDedPhotos([]); drawerToast({ title: 'Deduction recorded', description: dedPhotos.length ? `${dedPhotos.length} photo${dedPhotos.length === 1 ? '' : 's'} attached.` : undefined }); }}
                             className="h-10 rounded-xl border-2 border-amber-300 px-3 text-[9px] font-black uppercase tracking-widest text-amber-800 disabled:opacity-40">
                             Deduct
                           </button>
+                        </div>
+                        {/* Photos of the damage, taken now, attached to the deduction
+                            they justify. A deduction with a photo is a fact; one
+                            without is an assertion. */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <ImageUpload multiple clearOnUpload enableMarkup={false} storageFolder="renters"
+                            onImageUploaded={(url) => { if (url && !url.startsWith('data:')) setDedPhotos((p) => [...p, url]); }} />
+                          {dedPhotos.map((u, i) => (
+                            <a key={u} href={u} target="_blank" rel="noopener" className="h-9 w-9 overflow-hidden rounded-lg border-2">
+                              <img src={u} alt={`Evidence ${i + 1}`} className="h-full w-full object-cover" />
+                            </a>
+                          ))}
+                          {dedPhotos.length > 0 && <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">attached to the next deduction</span>}
                         </div>
                         <div className="flex gap-2">
                           <button type="button" disabled={dep.returnableCents <= 0}
@@ -592,9 +644,12 @@ export function RenterProfileDrawer({
                             className={cn('h-10 flex-1 rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-40', refundArm ? 'bg-emerald-700 text-white' : 'border-2 border-emerald-300 text-emerald-800')}>
                             {refundArm ? `Tap again — record ${formatCents(dep.returnableCents)} refunded` : `Refund ${formatCents(dep.returnableCents)}`}
                           </button>
-                          <a href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(renter.id)}&mode=deposit`}
-                            target="_blank" rel="noopener"
-                            className="h-10 inline-flex items-center rounded-xl border-2 px-3 text-[9px] font-black uppercase tracking-widest text-slate-600">Deposit sheet</a>
+                          <button type="button" disabled={dep.returnableCents <= 0}
+                            title="Apply the deposit to what they owe instead of returning it"
+                            onClick={() => { if (forfeitArm) { void write('deposit_forfeit', dep.returnableCents, 'Deposit applied to balance').then(() => drawerToast({ title: 'Deposit applied to balance', description: 'Recorded as a credit against what they owe.' })); setForfeitArm(false); } else setForfeitArm(true); }}
+                            className={cn('h-10 rounded-xl px-3 text-[9px] font-black uppercase tracking-widest disabled:opacity-40', forfeitArm ? 'bg-red-700 text-white' : 'border-2 border-red-200 text-red-700')}>
+                            {forfeitArm ? 'Tap again — apply to balance' : 'Apply to balance'}
+                          </button>
                         </div>
                       </div>
                     )}
