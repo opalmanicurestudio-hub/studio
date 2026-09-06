@@ -2171,6 +2171,101 @@ export async function POST(req: NextRequest) {
     // Ownership chain verified server-side: invoice → lease → renter →
     // renter's contact must match this session. Works for every renter,
     // card on file or not (Checkout collects the card).
+    // ── documents-list / document-sign / document-decline ────────────────────
+    // The paperwork after the lease: a plain-words summary, the move-in
+    // condition report, a written notice, a renewal. Each is a frozen snapshot
+    // the renter reads and signs by typing their name; the signature lands in
+    // signedDocuments beside the lease. A renewal changes the lease HERE, at
+    // signature, and nowhere else — the signature is the agreement.
+    if (action === 'documents-list') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const [dSnap, sSnap] = await Promise.all([
+        db.collection(`tenants/${tenantId}/renterDocuments`).where('renterId', '==', session.renterId).get(),
+        db.collection(`tenants/${tenantId}/signedDocuments`).where('subjectId', '==', session.renterId).get(),
+      ]);
+      const docs = dSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).sort((a, b) => String(b.sentAt).localeCompare(String(a.sentAt)));
+      const signed = sSnap.docs.map((d) => { const x = d.data() as any; return { id: d.id, kind: x.kind, title: x.title, signedAt: x.signedAt, signedName: x.signedName }; })
+        .sort((a, b) => String(b.signedAt).localeCompare(String(a.signedAt)));
+      const renter = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      return NextResponse.json({ ok: true, documents: docs, signed, portalToken: renter.portalToken || null });
+    }
+    if (action === 'document-sign' || action === 'document-decline') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const docId = String(body.documentId || '');
+      const dRef = db.doc(`tenants/${tenantId}/renterDocuments/${docId}`);
+      const dSnap = await dRef.get();
+      const d = (dSnap.data() as any) || null;
+      if (!dSnap.exists || d.renterId !== session.renterId) return NextResponse.json({ ok: false, error: 'That document is not yours.' }, { status: 403 });
+      if (d.status !== 'sent') return NextResponse.json({ ok: false, error: `This document is already ${d.status}.` }, { status: 400 });
+      const nowIso = new Date().toISOString();
+      const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      const renterName = `${r.firstName || ''} ${r.lastName || ''}`.trim() || 'Renter';
+      const { logAuditAdmin } = await import('@/lib/audit');
+
+      if (action === 'document-decline') {
+        const note = String(body.note || '').trim().slice(0, 600);
+        await dRef.set({ status: 'declined', declinedAt: nowIso, declineNote: note }, { merge: true });
+        const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+        await nRef.set({ id: nRef.id, type: 'renter_document', read: false, createdAt: nowIso, link: '/renters',
+          message: `${renterName} declined "${d.title}"${note ? `: "${note.slice(0, 120)}"` : ''}.` });
+        const mRef = db.collection(`tenants/${tenantId}/renterThreads/${session.renterId}/messages`).doc();
+        await mRef.set({ id: mRef.id, renterId: session.renterId, direction: 'inbound', createdAt: nowIso, documentId: docId, text: `Declined "${d.title}"${note ? `\n\n${note}` : ''}` });
+        await db.doc(`tenants/${tenantId}/renterThreads/${session.renterId}`).set({ renterId: session.renterId, lastAt: nowIso, lastText: `Declined "${d.title}"`, lastDirection: 'inbound', unreadForOwner: true }, { merge: true });
+        return NextResponse.json({ ok: true });
+      }
+
+      const signedName = String(body.signedName || '').trim().slice(0, 120);
+      if (signedName.length < 2) return NextResponse.json({ ok: false, error: 'Type your full name to sign.' }, { status: 400 });
+      const { buildSignedRecord } = await import('@/lib/esign');
+      const sRef = db.collection(`tenants/${tenantId}/signedDocuments`).doc();
+      const record = buildSignedRecord(sRef.id, {
+        subjectType: 'renter', subjectId: session.renterId, subjectName: renterName,
+        kind: d.kind === 'renewal_offer' ? 'lease' : 'policy',
+        title: d.title, agreementText: d.body,
+        meta: { renterDocumentId: docId, renterDocKind: d.kind, leaseId: d.leaseId || null, ...(d.meta || {}) },
+      }, signedName);
+      (record as any).userAgent = req.headers.get('user-agent') || null;
+      (record as any).ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null;
+      (record as any).action = d.action || 'sign';
+      await sRef.set(record);
+      await dRef.set({ status: 'signed', signedAt: nowIso, signedName, signedDocumentId: sRef.id }, { merge: true });
+
+      // A renewal changes the lease at signature. End date now; a rent change
+      // takes effect on its start date — today if that has passed, otherwise
+      // it waits on the lease as scheduledRent for the nightly to apply.
+      let leaseNote = '';
+      if (d.kind === 'renewal_offer' && d.leaseId) {
+        const { renewalLeasePatch } = await import('@/lib/renter-documents');
+        const patch = renewalLeasePatch(d.meta);
+        if (patch) {
+          const lRef = db.doc(`tenants/${tenantId}/leases/${d.leaseId}`);
+          const lease = ((await lRef.get()).data() as any) || {};
+          const today = nowIso.slice(0, 10);
+          const upd: Record<string, any> = { renewedAt: nowIso, renewalDocumentId: docId, updatedAt: nowIso };
+          if (patch.endDate) { upd.endDate = patch.endDate; upd.previousEndDate = lease.endDate || null; }
+          if (patch.rentAmountCents) {
+            if (!patch.renewalEffective || patch.renewalEffective <= today) { upd.rentAmountCents = patch.rentAmountCents; upd.previousRentAmountCents = Number(lease.rentAmountCents) || 0; leaseNote = ' Rent updated now.'; }
+            else { upd.scheduledRent = { cents: patch.rentAmountCents, from: patch.renewalEffective, documentId: docId }; leaseNote = ` Rent changes on ${patch.renewalEffective}.`; }
+          }
+          await lRef.set(upd, { merge: true });
+          await logAuditAdmin(db, tenantId, {
+            action: 'lease.renewed', targetType: 'lease', targetId: d.leaseId,
+            summary: `Renewal signed by ${signedName}${patch.endDate ? ` — ends ${patch.endDate}` : ''}${patch.rentAmountCents ? `, rent ${(patch.rentAmountCents / 100).toFixed(2)}${patch.renewalEffective ? ` from ${patch.renewalEffective}` : ''}` : ''}`,
+            actor: { type: 'user', id: session.renterId, name: `${signedName} (renter)` },
+          });
+        }
+      }
+
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({ id: nRef.id, type: 'renter_document', read: false, createdAt: nowIso, link: '/renters',
+        message: `${renterName} ${d.action === 'acknowledge' ? 'acknowledged' : 'signed'} "${d.title}".${leaseNote}` });
+      const mRef = db.collection(`tenants/${tenantId}/renterThreads/${session.renterId}/messages`).doc();
+      await mRef.set({ id: mRef.id, renterId: session.renterId, direction: 'inbound', createdAt: nowIso, documentId: docId, signedDocumentId: sRef.id,
+        text: `${d.action === 'acknowledge' ? 'Acknowledged' : 'Signed'} "${d.title}" as ${signedName}.` });
+      await db.doc(`tenants/${tenantId}/renterThreads/${session.renterId}`).set({ renterId: session.renterId, lastAt: nowIso, lastText: `${d.action === 'acknowledge' ? 'Acknowledged' : 'Signed'} "${d.title}"`, lastDirection: 'inbound', unreadForOwner: true }, { merge: true });
+      return NextResponse.json({ ok: true, signedDocumentId: sRef.id });
+    }
+
     // ── interruption-list / interruption-loss: what a closure cost THEM ──────
     // Interruptions touching the renter's space (open, or resolved in the last
     // 120 days), with the remedy notes the shop chose to share, and the
