@@ -17,7 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
-  INTERRUPTION_TYPE_LABEL, abatementProposals, exposureCents, interruptionDays,
+  INTERRUPTION_TYPE_LABEL, abatementProposals, exposureCents, interruptionDays, lossesByRenter,
   type InterruptionRecord, type InterruptionType,
 } from '@/lib/interruptions';
 
@@ -28,6 +28,7 @@ export function InterruptionsCard({ tenantId, firestore, tenant, booths }: { ten
   const [records, setRecords] = useState<InterruptionRecord[]>([]);
   const [leases, setLeases] = useState<any[]>([]);
   const [renters, setRenters] = useState<any[]>([]);
+  const [losses, setLosses] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ type: 'power' as InterruptionType, title: '', startDate: todayIso(), boothIds: [] as string[], note: '' });
   const [busy, setBusy] = useState('');
@@ -42,6 +43,7 @@ export function InterruptionsCard({ tenantId, firestore, tenant, booths }: { ten
       onSnapshot(collection(firestore, 'tenants', tenantId, 'interruptions'), (s) => setRecords(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as InterruptionRecord[]), () => setRecords([])),
       onSnapshot(collection(firestore, 'tenants', tenantId, 'leases'), (s) => setLeases(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))), () => setLeases([])),
       onSnapshot(collection(firestore, 'tenants', tenantId, 'renters'), (s) => setRenters(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))), () => setRenters([])),
+      onSnapshot(collection(firestore, 'tenants', tenantId, 'interruptionLosses'), (s) => setLosses(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))), () => setLosses([])),
     ];
     return () => unsubs.forEach((u) => u());
   }, [firestore, tenantId]);
@@ -177,6 +179,20 @@ export function InterruptionsCard({ tenantId, firestore, tenant, booths }: { ten
             <p className="text-[9px] font-bold text-slate-400">Renters already on leave are left out — their rent is already paused or reduced, and crediting it again pays twice for one empty chair.</p>
           </div>
         )}
+
+        {(() => {
+          const groups = lossesByRenter(losses.filter((l) => l.interruptionId === rec.id));
+          if (groups.length === 0) return null;
+          return (
+            <div className="rounded-xl bg-white border-2 px-3 py-2.5 space-y-1">
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">What renters say it cost them · their own logs, read-only</p>
+              {groups.map((g) => (
+                <p key={g.renterId} className="text-[11px] font-bold flex justify-between gap-2"><span className="truncate">{g.renterName}<span className="font-medium text-slate-500"> · {g.totals.days} day{g.totals.days === 1 ? '' : 's'} · {g.totals.appointmentsLost} appt{g.totals.appointmentsLost === 1 ? '' : 's'}</span></span><span className="tabular-nums">{money(g.totals.lostCents)}</span></p>
+              ))}
+              <p className="text-[9px] font-bold text-slate-400">Their figures for their own insurer — separate from rent, not owed by you.</p>
+            </div>
+          );
+        })()}
 
         <div className="space-y-1.5">
           <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">What's being done</p>
