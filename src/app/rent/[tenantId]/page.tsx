@@ -25,6 +25,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { credentialViews, stateLabel, CREDENTIAL_LABEL } from '@/lib/compliance';
 import { useToast } from '@/hooks/use-toast';
 import {
   Armchair, CalendarDays, Clock, CreditCard, LogOut, Loader,
@@ -2136,6 +2137,8 @@ export default function RenterPortalPage() {
   const [actionBusy, setActionBusy] = useState(false);
   const [credBusy, setCredBusy] = useState<'license' | 'insurance' | null>(null);
   const [credDone, setCredDone] = useState<'license' | 'insurance' | null>(null);
+  const [credOpen, setCredOpen] = useState<'license' | 'insurance' | null>(null);
+  const [credForm, setCredForm] = useState({ expiry: '', carrier: '', policyNumber: '' });
 
   const saveSession = (s: { token: string; expiresAt: number; name: string | null } | null) => {
     if (s) localStorage.setItem(STORE(tenantId), JSON.stringify(s));
@@ -2455,29 +2458,59 @@ export default function RenterPortalPage() {
             </section>
 
             <section className="space-y-3">
-              <SectionTitle icon={Receipt}>Documents</SectionTitle>
+              <SectionTitle icon={Receipt}>Insurance &amp; licence</SectionTitle>
               <div className="rounded-3xl bg-white border-2 border-slate-100 p-4 space-y-2.5">
-                <p className="text-[11px] font-bold text-slate-500">License or insurance renewed? Upload the new one here — the studio is notified automatically.</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {(['license', 'insurance'] as const).map((kind) => (
-                    <label key={kind} className={`h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest flex items-center justify-center cursor-pointer ${credBusy === kind ? 'opacity-50' : 'text-slate-700'}`}>
-                      {credBusy === kind ? 'Uploading…' : credDone === kind ? `${kind} ✓` : `Upload ${kind}`}
-                      <input type="file" accept="image/*" className="hidden" disabled={!!credBusy}
-                        onChange={async (e) => {
-                          const f = e.target.files?.[0]; e.target.value = '';
-                          if (!f || !session) return;
-                          setCredBusy(kind);
-                          try {
-                            const dataUrl: string = await downscaleImageToDataUrl(f, { maxDim: 1600 });
-                            const d = await api({ action: 'upload-credential', tenantId, token: session.token, kind, photoData: dataUrl });
-                            if (d.ok) { setCredDone(kind); toast({ title: 'Uploaded ✓', description: 'The studio has been notified — you\'re all set.' }); }
-                            else toast({ variant: 'destructive', title: 'Upload failed', description: d.error || 'Try again.' });
-                          } catch { toast({ variant: 'destructive', title: 'Upload failed', description: 'Try again.' }); }
-                          finally { setCredBusy(null); }
-                        }} />
-                    </label>
-                  ))}
-                </div>
+                {credentialViews(data?.renter, { bookingPageSettings: { automationRules: data?.compliance || {} } }, new Date().toISOString().slice(0, 10)).map((v) => {
+                  const kind = v.kind;
+                  const tone = v.state === 'ok' ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : v.state === 'expiring' ? 'border-amber-200 bg-amber-50 text-amber-900' : (v.state === 'expired' || (v.state === 'missing' && v.required)) ? 'border-red-200 bg-red-50 text-red-900' : 'border-slate-200 bg-slate-50 text-slate-700';
+                  return (
+                    <div key={kind} className={cn('rounded-2xl border-2 px-3.5 py-3 space-y-2', tone)}>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[11px] font-black uppercase tracking-widest">{CREDENTIAL_LABEL[kind]}</p>
+                        <span className="text-[10px] font-black">{stateLabel(v)}</span>
+                      </div>
+                      {kind === 'insurance' && (v.carrier || v.policyNumber) && <p className="text-[11px] font-bold">{v.carrier}{v.carrier && v.policyNumber ? ' · ' : ''}{v.policyNumber ? `policy ${v.policyNumber}` : ''}</p>}
+                      {v.state === 'missing' && v.required && <p className="text-[10px] font-bold">The studio requires this on file to rent here.</p>}
+                      {v.docUrl && <a href={v.docUrl} target="_blank" rel="noopener" className="text-[10px] font-black uppercase tracking-widest underline">See the copy on file</a>}
+                      {credOpen === kind ? (
+                        <div className="space-y-2 pt-1">
+                          <input type="date" value={credForm.expiry} onChange={(e) => setCredForm((f) => ({ ...f, expiry: e.target.value }))} aria-label="Expiry date on the document" className="h-11 w-full rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
+                          {kind === 'insurance' && (
+                            <div className="grid grid-cols-2 gap-2">
+                              <input value={credForm.carrier} onChange={(e) => setCredForm((f) => ({ ...f, carrier: e.target.value.slice(0, 120) }))} aria-label="Insurance carrier" placeholder="Carrier" className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
+                              <input value={credForm.policyNumber} onChange={(e) => setCredForm((f) => ({ ...f, policyNumber: e.target.value.slice(0, 80) }))} aria-label="Policy number" placeholder="Policy number" className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
+                            </div>
+                          )}
+                          <p className="text-[9px] font-bold opacity-80">Enter the expiry date exactly as it appears on the document, then attach a photo of it. The studio is notified automatically.</p>
+                          <div className="flex gap-2">
+                            <label className={cn('h-11 flex-1 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest flex items-center justify-center cursor-pointer', (credBusy === kind || !credForm.expiry) && 'opacity-50 pointer-events-none')}>
+                              {credBusy === kind ? 'Uploading…' : 'Attach photo & save'}
+                              <input type="file" accept="image/*" capture="environment" className="hidden" disabled={!!credBusy || !credForm.expiry}
+                                onChange={async (e) => {
+                                  const f = e.target.files?.[0]; e.target.value = '';
+                                  if (!f || !session) return;
+                                  setCredBusy(kind);
+                                  try {
+                                    const dataUrl: string = await downscaleImageToDataUrl(f, { maxDim: 1600 });
+                                    const d = await api({ action: 'upload-credential', tenantId, token: session.token, kind, photoData: dataUrl, expiry: credForm.expiry, carrier: credForm.carrier, policyNumber: credForm.policyNumber });
+                                    if (d.ok) { setCredDone(kind); setCredOpen(null); setCredForm({ expiry: '', carrier: '', policyNumber: '' }); toast({ title: 'On file ✓', description: 'The studio has been notified.' }); void refresh(); }
+                                    else toast({ variant: 'destructive', title: 'Upload failed', description: d.error || 'Try again.' });
+                                  } catch { toast({ variant: 'destructive', title: 'Upload failed', description: 'Try again.' }); }
+                                  finally { setCredBusy(null); }
+                                }} />
+                            </label>
+                            <button type="button" onClick={() => setCredOpen(null)} className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button type="button" onClick={() => { setCredOpen(kind); setCredForm({ expiry: v.expiry || '', carrier: v.carrier || '', policyNumber: v.policyNumber || '' }); }}
+                          className="h-10 w-full rounded-2xl border-2 border-current/20 bg-white text-[10px] font-black uppercase tracking-widest text-slate-700">
+                          {credDone === kind ? 'Uploaded ✓ · update again' : v.docUrl ? 'Upload a renewed one' : `Add ${kind === 'insurance' ? 'insurance' : 'licence'}`}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </section>
 
