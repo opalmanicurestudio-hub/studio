@@ -26,6 +26,10 @@ export async function POST(req: NextRequest) {
   const tenantId = String(body.tenantId || '').trim();
   const appointmentId = String(body.appointmentId || '').trim();
   const reason = String(body.reason || '').slice(0, 300);
+  // Which words. The default is the "nobody could cover it" message; a
+  // closure sends the closure one. Both are in Settings → Messages.
+  const kind: 'appointment_cancelled_no_cover' | 'appointment_cancelled_closure' =
+    String(body.kind || '') === 'appointment_cancelled_closure' ? 'appointment_cancelled_closure' : 'appointment_cancelled_no_cover';
   if (!tenantId || !appointmentId) {
     return NextResponse.json({ ok: false, error: 'tenantId and appointmentId are required.' }, { status: 400 });
   }
@@ -91,8 +95,8 @@ export async function POST(req: NextRequest) {
       studio: studioName,
     };
 
-    const msg = resolveMessage(tenant, 'appointment_cancelled_no_cover', tokens, 'email');
-    const smsMsg = resolveMessage(tenant, 'appointment_cancelled_no_cover', tokens, 'sms');
+    const msg = resolveMessage(tenant, kind, tokens, 'email');
+    const smsMsg = resolveMessage(tenant, kind, tokens, 'sms');
 
     if (msg.send && email.includes('@')) {
       const html = brandedEmailHtml({
@@ -103,7 +107,7 @@ export async function POST(req: NextRequest) {
       });
       const er = await sendNotification(db, {
         tenantId, channel: 'email', to: email,
-        subject: msg.subject, html, kind: 'appointment_cancelled_no_cover',
+        subject: msg.subject, html, kind,
         appointmentId, clientId: apt.clientId || null, clientName: apt.clientName || null,
         recipientType: 'client', recipientId: apt.clientId || null, recipientName: apt.clientName || null,
       });
@@ -112,7 +116,7 @@ export async function POST(req: NextRequest) {
     if (smsMsg.send && phone) {
       const sr = await sendNotification(db, {
         tenantId, channel: 'sms', to: phone,
-        text: tidyBody(smsMsg.body), kind: 'appointment_cancelled_no_cover',
+        text: tidyBody(smsMsg.body), kind,
         appointmentId, clientId: apt.clientId || null, clientName: apt.clientName || null,
         recipientType: 'client', recipientId: apt.clientId || null, recipientName: apt.clientName || null,
       });
