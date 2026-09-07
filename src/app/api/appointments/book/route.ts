@@ -103,6 +103,7 @@ const MAX_FIELD = 300;
 const IN_STUDIO_SOURCES = [
   'pos', 'pos_quick_book', 'quick_book', 'kiosk', 'walkin', 'walk_in',
   'staff', 'staff_portal', 'admin', 'front_desk', 'add_appointment',
+  'renter_portal',
 ];
 
 /**
@@ -478,6 +479,7 @@ export async function POST(req: NextRequest) {
       const STAFF_SOURCES = [
         'manual', 'front-desk', 'terminal', 'walk-in', 'walkin-kiosk', 'lounge',
         'foundation', 'recovery', 'goodwill', 'starter', 'event', 'retell', 'waitlist',
+        'renter_portal',
       ];
       const staffSide = STAFF_SOURCES.includes(String(source || '').toLowerCase());
       let plan = resolveBookingPlan({
