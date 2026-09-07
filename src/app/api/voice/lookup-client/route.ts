@@ -46,6 +46,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
+
+// A renter's clients share this collection but are not the studio's: any
+// studio-side match by phone/email must skip records carrying ownerRenterId,
+// or a walk-in gets attached to a record the studio cannot even see.
+const studioDoc = (snap: any) => (snap?.docs || []).find((d: any) => !(d.data() as any)?.ownerRenterId) || null;
 import {
   verifyVoiceSecret,
   parseVoiceToolRequest,
@@ -74,18 +79,19 @@ async function findClientByPhone(
 
   // 1. Exact match on the E.164 string the platform sent (PhoneInput writes
   //    E.164, so most records created through QuickBookForm match here).
-  const exact = await clientsRef.where('phone', '==', rawPhone).limit(1).get();
-  if (!exact.empty) return { id: exact.docs[0].id, ...(exact.docs[0].data() as any) };
+  const exactHit = studioDoc(await clientsRef.where('phone', '==', rawPhone).limit(5).get());
+  if (exactHit) return { id: exactHit.id, ...(exactHit.data() as any) };
 
   // 2. Exact match on canonical +1 form (covers callers whose ID arrived
   //    without country code or with formatting).
   if (last10.length === 10) {
     const canonical = await clientsRef
       .where('phone', '==', `+1${last10}`)
-      .limit(1)
+      .limit(5)
       .get();
-    if (!canonical.empty) {
-      return { id: canonical.docs[0].id, ...(canonical.docs[0].data() as any) };
+    const canonicalHit = studioDoc(canonical);
+    if (canonicalHit) {
+      return { id: canonicalHit.id, ...(canonicalHit.data() as any) };
     }
   }
 
