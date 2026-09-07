@@ -154,6 +154,53 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // ── Renter client back-tag — one pass per tenant, then never again ───────
+  // Before ownership existed, every client a renter brought in was written
+  // into the studio's book. This hands them back: a client whose bookings
+  // are ALL renter bookings through ONE renter is that renter's client.
+  // Anyone with mixed history stays with the studio — the only honest call
+  // when the record can't say. Stamped on the tenant so it runs once.
+  let clientsBacktagged = 0;
+  for (const tDoc of (await db.collection('tenants').get()).docs) {
+    try {
+      const td = tDoc.data() as any;
+      if (td.renterClientsBacktaggedAt) continue;
+      const [apSnap, stSnap] = await Promise.all([
+        db.collection(`tenants/${tDoc.id}/appointments`).where('isRenterBooking', '==', true).get(),
+        db.collection(`tenants/${tDoc.id}/staff`).get(),
+      ]);
+      const renterIdByStaff = new Map<string, string>();
+      for (const d of stSnap.docs) { const x = d.data() as any; if (x.isRenter && x.renterId) renterIdByStaff.set(d.id, String(x.renterId)); }
+      // clientId → set of renter provider staffIds seen
+      const byClient = new Map<string, Set<string>>();
+      for (const d of apSnap.docs) {
+        const a = d.data() as any;
+        if (!a.clientId || !a.renterProviderId) continue;
+        const set = byClient.get(a.clientId) || new Set<string>();
+        set.add(String(a.renterProviderId));
+        byClient.set(a.clientId, set);
+      }
+      for (const [clientId, providers] of byClient) {
+        if (providers.size !== 1) continue;
+        const staffId = [...providers][0];
+        const renterId = renterIdByStaff.get(staffId);
+        if (!renterId) continue;
+        const cRef = db.doc(`tenants/${tDoc.id}/clients/${clientId}`);
+        const cSnap = await cRef.get();
+        if (!cSnap.exists) continue;
+        const c = cSnap.data() as any;
+        if (c.ownerRenterId) continue;
+        // Any studio (non-renter) appointment for this client keeps them with the studio.
+        const studioAp = await db.collection(`tenants/${tDoc.id}/appointments`).where('clientId', '==', clientId).limit(25).get();
+        if (studioAp.docs.some((d) => !(d.data() as any).isRenterBooking)) continue;
+        await cRef.set({ ownerRenterId: renterId, ownerStaffId: staffId, ownerAssignedAt: new Date().toISOString(), ownerAssignedBy: 'backtag' }, { merge: true });
+        clientsBacktagged++;
+      }
+      await tDoc.ref.set({ renterClientsBacktaggedAt: new Date().toISOString() }, { merge: true });
+    } catch (e) { console.error('[cron/nightly] client backtag', tDoc.id, e); }
+  }
+  results.clientsBacktagged = clientsBacktagged;
+
   // ── Scheduled rent changes — a signed renewal whose start date has come ─
   // The renter signed the new rent weeks ago; the lease waited. Today the
   // number moves, once, with the old one kept beside it. Runs BEFORE
