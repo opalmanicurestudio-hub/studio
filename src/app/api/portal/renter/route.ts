@@ -2390,6 +2390,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    // ── comms-get / comms-save: how the renter messages THEIR clients ──────
+    // Reminders and thank-yous to a renter's clients go out in the renter's
+    // name, on the renter's switches — never the studio's Settings → Messages.
+    // Default off: nothing is sent to anyone's client until they turn it on.
+    if (action === 'comms-get') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      const c = r.clientComms || {};
+      const cSnap = await db.collection(`tenants/${tenantId}/clients`).where('ownerRenterId', '==', session.renterId).get();
+      const mine = new Set(cSnap.docs.map((d) => d.id));
+      let log: any[] = [];
+      try {
+        const lSnap = await db.collection(`tenants/${tenantId}/messageLog`).where('kind', 'in', ['renter_client_reminder', 'renter_client_thanks', 'renter_client_cancelled']).orderBy('createdAt', 'desc').limit(80).get();
+        log = lSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((m) => m.recipientId && mine.has(String(m.recipientId)))
+          .slice(0, 30).map((m) => ({ id: m.id, kind: m.kind, channel: m.channel, status: m.status, to: m.recipientName || m.to || '', at: m.createdAt }));
+      } catch { /* index may be pending; the switches still work */ }
+      return NextResponse.json({ ok: true, comms: { remindersEnabled: c.remindersEnabled === true, thankYouEnabled: c.thankYouEnabled === true, signoff: String(c.signoff || '') }, log });
+    }
+    if (action === 'comms-save') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set({ clientComms: {
+        remindersEnabled: body.remindersEnabled === true, thankYouEnabled: body.thankYouEnabled === true,
+        signoff: String(body.signoff || '').trim().slice(0, 160), updatedAt: new Date().toISOString(),
+      } }, { merge: true });
+      return NextResponse.json({ ok: true });
+    }
+
     // ── documents-list / document-sign / document-decline ────────────────────
     // The paperwork after the lease: a plain-words summary, the move-in
     // condition report, a written notice, a renewal. Each is a frozen snapshot
