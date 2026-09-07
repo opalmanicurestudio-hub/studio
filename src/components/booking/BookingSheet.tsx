@@ -261,7 +261,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       if (email) matchPromises.push(getDocs(query(clientsRef, where('email', '==', email.toLowerCase().trim()))));
       if (phone) matchPromises.push(getDocs(query(clientsRef, where('phone', '==', phone))));
       const snapshots  = await Promise.all(matchPromises);
-      const allDocs    = snapshots.flatMap(s => s.docs);
+      const allDocs    = snapshots.flatMap(s => s.docs).filter(d => !(d.data() as any)?.ownerRenterId);
       if (allDocs.length > 0) {
         const clientData = allDocs[0].data() as Client;
         setMatchedClient(clientData);
