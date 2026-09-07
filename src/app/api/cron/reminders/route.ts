@@ -124,6 +124,31 @@ export async function GET(req: NextRequest) {
 
       const apts = await db.collection(`tenants/${tid}/appointments`).get();
 
+      // ── Renters' clients are the RENTER'S to message ───────────────────
+      // A booking made through a renter's link is that renter's client. Their
+      // reminder and thank-you go out in the renter's name, only if the renter
+      // switched them on in their portal, and never with the studio's links.
+      // Read once per tenant: renter staff → renter doc + their clientComms.
+      const renterByStaff = new Map<string, { renterId: string; name: string; comms: any; bookingUrl: string | null }>();
+      try {
+        const [stSnap, rSnap] = await Promise.all([
+          db.collection(`tenants/${tid}/staff`).where('isRenter', '==', true).get(),
+          db.collection(`tenants/${tid}/renters`).get(),
+        ]);
+        const renters = new Map(rSnap.docs.map((d) => [d.id, d.data() as any]));
+        for (const d of stSnap.docs) {
+          const st = d.data() as any;
+          const r = st.renterId ? renters.get(String(st.renterId)) : null;
+          if (!r) continue;
+          renterByStaff.set(d.id, {
+            renterId: String(st.renterId), name: `${r.firstName || ''} ${r.lastName || ''}`.trim() || st.name || 'Your provider',
+            comms: r.clientComms || {}, bookingUrl: base ? `${base}/book/${tid}?provider=${d.id}` : null,
+          });
+        }
+      } catch { /* no renters, or none bookable */ }
+      const renterOf = (a: any) => (a?.isRenterBooking ? renterByStaff.get(String(a.renterProviderId || a.staffId)) || null : null);
+      const asRenter = (name: string, text: string) => `${name}: ${text}`;
+
       // Service names, read once, so a multi-appointment reminder can say
       // "10:00 Manicure, 11:15 Pedicure" instead of listing bare times.
       const svcNames = new Map<string, string>();
@@ -196,6 +221,21 @@ export async function GET(req: NextRequest) {
 
           const { phone, email } = await contactFor(a);
           if (!phone && !email) { skipped++; continue; }
+
+          // Renter's booking → renter's reminder, or nothing. Never the studio's.
+          const rp = renterOf(a);
+          if (a.isRenterBooking) {
+            if (!rp || rp.comms.remindersEnabled !== true) { skipped++; continue; }
+            const when = `${dayOf(at)} at ${timeOf(at)}`;
+            const svc = a.renterServiceName || svcNames.get(String(a.serviceId || '')) || 'appointment';
+            const signoff = String(rp.comms.signoff || '').trim();
+            const text = `Reminder — your ${svc} with ${rp.name} is ${daysBefore === 0 ? `today, ${when}` : when}.${signoff ? ` ${signoff}` : ' Reply to this message if you need to change it.'}`;
+            let ok = false;
+            if (phone && smsConfigured()) ok = (await sendTenantSms(db, tid, phone, asRenter(rp.name, text), { email, subject: `Reminder from ${rp.name}` })).ok;
+            if (!ok && email) ok = (await sendNotification(db, { tenantId: tid, channel: 'email', to: email, subject: `Reminder from ${rp.name}`, text, kind: 'renter_client_reminder', appointmentId: aDoc.id, clientId: a.clientId || null, clientName: a.clientName || null, recipientType: 'client' })).ok;
+            if (ok) { try { await aDoc.ref.set({ reminderSentAt: new Date().toISOString(), reminderSentAs: rp.renterId }, { merge: true }); } catch { /* next */ } sent++; } else skipped++;
+            continue;
+          }
 
           const visitKey = a.groupBookingId || a.multiProviderGroupId || aDoc.id;
           const key = `${visitKey}::${String(phone || '').trim()}::${String(email || '').trim().toLowerCase()}`;
@@ -290,6 +330,21 @@ export async function GET(req: NextRequest) {
             if (['cancelled', 'canceled', 'no_show', 'pending_payment'].includes(String(a.status || ''))) continue;
             const at = new Date(a.startTime);
             if (dayOfLocal(at) !== yestDay) continue;
+            if (a.isRenterBooking) {
+              // The renter's thank-you: their name, their booking link, no
+              // studio review link. Only if they turned it on.
+              const rp = renterOf(a);
+              if (!rp || rp.comms.thankYouEnabled !== true) continue;
+              const { phone, email } = await contactFor(a);
+              if (!phone && !email) continue;
+              const signoff = String(rp.comms.signoff || '').trim();
+              const text = `Thanks for coming in yesterday — ${rp.name} loved having you!${rp.bookingUrl ? ` Book your next visit: ${rp.bookingUrl}` : ''}${signoff ? ` ${signoff}` : ''}`;
+              let ok = false;
+              if (phone && smsConfigured()) ok = (await sendTenantSms(db, tid, phone, asRenter(rp.name, text), { email, subject: `Thank you from ${rp.name}` })).ok;
+              if (!ok && email) ok = (await sendNotification(db, { tenantId: tid, channel: 'email', to: email, subject: `Thank you from ${rp.name}`, text, kind: 'renter_client_thanks', appointmentId: aDoc.id, clientId: a.clientId || null, clientName: a.clientName || null, recipientType: 'client' })).ok;
+              if (ok) { try { await aDoc.ref.set({ followUpSentAt: new Date().toISOString(), followUpSentAs: rp.renterId }, { merge: true }); } catch { /* next */ } followUps++; }
+              continue;
+            }
             const { phone, email } = await contactFor(a);
             if (!phone && !email) continue;
             const key = `${String(phone || '').trim()}::${String(email || '').trim().toLowerCase()}`;
