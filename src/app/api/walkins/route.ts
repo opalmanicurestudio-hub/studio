@@ -85,6 +85,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
+
+// A renter's clients share this collection but are not the studio's: any
+// studio-side match by phone/email must skip records carrying ownerRenterId,
+// or a walk-in gets attached to a record the studio cannot even see.
+const studioDoc = (snap: any) => (snap?.docs || []).find((d: any) => !(d.data() as any)?.ownerRenterId) || null;
 import { generateShortCode } from '@/lib/short-code';
 import { sendNotification } from '@/lib/notify';
 import { nanoid } from 'nanoid';
@@ -645,12 +650,12 @@ async function readFloor(db: any, tenantId: string, service: any) {
 async function findClient(db: any, tenantId: string, phone: string, email: string) {
   const col = db.collection(`tenants/${tenantId}/clients`);
   if (phone) {
-    const exact = await col.where('phone', '==', phone).limit(1).get();
-    if (!exact.empty) return { id: exact.docs[0].id, data: (exact.docs[0].data() as any) || {} };
+    const exactHit = studioDoc(await col.where('phone', '==', phone).limit(5).get());
+    if (exactHit) return { id: exactHit.id, data: (exactHit.data() as any) || {} };
   }
   if (isEmail(email)) {
-    const byEmail = await col.where('email', '==', email).limit(1).get();
-    if (!byEmail.empty) return { id: byEmail.docs[0].id, data: (byEmail.docs[0].data() as any) || {} };
+    const emailHit = studioDoc(await col.where('email', '==', email).limit(5).get());
+    if (emailHit) return { id: emailHit.id, data: (emailHit.data() as any) || {} };
   }
   return null;
 }
@@ -2064,12 +2069,12 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any, bas
       let fid = '';
       let fname = '';
       if (seat.phone) {
-        const hit = await tx.get(db.collection(`tenants/${tenantId}/clients`).where('phone', '==', seat.phone).limit(1));
-        if (!hit.empty) { fid = hit.docs[0].id; fname = str((hit.docs[0].data() as any)?.name, 80); }
+        const hit = studioDoc(await tx.get(db.collection(`tenants/${tenantId}/clients`).where('phone', '==', seat.phone).limit(5)));
+        if (hit) { fid = hit.id; fname = str((hit.data() as any)?.name, 80); }
       }
       if (!fid && isEmail(seat.email)) {
-        const hit = await tx.get(db.collection(`tenants/${tenantId}/clients`).where('email', '==', seat.email).limit(1));
-        if (!hit.empty) { fid = hit.docs[0].id; fname = str((hit.docs[0].data() as any)?.name, 80); }
+        const hit = studioDoc(await tx.get(db.collection(`tenants/${tenantId}/clients`).where('email', '==', seat.email).limit(5)));
+        if (hit) { fid = hit.id; fname = str((hit.data() as any)?.name, 80); }
       }
       found.push({ id: fid, name: fname });
     }
