@@ -86,6 +86,7 @@ export function MaintenanceSection({
   // Resolve inline confirm: materials → ledger expense (with receipt photo),
   // labor → per-job worker's payable balance.
   const [resolveForId, setResolveForId] = useState<string | null>(null);
+  const [fixDraft, setFixDraft] = useState('');
   const [costDraft, setCostDraft] = useState('');
   const [laborDraft, setLaborDraft] = useState('');
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
@@ -526,11 +527,11 @@ export function MaintenanceSection({
     } catch { /* floor sync is best-effort */ }
   };
 
-  const fireAndForget = (action: string, ticketId: string) => {
+  const fireAndForget = (action: string, ticketId: string, event?: string) => {
     try {
       fetch('/api/maintenance', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, tenantId, ticketId, origin: shareOrigin }),
+        body: JSON.stringify({ action, tenantId, ticketId, origin: shareOrigin, ...(event ? { event } : {}) }),
       }).catch(() => {});
     } catch { /* automation is a bonus */ }
   };
@@ -660,7 +661,8 @@ export function MaintenanceSection({
     if (await patchTicket(t, { assigneeId: w.id, assigneeName: w.name, assignNotifiedFor: null }, { note: `Assigned to ${w.name}` })) {
       try { await updateDoc(doc(firestore, 'tenants', tenantId, 'maintenanceWorkers', w.id), { lastAssignedAt: new Date().toISOString() }); } catch { /* rotation cursor is best-effort */ }
       fireAndForget('notify-assign', t.id);
-      toast({ title: `Assigned to ${w.name}`, description: w.phone ? 'They\'ll get a text with the details.' : 'No phone on file — share their portal link directly.' });
+      fireAndForget('notify-reporter', t.id, 'assigned');
+      toast({ title: `Assigned to ${w.name}`, description: `${w.phone ? 'They\'ll get a text with the details' : 'No phone on file — share their portal link directly'} · whoever reported it has been told someone is on it.` });
     }
   };
 
@@ -780,17 +782,20 @@ export function MaintenanceSection({
     }
   };
 
-  const setStatus = async (t: any, status: TicketStatus, costCents = 0, laborCents = 0, receipt: string | null = null) => {
+  const setStatus = async (t: any, status: TicketStatus, costCents = 0, laborCents = 0, receipt: string | null = null, resolutionNote = '') => {
     const patch: any = { status };
     if (status === 'resolved') {
       patch.resolvedAt = new Date().toISOString();
       if (costCents > 0) patch.costCents = costCents;
       if (laborCents > 0) patch.laborCents = laborCents;
+      if (resolutionNote.trim()) patch.resolutionNote = resolutionNote.trim().slice(0, 600);
       if (receipt) patch.photoUrls = [...(Array.isArray(t.photoUrls) ? t.photoUrls : []), receipt];
     }
     const entry: any = { status };
-    if (status === 'resolved' && (costCents > 0 || laborCents > 0)) {
-      entry.note = `Resolved${costCents > 0 ? ` · materials $${(costCents / 100).toFixed(2)}` : ''}${laborCents > 0 ? ` · labor $${(laborCents / 100).toFixed(2)}` : ''}`;
+    if (status === 'resolved') {
+      const money = `${costCents > 0 ? ` · materials $${(costCents / 100).toFixed(2)}` : ''}${laborCents > 0 ? ` · labor $${(laborCents / 100).toFixed(2)}` : ''}`;
+      const said = resolutionNote.trim();
+      if (said || money) entry.note = said ? `${said}${money}` : `Resolved${money}`;
     }
     if (receipt) entry.photoUrl = receipt;
     if (await patchTicket(t, patch, entry)) {
@@ -832,18 +837,24 @@ export function MaintenanceSection({
       }
       const updated = tickets.map((x: any) => x.id === t.id ? { ...x, status } : x);
       await syncBooth(t.boothId, updated);
-      fireAndForget('notify-reporter', t.id);
-      setResolveForId(null); setCostDraft(''); setLaborDraft(''); setReceiptUrl(null);
+      fireAndForget('notify-reporter', t.id, status === 'resolved' ? 'resolved' : 'status');
+      setResolveForId(null); setCostDraft(''); setLaborDraft(''); setReceiptUrl(null); setFixDraft('');
     }
   };
 
-  const addNote = async (t: any) => {
+  // Notes were labelled "visible to reporter + tech" and sent nothing — the
+  // reporter found them only by opening their portal. Now the note goes to
+  // them unless you say otherwise, and saying otherwise is one tap.
+  const addNote = async (t: any, tellReporter = true) => {
     if (!noteDraft.trim() && !notePhoto) return;
     const entry: any = {};
     if (noteDraft.trim()) entry.note = noteDraft.trim().slice(0, 1000);
     if (notePhoto) entry.photoUrl = notePhoto;
     const patch: any = notePhoto ? { photoUrls: [...(Array.isArray(t.photoUrls) ? t.photoUrls : []), notePhoto] } : {};
-    if (await patchTicket(t, patch, entry)) { setNoteDraft(''); setNotePhoto(null); }
+    if (await patchTicket(t, patch, entry)) {
+      if (tellReporter && noteDraft.trim() && t.reporter?.type) fireAndForget('notify-reporter', t.id, 'note');
+      setNoteDraft(''); setNotePhoto(null);
+    }
   };
 
   // ── Preventive plans ─────────────────────────────────────────────────
@@ -1268,12 +1279,19 @@ export function MaintenanceSection({
                           {t.quoteRequested && !t.quote && (
                             <span className="text-[9px] font-black uppercase tracking-widest text-indigo-600 self-center">Quote requested…</span>
                           )}
-                          <button onClick={() => { setResolveForId(resolveForId === t.id ? null : t.id); setCostDraft(''); setLaborDraft(''); setReceiptUrl(null); }}
+                          <button onClick={() => { setResolveForId(resolveForId === t.id ? null : t.id); setCostDraft(''); setLaborDraft(''); setReceiptUrl(null); setFixDraft(''); }}
                             className="h-9 px-3 rounded-xl bg-emerald-600 text-white font-black uppercase text-[9px] tracking-widest">Resolve</button>
                           <button onClick={() => setStatus(t, 'cancelled')} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Cancel</button>
                         </div>
                         {resolveForId === t.id && (
                           <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-2.5 space-y-2">
+                            <div className="space-y-1">
+                              <span className="text-[9px] font-black uppercase tracking-widest text-emerald-700">What fixed it?</span>
+                              <input value={fixDraft} onChange={(e) => setFixDraft(e.target.value.slice(0, 600))} autoFocus
+                                aria-label="What fixed it" placeholder="Replaced the heating element. Runs fine now."
+                                className="w-full h-10 rounded-xl border-2 bg-white px-3 text-sm font-bold" />
+                              <p className="text-[9px] font-bold text-emerald-800/70">Goes on the record and to whoever reported it. Most jobs cost nothing — money is optional below.</p>
+                            </div>
                             {(t.purchasedCents || 0) > 0 && (
                               <p className="text-[10px] font-black text-amber-700">
                                 ${((t.purchasedCents || 0) / 100).toFixed(2)} of purchases are ALREADY in the ledger from this job — enter only materials not yet logged, or 0.
@@ -1282,7 +1300,7 @@ export function MaintenanceSection({
                             <div className="flex gap-2 items-center flex-wrap">
                               <span className="text-[9px] font-black uppercase tracking-widest text-emerald-700 w-20">Materials $</span>
                               <input type="number" inputMode="decimal" min={0} value={costDraft} onChange={(e) => setCostDraft(e.target.value)}
-                                placeholder="0 if none" autoFocus className="w-24 h-9 rounded-xl border-2 px-2 text-sm font-bold" />
+                                placeholder="0 if none" className="w-24 h-9 rounded-xl border-2 px-2 text-sm font-bold" />
                               <label className={`h-9 px-2.5 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest flex items-center cursor-pointer shrink-0 bg-white ${receiptUrl ? 'border-emerald-400 text-emerald-700' : 'text-slate-500'}`}>
                                 {uploading ? '…' : receiptUrl ? 'Receipt ✓' : 'Receipt'}
                                 <input type="file" accept="image/*" className="hidden"
@@ -1301,7 +1319,7 @@ export function MaintenanceSection({
                                 })()}
                               </span>
                             </div>
-                            <button onClick={() => setStatus(t, 'resolved', Math.round(Number(costDraft) * 100) || 0, Math.round(Number(laborDraft) * 100) || 0, receiptUrl)}
+                            <button onClick={() => setStatus(t, 'resolved', Math.round(Number(costDraft) * 100) || 0, Math.round(Number(laborDraft) * 100) || 0, receiptUrl, fixDraft)}
                               disabled={uploading}
                               className="w-full h-11 rounded-xl bg-emerald-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
                               Confirm resolve{Number(costDraft) > 0 ? ` · $${Number(costDraft).toFixed(0)} materials to ledger` : ''}{Number(laborDraft) > 0 ? ` · $${Number(laborDraft).toFixed(0)} labor` : ''}
@@ -1309,7 +1327,7 @@ export function MaintenanceSection({
                           </div>
                         )}
                         <div className="flex gap-2 items-center">
-                          <input value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} placeholder="Add a note (visible to reporter + tech)…"
+                          <input value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} placeholder="Add a note — sent to whoever reported it…"
                             className="flex-1 min-w-0 h-9 rounded-xl border-2 px-3 text-sm font-medium" />
                           <label className={`h-9 px-2.5 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest flex items-center cursor-pointer shrink-0 ${notePhoto ? 'border-emerald-300 text-emerald-700' : 'text-slate-500'}`}>
                             {uploading ? '…' : notePhoto ? 'Photo ✓' : 'Photo'}
@@ -1317,7 +1335,10 @@ export function MaintenanceSection({
                               onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) { const url = await uploadPhoto(f); if (url) setNotePhoto(url); } }} />
                           </label>
                           <button onClick={() => addNote(t)} disabled={(!noteDraft.trim() && !notePhoto) || uploading}
-                            className="h-9 px-3 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40 shrink-0">Post</button>
+                            className="h-9 px-3 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40 shrink-0">Post &amp; tell</button>
+                          <button onClick={() => addNote(t, false)} disabled={(!noteDraft.trim() && !notePhoto) || uploading}
+                            title="Save to the record without messaging the reporter"
+                            className="h-9 px-3 rounded-xl border-2 bg-white font-black uppercase text-[9px] tracking-widest text-slate-500 disabled:opacity-40 shrink-0">Internal</button>
                         </div>
                       </>
                     )}
