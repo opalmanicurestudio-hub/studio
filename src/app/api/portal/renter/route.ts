@@ -2184,6 +2184,145 @@ export async function POST(req: NextRequest) {
     // Ownership chain verified server-side: invoice → lease → renter →
     // renter's contact must match this session. Works for every renter,
     // card on file or not (Checkout collects the card).
+    // ── book-list / book-cancel / book-status / book-note / book-block ──────
+    // The renter's own book, run from the portal. Every action here proves
+    // the appointment belongs to THEIR provider record first; the studio's
+    // appointments are never reachable through this door. Walk-ins and
+    // reschedules go through the public booking route with source
+    // 'renter_portal' (same engine, same conflicts, same client scoping) —
+    // the portal page calls it directly; nothing here duplicates the engine.
+    const myProvider = async () => {
+      if (!session.renterId) return null;
+      const stSnap = await db.collection(`tenants/${tenantId}/staff`).where('renterId', '==', session.renterId).get();
+      return stSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).find((m: any) => m.isRenter && m.isActive !== false) || null;
+    };
+    const myAppt = async (apptId: string) => {
+      const st = await myProvider();
+      if (!st) return { st: null, ref: null, a: null, error: 'Your booking profile is not set up yet.' };
+      const ref = db.doc(`tenants/${tenantId}/appointments/${apptId}`);
+      const snap = await ref.get();
+      const a = (snap.data() as any) || null;
+      if (!snap.exists || !a.isRenterBooking || (a.renterProviderId || a.staffId) !== st.id) return { st, ref: null, a: null, error: 'That appointment is not in your book.' };
+      return { st, ref, a, error: null };
+    };
+    const tellClient = async (a: any, st: any, subject: string, lines: string[], kind: string) => {
+      const to = String(a.clientEmail || '').trim();
+      const phone = String(a.clientPhone || '').trim();
+      if (!to && !phone) return;
+      const rSnap = await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get();
+      const r = (rSnap.data() as any) || {};
+      const from = `${r.firstName || ''} ${r.lastName || ''}`.trim() || st.name || 'Your provider';
+      const studio = ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.name || 'the studio';
+      try {
+        const { brandedEmailHtml } = await import('@/lib/email-template');
+        const { sendNotification } = await import('@/lib/notify');
+        if (to.includes('@')) {
+          await sendNotification(db, { tenantId, channel: 'email', to, subject,
+            html: brandedEmailHtml({ studioName: from, title: subject, bodyLines: lines, footerNote: `Sent by ${from}, renting at ${studio}.` }),
+            kind, recipientType: 'client', recipientId: a.clientId || null, recipientName: a.clientName || null });
+        }
+        if (phone) {
+          await sendNotification(db, { tenantId, channel: 'sms', to: phone, text: `${from}: ${lines[0]}`, kind, recipientType: 'client', recipientId: a.clientId || null, recipientName: a.clientName || null } as any);
+        }
+      } catch { /* the change stands; the notice is best-effort */ }
+    };
+    const fmtWhen = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? iso : d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); };
+
+    if (action === 'book-list') {
+      const st = await myProvider();
+      if (!st) return NextResponse.json({ ok: true, upcoming: [], past: [], services: [] });
+      const since = new Date(Date.now() - 90 * 86400000).toISOString();
+      const nowIso = new Date().toISOString();
+      const [apSnap, svSnap] = await Promise.all([
+        db.collection(`tenants/${tenantId}/appointments`).where('staffId', '==', st.id).where('startTime', '>=', since).get(),
+        db.collection(`tenants/${tenantId}/renterServices`).where('staffId', '==', st.id).get(),
+      ]);
+      const rows = apSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((a: any) => a.isRenterBooking);
+      const shape = (a: any) => ({
+        id: a.id, clientId: a.clientId || null, clientName: a.clientName || 'Client', clientPhone: a.clientPhone || null, clientEmail: a.clientEmail || null,
+        serviceName: a.renterServiceName || a.serviceName || 'Service', price: Number(a.renterServicePrice) || 0,
+        startTime: a.startTime, endTime: a.endTime || null, duration: a.duration || null, status: a.status,
+        note: a.renterNote || '', outcome: a.renterOutcome || null, createdVia: a.createdVia || null,
+      });
+      const upcoming = rows.filter((a: any) => a.status !== 'cancelled' && a.startTime >= nowIso).sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime))).map(shape);
+      const past = rows.filter((a: any) => a.startTime < nowIso).sort((a: any, b: any) => String(b.startTime).localeCompare(String(a.startTime))).slice(0, 60).map(shape);
+      const services = svSnap.docs.map((d: any) => { const x = d.data() as any; return { id: d.id, name: x.name, price: Number(x.price) || 0, duration: Number(x.duration) || 60, active: x.active !== false }; }).filter((x: any) => x.active);
+      return NextResponse.json({ ok: true, upcoming, past, services, staffId: st.id });
+    }
+
+    if (action === 'book-cancel') {
+      const { st, ref, a, error } = await myAppt(String(body.appointmentId || ''));
+      if (!ref || !a) return NextResponse.json({ ok: false, error }, { status: 403 });
+      if (a.status === 'cancelled') return NextResponse.json({ ok: true, already: true });
+      const nowIso = new Date().toISOString();
+      const note = String(body.note || '').trim().slice(0, 400);
+      await ref.set({
+        status: 'cancelled', cancelledAt: nowIso,
+        cancellationAudit: { actorType: 'studio', actorId: st.id, actorName: st.name || 'Provider', reason: 'provider_cancel', note, feeAmount: 0, feeWaived: true, paymentStatus: 'paid', timestamp: nowIso, via: 'renter_portal' },
+      }, { merge: true });
+      if (body.tellClient !== false) {
+        await tellClient(a, st, 'Your appointment has been cancelled',
+          [`Your ${a.renterServiceName || 'appointment'} on ${fmtWhen(a.startTime)} has been cancelled.${note ? ` ${note}` : ''}`, 'Nothing has been charged. Reply or rebook any time.'], 'renter_client_cancelled');
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === 'book-status') {
+      const { st, ref, a, error } = await myAppt(String(body.appointmentId || ''));
+      if (!ref || !a) return NextResponse.json({ ok: false, error }, { status: 403 });
+      const outcome = ['completed', 'no_show'].includes(String(body.outcome)) ? String(body.outcome) : null;
+      if (!outcome) return NextResponse.json({ ok: false, error: 'Outcome must be completed or no_show.' }, { status: 400 });
+      const nowIso = new Date().toISOString();
+      await ref.set({ status: outcome === 'completed' ? 'completed' : 'cancelled', renterOutcome: outcome, renterOutcomeAt: nowIso,
+        ...(outcome === 'no_show' ? { cancelledAt: nowIso, cancellationAudit: { actorType: 'no_show', reason: 'no-show', actorName: st.name || 'Provider', timestamp: nowIso, feeAmount: 0, feeWaived: true, paymentStatus: 'paid', via: 'renter_portal' } } : { completedAt: nowIso }),
+      }, { merge: true });
+      // The renter's client record keeps its own count — their book, their history.
+      if (a.clientId) {
+        const cRef = db.doc(`tenants/${tenantId}/clients/${a.clientId}`);
+        const c = ((await cRef.get()).data() as any) || null;
+        if (c && c.ownerRenterId === session.renterId) {
+          await cRef.set(outcome === 'no_show'
+            ? { noShowCount: (Number(c.noShowCount) || 0) + 1, lastNoShowAt: nowIso }
+            : { visitCount: (Number(c.visitCount) || 0) + 1, lastAppointment: a.startTime, lifetimeValue: (Number(c.lifetimeValue) || 0) + (Number(a.renterServicePrice) || 0) }, { merge: true });
+        }
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === 'book-note') {
+      const { ref, a, error } = await myAppt(String(body.appointmentId || ''));
+      if (!ref || !a) return NextResponse.json({ ok: false, error }, { status: 403 });
+      await ref.set({ renterNote: String(body.note || '').trim().slice(0, 1000), renterNoteAt: new Date().toISOString() }, { merge: true });
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === 'book-block') {
+      // Block time: a hold the availability engine already honours (staffBlocks).
+      const st = await myProvider();
+      if (!st) return NextResponse.json({ ok: false, error: 'Your booking profile is not set up yet.' }, { status: 400 });
+      const startTime = String(body.startTime || '');
+      const duration = Math.max(15, Math.min(24 * 60, Math.round(Number(body.duration) || 60)));
+      if (isNaN(new Date(startTime).getTime())) return NextResponse.json({ ok: false, error: 'Pick a start time.' }, { status: 400 });
+      const ref = db.collection(`tenants/${tenantId}/staffBlocks`).doc();
+      const endTime = new Date(new Date(startTime).getTime() + duration * 60000).toISOString();
+      await ref.set({ id: ref.id, staffId: st.id, startTime: new Date(startTime).toISOString(), endTime, duration, reason: String(body.reason || 'Blocked').slice(0, 120), source: 'renter_portal', renterId: session.renterId, createdAt: new Date().toISOString() });
+      return NextResponse.json({ ok: true, id: ref.id });
+    }
+    if (action === 'book-unblock') {
+      const st = await myProvider();
+      const ref = db.doc(`tenants/${tenantId}/staffBlocks/${String(body.blockId || '')}`);
+      const b = ((await ref.get()).data() as any) || null;
+      if (!st || !b || b.staffId !== st.id) return NextResponse.json({ ok: false, error: 'That block is not yours.' }, { status: 403 });
+      await ref.delete();
+      return NextResponse.json({ ok: true });
+    }
+    if (action === 'book-blocks') {
+      const st = await myProvider();
+      if (!st) return NextResponse.json({ ok: true, blocks: [] });
+      const snap = await db.collection(`tenants/${tenantId}/staffBlocks`).where('staffId', '==', st.id).where('startTime', '>=', new Date(Date.now() - 86400000).toISOString()).get();
+      return NextResponse.json({ ok: true, blocks: snap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime))) });
+    }
+
     // ── documents-list / document-sign / document-decline ────────────────────
     // The paperwork after the lease: a plain-words summary, the move-in
     // condition report, a written notice, a renewal. Each is a frozen snapshot
