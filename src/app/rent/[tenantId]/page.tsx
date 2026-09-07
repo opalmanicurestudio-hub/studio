@@ -33,6 +33,7 @@ import {
   Wallet, KeyRound, Phone, RefreshCw, Repeat, X,
   MessageSquare,
   CalendarClock,
+  Users,
   ShieldAlert,
   Wrench,
   CloudLightning,
@@ -1842,6 +1843,122 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
   );
 }
 
+// ─── My Clients: the renter's own directory ─────────────────────────────────
+// Built from the book they own (ownerRenterId) and their own appointments:
+// last visit, next visit, visits, no-shows, what they usually get, spend.
+// "Hasn't been in" is the one number that fills a slow week. Notes are the
+// renter's; the studio never sees this list.
+const weeksAgo = (iso: string | null) => { if (!iso) return null; const w = Math.floor((Date.now() - new Date(iso).getTime()) / (7 * 86400000)); return w < 0 ? 0 : w; };
+function MyClients({ tenantId, token }: { tenantId: string; token: string }) {
+  const [list, setList] = useState<any[] | null>(null);
+  const [q, setQ] = useState('');
+  const [filter, setFilter] = useState<'all' | 'lapsed' | 'new' | 'archived'>('all');
+  const [openId, setOpenId] = useState('');
+  const [edit, setEdit] = useState<{ id: string; name: string; phone: string; email: string; notes: string } | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [busy, setBusy] = useState('');
+  const [err, setErr] = useState('');
+  const load = useCallback(async () => { const d = await api({ action: 'clients-list', tenantId, token }); if (d?.ok) setList(d.clients || []); }, [tenantId, token]);
+  useEffect(() => { void load(); }, [load]);
+  const when = (iso: string | null) => iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+  const save = async () => {
+    if (!edit) return;
+    setBusy('save'); setErr('');
+    const d = await api({ action: 'client-save', tenantId, token, clientId: edit.id || undefined, name: edit.name, phone: edit.phone, email: edit.email, notes: edit.notes });
+    setBusy('');
+    if (!d?.ok) { setErr(d?.error || 'Could not save.'); return; }
+    setEdit(null); setAdding(false); void load(); if (!edit.id) setOpenId(d.id);
+  };
+  const rows = (list || []).filter((c) => {
+    if (filter === 'archived' ? !c.archived : c.archived) return false;
+    if (filter === 'lapsed' && !(c.visits > 0 && (weeksAgo(c.lastVisit) ?? 0) >= 6 && !c.nextVisit)) return false;
+    if (filter === 'new' && c.visits > 1) return false;
+    if (q.trim()) { const t = q.trim().toLowerCase(); return [c.name, c.phone, c.email].some((v) => String(v || '').toLowerCase().includes(t)); }
+    return true;
+  });
+  const lapsedCount = (list || []).filter((c) => !c.archived && c.visits > 0 && (weeksAgo(c.lastVisit) ?? 0) >= 6 && !c.nextVisit).length;
+  return (
+    <section className="space-y-3">
+      <SectionTitle icon={Users}>My Clients</SectionTitle>
+      <div className="p-4 rounded-3xl bg-white border-2 space-y-3">
+        <div className="flex gap-2">
+          <input value={q} onChange={(ev) => setQ(ev.target.value)} aria-label="Search clients" placeholder="Search name, phone, email" className="h-11 flex-1 rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold" />
+          <button type="button" onClick={() => { setAdding(true); setEdit({ id: '', name: '', phone: '', email: '', notes: '' }); }} className="h-11 rounded-2xl bg-slate-900 px-4 text-[10px] font-black uppercase tracking-widest text-white">Add</button>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {([['all', `Everyone · ${(list || []).filter((c) => !c.archived).length}`], ['lapsed', `Haven't been in 6+ wks · ${lapsedCount}`], ['new', 'First-timers'], ['archived', 'Archived']] as const).map(([k, l]) => (
+            <button key={k} type="button" onClick={() => setFilter(k)} aria-pressed={filter === k} className={cn('h-9 rounded-full border-2 px-3 text-[10px] font-black uppercase tracking-widest', filter === k ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>{l}</button>
+          ))}
+        </div>
+        {(adding || (edit && edit.id)) && edit && (
+          <div className="rounded-2xl border-2 border-slate-200 bg-slate-50 p-3 space-y-2">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">{edit.id ? 'Edit client' : 'New client'}</p>
+            <input value={edit.name} onChange={(ev) => setEdit({ ...edit, name: ev.target.value.slice(0, 120) })} aria-label="Name" placeholder="Name" className="h-11 w-full rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
+            <div className="grid grid-cols-2 gap-2">
+              <input value={edit.phone} onChange={(ev) => setEdit({ ...edit, phone: ev.target.value.slice(0, 40) })} inputMode="tel" aria-label="Phone" placeholder="Phone" className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
+              <input value={edit.email} onChange={(ev) => setEdit({ ...edit, email: ev.target.value.slice(0, 160) })} inputMode="email" aria-label="Email" placeholder="Email" className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
+            </div>
+            <textarea value={edit.notes} onChange={(ev) => setEdit({ ...edit, notes: ev.target.value.slice(0, 2000) })} rows={3} aria-label="Notes" placeholder="Formulas, allergies, how they take their coffee. Only you see this." className="w-full rounded-2xl border-2 border-slate-200 bg-white px-3.5 py-2.5 text-sm" />
+            {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+            <div className="flex gap-2">
+              <button type="button" onClick={save} disabled={busy === 'save' || edit.name.trim().length < 2} className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy === 'save' ? 'Saving…' : 'Save'}</button>
+              <button type="button" onClick={() => { setEdit(null); setAdding(false); }} className="h-11 rounded-2xl border-2 border-slate-200 px-4 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
+            </div>
+          </div>
+        )}
+        {list === null ? <p className="py-3 text-center text-[11px] font-bold text-slate-400">Loading…</p>
+          : rows.length === 0 ? <p className="py-3 text-center text-[11px] font-bold text-slate-400">{(list || []).length === 0 ? 'Nobody yet. Clients who book through your link land here automatically.' : 'No one matches.'}</p>
+          : rows.map((c) => {
+            const isOpen = openId === c.id;
+            const w = weeksAgo(c.lastVisit);
+            const lapsed = c.visits > 0 && (w ?? 0) >= 6 && !c.nextVisit;
+            return (
+              <div key={c.id} className="rounded-2xl border-2 p-3 space-y-2">
+                <button type="button" onClick={() => { setOpenId(isOpen ? '' : c.id); setEdit(null); setAdding(false); }} className="w-full text-left">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[13px] font-black text-slate-900">{c.name}</p>
+                      <p className="text-[10px] font-bold text-slate-500">
+                        {c.nextVisit ? `Next ${when(c.nextVisit.startTime)}` : c.lastVisit ? `Last ${when(c.lastVisit)}${w !== null && w > 0 ? ` · ${w} wk${w === 1 ? '' : 's'} ago` : ''}` : 'No visits yet'}
+                        {c.favourite ? ` · usually ${c.favourite}` : ''}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-[12px] font-black text-slate-900">{c.visits} visit{c.visits === 1 ? '' : 's'}</p>
+                      {lapsed && <p className="text-[9px] font-black uppercase tracking-widest text-amber-700">Reach out</p>}
+                      {c.noShows > 0 && <p className="text-[9px] font-black uppercase tracking-widest text-red-700">{c.noShows} no-show{c.noShows === 1 ? '' : 's'}</p>}
+                    </div>
+                  </div>
+                </button>
+                {isOpen && (
+                  <div className="space-y-2 pt-1">
+                    <p className="text-[10px] font-bold text-slate-500">{[c.phone, c.email].filter(Boolean).join(' · ') || 'No contact details'} · ${(c.spentCents / 100).toFixed(0)} with you</p>
+                    {c.notes && <p className="rounded-xl bg-amber-50 border-2 border-amber-100 px-3 py-2 text-[11px] font-medium text-amber-950 whitespace-pre-wrap">{c.notes}</p>}
+                    <div className="flex flex-wrap gap-1.5">
+                      {c.phone && <a href={`sms:${c.phone}`} className="h-9 inline-flex items-center rounded-xl border-2 border-slate-200 px-3 text-[9px] font-black uppercase tracking-widest text-slate-700">Text</a>}
+                      {c.phone && <a href={`tel:${c.phone}`} className="h-9 inline-flex items-center rounded-xl border-2 border-slate-200 px-3 text-[9px] font-black uppercase tracking-widest text-slate-700">Call</a>}
+                      <button type="button" onClick={() => setEdit({ id: c.id, name: c.name, phone: c.phone || '', email: c.email || '', notes: c.notes || '' })} className="h-9 rounded-xl border-2 border-slate-200 px-3 text-[9px] font-black uppercase tracking-widest text-slate-700">Edit &amp; notes</button>
+                      <button type="button" disabled={busy === `a-${c.id}`} onClick={async () => { setBusy(`a-${c.id}`); await api({ action: 'client-archive', tenantId, token, clientId: c.id, restore: c.archived }); setBusy(''); void load(); }} className="h-9 rounded-xl border-2 border-slate-200 px-3 text-[9px] font-black uppercase tracking-widest text-slate-500">{c.archived ? 'Restore' : 'Archive'}</button>
+                    </div>
+                    {c.history.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">History</p>
+                        {c.history.slice(0, 8).map((h: any) => (
+                          <p key={h.id} className="text-[10px] font-bold text-slate-600"><span className="font-black text-slate-800">{when(h.startTime)}</span> · {h.serviceName} · ${Number(h.price).toFixed(0)}{h.outcome === 'no_show' ? ' · no-show' : h.status === 'cancelled' ? ' · cancelled' : ''}{h.note ? ` — ${h.note}` : ''}</p>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-[9px] font-bold text-slate-400">To book them: add a walk-in in My Book, or send them your booking link.</p>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+      </div>
+    </section>
+  );
+}
+
 // ─── My Services: menu editor + pricing coach ─────────────────────────────────
 // The renter's own business tool. Every number here is derived from THEIR rent
 // and THEIR hours — the studio never sees these calculations, only the menu
@@ -2581,6 +2698,7 @@ export default function RenterPortalPage() {
             )}
 
             {booksHere && session?.token && <MyBook data={data} tenantId={tenantId} token={session.token} />}
+            {booksHere && session?.token && <MyClients tenantId={tenantId} token={session.token} />}
 
             {booksHere && session?.token && (
               <MyPayments data={data} tenantId={tenantId} token={session.token} />
