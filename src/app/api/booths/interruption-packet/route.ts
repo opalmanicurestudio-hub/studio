@@ -13,7 +13,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
-import { INTERRUPTION_TYPE_LABEL, abatementProposals, exposureCents, interruptionDays, lossesByRenter, lossTotals, type InterruptionRecord } from '@/lib/interruptions';
+import { INTERRUPTION_TYPE_LABEL, abatementProposals, exposureCents, interruptionDays, lossesByRenter, lossTotals, appointmentsInWindow, bookedValueCents, type InterruptionRecord } from '@/lib/interruptions';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,6 +60,17 @@ export async function GET(req: NextRequest) {
     renterScope = [...renterById.values()].find((r) => r.portalToken && r.portalToken === renterToken) || null;
     if (!renterScope) return new NextResponse('That link is not valid', { status: 403 });
   }
+
+  // The studio's own bookings the closure hit — read from the calendar, not
+  // from memory. Renter bookings are the renters' lines, further down.
+  const apSnap = await db.collection(`tenants/${tenantId}/appointments`).where('startTime', '>=', `${rec.startDate}T00:00:00.000Z`).where('startTime', '<=', `${rec.endDate || new Date().toISOString().slice(0, 10)}T23:59:59.999Z`).get();
+  const staffSnap = await db.collection(`tenants/${tenantId}/staff`).get();
+  const staffBooth = new Map<string, string | null>();
+  const staffName = new Map<string, string>();
+  for (const d of staffSnap.docs) { const x = d.data() as any; staffName.set(d.id, x.name || 'Staff'); if (x.renterId) { const l = leases.find((q) => q.renterId === x.renterId && ['active', 'on_leave'].includes(String(q.status))); staffBooth.set(d.id, l?.boothId || null); } }
+  const hit = appointmentsInWindow(apSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })), rec, staffBooth, new Date().toISOString().slice(0, 10));
+  const studioHit = hit.filter((a) => !a.isRenterBooking);
+  const studioCut = studioHit.filter((a) => a.status === 'cancelled' && a.interruptionId === id);
 
   const lossSnap = await db.collection(`tenants/${tenantId}/interruptionLosses`).where('interruptionId', '==', id).get();
   const allLosses = lossSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
@@ -175,6 +186,15 @@ export async function GET(req: NextRequest) {
       const r = renterById.get(c.renterId);
       return `<div class="line"><div class="when">${day(c.paidAt || c.createdAt)}</div><div style="flex:1">${esc(r ? `${r.firstName || ''} ${r.lastName || ''}`.trim() : 'Renter')} · ${esc(c.description || 'Rent abatement')}</div><div class="n" style="font-weight:800;font-variant-numeric:tabular-nums;color:#047857">${money(Math.abs(Number(c.amountCents) || 0))}</div></div>`;
     }).join('')}
+  </div>
+
+  <div class="card"><h2>Studio bookings lost · the studio's own line</h2>
+    ${studioHit.length === 0 ? `<div class="detail">No studio bookings fell inside the closure.</div>` : `
+    <table><thead><tr><th>When</th><th>Client</th><th>Service</th><th>Staff</th><th>Outcome</th><th style="text-align:right">Booked</th></tr></thead><tbody>
+    ${studioHit.slice(0, 60).map((a) => `<tr><td>${day(String(a.startTime).slice(0, 10))}</td><td>${esc(a.clientName || 'Client')}</td><td>${esc(a.serviceName || '')}</td><td>${esc(a.staffName || staffName.get(String(a.staffId)) || '')}</td><td class="detail">${a.status === 'cancelled' ? (a.interruptionId === id ? 'Cancelled by closure' : 'Cancelled') : a.status === 'completed' ? 'Went ahead' : esc(a.status || '')}</td><td class="n">${money(Math.round((Number(a.price) || 0) * 100))}</td></tr>`).join('')}
+    ${studioHit.length > 60 ? `<tr><td colspan="6" class="detail">… and ${studioHit.length - 60} more</td></tr>` : ''}
+    </tbody></table>
+    <div class="detail" style="margin-top:10px">${studioHit.length} booking${studioHit.length === 1 ? '' : 's'} worth ${money(bookedValueCents(studioHit))} fell inside the closure; ${studioCut.length} cancelled by it. Booked value is the service price at the time; it is the studio's figure for its own insurer.</div>`}
   </div>
 
   <div class="card"><h2>What renters say it cost them · their own logs</h2>
