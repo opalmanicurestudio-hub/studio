@@ -22,6 +22,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
 import { getAdminDb } from '@/lib/firebase-admin';
+
+// A renter's clients share this collection but are not the studio's: any
+// studio-side match by phone/email must skip records carrying ownerRenterId,
+// or a walk-in gets attached to a record the studio cannot even see.
+const studioDoc = (snap: any) => (snap?.docs || []).find((d: any) => !(d.data() as any)?.ownerRenterId) || null;
 import { verifyVoiceSecret, parseVoiceToolRequest } from '@/lib/voice/voice-utils';
 
 export const runtime = 'nodejs';
@@ -73,10 +78,10 @@ export async function POST(req: NextRequest) {
     let clientName = '';
     let resolvedStaffId: string | null = null;
 
-    const clientQuery = await db.collection(`tenants/${tenantId}/clients`).where('phone', '==', clientPhone).limit(1).get();
-    if (!clientQuery.empty) {
-      clientId = clientQuery.docs[0].id;
-      clientName = clientQuery.docs[0].data().name || '';
+    const clientHit = studioDoc(await db.collection(`tenants/${tenantId}/clients`).where('phone', '==', clientPhone).limit(5).get());
+    if (clientHit) {
+      clientId = clientHit.id;
+      clientName = clientHit.data().name || '';
     }
 
     if (requestedStaffName) {
