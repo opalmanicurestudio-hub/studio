@@ -184,6 +184,35 @@ export function lossesByRenter(entries: LossEntry[] | any[]): { renterId: string
   })).sort((a, b) => a.renterName.localeCompare(b.renterName));
 }
 
+/**
+ * The appointments a closure actually hit: any booking whose day falls inside
+ * the window, on an affected space or — for the whole-studio case — anywhere.
+ * Cancelled-before-the-closure bookings are not losses; cancelled-BY-the-closure
+ * ones (stamped) are. This is the same for a renter's book and the studio's;
+ * callers split the two on isRenterBooking.
+ */
+export function appointmentsInWindow(appointments: any[] | null | undefined, rec: Pick<InterruptionRecord, 'id' | 'startDate' | 'endDate' | 'affectedBoothIds'>, staffBoothId: Map<string, string | null> | null, todayIso: string): any[] {
+  const last = rec.endDate && rec.endDate < todayIso ? rec.endDate : todayIso;
+  const out: any[] = [];
+  for (const a of appointments || []) {
+    if (!a || !a.startTime) continue;
+    const day = String(a.startTime).slice(0, 10);
+    if (day < String(rec.startDate) || day > last) continue;
+    if (a.status === 'cancelled' && a.interruptionId !== rec.id) continue;
+    if ((rec.affectedBoothIds || []).length > 0) {
+      const booth = a.boothId || (staffBoothId ? staffBoothId.get(String(a.staffId)) : null) || null;
+      if (!affectsBooth(rec, booth)) continue;
+    }
+    out.push(a);
+  }
+  return out.sort((x, y) => String(x.startTime).localeCompare(String(y.startTime)));
+}
+
+/** Booked value of a list, in cents — renter bookings at their own price, studio bookings at the service price. */
+export function bookedValueCents(appointments: any[]): number {
+  return appointments.reduce((n, a) => n + Math.round(((a.isRenterBooking ? Number(a.renterServicePrice) : Number(a.price)) || 0) * 100), 0);
+}
+
 /** The shop's total exposure for this interruption, before anything is approved. */
 export function exposureCents(proposals: AbatementProposal[]): { fullCents: number; paidCents: number; owedCents: number } {
   return proposals.reduce(
