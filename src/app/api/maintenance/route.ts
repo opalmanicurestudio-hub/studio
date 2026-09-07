@@ -700,22 +700,53 @@ export async function POST(req: NextRequest) {
 
     // ── Automation: tell the reporter where their ticket stands ───────
     if (action === 'notify-reporter') {
-      const { ticketId } = body;
+      // ── CLOSING THE LOOP ───────────────────────────────────────────────
+      // The person who reported it hears what happened, in the words that
+      // actually say something. This used to be SMS-only, status-only —
+      // "Update on your maintenance request: In progress." — so a renter
+      // without a phone got silence, and a note you wrote for them went
+      // nowhere. Now a RENTER reporter gets it through the same door every
+      // other renter message uses: their thread, their email, their phone,
+      // logged with delivery status. Everyone else keeps the plain text.
+      const { ticketId, event } = body;
       if (!ticketId) return NextResponse.json({ ok: false, error: 'Missing ticketId.' }, { status: 400 });
       const ref = db.doc(`tenants/${tenantId}/tickets/${ticketId}`);
       const snap = await ref.get();
       if (!snap.exists) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
       const t = snap.data() as any;
-      if (t.lastReporterNotifyStatus === t.status) return NextResponse.json({ ok: true, already: true });
+      const what = t.category === 'request' ? 'request' : 'repair';
+      const kindOf = String(event || 'status');
+      // A status ping repeats itself; a note or an assignment is new every
+      // time. Only the status ping is deduped.
+      if (kindOf === 'status' && t.lastReporterNotifyStatus === t.status) return NextResponse.json({ ok: true, already: true });
+
+      const line = (() => {
+        if (kindOf === 'assigned') return `${t.assigneeName || 'Someone'} is taking care of your ${what}: "${t.title}".${t.dueAt ? ` We aim to have it done by ${String(t.dueAt).slice(0, 10)}.` : ''}`;
+        if (kindOf === 'note') {
+          const last = (t.updates || []).filter((u: any) => u.note).slice(-1)[0];
+          return `Update on your ${what} "${t.title}": ${String(last?.note || '').slice(0, 400)}`;
+        }
+        if (kindOf === 'resolved') return `Your ${what} "${t.title}" is done.${t.resolutionNote ? ` ${String(t.resolutionNote).slice(0, 400)}` : ''} If it is not right, reply and we will come back to it.`;
+        return `Update on your ${what} "${t.title}": ${TICKET_STATUS_LABELS[t.status as keyof typeof TICKET_STATUS_LABELS] || t.status}.`;
+      })();
+
       let sent = false;
-      // Renters hear about their reported issues; techs hear about their
-      // filed requests ("approved & bought" = resolved). Same loop-closer.
-      if (t.reporter?.phone && ['renter', 'tech'].includes(t.reporter?.type) && smsConfigured()) {
-        const r = await sendTenantSms(db, tenantId, t.reporter.phone,
-          `Update on your ${t.category === 'request' ? 'request' : 'maintenance request'} "${t.title}": ${TICKET_STATUS_LABELS[t.status as keyof typeof TICKET_STATUS_LABELS] || t.status}.`);
+      if (t.reporter?.type === 'renter' && t.reporter?.renterId) {
+        // The renter door: thread line + email + text, all logged.
+        try {
+          const origin = req.nextUrl?.origin || '';
+          const res = await fetch(`${origin}/api/booths/notify`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'renter-message', tenantId, renterId: t.reporter.renterId, byName: 'Maintenance', text: line }),
+          });
+          sent = res.ok;
+        } catch { /* fall through to SMS below */ }
+      }
+      if (!sent && t.reporter?.phone && ['renter', 'tech', 'staff'].includes(t.reporter?.type) && smsConfigured()) {
+        const r = await sendTenantSms(db, tenantId, t.reporter.phone, line);
         sent = r.ok;
       }
-      await ref.set({ lastReporterNotifyStatus: t.status }, { merge: true });
+      await ref.set({ lastReporterNotifyStatus: t.status, lastReporterNotifyAt: new Date().toISOString() }, { merge: true });
       return NextResponse.json({ ok: true, sent });
     }
 
