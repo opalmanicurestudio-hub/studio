@@ -18,7 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Wrench, Plus, Users, CalendarClock, BookUser, Phone, Mail, MessageCircle, FileClock, Shield } from 'lucide-react';
 import {
   dueAtFor, ticketBlocksBooth, isTicketOverdue, addDaysISO, PLAN_INTERVALS, pickRotationWorker,
-  timedMinutesOf, fmtMinutes, normalizeRules, respondByFor,
+  timedMinutesOf, fmtMinutes, normalizeRules, respondByFor, isResponseOverdue, ticketAcknowledged,
   TICKET_STATUS_LABELS, TICKET_STATUS_TONES, TICKET_PRIORITY_LABELS, TICKET_PRIORITY_TONES, TICKET_CATEGORIES,
   type TicketPriority, type TicketStatus,
 } from '@/lib/maintenance';
@@ -41,7 +41,12 @@ const newToken = () => {
 
 export function MaintenanceSection({
   firestore, storage, tenantId, locationId, booths, tickets, workers, plans, ownerName, autoAssign, publicOrigin, studioName, rules,
+  focus, onFocusChange,
 }: {
+  // Which slice of the queue the stat tiles are asking for. Lives on the page
+  // because the tiles do; the queue is here.
+  focus?: 'all' | 'overdue' | 'unassigned' | 'unanswered';
+  onFocusChange?: (f: 'all' | 'overdue' | 'unassigned' | 'unanswered') => void;
   firestore: any;
   storage?: any;
   studioName?: string;
@@ -73,6 +78,7 @@ export function MaintenanceSection({
   const [workersOpen, setWorkersOpen] = useState(false);
   const [wForm, setWForm] = useState({ name: '', phone: '', email: '', payType: 'per_job' });
   const [showResolved, setShowResolved] = useState(false);
+  const [queueSearch, setQueueSearch] = useState('');
   // Photos (owner-side: direct client Storage upload — the owner is authed)
   const [createPhotos, setCreatePhotos] = useState<string[]>([]);
   const [notePhoto, setNotePhoto] = useState<string | null>(null);
@@ -471,14 +477,38 @@ export function MaintenanceSection({
       w.document.close();
     } catch { toast({ variant: 'destructive', title: 'Could not open the print view' }); }
   };
+  // ── Ordered by what needs YOU, not by what the schema happens to sort on ──
+  // Old order was status → priority → due date, so a low-priority ticket from
+  // March outranked a normal one due tomorrow, and a ticket nobody had even
+  // answered looked identical to one a tech was already working. The four
+  // tiers below are the four different kinds of trouble, worst first.
   const sorted = useMemo(() => {
     const RANK: Record<string, number> = { open: 0, in_progress: 1, resolved: 2, cancelled: 3 };
     const PR: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
+    const tier = (t: any) => {
+      if (!['open', 'in_progress'].includes(t.status)) return 4;
+      if (isResponseOverdue(t)) return 0;                        // nobody has answered it
+      if (isTicketOverdue(t)) return 1;                          // past the fix promise
+      if (!t.assigneeId && t.category !== 'request') return 2;   // nobody owns it
+      return 3;
+    };
     return tickets.slice().sort((a, b) =>
-      (RANK[a.status] ?? 9) - (RANK[b.status] ?? 9) || (PR[a.priority] ?? 9) - (PR[b.priority] ?? 9) || (a.dueAt || '').localeCompare(b.dueAt || ''));
+      tier(a) - tier(b)
+      || (RANK[a.status] ?? 9) - (RANK[b.status] ?? 9)
+      || (PR[a.priority] ?? 9) - (PR[b.priority] ?? 9)
+      || (a.respondBy || a.dueAt || '').localeCompare(b.respondBy || b.dueAt || ''));
   }, [tickets]);
   const openCount = tickets.filter((t: any) => ['open', 'in_progress'].includes(t.status)).length;
-  const shown = showResolved ? sorted : sorted.filter((t: any) => ['open', 'in_progress'].includes(t.status));
+  const shown = useMemo(() => {
+    let list = showResolved ? sorted : sorted.filter((t: any) => ['open', 'in_progress'].includes(t.status));
+    if (focus === 'overdue') list = list.filter((t: any) => isTicketOverdue(t));
+    else if (focus === 'unassigned') list = list.filter((t: any) => !t.assigneeId && t.category !== 'request');
+    else if (focus === 'unanswered') list = list.filter((t: any) => isResponseOverdue(t));
+    const q = queueSearch.trim().toLowerCase();
+    if (q) list = list.filter((t: any) => [t.title, t.description, t.boothName, t.resourceName, t.assigneeName, t.reporter?.name, t.category]
+      .some((v: any) => String(v || '').toLowerCase().includes(q)));
+    return list;
+  }, [sorted, showResolved, focus, queueSearch]);
 
   // Keep the floor honest from the client too (the server does the same for
   // tech-portal updates): serious unfinished ticket ⇒ booth 'maintenance'.
@@ -925,6 +955,20 @@ export function MaintenanceSection({
           <Plus className="h-3 w-3" /> Ticket
         </button>
       </div>
+      <div className="flex items-center gap-2">
+        <input value={queueSearch} onChange={(e) => setQueueSearch(e.target.value)} aria-label="Search the queue"
+          placeholder="Search tickets — title, space, who reported it, who has it"
+          className="h-9 flex-1 min-w-0 rounded-xl border-2 bg-white px-3 text-xs font-bold" />
+        {(queueSearch || (focus && focus !== 'all')) && (
+          <button onClick={() => { setQueueSearch(''); onFocusChange?.('all'); }}
+            className="h-9 shrink-0 rounded-xl border-2 bg-white px-3 text-[9px] font-black uppercase tracking-widest text-slate-500">Clear</button>
+        )}
+      </div>
+      {focus && focus !== 'all' && (
+        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+          Showing {focus === 'overdue' ? 'overdue' : focus === 'unassigned' ? 'unassigned' : 'unanswered'} only · {shown.length} of {openCount}
+        </p>
+      )}
       <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
         {([
           { icon: Users, label: 'Workers', count: activeWorkers.length, onClick: () => setWorkersOpen(true) },
@@ -940,7 +984,7 @@ export function MaintenanceSection({
         ))}
         <button onClick={() => setShowResolved(o => !o)}
           className={`h-9 px-3.5 rounded-full border-2 font-black uppercase text-[9px] tracking-widest whitespace-nowrap shrink-0 ${showResolved ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-400'}`}>
-          {showResolved ? 'Hiding nothing' : 'Show resolved'}
+          {showResolved ? 'Showing everything' : 'Show resolved too'}
         </button>
       </div>
 
@@ -969,6 +1013,8 @@ export function MaintenanceSection({
         <div className="space-y-2">
           {shown.map((t: any) => {
             const overdue = isTicketOverdue(t);
+            const answered = ticketAcknowledged(t);
+            const unanswered = isResponseOverdue(t);
             const expanded = expandedId === t.id;
             const isRequest = t.category === 'request';
             const rail = isRequest ? 'border-l-violet-400'
@@ -985,6 +1031,7 @@ export function MaintenanceSection({
                         {[t.boothName, t.resourceName, TICKET_CATEGORIES.find(c => c.value === t.category)?.label || t.category,
                           `by ${t.reporter?.name || '—'}`,
                           t.assigneeName ? `assigned ${t.assigneeName}` : isRequest ? null : 'unassigned',
+                          !t.assigneeName && answered && ['open', 'in_progress'].includes(t.status) ? 'answered' : null,
                           fmtWhen(t.createdAt)].filter(Boolean).join(' · ')}
                       </p>
                       {isRequest && t.requestMeta && (
@@ -994,6 +1041,10 @@ export function MaintenanceSection({
                             (t.requestMeta.estCostCents || 0) > 0 ? `est. $${(t.requestMeta.estCostCents / 100).toFixed(0)}` : null,
                             t.requestMeta.forStaff?.length ? `for ${t.requestMeta.forStaff.join(', ')}` : null].filter(Boolean).join(' · ')}
                         </p>
+                      )}
+                      {unanswered && <p className="text-[10px] font-black uppercase tracking-widest text-red-600 mt-0.5">Nobody has answered this · was due a reply {fmtWhen(t.respondBy)}</p>}
+                      {!unanswered && !answered && t.respondBy && ['open', 'in_progress'].includes(t.status) && (
+                        <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 mt-0.5">Unanswered · reply due {fmtWhen(t.respondBy)}</p>
                       )}
                       {overdue && <p className="text-[10px] font-black uppercase tracking-widest text-red-600 mt-0.5">Overdue · was due {fmtWhen(t.dueAt)}</p>}
                     </div>
