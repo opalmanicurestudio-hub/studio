@@ -34,6 +34,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
+
+// A renter's clients share this collection but are not the studio's: any
+// studio-side match by phone/email must skip records carrying ownerRenterId,
+// or a walk-in gets attached to a record the studio cannot even see.
+const studioDoc = (snap: any) => (snap?.docs || []).find((d: any) => !(d.data() as any)?.ownerRenterId) || null;
 import {
   buildTenantVariables,
   DEFAULT_AGENT_NAME,
@@ -117,9 +122,9 @@ export async function POST(req: NextRequest) {
     const isCancelKeyword = normalizedBody === 'X' || normalizedBody === 'CANCEL' || normalizedBody === 'NO' || normalizedBody === 'N';
 
     if ((isConfirmKeyword || isCancelKeyword) && fromNumber) {
-      const clientQuery = await db.collection(`tenants/${tenantId}/clients`).where('phone', '==', fromNumber).limit(1).get();
-      if (!clientQuery.empty) {
-        const clientId = clientQuery.docs[0].id;
+      const clientHit = studioDoc(await db.collection(`tenants/${tenantId}/clients`).where('phone', '==', fromNumber).limit(5).get());
+      if (clientHit) {
+        const clientId = clientHit.id;
         // The appointment this reply is actually about: the most recent
         // one a reminder was already sent for, still confirmed. Matches
         // exactly what send-text-reminders just texted them about.
