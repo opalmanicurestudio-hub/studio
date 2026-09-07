@@ -171,10 +171,23 @@ function RenterInterruptions({ tenantId, token }: { tenantId: string; token: str
   const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), appointmentsLost: '', lost: '', note: '' });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [ticked, setTicked] = useState<Record<string, string[]>>({});
+  const [cancelToo, setCancelToo] = useState<Record<string, boolean>>({});
+  const [result, setResult] = useState('');
   const load = useCallback(async () => {
     const d = await api({ action: 'interruption-list', tenantId, token });
     if (d?.ok) setState({ interruptions: d.interruptions || [], portalToken: d.portalToken || null });
   }, [tenantId, token]);
+  const logTicked = async (id: string) => {
+    const ids = ticked[id] || [];
+    if (ids.length === 0) return;
+    setBusy(true); setErr(''); setResult('');
+    const d = await api({ action: 'interruption-loss', tenantId, token, interruptionId: id, appointmentIds: ids, cancelAndTell: !!cancelToo[id] });
+    setBusy(false);
+    if (!d?.ok) { setErr(d?.error || 'Could not log those.'); return; }
+    setResult(`Logged ${d.stamped} appointment${d.stamped === 1 ? '' : 's'} across ${d.days} day${d.days === 1 ? '' : 's'}${d.cancelled ? ` · cancelled ${d.cancelled} and told the clients` : ''}.`);
+    setTicked((m) => ({ ...m, [id]: [] })); void load();
+  };
   useEffect(() => { void load(); }, [load]);
   if (!state || state.interruptions.length === 0) return null;
   const submit = async (id: string) => {
@@ -206,6 +219,35 @@ function RenterInterruptions({ tenantId, token }: { tenantId: string; token: str
               <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Your loss log</p>
               <p className="text-[11px] font-black tabular-nums">{r.totals.appointmentsLost} appt{r.totals.appointmentsLost === 1 ? '' : 's'} · ${(r.totals.lostCents / 100).toFixed(2)} · {r.totals.days} day{r.totals.days === 1 ? '' : 's'}</p>
             </div>
+            {Array.isArray(r.appointments) && r.appointments.length > 0 && (
+              <div className="rounded-xl bg-white border-2 border-slate-200 px-3 py-2.5 space-y-1.5">
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Your bookings inside the closure · tick the ones you couldn't do</p>
+                {r.appointments.map((a: any) => {
+                  const on = (ticked[r.id] || []).includes(a.id);
+                  const d = new Date(a.startTime);
+                  return (
+                    <button key={a.id} type="button" disabled={a.lost} aria-pressed={on || a.lost}
+                      onClick={() => setTicked((m) => ({ ...m, [r.id]: on ? (m[r.id] || []).filter((x) => x !== a.id) : [...(m[r.id] || []), a.id] }))}
+                      className={cn('w-full rounded-xl border-2 px-3 py-2 text-left flex items-center justify-between gap-2', a.lost ? 'border-slate-200 bg-slate-100 opacity-70' : on ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white')}>
+                      <span className="min-w-0"><span className="block text-[11px] font-black truncate">{a.clientName} · {a.serviceName}</span><span className={cn('block text-[10px] font-bold', on ? 'text-slate-300' : 'text-slate-500')}>{isNaN(d.getTime()) ? a.startTime : d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}{a.status === 'cancelled' ? ' · cancelled' : ''}{a.lost ? ' · logged' : ''}</span></span>
+                      <span className="shrink-0 text-[11px] font-black tabular-nums">${Number(a.price).toFixed(0)}</span>
+                    </button>
+                  );
+                })}
+                {(ticked[r.id] || []).length > 0 && (
+                  <div className="space-y-1.5 pt-1">
+                    <button type="button" aria-pressed={!!cancelToo[r.id]} onClick={() => setCancelToo((m) => ({ ...m, [r.id]: !m[r.id] }))}
+                      className={cn('h-10 w-full rounded-xl border-2 px-3 text-left text-[10px] font-bold', cancelToo[r.id] ? 'border-slate-900 bg-slate-50 text-slate-900' : 'border-slate-200 text-slate-600')}>
+                      {cancelToo[r.id] ? 'Will also cancel these and tell each client, as you' : 'Also cancel them and tell the clients?'}
+                    </button>
+                    <button type="button" disabled={busy} onClick={() => logTicked(r.id)} className="h-11 w-full rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">
+                      {busy ? '…' : `Log ${(ticked[r.id] || []).length} as lost · $${r.appointments.filter((a: any) => (ticked[r.id] || []).includes(a.id)).reduce((n: number, a: any) => n + Number(a.price || 0), 0).toFixed(0)}`}
+                    </button>
+                  </div>
+                )}
+                {result && <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">{result}</p>}
+              </div>
+            )}
             {r.losses.length === 0 && <p className="text-[10px] font-bold text-slate-500">Nothing logged yet. A rent credit covers the chair — this is for the clients you couldn't see, the number your own insurer or accountant will ask for. Log it while it's fresh.</p>}
             {r.losses.map((l: any) => (
               <p key={l.id} className="text-[10px] font-medium text-slate-700"><span className="font-black">{fmtDate(l.date)}</span> · {l.appointmentsLost} appt{l.appointmentsLost === 1 ? '' : 's'} · ${(l.lostCents / 100).toFixed(2)}{l.note ? ` — ${l.note}` : ''}</p>
