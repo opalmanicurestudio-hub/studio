@@ -119,6 +119,16 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     timing: 'immediate',
   },
   {
+    id: 'appointment_cancelled_closure', group: 'Booking', label: 'Cancelled — the studio is closed',
+    when: 'A flood, fire, power loss or forced closure means the studio cannot open, and bookings on those days are cancelled from the interruption record.',
+    channels: ['email', 'sms'], canDisable: false,
+    tokens: ['{{client_first}}', '{{service}}', '{{when}}', '{{reason}}', '{{refund_line}}', '{{link}}', '{{studio}}'],
+    requiredTokens: ['{{when}}', '{{refund_line}}', '{{link}}'],
+    defaultSubject: 'We have to cancel {{when}} — {{studio}} is closed',
+    defaultBody: '{{client_first}}, we are so sorry — {{studio}} is unexpectedly closed ({{reason}}), so we have to cancel your {{service}} on {{when}}.\n\n{{refund_line}}\n\nAs soon as we are back open we would love to get you in. Pick a new time here: {{link}}',
+    timing: 'immediate',
+  },
+  {
     /* The only cancel in the app that a MANAGER starts. Until this kind
      * existed, resolveIssue() wrote status: 'cancelled' and sent nothing at
      * all — somebody kept that time free and then turned up to a shop that
