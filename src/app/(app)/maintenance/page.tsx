@@ -24,8 +24,8 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { MaintenanceSection } from '@/components/booths/MaintenanceSection';
 import { InterruptionsCard } from '@/components/maintenance/InterruptionsCard';
-import { isTicketOverdue } from '@/lib/maintenance';
-import { Wrench, AlertTriangle, CircleDot, CalendarClock, Loader } from 'lucide-react';
+import { isTicketOverdue, isResponseOverdue } from '@/lib/maintenance';
+import { Wrench, AlertTriangle, CircleDot, CalendarClock, Loader, MessageCircleWarning, CloudLightning } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export default function MaintenancePage() {
@@ -74,10 +74,25 @@ export default function MaintenancePage() {
     return {
       open: open.length,
       overdue: open.filter((t: any) => { try { return isTicketOverdue(t); } catch { return false; } }).length,
-      unassigned: open.filter((t: any) => !t.assigneeId).length,
+      unassigned: open.filter((t: any) => !t.assigneeId && t.category !== 'request').length,
+      // The promise you set, unmet: reported, past its reply window, and
+      // nobody on your side has touched it. Active plans moved off the strip
+      // — a count of scheduled work is not a thing that needs you today.
+      unanswered: open.filter((t: any) => { try { return isResponseOverdue(t); } catch { return false; } }).length,
       plans: plans.filter((p: any) => p.isActive !== false).length,
     };
   }, [tickets, plans]);
+
+  // The queue's focus lives here because the tiles that set it do.
+  const [focus, setFocus] = useState<'all' | 'overdue' | 'unassigned' | 'unanswered'>('all');
+  const [showInterruptions, setShowInterruptions] = useState(false);
+  const [openInterruptions, setOpenInterruptions] = useState(0);
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    return onSnapshot(collection(firestore, 'tenants', tenantId, 'interruptions'),
+      (snap) => setOpenInterruptions(snap.docs.filter((d) => (d.data() as any)?.status === 'open').length),
+      () => setOpenInterruptions(0));
+  }, [firestore, tenantId]);
 
   const sortedBooths = useMemo(() =>
     (booths || []).slice().sort((a: any, b: any) => String(a.name || '').localeCompare(String(b.name || ''))),
@@ -116,15 +131,36 @@ export default function MaintenancePage() {
       </header>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Stat icon={CircleDot} label="Open" value={stats.open} tone="border-slate-200" />
-        <Stat icon={AlertTriangle} label="Overdue" value={stats.overdue}
-          tone={stats.overdue > 0 ? 'border-rose-300 bg-rose-50 text-rose-900' : 'border-slate-200'} />
-        <Stat icon={Wrench} label="Unassigned" value={stats.unassigned}
-          tone={stats.unassigned > 0 ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-slate-200'} />
-        <Stat icon={CalendarClock} label="Active plans" value={stats.plans} tone="border-slate-200" />
+        <button type="button" onClick={() => setFocus(focus === 'all' ? 'all' : 'all')} aria-pressed={focus === 'all'} className={cn('text-left rounded-2xl transition-all', focus === 'all' && 'ring-2 ring-slate-900 ring-offset-2')}>
+          <Stat icon={CircleDot} label="Open" value={stats.open} tone="border-slate-200" />
+        </button>
+        <button type="button" onClick={() => setFocus(focus === 'overdue' ? 'all' : 'overdue')} aria-pressed={focus === 'overdue'} className={cn('text-left rounded-2xl transition-all', focus === 'overdue' && 'ring-2 ring-rose-500 ring-offset-2')}>
+          <Stat icon={AlertTriangle} label="Overdue" value={stats.overdue}
+            tone={stats.overdue > 0 ? 'border-rose-300 bg-rose-50 text-rose-900' : 'border-slate-200'} />
+        </button>
+        <button type="button" onClick={() => setFocus(focus === 'unassigned' ? 'all' : 'unassigned')} aria-pressed={focus === 'unassigned'} className={cn('text-left rounded-2xl transition-all', focus === 'unassigned' && 'ring-2 ring-amber-500 ring-offset-2')}>
+          <Stat icon={Wrench} label="Unassigned" value={stats.unassigned}
+            tone={stats.unassigned > 0 ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-slate-200'} />
+        </button>
+        <button type="button" onClick={() => setFocus(focus === 'unanswered' ? 'all' : 'unanswered')} aria-pressed={focus === 'unanswered'} className={cn('text-left rounded-2xl transition-all', focus === 'unanswered' && 'ring-2 ring-red-600 ring-offset-2')}>
+          <Stat icon={MessageCircleWarning} label="Unanswered" value={stats.unanswered}
+            tone={stats.unanswered > 0 ? 'border-red-300 bg-red-50 text-red-900' : 'border-slate-200'} />
+        </button>
       </div>
 
-      {tenantId && <InterruptionsCard tenantId={tenantId} firestore={firestore} tenant={tenant} booths={sortedBooths} />}
+      {tenantId && (openInterruptions === 0 && !showInterruptions ? (
+        <button type="button" onClick={() => setShowInterruptions(true)}
+          className="w-full rounded-2xl border-2 bg-white px-4 py-3 flex items-center justify-between gap-3 text-left">
+          <span className="flex items-center gap-2 min-w-0">
+            <CloudLightning className="h-4 w-4 shrink-0 text-slate-400" />
+            <span className="text-[11px] font-black uppercase tracking-widest">Business interruption</span>
+            <span className="text-[10px] font-bold text-muted-foreground truncate">Nothing open</span>
+          </span>
+          <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-slate-500">Report / history</span>
+        </button>
+      ) : (
+        <InterruptionsCard tenantId={tenantId} firestore={firestore} tenant={tenant} booths={sortedBooths} />
+      ))}
 
       {loading ? (
         <div className="flex items-center gap-2 py-10 text-muted-foreground">
@@ -135,6 +171,8 @@ export default function MaintenancePage() {
         <p className="text-xs font-bold text-muted-foreground">Sign in to see maintenance.</p>
       ) : (
         <MaintenanceSection
+          focus={focus}
+          onFocusChange={setFocus}
           firestore={firestore}
           storage={storage}
           tenantId={tenantId}
