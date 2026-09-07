@@ -57,6 +57,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
+
+// A renter's clients share this collection but are not the studio's: any
+// studio-side match by phone/email must skip records carrying ownerRenterId,
+// or a walk-in gets attached to a record the studio cannot even see.
+const studioDoc = (snap: any) => (snap?.docs || []).find((d: any) => !(d.data() as any)?.ownerRenterId) || null;
 import { logAuditAdmin } from '@/lib/audit';
 import { generateShortCode } from '@/lib/short-code';
 import { nanoid } from 'nanoid';
@@ -451,12 +456,10 @@ export async function POST(req: NextRequest) {
         if (!organizerName) return { conflict: "The organizer's name is required." };
         let reused: any = null;
         if (organizerPhone) {
-          const hit = await tx.get(db.collection(`tenants/${tenantId}/clients`).where('phone', '==', organizerPhone).limit(1));
-          if (!hit.empty) reused = hit.docs[0];
+          reused = studioDoc(await tx.get(db.collection(`tenants/${tenantId}/clients`).where('phone', '==', organizerPhone).limit(5)));
         }
         if (!reused && organizerEmail) {
-          const hit = await tx.get(db.collection(`tenants/${tenantId}/clients`).where('email', '==', organizerEmail).limit(1));
-          if (!hit.empty) reused = hit.docs[0];
+          reused = studioDoc(await tx.get(db.collection(`tenants/${tenantId}/clients`).where('email', '==', organizerEmail).limit(5)));
         }
         if (reused) {
           organizerClientId = reused.id;
@@ -488,12 +491,10 @@ export async function POST(req: NextRequest) {
         if (!m.phone && !m.email) { guestClientIds.push(null); continue; }
         let hitDoc: any = null;
         if (m.phone) {
-          const hit = await tx.get(db.collection(`tenants/${tenantId}/clients`).where('phone', '==', m.phone).limit(1));
-          if (!hit.empty) hitDoc = hit.docs[0];
+          hitDoc = studioDoc(await tx.get(db.collection(`tenants/${tenantId}/clients`).where('phone', '==', m.phone).limit(5)));
         }
         if (!hitDoc && m.email) {
-          const hit = await tx.get(db.collection(`tenants/${tenantId}/clients`).where('email', '==', m.email).limit(1));
-          if (!hit.empty) hitDoc = hit.docs[0];
+          hitDoc = studioDoc(await tx.get(db.collection(`tenants/${tenantId}/clients`).where('email', '==', m.email).limit(5)));
         }
         if (hitDoc) { guestClientIds.push(hitDoc.id); continue; }
         const gRef = db.collection(`tenants/${tenantId}/clients`).doc();
