@@ -2506,15 +2506,30 @@ export async function POST(req: NextRequest) {
       const lSnap = await db.collection(`tenants/${tenantId}/interruptionLosses`).where('renterId', '==', session.renterId).get();
       const losses = lSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
       const renter = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      // Their bookings inside each window, if they book through us: the
+      // tick-list that replaces "type how many".
+      const { appointmentsInWindow } = await import('@/lib/interruptions');
+      const prov = await myProvider();
+      const earliest = mine.reduce((m, r) => (String(r.startDate) < m ? String(r.startDate) : m), '9999-12-31');
+      const myAppts = prov
+        ? (await db.collection(`tenants/${tenantId}/appointments`).where('staffId', '==', prov.id).where('startTime', '>=', `${earliest}T00:00:00.000Z`).get())
+            .docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((a) => a.isRenterBooking)
+        : [];
+      const today = new Date().toISOString().slice(0, 10);
       return NextResponse.json({
-        ok: true, portalToken: renter.portalToken || null,
+        ok: true, portalToken: renter.portalToken || null, booksHere: !!prov,
         interruptions: mine.map((r) => {
           const own = losses.filter((l) => l.interruptionId === r.id).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+          const hit = appointmentsInWindow(myAppts, r, null, today).map((a) => ({
+            id: a.id, startTime: a.startTime, clientName: a.clientName || 'Client', serviceName: a.renterServiceName || a.serviceName || '',
+            price: Number(a.renterServicePrice) || 0, status: a.status, lost: a.interruptionId === r.id,
+          }));
           return {
             id: r.id, title: r.title, type: r.type, startDate: r.startDate, endDate: r.endDate || null, status: r.status,
             updates: (r.remedy || []).filter((x: any) => x.sharedWithRenters).map((x: any) => ({ at: x.at, text: x.text })),
             losses: own.map((l) => ({ id: l.id, date: l.date, appointmentsLost: l.appointmentsLost, lostCents: l.lostCents, note: l.note })),
             totals: lossTotals(own),
+            appointments: hit,
           };
         }),
       });
@@ -2525,6 +2540,50 @@ export async function POST(req: NextRequest) {
       const iSnap = await db.doc(`tenants/${tenantId}/interruptions/${interruptionId}`).get();
       if (!iSnap.exists) return NextResponse.json({ ok: false, error: 'That closure is not on record.' }, { status: 404 });
       const rec = iSnap.data() as any;
+
+      // ── From the bookings themselves ─────────────────────────────────────
+      // Ticked appointments become day entries: count and dollars come from
+      // the bookings, not from memory. Each appointment is stamped with the
+      // closure so the packet can name them. Optionally cancelled and the
+      // client told — as the renter, with the closure wording.
+      if (Array.isArray(body.appointmentIds) && body.appointmentIds.length > 0) {
+        const st = await myProvider();
+        if (!st) return NextResponse.json({ ok: false, error: 'Your booking profile is not set up yet.' }, { status: 400 });
+        const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+        const renterName = `${r.firstName || ''} ${r.lastName || ''}`.trim() || 'Renter';
+        const last = rec.endDate || new Date().toISOString().slice(0, 10);
+        const byDay = new Map<string, { n: number; cents: number }>();
+        const nowIso = new Date().toISOString();
+        let stamped = 0, cancelled = 0;
+        for (const id of body.appointmentIds.slice(0, 200).map(String)) {
+          const ref = db.doc(`tenants/${tenantId}/appointments/${id}`);
+          const a = ((await ref.get()).data() as any) || null;
+          if (!a || !a.isRenterBooking || (a.renterProviderId || a.staffId) !== st.id) continue;
+          const day = String(a.startTime).slice(0, 10);
+          if (day < String(rec.startDate) || day > String(last)) continue;
+          const patch: Record<string, any> = { interruptionId, lostToInterruption: true, lostStampedAt: nowIso };
+          if (body.cancelAndTell === true && a.status !== 'cancelled' && a.status !== 'completed') {
+            patch.status = 'cancelled'; patch.cancelledAt = nowIso;
+            patch.cancellationAudit = { actorType: 'studio', actorId: st.id, actorName: st.name || renterName, reason: 'closure', note: rec.title, feeAmount: 0, feeWaived: true, paymentStatus: 'paid', timestamp: nowIso, via: 'renter_portal' };
+            cancelled++;
+            await tellClient(a, st, `We have to cancel ${fmtWhen(a.startTime)}`,
+              [`${renterName} here — the studio is unexpectedly closed (${rec.title}), so I have to cancel your ${a.renterServiceName || 'appointment'} on ${fmtWhen(a.startTime)}. I am so sorry.`, 'Nothing has been charged. As soon as we are back open I would love to get you in — reply here or book again any time.'],
+              'renter_client_cancelled');
+          }
+          await ref.set(patch, { merge: true });
+          stamped++;
+          const d = byDay.get(day) || { n: 0, cents: 0 };
+          d.n += 1; d.cents += Math.round((Number(a.renterServicePrice) || 0) * 100);
+          byDay.set(day, d);
+        }
+        for (const [date, d] of byDay) {
+          const dup = await db.collection(`tenants/${tenantId}/interruptionLosses`).where('renterId', '==', session.renterId).where('interruptionId', '==', interruptionId).where('date', '==', date).limit(1).get();
+          const ref = dup.empty ? db.collection(`tenants/${tenantId}/interruptionLosses`).doc() : dup.docs[0].ref;
+          await ref.set({ id: ref.id, interruptionId, renterId: session.renterId, renterName, date, appointmentsLost: d.n, lostCents: d.cents,
+            note: 'From booked appointments', loggedAt: nowIso, fromBookings: true }, { merge: true });
+        }
+        return NextResponse.json({ ok: true, stamped, cancelled, days: byDay.size });
+      }
       const date = String(body.date || '').slice(0, 10);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return NextResponse.json({ ok: false, error: 'Pick the day.' }, { status: 400 });
       const last = rec.endDate || new Date().toISOString().slice(0, 10);
