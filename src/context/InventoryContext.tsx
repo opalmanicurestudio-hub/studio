@@ -115,7 +115,14 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const { data: businessProfiles, isLoading: businessLoading } = useCollection<any>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/businessProfiles`) : null, [firestore, tenantId]));
 
   const { data: rawTransactions, isLoading: transactionsLoading } = useCollection<Transaction>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'transactions') : null, [firestore, tenantId]));
-  const { data: clients, isLoading: clientsLoading } = useCollection<Client>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'clients') : null, [firestore, tenantId]));
+  const { data: rawClients, isLoading: clientsLoading } = useCollection<Client>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'clients') : null, [firestore, tenantId]));
+  // A booth renter's clients are THEIR book, not the studio's. They live in
+  // the same collection (one booking route, one schema) but carry
+  // ownerRenterId, and this is the one place the studio's view is cut: every
+  // surface that reads clients from here — the Clients page, planner search,
+  // POS lookup, reports — sees only the studio's own. The renter sees theirs
+  // in the portal. Filtered here rather than per page so nothing can forget.
+  const clients = useMemo(() => (rawClients || []).filter((c: any) => !c.ownerRenterId), [rawClients]);
   const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'appointments') : null, [firestore, tenantId]));
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'services') : null, [firestore, tenantId]));
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'staff') : null, [firestore, tenantId]));
