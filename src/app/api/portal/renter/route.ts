@@ -2323,6 +2323,73 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, blocks: snap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime))) });
     }
 
+    // ── clients-list / client-save / client-archive: the renter's own book ──
+    // Reads only clients carrying THIS renter's ownerRenterId; history is
+    // computed from their own appointments. The studio's clients are never
+    // returned here, and a renter cannot reach a record they do not own.
+    if (action === 'clients-list') {
+      const st = await myProvider();
+      if (!st) return NextResponse.json({ ok: true, clients: [] });
+      const [cSnap, aSnap] = await Promise.all([
+        db.collection(`tenants/${tenantId}/clients`).where('ownerRenterId', '==', session.renterId).get(),
+        db.collection(`tenants/${tenantId}/appointments`).where('staffId', '==', st.id).get(),
+      ]);
+      const nowIso = new Date().toISOString();
+      const byClient = new Map<string, any[]>();
+      for (const d of aSnap.docs) { const a = d.data() as any; if (!a.isRenterBooking || !a.clientId) continue; const l = byClient.get(a.clientId) || []; l.push({ id: d.id, ...a }); byClient.set(a.clientId, l); }
+      const clients = cSnap.docs.map((d) => {
+        const c = d.data() as any;
+        const ap = (byClient.get(d.id) || []).sort((x, y) => String(y.startTime).localeCompare(String(x.startTime)));
+        const done = ap.filter((a) => a.status === 'completed' || (a.status !== 'cancelled' && a.startTime < nowIso));
+        const next = ap.filter((a) => a.status !== 'cancelled' && a.status !== 'completed' && a.startTime >= nowIso).sort((x, y) => String(x.startTime).localeCompare(String(y.startTime)))[0] || null;
+        const noShows = ap.filter((a) => a.renterOutcome === 'no_show').length;
+        const spent = done.reduce((n, a) => n + (Number(a.renterServicePrice) || 0), 0);
+        return {
+          id: d.id, name: c.name || 'Client', phone: c.phone || null, email: c.email || null,
+          notes: typeof c.renterNotes === 'string' ? c.renterNotes : '', archived: c.status === 'archived',
+          visits: done.length, noShows, spentCents: Math.round(spent * 100),
+          lastVisit: done[0]?.startTime || null, nextVisit: next ? { id: next.id, startTime: next.startTime, serviceName: next.renterServiceName || next.serviceName || '' } : null,
+          favourite: (() => { const m = new Map<string, number>(); for (const a of done) { const k = a.renterServiceName || a.serviceName; if (k) m.set(k, (m.get(k) || 0) + 1); } return [...m.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] || null; })(),
+          history: ap.slice(0, 30).map((a) => ({ id: a.id, startTime: a.startTime, serviceName: a.renterServiceName || a.serviceName || '', price: Number(a.renterServicePrice) || 0, status: a.status, outcome: a.renterOutcome || null, note: a.renterNote || '' })),
+          createdAt: c.createdAt || null,
+        };
+      }).sort((x, y) => String(y.lastVisit || y.nextVisit?.startTime || '').localeCompare(String(x.lastVisit || x.nextVisit?.startTime || '')));
+      return NextResponse.json({ ok: true, clients });
+    }
+    if (action === 'client-save') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const st = await myProvider();
+      if (!st) return NextResponse.json({ ok: false, error: 'Your booking profile is not set up yet.' }, { status: 400 });
+      const name = String(body.name || '').trim().slice(0, 120);
+      if (name.length < 2) return NextResponse.json({ ok: false, error: 'A name is needed.' }, { status: 400 });
+      const phone = String(body.phone || '').trim().slice(0, 40) || null;
+      const email = String(body.email || '').trim().toLowerCase().slice(0, 160) || null;
+      const renterNotes = String(body.notes || '').trim().slice(0, 2000);
+      const id = String(body.clientId || '');
+      const nowIso = new Date().toISOString();
+      if (id) {
+        const ref = db.doc(`tenants/${tenantId}/clients/${id}`);
+        const c = ((await ref.get()).data() as any) || null;
+        if (!c || c.ownerRenterId !== session.renterId) return NextResponse.json({ ok: false, error: 'That client is not in your book.' }, { status: 403 });
+        await ref.set({ name, phone, email, renterNotes, updatedAt: nowIso }, { merge: true });
+        return NextResponse.json({ ok: true, id });
+      }
+      // New client, in THIS book. Same phone/email as a studio client is fine —
+      // two businesses, two records.
+      const ref = db.collection(`tenants/${tenantId}/clients`).doc();
+      await ref.set({ id: ref.id, name, phone, email, renterNotes, status: 'active', lifetimeValue: 0, lastAppointment: nowIso, createdVia: 'renter_portal', createdAt: nowIso,
+        ownerRenterId: session.renterId, ownerStaffId: st.id });
+      return NextResponse.json({ ok: true, id: ref.id });
+    }
+    if (action === 'client-archive') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const ref = db.doc(`tenants/${tenantId}/clients/${String(body.clientId || '')}`);
+      const c = ((await ref.get()).data() as any) || null;
+      if (!c || c.ownerRenterId !== session.renterId) return NextResponse.json({ ok: false, error: 'That client is not in your book.' }, { status: 403 });
+      await ref.set({ status: body.restore ? 'active' : 'archived', updatedAt: new Date().toISOString() }, { merge: true });
+      return NextResponse.json({ ok: true });
+    }
+
     // ── documents-list / document-sign / document-decline ────────────────────
     // The paperwork after the lease: a plain-words summary, the move-in
     // condition report, a written notice, a renewal. Each is a frozen snapshot
