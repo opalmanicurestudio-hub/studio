@@ -17,9 +17,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
-  INTERRUPTION_TYPE_LABEL, abatementProposals, exposureCents, interruptionDays, lossesByRenter,
+  INTERRUPTION_TYPE_LABEL, abatementProposals, exposureCents, interruptionDays, lossesByRenter, appointmentsInWindow, bookedValueCents,
   type InterruptionRecord, type InterruptionType,
 } from '@/lib/interruptions';
+import { useInventory } from '@/context/InventoryContext';
 
 const money = (c: number) => `$${(Math.round(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -36,6 +37,9 @@ export function InterruptionsCard({ tenantId, firestore, tenant, booths }: { ten
   const [shareDraft, setShareDraft] = useState<Record<string, boolean>>({});
   const [approveArm, setApproveArm] = useState('');
   const [showResolved, setShowResolved] = useState(false);
+  const [cancelArm, setCancelArm] = useState('');
+  const [cancelResult, setCancelResult] = useState<Record<string, string>>({});
+  const { appointments: allAppointments, staff: allStaff } = useInventory();
 
   useEffect(() => {
     if (!firestore || !tenantId) return;
@@ -49,6 +53,48 @@ export function InterruptionsCard({ tenantId, firestore, tenant, booths }: { ten
   }, [firestore, tenantId]);
 
   useEffect(() => { if (!approveArm) return; const t = setTimeout(() => setApproveArm(''), 5000); return () => clearTimeout(t); }, [approveArm]);
+  useEffect(() => { if (!cancelArm) return; const t = setTimeout(() => setCancelArm(''), 6000); return () => clearTimeout(t); }, [cancelArm]);
+  // Which booth a staff member works from, for closures scoped to spaces.
+  const staffBooth = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const l of leases) if (['active', 'on_leave'].includes(String(l.status)) && l.renterId) {
+      const st = (allStaff || []).find((x: any) => x.renterId === l.renterId);
+      if (st) m.set(st.id, l.boothId || null);
+    }
+    return m;
+  }, [leases, allStaff]);
+
+  // ── The studio's own bookings inside the window ───────────────────────
+  // Cancelling is one move: status, audit, and the closure message to each
+  // client (Settings → Messages → "Cancelled — the studio is closed").
+  // Renter bookings are counted but never touched here — those are their
+  // clients, handled from their portals.
+  const cancelStudioBookings = async (rec: InterruptionRecord, list: any[]) => {
+    if (!firestore || !tenantId || list.length === 0) return;
+    setBusy(`cx-${rec.id}`);
+    let done = 0, told = 0;
+    try {
+      const nowIso = new Date().toISOString();
+      for (const a of list) {
+        if (a.status === 'cancelled' || a.status === 'completed') continue;
+        const depositCents = Number(a.depositAmountCents || 0);
+        const depositPaid = String(a.depositStatus || '') === 'paid' && depositCents > 0;
+        await updateDoc(doc(firestore, 'tenants', tenantId, 'appointments', a.id), {
+          status: 'cancelled', cancelledAt: nowIso, cancellationReason: 'business_interruption', interruptionId: rec.id, lostToInterruption: true,
+          cancellationAudit: { actorType: 'studio', reason: 'business_interruption', note: rec.title, timestamp: nowIso },
+          ...(depositPaid ? { depositRefundPending: true, depositRefundOwedCents: depositCents, depositRefundReason: 'studio_closed' } : {}),
+        }).catch(() => null);
+        done++;
+        try {
+          const res = await fetch('/api/appointments/notify-cancellation', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tenantId, appointmentId: a.id, reason: rec.title, kind: 'appointment_cancelled_closure' }) });
+          const d = await res.json().catch(() => null);
+          if (d?.ok && d.reachable) told++;
+        } catch { /* the cancellation stands */ }
+      }
+      setCancelResult((m) => ({ ...m, [rec.id]: `Cancelled ${done} · ${told} client${told === 1 ? '' : 's'} told` }));
+    } finally { setBusy(''); setCancelArm(''); }
+  };
 
   const boothById = useMemo(() => { const m = new Map<string, any>(); for (const b of booths || []) m.set(b.id, b); return m; }, [booths]);
   const renterById = useMemo(() => { const m = new Map<string, any>(); for (const r of renters) m.set(r.id, r); return m; }, [renters]);
@@ -179,6 +225,37 @@ export function InterruptionsCard({ tenantId, firestore, tenant, booths }: { ten
             <p className="text-[9px] font-bold text-slate-400">Renters already on leave are left out — their rent is already paused or reduced, and crediting it again pays twice for one empty chair.</p>
           </div>
         )}
+
+        {(() => {
+          const inWin = appointmentsInWindow(allAppointments as any[], rec, staffBooth, todayIso());
+          const studioAp = inWin.filter((a) => !a.isRenterBooking);
+          const renterAp = inWin.filter((a) => a.isRenterBooking);
+          const live = studioAp.filter((a) => a.status !== 'cancelled' && a.status !== 'completed');
+          const alreadyCut = studioAp.filter((a) => a.status === 'cancelled' && a.interruptionId === rec.id);
+          if (studioAp.length === 0 && renterAp.length === 0) return null;
+          const byStaff = new Map<string, number>();
+          for (const a of studioAp) { const k = a.staffName || (allStaff || []).find((x: any) => x.id === a.staffId)?.name || 'Staff'; byStaff.set(k, (byStaff.get(k) || 0) + 1); }
+          const armed = cancelArm === rec.id;
+          return (
+            <div className="rounded-xl bg-white border-2 px-3 py-2.5 space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Studio bookings inside the closure</p>
+                <p className="text-[11px] font-black tabular-nums">{studioAp.length} · {money(bookedValueCents(studioAp))} booked</p>
+              </div>
+              {byStaff.size > 0 && <p className="text-[10px] font-bold text-slate-600">{[...byStaff.entries()].map(([n, c]) => `${n} ${c}`).join(' · ')}</p>}
+              {alreadyCut.length > 0 && <p className="text-[10px] font-bold text-slate-500">{alreadyCut.length} already cancelled by this closure.</p>}
+              {isOpen && live.length > 0 && (
+                <button type="button" disabled={busy === `cx-${rec.id}`} onClick={() => { if (armed) void cancelStudioBookings(rec, live); else setCancelArm(rec.id); }}
+                  className={cn('h-9 w-full rounded-lg px-3 text-[9px] font-black uppercase tracking-widest disabled:opacity-40', armed ? 'bg-red-700 text-white' : 'border-2 border-red-300 text-red-800 bg-white')}>
+                  {busy === `cx-${rec.id}` ? 'Cancelling…' : armed ? `Tap again · cancel ${live.length} and tell each client` : `Cancel ${live.length} still-live booking${live.length === 1 ? '' : 's'} & tell the clients`}
+                </button>
+              )}
+              {cancelResult[rec.id] && <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">{cancelResult[rec.id]}</p>}
+              {renterAp.length > 0 && <p className="text-[10px] font-bold text-slate-500">{renterAp.length} renter booking{renterAp.length === 1 ? '' : 's'} also fall inside — their renters see and handle those from their portals; not touched here.</p>}
+              <p className="text-[9px] font-bold text-slate-400">This is the studio's own line for its insurer, beside the renters' lines below. Deposits already paid are flagged for refund on cancel.</p>
+            </div>
+          );
+        })()}
 
         {(() => {
           const groups = lossesByRenter(losses.filter((l) => l.interruptionId === rec.id));
