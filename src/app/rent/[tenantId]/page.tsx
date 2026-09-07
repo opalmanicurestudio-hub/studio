@@ -1676,13 +1676,66 @@ function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenantId: st
   );
 }
 
-// ─── My Book: their client appointments + what they've earned this month ──────
-// The renter's own ledger. The studio's reports deliberately exclude every one
-// of these, so this is the only place these numbers live.
-function MyBook({ data }: { data: any }) {
-  const rows: any[] = data?.myBookings || [];
+// ─── My Book: the renter's appointments, run from here ───────────────────────
+// Their ledger AND their controls. Cancel, complete, no-show, a note, a
+// walk-in, a blocked hour — all against their own provider record, never the
+// studio's. Walk-ins and reschedules go through the same public booking
+// engine their link uses (source 'renter_portal'), so conflicts and client
+// scoping are exactly the ones every other booking gets.
+function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token: string }) {
+  const [book, setBook] = useState<{ upcoming: any[]; past: any[]; services: any[]; staffId: string } | null>(null);
+  const [blocks, setBlocks] = useState<any[]>([]);
+  const [view, setView] = useState<'upcoming' | 'past' | 'blocks'>('upcoming');
+  const [openId, setOpenId] = useState('');
+  const [noteDraft, setNoteDraft] = useState('');
+  const [busy, setBusy] = useState('');
+  const [err, setErr] = useState('');
+  const [walkIn, setWalkIn] = useState(false);
+  const [wi, setWi] = useState({ name: '', phone: '', serviceId: '', when: '' });
+  const [resched, setResched] = useState<{ id: string; when: string } | null>(null);
+  const [blockOpen, setBlockOpen] = useState(false);
+  const [blk, setBlk] = useState({ when: '', hours: '1', reason: '' });
+  const [confirmCancel, setConfirmCancel] = useState('');
   const e = data?.earnings || {};
   const money = (c: number) => `$${((Number(c) || 0) / 100).toFixed(2)}`;
+  const when = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? iso : d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); };
+  const load = useCallback(async () => {
+    const [d, b] = await Promise.all([api({ action: 'book-list', tenantId, token }), api({ action: 'book-blocks', tenantId, token })]);
+    if (d?.ok) setBook({ upcoming: d.upcoming || [], past: d.past || [], services: d.services || [], staffId: d.staffId });
+    if (b?.ok) setBlocks(b.blocks || []);
+  }, [tenantId, token]);
+  useEffect(() => { void load(); }, [load]);
+  const localToIso = (v: string) => { const d = new Date(v); return isNaN(d.getTime()) ? '' : d.toISOString(); };
+  const run = async (key: string, fn: () => Promise<any>) => {
+    setBusy(key); setErr('');
+    try { const r = await fn(); if (r && r.ok === false) setErr(r.error || 'That did not work.'); else await load(); }
+    finally { setBusy(''); }
+  };
+  // Walk-in and reschedule share the public engine. A reschedule is a new
+  // booking at the new time, then the old one cancelled — the client is told
+  // once, as a move, not as a cancel-and-rebook.
+  const bookViaEngine = async (client: { name: string; phone?: string; email?: string; id?: string }, serviceId: string, startIso: string) => {
+    const res = await fetch('/api/appointments/book', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenantId, source: 'renter_portal', serviceId, staffId: book?.staffId, startTime: startIso, client }) });
+    return res.json().catch(() => ({ ok: false, error: 'Could not book that.' }));
+  };
+  const submitWalkIn = () => run('walkin', async () => {
+    if (!wi.name.trim() || !wi.serviceId || !wi.when) return { ok: false, error: 'Name, service and time are needed.' };
+    const r = await bookViaEngine({ name: wi.name.trim(), phone: wi.phone.trim() || undefined }, wi.serviceId, localToIso(wi.when));
+    if (r?.ok) { setWalkIn(false); setWi({ name: '', phone: '', serviceId: '', when: '' }); }
+    return r;
+  });
+  const submitResched = (a: any) => run(`re-${a.id}`, async () => {
+    if (!resched?.when) return { ok: false, error: 'Pick the new time.' };
+    const svc = (book?.services || []).find((x) => x.name === a.serviceName);
+    if (!svc) return { ok: false, error: 'That service is no longer on your menu — cancel and rebook instead.' };
+    const r = await bookViaEngine({ id: a.clientId || undefined, name: a.clientName, phone: a.clientPhone || undefined, email: a.clientEmail || undefined }, svc.id, localToIso(resched.when));
+    if (!r?.ok) return r;
+    await api({ action: 'book-cancel', tenantId, token, appointmentId: a.id, tellClient: false });
+    setResched(null);
+    return r;
+  });
+  const rows = view === 'upcoming' ? (book?.upcoming || []) : (book?.past || []);
   return (
     <section className="space-y-3">
       <SectionTitle icon={CalendarDays}>My Book</SectionTitle>
@@ -1690,22 +1743,100 @@ function MyBook({ data }: { data: any }) {
         <div className="rounded-2xl bg-slate-50 p-3">
           <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Booked this month</p>
           <p className="text-2xl font-black text-slate-900">{money(e.monthBookedCents)}</p>
-          <p className="text-[11px] font-bold text-slate-500">
-            {e.monthCount || 0} appointment{(e.monthCount || 0) === 1 ? '' : 's'} so far · {e.upcomingCount || 0} coming up
-          </p>
+          <p className="text-[11px] font-bold text-slate-500">{e.monthCount || 0} appointment{(e.monthCount || 0) === 1 ? '' : 's'} so far · {(book?.upcoming || []).length} coming up</p>
           <p className="mt-1 text-[10px] font-bold text-slate-400">You collect these directly — this is your record, not a payout.</p>
         </div>
-        {rows.length === 0 ? (
-          <p className="py-4 text-center text-[11px] font-bold text-slate-400">No upcoming client bookings yet. Share your booking link to fill it.</p>
-        ) : rows.map((b: any) => (
-          <div key={b.id} className="flex items-center justify-between gap-3 rounded-2xl border-2 p-3">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[13px] font-black text-slate-900">{b.clientName}</p>
-              <p className="text-[11px] font-bold text-slate-500">{b.serviceName || 'Service'} · {fmtDate(String(b.startTime).slice(0, 10))}</p>
-            </div>
-            <p className="shrink-0 text-[13px] font-black text-slate-900">${Number(b.price || 0).toFixed(2)}</p>
+
+        <div className="flex gap-2">
+          <button type="button" onClick={() => { setWalkIn((v) => !v); setBlockOpen(false); }} className="h-10 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white">{walkIn ? 'Close' : 'Add a walk-in'}</button>
+          <button type="button" onClick={() => { setBlockOpen((v) => !v); setWalkIn(false); }} className="h-10 flex-1 rounded-2xl border-2 border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-700">{blockOpen ? 'Close' : 'Block time'}</button>
+        </div>
+        {walkIn && (
+          <div className="rounded-2xl border-2 border-slate-200 bg-slate-50 p-3 space-y-2">
+            <input value={wi.name} onChange={(ev) => setWi((f) => ({ ...f, name: ev.target.value.slice(0, 120) }))} aria-label="Client name" placeholder="Client name" className="h-11 w-full rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
+            <input value={wi.phone} onChange={(ev) => setWi((f) => ({ ...f, phone: ev.target.value.slice(0, 40) }))} inputMode="tel" aria-label="Client phone" placeholder="Phone (optional — for their confirmation)" className="h-11 w-full rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
+            <select value={wi.serviceId} onChange={(ev) => setWi((f) => ({ ...f, serviceId: ev.target.value }))} aria-label="Service" className="h-11 w-full rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold">
+              <option value="">Service…</option>
+              {(book?.services || []).map((sv) => <option key={sv.id} value={sv.id}>{sv.name} · ${sv.price.toFixed(0)} · {sv.duration}m</option>)}
+            </select>
+            <input type="datetime-local" value={wi.when} onChange={(ev) => setWi((f) => ({ ...f, when: ev.target.value }))} aria-label="When" className="h-11 w-full rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
+            <button type="button" onClick={submitWalkIn} disabled={busy === 'walkin'} className="h-11 w-full rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy === 'walkin' ? 'Booking…' : 'Book it'}</button>
+            <p className="text-[9px] font-bold text-slate-400">Goes through the same booking engine as your link, so it can't double-book you. If they gave a phone or email, they get your confirmation.</p>
           </div>
-        ))}
+        )}
+        {blockOpen && (
+          <div className="rounded-2xl border-2 border-slate-200 bg-slate-50 p-3 space-y-2">
+            <input type="datetime-local" value={blk.when} onChange={(ev) => setBlk((f) => ({ ...f, when: ev.target.value }))} aria-label="Block from" className="h-11 w-full rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
+            <div className="grid grid-cols-2 gap-2">
+              <select value={blk.hours} onChange={(ev) => setBlk((f) => ({ ...f, hours: ev.target.value }))} aria-label="For how long" className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold">
+                {['0.5', '1', '1.5', '2', '3', '4', '8'].map((h) => <option key={h} value={h}>{h} hr{h === '1' ? '' : 's'}</option>)}
+              </select>
+              <input value={blk.reason} onChange={(ev) => setBlk((f) => ({ ...f, reason: ev.target.value.slice(0, 120) }))} aria-label="Reason" placeholder="Lunch, errand, class…" className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
+            </div>
+            <button type="button" disabled={busy === 'block' || !blk.when} onClick={() => run('block', async () => { const r = await api({ action: 'book-block', tenantId, token, startTime: localToIso(blk.when), duration: Math.round(Number(blk.hours) * 60), reason: blk.reason }); if (r?.ok) { setBlockOpen(false); setBlk({ when: '', hours: '1', reason: '' }); setView('blocks'); } return r; })}
+              className="h-11 w-full rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy === 'block' ? 'Saving…' : 'Block it'}</button>
+            <p className="text-[9px] font-bold text-slate-400">Clients can't book you during a block. Your rent doesn't change.</p>
+          </div>
+        )}
+        {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+
+        <div className="flex gap-1.5">
+          {([['upcoming', `Upcoming · ${(book?.upcoming || []).length}`], ['past', 'Past'], ['blocks', `Blocks · ${blocks.length}`]] as const).map(([k, l]) => (
+            <button key={k} type="button" onClick={() => setView(k)} aria-pressed={view === k} className={cn('h-9 rounded-full border-2 px-3 text-[10px] font-black uppercase tracking-widest', view === k ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>{l}</button>
+          ))}
+        </div>
+
+        {view === 'blocks' && (blocks.length === 0 ? <p className="py-3 text-center text-[11px] font-bold text-slate-400">No blocked time.</p> : blocks.map((b) => (
+          <div key={b.id} className="flex items-center justify-between gap-2 rounded-2xl border-2 p-3">
+            <div className="min-w-0"><p className="text-[12px] font-black truncate">{b.reason || 'Blocked'}</p><p className="text-[10px] font-bold text-slate-500">{when(b.startTime)} · {Math.round((b.duration || 60) / 60 * 10) / 10} hr</p></div>
+            <button type="button" disabled={busy === `ub-${b.id}`} onClick={() => run(`ub-${b.id}`, () => api({ action: 'book-unblock', tenantId, token, blockId: b.id }))} className="h-9 shrink-0 rounded-xl border-2 border-slate-200 px-3 text-[9px] font-black uppercase tracking-widest text-slate-600">Remove</button>
+          </div>
+        )))}
+
+        {view !== 'blocks' && (book === null ? <p className="py-3 text-center text-[11px] font-bold text-slate-400">Loading your book…</p>
+          : rows.length === 0 ? <p className="py-3 text-center text-[11px] font-bold text-slate-400">{view === 'upcoming' ? 'Nothing coming up. Share your booking link or add a walk-in.' : 'No past appointments yet.'}</p>
+          : rows.map((a) => {
+            const isOpen = openId === a.id;
+            const done = a.status === 'completed' || a.status === 'cancelled';
+            const chip = a.status === 'cancelled' ? (a.outcome === 'no_show' ? 'No-show' : 'Cancelled') : a.status === 'completed' ? 'Done' : a.status === 'requested' ? 'Requested' : a.status === 'pending_payment' || a.status === 'deposit_pending' ? 'Awaiting deposit' : 'Booked';
+            return (
+              <div key={a.id} className={cn('rounded-2xl border-2 p-3 space-y-2', a.status === 'cancelled' && 'opacity-60')}>
+                <button type="button" onClick={() => { setOpenId(isOpen ? '' : a.id); setNoteDraft(a.note || ''); setConfirmCancel(''); setResched(null); }} className="w-full text-left">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[13px] font-black text-slate-900">{a.clientName}</p>
+                      <p className="text-[11px] font-bold text-slate-500">{a.serviceName} · {when(a.startTime)}</p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-[13px] font-black text-slate-900">${Number(a.price || 0).toFixed(2)}</p>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">{chip}</p>
+                    </div>
+                  </div>
+                </button>
+                {isOpen && (
+                  <div className="space-y-2 pt-1">
+                    {(a.clientPhone || a.clientEmail) && <p className="text-[10px] font-bold text-slate-500">{[a.clientPhone, a.clientEmail].filter(Boolean).join(' · ')}</p>}
+                    <textarea value={noteDraft} onChange={(ev) => setNoteDraft(ev.target.value.slice(0, 1000))} rows={2} aria-label="Your note" placeholder="Your note — formula, preferences, what to remember (only you see this)" className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm" />
+                    <div className="flex flex-wrap gap-1.5">
+                      <button type="button" disabled={busy === `n-${a.id}` || noteDraft === (a.note || '')} onClick={() => run(`n-${a.id}`, () => api({ action: 'book-note', tenantId, token, appointmentId: a.id, note: noteDraft }))} className="h-9 rounded-xl border-2 border-slate-200 px-3 text-[9px] font-black uppercase tracking-widest text-slate-700 disabled:opacity-40">Save note</button>
+                      {!done && <button type="button" disabled={busy === `s-${a.id}`} onClick={() => run(`s-${a.id}`, () => api({ action: 'book-status', tenantId, token, appointmentId: a.id, outcome: 'completed' }))} className="h-9 rounded-xl bg-emerald-600 px-3 text-[9px] font-black uppercase tracking-widest text-white">Done ✓</button>}
+                      {!done && <button type="button" disabled={busy === `s-${a.id}`} onClick={() => run(`s-${a.id}`, () => api({ action: 'book-status', tenantId, token, appointmentId: a.id, outcome: 'no_show' }))} className="h-9 rounded-xl border-2 border-amber-300 px-3 text-[9px] font-black uppercase tracking-widest text-amber-800">No-show</button>}
+                      {!done && view === 'upcoming' && <button type="button" onClick={() => setResched(resched?.id === a.id ? null : { id: a.id, when: '' })} className="h-9 rounded-xl border-2 border-slate-200 px-3 text-[9px] font-black uppercase tracking-widest text-slate-700">Move</button>}
+                      {!done && (confirmCancel === a.id
+                        ? <button type="button" disabled={busy === `c-${a.id}`} onClick={() => run(`c-${a.id}`, () => api({ action: 'book-cancel', tenantId, token, appointmentId: a.id, tellClient: true }))} className="h-9 rounded-xl bg-red-700 px-3 text-[9px] font-black uppercase tracking-widest text-white">Tap again · cancel &amp; tell them</button>
+                        : <button type="button" onClick={() => setConfirmCancel(a.id)} className="h-9 rounded-xl border-2 border-red-200 px-3 text-[9px] font-black uppercase tracking-widest text-red-700">Cancel</button>)}
+                    </div>
+                    {resched && resched.id === a.id && (
+                      <div className="flex gap-2">
+                        <input type="datetime-local" value={resched.when} onChange={(ev) => setResched({ id: a.id, when: ev.target.value })} aria-label="New time" className="h-11 flex-1 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
+                        <button type="button" disabled={busy === `re-${a.id}` || !resched.when} onClick={() => submitResched(a)} className="h-11 rounded-2xl bg-slate-900 px-4 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy === `re-${a.id}` ? '…' : 'Move it'}</button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          }))}
       </div>
     </section>
   );
@@ -2449,7 +2580,7 @@ export default function RenterPortalPage() {
               <MySwaps data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
             )}
 
-            {booksHere && <MyBook data={data} />}
+            {booksHere && session?.token && <MyBook data={data} tenantId={tenantId} token={session.token} />}
 
             {booksHere && session?.token && (
               <MyPayments data={data} tenantId={tenantId} token={session.token} />
