@@ -34,6 +34,7 @@ import {
   MessageSquare,
   CalendarClock,
   Users,
+  BellRing,
   ShieldAlert,
   Wrench,
   CloudLightning,
@@ -2001,6 +2002,57 @@ function MyClients({ tenantId, token }: { tenantId: string; token: string }) {
   );
 }
 
+// ─── My client messages ──────────────────────────────────────────────────────
+// The renter's switches for what their clients hear from them, automatically:
+// a reminder the day before, a thank-you the day after. Off until they say
+// so. Sent in their name; the studio's message settings never touch these.
+const COMMS_KIND: Record<string, string> = { renter_client_reminder: 'Reminder', renter_client_thanks: 'Thank-you', renter_client_cancelled: 'Cancellation' };
+function MyClientMessages({ tenantId, token }: { tenantId: string; token: string }) {
+  const [state, setState] = useState<{ comms: { remindersEnabled: boolean; thankYouEnabled: boolean; signoff: string }; log: any[] } | null>(null);
+  const [draft, setDraft] = useState<{ remindersEnabled: boolean; thankYouEnabled: boolean; signoff: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const load = useCallback(async () => { const d = await api({ action: 'comms-get', tenantId, token }); if (d?.ok) { setState({ comms: d.comms, log: d.log || [] }); setDraft(d.comms); } }, [tenantId, token]);
+  useEffect(() => { void load(); }, [load]);
+  if (!state || !draft) return null;
+  const dirty = JSON.stringify(draft) !== JSON.stringify(state.comms);
+  const save = async () => { setBusy(true); const d = await api({ action: 'comms-save', tenantId, token, ...draft }); setBusy(false); if (d?.ok) { setSaved(true); setTimeout(() => setSaved(false), 1800); void load(); } };
+  const Row = ({ k, title, body }: { k: 'remindersEnabled' | 'thankYouEnabled'; title: string; body: string }) => (
+    <button type="button" aria-pressed={draft[k]} onClick={() => setDraft({ ...draft, [k]: !draft[k] })}
+      className={cn('w-full rounded-2xl border-2 px-3.5 py-3 flex items-center justify-between gap-3 text-left', draft[k] ? 'border-slate-900 bg-slate-50' : 'border-slate-200 bg-white')}>
+      <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest">{title}</span><span className="block text-[10px] font-bold text-slate-500">{body}</span></span>
+      <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest', draft[k] ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500')}>{draft[k] ? 'On' : 'Off'}</span>
+    </button>
+  );
+  return (
+    <section className="space-y-3">
+      <SectionTitle icon={BellRing}>My client messages</SectionTitle>
+      <div className="p-4 rounded-3xl bg-white border-2 space-y-3">
+        <p className="text-[10px] font-bold text-slate-500">Sent in your name to your clients, automatically. These are your messages — the studio's message settings don't touch them.</p>
+        <Row k="remindersEnabled" title="Reminder the day before" body="“Reminder — your Gel Fill with Ana is Tue, Sep 8 at 2:00 PM.” Text first, email if there's no phone." />
+        <Row k="thankYouEnabled" title="Thank-you the day after" body="A thanks and your booking link, the morning after a visit. No review link — that's yours to ask for." />
+        <div>
+          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">Sign-off (optional)</p>
+          <input value={draft.signoff} onChange={(ev) => setDraft({ ...draft, signoff: ev.target.value.slice(0, 160) })} aria-label="Sign-off added to your messages" placeholder="Can't wait to see you! — Ana" className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold" />
+        </div>
+        <div className="flex items-center justify-end gap-2">
+          {saved && <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Saved</span>}
+          <button type="button" onClick={save} disabled={busy || !dirty} className="h-11 rounded-2xl bg-slate-900 px-5 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Saving…' : 'Save'}</button>
+        </div>
+        {state.log.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Recently sent for you</p>
+            {state.log.map((m) => (
+              <p key={m.id} className="text-[10px] font-bold text-slate-600">{fmtDate(String(m.at).slice(0, 10))} · {COMMS_KIND[m.kind] || m.kind} · {m.channel} to {m.to} · <span className={cn('font-black', m.status === 'sent' ? 'text-emerald-700' : 'text-slate-500')}>{m.status}</span></p>
+            ))}
+          </div>
+        )}
+        <p className="text-[9px] font-bold text-slate-400">Reminders go out at the studio's reminder hour, the day before. Cancellations you make in My Book are always sent when you choose “cancel & tell them”.</p>
+      </div>
+    </section>
+  );
+}
+
 // ─── My Services: menu editor + pricing coach ─────────────────────────────────
 // The renter's own business tool. Every number here is derived from THEIR rent
 // and THEIR hours — the studio never sees these calculations, only the menu
@@ -2741,6 +2793,7 @@ export default function RenterPortalPage() {
 
             {booksHere && session?.token && <MyBook data={data} tenantId={tenantId} token={session.token} />}
             {booksHere && session?.token && <MyClients tenantId={tenantId} token={session.token} />}
+            {booksHere && session?.token && <MyClientMessages tenantId={tenantId} token={session.token} />}
 
             {booksHere && session?.token && (
               <MyPayments data={data} tenantId={tenantId} token={session.token} />
