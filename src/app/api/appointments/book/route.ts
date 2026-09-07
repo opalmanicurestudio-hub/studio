@@ -173,6 +173,7 @@ export async function POST(req: NextRequest) {
     // on a miss, so the house path costs nothing. The flag rides onto the
     // appointment below, which is what keeps their sale out of YOUR books.
     let renterSvc: any = null;
+    let renterProvider: any = null;
     if (!svc) {
       try {
         const rs = await db.doc(`tenants/${tenantId}/renterServices/${serviceId}`).get();
@@ -181,6 +182,7 @@ export async function POST(req: NextRequest) {
           if (d?.isActive !== false) {
             const provider = roster.find((m: any) => m.id === d.staffId && m.isRenter && m.isActive !== false);
             if (provider) {
+              renterProvider = provider;
               renterSvc = { id: rs.id, ...d, providerName: provider.name || 'your provider', staffIds: [provider.id] };
               svc = renterSvc;
             }
@@ -414,14 +416,22 @@ export async function POST(req: NextRequest) {
         // reuses their existing profile instead of minting a duplicate.
         const phoneRaw = String(body?.client?.phone || '').slice(0, 40).trim();
         const emailRaw = String(body?.client?.email || '').slice(0, MAX_FIELD).trim();
+        // ── Whose book is this client in? ─────────────────────────────────
+        // A renter's booking looks up and creates clients in the RENTER'S
+        // book (ownerRenterId); a studio booking looks in the studio's. The
+        // same person can exist once in each — that is correct, not a
+        // duplicate: two independent businesses, two client records. A
+        // renter who leaves takes their book; the studio never sees it.
+        const bookOwner: string | null = renterSvc ? (String(renterProvider?.renterId || '') || null) : null;
+        const inThisBook = (d: any) => (String((d.data() as any)?.ownerRenterId || '') || null) === bookOwner;
         let reused: any = null;
         if (phoneRaw) {
-          const hit = await tx.get(db.collection(`tenants/${tenantId}/clients`).where('phone', '==', phoneRaw).limit(1));
-          if (!hit.empty) reused = hit.docs[0];
+          const hit = await tx.get(db.collection(`tenants/${tenantId}/clients`).where('phone', '==', phoneRaw).limit(5));
+          reused = hit.docs.find(inThisBook) || null;
         }
         if (!reused && emailRaw) {
-          const hit = await tx.get(db.collection(`tenants/${tenantId}/clients`).where('email', '==', emailRaw).limit(1));
-          if (!hit.empty) reused = hit.docs[0];
+          const hit = await tx.get(db.collection(`tenants/${tenantId}/clients`).where('email', '==', emailRaw).limit(5));
+          reused = hit.docs.find(inThisBook) || null;
         }
         if (reused) {
           clientId = reused.id;
@@ -439,6 +449,7 @@ export async function POST(req: NextRequest) {
             lifetimeValue: 0,
             lastAppointment: new Date().toISOString(),
             createdVia: source,
+            ...(bookOwner ? { ownerRenterId: bookOwner, ownerStaffId: renterSvc.staffId } : {}),
           });
         }
       }
