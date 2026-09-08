@@ -1360,6 +1360,10 @@ export async function POST(req: NextRequest) {
           listExternally: renter?.listExternally === true,
         },
         bookingMode: renter?.bookingMode === 'own' ? 'own' : 'studio',
+        // Why the business half of the portal is or is not there. Without
+        // this the sections simply vanish, which reads to a renter as "this
+        // app can't do that" rather than "nobody has switched it on".
+        bookable: !!provider,
       });
     }
 
@@ -1578,7 +1582,11 @@ export async function POST(req: NextRequest) {
           .where('renterId', '==', session.renterId).limit(1).get();
         if (!stSnap.empty) {
           const mirror: any = { bio, instagram, externalBookingUrl, listExternally };
-          if (photoUrl !== undefined) mirror.photoUrl = photoUrl;
+          // The booking page renders staff.avatarUrl — writing only photoUrl
+          // meant a renter's face was saved, mirrored, and never shown: the
+          // public page fell through to a random stock portrait. Both fields
+          // are written so neither surface can be the stale one.
+          if (photoUrl !== undefined) { mirror.photoUrl = photoUrl; mirror.avatarUrl = photoUrl || ''; }
           await stSnap.docs[0].ref.set(mirror, { merge: true });
         }
       } catch { /* the portal still shows it; the booking page catches up on the next save */ }
