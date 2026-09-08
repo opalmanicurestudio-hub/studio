@@ -2771,8 +2771,33 @@ export default function RenterPortalPage() {
               <GettingSetUp data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
             )}
 
-            {data?.provider && session?.token && data?.checklist?.modeChosen && (
+            {data?.provider && session?.token && (
               <MyProfile data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
+            )}
+
+            {session?.token && data?.renter?.id && !booksHere && (
+              <section className="space-y-3">
+                <SectionTitle icon={CalendarDays}>Bookings</SectionTitle>
+                <div className="p-4 rounded-3xl bg-white border-2 border-slate-100">
+                  {data?.bookingMode === 'own' ? (
+                    <>
+                      <p className="text-[12px] font-bold text-slate-800">You take your own bookings.</p>
+                      <p className="mt-1 text-[11px] font-medium text-slate-500">
+                        Your menu, calendar and clients live in your own system, so this portal keeps to rent, documents and messages.
+                        If you ever want to run bookings from here instead, ask the studio to switch it on.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-[12px] font-bold text-slate-800">Bookings aren&apos;t switched on for you here yet.</p>
+                      <p className="mt-1 text-[11px] font-medium text-slate-500">
+                        Once the studio enables it, this portal gains your service menu, your hours, a booking link of your own,
+                        your appointment book, your client list and your payouts. Ask them to turn it on — it takes them one tap.
+                      </p>
+                    </>
+                  )}
+                </div>
+              </section>
             )}
 
             {booksHere && session?.token && (
