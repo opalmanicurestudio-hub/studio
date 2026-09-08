@@ -39,6 +39,17 @@ const newToken = () => {
   catch { return Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2) + Date.now().toString(36); }
 };
 
+/**
+ * An in-flow panel where a Dialog used to be. No portal, no transform, no
+ * animation — the failure class that displaced the cart and the edit-staff
+ * sheet cannot reach these, and the panel sits under the queue where it can
+ * be read alongside it.
+ */
+function PanelShell({ show, children }: { show: boolean; children: React.ReactNode }) {
+  if (!show) return null;
+  return <div className="rounded-2xl border-2 bg-white p-4">{children}</div>;
+}
+
 export function MaintenanceSection({
   firestore, storage, tenantId, locationId, booths, tickets, workers, plans, ownerName, autoAssign, publicOrigin, studioName, rules,
   focus, onFocusChange,
@@ -75,10 +86,13 @@ export function MaintenanceSection({
   const [saving, setSaving] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState('');
-  const [workersOpen, setWorkersOpen] = useState(false);
   const [wForm, setWForm] = useState({ name: '', phone: '', email: '', payType: 'per_job' });
   const [showResolved, setShowResolved] = useState(false);
   const [queueSearch, setQueueSearch] = useState('');
+  // Queue, team, plans, vendors and history are TABS now, not five modals you
+  // open, act in and lose. The roster and the queue can finally be on screen
+  // together, and none of these panels is a portal any more.
+  const [tab, setTab] = useState<'queue' | 'team' | 'plans' | 'vendors' | 'history'>('queue');
   // Photos (owner-side: direct client Storage upload — the owner is authed)
   const [createPhotos, setCreatePhotos] = useState<string[]>([]);
   const [notePhoto, setNotePhoto] = useState<string | null>(null);
@@ -99,7 +113,6 @@ export function MaintenanceSection({
   const [clockDraft, setClockDraft] = useState<Record<string, { respond: string; fix: string }>>({});
   const [rulesSaving, setRulesSaving] = useState(false);
   // Work order HISTORY — searchable archive with money totals + CSV
-  const [historyOpen, setHistoryOpen] = useState(false);
   const [hQuery, setHQuery] = useState('');
   const [hRange, setHRange] = useState<'30' | '90' | '365' | 'all'>('90');
   const [hPlace, setHPlace] = useState('');
@@ -193,7 +206,6 @@ export function MaintenanceSection({
     } catch { toast({ variant: 'destructive', title: 'Payout not recorded', description: 'Nothing was saved — try again.' }); }
   };
   // Preventive plans
-  const [plansOpen, setPlansOpen] = useState(false);
   const [pForm, setPForm] = useState({ title: '', description: '', category: 'cleaning', priority: 'normal' as TicketPriority, boothId: '', resourceId: '', assigneeId: '', everyDays: '30', customDays: '', firstRun: todayISO() });
   const [pSaving, setPSaving] = useState(false);
 
@@ -224,7 +236,6 @@ export function MaintenanceSection({
       () => setProviders([]));
     return () => unsub();
   }, [firestore, tenantId]);
-  const [providersOpen, setProvidersOpen] = useState(false);
   const [provForm, setProvForm] = useState({ company: '', contactName: '', trade: 'Plumber', tradeOther: '', phone: '', email: '', notes: '' });
   const [provSaving, setProvSaving] = useState(false);
   const PROVIDER_TRADES = ['Plumber', 'HVAC', 'Electrician', 'Handyman', 'Cleaning', 'Appliance repair', 'Landlord / building', 'Other'];
@@ -261,8 +272,8 @@ export function MaintenanceSection({
         id: ref.id, name: p.contactName || p.company, phone: p.phone || null, email: p.email || null,
         token: newToken(), active: true, createdAt: new Date().toISOString(), providerId: p.id,
       });
-      setProvidersOpen(false); setWorkersOpen(true);
-      toast({ title: 'Portal access created', description: `${p.contactName || p.company} is now in Workers — text them their link from there.` });
+      setTab('team');
+      toast({ title: 'Portal access created', description: `${p.contactName || p.company} is now on your Team — text them their link from there.` });
     } catch { toast({ variant: 'destructive', title: 'Could not create access' }); }
   };
 
@@ -966,7 +977,7 @@ export function MaintenanceSection({
           <Plus className="h-3 w-3" /> Ticket
         </button>
       </div>
-      <div className="flex items-center gap-2">
+      <div className={tab === 'queue' ? 'flex items-center gap-2' : 'hidden'}>
         <input value={queueSearch} onChange={(e) => setQueueSearch(e.target.value)} aria-label="Search the queue"
           placeholder="Search tickets — title, space, who reported it, who has it"
           className="h-9 flex-1 min-w-0 rounded-xl border-2 bg-white px-3 text-xs font-bold" />
@@ -975,28 +986,34 @@ export function MaintenanceSection({
             className="h-9 shrink-0 rounded-xl border-2 bg-white px-3 text-[9px] font-black uppercase tracking-widest text-slate-500">Clear</button>
         )}
       </div>
-      {focus && focus !== 'all' && (
+      {tab === 'queue' && focus && focus !== 'all' && (
         <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
           Showing {focus === 'overdue' ? 'overdue' : focus === 'unassigned' ? 'unassigned' : 'unanswered'} only · {shown.length} of {openCount}
         </p>
       )}
       <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
         {([
-          { icon: Users, label: 'Workers', count: activeWorkers.length, onClick: () => setWorkersOpen(true) },
-          { icon: CalendarClock, label: 'Plans', count: plans.filter((p: any) => p.active !== false).length, onClick: () => setPlansOpen(true) },
-          { icon: BookUser, label: 'Providers', count: providers.filter((p: any) => !p.archived).length, onClick: () => setProvidersOpen(true) },
-          { icon: FileClock, label: 'History', count: 0, onClick: () => setHistoryOpen(true) },
-          { icon: Shield, label: 'Rules', count: 0, onClick: openRules },
+          { icon: Wrench, key: 'queue', label: 'Queue', count: openCount },
+          { icon: Users, key: 'team', label: 'Team', count: activeWorkers.length },
+          { icon: CalendarClock, key: 'plans', label: 'Plans', count: plans.filter((p: any) => p.active !== false).length },
+          { icon: BookUser, key: 'vendors', label: 'Vendors', count: providers.filter((p: any) => !p.archived).length },
+          { icon: FileClock, key: 'history', label: 'History', count: 0 },
         ] as any[]).map((b) => (
-          <button key={b.label} onClick={b.onClick}
-            className="h-9 px-3.5 rounded-full border-2 bg-white font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center gap-1.5 whitespace-nowrap shrink-0 active:scale-95 transition-transform">
+          <button key={b.key} onClick={() => setTab(b.key)} aria-pressed={tab === b.key}
+            className={`h-9 px-3.5 rounded-full border-2 font-black uppercase text-[9px] tracking-widest flex items-center gap-1.5 whitespace-nowrap shrink-0 active:scale-95 transition-transform ${tab === b.key ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600'}`}>
             <b.icon className="h-3.5 w-3.5" /> {b.label}{b.count > 0 ? ` · ${b.count}` : ''}
           </button>
         ))}
-        <button onClick={() => setShowResolved(o => !o)}
-          className={`h-9 px-3.5 rounded-full border-2 font-black uppercase text-[9px] tracking-widest whitespace-nowrap shrink-0 ${showResolved ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-400'}`}>
-          {showResolved ? 'Showing everything' : 'Show resolved too'}
+        <button onClick={openRules}
+          className="h-9 px-3.5 rounded-full border-2 bg-white font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center gap-1.5 whitespace-nowrap shrink-0">
+          <Shield className="h-3.5 w-3.5" /> Setup
         </button>
+        {tab === 'queue' && (
+          <button onClick={() => setShowResolved(o => !o)}
+            className={`h-9 px-3.5 rounded-full border-2 font-black uppercase text-[9px] tracking-widest whitespace-nowrap shrink-0 ${showResolved ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-400'}`}>
+            {showResolved ? 'Showing everything' : 'Show resolved too'}
+          </button>
+        )}
       </div>
 
       {/* Running costs — what maintenance is actually costing, live */}
@@ -1016,9 +1033,11 @@ export function MaintenanceSection({
         </div>
       )}
 
-      {shown.length === 0 ? (
+      {tab !== 'queue' ? null : shown.length === 0 ? (
         <p className="text-xs text-muted-foreground py-2">
-          Nothing open. Issues reported by renters (their portal), from the floor (tap a station → Report an issue), or logged here all land in this one queue.
+          {queueSearch || (focus && focus !== 'all')
+            ? 'Nothing matches. Clear the search or the filter above.'
+            : 'Nothing open. Issues reported by renters (their portal), from the floor (tap a station → Report an issue), or logged here all land in this one queue.'}
         </p>
       ) : (
         <div className="space-y-2">
@@ -1363,7 +1382,7 @@ export function MaintenanceSection({
             <input value={form.title} onChange={(e) => setForm(f => ({ ...f, title: e.target.value }))} placeholder="What's broken? *" autoFocus
               className="w-full h-11 rounded-xl border-2 px-3.5 text-sm font-medium" />
             <textarea value={form.description} onChange={(e) => setForm(f => ({ ...f, description: e.target.value }))} rows={2}
-              placeholder="Details — what happened, where exactly, anything the worker should bring…"
+              placeholder="Details — what happened, where exactly, anything they should bring…"
               className="w-full rounded-xl border-2 px-3.5 py-2.5 text-sm font-medium" />
             <div className="grid grid-cols-2 gap-2">
               <select value={form.category} onChange={(e) => setForm(f => ({ ...f, category: e.target.value }))} className="h-11 rounded-xl border-2 px-2 text-sm font-bold bg-white">
@@ -1415,14 +1434,14 @@ export function MaintenanceSection({
       </Dialog>
 
       {/* ── Provider directory — the business rolodex ── */}
-      <Dialog open={providersOpen} onOpenChange={setProvidersOpen}>
-        <DialogContent className="max-w-sm rounded-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-black tracking-tight">Service providers</DialogTitle>
-            <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
+      <PanelShell show={tab === 'vendors'}>
+        <div>
+          <div>
+            <p className="text-lg font-black tracking-tight">Vendors</p>
+            <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
               Plumber, HVAC, electrician — every contact in one home
-            </DialogDescription>
-          </DialogHeader>
+            </p>
+          </div>
           <div className="space-y-3">
             {providers.filter((p: any) => !p.archived).map((p: any) => {
               // A provider promoted to the portal is backed by a worker doc —
@@ -1499,18 +1518,18 @@ export function MaintenanceSection({
               <p className="text-[10px] font-bold text-muted-foreground">"Give portal" turns a provider into a worker: they get a ticket queue link and can be assigned jobs directly.</p>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </PanelShell>
 
       {/* ── Preventive plans — recurring work that files its own tickets ── */}
-      <Dialog open={plansOpen} onOpenChange={setPlansOpen}>
-        <DialogContent className="max-w-sm rounded-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-black tracking-tight">Preventive maintenance</DialogTitle>
-            <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
+      <PanelShell show={tab === 'plans'}>
+        <div>
+          <div>
+            <p className="text-lg font-black tracking-tight">Preventive maintenance</p>
+            <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
               Recurring work opens its own tickets — nothing gets forgotten
-            </DialogDescription>
-          </DialogHeader>
+            </p>
+          </div>
           <div className="space-y-3">
             {plans.length > 0 && plans.map((p: any) => (
               <div key={p.id} className={`rounded-2xl border-2 p-3 space-y-1 ${p.active === false ? 'opacity-50' : ''}`}>
@@ -1584,25 +1603,30 @@ export function MaintenanceSection({
                 className="w-full h-11 rounded-xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
                 {pSaving ? 'Saving…' : 'Save plan'}
               </button>
-              <p className="text-[10px] font-bold text-muted-foreground">The nightly sweep opens the ticket on schedule, pre-assigned, with the SLA clock running — and texts the worker if SMS is set up.</p>
+              <p className="text-[10px] font-bold text-muted-foreground">The nightly sweep opens the ticket on schedule, pre-assigned, with both clocks running — and texts whoever it is assigned to if SMS is set up.</p>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </PanelShell>
 
-      {/* ── Workers roster ── */}
+      {/* ── Team roster ── */}
       {/* ── APPROVAL RULES — the business writes its own policy ── */}
       <Dialog open={rulesOpen} onOpenChange={setRulesOpen}>
         <DialogContent className="max-w-sm rounded-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-lg font-black tracking-tight">Approval rules</DialogTitle>
+            <DialogTitle className="text-lg font-black tracking-tight">Maintenance setup</DialogTitle>
             <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
-              Your thresholds, enforced automatically — leave blank to turn a rule off
+              What you approve, and how fast you promise to answer
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            <div className="space-y-0.5">
+              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Part one of two</p>
+              <p className="text-xs font-black">Spend approvals</p>
+              <p className="text-[10px] font-bold text-muted-foreground">Your thresholds, enforced by the server — leave blank to turn a rule off.</p>
+            </div>
             {([
-              { key: 'auto' as const, title: 'Auto-approve small quotes', desc: 'Quotes at or under this amount approve instantly — techs get the green light without waiting on you.', prefix: 'Under $' },
+              { key: 'auto' as const, title: 'Auto-approve small quotes', desc: 'Quotes at or under this amount approve instantly — your team gets the green light without waiting on you.', prefix: 'Under $' },
               { key: 'quote' as const, title: 'Require a quote on big jobs', desc: 'A job can\'t be resolved above this total (materials + labor) unless you approved a quote first. The server blocks it, not the honor system.', prefix: 'Over $' },
               { key: 'receipt' as const, title: 'Require receipts on big purchases', desc: 'Materials above this amount can\'t be logged without a photo of the receipt attached to the ticket.', prefix: 'Over $' },
               { key: 'mileage' as const, title: 'Mileage reimbursement', desc: 'Per-mile rate for job travel (the IRS rate is a common choice, e.g. 0.67). Techs log miles at resolve; the math is automatic and rides their payout balance.', prefix: '$/mile' },
@@ -1622,6 +1646,7 @@ export function MaintenanceSection({
               </div>
             ))}
             <div className="rounded-2xl border-2 p-3 space-y-2">
+              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Part two of two</p>
               <p className="text-xs font-black">Response-time promise</p>
               <p className="text-[10px] font-bold text-muted-foreground">Hours to first answer, and hours to fixed, per priority. Renters see these in their portal before they report anything; a ticket that passes either clock raises a notification. Two clocks, because "someone will look at it Tuesday" heard within the hour is fine — silence is not.</p>
               <div className="grid grid-cols-[1fr_auto_auto] items-center gap-x-2 gap-y-1.5">
@@ -1654,14 +1679,14 @@ export function MaintenanceSection({
       </Dialog>
 
       {/* ── WORK ORDER HISTORY — the archive, with money attached ── */}
-      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
-        <DialogContent className="max-w-lg rounded-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-black tracking-tight">Work order history</DialogTitle>
-            <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
+      <PanelShell show={tab === 'history'}>
+        <div>
+          <div>
+            <p className="text-lg font-black tracking-tight">Work order history</p>
+            <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
               Every finished job — searchable, printable, exportable
-            </DialogDescription>
-          </DialogHeader>
+            </p>
+          </div>
           <div className="space-y-3">
             <div className="flex gap-2 flex-wrap">
               <input value={hQuery} onChange={(e) => setHQuery(e.target.value)} placeholder="Search title, worker, place…"
@@ -1712,17 +1737,17 @@ export function MaintenanceSection({
               </div>
             )}
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </PanelShell>
 
-      <Dialog open={workersOpen} onOpenChange={(o) => { setWorkersOpen(o); if (!o) setProfileWorkerId(null); }}>
-        <DialogContent className="max-w-md rounded-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-black tracking-tight">Maintenance workers</DialogTitle>
-            <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
+      <PanelShell show={tab === 'team'}>
+        <div>
+          <div>
+            <p className="text-lg font-black tracking-tight">Your maintenance team</p>
+            <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
               Each gets a personal portal link — tap a name for their full profile
-            </DialogDescription>
-          </DialogHeader>
+            </p>
+          </div>
           <div className="space-y-3">
             {/* Rotation: one switch, honored by every ticket entry point */}
             <div className={`rounded-2xl border-2 p-3 flex items-center gap-3 ${autoAssign ? 'border-indigo-300 bg-indigo-50' : ''}`}>
@@ -1881,11 +1906,11 @@ export function MaintenanceSection({
                   </button>
                 ))}
               </div>
-              <button onClick={addWorker} disabled={!wForm.name.trim()} className="w-full h-10 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">Add worker</button>
+              <button onClick={addWorker} disabled={!wForm.name.trim()} className="w-full h-10 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">Add to team</button>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </PanelShell>
     </div>
   );
 }
