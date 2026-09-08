@@ -14,7 +14,7 @@
 // the full card — still lives in the hub until its zone moves here too.
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { collection, doc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, updateDoc, setDoc } from 'firebase/firestore';
 import { endLease, offboardingTodos } from '@/lib/booth-rental-service';
 import { useToast } from '@/hooks/use-toast';
 import { useFirebase } from '@/firebase';
@@ -90,6 +90,32 @@ export default function RentersPage() {
       sub('boothReservations', setReservations), sub('amenityRequests', setAmenityRequests)];
     return () => unsubs.forEach((u) => u());
   }, [firestore, tenantId]);
+
+  // ── Turning bookings on ───────────────────────────────────────────────
+  // Everything a renter can run from their portal — menu, hours, booking
+  // link, their book, their clients, their payouts — hangs off one staff
+  // record with isRenter set. Without it their portal is rent and nothing
+  // else, and the only place to create it was a card on another page. The
+  // flag that says it is missing is right here, so the fix is too.
+  const [enabling, setEnabling] = useState('');
+  const enableBookings = async (r: any) => {
+    if (!firestore || !tenantId) return;
+    setEnabling(r.id);
+    try {
+      const existing = staff.find((s: any) => s.isRenter && s.renterId === r.id);
+      const staffId = existing?.id || doc(collection(firestore, 'tenants', tenantId, 'staff')).id;
+      await setDoc(doc(firestore, 'tenants', tenantId, 'staff', staffId), {
+        id: staffId, tenantId, name: `${r.firstName || ''} ${r.lastName || ''}`.trim() || 'Renter',
+        email: r.email || '', phone: r.phone || '', role: 'staff',
+        isRenter: true, renterId: r.id, payStructure: 'none',
+        isActive: true, active: false, onBreak: false, status: 'idle',
+        avatarUrl: r.photoUrl || '', photoUrl: r.photoUrl || '', bio: r.bio || '',
+      }, { merge: true });
+      toast({ title: 'Bookings on', description: `${r.firstName} can now set their menu, hours and booking link from their portal. They still need hours before anyone can book them.` });
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not turn that on', description: 'Try again in a moment.' });
+    } finally { setEnabling(''); }
+  };
 
   const rows = useMemo(() => {
     const boothName = new Map(booths.map((b) => [b.id, b.name || 'Space']));
@@ -228,6 +254,12 @@ export default function RentersPage() {
                     <span className="rounded-full bg-rose-200 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-rose-900">
                       {book.why}
                     </span>
+                  )}
+                  {needsSetup && book.why === 'No provider record yet' && (
+                    <button type="button" onClick={(e) => { e.stopPropagation(); void enableBookings(r); }} disabled={enabling === r.id}
+                      className="rounded-full bg-slate-900 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-white disabled:opacity-40">
+                      {enabling === r.id ? '…' : 'Turn on bookings'}
+                    </button>
                   )}
                   {!needsSetup && ownMode && (
                     <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-slate-600">
