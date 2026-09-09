@@ -1539,6 +1539,9 @@ export async function POST(req: NextRequest) {
     // which hold rent, payouts and Stripe ids.
     if (action === 'my-profile') {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      // Their trading name is theirs to set. Blank it and clients see their
+      // own name again — no separate switch, the field decides.
+      const businessName = body.businessName === undefined ? undefined : String(body.businessName ?? '').trim().slice(0, 80);
       const bio = String(body.bio ?? '').trim().slice(0, 300);
       const instagram = String(body.instagram ?? '').trim()
         .replace(/^https?:\/\/(www\.)?instagram\.com\//i, '')
@@ -1575,18 +1578,25 @@ export async function POST(req: NextRequest) {
 
       const renterPatch: any = { bio, instagram, externalBookingUrl, listExternally };
       if (photoUrl !== undefined) renterPatch.photoUrl = photoUrl;
+      if (businessName !== undefined) renterPatch.businessName = businessName;
       await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set(renterPatch, { merge: true });
 
       try {
         const stSnap = await db.collection(`tenants/${tenantId}/staff`)
           .where('renterId', '==', session.renterId).limit(1).get();
         if (!stSnap.empty) {
-          const mirror: any = { bio, instagram, externalBookingUrl, listExternally };
-          // The booking page renders staff.avatarUrl — writing only photoUrl
-          // meant a renter's face was saved, mirrored, and never shown: the
-          // public page fell through to a random stock portrait. Both fields
-          // are written so neither surface can be the stale one.
-          if (photoUrl !== undefined) { mirror.photoUrl = photoUrl; mirror.avatarUrl = photoUrl || ''; }
+          // One description of what "the same person" means, shared with the
+          // owner's renter card — including the name the booking page shows.
+          const { staffMirrorFields } = await import('@/lib/renter-identity');
+          const cur = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+          const mirror: any = {
+            ...staffMirrorFields({
+              firstName: cur.firstName, lastName: cur.lastName,
+              businessName: businessName === undefined ? cur.businessName : businessName,
+              bio, instagram, photoUrl,
+            }),
+            externalBookingUrl, listExternally,
+          };
           await stSnap.docs[0].ref.set(mirror, { merge: true });
         }
       } catch { /* the portal still shows it; the booking page catches up on the next save */ }
