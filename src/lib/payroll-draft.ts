@@ -64,7 +64,16 @@ export async function buildPayrollDraft(
   ]);
 
   const tenant = (tenantSnap.data() as any) || {};
-  const staff = staffSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+  // ── A BOOTH RENTER IS NOT ON YOUR PAYROLL ──────────────────────────────
+  // Renters share the staff collection because the booking engine needs one
+  // provider record per person. That is a storage decision; it must never
+  // become an employment one. A 1099 booth renter appearing on a payroll
+  // draft is the exact fact pattern that gets a shop reclassified as their
+  // employer — so the guard lives HERE, at the source, not in whichever
+  // screen happens to render the draft. Their money already went to them;
+  // they pay rent for the chair.
+  const staff = staffSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+    .filter((m: any) => m.isRenter !== true);
   const txns = txnSnap.docs.map((d: any) => d.data() as any)
     .map((t: any) => ({
       ...t,
