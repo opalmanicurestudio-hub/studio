@@ -1023,6 +1023,7 @@ function MyProfile({ data, tenantId, token, onChanged }: { data: any; tenantId: 
   const { toast } = useToast();
   const p0 = data?.profile || {};
   const ownSystem = data?.bookingMode === 'own';
+  const [biz, setBiz] = useState(data?.renter?.businessName || '');
   const [bio, setBio] = useState(p0.bio || '');
   const [ig, setIg] = useState(p0.instagram || '');
   const [url, setUrl] = useState(p0.externalBookingUrl || '');
@@ -1046,7 +1047,7 @@ function MyProfile({ data, tenantId, token, onChanged }: { data: any; tenantId: 
     setBusy(true); setErr('');
     const d = await api({
       action: 'my-profile', tenantId, token,
-      bio, instagram: ig, externalBookingUrl: url, listExternally: listed,
+      businessName: biz, bio, instagram: ig, externalBookingUrl: url, listExternally: listed,
       ...(photo ? { photoData: photo } : {}),
     });
     setBusy(false);
@@ -1078,6 +1079,14 @@ function MyProfile({ data, tenantId, token, onChanged }: { data: any; tenantId: 
             </div>
 
             <div className="space-y-1">
+              <label htmlFor="pf-bio" className="block text-[10px] font-black uppercase tracking-widest text-slate-400">About you</label>
+              <label htmlFor="pf-biz" className="block text-[10px] font-black uppercase tracking-widest text-slate-400">Business name</label>
+              <input id="pf-biz" value={biz} onChange={(e) => setBiz(e.target.value.slice(0, 80))} maxLength={80}
+                placeholder={`${data?.renter?.firstName || ''} ${data?.renter?.lastName || ''}`.trim() || 'Your name'}
+                className="mb-1 h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold" />
+              <p className="mb-3 text-[10px] font-bold text-slate-400">
+                What clients see when they book you. Leave it empty and they see your own name.
+              </p>
               <label htmlFor="pf-bio" className="block text-[10px] font-black uppercase tracking-widest text-slate-400">About you</label>
               <textarea id="pf-bio" value={bio} onChange={(e) => setBio(e.target.value)} maxLength={300} rows={3}
                 placeholder="What you specialise in, how long you've been doing it…"
