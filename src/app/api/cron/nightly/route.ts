@@ -1,491 +1,1380 @@
-// src/app/api/cron/reminders/route.ts
+// src/app/api/cron/nightly/route.ts
 //
-// CLIENT APPOINTMENT REMINDERS — runs HOURLY (add to vercel.json:
-//   { "path": "/api/cron/reminders", "schedule": "0 * * * *" }
-// ) and each tenant's reminders go out at THE HOUR THE OWNER CHOSE,
-// in their own timezone. Not another 3am-text machine.
+// Nightly bank sync — runs the same engine as the "Sync now" button for
+// every tenant with a connected bank, so learned rules auto-book overnight
+// and the review inbox is already populated when the owner opens the app.
 //
-// Per-tenant settings, on tenants/{id}.clientNotify (all optional):
-//   enabled          — default true (set false to silence entirely)
-//   sendHour         — local hour 0-23 to send at (default 9 = 9am)
-//   daysBefore       — remind this many days ahead (default 1 = tomorrow)
-//   tzOffsetMinutes  — DEPRECATED. A fixed offset is not a timezone: it
-//                      cannot know that -300 becomes -240 in March, so every
-//                      reminder drifted an hour for eight months a year and
-//                      the civil-hour guard slid with it. Set the studio's
-//                      timezone in Settings instead (tenants/{id}.timezone,
-//                      an IANA name) and this field is ignored. It is still
-//                      honoured while it is the only thing set, so nobody's
-//                      send time moves without them choosing it.
-//
-// Idempotent: each appointment is stamped (reminderSentAt) after its
-// reminder goes out — reruns and overlapping windows can't double-text.
-// Delivery: SMS first, branded-email fallback, per the messaging layer.
+// Vercel setup:
+//   1. vercel.json →  { "crons": [{ "path": "/api/cron/nightly",
+//                                   "schedule": "0 7 * * *" }] }
+//      (07:00 UTC ≈ 2–3am Eastern)
+//   2. Env var CRON_SECRET — Vercel automatically sends it as
+//      "Authorization: Bearer <CRON_SECRET>" on cron invocations.
+//      Requests without it are rejected, so nobody can trigger a sync
+//      storm from outside.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
-import { smsConfigured, sendTenantSms } from '@/lib/sms';
-import { sendNotification } from '@/lib/notify';
+import { syncTenantBankFeed, listBankFeedTenants } from '@/lib/plaid-sync';
+import { generateBillInstances } from '@/lib/bills-recurrence';
+import { logAuditAdmin } from '@/lib/audit';
+import { runReminderSweep } from '@/lib/reminders';
+import { brandedEmailHtml } from '@/lib/email-template';
+import { buildRentInvoice, leasesToInvoice, invoiceKey } from '@/lib/rent-invoices';
+import { resolveCollectionsPolicy, dunningStepsDue, daysLate } from '@/lib/collections-policy';
+import { resolveLeavePolicy, leaveCovering, rentUnderLeave, leavesDueToEnd, addDays, SUBLET_CLEAR_FIELDS } from '@/lib/leave-policy';
+import { ticketAcknowledged, respondByFor } from '@/lib/maintenance';
+import { staffMirrorFields, mirrorDiffers } from '@/lib/renter-identity';
+import { sweepNoShows } from '@/lib/no-show';
+import { reconcileReservations } from '@/lib/stock-reconcile';
+import { sweepStaleCurbside } from '@/lib/stock-reconcile';
+import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import {
-  addDays, dayKey, formatShortDay, formatTime, hourIn, isValidTimeZone, tenantTimeZone,
-} from '@/lib/tenant-time';
+  sweepExpiredRequests, sweepPendingRequestNudge, sweepRecoveryDeadlines, sweepUnpaidAccepted,
+  sweepStalledShipments, sweepStaleCases,
+} from '@/lib/retail-sweeps';
 
-export const dynamic = 'force-dynamic';
-export const maxDuration = 300;
+export const maxDuration = 300; // allow up to 5 min on Vercel Pro
 
-const pad = (n: number) => String(n).padStart(2, '0');
+
+// Branded rent emails ride the same Resend + RESEND_FROM address the rest of
+// the app's mail uses — tenant name as display name, fail-soft everywhere.
+/**
+ * Rent mail goes through sendNotification like every other message. It used
+ * to POST straight to Resend from here, so it never appeared in the delivery
+ * log, was never tracked to delivered/opened, and could not be switched or
+ * reworded in message settings. The kind names already existed in the
+ * catalogue; the sends simply bypassed them.
+ */
+async function sendRentEmail(opts: {
+  db: any; tenantId: string; to: string; fromName: string; subject: string; html: string;
+  kind: string; recipientId?: string | null; recipientName?: string | null;
+}): Promise<boolean> {
+  if (!opts.to) return false;
+  try {
+    const { sendNotification } = await import('@/lib/notify');
+    const r = await sendNotification(opts.db, {
+      tenantId: opts.tenantId, channel: 'email', to: opts.to,
+      subject: opts.subject, html: opts.html, kind: opts.kind,
+      recipientType: 'renter',
+      recipientId: opts.recipientId || null,
+      recipientName: opts.recipientName || null,
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Magic portal link for a renter — mints their portalToken when missing,
+// same mechanism as the owner's "Send portal link" button.
+async function renterPortalLink(db: any, tenantId: string, renterId: string, r: any): Promise<string | null> {
+  try {
+    const base = String(((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.publicOrigin
+      || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/+$/, '');
+    if (!base) return null;
+    let tok = r?.portalToken;
+    if (!tok || String(tok).length < 12) {
+      tok = Array.from({ length: 2 }, () => Math.random().toString(36).slice(2, 10)).join('') + Date.now().toString(36);
+      await db.doc(`tenants/${tenantId}/renters/${renterId}`).set({ portalToken: tok }, { merge: true });
+    }
+    return `${base}/rent/${tenantId}?rt=${tok}`;
+  } catch { return null; }
+}
+
+
+// ── Lease-window stamp ───────────────────────────────────────────────────────
+// A money-free copy of what a renter's lease actually holds — days, times,
+// station, turnover — kept on their STAFF doc so the availability engine can
+// enforce it at read time. It has to live there because the PUBLIC booking page
+// reads staff but must never read leases: leases carry rent.
+//
+// Duplicated (not imported) in /api/portal/renter, which stamps the same shape
+// when a renter opens their portal or saves hours. A route is an endpoint, not
+// a module; this nightly pass is the safety net that catches the case nobody is
+// around for — the owner edits a lease and the renter never opens the portal.
+const DEFAULT_TURNOVER_MINUTES = 15;
+
+function leaseWindowStamp(lease: any, boothBufferMinutes: any, tenant: any): any {
+  if (!lease) return null;
+  const slot = lease.scheduleSlot;
+  const days = Array.isArray(slot?.days) && slot.days.length > 0
+    ? slot.days.map((d: any) => Number(d)).filter((n: number) => n >= 0 && n <= 6)
+    : null;
+  const raw = boothBufferMinutes ?? tenant?.boothTurnoverMinutes ?? DEFAULT_TURNOVER_MINUTES;
+  const turnoverMinutes = Math.max(0, Math.min(120, Number(raw) || 0));
+  return {
+    days,
+    startTime: slot?.startTime || '',
+    endTime: slot?.endTime || '',
+    boothId: lease.boothId || null,
+    turnoverMinutes,
+  };
+}
+
+/** True when the stored stamp already says exactly this — skip a pointless write. */
+function sameLeaseWindow(a: any, b: any): boolean {
+  if (!a || !b) return (!a && !b);
+  return JSON.stringify(a) === JSON.stringify(b);
+}
 
 export async function GET(req: NextRequest) {
-  // Same guard style as the nightly cron: Vercel Cron sends the secret.
-  const auth = req.headers.get('authorization');
-  if (process.env.CRON_SECRET && auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  // ── Auth: only Vercel Cron (or someone holding the secret) may run this ──
+  const secret = process.env.CRON_SECRET;
+  if (secret && req.headers.get('authorization') !== `Bearer ${secret}`) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
   }
+  // v70 — Plaid being unconfigured no longer aborts the whole run: bank
+  // sync is skipped, but bill scheduling below still runs for everyone.
+  const plaidConfigured = !!(process.env.PLAID_CLIENT_ID && process.env.PLAID_SECRET);
+
   const db = getAdminDb();
+  const tenants = plaidConfigured ? await listBankFeedTenants(db) : [];
   const results: Record<string, any> = {};
-  const tenants = await db.collection('tenants').get();
+  let totals = { pulled: 0, matched: 0, autoBooked: 0, needsReview: 0 };
+  if (!plaidConfigured) results['bank-sync'] = { skipped: 'Plaid not configured' };
 
-  for (const tDoc of tenants.docs) {
-    const tid = tDoc.id;
+  for (const tenantId of tenants) {
     try {
-      const cfg = ((tDoc.data() as any)?.clientNotify) || {};
-      if (cfg.enabled === false) { results[tid] = 'disabled'; continue; }
-      const sendHour = Number.isFinite(Number(cfg.sendHour)) ? Math.min(23, Math.max(0, Math.round(Number(cfg.sendHour)))) : 9;
-      const daysBefore = Number.isFinite(Number(cfg.daysBefore)) ? Math.min(7, Math.max(0, Math.round(Number(cfg.daysBefore)))) : 1;
-      // ── WHOSE CLOCK ─────────────────────────────────────────────────────
-      // An IANA zone wins, because only a zone knows about daylight saving.
-      // A stored offset is honoured ONLY while no zone is set: silently
-      // moving a studio's send time by an hour because we improved the code
-      // would be worse than the drift it fixes. `zoneSource` comes back in
-      // the response so a studio still on an offset is visible, not guessed
-      // at — and the legacy default is preserved for the same reason, even
-      // though a default of -300 assumes a country.
-      const tdata = (tDoc.data() as any) || {};
-      const zone = tenantTimeZone(tdata);
-      const hasZone = isValidTimeZone(tdata.timezone)
-        || isValidTimeZone(tdata.timeZone)
-        || isValidTimeZone(tdata.retailSettings?.timezone);
-      const storedOffset = Number.isFinite(Number(cfg.tzOffsetMinutes)) ? Number(cfg.tzOffsetMinutes) : null;
-      const tzOffset = storedOffset ?? -300;
-      const zoneSource = hasZone ? zone : (storedOffset !== null ? `legacy offset ${tzOffset}` : 'legacy default -300');
-
-      // Every "what day / what hour is it there" question in this file goes
-      // through these four, so the zone path and the legacy path can never
-      // disagree about the same moment.
-      const shifted = (d: Date) => new Date(d.getTime() + tzOffset * 60000);
-      const dayOfLocal = (d: Date) => hasZone
-        ? dayKey(d, zone)
-        : `${shifted(d).getUTCFullYear()}-${pad(shifted(d).getUTCMonth() + 1)}-${pad(shifted(d).getUTCDate())}`;
-      const hourOfLocal = (d: Date) => hasZone ? hourIn(d, zone) : shifted(d).getUTCHours();
-      const timeOf = (d: Date) => hasZone
-        ? formatTime(d, zone)
-        : shifted(d).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' });
-      const dayOf = (d: Date) => hasZone
-        ? formatShortDay(d, zone)
-        : shifted(d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
-
-      const nowInstant = new Date();
-
-      // ── WORKS ON A DAILY CRON TOO ───────────────────────────────────────
-      // Vercel's Hobby plan only fires a cron once a day. On an hourly cron
-      // the chosen-hour check is exact and this never triggers; on a daily
-      // cron the chosen hour almost never matches the one hour the cron runs,
-      // and reminders would silently never go out. So: also run when a full
-      // day has passed since this tenant's last run — but only during
-      // daytime, because a cron that happens to fire at 03:00 UTC must never
-      // turn into a 3am text.
-      const stateRef = db.doc(`tenants/${tid}/cronState/reminders`);
-      let lastRunMs = 0;
-      try {
-        const s = await stateRef.get();
-        const v = s.exists ? (s.data() as any)?.lastRunAt : null;
-        if (v) lastRunMs = new Date(v).getTime() || 0;
-      } catch { /* treat as never run */ }
-      const localHour = hourOfLocal(nowInstant);
-      const atChosenHour = localHour === sendHour;
-      const aDayStale = (Date.now() - lastRunMs) >= 20 * 3600000;
-      const civilHour = localHour >= 8 && localHour <= 20;
-      if (!atChosenHour && !(aDayStale && civilHour)) {
-        results[tid] = `waiting (their ${pad(sendHour)}:00, clock ${zoneSource})`;
-        continue;
-      }
-      // Stamped BEFORE the work, not after: if the send loop dies halfway the
-      // catch-up must not re-fire on the very next hour and re-text everyone
-      // the stamping loop had already covered.
-      try { await stateRef.set({ lastRunAt: new Date().toISOString(), localHour }, { merge: true }); } catch { /* best effort */ }
-      const base = String((tDoc.data() as any)?.publicOrigin || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/+$/, '');
-
-      // Target LOCAL day: today + daysBefore, counted in DAYS rather than in
-      // 86,400,000-millisecond blocks. The two differ on the two mornings a
-      // year a day is 23 or 25 hours long, and on those mornings the old sum
-      // landed on the wrong date and skipped everyone.
-      const todayLocal = dayOfLocal(nowInstant);
-      const targetDay = addDays(todayLocal, daysBefore);
-
-      const apts = await db.collection(`tenants/${tid}/appointments`).get();
-
-      // ── Renters' clients are the RENTER'S to message ───────────────────
-      // A booking made through a renter's link is that renter's client. Their
-      // reminder and thank-you go out in the renter's name, only if the renter
-      // switched them on in their portal, and never with the studio's links.
-      // Read once per tenant: renter staff → renter doc + their clientComms.
-      const renterByStaff = new Map<string, { renterId: string; name: string; comms: any; bookingUrl: string | null }>();
-      try {
-        const [stSnap, rSnap] = await Promise.all([
-          db.collection(`tenants/${tid}/staff`).where('isRenter', '==', true).get(),
-          db.collection(`tenants/${tid}/renters`).get(),
-        ]);
-        const renters = new Map(rSnap.docs.map((d) => [d.id, d.data() as any]));
-        for (const d of stSnap.docs) {
-          const st = d.data() as any;
-          const r = st.renterId ? renters.get(String(st.renterId)) : null;
-          if (!r) continue;
-          renterByStaff.set(d.id, {
-            renterId: String(st.renterId), name: `${r.firstName || ''} ${r.lastName || ''}`.trim() || st.name || 'Your provider',
-            comms: r.clientComms || {}, bookingUrl: base ? `${base}/book/${tid}?provider=${d.id}` : null,
-          });
-        }
-      } catch { /* no renters, or none bookable */ }
-      const renterOf = (a: any) => (a?.isRenterBooking ? renterByStaff.get(String(a.renterProviderId || a.staffId)) || null : null);
-      const asRenter = (name: string, text: string) => `${name}: ${text}`;
-
-      // Service names, read once, so a multi-appointment reminder can say
-      // "10:00 Manicure, 11:15 Pedicure" instead of listing bare times.
-      const svcNames = new Map<string, string>();
-      try {
-        const svcSnap = await db.collection(`tenants/${tid}/services`).get();
-        for (const d of svcSnap.docs) svcNames.set(d.id, String((d.data() as any)?.name || ''));
-      } catch { /* names are a nicety, not a requirement */ }
-
-      /**
-       * Reach the client: phone/email on the appointment, else the client doc.
-       * Cached per client — a party of five sharing one profile used to cost
-       * five identical reads.
-       */
-      const contactCache = new Map<string, { phone: string | null; email: string | null }>();
-      const contactFor = async (a: any): Promise<{ phone: string | null; email: string | null }> => {
-        let phone: string | null = a.clientPhone || a.phone || null;
-        let email: string | null = a.clientEmail || a.email || null;
-        if ((!phone || !email) && a.clientId) {
-          let rec = contactCache.get(a.clientId);
-          if (!rec) {
-            try {
-              const c = (await db.doc(`tenants/${tid}/clients/${a.clientId}`).get()).data() as any;
-              rec = { phone: c?.phone || null, email: c?.email || null };
-            } catch {
-              rec = { phone: null, email: null };
-            }
-            contactCache.set(a.clientId, rec);
-          }
-          phone = phone || rec.phone;
-          email = email || rec.email;
-        }
-        return { phone, email };
+      const r = await syncTenantBankFeed(db, tenantId);
+      results[tenantId] = r;
+      totals = {
+        pulled: totals.pulled + r.pulled,
+        matched: totals.matched + r.matched,
+        autoBooked: totals.autoBooked + r.autoBooked,
+        needsReview: totals.needsReview + r.needsReview,
       };
-
-      const firstNameOf = (v: any) => String(v || '').trim().split(/\s+/)[0] || 'Guest';
-
-      // ── ONE MESSAGE PER PERSON PER VISIT ────────────────────────────────────
-      // A three-provider visit is one appointment DOCUMENT per leg, and a party
-      // is one per guest. Reminding per document meant a client booked for
-      // colour then cut then style got three separate texts for what she thinks
-      // of as one appointment — and a party whose guests were added without
-      // phones of their own sent the organizer five texts in a row.
-      //
-      // So: bucket by visit (groupBookingId, else multiProviderGroupId, else the
-      // document itself), then by the contact that would actually receive it.
-      // One message per bucket, listing everything in it. Guests who DID give
-      // their own number still get their own text, because they are their own
-      // bucket — which is right, they are different people.
-      //
-      // Every appointment in a bucket is stamped, so a rerun cannot repeat it.
-      type Bucket = {
-        phone: string | null;
-        email: string | null;
-        // `at` is the REAL instant of the appointment. The old code stored a
-        // Date deliberately shifted by the offset so that reading its UTC
-        // fields gave local ones — a fake moment that sorted correctly by
-        // accident and could not be formatted for any other zone.
-        items: Array<{ ref: any; a: any; id: string; at: Date }>;
-      };
-      let sent = 0, skipped = 0;
-      const buckets = new Map<string, Bucket>();
-      for (const aDoc of apts.docs) {
-        const a = aDoc.data() as any;
-        try {
-          if (!a.startTime || a.reminderSentAt) continue;
-          if (['cancelled', 'canceled', 'no_show', 'completed'].includes(String(a.status || ''))) continue;
-          // The appointment's LOCAL day must match the target day.
-          const at = new Date(a.startTime);
-          if (dayOfLocal(at) !== targetDay) continue;
-
-          const { phone, email } = await contactFor(a);
-          if (!phone && !email) { skipped++; continue; }
-
-          // Renter's booking → renter's reminder, or nothing. Never the studio's.
-          const rp = renterOf(a);
-          if (a.isRenterBooking) {
-            if (!rp || rp.comms.remindersEnabled !== true) { skipped++; continue; }
-            const when = `${dayOf(at)} at ${timeOf(at)}`;
-            const svc = a.renterServiceName || svcNames.get(String(a.serviceId || '')) || 'appointment';
-            const signoff = String(rp.comms.signoff || '').trim();
-            const text = `Reminder — your ${svc} with ${rp.name} is ${daysBefore === 0 ? `today, ${when}` : when}.${signoff ? ` ${signoff}` : ' Reply to this message if you need to change it.'}`;
-            let ok = false;
-            if (phone && smsConfigured()) ok = (await sendTenantSms(db, tid, phone, asRenter(rp.name, text), { email, subject: `Reminder from ${rp.name}` })).ok;
-            if (!ok && email) ok = (await sendNotification(db, { tenantId: tid, channel: 'email', to: email, subject: `Reminder from ${rp.name}`, text, kind: 'renter_client_reminder', appointmentId: aDoc.id, clientId: a.clientId || null, clientName: a.clientName || null, recipientType: 'client' })).ok;
-            if (ok) { try { await aDoc.ref.set({ reminderSentAt: new Date().toISOString(), reminderSentAs: rp.renterId }, { merge: true }); } catch { /* next */ } sent++; } else skipped++;
-            continue;
-          }
-
-          const visitKey = a.groupBookingId || a.multiProviderGroupId || aDoc.id;
-          const key = `${visitKey}::${String(phone || '').trim()}::${String(email || '').trim().toLowerCase()}`;
-          const b = buckets.get(key) || { phone, email, items: [] };
-          b.items.push({ ref: aDoc.ref, a, id: aDoc.id, at });
-          buckets.set(key, b);
-        } catch { skipped++; }
-      }
-
-      for (const b of buckets.values()) {
-        try {
-          b.items.sort((x, y) => x.at.getTime() - y.at.getTime());
-          const first = b.items[0];
-          const when = `${dayOf(first.at)} at ${timeOf(first.at)}`;
-          // v18 — ONE portal for clients: the master check-in link
-          // (/check-in/{token}) — arrival, running-late, concierge,
-          // forms/deposit, and the studio's real cancellation flow all
-          // live there. The old /appt manage page is retired from links.
-          const token = b.items.find((i) => i.a.checkInToken)?.a.checkInToken || null;
-          const manage = token && base ? ` Details & check-in: ${base}/check-in/${token}` : '';
-
-          let msg: string;
-          if (b.items.length === 1) {
-            const withWho = first.a.staffName ? ` with ${first.a.staffName}` : '';
-            msg = daysBefore === 0
-              ? `Reminder — your appointment is today, ${when}${withWho}.${manage}`
-              : `Reminder — your appointment is ${when}${withWho}.${manage}`;
-          } else {
-            // More than one name in the bucket means this phone is covering
-            // other people, so lead each line with who it is for.
-            const names = new Set(b.items.map((i) => String(i.a.clientName || '').trim().toLowerCase()));
-            const lines = b.items.map((i) => {
-              const svcName = svcNames.get(String(i.a.serviceId || '')) || 'appointment';
-              const who = i.a.staffName ? ` with ${i.a.staffName}` : '';
-              return names.size > 1
-                ? `${firstNameOf(i.a.clientName)} ${timeOf(i.at)} ${svcName}${who}`
-                : `${timeOf(i.at)} ${svcName}${who}`;
-            }).join(', ');
-            const dayPart = daysBefore === 0 ? 'today' : dayOf(first.at);
-            msg = names.size > 1
-              ? `Reminder — your group is booked ${dayPart}: ${lines}.${manage}`
-              : `Reminder — you have ${b.items.length} appointments ${dayPart}: ${lines}.${manage}`;
-          }
-
-          let delivered = false;
-          if (b.phone && smsConfigured()) {
-            const r = await sendTenantSms(db, tid, b.phone, msg, { email: b.email, subject: 'Appointment reminder' });
-            delivered = r.ok;
-          }
-          if (!delivered && b.email) {
-            const r = await sendNotification(db, {
-              tenantId: tid, channel: 'email', to: b.email,
-              subject: 'Appointment reminder',
-              text: msg, kind: 'appointment_reminder',
-              appointmentId: first.id, clientId: first.a.clientId || null, clientName: first.a.clientName || null,
-            });
-            delivered = r.ok;
-          }
-          if (delivered) {
-            const stampedAt = new Date().toISOString();
-            // Stamp EVERY appointment the message covered, not just the one it
-            // was addressed from — otherwise the next hourly run finds the
-            // siblings unstamped and texts the same person again.
-            for (const i of b.items) {
-              try { await i.ref.set({ reminderSentAt: stampedAt }, { merge: true }); } catch { /* next */ }
-            }
-            sent += b.items.length;
-          } else skipped += b.items.length;
-        } catch { skipped += b.items.length; }
-      }
-      // ── POST-VISIT FOLLOW-UP — thank-you + review + rebook, the day
-      // after. Retention on autopilot; disable via clientNotify.followUp=false.
-      let followUps = 0;
-      if (cfg.followUp !== false) {
-        const yestDay = addDays(todayLocal, -1);
-        // One thank-you per PERSON, not per document. A client who had colour
-        // then cut then style yesterday had one visit, and the organizer of a
-        // party of five was reachable on one phone — sending per document
-        // meant three texts and five texts respectively. Bucket by the
-        // contact that would actually receive it; guests who gave their own
-        // number are their own bucket and still hear from the studio.
-        type FollowBucket = {
-          phone: string | null;
-          email: string | null;
-          items: Array<{ ref: any; a: any; id: string; at: Date }>;
-        };
-        const followBuckets = new Map<string, FollowBucket>();
-        for (const aDoc of apts.docs) {
-          const a = aDoc.data() as any;
-          try {
-            if (!a.startTime || a.followUpSentAt) continue;
-            if (['cancelled', 'canceled', 'no_show', 'pending_payment'].includes(String(a.status || ''))) continue;
-            const at = new Date(a.startTime);
-            if (dayOfLocal(at) !== yestDay) continue;
-            if (a.isRenterBooking) {
-              // The renter's thank-you: their name, their booking link, no
-              // studio review link. Only if they turned it on.
-              const rp = renterOf(a);
-              if (!rp || rp.comms.thankYouEnabled !== true) continue;
-              const { phone, email } = await contactFor(a);
-              if (!phone && !email) continue;
-              const signoff = String(rp.comms.signoff || '').trim();
-              const text = `Thanks for coming in yesterday — ${rp.name} loved having you!${rp.bookingUrl ? ` Book your next visit: ${rp.bookingUrl}` : ''}${signoff ? ` ${signoff}` : ''}`;
-              let ok = false;
-              if (phone && smsConfigured()) ok = (await sendTenantSms(db, tid, phone, asRenter(rp.name, text), { email, subject: `Thank you from ${rp.name}` })).ok;
-              if (!ok && email) ok = (await sendNotification(db, { tenantId: tid, channel: 'email', to: email, subject: `Thank you from ${rp.name}`, text, kind: 'renter_client_thanks', appointmentId: aDoc.id, clientId: a.clientId || null, clientName: a.clientName || null, recipientType: 'client' })).ok;
-              if (ok) { try { await aDoc.ref.set({ followUpSentAt: new Date().toISOString(), followUpSentAs: rp.renterId }, { merge: true }); } catch { /* next */ } followUps++; }
-              continue;
-            }
-            const { phone, email } = await contactFor(a);
-            if (!phone && !email) continue;
-            const key = `${String(phone || '').trim()}::${String(email || '').trim().toLowerCase()}`;
-            const b = followBuckets.get(key) || { phone, email, items: [] };
-            b.items.push({ ref: aDoc.ref, a, id: aDoc.id, at });
-            followBuckets.set(key, b);
-          } catch { /* next appt */ }
-        }
-
-        for (const b of followBuckets.values()) {
-          try {
-            b.items.sort((x, y) => x.at.getTime() - y.at.getTime());
-            const first = b.items[0];
-            // Thank the whole team that touched the visit, deduped and in the
-            // order they were seen — "Ana and Bea" reads like a studio, three
-            // separate texts read like a mailing list.
-            const who = Array.from(
-              new Set(b.items.map((i) => String(i.a.staffName || '').trim()).filter(Boolean)),
-            );
-            const whoLabel = who.length === 0
-              ? ''
-              : who.length === 1
-                ? who[0]
-                : who.length === 2
-                  ? `${who[0]} and ${who[1]}`
-                  : `${who.slice(0, -1).join(', ')} and ${who[who.length - 1]}`;
-            const bits = [
-              `Thanks for coming in yesterday${whoLabel ? ` — ${whoLabel} loved having you` : ''}!`,
-              cfg.bookingUrl ? `Book your next visit: ${cfg.bookingUrl}` : null,
-              cfg.reviewUrl ? `Enjoyed it? A quick review means the world: ${cfg.reviewUrl}` : null,
-            ].filter(Boolean).join(' ');
-            let delivered = false;
-            if (b.phone && smsConfigured()) {
-              delivered = (await sendTenantSms(db, tid, b.phone, bits, { email: b.email, subject: 'Thank you for visiting' })).ok;
-            }
-            if (!delivered && b.email) {
-              delivered = (await sendNotification(db, {
-                tenantId: tid, channel: 'email', to: b.email,
-                subject: 'Thank you for visiting', text: bits, kind: 'post_visit_followup',
-                appointmentId: first.id, clientId: first.a.clientId || null, clientName: first.a.clientName || null,
-              })).ok;
-            }
-            if (delivered) {
-              const stampedAt = new Date().toISOString();
-              // Stamp every document the one message covered, or tomorrow's
-              // run finds the siblings unstamped and thanks her again.
-              for (const i of b.items) {
-                try { await i.ref.set({ followUpSentAt: stampedAt }, { merge: true }); } catch { /* next */ }
-              }
-              followUps += b.items.length;
-            }
-          } catch { /* next bucket */ }
-        }
-      }
-
-      // ── STAFF MORNING AGENDA — each staffer's day in one text.
-      // Disable via clientNotify.staffAgenda = false.
-      let agendas = 0;
-      if (cfg.staffAgenda !== false && smsConfigured()) {
-        const todayDay = todayLocal;
-        const byStaff = new Map<string, { count: number; firstLabel: string | null; firstMs: number }>();
-        for (const aDoc of apts.docs) {
-          const a = aDoc.data() as any;
-          if (!a.startTime || !a.staffId) continue;
-          if (['cancelled', 'canceled', 'pending_payment'].includes(String(a.status || ''))) continue;
-          const at = new Date(a.startTime);
-          if (dayOfLocal(at) !== todayDay) continue;
-          const cur = byStaff.get(a.staffId) || { count: 0, firstLabel: null, firstMs: Infinity };
-          cur.count++;
-          const ms = at.getTime();
-          if (ms < cur.firstMs) { cur.firstMs = ms; cur.firstLabel = timeOf(at); }
-          byStaff.set(a.staffId, cur);
-        }
-        // Out-of-service context, once per tenant
-        let downNote = '';
-        try {
-          const ts = await db.collection(`tenants/${tid}/tickets`).get();
-          const blocking = ts.docs.map((d: any) => d.data() as any)
-            .filter((t: any) => ['open', 'in_progress'].includes(t.status) && ['urgent', 'high'].includes(t.priority) && t.boothName);
-          if (blocking.length) downNote = ` Note: ${blocking.map((t: any) => t.boothName).filter((v: any, i: number, arr: any[]) => arr.indexOf(v) === i).slice(0, 3).join(', ')} out of service.`;
-        } catch { /* context is a bonus */ }
-        if (byStaff.size > 0) {
-          const staffSnap = await db.collection(`tenants/${tid}/staff`).get();
-          for (const sDoc of staffSnap.docs) {
-            const s = sDoc.data() as any;
-            const agenda = byStaff.get(sDoc.id);
-            if (!agenda || !s.phone || s.active === false || s.archived) continue;
-            try {
-              const r = await sendTenantSms(db, tid, s.phone,
-                `Good morning! Today: ${agenda.count} appointment${agenda.count === 1 ? '' : 's'}, first at ${agenda.firstLabel}.${downNote}`);
-              if (r.ok) agendas++;
-            } catch { /* next staffer */ }
-          }
-        }
-      }
-
-      // ── OWNER MORNING BRIEF — the whole day in one message.
-      // Set clientNotify.ownerPhone to receive it; ownerBrief=false to stop.
-      let brief = false;
-      if (cfg.ownerBrief !== false && cfg.ownerPhone) {
-        try {
-          const todayDay = todayLocal;
-          let apptsToday = 0; let firstLabel: string | null = null; let firstMs = Infinity;
-          for (const aDoc of apts.docs) {
-            const a = aDoc.data() as any;
-            if (!a.startTime || ['cancelled', 'canceled', 'pending_payment'].includes(String(a.status || ''))) continue;
-            const at = new Date(a.startTime);
-            if (dayOfLocal(at) !== todayDay) continue;
-            apptsToday++;
-            if (at.getTime() < firstMs) { firstMs = at.getTime(); firstLabel = timeOf(at); }
-          }
-          let openTickets = 0, overdueTickets = 0;
-          try {
-            const ts = await db.collection(`tenants/${tid}/tickets`).get();
-            for (const d of ts.docs) {
-              const t = d.data() as any;
-              if (!['open', 'in_progress'].includes(t.status)) continue;
-              openTickets++;
-              if (t.dueAt && t.dueAt < new Date().toISOString()) overdueTickets++;
-            }
-          } catch { /* skip */ }
-          let revYesterday = 0;
-          try {
-            const yStart = new Date(Date.now() - 36 * 3600000).toISOString();
-            const txns = await db.collection(`tenants/${tid}/transactions`).where('date', '>=', yStart).get();
-            const yestDay = addDays(todayLocal, -1);
-            for (const d of txns.docs) {
-              const x = d.data() as any;
-              if (x.type !== 'income') continue;
-              if (dayOfLocal(new Date(x.date)) === yestDay) revYesterday += Number(x.amount) || 0;
-            }
-          } catch { /* skip */ }
-          const msg = `Morning brief: ${apptsToday} appointment${apptsToday === 1 ? '' : 's'} today${firstLabel ? ` (first ${firstLabel})` : ''} · ${openTickets} open maintenance${overdueTickets ? ` (${overdueTickets} overdue)` : ''} · $${revYesterday.toFixed(0)} collected yesterday.`;
-          if (smsConfigured()) brief = (await sendTenantSms(db, tid, cfg.ownerPhone, msg)).ok;
-        } catch { /* brief is a bonus */ }
-      }
-
-      results[tid] = { sent, skipped, targetDay, followUps, agendas, ownerBrief: brief, clock: zoneSource };
+      // Stamp the tenant so the UI can show "last synced overnight"
+      await db.doc(`tenants/${tenantId}`).set(
+        { bankFeed: { lastAutoSyncAt: new Date().toISOString(), lastAutoSyncResult: r } },
+        { merge: true },
+      );
     } catch (e: any) {
-      results[tid] = { error: String(e?.message || e).slice(0, 120) };
+      // One tenant's failure must never block the rest
+      results[tenantId] = { error: String(e?.message || e).slice(0, 200) };
     }
   }
-  return NextResponse.json({ ok: true, results });
+
+  // ── Renter client back-tag — one pass per tenant, then never again ───────
+  // Before ownership existed, every client a renter brought in was written
+  // into the studio's book. This hands them back: a client whose bookings
+  // are ALL renter bookings through ONE renter is that renter's client.
+  // Anyone with mixed history stays with the studio — the only honest call
+  // when the record can't say. Stamped on the tenant so it runs once.
+  let clientsBacktagged = 0;
+  for (const tDoc of (await db.collection('tenants').get()).docs) {
+    try {
+      const td = tDoc.data() as any;
+      if (td.renterClientsBacktaggedAt) continue;
+      const [apSnap, stSnap] = await Promise.all([
+        db.collection(`tenants/${tDoc.id}/appointments`).where('isRenterBooking', '==', true).get(),
+        db.collection(`tenants/${tDoc.id}/staff`).get(),
+      ]);
+      const renterIdByStaff = new Map<string, string>();
+      for (const d of stSnap.docs) { const x = d.data() as any; if (x.isRenter && x.renterId) renterIdByStaff.set(d.id, String(x.renterId)); }
+      // clientId → set of renter provider staffIds seen
+      const byClient = new Map<string, Set<string>>();
+      for (const d of apSnap.docs) {
+        const a = d.data() as any;
+        if (!a.clientId || !a.renterProviderId) continue;
+        const set = byClient.get(a.clientId) || new Set<string>();
+        set.add(String(a.renterProviderId));
+        byClient.set(a.clientId, set);
+      }
+      for (const [clientId, providers] of byClient) {
+        if (providers.size !== 1) continue;
+        const staffId = [...providers][0];
+        const renterId = renterIdByStaff.get(staffId);
+        if (!renterId) continue;
+        const cRef = db.doc(`tenants/${tDoc.id}/clients/${clientId}`);
+        const cSnap = await cRef.get();
+        if (!cSnap.exists) continue;
+        const c = cSnap.data() as any;
+        if (c.ownerRenterId) continue;
+        // Any studio (non-renter) appointment for this client keeps them with the studio.
+        const studioAp = await db.collection(`tenants/${tDoc.id}/appointments`).where('clientId', '==', clientId).limit(25).get();
+        if (studioAp.docs.some((d) => !(d.data() as any).isRenterBooking)) continue;
+        await cRef.set({ ownerRenterId: renterId, ownerStaffId: staffId, ownerAssignedAt: new Date().toISOString(), ownerAssignedBy: 'backtag' }, { merge: true });
+        clientsBacktagged++;
+      }
+      await tDoc.ref.set({ renterClientsBacktaggedAt: new Date().toISOString() }, { merge: true });
+    } catch (e) { console.error('[cron/nightly] client backtag', tDoc.id, e); }
+  }
+  results.clientsBacktagged = clientsBacktagged;
+
+  // ── Renter identity back-fill — one pass per tenant, then never again ────
+  // Name, photo, bio and contact live on the renter doc; the booking page
+  // reads the PROVIDER doc. Every renter created before those two were kept
+  // in step has a provider record carrying whatever was true the day it was
+  // made. This walks them once. Nothing is invented: only fields the renter
+  // record actually has are copied, and a provider already matching is
+  // skipped, so a renter who has since set their own photo or bio from the
+  // portal is left exactly as they are.
+  let identitiesSynced = 0;
+  for (const tDoc of (await db.collection('tenants').get()).docs) {
+    try {
+      if ((tDoc.data() as any).renterIdentityBackfilledAt) continue;
+      const [stSnap, rSnap] = await Promise.all([
+        db.collection(`tenants/${tDoc.id}/staff`).where('isRenter', '==', true).get(),
+        db.collection(`tenants/${tDoc.id}/renters`).get(),
+      ]);
+      const renters = new Map(rSnap.docs.map((d) => [d.id, { id: d.id, ...(d.data() as any) }]));
+      for (const d of stSnap.docs) {
+        const st = d.data() as any;
+        const r: any = st.renterId ? renters.get(String(st.renterId)) : null;
+        if (!r) continue;
+        const mirror = staffMirrorFields(r);
+        if (Object.keys(mirror).length === 0 || !mirrorDiffers(mirror, st)) continue;
+        await d.ref.set(mirror, { merge: true });
+        identitiesSynced++;
+      }
+      await tDoc.ref.set({ renterIdentityBackfilledAt: new Date().toISOString() }, { merge: true });
+    } catch (e) { console.error('[cron/nightly] renter identity backfill', tDoc.id, e); }
+  }
+  results.identitiesSynced = identitiesSynced;
+
+  // ── Scheduled rent changes — a signed renewal whose start date has come ─
+  // The renter signed the new rent weeks ago; the lease waited. Today the
+  // number moves, once, with the old one kept beside it. Runs BEFORE
+  // invoicing so the first invoice on or after the start date is at the new
+  // rate — no "we'll fix it next month".
+  let rentChangesApplied = 0;
+  for (const tDoc of (await db.collection('tenants').get()).docs) {
+    try {
+      const today = todayIn(tenantTimeZone(tDoc.data() as any));
+      const snap = await db.collection(`tenants/${tDoc.id}/leases`).where('scheduledRent.from', '<=', today).get();
+      for (const d of snap.docs) {
+        const l = d.data() as any;
+        const sr = l.scheduledRent;
+        if (!sr || !Number.isFinite(Number(sr.cents)) || Number(sr.cents) <= 0) continue;
+        await d.ref.set({
+          rentAmountCents: Math.round(Number(sr.cents)), previousRentAmountCents: Number(l.rentAmountCents) || 0,
+          rentChangedAt: new Date().toISOString(), rentChangedFromDocumentId: sr.documentId || null, scheduledRent: null,
+        }, { merge: true });
+        await logAuditAdmin(db, tDoc.id, {
+          action: 'lease.rent_changed', targetType: 'lease', targetId: d.id,
+          summary: `Rent moved to ${(Number(sr.cents) / 100).toFixed(2)} per the signed renewal (from ${sr.from})`,
+          actor: { type: 'system', name: 'renewal-scheduler' },
+        });
+        rentChangesApplied++;
+      }
+    } catch (e) { console.error('[cron/nightly] scheduled rent', tDoc.id, e); }
+  }
+  results.rentChangesApplied = rentChangesApplied;
+
+  // ── Rent invoices — one per lease per due day, made for the owner ────────
+  // The late sweep below, the due reminder, the planner and the renter portal
+  // all read rentInvoices; until now nothing wrote it, so none of them ever
+  // had anything to act on. Runs first so today's invoices exist before the
+  // sweep judges them. Idempotent on leaseId+dueDate. Starts clean: no
+  // back-fill of months that were never invoiced.
+  let rentInvoiced = 0;
+  for (const tDoc of (await db.collection('tenants').get()).docs) {
+    try {
+      const tenantData = tDoc.data() as any;
+      const today = todayIn(tenantTimeZone(tenantData));
+      const leasesSnap = await db.collection(`tenants/${tDoc.id}/leases`).where('status', '==', 'active').get();
+      if (leasesSnap.empty) continue;
+      const leases = leasesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+      const existingSnap = await db.collection(`tenants/${tDoc.id}/rentInvoices`).where('dueDate', '==', today).get();
+      const existing = new Set(existingSnap.docs.map((d) => invoiceKey(String((d.data() as any).leaseId || ''), today)));
+      const due = leasesToInvoice(leases, today, existing);
+      if (due.length === 0) continue;
+
+      // Approved leave changes what is invoiced — paused, reduced, or full —
+      // and only APPROVED leave: a request still waiting on the owner is
+      // invoiced as normal, so a slow reply never silently costs the shop.
+      const leavePolicy = resolveLeavePolicy(tenantData);
+      const leavesSnap = await db.collection(`tenants/${tDoc.id}/renterLeaves`).where('status', '==', 'approved').get();
+      const leaves = leavesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+
+      const nowIso = new Date().toISOString();
+      const batch = db.batch();
+      const names: string[] = [];
+      for (const lease of due) {
+        const leave = leaveCovering(leaves, lease.id, today);
+        const treat = rentUnderLeave(leave, Number(lease.rentAmountCents) || 0, leavePolicy);
+        if (treat === null) {
+          // Paused: no invoice. Count the day toward the lease extension.
+          await db.doc(`tenants/${tDoc.id}/renterLeaves/${leave!.id}`).set({ pausedDays: (Number(leave!.pausedDays) || 0) + 1, lastPausedDue: today }, { merge: true });
+          continue;
+        }
+        if (leave?.treatment === 'bank') {
+          await db.doc(`tenants/${tDoc.id}/renterLeaves/${leave.id}`).set({ bankedDays: (Number(leave.bankedDays) || 0) + leavePolicy.bankDaysPerWeek, lastBankedDue: today }, { merge: true });
+        }
+        const [renterSnap, boothSnap] = await Promise.all([
+          db.doc(`tenants/${tDoc.id}/renters/${lease.renterId}`).get(),
+          db.doc(`tenants/${tDoc.id}/booths/${lease.boothId}`).get(),
+        ]);
+        const ref = db.collection(`tenants/${tDoc.id}/rentInvoices`).doc();
+        const inv = buildRentInvoice({
+          id: ref.id, lease: { ...lease, rentAmountCents: treat.amountCents }, renter: renterSnap.data(), booth: boothSnap.data(),
+          dueDate: today, source: 'nightly', nowIso,
+        });
+        if (leave) (inv as any).leaveId = leave.id, (inv as any).leaveNote = treat.label;
+        batch.set(ref, inv);
+        if (names.length < 3) names.push(inv.renterName);
+        rentInvoiced++;
+
+        // Tell the renter it's due today. Autopay renters are told there is
+        // nothing to do; manual payers get the pay link. Switchable and
+        // rewordable in message settings as 'rent_invoiced'.
+        const rd = renterSnap.data() as any;
+        if (rd && String(rd.email || '').includes('@')) {
+          try {
+            const { sendNotification } = await import('@/lib/notify');
+            const first = String(rd.firstName || '').trim() || 'there';
+            const amount = `$${(inv.amountCents / 100).toFixed(2)}`;
+            const payUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'https://studio-one-blue.vercel.app'}/rent/${tDoc.id}`;
+            const studio = String(tenantData.name || tenantData.businessName || '').trim() || 'The studio';
+            await sendNotification(db, {
+              tenantId: tDoc.id, channel: 'email', to: rd.email,
+              subject: `Rent due today — ${amount}`,
+              html: brandedEmailHtml({ studioName: studio, title: 'Rent is due today', bodyLines: [
+                `Hi ${first} — rent of ${amount} for ${inv.boothName} is due today.`,
+                rd.autopayEnabled === true
+                  ? 'You are on autopay, so there is nothing to do — we will send a receipt once it goes through.'
+                  : 'You can pay from your portal in a tap, or at the front desk.',
+              ], ...(rd.autopayEnabled === true ? {} : { cta: { label: 'Pay now', url: payUrl } }), footerNote: `Sent by ${studio}.` }),
+              kind: 'rent_invoiced', recipientType: 'renter', recipientId: lease.renterId, recipientName: inv.renterName,
+              tokens: { renter_first: first, amount, when: today, link: payUrl, studio },
+            });
+          } catch { /* the invoice stands */ }
+        }
+      }
+      const nRef = db.collection(`tenants/${tDoc.id}/notifications`).doc();
+      batch.set(nRef, {
+        id: nRef.id, type: 'rent_invoiced', read: false, createdAt: nowIso, link: '/rent',
+        message: due.length === 1
+          ? `Rent invoiced: ${names[0]} — due today.`
+          : `Rent invoiced for ${due.length} renters (${names.join(', ')}${due.length > 3 ? ', …' : ''}) — due today.`,
+      });
+      await batch.commit();
+      await logAuditAdmin(db, tDoc.id, {
+        action: 'rent.invoice', targetType: 'rentInvoice',
+        summary: `Invoiced ${due.length} lease${due.length === 1 ? '' : 's'} for ${today}`,
+        actor: { type: 'system', name: 'rent-invoicer' },
+      });
+    } catch (e) { console.error('[cron/nightly] rent invoicing', tDoc.id, e); }
+  }
+  results.rentInvoiced = rentInvoiced;
+
+  // ── Leave lifecycle — bring people home on the day they said ────────────
+  // Runs AFTER invoicing so a leave's last day is still honoured by the run
+  // that closes it. The direction matters: this restores normal rent rather
+  // than suspending it, which is why it is the one automation here that
+  // defaults on. A shop that turns autoEnd off gets a decision raised
+  // instead — never silence, because a leave nobody closes invoices nothing
+  // forever and that is how a chair sits empty and unbilled for a year.
+  let leavesEnded = 0, returnsDue = 0;
+  for (const tDoc of (await db.collection('tenants').get()).docs) {
+    try {
+      const tenantData = tDoc.data() as any;
+      const today = todayIn(tenantTimeZone(tenantData));
+      const lp = resolveLeavePolicy(tenantData);
+      const snap = await db.collection(`tenants/${tDoc.id}/renterLeaves`).where('status', '==', 'approved').get();
+      const openLeaves = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+      const overdue = leavesDueToEnd(openLeaves, today);
+      if (overdue.length === 0) continue;
+      const nowIso = new Date().toISOString();
+
+      for (const leave of overdue) {
+        if (!lp.autoEnd) {
+          if (leave.returnDueNotifiedAt) continue;
+          await db.doc(`tenants/${tDoc.id}/renterLeaves/${leave.id}`).set({ returnDueNotifiedAt: nowIso }, { merge: true });
+          const nRef = db.collection(`tenants/${tDoc.id}/notifications`).doc();
+          await nRef.set({
+            id: nRef.id, type: 'renter_leave', read: false, createdAt: nowIso, link: '/rent',
+            message: `${leave.renterName || 'A renter'} was due back on ${leave.endDate}. End their leave to put rent back to normal.`,
+          });
+          returnsDue++;
+          continue;
+        }
+
+        const leaseRef = db.doc(`tenants/${tDoc.id}/leases/${leave.leaseId}`);
+        const leaseSnap = await leaseRef.get();
+        const lease = (leaseSnap.data() as any) || {};
+
+        // A paused leave owes the renter the days it took. The lease end date
+        // moves out by exactly the number of due days that raised no invoice
+        // — a counted fact, not an estimate from the calendar.
+        const pausedDays = Number(leave.pausedDays) || 0;
+        const leasePatch: Record<string, any> = { status: 'active', leaveId: null, leaveEndedAt: nowIso };
+        if (leave.treatment === 'pause' && pausedDays > 0 && typeof lease.endDate === 'string' && lease.endDate) {
+          leasePatch.endDate = addDays(lease.endDate, pausedDays);
+          leasePatch.endDateExtendedByLeaveDays = (Number(lease.endDateExtendedByLeaveDays) || 0) + pausedDays;
+        }
+        if (leaseSnap.exists) await leaseRef.set(leasePatch, { merge: true });
+
+        // The sublet window closes with the leave. It is a date range, so it
+        // has already stopped selling on its own — this only tidies the booth
+        // so the next sublet starts from a clean field.
+        if (leave.treatment === 'sublet' && lease.boothId) {
+          await db.doc(`tenants/${tDoc.id}/booths/${lease.boothId}`).set(SUBLET_CLEAR_FIELDS, { merge: true }).catch(() => null);
+        }
+
+        await db.doc(`tenants/${tDoc.id}/renterLeaves/${leave.id}`).set({
+          status: 'ended', endedAt: nowIso, endedBy: 'system',
+          leaseExtendedDays: leave.treatment === 'pause' ? pausedDays : 0,
+        }, { merge: true });
+        await db.doc(`tenants/${tDoc.id}/renters/${leave.renterId}`).set({ status: 'active', leaveId: null }, { merge: true });
+
+        const nRef = db.collection(`tenants/${tDoc.id}/notifications`).doc();
+        await nRef.set({
+          id: nRef.id, type: 'renter_leave', read: false, createdAt: nowIso, link: '/rent',
+          message: `${leave.renterName || 'A renter'} is back from leave — rent is back to normal${leasePatch.endDate ? `, and their lease now ends ${leasePatch.endDate}` : ''}.`,
+        });
+        await logAuditAdmin(db, tDoc.id, {
+          action: 'renter.leave_ended', targetType: 'renterLeave', targetId: leave.id,
+          summary: `Leave ended on schedule (${leave.startDate} to ${leave.endDate})${pausedDays > 0 ? `, lease extended ${pausedDays} day${pausedDays === 1 ? '' : 's'}` : ''}`,
+          actor: { type: 'system', name: 'leave-sweeper' },
+        });
+        // Tell them, in the same voice everything else uses. A renter whose
+        // rent silently restarts finds out from an invoice; that is how a
+        // return becomes an argument.
+        try {
+          const rSnap = await db.doc(`tenants/${tDoc.id}/renters/${leave.renterId}`).get();
+          const renter = (rSnap.data() as any) || {};
+          const to = String(renter.email || '').trim();
+          if (to.includes('@')) {
+            const { sendNotification } = await import('@/lib/notify');
+            const studio = String(tenantData.name || tenantData.businessName || '').trim() || 'The studio';
+            const banked = Math.max(0, (Number(leave.bankedDays) || 0) - (Number(leave.redeemedDays) || 0));
+            const lines = [
+              `Hi ${String(renter.firstName || '').trim() || 'there'} — welcome back. Your time away ended ${leave.endDate}, and rent goes back to normal from here.`,
+            ];
+            if (leasePatch.endDate) lines.push(`Because rent was paused, your lease now runs to ${leasePatch.endDate} — the ${pausedDays} day${pausedDays === 1 ? '' : 's'} you missed were added back.`);
+            if (banked > 0) lines.push(`You have ${banked} banked rental day${banked === 1 ? '' : 's'} waiting. Ask to use them from your portal whenever you like.`);
+            await sendNotification(db, {
+              tenantId: tDoc.id, channel: 'email', to,
+              subject: 'Welcome back — your rent is back to normal',
+              html: brandedEmailHtml({ studioName: studio, title: 'Welcome back', bodyLines: lines, footerNote: `Sent by ${studio}.` }),
+              kind: 'leave_ended', recipientType: 'renter', recipientId: leave.renterId,
+              recipientName: `${renter.firstName || ''} ${renter.lastName || ''}`.trim() || null,
+            });
+          }
+        } catch { /* the leave still ended */ }
+        leavesEnded++;
+      }
+    } catch (e) { console.error('[cron/nightly] leave lifecycle', tDoc.id, e); }
+  }
+  results.leavesEnded = leavesEnded;
+  results.leaveReturnsDue = returnsDue;
+
+  // ── Collections — escalation and barring, per the SHOP's policy ─────────
+  // Runs after the late sweep so it only ever sees invoices already judged
+  // late. With the default policy this block does nothing at all: no steps,
+  // no auto-bar. Every consequence below exists only because the owner
+  // switched it on in /rent → Collections.
+  let dunningSent = 0, autoBarred = 0;
+  for (const tDoc of (await db.collection('tenants').get()).docs) {
+    try {
+      const tenantData = tDoc.data() as any;
+      const policy = resolveCollectionsPolicy(tenantData);
+      if (policy.dunningDays.length === 0 && policy.autoBarAfterDaysLate === null && !policy.autoBarOnLeaseEndOwing) continue;
+      const today = todayIn(tenantTimeZone(tenantData));
+      const studio = String(tenantData.name || tenantData.businessName || '').trim() || 'The studio';
+      const origin = process.env.NEXT_PUBLIC_APP_URL || 'https://studio-one-blue.vercel.app';
+      const lateSnap = await db.collection(`tenants/${tDoc.id}/rentInvoices`).where('status', '==', 'late').get();
+      if (lateSnap.empty && !policy.autoBarOnLeaseEndOwing) continue;
+
+      const byRenter = new Map<string, any[]>();
+      for (const d of lateSnap.docs) {
+        const inv = { id: d.id, ...(d.data() as any) };
+        const list = byRenter.get(inv.renterId) || []; list.push(inv); byRenter.set(inv.renterId, list);
+      }
+
+      for (const [renterId, invs] of byRenter) {
+        const rSnap = await db.doc(`tenants/${tDoc.id}/renters/${renterId}`).get();
+        const renter = (rSnap.data() as any) || {};
+        const first = String(renter.firstName || '').trim() || 'there';
+        const owedCents = invs.reduce((n, i) => n + (Number(i.amountCents) || 0) + (Number(i.lateFeeCents) || 0) - (Number(i.paidCents) || 0), 0);
+        const oldestDays = Math.max(...invs.map((i) => daysLate(String(i.dueDate || ''), today)));
+        const payUrl = `${origin}/rent/${tDoc.id}`;
+
+        // Escalating notices — one per step per invoice, ever.
+        for (const inv of invs) {
+          const sent: number[] = Array.isArray(inv.dunningSentDays) ? inv.dunningSentDays : [];
+          const due = dunningStepsDue(policy, String(inv.dueDate || ''), today, sent);
+          if (due.length === 0) continue;
+          const step = Math.max(...due);
+          const { sendNotification } = await import('@/lib/notify');
+          const amount = `$${(((Number(inv.amountCents) || 0) + (Number(inv.lateFeeCents) || 0) - (Number(inv.paidCents) || 0)) / 100).toFixed(2)}`;
+          const bodyLines = [
+            `Hi ${first} — rent of ${amount} due ${inv.dueDate} is now ${step} days late.`,
+            policy.autoBarAfterDaysLate !== null && step < policy.autoBarAfterDaysLate
+              ? `If it isn't settled by ${policy.autoBarAfterDaysLate} days late, booking with us will be paused until it is.`
+              : 'Please settle it, or reply if you need to work something out — we would rather talk than chase.',
+          ];
+          if (String(renter.email || '').includes('@')) {
+            await sendNotification(db, {
+              tenantId: tDoc.id, channel: 'email', to: renter.email,
+              subject: `Rent ${step} days late — ${amount}`,
+              html: brandedEmailHtml({ studioName: studio, title: `Rent is ${step} days late`, bodyLines, cta: { label: 'Pay now', url: payUrl }, footerNote: `Sent by ${studio}.` }),
+              kind: 'rent_dunning', recipientType: 'renter', recipientId: renterId,
+              recipientName: `${renter.firstName || ''} ${renter.lastName || ''}`.trim() || null,
+              tokens: { renter_first: first, amount, days_late: step, when: String(inv.dueDate || ''), studio, link: payUrl },
+            });
+          }
+          if (String(renter.phone || '').replace(/[^0-9]/g, '').length >= 10) {
+            await sendNotification(db, {
+              tenantId: tDoc.id, channel: 'sms', to: renter.phone,
+              text: `${studio}: rent of ${amount} (due ${inv.dueDate}) is ${step} days late. Pay here: ${payUrl}`,
+              kind: 'rent_dunning', recipientType: 'renter', recipientId: renterId,
+            });
+          }
+          await db.doc(`tenants/${tDoc.id}/rentInvoices/${inv.id}`).set({ dunningSentDays: [...sent, ...due], updatedAt: new Date().toISOString() }, { merge: true });
+          dunningSent++;
+        }
+
+        // Automatic bar — only if the shop set a day, and only once.
+        if (policy.autoBarAfterDaysLate !== null && oldestDays >= policy.autoBarAfterDaysLate && renter.doNotRent !== true && owedCents > 0) {
+          const nowIso = new Date().toISOString();
+          await rSnap.ref.set({ doNotRent: true, doNotRentAt: nowIso, doNotRentReason: `Rent ${oldestDays} days late (automatic, per collections policy)`, doNotRentBy: 'system' }, { merge: true });
+          const nRef = db.collection(`tenants/${tDoc.id}/notifications`).doc();
+          await nRef.set({ id: nRef.id, type: 'renter_barred', read: false, createdAt: nowIso, link: '/rent',
+            message: `${renter.firstName || 'A renter'} ${renter.lastName || ''} was barred from booking — rent ${oldestDays} days late, per your collections policy.`.replace(/\s+/g, ' ') });
+          if (policy.notifyOnBar && String(renter.email || '').includes('@')) {
+            const { sendNotification } = await import('@/lib/notify');
+            await sendNotification(db, {
+              tenantId: tDoc.id, channel: 'email', to: renter.email,
+              subject: `Booking paused — outstanding rent with ${studio}`,
+              html: brandedEmailHtml({ studioName: studio, title: 'Booking is paused', bodyLines: [
+                `Hi ${first} — with rent now ${oldestDays} days late, booking with us is paused until the balance is settled.`,
+                'Settle it and booking reopens straight away. If something is going on, reply — we would rather know.',
+              ], cta: { label: 'Settle now', url: payUrl }, footerNote: `Sent by ${studio}.` }),
+              kind: 'renter_barred_notice', recipientType: 'renter', recipientId: renterId,
+              tokens: { renter_first: first, amount: `$${(owedCents / 100).toFixed(2)}`, link: payUrl, studio },
+            });
+          }
+          autoBarred++;
+        }
+      }
+
+      // Lease ended owing — bar automatically if the shop chose that.
+      if (policy.autoBarOnLeaseEndOwing) {
+        const renterIds = new Set(Array.from(byRenter.keys()));
+        for (const renterId of renterIds) {
+          const activeLease = await db.collection(`tenants/${tDoc.id}/leases`).where('renterId', '==', renterId).where('status', '==', 'active').limit(1).get();
+          if (!activeLease.empty) continue;
+          const rRef = db.doc(`tenants/${tDoc.id}/renters/${renterId}`);
+          const r = (await rRef.get()).data() as any;
+          if (!r || r.doNotRent === true) continue;
+          await rRef.set({ doNotRent: true, doNotRentAt: new Date().toISOString(), doNotRentReason: 'Lease ended with rent owing (automatic, per collections policy)', doNotRentBy: 'system' }, { merge: true });
+          autoBarred++;
+        }
+      }
+    } catch (e) { console.error('[cron/nightly] collections', tDoc.id, e); }
+  }
+  results.dunningSent = dunningSent;
+  results.autoBarred = autoBarred;
+
+  // ── v70: recurring bill scheduler — for EVERY tenant (bills exist
+  // without banks), ensure each bill definition has its next unpaid
+  // instance on its own cadence (daily/weekly/bi-weekly/monthly/
+  // quarterly/annual). One pending instance per bill at a time.
+  let billsScheduled = 0;
+  const allTenantsSnap = await db.collection('tenants').get();
+  for (const tDoc of allTenantsSnap.docs) {
+    try {
+      const created = await generateBillInstances(db, tDoc.id);
+      if (created > 0) {
+        billsScheduled += created;
+        await logAuditAdmin(db, tDoc.id, {
+          action: 'bill.generate', targetType: 'bill',
+          summary: `Scheduled ${created} upcoming bill due date${created === 1 ? '' : 's'} on their cadence`,
+          actor: { type: 'system', name: 'bill-scheduler' },
+        });
+      }
+    } catch (e) {
+      results[`bills:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
+    }
+  }
+
+  // ── v84: late-rent sweep — 'due' invoices past dueDate + grace flip to
+  // 'late' and the lease's late-fee policy is applied ONCE. Only manual-
+  // collection leases: auto-collect leases are latened by their own
+  // charger (grace 3 → fee + retry → final retry day 7). Policy disabled
+  // still marks late after a default 3-day grace — just without a fee.
+  let rentMarkedLate = 0;
+  let leasesRenewed = 0;
+  let leaseWindowsSynced = 0;
+  let profileMirrorsSynced = 0;
+  let rentalDaysGranted = 0;
+  let toursFlagged = 0;
+  for (const tDoc of allTenantsSnap.docs) {
+    try {
+      // "Today" belongs to the studio, not to the server. This ran at 07:00
+      // UTC, which is 2am Eastern and 11pm Pacific the PREVIOUS day — so a
+      // west-coast studio had rent marked late, and leases renewed, a day
+      // early. Computed per tenant for the same reason.
+      const todayStr = todayIn(tenantTimeZone(tDoc.data() as any));
+      const leasesSnap = await db.collection(`tenants/${tDoc.id}/leases`).get();
+      const leaseById = new Map(leasesSnap.docs.map((d: any) => [d.id, d.data()]));
+
+      // ── Lease-window sync — push each active lease's shape onto the renter's
+      // staff doc so the booking engine (and the public page) can honor it.
+      // Without this, a lease edited by the owner never reaches the booking
+      // grid: the renter's saved hours were clamped when THEY saved them, and
+      // nothing rewrote them afterwards, so the chair kept selling old days.
+      try {
+        const tenantData = tDoc.data() as any;
+        const renterStaffSnap = await db.collection(`tenants/${tDoc.id}/staff`).where('isRenter', '==', true).get();
+        const boothBuffer = new Map<string, any>();
+        for (const sd of renterStaffSnap.docs) {
+          const st = sd.data() as any;
+          if (!st.renterId) continue;
+          const lease = leasesSnap.docs
+            .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+            .find((l: any) => l.renterId === st.renterId && ['active', 'on_leave'].includes(String(l.status)));
+          let bufferMinutes: any = undefined;
+          if (lease?.boothId) {
+            if (!boothBuffer.has(lease.boothId)) {
+              try {
+                const b = await db.doc(`tenants/${tDoc.id}/booths/${lease.boothId}`).get();
+                boothBuffer.set(lease.boothId, b.exists ? (b.data() as any)?.dayUseBufferMinutes : undefined);
+              } catch { boothBuffer.set(lease.boothId, undefined); }
+            }
+            bufferMinutes = boothBuffer.get(lease.boothId);
+          }
+          const next = leaseWindowStamp(lease, bufferMinutes, tenantData);
+          if (!sameLeaseWindow(st.leaseWindow || null, next)) {
+            await sd.ref.set({ leaseWindow: next }, { merge: true });
+            leaseWindowsSynced++;
+          }
+        }
+      } catch (e) { console.error('[cron/nightly] lease-window sync', e); }
+      // ── Profile mirror + day-rental availability reconcile ────────────────
+      // Two things elsewhere are written best-effort and would otherwise stay
+      // wrong forever if their write happened to fail: the public half of a
+      // renter's profile (mirrored onto the staff doc, which is what the
+      // booking page reads) and the availability a confirmed day rental buys.
+      // Both are cheap to recompute and only written when they actually differ,
+      // so this stays quiet after the first pass.
+      try {
+        const renterSnap = await db.collection(`tenants/${tDoc.id}/renters`).get();
+        const rentersById = new Map<string, any>();
+        renterSnap.docs.forEach((d: any) => rentersById.set(d.id, d.data()));
+        const staffSnap2 = await db.collection(`tenants/${tDoc.id}/staff`).where('isRenter', '==', true).get();
+
+        for (const sd of staffSnap2.docs) {
+          const st = sd.data() as any;
+          const r = st.renterId ? rentersById.get(st.renterId) : null;
+          if (!r) continue;
+          const want = {
+            bio: r.bio || '',
+            instagram: r.instagram || '',
+            photoUrl: r.photoUrl || '',
+            externalBookingUrl: r.externalBookingUrl || '',
+            listExternally: r.listExternally === true,
+            bookingOptOut: r.bookingMode === 'own',
+          };
+          const drifted = Object.entries(want).some(([k, v]) => (st as any)[k] !== v && !((st as any)[k] === undefined && (v === '' || v === false)));
+          if (drifted) {
+            await sd.ref.set(want, { merge: true });
+            profileMirrorsSynced++;
+          }
+        }
+
+        // Confirmed rentals whose dates are still ahead of us should be
+        // reflected in the booking system. Never touches a swap override.
+        const DAY_NAMES_N = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        const tenantData2 = tDoc.data() as any;
+        const activeWeek = Array.isArray(tenantData2?.scheduleProfiles)
+          ? (tenantData2.scheduleProfiles.find((x: any) => x.isActive)?.week || null) : null;
+        const resSnap2 = await db.collection(`tenants/${tDoc.id}/boothReservations`)
+          .where('status', '==', 'confirmed').get();
+        const staffByRenter = new Map<string, any>();
+        staffSnap2.docs.forEach((d: any) => {
+          const x = d.data() as any;
+          if (x.renterId && !staffByRenter.has(x.renterId)) staffByRenter.set(x.renterId, d);
+        });
+
+        for (const rd of resSnap2.docs) {
+          const r: any = rd.data() || {};
+          if (!r.renterId || !r.startDate) continue;
+          if (String(r.endDate || r.startDate) < todayStr) continue;
+          const sdoc = staffByRenter.get(r.renterId);
+          if (!sdoc) continue;
+          const sdata = sdoc.data() as any;
+          if (sdata.bookingOptOut === true) continue;
+          const isHourly = r.bookingType === 'hourly' && r.startTime && r.endTime;
+          const dates = (() => {
+            const out: string[] = [];
+            const last = String(r.endDate || r.startDate);
+            const d = new Date(`${r.startDate}T12:00:00Z`);
+            while (out.length < 31) {
+              const k = d.toISOString().slice(0, 10);
+              out.push(k);
+              if (k >= last) break;
+              d.setUTCDate(d.getUTCDate() + 1);
+            }
+            return out;
+          })();
+          const flat: Record<string, any> = {};
+          for (const dk of dates) {
+            if (dk < todayStr) continue;
+            const existing = sdata?.availability?.dates?.[dk];
+            if (existing && existing.reason === 'swap') continue;
+            if (existing && existing.reason === 'day_rental' && existing.reservationId === rd.id) continue;
+            let start = isHourly ? String(r.startTime) : '';
+            let end = isHourly ? String(r.endTime) : '';
+            if (!isHourly) {
+              const row = activeWeek?.[DAY_NAMES_N[new Date(`${dk}T12:00:00Z`).getUTCDay()]];
+              if (!row?.enabled || !row?.start || !row?.end) continue;
+              start = String(row.start); end = String(row.end);
+            }
+            flat[`availability.dates.${dk}`] = {
+              enabled: true, start, end, reason: 'day_rental', reservationId: rd.id,
+              setAt: new Date().toISOString(),
+            };
+            rentalDaysGranted++;
+          }
+          if (Object.keys(flat).length > 0) await sdoc.ref.update(flat);
+        }
+      } catch (e) { console.error('[cron/nightly] profile/rental reconcile', e); }
+
+
+      // ── v85: lease renewals — auto-renew leases extend by one full term
+      // the day after they end; everyone else gets ONE "lease ended" nudge.
+      for (const ld of leasesSnap.docs) {
+        const l = ld.data() as any;
+        if (l.status !== 'active' || !l.endDate || String(l.endDate).slice(0, 10) >= todayStr) continue;
+        if (l.autoRenew) {
+          const termDays = l.startDate
+            ? Math.max(1, Math.round((new Date(l.endDate + 'T00:00:00Z').getTime() - new Date(l.startDate + 'T00:00:00Z').getTime()) / 86400000))
+            : 30;
+          const base = new Date(String(l.endDate).slice(0, 10) + 'T00:00:00Z');
+          base.setUTCDate(base.getUTCDate() + termDays);
+          const newEnd = base.toISOString().slice(0, 10);
+          await ld.ref.set({ endDate: newEnd, renewedAt: new Date().toISOString() }, { merge: true });
+          leasesRenewed++;
+          await logAuditAdmin(db, tDoc.id, {
+            action: 'lease.renewed', targetType: 'lease', targetId: ld.id,
+            summary: `Lease auto-renewed through ${newEnd} (one full term)`,
+            actor: { type: 'system', name: 'lease-renewals' },
+          });
+          const nR = db.collection(`tenants/${tDoc.id}/notifications`).doc();
+          await nR.set({
+            id: nR.id, userId: null, read: false, createdAt: new Date().toISOString(),
+            type: 'lease', link: '/renters',
+            message: `A lease auto-renewed through ${newEnd}.`,
+          });
+        } else if (!l.expiryNotifiedAt) {
+          await ld.ref.set({ expiryNotifiedAt: new Date().toISOString() }, { merge: true });
+          await logAuditAdmin(db, tDoc.id, {
+            action: 'lease.expired', targetType: 'lease', targetId: ld.id,
+            summary: `Lease ended ${String(l.endDate).slice(0, 10)} — renew it or end it in Booths`,
+            actor: { type: 'system', name: 'lease-renewals' },
+          });
+          const nR = db.collection(`tenants/${tDoc.id}/notifications`).doc();
+          await nR.set({
+            id: nR.id, userId: null, read: false, createdAt: new Date().toISOString(),
+            type: 'lease', link: '/renters',
+            message: `A lease ended ${String(l.endDate).slice(0, 10)} — renew or end it in Booths.`,
+          });
+        }
+      }
+
+      const dueSnap = await db.collection(`tenants/${tDoc.id}/rentInvoices`)
+        .where('status', '==', 'due').get();
+      if (dueSnap.empty) continue;
+      for (const inv of dueSnap.docs) {
+        const v = inv.data() as any;
+        const lease: any = leaseById.get(v.leaseId);
+        if (!lease || lease.autoCollect) continue;
+        const due = String(v.dueDate || '').slice(0, 10);
+        if (!due) continue;
+        const policy = lease.lateFeePolicy || {};
+        const graceDays = policy.enabled ? (Number(policy.graceDays) || 0) : 3;
+        const graceEnd = new Date(`${due}T12:00:00Z`);
+        graceEnd.setUTCDate(graceEnd.getUTCDate() + graceDays);
+        if (todayStr <= graceEnd.toISOString().slice(0, 10)) continue;
+        let feeCents = 0;
+        // A fee the owner waived stays waived — feeWaivedAt is the stamp, and
+        // the sweep never puts a fee back on an invoice that carries it.
+        if (policy.enabled && !(v.lateFeeCents > 0) && !v.feeWaivedAt) {
+          feeCents = policy.type === 'percent'
+            ? Math.round((v.amountCents || 0) * (Number(policy.percent) || 0) / 100)
+            : Math.max(0, Math.round(Number(policy.amountCents) || 0));
+        }
+        await inv.ref.set({
+          status: 'late',
+          markedLateAt: new Date().toISOString(),
+          ...(feeCents > 0 ? { lateFeeCents: feeCents } : {}),
+        }, { merge: true });
+        rentMarkedLate++;
+        let renterName = 'Renter';
+        try {
+          if (lease.renterId) {
+            const r = (await db.doc(`tenants/${tDoc.id}/renters/${lease.renterId}`).get()).data() as any;
+            if (r) renterName = `${r.firstName || ''} ${r.lastName || ''}`.trim() || 'Renter';
+          }
+        } catch { /* name is cosmetic */ }
+        const owed = ((v.amountCents || 0) + (feeCents || v.lateFeeCents || 0)) / 100;
+        await logAuditAdmin(db, tDoc.id, {
+          action: 'rent.marked_late', targetType: 'rentInvoice', targetId: inv.id,
+          summary: `${renterName}'s rent (due ${due}) is now LATE — $${owed.toFixed(2)} owed${feeCents > 0 ? ` (incl. $${(feeCents / 100).toFixed(2)} late fee)` : ''}`,
+          amount: owed,
+          actor: { type: 'system', name: 'rent-sweep' },
+        });
+        const nRef = db.collection(`tenants/${tDoc.id}/notifications`).doc();
+        await nRef.set({
+          id: nRef.id, userId: null, read: false, createdAt: new Date().toISOString(),
+          type: 'rent_late', link: '/rent',
+          message: `${renterName}'s rent is late — $${owed.toFixed(2)} owed${feeCents > 0 ? ' (late fee applied)' : ''}.`,
+        });
+        // COLLECTIONS ON AUTOPILOT: the renter hears it the same night,
+        // with a one-tap magic link into their portal's Pay button.
+        const rentComms: any = { lateNoticeEmail: true, lateNoticeSms: true, ...(((tDoc.data() as any)?.rentComms) || {}) };
+        try {
+          const { smsConfigured, sendTenantSms } = await import('@/lib/sms');
+          if (rentComms.lateNoticeSms !== false && lease.renterId && smsConfigured()) {
+            const rRef = db.doc(`tenants/${tDoc.id}/renters/${lease.renterId}`);
+            const r = (await rRef.get()).data() as any;
+            if (r?.phone) {
+              const link = await renterPortalLink(db, tDoc.id, lease.renterId, r);
+              await sendTenantSms(db, tDoc.id, r.phone,
+                `Your rent (due ${due}) is now past due — $${owed.toFixed(2)} owed${feeCents > 0 ? ' incl. late fee' : ''}. Pay in your portal:${link ? ` ${link}` : ' (link in your welcome text)'}`,
+                { email: r.email || null, subject: 'Rent past due' });
+            }
+          }
+        } catch { /* renter text is a bonus — the owner notification stands */ }
+        // Late notice EMAIL beside the text — some renters never text back,
+        // and the branded email carries the same one-tap pay link.
+        try {
+          if (rentComms.lateNoticeEmail !== false && lease.renterId) {
+            const r = (await db.doc(`tenants/${tDoc.id}/renters/${lease.renterId}`).get()).data() as any;
+            if (r?.email) {
+              const businessName = String((tDoc.data() as any)?.name || 'ClarityFlow');
+              const payLink = await renterPortalLink(db, tDoc.id, lease.renterId, r);
+              await sendRentEmail({
+                db, tenantId: tDoc.id, kind: 'rent_overdue',
+                recipientId: lease.renterId || null, recipientName: renterName,
+                to: r.email, fromName: businessName,
+                subject: `Rent past due — $${owed.toFixed(2)} owed`,
+                html: brandedEmailHtml({
+                  studioName: businessName,
+                  title: 'Your rent is past due.',
+                  bodyLines: [
+                    `Rent due ${due} is now late — $${owed.toFixed(2)} owed${feeCents > 0 ? ', including the late fee' : ''}.`,
+                    'Paying now stops anything further.',
+                  ],
+                  ...(payLink ? { cta: { label: 'Pay in my portal', url: payLink } } : {}),
+                  footerNote: `Sent by ${businessName}.`,
+                }),
+              });
+            }
+          }
+        } catch { /* email is a bonus — the owner notification stands */ }
+      }
+    } catch (e) {
+      results[`rent:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
+    }
+  }
+
+  // ── SELF-SERVE NUDGES — renter-facing money + paperwork, plus the
+  // Monday tech digest. Everything idempotent via stamps; everything
+  // fail-soft; each tenant isolated.
+  const nudgeTotals = { rentDue: 0, credExpiry: 0, techDigests: 0 };
+  for (const tDoc of allTenantsSnap.docs) {
+    try {
+      const tid = tDoc.id;
+      const { smsConfigured, sendTenantSms } = await import('@/lib/sms');
+      if (!smsConfigured()) break; // no SMS → these are pure-noise skips
+      const tz = tenantTimeZone(tDoc.data() as any);
+      const todayStr = todayIn(tz);
+      const base = String((tDoc.data() as any)?.publicOrigin || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/+$/, '');
+
+      // 1) RENT COMING DUE (3 days out) — friendly nudge with pay link.
+      try {
+        const dueSnap = await db.collection(`tenants/${tid}/rentInvoices`).where('status', '==', 'due').get();
+        const soon = todayIn(tz, new Date(Date.now() + 3 * 86400000));
+        for (const inv of dueSnap.docs) {
+          const v = inv.data() as any;
+          const due = String(v.dueDate || '').slice(0, 10);
+          if (!due || due > soon || due < todayStr || v.renterDueNotifiedAt) continue;
+          const lease = v.leaseId ? (await db.doc(`tenants/${tid}/leases/${v.leaseId}`).get()).data() as any : null;
+          if (!lease?.renterId || lease.autoCollect) continue;
+          const r = (await db.doc(`tenants/${tid}/renters/${lease.renterId}`).get()).data() as any;
+          if (!r?.phone) continue;
+          const link = await renterPortalLink(db, tid, lease.renterId, r);
+          const sent = await sendTenantSms(db, tid, r.phone,
+            `Heads up — rent of $${((v.amountCents || 0) / 100).toFixed(2)} is due ${due === todayStr ? 'today' : due}. Pay any time in your portal:${link ? ` ${link}` : ''}`,
+            { email: r.email || null, subject: 'Rent due soon' });
+          if (sent.ok) { await inv.ref.set({ renterDueNotifiedAt: new Date().toISOString() }, { merge: true }); nudgeTotals.rentDue++; }
+        }
+      } catch { /* isolated */ }
+
+      // 2) CREDENTIAL EXPIRY — the renter uploads the renewal THEMSELVES
+      // via their portal; you get a notification, not a filing task.
+      try {
+        const renters = await db.collection(`tenants/${tid}/renters`).get();
+        const cutoff = todayIn(tz, new Date(Date.now() + 14 * 86400000));
+        for (const rDoc of renters.docs) {
+          const r = rDoc.data() as any;
+          if (!r?.phone || r.status === 'former') continue;
+          // Required-but-never-provided: one ask per 30 days, only when the
+          // shop's own onboarding rules say the document must be on file.
+          // Not required → not chased; a missing document is then just a
+          // fact on the Coverage tab.
+          const reqRules = ((tDoc.data() as any)?.bookingPageSettings?.automationRules || {}) as any;
+          for (const [kind, urlField, reqFlag] of [['insurance', 'insuranceDocUrl', 'requireInsurance'], ['license', 'licenseDocUrl', 'requireLicense']] as const) {
+            if (reqRules[reqFlag] !== true || r[urlField] || r.status === 'pending') continue;
+            const stamp = `${kind}MissingNaggedAt`;
+            const last = String(r[stamp] || '').slice(0, 10);
+            if (last && last > todayIn(tz, new Date(Date.now() - 30 * 86400000))) continue;
+            const link = await renterPortalLink(db, tid, rDoc.id, r);
+            const sent = await sendTenantSms(db, tid, r.phone,
+              `We need a copy of your ${kind} on file to rent here. Add it in your portal (Insurance & licence) — expiry date plus a photo:${link ? ` ${link}` : ''}`,
+              { email: r.email || null, subject: `Your ${kind} — we need a copy on file` });
+            if (sent.ok) { await rDoc.ref.set({ [stamp]: todayStr }, { merge: true }); nudgeTotals.credExpiry++; }
+          }
+          for (const [field, label] of [['licenseExpiry', 'license'], ['insuranceExpiry', 'insurance']] as const) {
+            const exp = String(r[field] || '').slice(0, 10);
+            if (!exp || exp > cutoff) continue;
+            const stampField = `credNotified_${field}`;
+            if (r[stampField] === exp) continue;
+            const link = await renterPortalLink(db, tid, rDoc.id, r);
+            const sent = await sendTenantSms(db, tid, r.phone,
+              `Your ${label} on file ${exp < todayStr ? 'expired' : 'expires'} ${exp}. Upload the renewed one in your portal (Insurance & licence):${link ? ` ${link}` : ''}`,
+              { email: r.email || null, subject: `Your ${label} ${exp < todayStr ? 'expired' : 'expires soon'}` });
+            if (sent.ok) { await rDoc.ref.set({ [stampField]: exp }, { merge: true }); nudgeTotals.credExpiry++; }
+          }
+        }
+      } catch { /* isolated */ }
+
+      // 3) MONDAY TECH DIGEST — each worker's week at a glance, once/week.
+      try {
+        const isMonday = new Date().getUTCDay() === 1;
+        const lastDigest = String((tDoc.data() as any)?.lastTechDigestAt || '').slice(0, 10);
+        if (isMonday && lastDigest !== todayStr) {
+          const [ws, ts] = await Promise.all([
+            db.collection(`tenants/${tid}/maintenanceWorkers`).get(),
+            db.collection(`tenants/${tid}/tickets`).get(),
+          ]);
+          const tickets = ts.docs.map((d: any) => d.data() as any);
+          const nowIso = new Date().toISOString();
+          for (const wDoc of ws.docs) {
+            const w = wDoc.data() as any;
+            if (!w?.phone || w.active === false) continue;
+            const mine = tickets.filter((t: any) => t.assigneeId === wDoc.id && ['open', 'in_progress'].includes(t.status));
+            const overdue = mine.filter((t: any) => t.dueAt && t.dueAt < nowIso).length;
+            const owed = (Math.max(0, Number(w.unpaidLaborCents) || 0) + Math.max(0, Number(w.unpaidMaterialsCents) || 0)) / 100;
+            if (mine.length === 0 && owed === 0) continue;
+            const link = base ? ` Queue: ${base}/maintain/${tid}?t=${w.token}` : '';
+            const r = await sendTenantSms(db, tid, w.phone,
+              `Week ahead: ${mine.length} open job${mine.length === 1 ? '' : 's'}${overdue ? ` (${overdue} overdue)` : ''}${owed > 0 ? ` · $${owed.toFixed(2)} owed to you` : ''}.${link}`,
+              { email: w.email || null, subject: 'Your week ahead' });
+            if (r.ok) nudgeTotals.techDigests++;
+          }
+          await tDoc.ref.set({ lastTechDigestAt: todayStr }, { merge: true });
+        }
+      } catch { /* isolated */ }
+    } catch (e) {
+      results[`nudges:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
+    }
+  }
+  results.selfServeNudges = nudgeTotals;
+
+
+  // ─── Tours that were never closed out ──────────────────────────────────────
+  // A tour is the most expensive lead in this business: somebody drove over,
+  // somebody walked them round. Every other stage of the funnel has a chaser —
+  // rent has late sweeps, applications sit in a review queue — but a tour that
+  // happened and was never written up simply evaporated. Nobody was told, and
+  // the lead went cold in silence.
+  //
+  // This flags the tour, once, the day after it was due. It does not decide the
+  // outcome: only the person who gave the tour knows whether it was a no-show,
+  // a maybe, or a signature waiting to happen. The flag just makes sure the
+  // question gets asked while the answer is still worth having.
+  for (const tDoc of allTenantsSnap.docs) {
+    try {
+      const tz = tenantTimeZone(tDoc.data() as any);
+      const todayLocal = todayIn(tz);
+      const appsSnap = await db.collection(`tenants/${tDoc.id}/boothApplications`)
+        .where('kind', '==', 'tour').get();
+
+      const stale: any[] = [];
+      for (const ad of appsSnap.docs) {
+        const a: any = ad.data() || {};
+        // Only tours with a real date. A "time to confirm" enquiry has no
+        // moment to have passed, so there is nothing to chase yet.
+        const startIso = String(a.tourStartIso || (a.tourDate ? `${a.tourDate}T00:00:00` : ''));
+        if (!startIso || startIso.length < 10) continue;
+        const tourDay = startIso.slice(0, 10);
+        if (tourDay >= todayLocal) continue;                 // still ahead of us
+        // An outcome of any kind means somebody dealt with it.
+        const st = String(a.status || 'new');
+        if (!['new', 'in_review'].includes(st)) continue;
+        if (a.tourOutcome) continue;
+        if (a.followUpFlaggedAt) continue;                    // flagged already — never nag twice
+        stale.push({ ref: ad.ref, id: ad.id, name: a.name || 'Someone', day: tourDay });
+      }
+      if (stale.length === 0) continue;
+
+      const nowIso = new Date().toISOString();
+      for (const x of stale) {
+        await x.ref.set({ followUpFlaggedAt: nowIso, followUpNeeded: true }, { merge: true });
+        toursFlagged++;
+      }
+
+      // ONE notification for the batch. A row per tour would be the fastest
+      // way to teach somebody to swipe these away without reading them.
+      const nRef = db.collection(`tenants/${tDoc.id}/notifications`).doc();
+      const names = stale.slice(0, 3).map((x) => x.name).join(', ');
+      await nRef.set({
+        id: nRef.id, type: 'tour_followup', read: false, createdAt: nowIso, link: '/pipeline',
+        message: stale.length === 1
+          ? `${names} toured on ${stale[0].day} and it was never closed out — record the outcome while it is still fresh.`
+          : `${stale.length} tours were never closed out (${names}${stale.length > 3 ? ', …' : ''}) — record the outcomes in Pipeline.`,
+      });
+    } catch (e) { console.error('[cron/nightly] tour follow-up', tDoc.id, e); }
+  }
+  results.tourFollowUps = toursFlagged;
+
+  // ── Requests nobody answered ──────────────────────────────────────────────
+  // With approval switched on, a tour request the owner never decides on sits
+  // at "Awaiting your OK" past its own date, forever — still blocking the slot
+  // in the checker, still on the pipeline as if a decision were coming. Worse,
+  // the person who asked is still waiting. The day after the requested time
+  // has gone, this closes it as expired, frees the slot, and tells them —
+  // warmly, with the link to pick a fresh time. Once, never twice.
+  let toursExpired = 0;
+  for (const tDoc of allTenantsSnap.docs) {
+    try {
+      const tenantData = tDoc.data() as any;
+      const tz = tenantTimeZone(tenantData);
+      const todayLocal = todayIn(tz);
+      const toursSnap = await db.collection(`tenants/${tDoc.id}/tours`)
+        .where('status', '==', 'requested').get();
+      if (toursSnap.empty) continue;
+
+      const studio = String(tenantData.name || tenantData.businessName || '').trim() || 'The studio';
+      const origin = process.env.NEXT_PUBLIC_APP_URL || 'https://studio-one-blue.vercel.app';
+      const nowIso = new Date().toISOString();
+      let expiredHere = 0;
+      const names: string[] = [];
+
+      for (const td of toursSnap.docs) {
+        const t: any = td.data() || {};
+        if (!t.date || String(t.date) >= todayLocal) continue;     // still ahead of us
+        if (t.expiredAt) continue;
+
+        await td.ref.set({ status: 'expired', expiredAt: nowIso }, { merge: true });
+        // The lead follows the tour: an expired request is a decision that was
+        // never made, which is its own kind of answer.
+        const appId = String(t.applicationId || '');
+        if (appId) {
+          await db.doc(`tenants/${tDoc.id}/boothApplications/${appId}`)
+            .set({ status: 'expired', expiredAt: nowIso, followUpNeeded: true }, { merge: true })
+            .catch(() => { /* the tour is already closed */ });
+        }
+
+        // Tell them. They asked for a time and heard nothing; silence past the
+        // date reads as "we ignored you". A message with the door open reads
+        // as "we missed it, come back".
+        const to = String(t.email || '').trim();
+        if (to.includes('@')) {
+          try {
+            const { sendNotification } = await import('@/lib/notify');
+            const first = String(t.name || '').trim().split(' ')[0] || 'there';
+            await sendNotification(db, {
+              tenantId: tDoc.id, channel: 'email', to,
+              subject: 'We missed your visit request — sorry',
+              html: brandedEmailHtml({
+                studioName: studio,
+                title: 'We missed your request',
+                bodyLines: [
+                  `Hi ${first} — you asked to visit us on ${t.date}${t.time ? ` at ${t.time}` : ''} and we did not get back to you in time. That is on us.`,
+                  'We would still love to show you around. Pick any time that suits you and it goes straight onto our calendar.',
+                ],
+                cta: { label: 'Pick a new time', url: `${origin}/tour/${tDoc.id}` },
+                footerNote: `Sent by ${studio}. You're receiving this because you asked to visit us.`,
+              }),
+              kind: 'tour_request_expired',
+              recipientType: 'contact', recipientId: td.id, recipientName: t.name || null,
+              eventConfirmed: false,
+            });
+          } catch { /* best-effort */ }
+        }
+        expiredHere++; toursExpired++;
+        if (names.length < 3) names.push(t.name || 'Someone');
+      }
+
+      if (expiredHere > 0) {
+        // The owner hears about it too — a request that slipped is a process
+        // problem worth noticing, not just a record to tidy.
+        const nRef = db.collection(`tenants/${tDoc.id}/notifications`).doc();
+        await nRef.set({
+          id: nRef.id, type: 'tour_request_expired', read: false, createdAt: nowIso, link: '/pipeline',
+          message: expiredHere === 1
+            ? `${names[0]} asked for a tour and never got an answer — the request has expired and they've been invited to pick a new time.`
+            : `${expiredHere} tour requests went unanswered past their dates (${names.join(', ')}${expiredHere > 3 ? ', …' : ''}) — each has been invited to rebook.`,
+        });
+      }
+    } catch (e) { console.error('[cron/nightly] tour request expiry', tDoc.id, e); }
+  }
+  results.tourRequestsExpired = toursExpired;
+
+  // ── Reminder suite — for EVERY tenant, emit idempotent in-app reminders for
+  // upcoming tours, rent coming due, credential/license expiry, and leases up
+  // for renewal. Isolated in its own loop + try/catch so a reminder failure can
+  // never affect bank sync, bill scheduling, or the late-rent sweep above.
+  const reminderTotals = { tourReminders: 0, balanceDue: 0, licenseExpiry: 0, leaseRenewal: 0, contactFollowUps: 0 };
+  const nowForReminders = new Date();
+  for (const tDoc of allTenantsSnap.docs) {
+    try {
+      const c = await runReminderSweep(db, tDoc.id, nowForReminders);
+      reminderTotals.tourReminders += c.tourReminders;
+      reminderTotals.balanceDue += c.balanceDue;
+      reminderTotals.licenseExpiry += c.licenseExpiry;
+      reminderTotals.leaseRenewal += c.leaseRenewal;
+      reminderTotals.contactFollowUps += c.contactFollowUps;
+    } catch (e) {
+      results[`reminders:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
+    }
+  }
+
+  // ── No-show sweep — for EVERY tenant, flag confirmed reservations whose booked
+  // window fully elapsed without a check-in, and (only if the owner enabled it
+  // with a fee and a card is on file) charge the no-show fee. Isolated loop so a
+  // charge failure can never affect anything above it.
+  const noShowTotals = { swept: 0, feesCharged: 0, feesDeclined: 0, feesNoCard: 0, feeCentsCharged: 0 };
+  for (const tDoc of allTenantsSnap.docs) {
+    try {
+      const c = await sweepNoShows(db, tDoc.id, nowForReminders);
+      noShowTotals.swept += c.swept;
+      noShowTotals.feesCharged += c.feesCharged;
+      noShowTotals.feesDeclined += c.feesDeclined;
+      noShowTotals.feesNoCard += c.feesNoCard;
+      noShowTotals.feeCentsCharged += c.feeCentsCharged;
+    } catch (e) {
+      results[`noshow:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
+    }
+  }
+
+  // ── Preventive maintenance plans — for EVERY tenant, open the scheduled
+  // tickets whose nextRunAt has arrived. IDEMPOTENT: the nextRunAt advance
+  // is written in the same pass as the ticket, so a rerun the same night
+  // creates nothing twice. Generated tickets are completely normal tickets:
+  // same queue, same SLA, same portals, same notifications.
+  const planTotals: { ticketsOpened: number; assigneeTexts: number; staffTexts?: number; renterTexts?: number } = { ticketsOpened: 0, assigneeTexts: 0, staffTexts: 0, renterTexts: 0 };
+  for (const tDoc of allTenantsSnap.docs) {
+    try {
+      const tid = tDoc.id;
+      const todayStr = todayIn(tenantTimeZone(tDoc.data() as any));
+      const planRules = (tDoc.data() as any)?.maintenanceRules || null;
+      const plansSnap = await db.collection(`tenants/${tid}/maintenancePlans`).get();
+      for (const pDoc of plansSnap.docs) {
+        const p = pDoc.data() as any;
+        if (p.active === false) continue;
+        if (!p.nextRunAt || String(p.nextRunAt).slice(0, 10) > todayStr) continue;
+        const nowIso = new Date().toISOString();
+        const { dueAtFor, addDaysISO } = await import('@/lib/maintenance');
+        const every = Math.max(1, Math.round(Number(p.everyDays) || 30));
+        const tRef = db.collection(`tenants/${tid}/tickets`).doc();
+        // Advance the schedule FIRST-in-same-batch semantics: both writes
+        // together, so no partial state survives a crash between them.
+        const batch = db.batch();
+        batch.set(tRef, {
+          id: tRef.id, tenantId: tid, locationId: null,
+          title: p.title, description: p.description || '',
+          category: p.category || 'other', priority: p.priority || 'normal', status: 'open',
+          boothId: p.boothId || null, boothName: p.boothName || null,
+          resourceId: p.resourceId || null, resourceName: p.resourceName || null,
+          photoUrls: [],
+          reporter: { type: 'staff', name: 'Preventive plan' },
+          assigneeId: p.assigneeId || null, assigneeName: p.assigneeName || null,
+          planId: pDoc.id,
+          updates: [{ at: nowIso, by: 'Preventive plan', byType: 'system', note: `Scheduled ${every}-day maintenance`, status: 'open' }],
+          createdAt: nowIso, updatedAt: nowIso, dueAt: dueAtFor(p.priority || 'normal', nowIso, planRules), respondBy: respondByFor(p.priority || 'normal', nowIso, planRules), resolvedAt: null,
+        });
+        batch.set(pDoc.ref, {
+          lastRunAt: todayStr,
+          nextRunAt: addDaysISO(String(p.nextRunAt).slice(0, 10), every),
+          runCount: Math.max(0, Math.round(Number(p.runCount) || 0)) + 1,
+        }, { merge: true });
+        await batch.commit();
+        planTotals.ticketsOpened += 1;
+        // No pre-assigned worker on the plan? Rotation picks one (and texts
+        // them) so scheduled work never sits ownerless.
+        let rotatedName: string | null = null;
+        if (!p.assigneeId) {
+          try {
+            const { autoAssignTicket } = await import('@/lib/maintenance-server');
+            const assigned = await autoAssignTicket(db, tid, tRef.id, { title: p.title, boothName: p.boothName, priority: p.priority || 'normal' });
+            rotatedName = assigned?.assigneeName || null;
+          } catch { /* stays unassigned for manual triage */ }
+        }
+        const nRef = db.collection(`tenants/${tid}/notifications`).doc();
+        await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/maintenance',
+          message: `Scheduled maintenance opened: "${p.title}"${p.boothName ? ` (${p.boothName})` : ''}${p.assigneeName ? ` — assigned to ${p.assigneeName}` : rotatedName ? ` — auto-assigned to ${rotatedName}` : ' — needs a worker'}.` });
+        if (p.assigneeId) {
+          try {
+            const { smsConfigured, sendTenantSms } = await import('@/lib/sms');
+            if (smsConfigured()) {
+              const w = await db.doc(`tenants/${tid}/maintenanceWorkers/${p.assigneeId}`).get();
+              const phone = w.exists ? (w.data() as any)?.phone : null;
+              if (phone) {
+                const r = await sendTenantSms(db, tid, phone, `Scheduled job today: "${p.title}"${p.boothName ? ` at ${p.boothName}` : ''}. It's in your portal queue.`);
+                if (r.ok) planTotals.assigneeTexts += 1;
+              }
+            }
+          } catch { /* text is a bonus */ }
+        }
+        // The RENTER whose station gets worked on hears about it the
+        // morning of — nobody should arrive to find someone under their
+        // sink unannounced. Any priority: it's their space.
+        if (p.boothId) {
+          try {
+            const { smsConfigured, sendTenantSms } = await import('@/lib/sms');
+            if (smsConfigured()) {
+              const leases = await db.collection(`tenants/${tid}/leases`).where('boothId', '==', p.boothId).get();
+              const lease = leases.docs.map((d: any) => d.data() as any).find((l: any) => ['active', 'on_leave'].includes(l.status));
+              if (lease?.renterId) {
+                const r = (await db.doc(`tenants/${tid}/renters/${lease.renterId}`).get()).data() as any;
+                if (r?.phone) {
+                  await sendTenantSms(db, tid, r.phone,
+                    `Heads up: scheduled maintenance at ${p.boothName || 'your station'} today ("${p.title}")${p.assigneeName ? ` — ${p.assigneeName} will handle it` : ''}. Questions? Just reply or ask the front desk.`);
+                  planTotals.renterTexts = (planTotals.renterTexts || 0) + 1;
+                }
+              }
+            }
+          } catch { /* renter text is a bonus */ }
+        }
+        // BLOCKING scheduled work takes the space out of service, so the
+        // TEAM hears about it too — every active staff member with a phone
+        // gets one text. Normal/low plans (cleaning, filters) don't disrupt
+        // anyone's day, so they stay quiet and just show on the planner.
+        if (['urgent', 'high'].includes(String(p.priority || '')) && (p.boothName || p.resourceName)) {
+          try {
+            const { smsConfigured, sendTenantSms } = await import('@/lib/sms');
+            if (smsConfigured()) {
+              const staffSnap = await db.collection(`tenants/${tid}/staff`).get();
+              for (const sDoc of staffSnap.docs) {
+                const s = sDoc.data() as any;
+                if (s.active === false || s.archived) continue;
+                const sPhone = s.phone || s.phoneNumber || null;
+                if (!sPhone) continue;
+                await sendTenantSms(db, tid, sPhone,
+                  `Heads up: ${p.boothName || p.resourceName} is out of service today for scheduled maintenance ("${p.title}"). It's on the planner — plan around it.`);
+                planTotals.staffTexts = (planTotals.staffTexts || 0) + 1;
+              }
+            }
+          } catch { /* staff texts are a bonus — the planner block is the source of truth */ }
+        }
+      }
+    } catch (e) {
+      results[`plans:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
+    }
+  }
+
+  // ── Maintenance SLA sweep — for EVERY tenant, flag open tickets past
+  // their SLA deadline exactly ONCE (overdueNotifiedAt stamp): a notification
+  // for the owner, and — when SMS is configured — a nudge text to the
+  // assigned worker. Isolated loop; ticket failures never touch money jobs.
+  const slaTotals = { overdueFlagged: 0, techNudges: 0, responseFlagged: 0 };
+  for (const tDoc of allTenantsSnap.docs) {
+    try {
+      const tid = tDoc.id;
+      const nowIso = new Date().toISOString();
+      const snap = await db.collection(`tenants/${tid}/tickets`).get();
+      for (const d of snap.docs) {
+        const t = d.data() as any;
+        const openish = t.status === 'open' || t.status === 'in_progress';
+        // Response clock — a ticket nobody has acknowledged past the shop's
+        // own promise. Flagged once. This is the "silence" failure the
+        // protocol exists to catch; the fix clock below is the other one.
+        if (openish && t.respondBy && t.respondBy < nowIso && !t.responseNotifiedAt && !ticketAcknowledged(t)) {
+          await d.ref.set({ responseNotifiedAt: nowIso }, { merge: true });
+          slaTotals.responseFlagged += 1;
+          const rRef = db.collection(`tenants/${tid}/notifications`).doc();
+          await rRef.set({ id: rRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/maintenance',
+            message: `Nobody has answered "${t.title}"${t.boothName ? ` (${t.boothName})` : ''} — ${t.priority} priority, reported ${String(t.createdAt).slice(0, 10)}${t.reporter?.type === 'renter' ? ' by a renter who can see the clock' : ''}. Assign it or add a note.` });
+        }
+        if (!openish || !t.dueAt || t.dueAt >= nowIso || t.overdueNotifiedAt) continue;
+        await d.ref.set({ overdueNotifiedAt: nowIso }, { merge: true });
+        slaTotals.overdueFlagged += 1;
+        const nRef = db.collection(`tenants/${tid}/notifications`).doc();
+        await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/maintenance',
+          message: `Ticket OVERDUE: "${t.title}"${t.boothName ? ` (${t.boothName})` : ''} — ${t.priority} priority, due ${String(t.dueAt).slice(0, 16).replace('T', ' ')}${t.assigneeName ? `, assigned to ${t.assigneeName}` : ', UNASSIGNED'}.` });
+        if (t.assigneeId) {
+          try {
+            const { smsConfigured, sendTenantSms } = await import('@/lib/sms');
+            if (smsConfigured()) {
+              const w = await db.doc(`tenants/${tid}/maintenanceWorkers/${t.assigneeId}`).get();
+              const phone = w.exists ? (w.data() as any)?.phone : null;
+              if (phone) {
+                const r = await sendTenantSms(db, tid, phone, `Reminder: ticket "${t.title}"${t.boothName ? ` at ${t.boothName}` : ''} is past due. Please update it in your portal.`);
+                if (r.ok) slaTotals.techNudges += 1;
+              }
+            }
+          } catch { /* nudge is a bonus */ }
+        }
+      }
+    } catch (e) {
+      results[`sla:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
+    }
+  }
+
+  // ── STOCK: heal leaked reservations ────────────────────────────────────
+  // A hold that never released hides stock from everyone with no symptom.
+  // Recomputing from live orders each night means that bug class fixes
+  // itself instead of quietly compounding. Silent when nothing is wrong.
+  const stockTotals = { tenants: 0, corrected: 0, unitsFreed: 0, unitsHeld: 0 };
+  for (const tDoc of allTenantsSnap.docs) {
+    try {
+      const r = await reconcileReservations(db, tDoc.id);
+      // Anyone still showing as "outside" hours later did not get their order.
+      const stale = await sweepStaleCurbside(db, tDoc.id);
+      if (stale.flagged > 0) results[`curbside:${tDoc.id}`] = stale;
+      if (r.corrected > 0) {
+        stockTotals.tenants += 1;
+        stockTotals.corrected += r.corrected;
+        stockTotals.unitsFreed += r.unitsFreed;
+        stockTotals.unitsHeld += r.unitsHeld;
+        results[`stock:${tDoc.id}`] = r;
+      }
+    } catch (e) {
+      results[`stock:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
+    }
+  }
+
+  // ── RETAIL: the three things only a clock can notice ───────────────────
+  // A parcel that stopped scanning, a filed claim whose window is closing,
+  // and a resolved case nobody has touched. Each is marker-guarded inside
+  // the sweep, so a re-run of this cron sends nothing twice.
+  const retailTotals = { stalled: 0, stalledEmailed: 0, deadlines: 0, deadlineDigests: 0, casesClosed: 0, requestsExpired: 0, requestNudges: 0, unpaidHandled: 0 };
+  for (const tDoc of allTenantsSnap.docs) {
+    try {
+      const [stall, deadlines, cases, expired, nudge, unpaid] = await Promise.all([
+        sweepStalledShipments(db, tDoc.id),
+        sweepRecoveryDeadlines(db, tDoc.id),
+        sweepStaleCases(db, tDoc.id),
+        // Booking requests: expire what died, then nudge about what has not.
+        sweepExpiredRequests(db, tDoc.id),
+        sweepPendingRequestNudge(db, tDoc.id),
+        // Accepted bookings whose deposit never landed: retry, remind, release.
+        sweepUnpaidAccepted(db, tDoc.id),
+      ]);
+      retailTotals.stalled += stall.actioned;
+      retailTotals.stalledEmailed += stall.emailed;
+      retailTotals.deadlines += deadlines.actioned;
+      retailTotals.deadlineDigests += deadlines.emailed;
+      retailTotals.casesClosed += cases.actioned;
+      retailTotals.requestsExpired += expired.actioned;
+      retailTotals.requestNudges += nudge.emailed;
+      retailTotals.unpaidHandled += unpaid.actioned;
+      if (stall.actioned || deadlines.actioned || cases.actioned || expired.actioned || nudge.emailed || unpaid.actioned) {
+        results[`retail:${tDoc.id}`] = { stall, deadlines, cases, expired, nudge, unpaid };
+      }
+    } catch (e) {
+      results[`retail:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
+    }
+  }
+
+  console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate, '· leases renewed', leasesRenewed, '· lease windows synced', leaseWindowsSynced, '· profile mirrors', profileMirrorsSynced, '· rental days granted', rentalDaysGranted, '· tours flagged', toursFlagged, '· reminders', reminderTotals, '· no-shows', noShowTotals, '· plans', planTotals, '· sla', slaTotals, '· stock holds', stockTotals, '· retail sweeps', retailTotals);
+  return NextResponse.json({ ok: true, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, leaseWindowsSynced, profileMirrorsSynced, rentalDaysGranted, toursFlagged, reminderTotals, noShowTotals, planTotals, slaTotals, stockTotals, retailTotals, results });
 }
