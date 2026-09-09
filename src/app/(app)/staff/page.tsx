@@ -101,6 +101,10 @@ const safeDate = (val: any): Date => {
 
 const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, pricingTiers, onForceIdle, onDelete, onOnboard, onCoverage, onPrintReview, onArchiveToggle, onFulfilmentRole, canManage }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void, pricingTiers: PricingTier[], onForceIdle: (id: string) => void, onDelete: (member: Staff) => void, onOnboard: (member: Staff) => void, onCoverage: (member: Staff) => void, onPrintReview: (member: Staff & { stats: any }) => void, onArchiveToggle: (member: Staff) => void, onFulfilmentRole: (member: Staff, value: string) => void, canManage: boolean }) => {
     const [actionsOpen, setActionsOpen] = useState(false);
+    // Same collection, different relationship. A renter shares this roster
+    // because the booking engine needs one provider record per person — that
+    // is where the sameness ends.
+    const isRenter = (member as any).isRenter === true;
     const [licenseInfo, setLicenseInfo] = useState<{
         isExpired: boolean;
         isExpiringSoon: boolean;
@@ -307,9 +311,16 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                     <div className="flex-1 min-w-0">{renderActionButtons()}</div>
                     {canManage && (
                         <>
-                            <Button variant="outline" aria-label={`Edit ${member.name}`} onClick={() => onEdit(member)} className="h-10 shrink-0 rounded-xl border-2 px-3 font-black uppercase tracking-widest text-[11px]">
-                                <Pencil className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" /> Edit
-                            </Button>
+                            {!isRenter && (
+                              <Button variant="outline" aria-label={`Edit ${member.name}`} onClick={() => onEdit(member)} className="h-10 shrink-0 rounded-xl border-2 px-3 font-black uppercase tracking-widest text-[11px]">
+                                  <Pencil className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" /> Edit
+                              </Button>
+                            )}
+                            {isRenter && (
+                              <span className="h-10 shrink-0 inline-flex items-center rounded-xl border-2 border-slate-300 bg-slate-100 px-3 font-black uppercase tracking-widest text-[10px] text-slate-700">
+                                  Renter
+                              </span>
+                            )}
                             <Button
                                 variant="outline"
                                 size="icon"
@@ -323,7 +334,23 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                         </>
                     )}
                 </div>
-                {canManage && actionsOpen && (
+                {canManage && actionsOpen && isRenter && (
+                    /* A booth renter is not an employee. Coverage, reviews,
+                     * force-idle and termination are employment controls and
+                     * do not belong on someone who pays you rent — their real
+                     * controls (lease, rent, documents, their own book) live
+                     * on their renter card. One way in, no wrong buttons. */
+                    <div className="w-full pt-1">
+                        <a href={`/renters?open=${(member as any).renterId || ''}`}
+                           className="flex h-11 items-center justify-center rounded-xl border-2 font-black uppercase tracking-widest text-[11px]">
+                            Open renter card
+                        </a>
+                        <p className="mt-1.5 text-[11px] font-bold text-muted-foreground">
+                            Rent, lease, documents and their own book live there. They set their own hours and menu from their portal.
+                        </p>
+                    </div>
+                )}
+                {canManage && actionsOpen && !isRenter && (
                     <div className="w-full grid grid-cols-2 gap-2 pt-1">
                         <Button variant="outline" onClick={() => { setActionsOpen(false); onCoverage(member); }} className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-[11px] justify-start px-3">
                             <CalendarX className="mr-2 h-3.5 w-3.5 shrink-0" aria-hidden="true" /> Can&apos;t work
@@ -513,7 +540,7 @@ export default function StaffPage() {
   const [onboardingStaff, setOnboardingStaff] = useState<Staff | null>(null);
   const [reviewFor, setReviewFor] = useState<(Staff & { stats: any }) | null>(null);
   const [rosterQuery, setRosterQuery] = useState('');
-  const [rosterFilter, setRosterFilter] = useState<'all' | 'in' | 'break' | 'off' | 'archived'>('all');
+  const [rosterFilter, setRosterFilter] = useState<'all' | 'employees' | 'renters' | 'in' | 'break' | 'off' | 'archived'>('all');
 
   const { firestore, user } = useFirebase();
   const isMobile = useIsMobile();
@@ -747,6 +774,8 @@ export default function StaffPage() {
         const archived = Boolean((m as any).archived);
         if (rosterFilter === 'archived') { if (!archived) return false; }
         else if (archived) return false;
+        if (rosterFilter === 'employees' && (m as any).isRenter === true) return false;
+        if (rosterFilter === 'renters' && (m as any).isRenter !== true) return false;
         if (rosterFilter === 'in' && !(m.active && !m.onBreak)) return false;
         if (rosterFilter === 'break' && !m.onBreak) return false;
         if (rosterFilter === 'off' && m.active) return false;
@@ -1125,7 +1154,7 @@ export default function StaffPage() {
                                     )}
                                 </div>
                                 <div className="flex flex-wrap items-center gap-1.5">
-                                    {([['all','Everyone'],['in','Clocked in'],['break','On break'],['off','Off'],['archived','Archived']] as const).map(([key, label]) => (
+                                    {([['all','Everyone'],['employees','Employees'],['renters','Renters'],['in','Clocked in'],['break','On break'],['off','Off'],['archived','Archived']] as const).map(([key, label]) => (
                                         <button
                                             key={key}
                                             type="button"
