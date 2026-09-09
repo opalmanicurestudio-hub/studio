@@ -1612,7 +1612,10 @@ const PaydayTab = () => {
   const staffObligations = useMemo(() => {
     if (!staff || !filteredTransactions || !activityLogs) return [];
 
-    return staff.map(member => {
+    // Booth renters are not on payroll — they rent the chair and keep their
+    // own takings. Excluded here for the same reason the server draft
+    // excludes them; if the two disagreed, the screen would be the lie.
+    return staff.filter((m: any) => m.isRenter !== true).map(member => {
         const staffTransactions = filteredTransactions.filter(t => t.staffId === member.id && t.type === 'income');
 
         const serviceRevenue = staffTransactions
