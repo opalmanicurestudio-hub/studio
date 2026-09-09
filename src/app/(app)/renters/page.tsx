@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { RenterProfileDrawer } from '@/components/renters/RenterProfileDrawer';
 import { RenterCommsDesk } from '@/components/renters/RenterCommsDesk';
+import { staffMirrorFields, mirrorDiffers, publicName } from '@/lib/renter-identity';
 
 type R = any;
 
@@ -105,11 +106,10 @@ export default function RentersPage() {
       const existing = staff.find((s: any) => s.isRenter && s.renterId === r.id);
       const staffId = existing?.id || doc(collection(firestore, 'tenants', tenantId, 'staff')).id;
       await setDoc(doc(firestore, 'tenants', tenantId, 'staff', staffId), {
-        id: staffId, tenantId, name: `${r.firstName || ''} ${r.lastName || ''}`.trim() || 'Renter',
-        email: r.email || '', phone: r.phone || '', role: 'staff',
+        id: staffId, tenantId, role: 'staff',
         isRenter: true, renterId: r.id, payStructure: 'none',
         isActive: true, active: false, onBreak: false, status: 'idle',
-        avatarUrl: r.photoUrl || '', photoUrl: r.photoUrl || '', bio: r.bio || '',
+        ...staffMirrorFields(r),
       }, { merge: true });
       toast({ title: 'Bookings on', description: `${r.firstName} can now set their menu, hours and booking link from their portal. They still need hours before anyone can book them.` });
     } catch {
@@ -373,7 +373,15 @@ export default function RentersPage() {
                     specialty: editing.specialty || '', businessName: editing.businessName || '',
                     updatedAt: new Date().toISOString(),
                   });
-                  toast({ title: 'Saved', description: `${editing.firstName} ${editing.lastName}` });
+                  // Their provider record carries the name the booking page
+                  // shows. Editing one and not the other is how a renter ends
+                  // up publicly listed under a name nobody uses any more.
+                  const prov = staff.find((m: any) => m.isRenter && m.renterId === editing.id);
+                  if (prov) {
+                    const mirror = staffMirrorFields({ ...editing, photoUrl: undefined });
+                    if (mirrorDiffers(mirror, prov)) await updateDoc(doc(firestore, 'tenants', tenantId, 'staff', prov.id), mirror);
+                  }
+                  toast({ title: 'Saved', description: prov ? `${publicName(editing)} — booking page updated too` : `${editing.firstName} ${editing.lastName}` });
                   setEditing(null);
                 } catch { toast({ title: 'Could not save', description: 'Try again.' }); }
                 setBusy(false);
