@@ -58,6 +58,7 @@ import { collection, doc, writeBatch, deleteField, setDoc } from 'firebase/fires
 import { EditStaffDialog } from '@/components/staff/EditStaffDialog';
 import { PrintableStaffReport } from '@/components/staff/PrintableStaffReport';
 import { ConvertToRenterDialog } from '@/components/staff/ConvertToRenterDialog';
+import { bookableState, serviceCountFor } from '@/lib/bookable';
 import { StaffOnboardingDialog } from '@/components/staff/StaffOnboardingDialog';
 import {
   AlertDialog,
@@ -107,6 +108,10 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
     // because the booking engine needs one provider record per person — that
     // is where the sameness ends.
     const isRenter = (member as any).isRenter === true;
+    // The one question the staff page never answered: can clients actually
+    // book this person? Employees fail it constantly because hours live on
+    // /schedule and nothing here said so.
+    const book = (member as any).bookable as ReturnType<typeof bookableState> | undefined;
     const [licenseInfo, setLicenseInfo] = useState<{
         isExpired: boolean;
         isExpiringSoon: boolean;
@@ -322,6 +327,17 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                               <span className="h-10 shrink-0 inline-flex items-center rounded-xl border-2 border-slate-300 bg-slate-100 px-3 font-black uppercase tracking-widest text-[10px] text-slate-700">
                                   Renter
                               </span>
+                            )}
+                            {book && !book.ok && !book.byDesign && (
+                              book.href
+                                ? <a href={book.href} title={book.fix}
+                                     className="h-10 shrink-0 inline-flex items-center rounded-xl border-2 border-amber-300 bg-amber-50 px-3 font-black uppercase tracking-widest text-[10px] text-amber-900">
+                                    {book.label} →
+                                  </a>
+                                : <span title={book.fix}
+                                        className="h-10 shrink-0 inline-flex items-center rounded-xl border-2 border-amber-300 bg-amber-50 px-3 font-black uppercase tracking-widest text-[10px] text-amber-900">
+                                    {book.label}
+                                  </span>
                             )}
                             <Button
                                 variant="outline"
@@ -545,7 +561,7 @@ export default function StaffPage() {
   const [onboardingStaff, setOnboardingStaff] = useState<Staff | null>(null);
   const [reviewFor, setReviewFor] = useState<(Staff & { stats: any }) | null>(null);
   const [rosterQuery, setRosterQuery] = useState('');
-  const [rosterFilter, setRosterFilter] = useState<'all' | 'employees' | 'renters' | 'in' | 'break' | 'off' | 'archived'>('all');
+  const [rosterFilter, setRosterFilter] = useState<'all' | 'employees' | 'renters' | 'unbookable' | 'in' | 'break' | 'off' | 'archived'>('all');
 
   const { firestore, user } = useFirebase();
   const isMobile = useIsMobile();
@@ -575,6 +591,10 @@ export default function StaffPage() {
   } = useInventory();
   
   const staffQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/staff`) : null, [firestore, tenantId]);
+  // Renters' own menus, so a renter's chip can say "no services" for the same
+  // reason an employee's does. Their menu is renterServices, not the house list.
+  const renterServicesQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/renterServices`) : null, [firestore, tenantId]);
+  const { data: renterServices } = useCollection<any>(renterServicesQuery);
   const pricingTiersQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/pricingTiers`) : null, [firestore, tenantId]);
   
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
@@ -774,15 +794,26 @@ export default function StaffPage() {
     });
   }, [staff, transactions, dateRange, appointments, inventory, activityLogs, services, selectedTenant?.tmhr]);
 
+  const staffWithBookable = useMemo(() => staffWithStats.map((m: any) => ({
+    ...m,
+    bookable: bookableState({
+      staff: m, isRenter: m.isRenter === true, bookingMode: m.bookingMode,
+      serviceCount: m.isRenter === true
+        ? (renterServices || []).filter((sv: any) => sv.staffId === m.id && sv.isActive !== false).length
+        : serviceCountFor(services || [], m.id),
+    }),
+  })), [staffWithStats, services, renterServices]);
+
   const visibleStaff = useMemo(() => {
     const q = rosterQuery.trim().toLowerCase();
-    return staffWithStats
-      .filter((m) => {
+    return staffWithBookable
+      .filter((m: any) => {
         const archived = Boolean((m as any).archived);
         if (rosterFilter === 'archived') { if (!archived) return false; }
         else if (archived) return false;
         if (rosterFilter === 'employees' && (m as any).isRenter === true) return false;
         if (rosterFilter === 'renters' && (m as any).isRenter !== true) return false;
+        if (rosterFilter === 'unbookable' && (m.bookable?.ok || m.bookable?.byDesign)) return false;
         if (rosterFilter === 'in' && !(m.active && !m.onBreak)) return false;
         if (rosterFilter === 'break' && !m.onBreak) return false;
         if (rosterFilter === 'off' && m.active) return false;
@@ -1161,7 +1192,7 @@ export default function StaffPage() {
                                     )}
                                 </div>
                                 <div className="flex flex-wrap items-center gap-1.5">
-                                    {([['all','Everyone'],['employees','Employees'],['renters','Renters'],['in','Clocked in'],['break','On break'],['off','Off'],['archived','Archived']] as const).map(([key, label]) => (
+                                    {([['all','Everyone'],['employees','Employees'],['renters','Renters'],['unbookable','Not bookable'],['in','Clocked in'],['break','On break'],['off','Off'],['archived','Archived']] as const).map(([key, label]) => (
                                         <button
                                             key={key}
                                             type="button"
