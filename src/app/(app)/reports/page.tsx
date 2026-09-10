@@ -110,7 +110,25 @@ export default function ReportsPage() {
 
     // Independent providers keep their own books — they never appear in the
     // studio's staff performance table (no commission, no revenue share).
-    const performance = staff.filter((m: any) => !m.isRenter).map(staffMember => {
+    //
+    // BUT isRenter is PRESENT-TENSE STATE, and this table answers a question
+    // about the PAST. An employee who becomes a booth renter would otherwise
+    // vanish from every historical report the moment the flag flips — years
+    // of their sales gone from the person-level breakdown, even though the
+    // revenue itself is still counted. So the row survives while the period
+    // being reported on overlaps the time they were employed, and each
+    // appointment is judged by its OWN isRenterBooking stamp, which never
+    // changes after the fact.
+    const employedInPeriod = (m: any) => {
+        if (!m.isRenter) return true;
+        const until = String(m.employedUntil || m.becameRenterAt || '').slice(0, 10);
+        if (!until) return false;               // renter from the start — never an employee here
+        // effectiveFrom, not dateRange.from — the page defaults to this month
+        // when no range is picked, and that default has to be honoured here or
+        // a converted renter would reappear in current-month reports.
+        return effectiveFrom.getTime() <= new Date(`${until}T23:59:59`).getTime();
+    };
+    const performance = staff.filter(employedInPeriod).map(staffMember => {
         const staffAppointments = appointments.filter(apt => apt.staffId === staffMember.id && filterByDate(apt.startTime) && !(apt as any).isRenterBooking);
         const completedAppointments = staffAppointments.filter(apt => apt.status === 'completed');
         const completedCount = completedAppointments.length;
