@@ -28,7 +28,8 @@ import {
   Loader,
   MoreHorizontal,
   ShieldAlert,
-  FileSignature
+  FileSignature,
+  Armchair,
 } from 'lucide-react';
 import {
   Select,
@@ -56,6 +57,7 @@ import { FULFILMENT_ROLES, describeRole, permissionsFor, type FulfilmentRole } f
 import { collection, doc, writeBatch, deleteField, setDoc } from 'firebase/firestore';
 import { EditStaffDialog } from '@/components/staff/EditStaffDialog';
 import { PrintableStaffReport } from '@/components/staff/PrintableStaffReport';
+import { ConvertToRenterDialog } from '@/components/staff/ConvertToRenterDialog';
 import { StaffOnboardingDialog } from '@/components/staff/StaffOnboardingDialog';
 import {
   AlertDialog,
@@ -99,7 +101,7 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, pricingTiers, onForceIdle, onDelete, onOnboard, onCoverage, onPrintReview, onArchiveToggle, onFulfilmentRole, canManage }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void, pricingTiers: PricingTier[], onForceIdle: (id: string) => void, onDelete: (member: Staff) => void, onOnboard: (member: Staff) => void, onCoverage: (member: Staff) => void, onPrintReview: (member: Staff & { stats: any }) => void, onArchiveToggle: (member: Staff) => void, onFulfilmentRole: (member: Staff, value: string) => void, canManage: boolean }) => {
+const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, pricingTiers, onForceIdle, onDelete, onOnboard, onCoverage, onPrintReview, onArchiveToggle, onFulfilmentRole, onConvert, canManage }: { member: Staff & { stats: any }, onConvert: (member: Staff) => void, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void, pricingTiers: PricingTier[], onForceIdle: (id: string) => void, onDelete: (member: Staff) => void, onOnboard: (member: Staff) => void, onCoverage: (member: Staff) => void, onPrintReview: (member: Staff & { stats: any }) => void, onArchiveToggle: (member: Staff) => void, onFulfilmentRole: (member: Staff, value: string) => void, canManage: boolean }) => {
     const [actionsOpen, setActionsOpen] = useState(false);
     // Same collection, different relationship. A renter shares this roster
     // because the booking engine needs one provider record per person — that
@@ -387,6 +389,9 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                             </select>
                           </div>
                         )}
+                        <Button variant="outline" onClick={() => { setActionsOpen(false); onConvert(member); }} className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-[11px] justify-start px-3 text-slate-700">
+                            <Armchair className="mr-2 h-3.5 w-3.5 shrink-0" aria-hidden="true" /> Becomes a renter
+                        </Button>
                         <Button variant="outline" onClick={() => { setActionsOpen(false); onArchiveToggle(member); }} className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-[11px] justify-start px-3 text-slate-700">
                             <Users className="mr-2 h-3.5 w-3.5 shrink-0" aria-hidden="true" /> {(member as any).archived ? 'Restore' : 'Archive'}
                         </Button>
@@ -557,8 +562,10 @@ export default function StaffPage() {
   const canManage = role === 'owner' || role === 'admin';
   const { toast: uiToast } = useToast();
   
+  const [convertFor, setConvertFor] = useState<any | null>(null);
   const {
     services,
+    clients,
     transactions,
     appointments,
     activityLogs,
@@ -1176,7 +1183,7 @@ export default function StaffPage() {
                             {visibleStaff.length > 0 ? (
                             <div className="grid gap-6 md:grid-cols-1 xl:grid-cols-2">
                                 {visibleStaff.map((member) => (
-                                <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithAuth} pricingTiers={pricingTiers || []} onForceIdle={handleForceIdle} onDelete={handleDeleteStaffClick} onOnboard={(m) => setOnboardingStaff(m)} onCoverage={(m) => setCoverageFor(m)} onPrintReview={(m) => setReviewFor(m)} onArchiveToggle={handleArchiveToggle} onFulfilmentRole={(m, v) => handleUpdateStaff({ ...(m as any), fulfilmentRole: v || null } as any)} canManage={canManage} />
+                                <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithAuth} pricingTiers={pricingTiers || []} onForceIdle={handleForceIdle} onDelete={handleDeleteStaffClick} onOnboard={(m) => setOnboardingStaff(m)} onCoverage={(m) => setCoverageFor(m)} onPrintReview={(m) => setReviewFor(m)} onArchiveToggle={handleArchiveToggle} onFulfilmentRole={(m, v) => handleUpdateStaff({ ...(m as any), fulfilmentRole: v || null } as any)} onConvert={(m) => setConvertFor(m)} canManage={canManage} />
                                 ))}
                             </div>
                             ) : (
@@ -1316,6 +1323,21 @@ export default function StaffPage() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+    {convertFor && tenantId && (
+      <ConvertToRenterDialog
+        open={!!convertFor}
+        onOpenChange={(o) => { if (!o) setConvertFor(null); }}
+        member={convertFor}
+        firestore={firestore}
+        tenantId={tenantId}
+        locationId={(convertFor as any)?.locationId ?? null}
+        appointments={appointments || []}
+        clients={clients || []}
+        services={services || []}
+        onDone={() => setConvertFor(null)}
+      />
+    )}
+
     {reviewFor && (
       <PrintableStaffReport
         member={reviewFor}
