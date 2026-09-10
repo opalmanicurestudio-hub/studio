@@ -30,6 +30,7 @@ import {
 import { RenterProfileDrawer } from '@/components/renters/RenterProfileDrawer';
 import { RenterCommsDesk } from '@/components/renters/RenterCommsDesk';
 import { staffMirrorFields, mirrorDiffers, publicName } from '@/lib/renter-identity';
+import { bookableState } from '@/lib/bookable';
 
 type R = any;
 
@@ -46,17 +47,6 @@ const FREQ_LABEL: Record<string, string> = {
  * never disagree about whether setup is finished. An 'own'-mode renter runs
  * their own system and is finished by definition.
  */
-function bookableThroughStudio(staffDoc: any): { ok: boolean; why: string } {
-  if (!staffDoc) return { ok: false, why: 'No provider record yet' };
-  if (staffDoc.bookingOptOut === true) return { ok: false, why: 'Booking switched off' };
-  const week = staffDoc.availability?.week || staffDoc.week || {};
-  const hasHours = Object.keys(week).some(
-    (k: string) => week[k]?.enabled && week[k]?.start && week[k]?.end
-  );
-  if (!hasHours) return { ok: false, why: 'No hours set — nobody can book them' };
-  return { ok: true, why: '' };
-}
-
 const OCCUPYING = ['active', 'on_leave', 'pending_signature'];
 
 export default function RentersPage() {
@@ -79,6 +69,7 @@ export default function RentersPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'active' | 'setup' | 'leave' | 'past'>('active');
   const [inviting, setInviting] = useState<string>('');
+  const [renterServices, setRenterServices] = useState<any[]>([]);
 
   useEffect(() => {
     if (!firestore || !tenantId) return;
@@ -88,7 +79,8 @@ export default function RentersPage() {
         () => { if (done) setLoading(false); });
     const unsubs = [sub('renters', setRenters, true), sub('leases', setLeases),
       sub('staff', setStaff), sub('booths', setBooths),
-      sub('boothReservations', setReservations), sub('amenityRequests', setAmenityRequests)];
+      sub('boothReservations', setReservations), sub('amenityRequests', setAmenityRequests),
+      sub('renterServices', setRenterServices)];
     return () => unsubs.forEach((u) => u());
   }, [firestore, tenantId]);
 
@@ -130,9 +122,13 @@ export default function RentersPage() {
         const rent = myLeases.reduce((sum, l) => sum + (Number(l.rentAmountCents) || 0), 0);
         const freq = myLeases[0]?.frequency || 'monthly';
         const ownMode = r.bookingMode === 'own';
-        const book = ownMode ? { ok: true, why: '' } : bookableThroughStudio(staffByRenter.get(r.id));
+        const st = staffByRenter.get(r.id);
+        const book = bookableState({
+          staff: st || null, isRenter: true, bookingMode: r.bookingMode,
+          serviceCount: (renterServices || []).filter((sv: any) => st && sv.staffId === st.id && sv.isActive !== false).length,
+        });
         const needsSetup = ['active', 'on_leave'].includes(String(r.status))
-          && myLeases.length > 0 && !ownMode && !book.ok;
+          && myLeases.length > 0 && !book.ok && !book.byDesign;
         const noPortal = r.portalInviteStatus !== 'accepted';
         return { r, myLeases, unsigned, spaces, rent, freq, ownMode, book, needsSetup, noPortal };
       });
@@ -252,10 +248,10 @@ export default function RentersPage() {
                 <span className="flex flex-wrap justify-end gap-1 shrink-0">
                   {needsSetup && (
                     <span className="rounded-full bg-rose-200 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-rose-900">
-                      {book.why}
+                      {book.label}
                     </span>
                   )}
-                  {needsSetup && book.why === 'No provider record yet' && (
+                  {needsSetup && book.reason === 'no_provider' && (
                     <button type="button" onClick={(e) => { e.stopPropagation(); void enableBookings(r); }} disabled={enabling === r.id}
                       className="rounded-full bg-slate-900 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-white disabled:opacity-40">
                       {enabling === r.id ? '…' : 'Turn on bookings'}
