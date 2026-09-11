@@ -801,6 +801,9 @@ export const EditStaffDialog: React.FC<any> = ({
       // The bookable week. Nothing else in the owner app writes this, so
       // without it an employee has no times and can never be booked.
       availability: { week: hoursWeek as any },
+      // Saving from Edit means pay has been looked at; the "pay not set" chip
+      // from Add-now-pay-later comes off.
+      payPending: false,
       specialties: typeof data.specialties === 'string'
         ? data.specialties.split(',').map(s => s.trim()).filter(s => s)
         : data.specialties,
