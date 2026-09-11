@@ -61,12 +61,27 @@ const fmtTime = (t?: string | null) => {
 // shown, and a request changes nothing until it is approved. Banked days work
 // the same way: asking to spend them is not spending them.
 // ─── Today: the reasons they logged in, one tap each ─────────────────────────
-function TodayQuick({ data, booksHere, onGo }: { data: any; booksHere: boolean; onGo: (t: 'today' | 'book' | 'rent' | 'studio') => void }) {
+function TodayQuick({ data, booksHere, onGo, tenantId, token, onBadges, visible }: { data: any; booksHere: boolean; onGo: (t: 'today' | 'book' | 'rent' | 'studio') => void; tenantId: string; token: string; onBadges: (b: Record<string, number>) => void; visible: boolean }) {
+  const [inbox, setInbox] = useState<{ items: any[]; todayAppts: any[] } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api({ action: 'today', tenantId, token }).then((d) => {
+      if (!alive || !d?.ok) return;
+      setInbox({ items: d.items || [], todayAppts: d.todayAppts || [] });
+      onBadges(d.badges || {});
+    });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId, token, data?.invoices?.length]);
   const due = (data?.invoices || []).filter((i: any) => i.status === 'due' || i.status === 'late');
   const dueCents = due.reduce((n: number, i: any) => n + (Number(i.amountCents) || 0) + (Number(i.lateFeeCents) || 0), 0);
   const late = due.some((i: any) => i.status === 'late');
   const nextAppt = (data?.myBookings || []).filter((b: any) => b.status !== 'cancelled').sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime)))[0] || null;
   const when = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? '' : d.toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' }); };
+  const clock = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? '' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); };
+  const ago = (iso: string) => { const h = Math.floor((Date.now() - new Date(iso).getTime()) / 3600000); return h < 1 ? 'just now' : h < 24 ? `${h}h ago` : `${Math.floor(h / 24)}d ago`; };
+  const tone: Record<string, string> = { red: 'border-red-300 bg-red-50', amber: 'border-amber-300 bg-amber-50', green: 'border-emerald-200 bg-emerald-50', slate: 'border-slate-200 bg-white' };
+  const quiet = inbox && inbox.items.length === 0 && due.length === 0 && (!booksHere || inbox.todayAppts.length === 0);
   const Action = ({ label, sub, onClick }: { label: string; sub?: string; onClick: () => void }) => (
     <button type="button" onClick={onClick} className="rounded-2xl border-2 bg-white px-3 py-3 text-left">
       <span className="block text-[11px] font-black uppercase tracking-widest">{label}</span>
@@ -74,18 +89,42 @@ function TodayQuick({ data, booksHere, onGo }: { data: any; booksHere: boolean; 
     </button>
   );
   return (
-    <section className="space-y-2">
+    <section className={visible ? 'space-y-2' : 'hidden'}>
       {due.length > 0 && (
         <button type="button" onClick={() => onGo('rent')} className={cn('w-full rounded-2xl border-2 px-4 py-3 text-left', late ? 'border-red-300 bg-red-50' : 'border-amber-300 bg-amber-50')}>
           <span className={cn('block text-[11px] font-black uppercase tracking-widest', late ? 'text-red-800' : 'text-amber-800')}>{late ? 'Rent is late' : 'Rent due'} · ${(dueCents / 100).toFixed(2)}</span>
           <span className="block text-[10px] font-bold text-slate-600">Tap to see and pay.</span>
         </button>
       )}
-      {booksHere && nextAppt && (
+      {booksHere && inbox && inbox.todayAppts.length > 0 && (
+        <button type="button" onClick={() => onGo('book')} className="w-full rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-left space-y-1">
+          <span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Today · {inbox.todayAppts.length} appointment{inbox.todayAppts.length === 1 ? '' : 's'}</span>
+          {inbox.todayAppts.slice(0, 4).map((a) => (
+            <span key={a.id} className="block text-[11px] font-bold text-slate-700 truncate"><span className="font-black">{clock(a.startTime)}</span> · {a.clientName}{a.serviceName ? ` · ${a.serviceName}` : ''}</span>
+          ))}
+          {inbox.todayAppts.length > 4 && <span className="block text-[10px] font-bold text-slate-500">and {inbox.todayAppts.length - 4} more</span>}
+        </button>
+      )}
+      {booksHere && inbox && inbox.todayAppts.length === 0 && nextAppt && (
         <button type="button" onClick={() => onGo('book')} className="w-full rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-left">
-          <span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Next up · {when(nextAppt.startTime)}</span>
+          <span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Nothing today · next {when(nextAppt.startTime)}</span>
           <span className="block text-[10px] font-bold text-slate-500 truncate">{nextAppt.clientName || 'Client'}{nextAppt.serviceName ? ` · ${nextAppt.serviceName}` : ''}</span>
         </button>
+      )}
+      {inbox && inbox.items.map((it, i) => (
+        <button key={i} type="button" onClick={() => onGo(it.tab)} className={cn('w-full rounded-2xl border-2 px-4 py-3 text-left', tone[it.tone || 'slate'])}>
+          <span className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-black uppercase tracking-widest text-slate-800">{it.title}</span>
+            <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-slate-400">{ago(it.at)}</span>
+          </span>
+          {it.body && <span className="block text-[10px] font-bold text-slate-600 truncate">{it.body}</span>}
+        </button>
+      ))}
+      {quiet && (
+        <div className="rounded-2xl border-2 border-slate-100 bg-white px-4 py-3">
+          <p className="text-[11px] font-black uppercase tracking-widest text-slate-800">Nothing needs you</p>
+          <p className="text-[10px] font-bold text-slate-500">Rent is settled and nothing is waiting.{booksHere && data?.provider?.bookingUrl ? ' Share your booking link to fill the book.' : ''}</p>
+        </div>
       )}
       <div className="grid grid-cols-2 gap-2">
         {booksHere && <Action label="Add walk-in" sub="Book someone now" onClick={() => onGo('book')} />}
@@ -2617,6 +2656,7 @@ export default function RenterPortalPage() {
   // subscription re-fires.
   const [tab, setTab] = useState<'today' | 'book' | 'rent' | 'studio'>('today');
   useEffect(() => { if (!booksHere && tab === 'book') setTab('today'); }, [booksHere, tab]);
+  const [badges, setBadges] = useState<Record<string, number>>({});
   const rentDue = (data?.invoices || []).some((i: any) => i.status === 'due' || i.status === 'late');
   const rentLate = (data?.invoices || []).some((i: any) => i.status === 'late');
   const openInvoices = useMemo(() => (data?.invoices || []).filter((i: any) => i.status === 'due' || i.status === 'late'), [data]);
@@ -2710,7 +2750,7 @@ export default function RenterPortalPage() {
           </div>
         ) : (
           <div className="space-y-8 pb-24">
-            {tab === 'today' && <TodayQuick data={data} booksHere={booksHere} onGo={setTab} />}
+            {session?.token && <TodayQuick data={data} booksHere={booksHere} onGo={setTab} tenantId={tenantId} token={session.token} onBadges={setBadges} visible={tab === 'today'} />}
             <div className={tab === 'today' ? 'space-y-8' : 'hidden'}>
             {todays.length > 0 && (
               <section className="space-y-3">
@@ -3014,9 +3054,9 @@ export default function RenterPortalPage() {
           <div className="mx-auto grid max-w-md gap-1 px-2 pt-2" style={{ gridTemplateColumns: `repeat(${booksHere ? 4 : 3}, minmax(0, 1fr))` }}>
             {([
               ['today', 'Today', Home, false],
-              ...(booksHere ? [['book', 'Book', CalendarDays, false]] : []),
-              ['rent', 'Rent', Wallet, rentDue],
-              ['studio', 'Studio', Store, false],
+              ...(booksHere ? [['book', 'Book', CalendarDays, (badges.book || 0) > 0]] : []),
+              ['rent', 'Rent', Wallet, rentDue || (badges.rent || 0) > 0],
+              ['studio', 'Studio', Store, (badges.studio || 0) > 0],
             ] as [typeof tab, string, any, boolean][]).map(([k, label, Icon, dot]) => (
               <button key={k} type="button" onClick={() => { setTab(k); window.scrollTo({ top: 0 }); }} aria-pressed={tab === k} aria-label={label}
                 className={cn('relative flex h-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[9px] font-black uppercase tracking-widest', tab === k ? 'bg-slate-900 text-white' : 'text-slate-500')}>
