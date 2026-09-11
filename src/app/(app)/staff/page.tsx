@@ -328,6 +328,12 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                                   Renter
                               </span>
                             )}
+                            {!isRenter && (member as any).payPending === true && (
+                              <span title="Pay was skipped when they were added. Open their card to set it."
+                                    className="h-10 shrink-0 inline-flex items-center rounded-xl border-2 border-slate-300 bg-slate-50 px-3 font-black uppercase tracking-widest text-[10px] text-slate-600">
+                                  Pay not set
+                              </span>
+                            )}
                             {book && !book.ok && !book.byDesign && (
                               book.href
                                 ? <a href={book.href} title={book.fix}
@@ -906,8 +912,10 @@ export default function StaffPage() {
       await setDoc(staffDocRef, sanitizedData);
 
       uiToast({
-        title: 'Staff Member Added',
-        description: `${data.name} has been registered with PIN access.`,
+        title: (data as any).payPending ? 'Added — pay not set yet' : 'Added to the team',
+        description: (data as any).payPending
+          ? `${data.name} can take bookings now. Open their card when you're ready to set pay.`
+          : `${data.name} has been added with PIN access.`,
       });
 
       setIsAddStaffOpen(false);
