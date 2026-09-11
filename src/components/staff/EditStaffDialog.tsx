@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
+import { WeeklyHoursEditor, weekFrom, type WeekHours } from '@/components/staff/WeeklyHoursEditor';
 import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -127,12 +128,16 @@ const EditStaffFormInternal = ({
   pricingTiers,
   onSendPasswordReset,
   onRegeneratePin,
+  hoursWeek,
+  onHoursChange,
 }: {
   services: Service[];
   consentForms: ConsentForm[];
   pricingTiers: PricingTier[];
   onSendPasswordReset: () => void;
   onRegeneratePin: () => void;
+  hoursWeek: WeekHours;
+  onHoursChange: (w: WeekHours) => void;
 }) => {
   const { register, control, watch, setValue, formState: { errors } } = useFormContext<EditStaffFormData>();
   const payStructure = watch('payStructure');
@@ -437,6 +442,11 @@ const EditStaffFormInternal = ({
                 <p className="text-[10px] font-black uppercase tracking-widest">No services assigned</p>
               </div>
             )}
+          </div>
+
+          <div className="space-y-4 pt-4 border-t border-dashed text-left">
+            <WeeklyHoursEditor week={hoursWeek} onChange={onHoursChange}
+              note="These are the times clients can book. Services and hours together are what put someone on your booking site." />
           </div>
 
           <div className="space-y-4 pt-4 border-t border-dashed text-left">
@@ -780,11 +790,17 @@ export const EditStaffDialog: React.FC<any> = ({
     uiToast({ title: 'PIN Synchronized', description: "The provider's security signature has been updated." });
   };
 
+  const [hoursWeek, setHoursWeek] = useState<WeekHours>(() => weekFrom(staffMember));
+  useEffect(() => { setHoursWeek(weekFrom(staffMember)); }, [staffMember]);
+
   const handleSave = (data: EditStaffFormData) => {
     if (!staffMember) return;
     const staffDataToSave: Staff = {
       ...staffMember,
       ...data,
+      // The bookable week. Nothing else in the owner app writes this, so
+      // without it an employee has no times and can never be booked.
+      availability: { week: hoursWeek as any },
       specialties: typeof data.specialties === 'string'
         ? data.specialties.split(',').map(s => s.trim()).filter(s => s)
         : data.specialties,
@@ -835,6 +851,8 @@ export const EditStaffDialog: React.FC<any> = ({
             >
               <div className="p-5 pb-8">
                 <EditStaffFormInternal
+                  hoursWeek={hoursWeek}
+                  onHoursChange={setHoursWeek}
                   services={services}
                   consentForms={consentForms}
                   pricingTiers={pricingTiers}
@@ -895,6 +913,8 @@ export const EditStaffDialog: React.FC<any> = ({
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
               <div className="p-10 pb-8">
                 <EditStaffFormInternal
+                  hoursWeek={hoursWeek}
+                  onHoursChange={setHoursWeek}
                   services={services}
                   consentForms={consentForms}
                   pricingTiers={pricingTiers}
