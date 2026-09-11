@@ -34,6 +34,8 @@ import {
   MessageSquare,
   CalendarClock,
   Users,
+  Home,
+  Store,
   BellRing,
   ShieldAlert,
   Wrench,
@@ -58,6 +60,43 @@ const fmtTime = (t?: string | null) => {
 // The renter asks; the studio decides. Only treatments the shop offers are
 // shown, and a request changes nothing until it is approved. Banked days work
 // the same way: asking to spend them is not spending them.
+// ─── Today: the reasons they logged in, one tap each ─────────────────────────
+function TodayQuick({ data, booksHere, onGo }: { data: any; booksHere: boolean; onGo: (t: 'today' | 'book' | 'rent' | 'studio') => void }) {
+  const due = (data?.invoices || []).filter((i: any) => i.status === 'due' || i.status === 'late');
+  const dueCents = due.reduce((n: number, i: any) => n + (Number(i.amountCents) || 0) + (Number(i.lateFeeCents) || 0), 0);
+  const late = due.some((i: any) => i.status === 'late');
+  const nextAppt = (data?.myBookings || []).filter((b: any) => b.status !== 'cancelled').sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime)))[0] || null;
+  const when = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? '' : d.toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' }); };
+  const Action = ({ label, sub, onClick }: { label: string; sub?: string; onClick: () => void }) => (
+    <button type="button" onClick={onClick} className="rounded-2xl border-2 bg-white px-3 py-3 text-left">
+      <span className="block text-[11px] font-black uppercase tracking-widest">{label}</span>
+      {sub && <span className="block text-[10px] font-bold text-slate-500 truncate">{sub}</span>}
+    </button>
+  );
+  return (
+    <section className="space-y-2">
+      {due.length > 0 && (
+        <button type="button" onClick={() => onGo('rent')} className={cn('w-full rounded-2xl border-2 px-4 py-3 text-left', late ? 'border-red-300 bg-red-50' : 'border-amber-300 bg-amber-50')}>
+          <span className={cn('block text-[11px] font-black uppercase tracking-widest', late ? 'text-red-800' : 'text-amber-800')}>{late ? 'Rent is late' : 'Rent due'} · ${(dueCents / 100).toFixed(2)}</span>
+          <span className="block text-[10px] font-bold text-slate-600">Tap to see and pay.</span>
+        </button>
+      )}
+      {booksHere && nextAppt && (
+        <button type="button" onClick={() => onGo('book')} className="w-full rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-left">
+          <span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Next up · {when(nextAppt.startTime)}</span>
+          <span className="block text-[10px] font-bold text-slate-500 truncate">{nextAppt.clientName || 'Client'}{nextAppt.serviceName ? ` · ${nextAppt.serviceName}` : ''}</span>
+        </button>
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        {booksHere && <Action label="Add walk-in" sub="Book someone now" onClick={() => onGo('book')} />}
+        <Action label="Pay rent" sub={due.length ? 'Something is due' : 'Nothing due right now'} onClick={() => onGo('rent')} />
+        <Action label="Report a problem" sub="Something broken?" onClick={() => onGo('studio')} />
+        <Action label="Message the studio" sub="Or raise a concern" onClick={() => onGo('studio')} />
+      </div>
+    </section>
+  );
+}
+
 // ─── Documents ───────────────────────────────────────────────────────────────
 // The paperwork after the lease, read and signed here. Signing is typing your
 // full name — the same way the lease was signed — and the record lands beside
@@ -2570,6 +2609,16 @@ export default function RenterPortalPage() {
   // engine enforces the same thing server-side, so this is presentation
   // following truth rather than pretending.
   const booksHere = !!data?.provider && data?.bookingMode !== 'own';
+  // ── Four destinations, not twenty-one sections ─────────────────────────
+  // A renter logs in for one thing: today, their book, their rent, or the
+  // studio. Every section still exists; it now lives under the tab it
+  // belongs to, and the bottom bar lights up the tab that has something
+  // waiting. Hidden tabs stay mounted (CSS), so switching is instant and no
+  // subscription re-fires.
+  const [tab, setTab] = useState<'today' | 'book' | 'rent' | 'studio'>('today');
+  useEffect(() => { if (!booksHere && tab === 'book') setTab('today'); }, [booksHere, tab]);
+  const rentDue = (data?.invoices || []).some((i: any) => i.status === 'due' || i.status === 'late');
+  const rentLate = (data?.invoices || []).some((i: any) => i.status === 'late');
   const openInvoices = useMemo(() => (data?.invoices || []).filter((i: any) => i.status === 'due' || i.status === 'late'), [data]);
 
   const doCheckIn = async (reservationId: string) => {
@@ -2660,8 +2709,9 @@ export default function RenterPortalPage() {
             <p className="text-[10px] font-black uppercase tracking-widest">Loading your studio life…</p>
           </div>
         ) : (
-          <div className="space-y-8">
-
+          <div className="space-y-8 pb-24">
+            {tab === 'today' && <TodayQuick data={data} booksHere={booksHere} onGo={setTab} />}
+            <div className={tab === 'today' ? 'space-y-8' : 'hidden'}>
             {todays.length > 0 && (
               <section className="space-y-3">
                 <SectionTitle icon={Clock}>Today</SectionTitle>
@@ -2671,17 +2721,67 @@ export default function RenterPortalPage() {
               </section>
             )}
 
-            {(data?.availableCreditCents > 0 || (data?.credits || []).length > 0) && (
+            {session?.token && (
+              <GettingSetUp data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
+            )}
+
+            {session?.token && data?.renter?.id && !booksHere && (
               <section className="space-y-3">
-                <SectionTitle icon={Sparkles}>Studio Credit</SectionTitle>
-                <div className="p-5 rounded-3xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-xl shadow-emerald-200">
-                  <p className="text-[9px] font-black uppercase tracking-[0.3em] opacity-70">Available balance</p>
-                  <p className="text-4xl font-black tracking-tighter font-mono mt-1">{fmtMoney(data?.availableCreditCents || 0)}</p>
-                  <p className="text-[10px] font-bold opacity-80 mt-2">Applies automatically to your next booking.</p>
+                <SectionTitle icon={CalendarDays}>Bookings</SectionTitle>
+                <div className="p-4 rounded-3xl bg-white border-2 border-slate-100">
+                  {data?.bookingMode === 'own' ? (
+                    <>
+                      <p className="text-[12px] font-bold text-slate-800">You take your own bookings.</p>
+                      <p className="mt-1 text-[11px] font-medium text-slate-500">
+                        Your menu, calendar and clients live in your own system, so this portal keeps to rent, documents and messages.
+                        If you ever want to run bookings from here instead, ask the studio to switch it on.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-[12px] font-bold text-slate-800">Bookings aren&apos;t switched on for you here yet.</p>
+                      <p className="mt-1 text-[11px] font-medium text-slate-500">
+                        Once the studio enables it, this portal gains your service menu, your hours, a booking link of your own,
+                        your appointment book, your client list and your payouts. Ask them to turn it on — it takes them one tap.
+                      </p>
+                    </>
+                  )}
                 </div>
               </section>
             )}
 
+            </div>
+            <div className={tab === 'book' ? 'space-y-8' : 'hidden'}>
+            {booksHere && session?.token && <MyBook data={data} tenantId={tenantId} token={session.token} />}
+            {booksHere && session?.token && <MyClients tenantId={tenantId} token={session.token} />}
+            {booksHere && session?.token && <MyClientMessages tenantId={tenantId} token={session.token} />}
+
+            {booksHere && session?.token && (
+              <MyServices data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
+            )}
+
+            {booksHere && session?.token && (
+              <MyHours data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
+            )}
+
+            {data?.provider && session?.token && (
+              <MyProfile data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
+            )}
+
+            {booksHere && session?.token && (
+              <MyNumber data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
+            )}
+
+            {booksHere && session?.token && data?.swaps?.enabled !== false && (
+              <MySwaps data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
+            )}
+
+            {booksHere && session?.token && (
+              <MyPayments data={data} tenantId={tenantId} token={session.token} />
+            )}
+
+            </div>
+            <div className={tab === 'rent' ? 'space-y-8' : 'hidden'}>
             {data?.lease && (
               <section className="space-y-3">
                 <SectionTitle icon={Wallet}>Your Rent</SectionTitle>
@@ -2752,8 +2852,37 @@ export default function RenterPortalPage() {
               </section>
             )}
 
-            {session?.token && data?.renter?.id && (
-              <RenterThread tenantId={tenantId} token={session.token} studioName={data?.studioName || data?.tenant?.name || 'the studio'} />
+            {(data?.availableCreditCents > 0 || (data?.credits || []).length > 0) && (
+              <section className="space-y-3">
+                <SectionTitle icon={Sparkles}>Studio Credit</SectionTitle>
+                <div className="p-5 rounded-3xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-xl shadow-emerald-200">
+                  <p className="text-[9px] font-black uppercase tracking-[0.3em] opacity-70">Available balance</p>
+                  <p className="text-4xl font-black tracking-tighter font-mono mt-1">{fmtMoney(data?.availableCreditCents || 0)}</p>
+                  <p className="text-[10px] font-bold opacity-80 mt-2">Applies automatically to your next booking.</p>
+                </div>
+              </section>
+            )}
+
+            {(data?.payments || []).length > 0 && (
+              <section className="space-y-3">
+                <SectionTitle icon={Receipt}>Payment History</SectionTitle>
+                <div className="rounded-3xl bg-white border-2 border-slate-100 divide-y divide-slate-50 overflow-hidden">
+                  {(data.payments || []).map((p: any) => (
+                    <div key={p.id || p.date + p.description} className="flex items-center justify-between p-3.5">
+                      <div className="min-w-0 pr-3">
+                        <p className="text-[11px] font-bold text-slate-800 truncate">{p.description || p.category}</p>
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">
+                          {p.date ? fmtDate(String(p.date).slice(0, 10)) : ''}
+                        </p>
+                      </div>
+                      <p className={cn('text-xs font-black font-mono shrink-0',
+                        p.type === 'reversal' ? 'text-slate-400' : 'text-slate-900')}>
+                        {p.type === 'reversal' ? '−' : ''}${Number(p.amount || 0).toFixed(2)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </section>
             )}
 
             {session?.token && data?.lease && (
@@ -2761,76 +2890,7 @@ export default function RenterPortalPage() {
             )}
 
             {session?.token && data?.renter?.id && (
-              <RenterDocuments tenantId={tenantId} token={session.token} />
-            )}
-
-            {session?.token && data?.renter?.id && (
               <RenterInterruptions tenantId={tenantId} token={session.token} />
-            )}
-
-            {session?.token && data?.renter?.id && (
-              <RenterMaintenance tenantId={tenantId} token={session.token} />
-            )}
-
-            {session?.token && data?.renter?.id && (
-              <RenterConcerns tenantId={tenantId} token={session.token} />
-            )}
-
-            {session?.token && (
-              <GettingSetUp data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
-            )}
-
-            {data?.provider && session?.token && (
-              <MyProfile data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
-            )}
-
-            {session?.token && data?.renter?.id && !booksHere && (
-              <section className="space-y-3">
-                <SectionTitle icon={CalendarDays}>Bookings</SectionTitle>
-                <div className="p-4 rounded-3xl bg-white border-2 border-slate-100">
-                  {data?.bookingMode === 'own' ? (
-                    <>
-                      <p className="text-[12px] font-bold text-slate-800">You take your own bookings.</p>
-                      <p className="mt-1 text-[11px] font-medium text-slate-500">
-                        Your menu, calendar and clients live in your own system, so this portal keeps to rent, documents and messages.
-                        If you ever want to run bookings from here instead, ask the studio to switch it on.
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-[12px] font-bold text-slate-800">Bookings aren&apos;t switched on for you here yet.</p>
-                      <p className="mt-1 text-[11px] font-medium text-slate-500">
-                        Once the studio enables it, this portal gains your service menu, your hours, a booking link of your own,
-                        your appointment book, your client list and your payouts. Ask them to turn it on — it takes them one tap.
-                      </p>
-                    </>
-                  )}
-                </div>
-              </section>
-            )}
-
-            {booksHere && session?.token && (
-              <MyServices data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
-            )}
-
-            {booksHere && session?.token && (
-              <MyNumber data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
-            )}
-
-            {booksHere && session?.token && (
-              <MyHours data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
-            )}
-
-            {booksHere && session?.token && data?.swaps?.enabled !== false && (
-              <MySwaps data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
-            )}
-
-            {booksHere && session?.token && <MyBook data={data} tenantId={tenantId} token={session.token} />}
-            {booksHere && session?.token && <MyClients tenantId={tenantId} token={session.token} />}
-            {booksHere && session?.token && <MyClientMessages tenantId={tenantId} token={session.token} />}
-
-            {booksHere && session?.token && (
-              <MyPayments data={data} tenantId={tenantId} token={session.token} />
             )}
 
             <section className="space-y-3">
@@ -2850,6 +2910,42 @@ export default function RenterPortalPage() {
                 </a>
               )}
             </section>
+
+            {(data?.past || []).length > 0 && (
+              <section className="space-y-3">
+                <SectionTitle icon={CreditCard}>Past Visits</SectionTitle>
+                <div className="space-y-2">
+                  {(data.past || []).map((r: any) => (
+                    <div key={r.id} className="flex items-center justify-between p-3.5 rounded-2xl bg-white border border-slate-100">
+                      <div className="min-w-0 pr-3">
+                        <p className="text-[11px] font-bold text-slate-800 truncate">{r.boothName}</p>
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">{fmtDate(r.startDate)}</p>
+                      </div>
+                      <Chip tone={r.status === 'refunded' ? 'slate' : 'slate'}>
+                        {String(r.status || '').replace(/_/g, ' ')}
+                      </Chip>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+            </div>
+            <div className={tab === 'studio' ? 'space-y-8' : 'hidden'}>
+            {session?.token && data?.renter?.id && (
+              <RenterThread tenantId={tenantId} token={session.token} studioName={data?.studioName || data?.tenant?.name || 'the studio'} />
+            )}
+
+            {session?.token && data?.renter?.id && (
+              <RenterMaintenance tenantId={tenantId} token={session.token} />
+            )}
+
+            {session?.token && data?.renter?.id && (
+              <RenterConcerns tenantId={tenantId} token={session.token} />
+            )}
+
+            {session?.token && data?.renter?.id && (
+              <RenterDocuments tenantId={tenantId} token={session.token} />
+            )}
 
             <section className="space-y-3">
               <SectionTitle icon={Receipt}>Insurance &amp; licence</SectionTitle>
@@ -2908,49 +3004,30 @@ export default function RenterPortalPage() {
               </div>
             </section>
 
-            {(data?.payments || []).length > 0 && (
-              <section className="space-y-3">
-                <SectionTitle icon={Receipt}>Payment History</SectionTitle>
-                <div className="rounded-3xl bg-white border-2 border-slate-100 divide-y divide-slate-50 overflow-hidden">
-                  {(data.payments || []).map((p: any) => (
-                    <div key={p.id || p.date + p.description} className="flex items-center justify-between p-3.5">
-                      <div className="min-w-0 pr-3">
-                        <p className="text-[11px] font-bold text-slate-800 truncate">{p.description || p.category}</p>
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">
-                          {p.date ? fmtDate(String(p.date).slice(0, 10)) : ''}
-                        </p>
-                      </div>
-                      <p className={cn('text-xs font-black font-mono shrink-0',
-                        p.type === 'reversal' ? 'text-slate-400' : 'text-slate-900')}>
-                        {p.type === 'reversal' ? '−' : ''}${Number(p.amount || 0).toFixed(2)}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {(data?.past || []).length > 0 && (
-              <section className="space-y-3">
-                <SectionTitle icon={CreditCard}>Past Visits</SectionTitle>
-                <div className="space-y-2">
-                  {(data.past || []).map((r: any) => (
-                    <div key={r.id} className="flex items-center justify-between p-3.5 rounded-2xl bg-white border border-slate-100">
-                      <div className="min-w-0 pr-3">
-                        <p className="text-[11px] font-bold text-slate-800 truncate">{r.boothName}</p>
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">{fmtDate(r.startDate)}</p>
-                      </div>
-                      <Chip tone={r.status === 'refunded' ? 'slate' : 'slate'}>
-                        {String(r.status || '').replace(/_/g, ' ')}
-                      </Chip>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
+            </div>
           </div>
         )}
       </div>
+      {session && !loading && (
+        <nav aria-label="Portal sections"
+          className="fixed inset-x-0 bottom-0 z-40 border-t-2 border-slate-200 bg-white/95 backdrop-blur pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          <div className="mx-auto grid max-w-md gap-1 px-2 pt-2" style={{ gridTemplateColumns: `repeat(${booksHere ? 4 : 3}, minmax(0, 1fr))` }}>
+            {([
+              ['today', 'Today', Home, false],
+              ...(booksHere ? [['book', 'Book', CalendarDays, false]] : []),
+              ['rent', 'Rent', Wallet, rentDue],
+              ['studio', 'Studio', Store, false],
+            ] as [typeof tab, string, any, boolean][]).map(([k, label, Icon, dot]) => (
+              <button key={k} type="button" onClick={() => { setTab(k); window.scrollTo({ top: 0 }); }} aria-pressed={tab === k} aria-label={label}
+                className={cn('relative flex h-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[9px] font-black uppercase tracking-widest', tab === k ? 'bg-slate-900 text-white' : 'text-slate-500')}>
+                <Icon className="h-4 w-4" aria-hidden="true" />
+                {label}
+                {dot && <span className={cn('absolute right-3 top-1.5 h-2 w-2 rounded-full', rentLate ? 'bg-red-500' : 'bg-amber-400', tab === k && 'ring-2 ring-slate-900')} />}
+              </button>
+            ))}
+          </div>
+        </nav>
+      )}
     </div>
   );
 }
