@@ -89,8 +89,13 @@ export function bookableState(input: {
     return {
       ok: false, byDesign: false, reason: 'no_hours',
       label: 'No hours',
-      fix: isRenter ? 'They set their own hours from their portal — none set yet.' : 'Set their working hours so clients have times to pick.',
-      href: isRenter ? '' : '/schedule',
+      fix: isRenter
+        ? 'They set their own hours from their portal — none set yet.'
+        : 'Open their card and set their bookable hours — clients need times to pick.',
+      // NOT /schedule: that page writes shift preferences, a different
+      // collection entirely. The bookable week lives on the staff record and
+      // is edited in Edit staff, which is where this points.
+      href: '',
     };
   }
   return OK;
