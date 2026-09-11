@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { WeeklyHoursEditor, emptyWeek, type WeekHours } from '@/components/staff/WeeklyHoursEditor';
 import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -109,7 +110,7 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any; title: string; 
       <Icon className="w-5 h-5" />
     </div>
     <div className="space-y-0.5 text-left">
-      <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
+      <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Step {step} of 3</p>
       <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
     </div>
   </div>
@@ -126,7 +127,7 @@ const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
 
   return (
     <div className="space-y-10">
-      <SectionHeader icon={Fingerprint} title="Identity & Access" step={1} />
+      <SectionHeader icon={Fingerprint} title="Who they are" step={1} />
       <div className="space-y-6">
 
         <div className="space-y-2 text-left">
@@ -141,7 +142,7 @@ const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
         </div>
 
         <div className="space-y-2 text-left">
-          <Label htmlFor="email" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Professional Email</Label>
+          <Label htmlFor="email" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Email</Label>
           <Input
             id="email"
             type="email"
@@ -247,7 +248,7 @@ const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
 };
 
 // ─── STEP 2 ───────────────────────────────────────────────────────────────────
-const Step2 = ({ services, consentForms }: { services: Service[]; consentForms: ConsentForm[] }) => {
+const Step2 = ({ services, consentForms, hoursWeek, onHoursChange }: { services: Service[]; consentForms: ConsentForm[]; hoursWeek: WeekHours; onHoursChange: (w: WeekHours) => void }) => {
   const { control, register, setValue, watch } = useFormContext<AddStaffFormData>();
   const [isServicesDialogOpen, setIsServicesDialogOpen] = useState(false);
   const [isConsentFormDialogOpen, setIsConsentFormDialogOpen] = useState(false);
@@ -259,7 +260,7 @@ const Step2 = ({ services, consentForms }: { services: Service[]; consentForms: 
 
   return (
     <div className="space-y-10">
-      <SectionHeader icon={Sparkles} title="Profile & Mastery" step={2} />
+      <SectionHeader icon={Sparkles} title="What they do" step={2} />
       <div className="space-y-8">
 
         <div className="flex flex-col items-center gap-6 mb-6">
@@ -280,7 +281,7 @@ const Step2 = ({ services, consentForms }: { services: Service[]; consentForms: 
         </div>
 
         <div className="space-y-2 text-left">
-          <Label htmlFor="bio" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Professional Bio</Label>
+          <Label htmlFor="bio" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Bio</Label>
           <Textarea
             id="bio"
             placeholder="Draft a compelling profile for guests..."
@@ -290,7 +291,7 @@ const Step2 = ({ services, consentForms }: { services: Service[]; consentForms: 
         </div>
 
         <div className="space-y-2 text-left">
-          <Label htmlFor="specialties" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Signature Specialties</Label>
+          <Label htmlFor="specialties" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Specialties</Label>
           <Input
             id="specialties"
             placeholder="e.g., BALAYAGE, VIVIDS, PRECISION CUTS"
@@ -360,6 +361,11 @@ const Step2 = ({ services, consentForms }: { services: Service[]; consentForms: 
           )}
         </div>
 
+        <div className="space-y-4 pt-4 border-t border-dashed text-left">
+          <WeeklyHoursEditor week={hoursWeek} onChange={onHoursChange}
+            note="Services and hours together are what put someone on your booking site. You can finish here — pay can wait." />
+        </div>
+
       </div>
 
       <SelectServicesDialog
@@ -387,7 +393,7 @@ const Step3 = () => {
 
   return (
     <div className="space-y-10">
-      <SectionHeader icon={Wallet} title="Compensation & Logistics" step={3} />
+      <SectionHeader icon={Wallet} title="Pay & paperwork" step={3} />
       <div className="space-y-8">
         <div className="space-y-6 text-left">
 
@@ -539,8 +545,14 @@ const WizardFormBody = ({
   consentForms,
   onBack,
   onNext,
+  onFinishEarly,
   onClose,
+  hoursWeek,
+  onHoursChange,
 }: {
+  onFinishEarly: (e: React.MouseEvent) => void;
+  hoursWeek: WeekHours;
+  onHoursChange: (w: WeekHours) => void;
   step: number;
   totalSteps: number;
   isMobile: boolean;
@@ -571,7 +583,7 @@ const WizardFormBody = ({
     <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
       <div className={cn('pb-8', isMobile ? 'p-6' : 'p-8')}>
         {step === 1 && <Step1 pricingTiers={pricingTiers} />}
-        {step === 2 && <Step2 services={services} consentForms={consentForms} />}
+        {step === 2 && <Step2 services={services} consentForms={consentForms} hoursWeek={hoursWeek} onHoursChange={onHoursChange} />}
         {step === 3 && <Step3 />}
       </div>
     </div>
@@ -597,20 +609,30 @@ const WizardFormBody = ({
           >
             Cancel
           </Button>
+          {step === 2 && (
+            <Button
+              onClick={onFinishEarly}
+              type="button"
+              variant="outline"
+              className="flex-1 h-12 md:h-16 font-black uppercase tracking-widest text-[10px] md:text-base rounded-[2rem] border-2"
+            >
+              Add now · pay later
+            </Button>
+          )}
           {step < totalSteps ? (
             <Button
               onClick={onNext}
               type="button"
               className="flex-[1.5] h-12 md:h-16 font-black uppercase tracking-widest text-[10px] md:text-xl rounded-[2rem] shadow-2xl shadow-primary/30 group"
             >
-              Continue <ArrowRight className="ml-3 w-4 h-4 md:w-8 md:h-8 transition-transform group-hover:translate-x-1" />
+              {step === 2 ? 'Set pay' : 'Continue'} <ArrowRight className="ml-3 w-4 h-4 md:w-8 md:h-8 transition-transform group-hover:translate-x-1" />
             </Button>
           ) : (
             <Button
               type="submit"
               className="flex-[1.5] h-12 md:h-16 font-black uppercase tracking-widest text-[10px] md:text-xl rounded-[2rem] shadow-2xl shadow-primary/30"
             >
-              Save Provider
+              Add to team
             </Button>
           )}
         </div>
@@ -688,13 +710,28 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
     if (valid) setStep(prev => prev + 1);
   };
 
+  // Steps 1 and 2 are what make someone BOOKABLE. Step 3 is payroll. Nobody
+  // should have to enter a pay rate to let a person take appointments, so
+  // step 2 can finish the job; pay stays at its defaults until they open the
+  // card. The toast says so.
+  const handleFinishEarly = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    const valid = await methods.trigger(['name', 'email', 'role', 'pin', 'services'] as any);
+    if (!valid) return;
+    onSave({ ...methods.getValues(), availability: { week: hoursWeek }, payPending: true } as any);
+  };
+
   const handleBack = (e: React.MouseEvent) => {
     e.preventDefault();
     setStep(prev => prev - 1);
   };
 
+  // The bookable week — not a form field (zod would strip it), merged at
+  // save. Without it a new employee has no times and cannot be booked.
+  const [hoursWeek, setHoursWeek] = useState<WeekHours>(() => emptyWeek());
+
   const handleFormSubmit = methods.handleSubmit(
-    (data) => { onSave(data); },
+    (data) => { onSave({ ...data, availability: { week: hoursWeek } } as any); },
     (errors) => {
       if (process.env.NODE_ENV === 'development') {
         console.warn('[AddStaffDialog] Form validation errors:', errors);
@@ -711,7 +748,10 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
     consentForms,
     onBack: handleBack,
     onNext: handleNext,
+    onFinishEarly: handleFinishEarly,
     onClose: () => onOpenChange(false),
+    hoursWeek,
+    onHoursChange: setHoursWeek,
   };
 
   // ── Inline: rendered in normal page flow (mobile). Desktop: centered dialog. ──
