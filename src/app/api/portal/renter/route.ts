@@ -2505,6 +2505,32 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // ── page-get / page-save / page-photo: their page, their words ─────────
+    if (action === 'page-get') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const { cleanPage } = await import('@/lib/renter-identity');
+      const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      return NextResponse.json({ ok: true, page: cleanPage(r.page) });
+    }
+    if (action === 'page-save') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const { cleanPage, staffMirrorFields } = await import('@/lib/renter-identity');
+      const page = cleanPage(body.page);
+      const rRef = db.doc(`tenants/${tenantId}/renters/${session.renterId}`);
+      await rRef.set({ page, pageUpdatedAt: new Date().toISOString() }, { merge: true });
+      // The public page reads the provider record; mirror through the same door as everything else.
+      const stSnap = await db.collection(`tenants/${tenantId}/staff`).where('renterId', '==', session.renterId).limit(1).get();
+      if (!stSnap.empty) await stSnap.docs[0].ref.set(staffMirrorFields({ page }), { merge: true });
+      return NextResponse.json({ ok: true, page });
+    }
+    if (action === 'page-photo') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      if (typeof body.photoData !== 'string' || !body.photoData.startsWith('data:image')) return NextResponse.json({ ok: false, error: 'Not an image.' }, { status: 400 });
+      const up = await uploadPortalImageFromDataUrl(tenantId, `renters/${session.renterId}/gallery/${Date.now()}`, body.photoData);
+      if (!up.url) return NextResponse.json({ ok: false, error: up.error || 'Upload failed.' }, { status: 500 });
+      return NextResponse.json({ ok: true, url: up.url });
+    }
+
     // ── documents-list / document-sign / document-decline ────────────────────
     // The paperwork after the lease: a plain-words summary, the move-in
     // condition report, a written notice, a renewal. Each is a frozen snapshot
