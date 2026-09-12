@@ -26,6 +26,7 @@ import { useParams } from 'next/navigation';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { credentialViews, stateLabel, CREDENTIAL_LABEL } from '@/lib/compliance';
+import { LINK_KINDS } from '@/lib/renter-identity';
 import { useToast } from '@/hooks/use-toast';
 import {
   Armchair, CalendarDays, Clock, CreditCard, LogOut, Loader,
@@ -1104,6 +1105,7 @@ function MyProfile({ data, tenantId, token, onChanged }: { data: any; tenantId: 
   const [biz, setBiz] = useState(data?.renter?.businessName || '');
   const [bio, setBio] = useState(p0.bio || '');
   const [ig, setIg] = useState(p0.instagram || '');
+  const [links, setLinks] = useState<{ kind: string; value: string; label?: string }[]>(Array.isArray(p0.links) ? p0.links : []);
   const [url, setUrl] = useState(p0.externalBookingUrl || '');
   const [listed, setListed] = useState(p0.listExternally === true);
   const [photo, setPhoto] = useState<string | null>(null);
@@ -1125,7 +1127,7 @@ function MyProfile({ data, tenantId, token, onChanged }: { data: any; tenantId: 
     setBusy(true); setErr('');
     const d = await api({
       action: 'my-profile', tenantId, token,
-      businessName: biz, bio, instagram: ig, externalBookingUrl: url, listExternally: listed,
+      businessName: biz, bio, instagram: ig, links, externalBookingUrl: url, listExternally: listed,
       ...(photo ? { photoData: photo } : {}),
     });
     setBusy(false);
@@ -1176,6 +1178,30 @@ function MyProfile({ data, tenantId, token, onChanged }: { data: any; tenantId: 
               <label htmlFor="pf-ig" className="block text-[10px] font-black uppercase tracking-widest text-slate-400">Instagram</label>
               <input id="pf-ig" value={ig} onChange={(e) => setIg(e.target.value)} placeholder="yourhandle"
                 className="w-full px-3 py-3 rounded-xl border-2 border-slate-200 text-sm font-bold" />
+            </div>
+            <div className="space-y-2">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Your links</p>
+              <p className="text-[10px] font-bold text-slate-500">These show as buttons on your booking page, under your photo — TikTok, Facebook, your website, anything. Up to eight.</p>
+              {links.map((l, i) => {
+                const def = LINK_KINDS.find((k) => k.kind === l.kind) || LINK_KINDS[LINK_KINDS.length - 1];
+                return (
+                  <div key={i} className="flex gap-2">
+                    <select value={l.kind} onChange={(e) => setLinks((ls) => ls.map((x, j) => j === i ? { ...x, kind: e.target.value } : x))} aria-label="Link type"
+                      className="h-11 w-28 shrink-0 rounded-xl border-2 border-slate-200 bg-white px-2 text-[11px] font-bold">
+                      {LINK_KINDS.map((k) => <option key={k.kind} value={k.kind}>{k.label}</option>)}
+                    </select>
+                    <input value={l.value} onChange={(e) => setLinks((ls) => ls.map((x, j) => j === i ? { ...x, value: e.target.value.slice(0, 200) } : x))}
+                      placeholder={def.placeholder} aria-label={`${def.label} handle or URL`} inputMode="url"
+                      className="h-11 flex-1 min-w-0 rounded-xl border-2 border-slate-200 px-3 text-sm font-bold" />
+                    <button type="button" onClick={() => setLinks((ls) => ls.filter((_, j) => j !== i))} aria-label="Remove link"
+                      className="h-11 w-11 shrink-0 rounded-xl border-2 border-slate-200 text-slate-500 font-black">×</button>
+                  </div>
+                );
+              })}
+              {links.length < 8 && (
+                <button type="button" onClick={() => setLinks((ls) => [...ls, { kind: ls.some((x) => x.kind === 'tiktok') ? 'website' : 'tiktok', value: '' }])}
+                  className="h-10 w-full rounded-xl border-2 border-dashed border-slate-300 text-[10px] font-black uppercase tracking-widest text-slate-600">+ Add a link</button>
+              )}
             </div>
           </>
         )}
@@ -2657,6 +2683,10 @@ export default function RenterPortalPage() {
   const [tab, setTab] = useState<'today' | 'book' | 'rent' | 'studio'>('today');
   useEffect(() => { if (!booksHere && tab === 'book') setTab('today'); }, [booksHere, tab]);
   const [badges, setBadges] = useState<Record<string, number>>({});
+  // Book → Setup: seven configuration panels folded into one list, opened one at a time.
+  const [setupOpen, setSetupOpen] = useState<string>('');
+  // Rent → History: the archive folded away until asked for.
+  const [historyOpen, setHistoryOpen] = useState(false);
   const rentDue = (data?.invoices || []).some((i: any) => i.status === 'due' || i.status === 'late');
   const rentLate = (data?.invoices || []).some((i: any) => i.status === 'late');
   const openInvoices = useMemo(() => (data?.invoices || []).filter((i: any) => i.status === 'due' || i.status === 'late'), [data]);
@@ -2794,32 +2824,124 @@ export default function RenterPortalPage() {
             <div className={tab === 'book' ? 'space-y-8' : 'hidden'}>
             {booksHere && session?.token && <MyBook data={data} tenantId={tenantId} token={session.token} />}
             {booksHere && session?.token && <MyClients tenantId={tenantId} token={session.token} />}
-            {booksHere && session?.token && <MyClientMessages tenantId={tenantId} token={session.token} />}
 
+            {booksHere && (
+              <section className="space-y-3">
+                <SectionTitle icon={Sparkles}>Setup</SectionTitle>
+                <div className="rounded-3xl bg-white border-2 border-slate-100 divide-y-2 divide-slate-100 overflow-hidden">
+                  {(
+                    <div>
+                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'services' ? '' : 'services')} aria-expanded={setupOpen === 'services'}
+                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
+                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Services</span><span className="block text-[10px] font-bold text-slate-500">Your menu and prices</span></span>
+                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'services' && 'rotate-90')} />
+                      </button>
+                      {setupOpen === 'services' && (
+                        <div className="px-3 pb-4">
             {booksHere && session?.token && (
               <MyServices data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
             )}
-
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {(
+                    <div>
+                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'hours' ? '' : 'hours')} aria-expanded={setupOpen === 'hours'}
+                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
+                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Hours</span><span className="block text-[10px] font-bold text-slate-500">When clients can book you</span></span>
+                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'hours' && 'rotate-90')} />
+                      </button>
+                      {setupOpen === 'hours' && (
+                        <div className="px-3 pb-4">
             {booksHere && session?.token && (
               <MyHours data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
             )}
-
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {(
+                    <div>
+                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'profile' ? '' : 'profile')} aria-expanded={setupOpen === 'profile'}
+                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
+                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Profile</span><span className="block text-[10px] font-bold text-slate-500">Photo, name, bio, Instagram</span></span>
+                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'profile' && 'rotate-90')} />
+                      </button>
+                      {setupOpen === 'profile' && (
+                        <div className="px-3 pb-4">
             {data?.provider && session?.token && (
               <MyProfile data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
             )}
-
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {(
+                    <div>
+                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'number' ? '' : 'number')} aria-expanded={setupOpen === 'number'}
+                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
+                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Booking number</span><span className="block text-[10px] font-bold text-slate-500">The number on your link</span></span>
+                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'number' && 'rotate-90')} />
+                      </button>
+                      {setupOpen === 'number' && (
+                        <div className="px-3 pb-4">
             {booksHere && session?.token && (
               <MyNumber data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
             )}
-
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {(
+                    <div>
+                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'messages' ? '' : 'messages')} aria-expanded={setupOpen === 'messages'}
+                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
+                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Client messages</span><span className="block text-[10px] font-bold text-slate-500">Reminders and thank-yous, in your name</span></span>
+                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'messages' && 'rotate-90')} />
+                      </button>
+                      {setupOpen === 'messages' && (
+                        <div className="px-3 pb-4">
+            {booksHere && session?.token && <MyClientMessages tenantId={tenantId} token={session.token} />}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {data?.swaps?.enabled !== false && (
+                    <div>
+                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'swaps' ? '' : 'swaps')} aria-expanded={setupOpen === 'swaps'}
+                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
+                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Swaps</span><span className="block text-[10px] font-bold text-slate-500">Shared-space day swaps</span></span>
+                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'swaps' && 'rotate-90')} />
+                      </button>
+                      {setupOpen === 'swaps' && (
+                        <div className="px-3 pb-4">
             {booksHere && session?.token && data?.swaps?.enabled !== false && (
               <MySwaps data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
             )}
-
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {(
+                    <div>
+                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'payouts' ? '' : 'payouts')} aria-expanded={setupOpen === 'payouts'}
+                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
+                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Payouts</span><span className="block text-[10px] font-bold text-slate-500">Where your money lands</span></span>
+                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'payouts' && 'rotate-90')} />
+                      </button>
+                      {setupOpen === 'payouts' && (
+                        <div className="px-3 pb-4">
             {booksHere && session?.token && (
               <MyPayments data={data} tenantId={tenantId} token={session.token} />
             )}
-
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
             </div>
             <div className={tab === 'rent' ? 'space-y-8' : 'hidden'}>
             {data?.lease && (
@@ -2903,6 +3025,23 @@ export default function RenterPortalPage() {
               </section>
             )}
 
+            {session?.token && data?.lease && (
+              <RenterLeave tenantId={tenantId} token={session.token} />
+            )}
+
+            {session?.token && data?.renter?.id && (
+              <RenterInterruptions tenantId={tenantId} token={session.token} />
+            )}
+
+
+            <section className="space-y-3">
+              <button type="button" onClick={() => setHistoryOpen((v) => !v)} aria-expanded={historyOpen}
+                className="flex w-full items-center justify-between gap-3 rounded-3xl border-2 border-slate-100 bg-white px-4 py-3.5 text-left">
+                <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">History</span><span className="block text-[10px] font-bold text-slate-500">Payments made, day bookings, past visits</span></span>
+                <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', historyOpen && 'rotate-90')} />
+              </button>
+              {historyOpen && (
+                <div className="space-y-8">
             {(data?.payments || []).length > 0 && (
               <section className="space-y-3">
                 <SectionTitle icon={Receipt}>Payment History</SectionTitle>
@@ -2923,14 +3062,6 @@ export default function RenterPortalPage() {
                   ))}
                 </div>
               </section>
-            )}
-
-            {session?.token && data?.lease && (
-              <RenterLeave tenantId={tenantId} token={session.token} />
-            )}
-
-            {session?.token && data?.renter?.id && (
-              <RenterInterruptions tenantId={tenantId} token={session.token} />
             )}
 
             <section className="space-y-3">
@@ -2969,6 +3100,9 @@ export default function RenterPortalPage() {
                 </div>
               </section>
             )}
+                </div>
+              )}
+            </section>
             </div>
             <div className={tab === 'studio' ? 'space-y-8' : 'hidden'}>
             {session?.token && data?.renter?.id && (
