@@ -124,7 +124,13 @@ export async function POST(req: NextRequest) {
           },
         ],
         // Save the card for future off-session charges (final balance, fees, etc.)
-        payment_intent_data: { setup_future_usage: 'off_session' },
+        // Metadata on the SESSION does not reach the charge; the fee handler
+        // reads charge.metadata, so the renter tag has to ride the payment
+        // intent too — or a renter's Stripe fee gets booked as a studio expense.
+        payment_intent_data: {
+          setup_future_usage: 'off_session',
+          metadata: { tenantId, type: 'deposit', ...(isRenterCharge ? { renterProviderId: String(renterProviderId) } : {}) },
+        },
         metadata: {
           tenantId,
           bookingRequestId,
