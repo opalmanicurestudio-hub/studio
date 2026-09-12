@@ -29,6 +29,71 @@ export interface RenterIdentity {
   instagram?: string | null;
   /** Link-tree rows: where else to find them. Ordered. */
   links?: RenterLink[] | null;
+  /** Their page: the content sections they switched on. */
+  page?: RenterPage | null;
+}
+
+// ── THEIR PAGE ────────────────────────────────────────────────────────────
+// Words and pictures the renter owns: a portfolio, a longer story than the
+// bio, the questions clients always ask, their own cancellation terms. None
+// of it belongs in the studio's page builder, which is the studio's voice.
+// Rendered on their link page between their links and their menu, in the
+// studio's style. Products that take money (packages, gift cards,
+// memberships) are NOT here — those must run on the renter's own Stripe and
+// are a separate track.
+export type RenterSectionKind = 'about' | 'gallery' | 'faq' | 'policies';
+export interface RenterSection {
+  kind: RenterSectionKind;
+  enabled: boolean;
+  title?: string;
+  text?: string;                       // about, policies
+  photos?: string[];                   // gallery
+  items?: { q: string; a: string }[];  // faq
+}
+export interface RenterPage { sections: RenterSection[] }
+
+export const SECTION_KINDS: { kind: RenterSectionKind; label: string; blurb: string }[] = [
+  { kind: 'about', label: 'About', blurb: 'A longer story than your bio — how you work, what you love doing.' },
+  { kind: 'gallery', label: 'Gallery', blurb: 'Your work, up to 24 photos. This is what books people.' },
+  { kind: 'faq', label: 'Questions', blurb: 'The things clients always ask, answered once.' },
+  { kind: 'policies', label: 'Policies', blurb: 'Deposits, lateness, cancellations — in your words.' },
+];
+
+const DEFAULT_TITLE: Record<RenterSectionKind, string> = { about: 'About', gallery: 'My work', faq: 'Good to know', policies: 'Policies' };
+
+export function emptyPage(): RenterPage {
+  return { sections: SECTION_KINDS.map((k) => ({ kind: k.kind, enabled: false, title: DEFAULT_TITLE[k.kind], text: '', photos: [], items: [] })) };
+}
+
+/** Clean what the renter saved: known kinds only, caps everywhere, no scripts. */
+export function cleanPage(raw: any): RenterPage {
+  const base = emptyPage();
+  const given: any[] = Array.isArray(raw?.sections) ? raw.sections : [];
+  const byKind = new Map<string, any>(given.map((x) => [String(x?.kind || ''), x]));
+  const ordered: RenterSection[] = [];
+  // Keep the renter's order for kinds they touched; append untouched kinds after.
+  for (const g of given) {
+    const kind = String(g?.kind || '') as RenterSectionKind;
+    if (!SECTION_KINDS.some((k) => k.kind === kind) || ordered.some((o) => o.kind === kind)) continue;
+    ordered.push({
+      kind, enabled: g?.enabled === true,
+      title: String(g?.title || DEFAULT_TITLE[kind]).trim().slice(0, 60) || DEFAULT_TITLE[kind],
+      text: String(g?.text || '').trim().slice(0, 2500),
+      photos: Array.isArray(g?.photos) ? g.photos.filter((u: any) => typeof u === 'string' && /^https:\/\//.test(u)).slice(0, 24) : [],
+      items: Array.isArray(g?.items) ? g.items.map((it: any) => ({ q: String(it?.q || '').trim().slice(0, 160), a: String(it?.a || '').trim().slice(0, 800) })).filter((it: any) => it.q && it.a).slice(0, 12) : [],
+    });
+  }
+  for (const b of base.sections) if (!ordered.some((o) => o.kind === b.kind)) ordered.push(b);
+  void byKind;
+  return { sections: ordered };
+}
+
+/** Sections worth rendering: enabled and not empty. */
+export function livePageSections(page: RenterPage | null | undefined): RenterSection[] {
+  return (page?.sections || []).filter((s) => s.enabled && (
+    (s.kind === 'gallery' && (s.photos || []).length > 0)
+    || ((s.kind === 'about' || s.kind === 'policies') && !!(s.text || '').trim())
+    || (s.kind === 'faq' && (s.items || []).length > 0)));
 }
 
 export type RenterLinkKind = 'instagram' | 'tiktok' | 'facebook' | 'youtube' | 'pinterest' | 'x' | 'website' | 'booking' | 'custom';
@@ -107,6 +172,7 @@ export function staffMirrorFields(r: RenterIdentity): Record<string, any> {
   set('bio', r.bio ?? undefined);
   set('instagram', r.instagram ?? undefined);
   if (r.links !== undefined && r.links !== null) (out as any).links = cleanLinks(r.links);
+  if (r.page !== undefined && r.page !== null) (out as any).page = cleanPage(r.page);
   if (r.photoUrl !== undefined && r.photoUrl !== null) { out.photoUrl = String(r.photoUrl); out.avatarUrl = String(r.photoUrl); }
   return out;
 }
