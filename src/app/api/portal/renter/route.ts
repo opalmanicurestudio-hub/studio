@@ -1082,7 +1082,16 @@ export async function POST(req: NextRequest) {
             .find((m: any) => m.isRenter && m.isActive !== false);
           if (st) {
             await syncLeaseWindow(db, tenantId, st, lease, tenant);
-            const origin = String(tenant.publicOrigin || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/+$/, '');
+            // The link has to be ABSOLUTE or it cannot be shared: a relative
+            // /book/… pasted into a message opens nothing. Shop's own domain
+            // first, then the production URL, then this request's origin —
+            // never an empty string.
+            const origin = String(
+              tenant.publicOrigin
+              || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')
+              || req.nextUrl?.origin
+              || '',
+            ).replace(/\/+$/, '');
             provider = {
               staffId: st.id,
               // Their weekly template, in the shape the availability engine
