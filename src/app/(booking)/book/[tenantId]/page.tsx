@@ -10,7 +10,7 @@ import { type PageSection, type PageBuilderConfig } from '@/lib/data';
 import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { resolveBookingPlan } from '@/lib/deposit-policy';
 import { X as XIcon, ArrowRight } from 'lucide-react';
-import { linkHref, LINK_KINDS } from '@/lib/renter-identity';
+import { linkHref, LINK_KINDS, livePageSections } from '@/lib/renter-identity';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import {
   ANIM_CSS, STACKS, GFONTS,
@@ -636,6 +636,34 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
               ))}
             </div>
           )}
+
+          {livePageSections(p.page).map((sec) => (
+            <div key={sec.kind} className="mt-8">
+              <p className="mb-3 text-center text-[10px] font-black uppercase tracking-widest" style={{ color: ac(resolvedStyle) + '80' }}>{sec.title}</p>
+              {(sec.kind === 'about' || sec.kind === 'policies') && (
+                <div className="p-5 text-sm leading-relaxed text-slate-700 whitespace-pre-wrap" style={{ background: 'white', borderRadius: br(resolvedStyle), border: `2px solid ${ac(resolvedStyle)}15` }}>{sec.text}</div>
+              )}
+              {sec.kind === 'gallery' && (
+                <div className="grid grid-cols-3 gap-1.5">
+                  {(sec.photos || []).map((u, i) => (
+                    <a key={u} href={u} target="_blank" rel="noopener noreferrer" className="aspect-square overflow-hidden" style={{ borderRadius: br(resolvedStyle) }}>
+                      <img src={u} alt={`${p.name || 'Work'} — photo ${i + 1}`} loading="lazy" className="h-full w-full object-cover" />
+                    </a>
+                  ))}
+                </div>
+              )}
+              {sec.kind === 'faq' && (
+                <div className="space-y-2">
+                  {(sec.items || []).map((it, i) => (
+                    <details key={i} className="group p-4" style={{ background: 'white', borderRadius: br(resolvedStyle), border: `2px solid ${ac(resolvedStyle)}15` }}>
+                      <summary className="cursor-pointer list-none text-sm font-black text-slate-900">{it.q}</summary>
+                      <p className="mt-2 text-sm leading-relaxed text-slate-600 whitespace-pre-wrap">{it.a}</p>
+                    </details>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
 
           <div className="mt-8">
             <p className="mb-3 text-center text-[10px] font-black uppercase tracking-widest" style={{ color: ac(resolvedStyle) + '80' }}>Book with {first}</p>
