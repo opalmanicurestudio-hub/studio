@@ -10,6 +10,7 @@ import { type PageSection, type PageBuilderConfig } from '@/lib/data';
 import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { resolveBookingPlan } from '@/lib/deposit-policy';
 import { X as XIcon, ArrowRight } from 'lucide-react';
+import { linkHref, LINK_KINDS } from '@/lib/renter-identity';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import {
   ANIM_CSS, STACKS, GFONTS,
@@ -586,6 +587,88 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   // elsewhere. Sending them their real link is the whole point — the
   // alternative is a client who came looking for a specific person and
   // leaves thinking the studio is broken.
+  // ── A renter's link opens THEIR page ─────────────────────────────────
+  // One screen: who they are, where else to find them, what they offer.
+  // Not the studio's twenty sections with a different price list injected —
+  // a client who followed Ana's link came for Ana. The studio keeps a quiet
+  // "Part of …" line at the foot, and its own page is untouched. Styling is
+  // inherited from the studio so a renter has nothing to set up.
+  const linkedProvider: any = providerId ? staff.find((m: any) => m.id === providerId && m.isRenter) : null;
+  if (linkedProvider && !awayProvider) {
+    const p = linkedProvider;
+    const first = String(p.name || '').split(' ')[0] || 'them';
+    const links: any[] = Array.isArray(p.links) ? p.links : [];
+    const igOnly = p.instagram && !links.some((l) => l.kind === 'instagram');
+    const rows: { label: string; href: string }[] = [
+      ...(igOnly ? [{ label: 'Instagram', href: linkHref({ kind: 'instagram', value: p.instagram }) }] : []),
+      ...links.map((l) => ({ label: l.label || (LINK_KINDS.find((k) => k.kind === l.kind)?.label ?? 'Link'), href: linkHref(l) })).filter((r) => r.href),
+    ];
+    const addr = [tenant?.address?.street || tenant?.address?.line1, tenant?.address?.city].filter(Boolean).join(', ');
+    return (
+      <div className="w-full min-h-dvh overflow-x-hidden"
+           style={{ background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
+        <div className="mx-auto w-full max-w-md px-5 pb-16 pt-10">
+          <div className="text-center space-y-3">
+            {(p.avatarUrl || p.photoUrl) ? (
+              <img src={p.avatarUrl || p.photoUrl} alt={p.name || 'Provider'} className="mx-auto h-28 w-28 rounded-full object-cover"
+                   style={{ boxShadow: `0 0 0 4px ${ac(resolvedStyle)}20` }} />
+            ) : (
+              <div className="mx-auto h-28 w-28 rounded-full" style={{ background: ac(resolvedStyle) + '15' }} />
+            )}
+            <h1 className="text-3xl font-light leading-tight" style={{ fontFamily: hf(resolvedStyle), color: ac(resolvedStyle) }}>{p.name || 'Provider'}</h1>
+            {(p.title || addr || tenant?.name) && (
+              <p className="text-[11px] font-black uppercase tracking-widest" style={{ color: ac(resolvedStyle) + '90' }}>
+                {[p.title, tenant?.name ? `at ${tenant.name}` : null, addr].filter(Boolean).join(' · ')}
+              </p>
+            )}
+            {p.bio && <p className="text-sm leading-relaxed text-slate-600 px-2">{p.bio}</p>}
+          </div>
+
+          {rows.length > 0 && (
+            <div className="mt-6 space-y-2">
+              {rows.map((r, i) => (
+                <a key={i} href={r.href} target="_blank" rel="noopener noreferrer"
+                   className="flex items-center justify-between px-5 py-4 text-[11px] font-black uppercase tracking-widest transition-all hover:shadow-md"
+                   style={{ background: 'white', color: ac(resolvedStyle), borderRadius: br(resolvedStyle), border: `2px solid ${ac(resolvedStyle)}25` }}>
+                  <span>{r.label}</span>
+                  <ArrowRight className="h-4 w-4 opacity-40" />
+                </a>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-8">
+            <p className="mb-3 text-center text-[10px] font-black uppercase tracking-widest" style={{ color: ac(resolvedStyle) + '80' }}>Book with {first}</p>
+            {services.length === 0 ? (
+              <p className="text-center text-sm text-slate-500">No services listed yet — check back soon.</p>
+            ) : (
+              <div className="space-y-2">
+                {services.map((sv: any) => (
+                  <button key={sv.id} onClick={() => { setDialogService(sv); setDialogOpen(true); }}
+                          className="flex w-full items-center justify-between p-4 text-left transition-all hover:shadow-md"
+                          style={{ borderRadius: br(resolvedStyle), border: `2px solid ${ac(resolvedStyle)}25`, background: 'white' }}>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-black uppercase tracking-tight text-slate-900" style={{ fontFamily: bf(resolvedStyle) }}>{sv.name}</p>
+                      {sv.duration && <p className="mt-0.5 text-[10px] font-black uppercase tracking-widest" style={{ color: ac(resolvedStyle) + '80' }}>{sv.duration} min</p>}
+                    </div>
+                    <div className="ml-4 flex shrink-0 items-center gap-2">
+                      {sv.price != null && <span className="text-xl font-light" style={{ fontFamily: hf(resolvedStyle), color: ac(resolvedStyle) }}>${sv.price}</span>}
+                      <ArrowRight className="h-4 w-4 text-slate-300" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <a href={`/book/${tenantId}`} className="mt-10 block text-center text-[10px] font-black uppercase tracking-widest text-slate-400">
+            Part of {tenant?.name || 'the studio'} · see everyone
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   if (awayProvider) {
     return (
       <div className="w-full min-h-dvh flex items-center justify-center p-6"
