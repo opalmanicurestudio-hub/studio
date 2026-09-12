@@ -134,14 +134,29 @@ export async function POST(req: NextRequest) {
           const depositAmountCents = session.amount_total ?? Math.round((br.depositAmount || 0) * 100);
 
           // Resolve or create the client by email
+          // Whose booking is this? A renter's deposit came through the
+          // renter's Stripe; everything this branch creates belongs to them.
+          const renterProviderId = String(session.metadata?.renterProviderId || br.renterProviderId || '') || null;
+          let renterOwnerId: string | null = null;
+          if (renterProviderId) {
+            const stSnap = await db.doc(`tenants/${tenant.id}/staff/${renterProviderId}`).get();
+            const st = (stSnap.data() as any) || {};
+            if (st.isRenter && st.renterId) renterOwnerId = String(st.renterId);
+          }
+
+          // The client, in the right book. Same rule as the booking route: a
+          // renter's client is looked up and created under ownerRenterId; a
+          // studio booking looks only at the studio's own. The same person can
+          // exist once in each — two businesses, two records.
           const email = String(br.clientEmail || '').toLowerCase().trim();
           let clientId: string;
-          const clientMatch = email
-            ? await db.collection(`tenants/${tenant.id}/clients`).where('email', '==', email).limit(1).get()
-            : { empty: true, docs: [] as any[] };
+          const clientHits = email
+            ? (await db.collection(`tenants/${tenant.id}/clients`).where('email', '==', email).limit(5).get()).docs
+            : [];
+          const inBook = clientHits.find((d: any) => (String((d.data() as any)?.ownerRenterId || '') || null) === renterOwnerId);
 
-          if (!clientMatch.empty) {
-            clientId = clientMatch.docs[0].id;
+          if (inBook) {
+            clientId = inBook.id;
           } else {
             const newClientRef = db.collection(`tenants/${tenant.id}/clients`).doc();
             clientId = newClientRef.id;
@@ -154,6 +169,7 @@ export async function POST(req: NextRequest) {
               lifetimeValue: 0,
               status: 'active',
               createdAt: new Date().toISOString(),
+              ...(renterOwnerId ? { ownerRenterId: renterOwnerId, ownerStaffId: renterProviderId } : {}),
             });
           }
 
@@ -209,6 +225,18 @@ export async function POST(req: NextRequest) {
             clientPhone: br.clientPhone || '',
             serviceId: br.serviceId,
             staffId:   br.staffId,
+            // Without these stamps a renter's deposit-paid booking became a
+            // STUDIO appointment in the data: counted in studio reports,
+            // invisible in the renter's own book. Same stamps the booking
+            // route writes on the no-deposit path.
+            ...(renterProviderId ? {
+              isRenterBooking: true,
+              renterProviderId,
+              renterServiceName: br.serviceName || '',
+              renterServicePrice: Number(br.price ?? 0),
+              collectsOwnPayment: true,
+              revenue: 0,
+            } : {}),
             startTime: br.startTime,
             endTime:   br.endTime,
             /* ── THE BOOKING MODE APPLIES HERE TOO ─────────────────────────
@@ -248,6 +276,25 @@ export async function POST(req: NextRequest) {
           batch.set(aptRef, appointmentPayload);
           batch.set(db.collection('appointmentCheckIns').doc(checkInToken), appointmentPayload);
 
+          // ── WHOSE MONEY IS THIS? ──────────────────────────────────────
+          // A booth renter's client pays into the RENTER'S Stripe account —
+          // the session was created there, no platform fee, the studio never
+          // held a cent. Until now this branch posted every deposit into the
+          // studio's ledger as revenue anyway, so a renter's deposits inflated
+          // the studio's Money page, reports and tax buckets with dollars it
+          // never received. Renter money is separate money: it gets a record
+          // on the appointment for the renter's own books, and nothing in the
+          // studio's transactions. The appointment itself is still created —
+          // the booking is real, only the accounting was wrong.
+          const isRenterMoney = !!session.metadata?.renterProviderId;
+          if (isRenterMoney) {
+            batch.set(aptRef, {
+              renterDepositCents: depositAmountCents,
+              renterDepositPaidAt: new Date().toISOString(),
+              renterDepositSessionId: session.id,
+              renterDepositChargeId: chargeId,
+            }, { merge: true });
+          } else {
           // Post the deposit to the ledger — taxBucket 'revenue' + checkoutSessionId
           // so the charge.succeeded handler below can backfill the exact fee later.
           const txnRef = db.collection(`tenants/${tenant.id}/transactions`).doc();
@@ -270,6 +317,7 @@ export async function POST(req: NextRequest) {
             stripeChargeId: chargeId,
             tenantId: tenant.id,
           });
+          }
 
           batch.set(brRef, {
             status: 'completed',
@@ -501,6 +549,10 @@ export async function POST(req: NextRequest) {
 
       // ── charge.succeeded: record exact Stripe processing fee ─────────────
       case 'charge.succeeded': {
+        // A renter's charge carries renterProviderId in its metadata (set on
+        // the session). Its Stripe fee came out of THEIR balance; posting it
+        // as a studio expense would book a cost the studio never paid.
+        if ((event.data.object as any)?.metadata?.renterProviderId) break;
         const charge = event.data.object as Stripe.Charge;
         const tenant = await getTenant(connAcct);
         if (!tenant) break;
