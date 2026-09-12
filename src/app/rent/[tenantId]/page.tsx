@@ -2172,6 +2172,7 @@ function MyClientMessages({ tenantId, token }: { tenantId: string; token: string
 // that results. The lease floor is shown as the agreed term it is, and the
 // server enforces it too, so a refused save is never a surprise.
 function MyServices({ data, tenantId, token, onChanged }: { data: any; tenantId: string; token: string; onChanged: () => void }) {
+  const [linkCopied, setLinkCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [hours, setHours] = useState(String(data?.pricing?.bookableHoursPerMonth || 100));
@@ -2239,15 +2240,22 @@ function MyServices({ data, tenantId, token, onChanged }: { data: any; tenantId:
       <SectionTitle icon={Sparkles}>My Services</SectionTitle>
 
       <div className="p-4 rounded-3xl bg-white border-2 space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Your booking link</p>
-            <p className="text-[11px] font-bold text-slate-700 truncate">{data?.provider?.bookingUrl}</p>
+        <div className="space-y-2">
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Your booking link</p>
+          <a href={data?.provider?.bookingUrl || '#'} target="_blank" rel="noopener noreferrer"
+             className="block truncate text-[11px] font-bold text-slate-700 underline decoration-slate-300 underline-offset-2">
+            {data?.provider?.bookingUrl}
+          </a>
+          <div className="flex gap-2">
+            <a href={data?.provider?.bookingUrl || '#'} target="_blank" rel="noopener noreferrer"
+               className="h-10 flex-1 inline-flex items-center justify-center rounded-xl border-2 border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-700">
+              Open my page
+            </a>
+            <button type="button" onClick={async () => { try { await navigator.clipboard?.writeText(data?.provider?.bookingUrl || ''); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 1800); } catch { /* clipboard blocked — the link is tappable above */ } }}
+                    className={cn('h-10 flex-1 rounded-xl px-4 text-[10px] font-black uppercase tracking-widest active:scale-95', linkCopied ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-white')}>
+              {linkCopied ? 'Copied ✓' : 'Copy link'}
+            </button>
           </div>
-          <button onClick={() => { navigator.clipboard?.writeText(data?.provider?.bookingUrl || ''); }}
-                  className="h-9 shrink-0 rounded-xl bg-slate-900 px-4 text-[10px] font-black uppercase tracking-widest text-white active:scale-95">
-            Copy
-          </button>
         </div>
 
         <div className="rounded-2xl bg-slate-50 p-3 space-y-2">
