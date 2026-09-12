@@ -27,6 +27,51 @@ export interface RenterIdentity {
   photoUrl?: string | null;
   bio?: string | null;
   instagram?: string | null;
+  /** Link-tree rows: where else to find them. Ordered. */
+  links?: RenterLink[] | null;
+}
+
+export type RenterLinkKind = 'instagram' | 'tiktok' | 'facebook' | 'youtube' | 'pinterest' | 'x' | 'website' | 'booking' | 'custom';
+export interface RenterLink { kind: RenterLinkKind; value: string; label?: string }
+
+export const LINK_KINDS: { kind: RenterLinkKind; label: string; placeholder: string; base?: string }[] = [
+  { kind: 'instagram', label: 'Instagram', placeholder: 'yourhandle', base: 'https://instagram.com/' },
+  { kind: 'tiktok', label: 'TikTok', placeholder: 'yourhandle', base: 'https://tiktok.com/@' },
+  { kind: 'facebook', label: 'Facebook', placeholder: 'yourpage', base: 'https://facebook.com/' },
+  { kind: 'youtube', label: 'YouTube', placeholder: 'https://youtube.com/@…' },
+  { kind: 'pinterest', label: 'Pinterest', placeholder: 'yourhandle', base: 'https://pinterest.com/' },
+  { kind: 'x', label: 'X', placeholder: 'yourhandle', base: 'https://x.com/' },
+  { kind: 'website', label: 'Website', placeholder: 'https://…' },
+  { kind: 'custom', label: 'Other link', placeholder: 'https://…' },
+];
+
+/** A handle or a URL becomes a URL; a URL stays one. Never trusts a scheme other than https. */
+export function linkHref(l: RenterLink): string {
+  const v = String(l.value || '').trim().replace(/^@/, '');
+  if (!v) return '';
+  if (/^https?:\/\//i.test(v)) return v.replace(/^http:\/\//i, 'https://');
+  const def = LINK_KINDS.find((k) => k.kind === l.kind);
+  if (def?.base) return def.base + v.replace(/^.*\//, '');
+  return `https://${v}`;
+}
+
+/** Clean what the renter typed: cap, dedupe by kind+value, drop empties, cap at 8. */
+export function cleanLinks(raw: any): RenterLink[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: RenterLink[] = [];
+  for (const r of raw) {
+    const kind = String(r?.kind || '') as RenterLinkKind;
+    if (!LINK_KINDS.some((k) => k.kind === kind)) continue;
+    const value = String(r?.value || '').trim().slice(0, 200);
+    if (!value || /\s/.test(value) || /^javascript:/i.test(value)) continue;
+    const key = `${kind}|${value.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ kind, value, ...(r?.label ? { label: String(r.label).trim().slice(0, 40) } : {}) });
+    if (out.length >= 8) break;
+  }
+  return out;
 }
 
 /** Their own name, as a person. */
@@ -52,8 +97,8 @@ export function publicName(r: RenterIdentity): string {
  * Undefined values are dropped so a partial edit cannot blank a field the
  * renter set from their own portal.
  */
-export function staffMirrorFields(r: RenterIdentity): Record<string, string> {
-  const out: Record<string, string> = {};
+export function staffMirrorFields(r: RenterIdentity): Record<string, any> {
+  const out: Record<string, any> = {};
   const set = (k: string, v: unknown) => { if (v !== undefined && v !== null) out[k] = String(v); };
   const name = publicName(r);
   if (name && name !== 'Provider') set('name', name);
@@ -61,11 +106,12 @@ export function staffMirrorFields(r: RenterIdentity): Record<string, string> {
   set('phone', r.phone ?? undefined);
   set('bio', r.bio ?? undefined);
   set('instagram', r.instagram ?? undefined);
+  if (r.links !== undefined && r.links !== null) (out as any).links = cleanLinks(r.links);
   if (r.photoUrl !== undefined && r.photoUrl !== null) { out.photoUrl = String(r.photoUrl); out.avatarUrl = String(r.photoUrl); }
   return out;
 }
 
 /** Would mirroring change anything? Saves a needless write on every edit. */
-export function mirrorDiffers(mirror: Record<string, string>, staff: any): boolean {
-  return Object.entries(mirror).some(([k, v]) => String(staff?.[k] ?? '') !== v);
+export function mirrorDiffers(mirror: Record<string, any>, staff: any): boolean {
+  return Object.entries(mirror).some(([k, v]) => JSON.stringify(staff?.[k] ?? '') !== JSON.stringify(v));
 }
