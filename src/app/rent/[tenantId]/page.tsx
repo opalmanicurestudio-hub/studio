@@ -26,7 +26,7 @@ import { useParams } from 'next/navigation';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { credentialViews, stateLabel, CREDENTIAL_LABEL } from '@/lib/compliance';
-import { LINK_KINDS } from '@/lib/renter-identity';
+import { LINK_KINDS, SECTION_KINDS } from '@/lib/renter-identity';
 import { useToast } from '@/hooks/use-toast';
 import {
   Armchair, CalendarDays, Clock, CreditCard, LogOut, Loader,
@@ -2166,6 +2166,102 @@ function MyClientMessages({ tenantId, token }: { tenantId: string; token: string
   );
 }
 
+// ─── My Page: the content sections on their booking link ─────────────────────
+function MyPage({ tenantId, token }: { tenantId: string; token: string }) {
+  const [page, setPage] = useState<any | null>(null);
+  const [open, setOpen] = useState('');
+  const [busy, setBusy] = useState('');
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState('');
+  const load = useCallback(async () => { const d = await api({ action: 'page-get', tenantId, token }); if (d?.ok) setPage(d.page); }, [tenantId, token]);
+  useEffect(() => { void load(); }, [load]);
+  if (!page) return <p className="py-2 text-center text-[11px] font-bold text-slate-400">Loading…</p>;
+  const upd = (kind: string, patch: any) => setPage((p: any) => ({ ...p, sections: p.sections.map((x: any) => x.kind === kind ? { ...x, ...patch } : x) }));
+  const move = (kind: string, dir: -1 | 1) => setPage((p: any) => { const i = p.sections.findIndex((x: any) => x.kind === kind); const j = i + dir; if (j < 0 || j >= p.sections.length) return p; const arr = p.sections.slice(); [arr[i], arr[j]] = [arr[j], arr[i]]; return { ...p, sections: arr }; });
+  const save = async () => { setBusy('save'); setErr(''); const d = await api({ action: 'page-save', tenantId, token, page }); setBusy(''); if (!d?.ok) { setErr(d?.error || 'Could not save.'); return; } setPage(d.page); setSaved(true); setTimeout(() => setSaved(false), 1800); };
+  const addPhoto = async (kind: string, file?: File) => {
+    if (!file) return;
+    setBusy('photo'); setErr('');
+    try {
+      const dataUrl: string = await downscaleImageToDataUrl(file, { maxDim: 1400 });
+      const d = await api({ action: 'page-photo', tenantId, token, photoData: dataUrl });
+      if (!d?.ok) { setErr(d?.error || 'Upload failed.'); return; }
+      upd(kind, { photos: [ ...(page.sections.find((x: any) => x.kind === kind)?.photos || []), d.url ].slice(0, 24) });
+    } catch { setErr('Could not read that photo.'); } finally { setBusy(''); }
+  };
+  return (
+    <div className="space-y-3">
+      <p className="text-[10px] font-bold text-slate-500">What shows on your booking page, under your links and above your menu. Switch a section on, fill it, save. Styling matches the studio so it all feels like one place.</p>
+      {page.sections.map((sec: any, i: number) => {
+        const def = SECTION_KINDS.find((k) => k.kind === sec.kind);
+        const isOpen = open === sec.kind;
+        return (
+          <div key={sec.kind} className={cn('rounded-2xl border-2', sec.enabled ? 'border-slate-900' : 'border-slate-200')}>
+            <div className="flex items-center gap-2 px-3.5 py-3">
+              <button type="button" aria-pressed={sec.enabled} onClick={() => upd(sec.kind, { enabled: !sec.enabled })}
+                className={cn('h-8 shrink-0 rounded-full px-3 text-[9px] font-black uppercase tracking-widest', sec.enabled ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500')}>{sec.enabled ? 'On' : 'Off'}</button>
+              <button type="button" onClick={() => setOpen(isOpen ? '' : sec.kind)} aria-expanded={isOpen} className="min-w-0 flex-1 text-left">
+                <span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">{def?.label || sec.kind}</span>
+                <span className="block text-[10px] font-bold text-slate-500 truncate">{def?.blurb}</span>
+              </button>
+              <div className="flex shrink-0 flex-col gap-0.5">
+                <button type="button" aria-label="Move up" disabled={i === 0} onClick={() => move(sec.kind, -1)} className="h-4 w-7 rounded border text-[9px] font-black text-slate-500 disabled:opacity-30">▲</button>
+                <button type="button" aria-label="Move down" disabled={i === page.sections.length - 1} onClick={() => move(sec.kind, 1)} className="h-4 w-7 rounded border text-[9px] font-black text-slate-500 disabled:opacity-30">▼</button>
+              </div>
+            </div>
+            {isOpen && (
+              <div className="space-y-2 border-t-2 border-slate-100 px-3.5 py-3">
+                <input value={sec.title || ''} onChange={(e) => upd(sec.kind, { title: e.target.value.slice(0, 60) })} aria-label="Section title" placeholder="Section title" className="h-10 w-full rounded-xl border-2 border-slate-200 px-3 text-sm font-bold" />
+                {(sec.kind === 'about' || sec.kind === 'policies') && (
+                  <textarea value={sec.text || ''} onChange={(e) => upd(sec.kind, { text: e.target.value.slice(0, 2500) })} rows={6} aria-label={`${def?.label} text`}
+                    placeholder={sec.kind === 'about' ? "How you got here, what you specialise in, what a first visit is like." : "Deposits, how late is too late, how to cancel, what happens to no-shows."}
+                    className="w-full rounded-xl border-2 border-slate-200 px-3 py-2 text-sm leading-relaxed" />
+                )}
+                {sec.kind === 'gallery' && (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {(sec.photos || []).map((u: string, j: number) => (
+                        <button key={u} type="button" onClick={() => upd(sec.kind, { photos: sec.photos.filter((_: string, k: number) => k !== j) })} aria-label={`Remove photo ${j + 1}`} className="relative aspect-square overflow-hidden rounded-xl border-2 border-slate-200">
+                          <img src={u} alt="" className="h-full w-full object-cover" />
+                          <span className="absolute inset-x-0 bottom-0 bg-slate-900/80 text-[8px] font-black uppercase tracking-widest text-white">Remove</span>
+                        </button>
+                      ))}
+                      {(sec.photos || []).length < 24 && (
+                        <label className={cn('flex aspect-square cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-slate-300 text-[10px] font-black uppercase tracking-widest text-slate-500', busy === 'photo' && 'opacity-50')}>
+                          {busy === 'photo' ? '…' : '+ Photo'}
+                          <input type="file" accept="image/*" className="sr-only" aria-label="Add a photo" disabled={busy === 'photo'} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; void addPhoto(sec.kind, f); }} />
+                        </label>
+                      )}
+                    </div>
+                    <p className="text-[9px] font-bold text-slate-400">{(sec.photos || []).length} of 24. Tap a photo to remove it. Your best three go first.</p>
+                  </div>
+                )}
+                {sec.kind === 'faq' && (
+                  <div className="space-y-2">
+                    {(sec.items || []).map((it: any, j: number) => (
+                      <div key={j} className="space-y-1 rounded-xl border-2 border-slate-100 p-2">
+                        <input value={it.q} onChange={(e) => upd(sec.kind, { items: sec.items.map((x: any, k: number) => k === j ? { ...x, q: e.target.value.slice(0, 160) } : x) })} aria-label="Question" placeholder="Do you take walk-ins?" className="h-10 w-full rounded-lg border-2 border-slate-200 px-3 text-sm font-bold" />
+                        <textarea value={it.a} onChange={(e) => upd(sec.kind, { items: sec.items.map((x: any, k: number) => k === j ? { ...x, a: e.target.value.slice(0, 800) } : x) })} rows={2} aria-label="Answer" placeholder="Answer" className="w-full rounded-lg border-2 border-slate-200 px-3 py-2 text-sm" />
+                        <button type="button" onClick={() => upd(sec.kind, { items: sec.items.filter((_: any, k: number) => k !== j) })} className="text-[9px] font-black uppercase tracking-widest text-slate-400">Remove</button>
+                      </div>
+                    ))}
+                    {(sec.items || []).length < 12 && <button type="button" onClick={() => upd(sec.kind, { items: [ ...(sec.items || []), { q: '', a: '' } ] })} className="h-10 w-full rounded-xl border-2 border-dashed border-slate-300 text-[10px] font-black uppercase tracking-widest text-slate-600">+ Add a question</button>}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+      <div className="flex items-center justify-end gap-2">
+        {saved && <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Saved — it&apos;s live</span>}
+        <button type="button" onClick={save} disabled={busy === 'save'} className="h-11 rounded-2xl bg-slate-900 px-5 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy === 'save' ? 'Saving…' : 'Save my page'}</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── My Services: menu editor + pricing coach ─────────────────────────────────
 // The renter's own business tool. Every number here is derived from THEIR rent
 // and THEIR hours — the studio never sees these calculations, only the menu
@@ -2837,6 +2933,20 @@ export default function RenterPortalPage() {
               <section className="space-y-3">
                 <SectionTitle icon={Sparkles}>Setup</SectionTitle>
                 <div className="rounded-3xl bg-white border-2 border-slate-100 divide-y-2 divide-slate-100 overflow-hidden">
+                  {(
+                    <div>
+                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'page' ? '' : 'page')} aria-expanded={setupOpen === 'page'}
+                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
+                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">My page</span><span className="block text-[10px] font-bold text-slate-500">Gallery, about, questions, policies — on your booking link</span></span>
+                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'page' && 'rotate-90')} />
+                      </button>
+                      {setupOpen === 'page' && session?.token && (
+                        <div className="px-3 pb-4">
+                          <MyPage tenantId={tenantId} token={session.token} />
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {(
                     <div>
                       <button type="button" onClick={() => setSetupOpen(setupOpen === 'services' ? '' : 'services')} aria-expanded={setupOpen === 'services'}
