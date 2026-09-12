@@ -1358,6 +1358,7 @@ export async function POST(req: NextRequest) {
           photoUrl: renter?.photoUrl || '',
           externalBookingUrl: renter?.externalBookingUrl || '',
           listExternally: renter?.listExternally === true,
+          links: Array.isArray(renter?.links) ? renter.links : [],
         },
         bookingMode: renter?.bookingMode === 'own' ? 'own' : 'studio',
         // Why the business half of the portal is or is not there. Without
@@ -1543,6 +1544,8 @@ export async function POST(req: NextRequest) {
       // own name again — no separate switch, the field decides.
       const businessName = body.businessName === undefined ? undefined : String(body.businessName ?? '').trim().slice(0, 80);
       const bio = String(body.bio ?? '').trim().slice(0, 300);
+      const { cleanLinks } = await import('@/lib/renter-identity');
+      const links = body.links === undefined ? undefined : cleanLinks(body.links);
       const instagram = String(body.instagram ?? '').trim()
         .replace(/^https?:\/\/(www\.)?instagram\.com\//i, '')
         .replace(/^@/, '').replace(/\/+$/, '').slice(0, 40);
@@ -1579,6 +1582,7 @@ export async function POST(req: NextRequest) {
       const renterPatch: any = { bio, instagram, externalBookingUrl, listExternally };
       if (photoUrl !== undefined) renterPatch.photoUrl = photoUrl;
       if (businessName !== undefined) renterPatch.businessName = businessName;
+      if (links !== undefined) renterPatch.links = links;
       await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set(renterPatch, { merge: true });
 
       try {
@@ -1593,7 +1597,7 @@ export async function POST(req: NextRequest) {
             ...staffMirrorFields({
               firstName: cur.firstName, lastName: cur.lastName,
               businessName: businessName === undefined ? cur.businessName : businessName,
-              bio, instagram, photoUrl,
+              bio, instagram, photoUrl, links: links === undefined ? cur.links : links,
             }),
             externalBookingUrl, listExternally,
           };
@@ -2433,6 +2437,63 @@ export async function POST(req: NextRequest) {
         signoff: String(body.signoff || '').trim().slice(0, 160), updatedAt: new Date().toISOString(),
       } }, { merge: true });
       return NextResponse.json({ ok: true });
+    }
+
+    // ── today: the inbox — what has moved since they last looked ────────────
+    // One call, one screen. Everything here already exists in its own
+    // section; this is the same facts, filtered to "needs you" or "changed
+    // recently", so the reason they logged in is the first thing they see.
+    // Recency is a window, not a read-receipt: items age out on their own.
+    if (action === 'today') {
+      if (!session.renterId) return NextResponse.json({ ok: true, items: [], badges: {} });
+      const rid = session.renterId;
+      const now = Date.now();
+      const since = (days: number) => new Date(now - days * 86400000).toISOString();
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const prov = await myProvider();
+
+      const [thread, docs, tickets, concerns, leaves, appts] = await Promise.all([
+        db.doc(`tenants/${tenantId}/renterThreads/${rid}`).get(),
+        db.collection(`tenants/${tenantId}/renterDocuments`).where('renterId', '==', rid).where('status', '==', 'sent').get(),
+        db.collection(`tenants/${tenantId}/tickets`).where('reporter.renterId', '==', rid).get(),
+        db.collection(`tenants/${tenantId}/renterGrievances`).where('renterId', '==', rid).get(),
+        db.collection(`tenants/${tenantId}/renterLeaves`).where('renterId', '==', rid).get(),
+        prov ? db.collection(`tenants/${tenantId}/appointments`).where('staffId', '==', prov.id).where('startTime', '>=', `${todayIso}T00:00:00.000Z`).where('startTime', '<=', `${todayIso}T23:59:59.999Z`).get() : Promise.resolve({ docs: [] } as any),
+      ]);
+
+      type Item = { kind: string; tab: 'book' | 'rent' | 'studio'; title: string; body: string; at: string; tone?: 'red' | 'amber' | 'green' | 'slate' };
+      const items: Item[] = [];
+      const t = (thread.data() as any) || {};
+      if (t.unreadForRenter === true) items.push({ kind: 'message', tab: 'studio', title: 'The studio replied', body: String(t.lastText || '').slice(0, 90), at: t.lastAt || since(0), tone: 'amber' });
+
+      for (const d of docs.docs) { const x = d.data() as any; items.push({ kind: 'document', tab: 'studio', title: x.action === 'acknowledge' ? 'A document to read' : 'A document to sign', body: x.title, at: x.sentAt, tone: 'amber' }); }
+
+      for (const d of tickets.docs) {
+        const x = d.data() as any;
+        const last = (x.updates || []).slice().reverse().find((u: any) => u.byType && u.byType !== 'renter');
+        if (x.status === 'resolved' && x.resolvedAt && x.resolvedAt >= since(3)) items.push({ kind: 'ticket', tab: 'studio', title: 'Fixed', body: `${x.title}${x.resolutionNote ? ` — ${String(x.resolutionNote).slice(0, 80)}` : ''}`, at: x.resolvedAt, tone: 'green' });
+        else if (['open', 'in_progress'].includes(x.status) && last && last.at >= since(7)) items.push({ kind: 'ticket', tab: 'studio', title: x.assigneeName ? `${x.assigneeName} is on it` : 'Update on your repair', body: `${x.title}${last.note ? ` — ${String(last.note).slice(0, 80)}` : ''}`, at: last.at, tone: 'slate' });
+      }
+      for (const d of concerns.docs) {
+        const x = d.data() as any;
+        const at = x.resolvedAt || x.acknowledgedAt;
+        if (at && at >= since(7) && x.status !== 'open') items.push({ kind: 'concern', tab: 'studio', title: x.status === 'acknowledged' ? 'Your concern is being looked at' : `Concern ${x.status}`, body: `${x.ref}${x.resolution ? ` — ${String(x.resolution).slice(0, 80)}` : ''}`, at, tone: x.status === 'acknowledged' ? 'slate' : 'green' });
+      }
+      for (const d of leaves.docs) {
+        const x = d.data() as any;
+        if (x.decidedAt && x.decidedAt >= since(7)) items.push({ kind: 'leave', tab: 'rent', title: x.status === 'approved' ? 'Time away approved' : x.status === 'declined' ? 'Time away not approved' : 'Leave updated', body: `${x.startDate} → ${x.endDate}`, at: x.decidedAt, tone: x.status === 'approved' ? 'green' : 'amber' });
+        if (x.redeem?.decidedAt && x.redeem.decidedAt >= since(7)) items.push({ kind: 'leave', tab: 'rent', title: x.redeem.status === 'approved' ? 'Banked days credited' : 'Banked days not approved', body: `${x.redeem.days} day${x.redeem.days === 1 ? '' : 's'}`, at: x.redeem.decidedAt, tone: x.redeem.status === 'approved' ? 'green' : 'amber' });
+      }
+
+      const todayAppts = appts.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((a: any) => a.isRenterBooking && a.status !== 'cancelled')
+        .sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime)))
+        .map((a: any) => ({ id: a.id, startTime: a.startTime, clientName: a.clientName || 'Client', serviceName: a.renterServiceName || a.serviceName || '', status: a.status }));
+
+      items.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+      return NextResponse.json({
+        ok: true, items: items.slice(0, 12), todayAppts,
+        badges: { studio: items.filter((i) => i.tab === 'studio' && i.tone !== 'green').length, rent: items.filter((i) => i.tab === 'rent').length, book: todayAppts.length },
+      });
     }
 
     // ── documents-list / document-sign / document-decline ────────────────────
