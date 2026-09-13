@@ -2505,6 +2505,35 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // ── reviews-list / review-moderate: what clients said, what goes public ──
+    // Every review is from a completed booking (the public API enforces it).
+    // The renter decides which appear. Published ones are mirrored onto the
+    // provider record so the booking page reads them with no new rule.
+    if (action === 'reviews-list') {
+      const st = await myProvider();
+      if (!st) return NextResponse.json({ ok: true, reviews: [] });
+      const snap = await db.collection(`tenants/${tenantId}/renterReviews`).where('staffId', '==', st.id).get();
+      const reviews = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+      return NextResponse.json({ ok: true, reviews, reviewUrlBase: `${req.nextUrl?.origin || ''}/review/${tenantId}/` });
+    }
+    if (action === 'review-moderate') {
+      const st = await myProvider();
+      if (!st) return NextResponse.json({ ok: false, error: 'Your booking profile is not set up yet.' }, { status: 400 });
+      const ref = db.doc(`tenants/${tenantId}/renterReviews/${String(body.reviewId || '')}`);
+      const r = ((await ref.get()).data() as any) || null;
+      if (!r || r.staffId !== st.id) return NextResponse.json({ ok: false, error: 'That review is not yours.' }, { status: 403 });
+      const status = ['published', 'hidden'].includes(String(body.status)) ? String(body.status) : 'hidden';
+      await ref.set({ status, moderatedAt: new Date().toISOString() }, { merge: true });
+      // Mirror the published set — newest first, capped — onto the provider record.
+      const pub = await db.collection(`tenants/${tenantId}/renterReviews`).where('staffId', '==', st.id).where('status', '==', 'published').get();
+      const reviews = pub.docs.map((d) => d.data() as any).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 20)
+        .map((x) => ({ rating: Number(x.rating) || 5, text: String(x.text || ''), name: String(x.clientName || 'Client').split(' ')[0], at: String(x.visitedAt || x.createdAt).slice(0, 10), service: x.serviceName || '' }));
+      const count = pub.size;
+      const avg = count ? Math.round((pub.docs.reduce((n, d) => n + (Number((d.data() as any).rating) || 0), 0) / count) * 10) / 10 : 0;
+      await db.doc(`tenants/${tenantId}/staff/${st.id}`).set({ reviews, reviewCount: count, reviewAverage: avg }, { merge: true });
+      return NextResponse.json({ ok: true, status, published: count, average: avg });
+    }
+
     // ── page-get / page-save / page-photo: their page, their words ─────────
     if (action === 'page-get') {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
