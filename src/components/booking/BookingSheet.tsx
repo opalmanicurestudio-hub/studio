@@ -155,6 +155,14 @@ interface BookingSheetProps {
   staff:          Staff[];
   pricingTiers:   PricingTier[];
   initialStaffId?: string;
+  /**
+   * The provider is the page. On a renter's own booking link there is nobody
+   * to choose between — "Choose who" with "any available" beside their name
+   * asks a question that has no answer. Locked: the step is removed from the
+   * flow (not skipped, removed — the rail counts without it), the selection
+   * cannot change, and the header says who.
+   */
+  lockedStaffId?: string;
   appointments:   Appointment[];
   /**
    * The studio's MARKETING events, rendered on the public page. This is NOT
@@ -214,7 +222,7 @@ const STEP_TITLES: Record<string, string> = {
 };
 
 export const BookingSheet: React.FC<BookingSheetProps> = ({
-  open, onOpenChange, service, staff, pricingTiers, initialStaffId,
+  open, onOpenChange, service, staff, pricingTiers, initialStaffId, lockedStaffId,
   appointments, events, scheduleProfiles, services, consentForms, tenant, onConfirm,
   shifts, staffBlocks, dayOffBlocks, resources, tickets, maintenancePlans, calendarEvents,
   bookingOutcome,
@@ -224,7 +232,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const isMobile = useIsMobile();
   const { headingFont, bodyFont, r, r2, r3 } = useThemeStyles();
 
-  const [selectedStaffId,      setSelectedStaffId]      = useState(initialStaffId || 'any');
+  const [selectedStaffId,      setSelectedStaffId]      = useState(lockedStaffId || initialStaffId || 'any');
   const [selectedTierId,       setSelectedTierId]        = useState<string>('any');
   const [date,                 setDate]                  = useState(new Date());
   const [selectedTime,         setSelectedTime]          = useState<string | null>(null);
@@ -426,12 +434,12 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   }, [chargeDueNow, tenant, service, price]);
 
   const steps = useMemo(() => {
-    const flow = ['staff', 'dateTime', 'details'];
+    const flow = lockedStaffId ? ['dateTime', 'details'] : ['staff', 'dateTime', 'details'];
     if (requiredForms.length > 0) flow.push('consents');
     flow.push(chargeDueNow || cardSetupDueNow ? 'checkout' : 'summary');
     flow.push('confirmation');
     return flow;
-  }, [requiredForms.length, chargeDueNow, cardSetupDueNow]);
+  }, [requiredForms.length, chargeDueNow, cardSetupDueNow, lockedStaffId]);
 
   /* The pinned bars are measured rather than estimated. Their height changes
    * with the safe-area inset, the step rail, and how long the service name
@@ -467,7 +475,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   useEffect(() => {
     if (open) {
-      if (initialStaffId) { setSelectedStaffId(initialStaffId); setCurrentStepIndex(1); }
+      if (lockedStaffId) { setSelectedStaffId(lockedStaffId); setCurrentStepIndex(0); }
+      else if (initialStaffId) { setSelectedStaffId(initialStaffId); setCurrentStepIndex(1); }
       else { setSelectedStaffId('any'); setCurrentStepIndex(0); }
       setSelectedTime(null); setSelectedTierId('any'); setDate(new Date());
       methods.reset(); setFormAnswers({});
@@ -475,7 +484,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       setDepositClientSecret(null); setDepositStripeAccountId(null);
       setDepositLoading(false); setDepositError(null);
     }
-  }, [open, initialStaffId, methods]);
+  }, [open, initialStaffId, lockedStaffId, methods]);
 
   // ── Shared booking-payload builder ──────────────────────────────────────────
   const resolveBookingPayload = useCallback(():
@@ -730,7 +739,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const handlePrevStep = () => { if (currentStepIndex > 0) setCurrentStepIndex(currentStepIndex - 1); };
 
   const handleStaffSelect = (staffId: string) => {
-    if (initialStaffId) return;
+    if (initialStaffId || lockedStaffId) return;
     setSelectedStaffId(staffId);
     if (staffId !== 'any') { setCurrentStepIndex(1); setSelectedTime(null); }
   };
@@ -844,7 +853,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             )}
             <div className="min-w-0 flex-1">
               <p className="truncate text-[10px] font-black uppercase tracking-[0.18em] text-muted-foreground">
-                {service?.name || 'Booking'}
+                {service?.name || 'Booking'}{lockedStaffId ? ` · with ${staff.find((m) => m.id === lockedStaffId)?.name || 'your provider'}` : ''}
               </p>
               <h2 style={{ fontFamily: headingFont }} className="truncate text-base font-black uppercase tracking-tighter leading-tight">
                 {STEP_TITLES[currentStep] || 'Book'}
