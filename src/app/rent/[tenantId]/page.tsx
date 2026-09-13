@@ -26,7 +26,7 @@ import { useParams } from 'next/navigation';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { credentialViews, stateLabel, CREDENTIAL_LABEL } from '@/lib/compliance';
-import { LINK_KINDS, SECTION_KINDS } from '@/lib/renter-identity';
+import { LINK_KINDS, SECTION_KINDS, RENTER_FONTS, onAccent } from '@/lib/renter-identity';
 import { useToast } from '@/hooks/use-toast';
 import {
   Armchair, CalendarDays, Clock, CreditCard, LogOut, Loader,
@@ -2166,6 +2166,95 @@ function MyClientMessages({ tenantId, token }: { tenantId: string; token: string
   );
 }
 
+// ─── My Brand: colour, tone, cover, type — theirs ────────────────────────────
+function MyBrand({ tenantId, token }: { tenantId: string; token: string }) {
+  const [brand, setBrand] = useState<any | null>(null);
+  const [coverData, setCoverData] = useState<string | null | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => { api({ action: 'brand-get', tenantId, token }).then((d) => { if (d?.ok) setBrand(d.brand); }); }, [tenantId, token]);
+  // The five faces, for the preview only — the app itself stays on Jakarta.
+  useEffect(() => {
+    if (document.getElementById('renter-brand-fonts')) return;
+    const l = document.createElement('link'); l.id = 'renter-brand-fonts'; l.rel = 'stylesheet';
+    l.href = 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500&family=Lora:wght@400;500&family=Abril+Fatface&family=Raleway:wght@200;300;400&family=Outfit:wght@300;400;500&display=swap';
+    document.head.appendChild(l);
+  }, []);
+  if (!brand) return <p className="py-2 text-center text-[11px] font-bold text-slate-400">Loading…</p>;
+  const save = async () => {
+    setBusy(true); setErr('');
+    const d = await api({ action: 'brand-save', tenantId, token, brand, ...(coverData !== undefined ? { coverData } : {}) });
+    setBusy(false);
+    if (!d?.ok) { setErr(d?.error || 'Could not save.'); return; }
+    setBrand(d.brand); setCoverData(undefined); setSaved(true); setTimeout(() => setSaved(false), 1800);
+  };
+  const cover = coverData === null ? null : (coverData || brand.coverUrl);
+  const dark = brand.tone === 'dark';
+  const SWATCHES = ['#1c1917', '#7c2d12', '#9f1239', '#6d28d9', '#1e3a8a', '#065f46', '#b45309', '#a16207', '#0f766e', '#831843'];
+  return (
+    <div className="space-y-3">
+      <p className="text-[10px] font-bold text-slate-500">Your page is your brand, not the studio&apos;s. Pick a colour, light or dark, a cover, a typeface. Clients see it the moment they open your link.</p>
+      <div className="relative overflow-hidden rounded-2xl border-2" style={{ background: dark ? '#0c0a09' : '#faf9f7', aspectRatio: '4 / 3' }}>
+        {cover && <img src={cover} alt="" className="absolute inset-0 h-full w-full object-cover opacity-80" />}
+        <div className="absolute inset-0" style={{ background: `linear-gradient(180deg, transparent 40%, ${dark ? '#0c0a09' : '#faf9f7'} 100%)` }} />
+        <div className="absolute inset-x-0 bottom-0 p-4">
+          <p className="text-[9px] font-black uppercase tracking-[0.3em]" style={{ color: brand.accent }}>Preview</p>
+          <p className="text-2xl font-light" style={{ color: dark ? '#fafaf9' : '#1c1917', fontFamily: RENTER_FONT_STACK[brand.font] }}>Your name</p>
+          {brand.tagline && <p className="text-[11px]" style={{ color: dark ? '#a8a29e' : '#57534e' }}>{brand.tagline}</p>}
+          <span className="mt-2 inline-block rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-widest" style={{ background: brand.accent, color: onAccent(brand.accent) }}>Book</span>
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <label className="h-10 flex-1 inline-flex items-center justify-center rounded-xl border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-600 cursor-pointer">
+          {cover ? 'Change cover' : 'Add a cover image'}
+          <input type="file" accept="image/*" className="sr-only" aria-label="Cover image" onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (!f) return; try { setCoverData(await downscaleImageToDataUrl(f, { maxDim: 1600 })); } catch { setErr('Could not read that image.'); } }} />
+        </label>
+        {cover && <button type="button" onClick={() => setCoverData(null)} className="h-10 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Remove</button>}
+      </div>
+      <div>
+        <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-slate-400">Accent colour</p>
+        <div className="flex flex-wrap items-center gap-2">
+          {SWATCHES.map((c) => (
+            <button key={c} type="button" aria-label={`Use ${c}`} aria-pressed={brand.accent === c} onClick={() => setBrand({ ...brand, accent: c })}
+              className={cn('h-9 w-9 rounded-full border-2', brand.accent === c ? 'border-slate-900 ring-2 ring-slate-900 ring-offset-2' : 'border-white')} style={{ background: c }} />
+          ))}
+          <input type="color" value={brand.accent} onChange={(e) => setBrand({ ...brand, accent: e.target.value })} aria-label="Custom accent colour" className="h-9 w-12 rounded-lg border-2 bg-white p-0.5" />
+        </div>
+      </div>
+      <div className="flex gap-2">
+        {(['light', 'dark'] as const).map((t) => (
+          <button key={t} type="button" aria-pressed={brand.tone === t} onClick={() => setBrand({ ...brand, tone: t })}
+            className={cn('h-10 flex-1 rounded-xl border-2 text-[10px] font-black uppercase tracking-widest', brand.tone === t ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>{t}</button>
+        ))}
+      </div>
+      <div>
+        <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-slate-400">Typeface</p>
+        <div className="grid grid-cols-2 gap-1.5">
+          {RENTER_FONTS.map((f) => (
+            <button key={f.id} type="button" aria-pressed={brand.font === f.id} onClick={() => setBrand({ ...brand, font: f.id })}
+              className={cn('rounded-xl border-2 px-3 py-2 text-left', brand.font === f.id ? 'border-slate-900 bg-slate-50' : 'border-slate-200')}>
+              <span className="block text-lg leading-tight" style={{ fontFamily: RENTER_FONT_STACK[f.id] }}>{f.label}</span>
+              <span className="block text-[9px] font-bold text-slate-500">{f.feel}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <input value={brand.tagline || ''} onChange={(e) => setBrand({ ...brand, tagline: e.target.value.slice(0, 80) })} aria-label="Tagline" placeholder="One line under your name — “Gel & structure, by appointment”"
+        className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold" />
+      {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+      <div className="flex items-center justify-end gap-2">
+        {saved && <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Saved — it&apos;s live</span>}
+        <button type="button" onClick={save} disabled={busy} className="h-11 rounded-2xl bg-slate-900 px-5 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Saving…' : 'Save my brand'}</button>
+      </div>
+    </div>
+  );
+}
+const RENTER_FONT_STACK: Record<string, string> = {
+  cormorant: "'Cormorant Garamond', Georgia, serif", lora: "'Lora', Georgia, serif", abril: "'Abril Fatface', Georgia, serif",
+  raleway: "'Raleway', system-ui, sans-serif", outfit: "'Outfit', system-ui, sans-serif", jakarta: "'Plus Jakarta Sans', system-ui, sans-serif",
+};
+
 // ─── My Reviews: what clients said, and which ones go public ─────────────────
 function MyReviews({ tenantId, token }: { tenantId: string; token: string }) {
   const [list, setList] = useState<any[] | null>(null);
@@ -2353,7 +2442,10 @@ function MyServices({ data, tenantId, token, onChanged }: { data: any; tenantId:
       action: 'my-service-save', tenantId, token,
       serviceId: draft.id || '', name: draft.name,
       price: Number(draft.price), duration: Number(draft.duration), productCost: Number(draft.productCost || 0),
-      depositAmount: Number(draft.depositAmount || 0),
+      depositMode: draft.depositMode || (Number(draft.depositAmount) > 0 ? 'flat' : 'none'),
+      depositAmount: Number(draft.depositAmount || 0), depositPercent: Number(draft.depositPercent || 0),
+      description: draft.description || '', category: draft.category || '',
+      ...(draft.imageData !== undefined ? { imageData: draft.imageData } : {}),
     });
     setBusy(false);
     if (!d.ok) { setErr(d.error || 'Could not save'); return; }
@@ -2462,16 +2554,59 @@ function MyServices({ data, tenantId, token, onChanged }: { data: any; tenantId:
                 <input type="number" min={0} value={draft.productCost ?? 0} onChange={e => setDraft((d: any) => ({ ...d, productCost: e.target.value }))}
                        className="h-10 w-full rounded-xl border-2 text-center text-[13px] font-black" />
               </label>
-              {data?.provider?.chargesEnabled && (
-                <label className="flex-1 min-w-[5rem]">
-                  <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Deposit $</span>
-                  <input type="number" min={0} value={draft.depositAmount ?? 0} onChange={e => setDraft((d: any) => ({ ...d, depositAmount: e.target.value }))}
-                         className="h-10 w-full rounded-xl border-2 text-center text-[13px] font-black" />
-                </label>
-              )}
+            </div>
+            <label className="block">
+              <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">What it is</span>
+              <textarea value={draft.description || ''} onChange={e => setDraft((d: any) => ({ ...d, description: e.target.value.slice(0, 400) }))} rows={3}
+                        placeholder="What's included, how long it lasts, who it's for. Clients read this before they book."
+                        className="w-full rounded-xl border-2 px-3 py-2 text-[13px]" />
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <label className="flex-1 min-w-[8rem]">
+                <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Category (optional)</span>
+                <input value={draft.category || ''} onChange={e => setDraft((d: any) => ({ ...d, category: e.target.value.slice(0, 40) }))} placeholder="Gel, Acrylic, Add-ons…"
+                       className="h-10 w-full rounded-xl border-2 px-3 text-[13px] font-bold" />
+              </label>
+              <div className="flex-1 min-w-[8rem]">
+                <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Photo</span>
+                <div className="flex items-center gap-2">
+                  {(draft.imageData || draft.imageUrl) && draft.imageData !== null && (
+                    <img src={draft.imageData || draft.imageUrl} alt="" className="h-10 w-10 rounded-lg object-cover border-2" />
+                  )}
+                  <label className="h-10 flex-1 inline-flex items-center justify-center rounded-xl border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-600 cursor-pointer">
+                    {(draft.imageData || draft.imageUrl) && draft.imageData !== null ? 'Change' : 'Add'}
+                    <input type="file" accept="image/*" className="sr-only" aria-label="Service photo"
+                           onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (!f) return; try { const d: string = await downscaleImageToDataUrl(f, { maxDim: 1200 }); setDraft((x: any) => ({ ...x, imageData: d })); } catch { /* skip */ } }} />
+                  </label>
+                  {(draft.imageData || draft.imageUrl) && draft.imageData !== null && (
+                    <button type="button" onClick={() => setDraft((x: any) => ({ ...x, imageData: null, imageUrl: null }))} aria-label="Remove photo" className="h-10 w-10 rounded-xl border-2 text-slate-500 font-black">×</button>
+                  )}
+                </div>
+              </div>
             </div>
             {data?.provider?.chargesEnabled ? (
-              <p className="text-[10px] font-bold text-slate-400">A deposit holds the slot and goes straight to your Stripe. Leave it 0 for no deposit.</p>
+              <div className="rounded-xl border-2 p-3 space-y-2">
+                <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Deposit to hold the slot</span>
+                <div className="flex gap-1.5">
+                  {([['none', 'None'], ['flat', 'Fixed $'], ['percent', '% of price']] as const).map(([k, l]) => {
+                    const cur = draft.depositMode || (Number(draft.depositAmount) > 0 ? 'flat' : 'none');
+                    return <button key={k} type="button" aria-pressed={cur === k} onClick={() => setDraft((d: any) => ({ ...d, depositMode: k }))}
+                      className={cn('h-9 flex-1 rounded-full border-2 text-[10px] font-black uppercase tracking-widest', cur === k ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>{l}</button>;
+                  })}
+                </div>
+                {(draft.depositMode || (Number(draft.depositAmount) > 0 ? 'flat' : 'none')) === 'flat' && (
+                  <input type="number" min={0} value={draft.depositAmount ?? 0} onChange={e => setDraft((d: any) => ({ ...d, depositAmount: e.target.value }))} aria-label="Deposit in dollars"
+                         className="h-10 w-full rounded-xl border-2 text-center text-[13px] font-black" />
+                )}
+                {(draft.depositMode || 'none') === 'percent' && (
+                  <div className="flex items-center gap-2">
+                    <input type="number" min={0} max={100} value={draft.depositPercent ?? 25} onChange={e => setDraft((d: any) => ({ ...d, depositPercent: e.target.value }))} aria-label="Deposit percent"
+                           className="h-10 w-24 rounded-xl border-2 text-center text-[13px] font-black" />
+                    <span className="text-[11px] font-bold text-slate-500">% = ${(((Number(draft.price) || 0) * (Number(draft.depositPercent ?? 25) || 0)) / 100).toFixed(2)} on this service</span>
+                  </div>
+                )}
+                <p className="text-[10px] font-bold text-slate-400">Goes straight to your Stripe when they book. The rest they pay you at the visit.</p>
+              </div>
             ) : (
               <p className="text-[10px] font-bold text-slate-400">Connect your Stripe below to start taking deposits and stop losing no-shows.</p>
             )}
@@ -2972,6 +3107,20 @@ export default function RenterPortalPage() {
               <section className="space-y-3">
                 <SectionTitle icon={Sparkles}>Setup</SectionTitle>
                 <div className="rounded-3xl bg-white border-2 border-slate-100 divide-y-2 divide-slate-100 overflow-hidden">
+                  {(
+                    <div>
+                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'brand' ? '' : 'brand')} aria-expanded={setupOpen === 'brand'}
+                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
+                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">My brand</span><span className="block text-[10px] font-bold text-slate-500">Colour, cover, typeface — what your link looks like</span></span>
+                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'brand' && 'rotate-90')} />
+                      </button>
+                      {setupOpen === 'brand' && session?.token && (
+                        <div className="px-3 pb-4">
+                          <MyBrand tenantId={tenantId} token={session.token} />
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {(
                     <div>
                       <button type="button" onClick={() => setSetupOpen(setupOpen === 'page' ? '' : 'page')} aria-expanded={setupOpen === 'page'}
