@@ -2166,6 +2166,45 @@ function MyClientMessages({ tenantId, token }: { tenantId: string; token: string
   );
 }
 
+// ─── My Reviews: what clients said, and which ones go public ─────────────────
+function MyReviews({ tenantId, token }: { tenantId: string; token: string }) {
+  const [list, setList] = useState<any[] | null>(null);
+  const [busy, setBusy] = useState('');
+  const [filter, setFilter] = useState<'pending' | 'published' | 'hidden'>('pending');
+  const load = useCallback(async () => { const d = await api({ action: 'reviews-list', tenantId, token }); if (d?.ok) setList(d.reviews || []); }, [tenantId, token]);
+  useEffect(() => { void load(); }, [load]);
+  if (!list) return <p className="py-2 text-center text-[11px] font-bold text-slate-400">Loading…</p>;
+  const counts = { pending: list.filter((r) => r.status === 'pending').length, published: list.filter((r) => r.status === 'published').length, hidden: list.filter((r) => r.status === 'hidden').length };
+  const rows = list.filter((r) => r.status === filter);
+  const act = async (id: string, status: 'published' | 'hidden') => { setBusy(id); await api({ action: 'review-moderate', tenantId, token, reviewId: id, status }); setBusy(''); void load(); };
+  const stars = (n: number) => '★'.repeat(Math.max(0, Math.min(5, n))) + '☆'.repeat(5 - Math.max(0, Math.min(5, n)));
+  return (
+    <div className="space-y-3">
+      <p className="text-[10px] font-bold text-slate-500">Every review here is from a client who actually completed a visit with you — the ask goes out in your thank-you the day after. Nothing shows on your page until you publish it.</p>
+      <div className="flex gap-1.5">
+        {(['pending', 'published', 'hidden'] as const).map((k) => (
+          <button key={k} type="button" onClick={() => setFilter(k)} aria-pressed={filter === k} className={cn('h-9 rounded-full border-2 px-3 text-[10px] font-black uppercase tracking-widest', filter === k ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>{k === 'pending' ? 'New' : k} · {counts[k]}</button>
+        ))}
+      </div>
+      {rows.length === 0 && <p className="py-3 text-center text-[11px] font-bold text-slate-400">{filter === 'pending' ? 'No new reviews. They arrive after clients get your thank-you.' : `Nothing ${filter}.`}</p>}
+      {rows.map((r) => (
+        <div key={r.id} className="rounded-2xl border-2 border-slate-200 p-3 space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[12px] font-black text-slate-900">{r.clientName || 'Client'}<span className="font-bold text-slate-500"> · {r.serviceName}</span></p>
+            <span className="shrink-0 text-[12px] font-black tracking-tight text-amber-500">{stars(Number(r.rating) || 0)}</span>
+          </div>
+          {r.text && <p className="text-[12px] font-medium text-slate-700 whitespace-pre-wrap">{r.text}</p>}
+          <p className="text-[10px] font-bold text-slate-400">Visited {fmtDate(String(r.visitedAt || r.createdAt).slice(0, 10))}</p>
+          <div className="flex gap-2">
+            {r.status !== 'published' && <button type="button" disabled={busy === r.id} onClick={() => act(r.id, 'published')} className="h-9 flex-1 rounded-xl bg-emerald-600 text-[9px] font-black uppercase tracking-widest text-white disabled:opacity-40">Show on my page</button>}
+            {r.status !== 'hidden' && <button type="button" disabled={busy === r.id} onClick={() => act(r.id, 'hidden')} className="h-9 flex-1 rounded-xl border-2 border-slate-200 text-[9px] font-black uppercase tracking-widest text-slate-600 disabled:opacity-40">{r.status === 'published' ? 'Take down' : 'Keep private'}</button>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── My Page: the content sections on their booking link ─────────────────────
 function MyPage({ tenantId, token }: { tenantId: string; token: string }) {
   const [page, setPage] = useState<any | null>(null);
@@ -2943,6 +2982,20 @@ export default function RenterPortalPage() {
                       {setupOpen === 'page' && session?.token && (
                         <div className="px-3 pb-4">
                           <MyPage tenantId={tenantId} token={session.token} />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {(
+                    <div>
+                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'reviews' ? '' : 'reviews')} aria-expanded={setupOpen === 'reviews'}
+                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
+                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Reviews</span><span className="block text-[10px] font-bold text-slate-500">What clients said — you choose what shows</span></span>
+                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'reviews' && 'rotate-90')} />
+                      </button>
+                      {setupOpen === 'reviews' && session?.token && (
+                        <div className="px-3 pb-4">
+                          <MyReviews tenantId={tenantId} token={session.token} />
                         </div>
                       )}
                     </div>
