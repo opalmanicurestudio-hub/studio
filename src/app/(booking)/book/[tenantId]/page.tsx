@@ -557,6 +557,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       <div className="w-full min-h-dvh overflow-x-hidden"
            style={{ background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
         <BookingSheet
+          lockedStaffId={providerId && staff.some((m: any) => m.id === providerId && m.isRenter) ? providerId : undefined}
           open
           onOpenChange={o => { if (!o) { setDialogOpen(false); setDialogService(null); } }}
           service={dialogService}
@@ -588,11 +589,14 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   // alternative is a client who came looking for a specific person and
   // leaves thinking the studio is broken.
   // ── A renter's link opens THEIR page ─────────────────────────────────
-  // One screen: who they are, where else to find them, what they offer.
-  // Not the studio's twenty sections with a different price list injected —
-  // a client who followed Ana's link came for Ana. The studio keeps a quiet
-  // "Part of …" line at the foot, and its own page is untouched. Styling is
-  // inherited from the studio so a renter has nothing to set up.
+  // An experience, not a listing. Their photo as a full-bleed cover with
+  // the name set over it; links as a horizontal chip rail; the gallery,
+  // reviews and policies as swipeable carousels so the page has motion
+  // without a single animation library; the menu as an editorial list with
+  // a sticky "book" bar so the call to action never scrolls away. Styled in
+  // the studio's palette and type — bold with it, not timid — so it reads as
+  // part of the building and still unmistakably theirs. The studio keeps
+  // one quiet line at the foot; its own page is untouched.
   const linkedProvider: any = providerId ? staff.find((m: any) => m.id === providerId && m.isRenter) : null;
   if (linkedProvider && !awayProvider) {
     const p = linkedProvider;
@@ -604,115 +608,163 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       ...links.map((l) => ({ label: l.label || (LINK_KINDS.find((k) => k.kind === l.kind)?.label ?? 'Link'), href: linkHref(l) })).filter((r) => r.href),
     ];
     const addr = [tenant?.address?.street || tenant?.address?.line1, tenant?.address?.city].filter(Boolean).join(', ');
+    const photo = p.avatarUrl || p.photoUrl || '';
+    const accent = ac(resolvedStyle);
+    const radius = br(resolvedStyle);
+    const sections = livePageSections(p.page);
+    const gallery = sections.find((x) => x.kind === 'gallery');
+    const about = sections.find((x) => x.kind === 'about');
+    const faq = sections.find((x) => x.kind === 'faq');
+    const policies = sections.find((x) => x.kind === 'policies');
+    const reviews: any[] = Array.isArray(p.reviews) ? p.reviews : [];
+    const policyCards = policies?.text ? String(policies.text).split(/\n{2,}|\n(?=[-•])/).map((t) => t.replace(/^[-•]\s*/, '').trim()).filter(Boolean).slice(0, 8) : [];
+    const rail = 'flex snap-x snap-mandatory gap-3 overflow-x-auto px-5 pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden';
+    const kicker = (t: string, sub?: string) => (
+      <div className="px-5 mb-3 flex items-end justify-between gap-3">
+        <h2 className="text-2xl font-light leading-none" style={{ fontFamily: hf(resolvedStyle), color: accent }}>{t}</h2>
+        {sub && <span className="text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: accent + '80' }}>{sub}</span>}
+      </div>
+    );
     return (
-      <div className="w-full min-h-dvh overflow-x-hidden"
-           style={{ background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
-        <div className="mx-auto w-full max-w-md px-5 pb-16 pt-10">
-          <div className="text-center space-y-3">
-            {(p.avatarUrl || p.photoUrl) ? (
-              <img src={p.avatarUrl || p.photoUrl} alt={p.name || 'Provider'} className="mx-auto h-28 w-28 rounded-full object-cover"
-                   style={{ boxShadow: `0 0 0 4px ${ac(resolvedStyle)}20` }} />
-            ) : (
-              <div className="mx-auto h-28 w-28 rounded-full" style={{ background: ac(resolvedStyle) + '15' }} />
-            )}
-            <h1 className="text-3xl font-light leading-tight" style={{ fontFamily: hf(resolvedStyle), color: ac(resolvedStyle) }}>{p.name || 'Provider'}</h1>
-            {(p.title || addr || tenant?.name) && (
-              <p className="text-[11px] font-black uppercase tracking-widest" style={{ color: ac(resolvedStyle) + '90' }}>
-                {[p.title, tenant?.name ? `at ${tenant.name}` : null, addr].filter(Boolean).join(' · ')}
+      <div className="w-full min-h-dvh overflow-x-hidden" style={{ background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
+        <div className="mx-auto w-full max-w-md pb-28">
+
+          <section className="relative">
+            <div className="relative h-[68vw] max-h-[420px] w-full overflow-hidden" style={{ background: accent + '18' }}>
+              {photo && <img src={photo} alt="" className="absolute inset-0 h-full w-full object-cover" />}
+              <div className="absolute inset-0" style={{ background: `linear-gradient(180deg, transparent 35%, ${resolvedStyle.bgColor} 100%)` }} />
+            </div>
+            <div className="relative -mt-14 px-5">
+              <p className="text-[10px] font-black uppercase tracking-[0.25em]" style={{ color: accent + '90' }}>
+                {[p.title, tenant?.name ? `at ${tenant.name}` : null].filter(Boolean).join(' · ') || 'Independent provider'}
               </p>
-            )}
-            {p.bio && <p className="text-sm leading-relaxed text-slate-600 px-2">{p.bio}</p>}
-          </div>
+              <h1 className="mt-1 text-[44px] font-light leading-[0.95] tracking-tight" style={{ fontFamily: hf(resolvedStyle), color: accent }}>{p.name || 'Provider'}</h1>
+              {reviews.length > 0 && p.reviewAverage ? (
+                <p className="mt-2 text-[11px] font-black uppercase tracking-widest" style={{ color: accent }}>{'★'.repeat(Math.round(p.reviewAverage))} <span style={{ color: accent + '80' }}>{p.reviewAverage} · {p.reviewCount || reviews.length} reviews</span></p>
+              ) : null}
+              {p.bio && <p className="mt-3 text-[15px] leading-relaxed text-slate-600">{p.bio}</p>}
+              {addr && <p className="mt-2 text-[11px] font-bold text-slate-400">{addr}</p>}
+            </div>
+          </section>
 
           {rows.length > 0 && (
-            <div className="mt-6 space-y-2">
-              {rows.map((r, i) => (
-                <a key={i} href={r.href} target="_blank" rel="noopener noreferrer"
-                   className="flex items-center justify-between px-5 py-4 text-[11px] font-black uppercase tracking-widest transition-all hover:shadow-md"
-                   style={{ background: 'white', color: ac(resolvedStyle), borderRadius: br(resolvedStyle), border: `2px solid ${ac(resolvedStyle)}25` }}>
-                  <span>{r.label}</span>
-                  <ArrowRight className="h-4 w-4 opacity-40" />
-                </a>
-              ))}
-            </div>
-          )}
-
-          {livePageSections(p.page).map((sec) => (
-            <div key={sec.kind} className="mt-8">
-              <p className="mb-3 text-center text-[10px] font-black uppercase tracking-widest" style={{ color: ac(resolvedStyle) + '80' }}>{sec.title}</p>
-              {(sec.kind === 'about' || sec.kind === 'policies') && (
-                <div className="p-5 text-sm leading-relaxed text-slate-700 whitespace-pre-wrap" style={{ background: 'white', borderRadius: br(resolvedStyle), border: `2px solid ${ac(resolvedStyle)}15` }}>{sec.text}</div>
-              )}
-              {sec.kind === 'gallery' && (
-                <div className="grid grid-cols-3 gap-1.5">
-                  {(sec.photos || []).map((u, i) => (
-                    <a key={u} href={u} target="_blank" rel="noopener noreferrer" className="aspect-square overflow-hidden" style={{ borderRadius: br(resolvedStyle) }}>
-                      <img src={u} alt={`${p.name || 'Work'} — photo ${i + 1}`} loading="lazy" className="h-full w-full object-cover" />
-                    </a>
-                  ))}
-                </div>
-              )}
-              {sec.kind === 'faq' && (
-                <div className="space-y-2">
-                  {(sec.items || []).map((it, i) => (
-                    <details key={i} className="group p-4" style={{ background: 'white', borderRadius: br(resolvedStyle), border: `2px solid ${ac(resolvedStyle)}15` }}>
-                      <summary className="cursor-pointer list-none text-sm font-black text-slate-900">{it.q}</summary>
-                      <p className="mt-2 text-sm leading-relaxed text-slate-600 whitespace-pre-wrap">{it.a}</p>
-                    </details>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-
-          {Array.isArray(p.reviews) && p.reviews.length > 0 && (
-            <div className="mt-8">
-              <p className="mb-3 text-center text-[10px] font-black uppercase tracking-widest" style={{ color: ac(resolvedStyle) + '80' }}>
-                What clients say{p.reviewAverage ? ` · ${p.reviewAverage} ★ from ${p.reviewCount || p.reviews.length}` : ''}
-              </p>
-              <div className="space-y-2">
-                {p.reviews.slice(0, 6).map((r: any, i: number) => (
-                  <div key={i} className="p-4" style={{ background: 'white', borderRadius: br(resolvedStyle), border: `2px solid ${ac(resolvedStyle)}15` }}>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-black uppercase tracking-widest text-slate-800">{r.name || 'Client'}</span>
-                      <span className="text-[12px] tracking-tight" style={{ color: ac(resolvedStyle) }}>{'★'.repeat(Math.max(1, Math.min(5, Number(r.rating) || 5)))}</span>
-                    </div>
-                    {r.text && <p className="mt-1.5 text-sm leading-relaxed text-slate-700">{r.text}</p>}
-                    {r.service && <p className="mt-1 text-[10px] font-bold text-slate-400">{r.service}</p>}
-                  </div>
+            <section className="mt-5">
+              <div className={rail}>
+                {rows.map((r, i) => (
+                  <a key={i} href={r.href} target="_blank" rel="noopener noreferrer"
+                     className="snap-start shrink-0 whitespace-nowrap px-4 py-2.5 text-[11px] font-black uppercase tracking-widest transition-transform active:scale-95"
+                     style={{ background: 'white', color: accent, borderRadius: 999, border: `2px solid ${accent}25` }}>
+                    {r.label} ↗
+                  </a>
                 ))}
               </div>
-            </div>
+            </section>
           )}
 
-          <div className="mt-8">
-            <p className="mb-3 text-center text-[10px] font-black uppercase tracking-widest" style={{ color: ac(resolvedStyle) + '80' }}>Book with {first}</p>
+          {gallery && (gallery.photos || []).length > 0 && (
+            <section className="mt-8">
+              {kicker(gallery.title || 'My work', `${(gallery.photos || []).length} photos`)}
+              <div className={rail}>
+                {(gallery.photos || []).map((u, i) => (
+                  <a key={u} href={u} target="_blank" rel="noopener noreferrer" className="snap-center shrink-0 overflow-hidden" style={{ width: '72vw', maxWidth: 340, aspectRatio: '4 / 5', borderRadius: radius }}>
+                    <img src={u} alt={`${p.name || 'Work'} — ${i + 1}`} loading={i < 2 ? 'eager' : 'lazy'} className="h-full w-full object-cover" />
+                  </a>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {about && (
+            <section className="mt-8 px-5">
+              {kicker(about.title || 'About')}
+              <div className="-mx-5 px-5">
+                <p className="text-[15px] leading-relaxed text-slate-700 whitespace-pre-wrap" style={{ borderLeft: `3px solid ${accent}`, paddingLeft: 16 }}>{about.text}</p>
+              </div>
+            </section>
+          )}
+
+          {reviews.length > 0 && (
+            <section className="mt-8">
+              {kicker('What clients say', `${p.reviewAverage || ''}${p.reviewAverage ? ' ★' : ''}`)}
+              <div className={rail}>
+                {reviews.slice(0, 8).map((r: any, i: number) => (
+                  <figure key={i} className="snap-center shrink-0 flex flex-col justify-between p-5" style={{ width: '78vw', maxWidth: 360, minHeight: 150, background: 'white', borderRadius: radius, border: `2px solid ${accent}15` }}>
+                    <blockquote className="text-[15px] leading-relaxed text-slate-800">“{r.text || 'Loved it.'}”</blockquote>
+                    <figcaption className="mt-4 flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{r.name || 'Client'}{r.service ? ` · ${r.service}` : ''}</span>
+                      <span className="text-[12px]" style={{ color: accent }}>{'★'.repeat(Math.max(1, Math.min(5, Number(r.rating) || 5)))}</span>
+                    </figcaption>
+                  </figure>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section className="mt-10 px-5" id="menu">
+            {kicker(`Book with ${first}`, `${services.length} service${services.length === 1 ? '' : 's'}`)}
             {services.length === 0 ? (
-              <p className="text-center text-sm text-slate-500">No services listed yet — check back soon.</p>
+              <p className="text-sm text-slate-500">No services listed yet — check back soon.</p>
             ) : (
-              <div className="space-y-2">
+              <div className="divide-y" style={{ borderColor: accent + '15' }}>
                 {services.map((sv: any) => (
                   <button key={sv.id} onClick={() => { setDialogService(sv); setDialogOpen(true); }}
-                          className="flex w-full items-center justify-between p-4 text-left transition-all hover:shadow-md"
-                          style={{ borderRadius: br(resolvedStyle), border: `2px solid ${ac(resolvedStyle)}25`, background: 'white' }}>
+                          className="group flex w-full items-center justify-between gap-4 py-4 text-left">
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-black uppercase tracking-tight text-slate-900" style={{ fontFamily: bf(resolvedStyle) }}>{sv.name}</p>
-                      {sv.duration && <p className="mt-0.5 text-[10px] font-black uppercase tracking-widest" style={{ color: ac(resolvedStyle) + '80' }}>{sv.duration} min</p>}
+                      <p className="text-[17px] font-medium leading-tight text-slate-900" style={{ fontFamily: hf(resolvedStyle) }}>{sv.name}</p>
+                      <p className="mt-1 text-[10px] font-black uppercase tracking-widest" style={{ color: accent + '80' }}>{sv.duration ? `${sv.duration} min` : ''}{sv.description ? ` · ${String(sv.description).slice(0, 60)}` : ''}</p>
                     </div>
-                    <div className="ml-4 flex shrink-0 items-center gap-2">
-                      {sv.price != null && <span className="text-xl font-light" style={{ fontFamily: hf(resolvedStyle), color: ac(resolvedStyle) }}>${sv.price}</span>}
-                      <ArrowRight className="h-4 w-4 text-slate-300" />
+                    <div className="flex shrink-0 items-center gap-3">
+                      {sv.price != null && <span className="text-xl font-light" style={{ fontFamily: hf(resolvedStyle), color: accent }}>${sv.price}</span>}
+                      <span className="flex h-9 w-9 items-center justify-center rounded-full transition-transform group-active:scale-95" style={{ background: accent, color: 'white' }}><ArrowRight className="h-4 w-4" /></span>
                     </div>
                   </button>
                 ))}
               </div>
             )}
-          </div>
+          </section>
 
-          <a href={`/book/${tenantId}`} className="mt-10 block text-center text-[10px] font-black uppercase tracking-widest text-slate-400">
+          {policyCards.length > 0 && (
+            <section className="mt-8">
+              {kicker(policies?.title || 'Policies', 'swipe')}
+              <div className={rail}>
+                {policyCards.map((t, i) => (
+                  <div key={i} className="snap-start shrink-0 p-5" style={{ width: '70vw', maxWidth: 320, background: accent, color: 'white', borderRadius: radius }}>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60">{String(i + 1).padStart(2, '0')}</p>
+                    <p className="mt-2 text-[15px] leading-relaxed">{t}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {faq && (faq.items || []).length > 0 && (
+            <section className="mt-8 px-5">
+              {kicker(faq.title || 'Good to know')}
+              <div className="space-y-2">
+                {(faq.items || []).map((it, i) => (
+                  <details key={i} className="group p-4" style={{ background: 'white', borderRadius: radius, border: `2px solid ${accent}15` }}>
+                    <summary className="flex cursor-pointer list-none items-center justify-between text-[15px] font-medium text-slate-900">
+                      {it.q}<span className="ml-3 text-lg transition-transform group-open:rotate-45" style={{ color: accent }}>+</span>
+                    </summary>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-600 whitespace-pre-wrap">{it.a}</p>
+                  </details>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <a href={`/book/${tenantId}`} className="mt-12 block px-5 text-center text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
             Part of {tenant?.name || 'the studio'} · see everyone
           </a>
         </div>
+
+        {services.length > 0 && (
+          <div className="fixed inset-x-0 bottom-0 z-30 px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3" style={{ background: `linear-gradient(180deg, transparent, ${resolvedStyle.bgColor} 40%)` }}>
+            <a href="#menu" className="mx-auto flex h-14 w-full max-w-md items-center justify-center gap-2 text-[12px] font-black uppercase tracking-[0.2em] text-white shadow-2xl transition-transform active:scale-[0.98]" style={{ background: accent, borderRadius: radius }}>
+              Book with {first} <ArrowRight className="h-4 w-4" />
+            </a>
+          </div>
+        )}
       </div>
     );
   }
