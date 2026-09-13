@@ -10,7 +10,7 @@ import { type PageSection, type PageBuilderConfig } from '@/lib/data';
 import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { resolveBookingPlan } from '@/lib/deposit-policy';
 import { X as XIcon, ArrowRight } from 'lucide-react';
-import { linkHref, LINK_KINDS, livePageSections } from '@/lib/renter-identity';
+import { linkHref, LINK_KINDS, livePageSections, cleanBrand, onAccent } from '@/lib/renter-identity';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import {
   ANIM_CSS, STACKS, GFONTS,
@@ -226,7 +226,9 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
                 staffIds: [provider.id],
                 // Deposits are possible only when THEIR Stripe can charge.
                 renterChargesEnabled: provider.stripeChargesEnabled === true,
-                renterDepositAmount: Number(sv.depositAmount) || 0,
+                renterDepositAmount: sv.depositMode === 'percent'
+                  ? Math.round((Number(sv.price) || 0) * (Number(sv.depositPercent) || 0)) / 100
+                  : Number(sv.depositAmount) || 0,
                 renterProviderId: provider.id,
               }));
             setServices(mine);
@@ -283,6 +285,13 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     .sort((a, b) => a.order - b.order);
 
   useEffect(() => { injectFonts(resolvedStyle.headingFont, resolvedStyle.bodyFont); }, [resolvedStyle.headingFont, resolvedStyle.bodyFont]);
+  // The renter's page: splash-then-app state, and their typeface loaded the
+  // same way the studio's is. Declared here, above every early return, so
+  // hook order never depends on which page renders.
+  const [providerEntered, setProviderEntered] = useState(false);
+  const [providerTab, setProviderTab] = useState<'book' | 'work' | 'about' | 'reviews'>('book');
+  const providerBrandFont = providerId ? cleanBrand((staff.find((m: any) => m.id === providerId && m.isRenter) as any)?.brand).font : null;
+  useEffect(() => { if (providerBrandFont) injectFonts(providerBrandFont, 'jakarta'); }, [providerBrandFont]);
   useEffect(() => {
     const root = document.documentElement;
     /* Fallbacks point at the app's own typeface, so an unknown or missing
@@ -589,18 +598,31 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   // alternative is a client who came looking for a specific person and
   // leaves thinking the studio is broken.
   // ── A renter's link opens THEIR page ─────────────────────────────────
-  // An experience, not a listing. Their photo as a full-bleed cover with
-  // the name set over it; links as a horizontal chip rail; the gallery,
-  // reviews and policies as swipeable carousels so the page has motion
-  // without a single animation library; the menu as an editorial list with
-  // a sticky "book" bar so the call to action never scrolls away. Styled in
-  // the studio's palette and type — bold with it, not timid — so it reads as
-  // part of the building and still unmistakably theirs. The studio keeps
-  // one quiet line at the foot; its own page is untouched.
+  // A SPLASH, then an APP. The splash is one full screen — their cover or
+  // their colour, their name in their typeface, a tagline, one gesture in.
+  // The app is fixed to the viewport: a slim header, four panes (Book · Work
+  // · About · Reviews) that scroll INSIDE themselves, a bottom bar, and a
+  // "Book" bar that never moves. Nothing here is the studio's theme; the
+  // renter's brand — accent, light or dark, cover, face — is the whole look,
+  // with calm defaults when they have set nothing. Luxury is restraint:
+  // hairline rules, tracking, light weights, space.
   const linkedProvider: any = providerId ? staff.find((m: any) => m.id === providerId && m.isRenter) : null;
   if (linkedProvider && !awayProvider) {
     const p = linkedProvider;
+    const brand = cleanBrand(p.brand);
+    const dark = brand.tone === 'dark';
+    const bg = dark ? '#0c0a09' : '#faf9f7';
+    const ink = dark ? '#fafaf9' : '#1c1917';
+    const mute = dark ? '#a8a29e' : '#78716c';
+    const line = dark ? 'rgba(250,250,249,0.12)' : 'rgba(28,25,23,0.10)';
+    const card = dark ? 'rgba(250,250,249,0.05)' : 'rgba(255,255,255,0.7)';
+    const accent = brand.accent;
+    const onAcc = onAccent(accent);
+    const face = STACKS[brand.font] || STACKS.cormorant;
+    const body = STACKS.jakarta;
     const first = String(p.name || '').split(' ')[0] || 'them';
+    const photo = p.avatarUrl || p.photoUrl || '';
+    const cover = brand.coverUrl || photo || '';
     const links: any[] = Array.isArray(p.links) ? p.links : [];
     const igOnly = p.instagram && !links.some((l) => l.kind === 'instagram');
     const rows: { label: string; href: string }[] = [
@@ -608,163 +630,159 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       ...links.map((l) => ({ label: l.label || (LINK_KINDS.find((k) => k.kind === l.kind)?.label ?? 'Link'), href: linkHref(l) })).filter((r) => r.href),
     ];
     const addr = [tenant?.address?.street || tenant?.address?.line1, tenant?.address?.city].filter(Boolean).join(', ');
-    const photo = p.avatarUrl || p.photoUrl || '';
-    const accent = ac(resolvedStyle);
-    const radius = br(resolvedStyle);
     const sections = livePageSections(p.page);
     const gallery = sections.find((x) => x.kind === 'gallery');
     const about = sections.find((x) => x.kind === 'about');
     const faq = sections.find((x) => x.kind === 'faq');
     const policies = sections.find((x) => x.kind === 'policies');
     const reviews: any[] = Array.isArray(p.reviews) ? p.reviews : [];
-    const policyCards = policies?.text ? String(policies.text).split(/\n{2,}|\n(?=[-•])/).map((t) => t.replace(/^[-•]\s*/, '').trim()).filter(Boolean).slice(0, 8) : [];
-    const rail = 'flex snap-x snap-mandatory gap-3 overflow-x-auto px-5 pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden';
-    const kicker = (t: string, sub?: string) => (
-      <div className="px-5 mb-3 flex items-end justify-between gap-3">
-        <h2 className="text-2xl font-light leading-none" style={{ fontFamily: hf(resolvedStyle), color: accent }}>{t}</h2>
-        {sub && <span className="text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: accent + '80' }}>{sub}</span>}
-      </div>
-    );
-    return (
-      <div className="w-full min-h-dvh overflow-x-hidden" style={{ background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
-        <div className="mx-auto w-full max-w-md pb-28">
+    const policyLines = policies?.text ? String(policies.text).split(/\n+/).map((t) => t.replace(/^[-•]\s*/, '').trim()).filter(Boolean).slice(0, 10) : [];
+    const cats = Array.from(new Set(services.map((sv: any) => String(sv.category || '').trim()).filter(Boolean)));
+    const tabs = [
+      ['book', 'Book'],
+      ...((gallery?.photos || []).length ? [['work', 'Work']] : []),
+      ...((about || faq || policyLines.length || rows.length) ? [['about', 'About']] : []),
+      ...(reviews.length ? [['reviews', 'Reviews']] : []),
+    ] as [string, string][];
+    const eyebrow = (t: string) => <p className="text-[10px] font-medium uppercase tracking-[0.35em]" style={{ color: accent, fontFamily: body }}>{t}</p>;
+    const rule = <div className="h-px w-full" style={{ background: line }} />;
 
-          <section className="relative">
-            <div className="relative h-[68vw] max-h-[420px] w-full overflow-hidden" style={{ background: accent + '18' }}>
-              {photo && <img src={photo} alt="" className="absolute inset-0 h-full w-full object-cover" />}
-              <div className="absolute inset-0" style={{ background: `linear-gradient(180deg, transparent 35%, ${resolvedStyle.bgColor} 100%)` }} />
-            </div>
-            <div className="relative -mt-14 px-5">
-              <p className="text-[10px] font-black uppercase tracking-[0.25em]" style={{ color: accent + '90' }}>
-                {[p.title, tenant?.name ? `at ${tenant.name}` : null].filter(Boolean).join(' · ') || 'Independent provider'}
-              </p>
-              <h1 className="mt-1 text-[44px] font-light leading-[0.95] tracking-tight" style={{ fontFamily: hf(resolvedStyle), color: accent }}>{p.name || 'Provider'}</h1>
-              {reviews.length > 0 && p.reviewAverage ? (
-                <p className="mt-2 text-[11px] font-black uppercase tracking-widest" style={{ color: accent }}>{'★'.repeat(Math.round(p.reviewAverage))} <span style={{ color: accent + '80' }}>{p.reviewAverage} · {p.reviewCount || reviews.length} reviews</span></p>
-              ) : null}
-              {p.bio && <p className="mt-3 text-[15px] leading-relaxed text-slate-600">{p.bio}</p>}
-              {addr && <p className="mt-2 text-[11px] font-bold text-slate-400">{addr}</p>}
-            </div>
-          </section>
-
-          {rows.length > 0 && (
-            <section className="mt-5">
-              <div className={rail}>
-                {rows.map((r, i) => (
-                  <a key={i} href={r.href} target="_blank" rel="noopener noreferrer"
-                     className="snap-start shrink-0 whitespace-nowrap px-4 py-2.5 text-[11px] font-black uppercase tracking-widest transition-transform active:scale-95"
-                     style={{ background: 'white', color: accent, borderRadius: 999, border: `2px solid ${accent}25` }}>
-                    {r.label} ↗
-                  </a>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {gallery && (gallery.photos || []).length > 0 && (
-            <section className="mt-8">
-              {kicker(gallery.title || 'My work', `${(gallery.photos || []).length} photos`)}
-              <div className={rail}>
-                {(gallery.photos || []).map((u, i) => (
-                  <a key={u} href={u} target="_blank" rel="noopener noreferrer" className="snap-center shrink-0 overflow-hidden" style={{ width: '72vw', maxWidth: 340, aspectRatio: '4 / 5', borderRadius: radius }}>
-                    <img src={u} alt={`${p.name || 'Work'} — ${i + 1}`} loading={i < 2 ? 'eager' : 'lazy'} className="h-full w-full object-cover" />
-                  </a>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {about && (
-            <section className="mt-8 px-5">
-              {kicker(about.title || 'About')}
-              <div className="-mx-5 px-5">
-                <p className="text-[15px] leading-relaxed text-slate-700 whitespace-pre-wrap" style={{ borderLeft: `3px solid ${accent}`, paddingLeft: 16 }}>{about.text}</p>
-              </div>
-            </section>
-          )}
-
-          {reviews.length > 0 && (
-            <section className="mt-8">
-              {kicker('What clients say', `${p.reviewAverage || ''}${p.reviewAverage ? ' ★' : ''}`)}
-              <div className={rail}>
-                {reviews.slice(0, 8).map((r: any, i: number) => (
-                  <figure key={i} className="snap-center shrink-0 flex flex-col justify-between p-5" style={{ width: '78vw', maxWidth: 360, minHeight: 150, background: 'white', borderRadius: radius, border: `2px solid ${accent}15` }}>
-                    <blockquote className="text-[15px] leading-relaxed text-slate-800">“{r.text || 'Loved it.'}”</blockquote>
-                    <figcaption className="mt-4 flex items-center justify-between">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{r.name || 'Client'}{r.service ? ` · ${r.service}` : ''}</span>
-                      <span className="text-[12px]" style={{ color: accent }}>{'★'.repeat(Math.max(1, Math.min(5, Number(r.rating) || 5)))}</span>
-                    </figcaption>
-                  </figure>
-                ))}
-              </div>
-            </section>
-          )}
-
-          <section className="mt-10 px-5" id="menu">
-            {kicker(`Book with ${first}`, `${services.length} service${services.length === 1 ? '' : 's'}`)}
-            {services.length === 0 ? (
-              <p className="text-sm text-slate-500">No services listed yet — check back soon.</p>
-            ) : (
-              <div className="divide-y" style={{ borderColor: accent + '15' }}>
-                {services.map((sv: any) => (
-                  <button key={sv.id} onClick={() => { setDialogService(sv); setDialogOpen(true); }}
-                          className="group flex w-full items-center justify-between gap-4 py-4 text-left">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[17px] font-medium leading-tight text-slate-900" style={{ fontFamily: hf(resolvedStyle) }}>{sv.name}</p>
-                      <p className="mt-1 text-[10px] font-black uppercase tracking-widest" style={{ color: accent + '80' }}>{sv.duration ? `${sv.duration} min` : ''}{sv.description ? ` · ${String(sv.description).slice(0, 60)}` : ''}</p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-3">
-                      {sv.price != null && <span className="text-xl font-light" style={{ fontFamily: hf(resolvedStyle), color: accent }}>${sv.price}</span>}
-                      <span className="flex h-9 w-9 items-center justify-center rounded-full transition-transform group-active:scale-95" style={{ background: accent, color: 'white' }}><ArrowRight className="h-4 w-4" /></span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </section>
-
-          {policyCards.length > 0 && (
-            <section className="mt-8">
-              {kicker(policies?.title || 'Policies', 'swipe')}
-              <div className={rail}>
-                {policyCards.map((t, i) => (
-                  <div key={i} className="snap-start shrink-0 p-5" style={{ width: '70vw', maxWidth: 320, background: accent, color: 'white', borderRadius: radius }}>
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60">{String(i + 1).padStart(2, '0')}</p>
-                    <p className="mt-2 text-[15px] leading-relaxed">{t}</p>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {faq && (faq.items || []).length > 0 && (
-            <section className="mt-8 px-5">
-              {kicker(faq.title || 'Good to know')}
-              <div className="space-y-2">
-                {(faq.items || []).map((it, i) => (
-                  <details key={i} className="group p-4" style={{ background: 'white', borderRadius: radius, border: `2px solid ${accent}15` }}>
-                    <summary className="flex cursor-pointer list-none items-center justify-between text-[15px] font-medium text-slate-900">
-                      {it.q}<span className="ml-3 text-lg transition-transform group-open:rotate-45" style={{ color: accent }}>+</span>
-                    </summary>
-                    <p className="mt-2 text-sm leading-relaxed text-slate-600 whitespace-pre-wrap">{it.a}</p>
-                  </details>
-                ))}
-              </div>
-            </section>
-          )}
-
-          <a href={`/book/${tenantId}`} className="mt-12 block px-5 text-center text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
-            Part of {tenant?.name || 'the studio'} · see everyone
-          </a>
+    if (!providerEntered) {
+      return (
+        <div className="fixed inset-0 overflow-hidden" style={{ background: bg, fontFamily: body }}>
+          {cover && <img src={cover} alt="" className="absolute inset-0 h-full w-full object-cover" style={{ opacity: dark ? 0.55 : 0.9 }} />}
+          <div className="absolute inset-0" style={{ background: `linear-gradient(180deg, ${dark ? 'rgba(12,10,9,0.15)' : 'rgba(250,249,247,0.05)'} 0%, ${bg} 78%)` }} />
+          <div className="absolute inset-x-0 bottom-0 px-8 pb-[max(2.5rem,env(safe-area-inset-bottom))]">
+            {eyebrow(tenant?.name ? `at ${tenant.name}` : 'By appointment')}
+            <h1 className="mt-3 text-[56px] font-light leading-[0.9] tracking-tight" style={{ fontFamily: face, color: ink }}>{p.name || 'Provider'}</h1>
+            {brand.tagline && <p className="mt-3 text-[15px] font-light leading-relaxed" style={{ color: mute }}>{brand.tagline}</p>}
+            {reviews.length > 0 && p.reviewAverage ? <p className="mt-3 text-[11px] uppercase tracking-[0.25em]" style={{ color: mute }}>{p.reviewAverage} ★ · {p.reviewCount || reviews.length} reviews</p> : null}
+            <button type="button" onClick={() => setProviderEntered(true)}
+              className="mt-8 flex h-14 w-full items-center justify-between px-6 text-[11px] font-medium uppercase tracking-[0.3em] transition-transform active:scale-[0.98]"
+              style={{ background: accent, color: onAcc, borderRadius: 999 }}>
+              Enter <span aria-hidden>→</span>
+            </button>
+          </div>
         </div>
+      );
+    }
 
-        {services.length > 0 && (
-          <div className="fixed inset-x-0 bottom-0 z-30 px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3" style={{ background: `linear-gradient(180deg, transparent, ${resolvedStyle.bgColor} 40%)` }}>
-            <a href="#menu" className="mx-auto flex h-14 w-full max-w-md items-center justify-center gap-2 text-[12px] font-black uppercase tracking-[0.2em] text-white shadow-2xl transition-transform active:scale-[0.98]" style={{ background: accent, borderRadius: radius }}>
-              Book with {first} <ArrowRight className="h-4 w-4" />
-            </a>
+    const pane = 'absolute inset-x-0 top-14 bottom-[calc(7.5rem+env(safe-area-inset-bottom))] overflow-y-auto overscroll-contain px-6 pt-4 pb-6';
+    return (
+      <div className="fixed inset-0 overflow-hidden" style={{ background: bg, color: ink, fontFamily: body }}>
+        <header className="absolute inset-x-0 top-0 z-10 flex h-14 items-center gap-3 px-6" style={{ background: bg, borderBottom: `1px solid ${line}` }}>
+          {photo ? <img src={photo} alt="" className="h-8 w-8 rounded-full object-cover" /> : <span className="h-8 w-8 rounded-full" style={{ background: accent }} />}
+          <span className="min-w-0 truncate text-[17px] font-light" style={{ fontFamily: face }}>{p.name || 'Provider'}</span>
+          <button type="button" onClick={() => setProviderEntered(false)} aria-label="Back to the cover" className="ml-auto text-[10px] uppercase tracking-[0.25em]" style={{ color: mute }}>Cover</button>
+        </header>
+
+        {providerTab === 'book' && (
+          <div className={pane}>
+            {eyebrow('Menu')}
+            <p className="mt-2 text-[32px] font-light leading-none" style={{ fontFamily: face }}>Book with {first}</p>
+            {addr && <p className="mt-2 text-[12px] font-light" style={{ color: mute }}>{addr}</p>}
+            <div className="mt-6">
+              {services.length === 0 && <p className="text-sm font-light" style={{ color: mute }}>No services listed yet.</p>}
+              {(cats.length ? cats : ['']).map((cat) => (
+                <div key={cat || 'all'} className="mb-6">
+                  {cat && <p className="mb-2 text-[10px] uppercase tracking-[0.3em]" style={{ color: mute }}>{cat}</p>}
+                  {services.filter((sv: any) => (cat ? String(sv.category || '').trim() === cat : true)).map((sv: any, i: number, arr: any[]) => (
+                    <button key={sv.id} onClick={() => { setDialogService(sv); setDialogOpen(true); }} className="group flex w-full items-start gap-4 py-4 text-left" style={{ borderTop: i === 0 ? `1px solid ${line}` : undefined, borderBottom: `1px solid ${line}` }}>
+                      {sv.imageUrl && <img src={sv.imageUrl} alt="" className="h-16 w-16 shrink-0 object-cover" style={{ borderRadius: 2 }} />}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <p className="text-[19px] font-light leading-tight" style={{ fontFamily: face }}>{sv.name}</p>
+                          {sv.price != null && <span className="shrink-0 text-[15px] font-light tabular-nums" style={{ color: accent }}>${sv.price}</span>}
+                        </div>
+                        {sv.description && <p className="mt-1 text-[13px] font-light leading-snug line-clamp-2" style={{ color: mute }}>{sv.description}</p>}
+                        <p className="mt-1.5 text-[10px] uppercase tracking-[0.25em]" style={{ color: mute }}>{sv.duration ? `${sv.duration} min` : ''}{sv.renterChargesEnabled && sv.renterDepositAmount > 0 ? ` · $${Number(sv.renterDepositAmount).toFixed(0)} deposit` : ''}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
           </div>
         )}
+
+        {providerTab === 'work' && gallery && (
+          <div className={pane}>
+            {eyebrow(gallery.title || 'My work')}
+            <div className="mt-4 columns-2 gap-2 [&>*]:mb-2">
+              {(gallery.photos || []).map((u, i) => (
+                <a key={u} href={u} target="_blank" rel="noopener noreferrer" className="block overflow-hidden" style={{ borderRadius: 2, breakInside: 'avoid' }}>
+                  <img src={u} alt={`${p.name || 'Work'} — ${i + 1}`} loading={i < 4 ? 'eager' : 'lazy'} className="w-full object-cover" style={{ aspectRatio: i % 3 === 0 ? '4 / 5' : '1 / 1' }} />
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {providerTab === 'about' && (
+          <div className={pane}>
+            {p.bio && <p className="text-[22px] font-light leading-snug" style={{ fontFamily: face }}>{p.bio}</p>}
+            {about?.text && (<div className="mt-6">{eyebrow(about.title || 'About')}<p className="mt-2 text-[15px] font-light leading-relaxed whitespace-pre-wrap" style={{ color: ink }}>{about.text}</p></div>)}
+            {rows.length > 0 && (
+              <div className="mt-8">{eyebrow('Find me')}<div className="mt-3 divide-y" style={{ borderColor: line }}>
+                {rows.map((r, i) => (
+                  <a key={i} href={r.href} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between py-3 text-[14px] font-light" style={{ borderTop: i === 0 ? `1px solid ${line}` : undefined, borderBottom: `1px solid ${line}` }}>{r.label}<span style={{ color: accent }}>↗</span></a>
+                ))}
+              </div></div>
+            )}
+            {policyLines.length > 0 && (
+              <div className="mt-8">{eyebrow(policies?.title || 'Policies')}
+                <ol className="mt-3 space-y-3">
+                  {policyLines.map((t, i) => (
+                    <li key={i} className="flex gap-4 text-[14px] font-light leading-relaxed"><span className="shrink-0 tabular-nums" style={{ color: accent }}>{String(i + 1).padStart(2, '0')}</span><span>{t}</span></li>
+                  ))}
+                </ol>
+              </div>
+            )}
+            {faq && (faq.items || []).length > 0 && (
+              <div className="mt-8">{eyebrow(faq.title || 'Good to know')}
+                <div className="mt-3">
+                  {(faq.items || []).map((it, i) => (
+                    <details key={i} className="group py-3" style={{ borderTop: i === 0 ? `1px solid ${line}` : undefined, borderBottom: `1px solid ${line}` }}>
+                      <summary className="flex cursor-pointer list-none items-center justify-between text-[15px] font-light">{it.q}<span className="ml-3 transition-transform group-open:rotate-45" style={{ color: accent }}>+</span></summary>
+                      <p className="mt-2 text-[14px] font-light leading-relaxed whitespace-pre-wrap" style={{ color: mute }}>{it.a}</p>
+                    </details>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {providerTab === 'reviews' && (
+          <div className={pane}>
+            {eyebrow('What clients say')}
+            {p.reviewAverage ? <p className="mt-2 text-[32px] font-light leading-none" style={{ fontFamily: face }}>{p.reviewAverage} <span className="text-[18px]" style={{ color: accent }}>★</span> <span className="text-[13px] font-light" style={{ color: mute }}>from {p.reviewCount || reviews.length}</span></p> : null}
+            <div className="mt-6 space-y-6">
+              {reviews.map((r: any, i: number) => (
+                <figure key={i}>
+                  {rule}
+                  <blockquote className="mt-4 text-[17px] font-light leading-relaxed" style={{ fontFamily: face }}>“{r.text || 'Loved it.'}”</blockquote>
+                  <figcaption className="mt-2 flex items-center justify-between text-[10px] uppercase tracking-[0.25em]" style={{ color: mute }}><span>{r.name || 'Client'}{r.service ? ` · ${r.service}` : ''}</span><span style={{ color: accent }}>{'★'.repeat(Math.max(1, Math.min(5, Number(r.rating) || 5)))}</span></figcaption>
+                </figure>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="absolute inset-x-0 bottom-0 z-10 px-6 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3" style={{ background: bg, borderTop: `1px solid ${line}` }}>
+          {providerTab !== 'book' && services.length > 0 && (
+            <button type="button" onClick={() => setProviderTab('book')} className="mb-3 flex h-12 w-full items-center justify-center text-[11px] font-medium uppercase tracking-[0.3em]" style={{ background: accent, color: onAcc, borderRadius: 999 }}>Book with {first}</button>
+          )}
+          <nav className="flex items-center justify-between" aria-label="Sections">
+            {tabs.map(([k, l]) => (
+              <button key={k} type="button" onClick={() => setProviderTab(k as any)} aria-pressed={providerTab === k} className="relative flex-1 py-2 text-[10px] uppercase tracking-[0.3em] transition-opacity" style={{ color: providerTab === k ? ink : mute, opacity: providerTab === k ? 1 : 0.7 }}>
+                {l}
+                {providerTab === k && <span className="absolute inset-x-6 -bottom-0.5 h-px" style={{ background: accent }} />}
+              </button>
+            ))}
+          </nav>
+          <a href={`/book/${tenantId}`} className="mt-2 block text-center text-[9px] uppercase tracking-[0.3em]" style={{ color: mute, opacity: 0.6 }}>Part of {tenant?.name || 'the studio'}</a>
+        </div>
       </div>
     );
   }
