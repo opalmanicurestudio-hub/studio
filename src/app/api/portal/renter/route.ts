@@ -1495,12 +1495,27 @@ export async function POST(req: NextRequest) {
       const priceCents = Math.round((Number(body.price) || 0) * 100);
       const duration = Math.max(5, Math.min(600, Number(body.duration) || 60));
       const productCost = Math.max(0, Number(body.productCost) || 0);
+      // What a service IS, not just what it costs: a description a client
+      // reads before they book, a photo of the result, a category so a long
+      // menu groups itself.
+      const description = String(body.description || '').trim().slice(0, 400);
+      const category = String(body.category || '').trim().slice(0, 40);
+      let imageUrl: string | null | undefined = undefined;
+      if (typeof body.imageData === 'string' && body.imageData.startsWith('data:image')) {
+        const up = await uploadPortalImageFromDataUrl(tenantId, `renters/${session.renterId}/services/${Date.now()}`, body.imageData);
+        if (up.url) imageUrl = up.url;
+      } else if (body.imageData === null) {
+        imageUrl = null;
+      }
       // A deposit is only honored when Stripe has actually enabled charges on
       // their account — otherwise it silently stays off rather than promising
-      // a client a payment step that can't run.
+      // a client a payment step that can't run. Flat or a percent of the
+      // price; the client sees a dollar figure either way.
       const rSnap2 = await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get();
       const canCharge = ((rSnap2.data() as any)?.stripeChargesEnabled === true);
-      const depositAmount = canCharge ? Math.max(0, Number(body.depositAmount) || 0) : 0;
+      const depositMode = ['none', 'flat', 'percent'].includes(String(body.depositMode)) ? String(body.depositMode) : (Number(body.depositAmount) > 0 ? 'flat' : 'none');
+      const depositPercent = canCharge && depositMode === 'percent' ? Math.max(0, Math.min(100, Math.round(Number(body.depositPercent) || 0))) : 0;
+      const depositAmount = canCharge && depositMode === 'flat' ? Math.max(0, Number(body.depositAmount) || 0) : 0;
       if (!name) return NextResponse.json({ ok: false, error: 'Give the service a name' }, { status: 400 });
       if (priceCents <= 0) return NextResponse.json({ ok: false, error: 'Set a price' }, { status: 400 });
 
@@ -1527,7 +1542,9 @@ export async function POST(req: NextRequest) {
       }
       await ref.set({
         id, tenantId, staffId: st.id, renterId: session.renterId,
-        name, price: priceCents / 100, duration, productCost, depositAmount,
+        name, price: priceCents / 100, duration, productCost, depositAmount, depositPercent, depositMode: canCharge ? depositMode : 'none',
+        description, category,
+        ...(imageUrl !== undefined ? { imageUrl } : {}),
         isActive: true, collectsOwnPayment: true,
         updatedAt: new Date().toISOString(),
         ...(cur.exists ? {} : { createdAt: new Date().toISOString() }),
@@ -2551,6 +2568,27 @@ export async function POST(req: NextRequest) {
       const stSnap = await db.collection(`tenants/${tenantId}/staff`).where('renterId', '==', session.renterId).limit(1).get();
       if (!stSnap.empty) await stSnap.docs[0].ref.set(staffMirrorFields({ page }), { merge: true });
       return NextResponse.json({ ok: true, page });
+    }
+    if (action === 'brand-get') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const { cleanBrand } = await import('@/lib/renter-identity');
+      const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      return NextResponse.json({ ok: true, brand: cleanBrand(r.brand) });
+    }
+    if (action === 'brand-save') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const { cleanBrand, staffMirrorFields } = await import('@/lib/renter-identity');
+      let coverUrl: string | null | undefined = undefined;
+      if (typeof body.coverData === 'string' && body.coverData.startsWith('data:image')) {
+        const up = await uploadPortalImageFromDataUrl(tenantId, `renters/${session.renterId}/cover`, body.coverData);
+        if (up.url) coverUrl = up.url;
+      } else if (body.coverData === null) coverUrl = null;
+      const cur = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      const brand = cleanBrand({ ...(cur.brand || {}), ...(body.brand || {}), ...(coverUrl !== undefined ? { coverUrl } : {}) });
+      await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set({ brand, brandUpdatedAt: new Date().toISOString() }, { merge: true });
+      const stSnap = await db.collection(`tenants/${tenantId}/staff`).where('renterId', '==', session.renterId).limit(1).get();
+      if (!stSnap.empty) await stSnap.docs[0].ref.set(staffMirrorFields({ brand }), { merge: true });
+      return NextResponse.json({ ok: true, brand });
     }
     if (action === 'page-photo') {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
