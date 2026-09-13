@@ -665,6 +665,26 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
             </div>
           ))}
 
+          {Array.isArray(p.reviews) && p.reviews.length > 0 && (
+            <div className="mt-8">
+              <p className="mb-3 text-center text-[10px] font-black uppercase tracking-widest" style={{ color: ac(resolvedStyle) + '80' }}>
+                What clients say{p.reviewAverage ? ` · ${p.reviewAverage} ★ from ${p.reviewCount || p.reviews.length}` : ''}
+              </p>
+              <div className="space-y-2">
+                {p.reviews.slice(0, 6).map((r: any, i: number) => (
+                  <div key={i} className="p-4" style={{ background: 'white', borderRadius: br(resolvedStyle), border: `2px solid ${ac(resolvedStyle)}15` }}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-black uppercase tracking-widest text-slate-800">{r.name || 'Client'}</span>
+                      <span className="text-[12px] tracking-tight" style={{ color: ac(resolvedStyle) }}>{'★'.repeat(Math.max(1, Math.min(5, Number(r.rating) || 5)))}</span>
+                    </div>
+                    {r.text && <p className="mt-1.5 text-sm leading-relaxed text-slate-700">{r.text}</p>}
+                    {r.service && <p className="mt-1 text-[10px] font-bold text-slate-400">{r.service}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="mt-8">
             <p className="mb-3 text-center text-[10px] font-black uppercase tracking-widest" style={{ color: ac(resolvedStyle) + '80' }}>Book with {first}</p>
             {services.length === 0 ? (
