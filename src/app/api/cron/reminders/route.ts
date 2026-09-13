@@ -338,7 +338,11 @@ export async function GET(req: NextRequest) {
               const { phone, email } = await contactFor(a);
               if (!phone && !email) continue;
               const signoff = String(rp.comms.signoff || '').trim();
-              const text = `Thanks for coming in yesterday — ${rp.name} loved having you!${rp.bookingUrl ? ` Book your next visit: ${rp.bookingUrl}` : ''}${signoff ? ` ${signoff}` : ''}`;
+              // The review ask rides the thank-you — the link IS the proof of
+              // the visit (appointment id as bearer, same as /cancel), and only
+              // a completed booking is accepted on the other end.
+              const reviewUrl = base ? `${base}/review/${tid}/${aDoc.id}` : '';
+              const text = `Thanks for coming in yesterday — ${rp.name} loved having you!${reviewUrl ? ` How was it? ${reviewUrl}` : ''}${rp.bookingUrl ? ` Book your next visit: ${rp.bookingUrl}` : ''}${signoff ? ` ${signoff}` : ''}`;
               let ok = false;
               if (phone && smsConfigured()) ok = (await sendTenantSms(db, tid, phone, asRenter(rp.name, text), { email, subject: `Thank you from ${rp.name}` })).ok;
               if (!ok && email) ok = (await sendNotification(db, { tenantId: tid, channel: 'email', to: email, subject: `Thank you from ${rp.name}`, text, kind: 'renter_client_thanks', appointmentId: aDoc.id, clientId: a.clientId || null, clientName: a.clientName || null, recipientType: 'client' })).ok;
