@@ -31,6 +31,53 @@ export interface RenterIdentity {
   links?: RenterLink[] | null;
   /** Their page: the content sections they switched on. */
   page?: RenterPage | null;
+  /** Their look: colour, tone, cover, type. Theirs, not the studio's. */
+  brand?: RenterBrand | null;
+}
+
+// ── THEIR BRAND ───────────────────────────────────────────────────────────
+// A booth renter is an independent business and their page should look like
+// one. Four decisions, all theirs: an accent colour, light or dark, a cover
+// image (distinct from the profile photo — a mood, not a face), and a display
+// typeface from a short luxury-leaning list. Anything they don't set falls
+// back to a calm default, never to the studio's theme — the studio's colours
+// belong to the studio's page.
+export type RenterFont = 'cormorant' | 'lora' | 'abril' | 'raleway' | 'outfit' | 'jakarta';
+export interface RenterBrand {
+  accent: string;           // hex
+  tone: 'light' | 'dark';
+  coverUrl?: string | null;
+  font: RenterFont;
+  tagline?: string;         // one line under the name on the splash
+}
+export const RENTER_FONTS: { id: RenterFont; label: string; feel: string }[] = [
+  { id: 'cormorant', label: 'Cormorant', feel: 'Luxury serif — spa, editorial' },
+  { id: 'lora', label: 'Lora', feel: 'Warm serif — classic, trusted' },
+  { id: 'abril', label: 'Abril', feel: 'High-contrast serif — fashion' },
+  { id: 'raleway', label: 'Raleway', feel: 'Thin sans — airy, modern' },
+  { id: 'outfit', label: 'Outfit', feel: 'Geometric sans — clean, current' },
+  { id: 'jakarta', label: 'Jakarta', feel: 'The app\'s own — neutral' },
+];
+export const DEFAULT_BRAND: RenterBrand = { accent: '#1c1917', tone: 'light', coverUrl: null, font: 'cormorant', tagline: '' };
+
+const HEX = /^#([0-9a-f]{6})$/i;
+export function cleanBrand(raw: any): RenterBrand {
+  const accent = HEX.test(String(raw?.accent || '')) ? String(raw.accent).toLowerCase() : DEFAULT_BRAND.accent;
+  const tone = raw?.tone === 'dark' ? 'dark' : 'light';
+  const font = RENTER_FONTS.some((f) => f.id === raw?.font) ? raw.font : DEFAULT_BRAND.font;
+  const coverUrl = typeof raw?.coverUrl === 'string' && /^https:\/\//.test(raw.coverUrl) ? raw.coverUrl : null;
+  const tagline = String(raw?.tagline || '').trim().slice(0, 80);
+  return { accent, tone, font, coverUrl, tagline };
+}
+
+/** Text colour that clears AA on the accent, so buttons never go unreadable. */
+export function onAccent(hex: string): string {
+  const m = HEX.exec(hex || '');
+  if (!m) return '#ffffff';
+  const n = parseInt(m[1], 16);
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => { const x = c / 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); });
+  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return lum > 0.35 ? '#111111' : '#ffffff';
 }
 
 // ── THEIR PAGE ────────────────────────────────────────────────────────────
@@ -173,6 +220,7 @@ export function staffMirrorFields(r: RenterIdentity): Record<string, any> {
   set('instagram', r.instagram ?? undefined);
   if (r.links !== undefined && r.links !== null) (out as any).links = cleanLinks(r.links);
   if (r.page !== undefined && r.page !== null) (out as any).page = cleanPage(r.page);
+  if (r.brand !== undefined && r.brand !== null) (out as any).brand = cleanBrand(r.brand);
   if (r.photoUrl !== undefined && r.photoUrl !== null) { out.photoUrl = String(r.photoUrl); out.avatarUrl = String(r.photoUrl); }
   return out;
 }
