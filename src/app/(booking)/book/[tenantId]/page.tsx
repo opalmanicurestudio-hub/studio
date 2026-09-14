@@ -644,7 +644,14 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       ...((about || faq || policyLines.length || rows.length) ? [['about', 'About']] : []),
       ...(reviews.length ? [['reviews', 'Reviews']] : []),
     ] as [string, string][];
-    const eyebrow = (t: string) => <p className="text-[10px] font-medium uppercase tracking-[0.35em]" style={{ color: accent, fontFamily: body }}>{t}</p>;
+    // globals.css flips the .uppercase utility to lowercase for the app's
+    // soft look; this page wants true small caps, so the transform is inline.
+    const caps: React.CSSProperties = { textTransform: 'uppercase', letterSpacing: '0.35em' };
+    const eyebrow = (t: string) => <p className="text-[10px] font-medium" style={{ ...caps, color: accent, fontFamily: body }}>{t}</p>;
+    const hour = new Date().getHours();
+    const greeting = hour < 5 ? 'Welcome' : hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+    const sameName = String(tenant?.name || '').trim().toLowerCase() === String(p.name || '').trim().toLowerCase();
+    const studioLine = tenant?.name && !sameName ? `at ${tenant.name}` : '';
     const rule = <div className="h-px w-full" style={{ background: line }} />;
 
     if (!providerEntered) {
@@ -653,15 +660,16 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           {cover && <img src={cover} alt="" className="absolute inset-0 h-full w-full object-cover" style={{ opacity: dark ? 0.55 : 0.9 }} />}
           <div className="absolute inset-0" style={{ background: `linear-gradient(180deg, ${dark ? 'rgba(12,10,9,0.15)' : 'rgba(250,249,247,0.05)'} 0%, ${bg} 78%)` }} />
           <div className="absolute inset-x-0 bottom-0 px-8 pb-[max(2.5rem,env(safe-area-inset-bottom))]">
-            {eyebrow(tenant?.name ? `at ${tenant.name}` : 'By appointment')}
+            {eyebrow(greeting)}
             <h1 className="mt-3 text-[56px] font-light leading-[0.9] tracking-tight" style={{ fontFamily: face, color: ink }}>{p.name || 'Provider'}</h1>
             {brand.tagline && <p className="mt-3 text-[15px] font-light leading-relaxed" style={{ color: mute }}>{brand.tagline}</p>}
-            {reviews.length > 0 && p.reviewAverage ? <p className="mt-3 text-[11px] uppercase tracking-[0.25em]" style={{ color: mute }}>{p.reviewAverage} ★ · {p.reviewCount || reviews.length} reviews</p> : null}
+            {reviews.length > 0 && p.reviewAverage ? <p className="mt-3 text-[11px]" style={{ ...caps, letterSpacing: '0.25em', color: mute }}>{p.reviewAverage} ★ · {p.reviewCount || reviews.length} reviews</p> : null}
             <button type="button" onClick={() => setProviderEntered(true)}
-              className="mt-8 flex h-14 w-full items-center justify-between px-6 text-[11px] font-medium uppercase tracking-[0.3em] transition-transform active:scale-[0.98]"
-              style={{ background: accent, color: onAcc, borderRadius: 999 }}>
+              className="mt-8 flex h-14 w-full items-center justify-between px-6 text-[11px] font-medium transition-transform active:scale-[0.98]"
+              style={{ ...caps, letterSpacing: '0.3em', background: accent, color: onAcc, borderRadius: 999 }}>
               Enter <span aria-hidden>→</span>
             </button>
+            {studioLine && <p className="mt-4 text-center text-[9px]" style={{ ...caps, color: mute, opacity: 0.7 }}>{studioLine}</p>}
           </div>
         </div>
       );
@@ -673,7 +681,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
         <header className="absolute inset-x-0 top-0 z-10 flex h-14 items-center gap-3 px-6" style={{ background: bg, borderBottom: `1px solid ${line}` }}>
           {photo ? <img src={photo} alt="" className="h-8 w-8 rounded-full object-cover" /> : <span className="h-8 w-8 rounded-full" style={{ background: accent }} />}
           <span className="min-w-0 truncate text-[17px] font-light" style={{ fontFamily: face }}>{p.name || 'Provider'}</span>
-          <button type="button" onClick={() => setProviderEntered(false)} aria-label="Back to the cover" className="ml-auto text-[10px] uppercase tracking-[0.25em]" style={{ color: mute }}>Cover</button>
+          <button type="button" onClick={() => setProviderEntered(false)} aria-label="Back to the cover" className="ml-auto text-[10px]" style={{ ...caps, letterSpacing: '0.25em', color: mute }}>Cover</button>
         </header>
 
         {providerTab === 'book' && (
@@ -685,7 +693,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
               {services.length === 0 && <p className="text-sm font-light" style={{ color: mute }}>No services listed yet.</p>}
               {(cats.length ? cats : ['']).map((cat) => (
                 <div key={cat || 'all'} className="mb-6">
-                  {cat && <p className="mb-2 text-[10px] uppercase tracking-[0.3em]" style={{ color: mute }}>{cat}</p>}
+                  {cat && <p className="mb-2 text-[10px]" style={{ ...caps, letterSpacing: '0.3em', color: mute }}>{cat}</p>}
                   {services.filter((sv: any) => (cat ? String(sv.category || '').trim() === cat : true)).map((sv: any, i: number, arr: any[]) => (
                     <button key={sv.id} onClick={() => { setDialogService(sv); setDialogOpen(true); }} className="group flex w-full items-start gap-4 py-4 text-left" style={{ borderTop: i === 0 ? `1px solid ${line}` : undefined, borderBottom: `1px solid ${line}` }}>
                       {sv.imageUrl && <img src={sv.imageUrl} alt="" className="h-16 w-16 shrink-0 object-cover" style={{ borderRadius: 2 }} />}
@@ -695,7 +703,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
                           {sv.price != null && <span className="shrink-0 text-[15px] font-light tabular-nums" style={{ color: accent }}>${sv.price}</span>}
                         </div>
                         {sv.description && <p className="mt-1 text-[13px] font-light leading-snug line-clamp-2" style={{ color: mute }}>{sv.description}</p>}
-                        <p className="mt-1.5 text-[10px] uppercase tracking-[0.25em]" style={{ color: mute }}>{sv.duration ? `${sv.duration} min` : ''}{sv.renterChargesEnabled && sv.renterDepositAmount > 0 ? ` · $${Number(sv.renterDepositAmount).toFixed(0)} deposit` : ''}</p>
+                        <p className="mt-1.5 text-[10px]" style={{ ...caps, letterSpacing: '0.25em', color: mute }}>{sv.duration ? `${sv.duration} min` : ''}{sv.renterChargesEnabled && sv.renterDepositAmount > 0 ? ` · $${Number(sv.renterDepositAmount).toFixed(0)} deposit` : ''}</p>
                       </div>
                     </button>
                   ))}
@@ -762,7 +770,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
                 <figure key={i}>
                   {rule}
                   <blockquote className="mt-4 text-[17px] font-light leading-relaxed" style={{ fontFamily: face }}>“{r.text || 'Loved it.'}”</blockquote>
-                  <figcaption className="mt-2 flex items-center justify-between text-[10px] uppercase tracking-[0.25em]" style={{ color: mute }}><span>{r.name || 'Client'}{r.service ? ` · ${r.service}` : ''}</span><span style={{ color: accent }}>{'★'.repeat(Math.max(1, Math.min(5, Number(r.rating) || 5)))}</span></figcaption>
+                  <figcaption className="mt-2 flex items-center justify-between text-[10px]" style={{ ...caps, letterSpacing: '0.25em', color: mute }}><span>{r.name || 'Client'}{r.service ? ` · ${r.service}` : ''}</span><span style={{ color: accent }}>{'★'.repeat(Math.max(1, Math.min(5, Number(r.rating) || 5)))}</span></figcaption>
                 </figure>
               ))}
             </div>
@@ -771,17 +779,17 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
 
         <div className="absolute inset-x-0 bottom-0 z-10 px-6 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3" style={{ background: bg, borderTop: `1px solid ${line}` }}>
           {providerTab !== 'book' && services.length > 0 && (
-            <button type="button" onClick={() => setProviderTab('book')} className="mb-3 flex h-12 w-full items-center justify-center text-[11px] font-medium uppercase tracking-[0.3em]" style={{ background: accent, color: onAcc, borderRadius: 999 }}>Book with {first}</button>
+            <button type="button" onClick={() => setProviderTab('book')} className="mb-3 flex h-12 w-full items-center justify-center text-[11px] font-medium" style={{ ...caps, letterSpacing: '0.3em', background: accent, color: onAcc, borderRadius: 999 }}>Book with {first}</button>
           )}
           <nav className="flex items-center justify-between" aria-label="Sections">
             {tabs.map(([k, l]) => (
-              <button key={k} type="button" onClick={() => setProviderTab(k as any)} aria-pressed={providerTab === k} className="relative flex-1 py-2 text-[10px] uppercase tracking-[0.3em] transition-opacity" style={{ color: providerTab === k ? ink : mute, opacity: providerTab === k ? 1 : 0.7 }}>
+              <button key={k} type="button" onClick={() => setProviderTab(k as any)} aria-pressed={providerTab === k} className="relative flex-1 py-2 text-[10px] transition-opacity" style={{ ...caps, letterSpacing: '0.3em', color: providerTab === k ? ink : mute, opacity: providerTab === k ? 1 : 0.7 }}>
                 {l}
                 {providerTab === k && <span className="absolute inset-x-6 -bottom-0.5 h-px" style={{ background: accent }} />}
               </button>
             ))}
           </nav>
-          <a href={`/book/${tenantId}`} className="mt-2 block text-center text-[9px] uppercase tracking-[0.3em]" style={{ color: mute, opacity: 0.6 }}>Part of {tenant?.name || 'the studio'}</a>
+          <a href={`/book/${tenantId}`} className="mt-2 block text-center text-[9px]" style={{ ...caps, letterSpacing: '0.3em', color: mute, opacity: 0.6 }}>Part of {tenant?.name || 'the studio'}</a>
         </div>
       </div>
     );
