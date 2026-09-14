@@ -1507,7 +1507,8 @@ export async function POST(req: NextRequest) {
       let imageUrl: string | null | undefined = undefined;
       if (typeof body.imageData === 'string' && body.imageData.startsWith('data:image')) {
         const up = await uploadPortalImageFromDataUrl(tenantId, `renters/${session.renterId}/services/${Date.now()}`, body.imageData);
-        if (up.url) imageUrl = up.url;
+        if (!up.url) return NextResponse.json({ ok: false, error: up.error || 'That photo didn’t upload — the service was not saved.' }, { status: 400 });
+        imageUrl = up.url;
       } else if (body.imageData === null) {
         imageUrl = null;
       }
@@ -2619,7 +2620,11 @@ export async function POST(req: NextRequest) {
       let coverUrl: string | null | undefined = undefined;
       if (typeof body.coverData === 'string' && body.coverData.startsWith('data:image')) {
         const up = await uploadPortalImageFromDataUrl(tenantId, `renters/${session.renterId}/cover`, body.coverData);
-        if (up.url) coverUrl = up.url;
+        // A failed upload used to be swallowed here — the brand saved
+        // without the cover and the portal said "Saved". The reason is the
+        // only thing that lets anyone fix it, so it comes back as the error.
+        if (!up.url) return NextResponse.json({ ok: false, error: up.error || 'That image didn’t upload.' }, { status: 400 });
+        coverUrl = up.url;
       } else if (body.coverData === null) coverUrl = null;
       const cur = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
       const brand = cleanBrand({ ...(cur.brand || {}), ...(body.brand || {}), ...(coverUrl !== undefined ? { coverUrl } : {}) });
