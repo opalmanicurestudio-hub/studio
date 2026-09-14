@@ -601,12 +601,25 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   }, [bookingPreview]);
 
   // ── No-deposit finalize (used at the 'summary' step) ────────────────────────
-  const handleConfirmBooking = () => {
+  const [confirming, setConfirming] = useState(false);
+  const handleConfirmBooking = async () => {
     const payload = resolveBookingPayload();
     if (!payload) return;
     if ('error' in payload) { toast({ variant: 'destructive', title: 'No staff available', description: payload.error }); return; }
     setBookedStaffId(payload.finalStaffId);
-    onConfirm(payload.clientData, payload.appointmentDetails, payload.signedForms, (s: string) => setCurrentStepIndex(steps.indexOf(s)));
+    // The server's answer was being thrown away here: a refused booking —
+    // time just taken, provider without hours, outside their lease window —
+    // returned an error object and this button did nothing at all. Now it
+    // says what happened, in the server's own words.
+    setConfirming(true);
+    try {
+      const result = await onConfirm(payload.clientData, payload.appointmentDetails, payload.signedForms, (s: string) => setCurrentStepIndex(steps.indexOf(s)));
+      if (result && 'error' in result && result.error) {
+        toast({ variant: 'destructive', title: 'Could not book that', description: String(result.error) });
+      }
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Could not book that', description: e?.message || 'Please try again.' });
+    } finally { setConfirming(false); }
   };
 
   // ── Deposit checkout init (used at the 'checkout' step) ─────────────────────
@@ -1383,7 +1396,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                 phone. Back now lives in the header. */}
             <Button
               onClick={handleNextStep}
-              disabled={currentStep === 'details' && (!!existingClientWithBalance || !!bannedClient || isResolvingIdentity)}
+              disabled={confirming || (currentStep === 'details' && (!!existingClientWithBalance || !!bannedClient || isResolvingIdentity))}
               style={{ borderRadius: r3, fontFamily: headingFont }}
               className="group h-[52px] w-full font-black uppercase tracking-widest text-[11px] shadow-lg shadow-primary/20 transition-all active:scale-[0.99]"
             >
