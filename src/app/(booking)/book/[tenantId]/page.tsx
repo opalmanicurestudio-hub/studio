@@ -290,6 +290,8 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   // hook order never depends on which page renders.
   const [providerEntered, setProviderEntered] = useState(false);
   const [providerTab, setProviderTab] = useState<'book' | 'work' | 'about' | 'reviews'>('book');
+  // The service a client is LOOKING AT, before they decide to book it.
+  const [providerPeek, setProviderPeek] = useState<any | null>(null);
   const providerBrandFont = providerId ? cleanBrand((staff.find((m: any) => m.id === providerId && m.isRenter) as any)?.brand).font : null;
   useEffect(() => { if (providerBrandFont) injectFonts(providerBrandFont, 'jakarta'); }, [providerBrandFont]);
   useEffect(() => {
@@ -695,7 +697,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
                 <div key={cat || 'all'} className="mb-6">
                   {cat && <p className="mb-2 text-[10px]" style={{ ...caps, letterSpacing: '0.3em', color: mute }}>{cat}</p>}
                   {services.filter((sv: any) => (cat ? String(sv.category || '').trim() === cat : true)).map((sv: any, i: number, arr: any[]) => (
-                    <button key={sv.id} onClick={() => { setDialogService(sv); setDialogOpen(true); }} className="group flex w-full items-start gap-4 py-4 text-left" style={{ borderTop: i === 0 ? `1px solid ${line}` : undefined, borderBottom: `1px solid ${line}` }}>
+                    <button key={sv.id} onClick={() => setProviderPeek(sv)} className="group flex w-full items-start gap-4 py-4 text-left" style={{ borderTop: i === 0 ? `1px solid ${line}` : undefined, borderBottom: `1px solid ${line}` }}>
                       {sv.imageUrl && <img src={sv.imageUrl} alt="" className="h-16 w-16 shrink-0 object-cover" style={{ borderRadius: 2 }} />}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-baseline justify-between gap-3">
@@ -789,8 +791,45 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
               </button>
             ))}
           </nav>
-          <a href={`/book/${tenantId}`} className="mt-2 block text-center text-[9px]" style={{ ...caps, letterSpacing: '0.3em', color: mute, opacity: 0.6 }}>Part of {tenant?.name || 'the studio'}</a>
+          <a href={`/book/${tenantId}`} className="mt-2 block text-center text-[8px]" style={{ ...caps, letterSpacing: '0.3em', color: mute, opacity: 0.5 }}>Partnered with {tenant?.name || 'the studio'}</a>
         </div>
+
+        {providerPeek && (() => {
+          const sv = providerPeek;
+          const yt = /(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([\w-]+)/.exec(String(sv.videoUrl || ''));
+          const file = !yt && /\.(mp4|mov|webm)(\?.*)?$/i.test(String(sv.videoUrl || '')) ? sv.videoUrl : '';
+          return (
+            <div className="fixed inset-0 z-20 flex flex-col justify-end" role="dialog" aria-modal="true" aria-label={sv.name}>
+              <button type="button" aria-label="Close" onClick={() => setProviderPeek(null)} className="absolute inset-0" style={{ background: dark ? 'rgba(0,0,0,0.6)' : 'rgba(28,25,23,0.35)' }} />
+              <div className="relative max-h-[88dvh] overflow-y-auto overscroll-contain" style={{ background: bg, color: ink, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}>
+                {yt ? (
+                  <div className="w-full" style={{ aspectRatio: '16 / 9' }}>
+                    <iframe src={`https://www.youtube-nocookie.com/embed/${yt[1]}?rel=0&modestbranding=1`} title={sv.name} className="h-full w-full" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowFullScreen />
+                  </div>
+                ) : file ? (
+                  <video src={file} controls playsInline className="w-full" style={{ aspectRatio: '4 / 5', objectFit: 'cover', background: '#000' }} />
+                ) : sv.imageUrl ? (
+                  <img src={sv.imageUrl} alt={sv.name} className="w-full object-cover" style={{ aspectRatio: '4 / 5' }} />
+                ) : null}
+                <div className="px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-5">
+                  <div className="flex items-baseline justify-between gap-4">
+                    <p className="text-[28px] font-light leading-tight" style={{ fontFamily: face }}>{sv.name}</p>
+                    {sv.price != null && <span className="shrink-0 text-[20px] font-light tabular-nums" style={{ color: accent }}>${sv.price}</span>}
+                  </div>
+                  <p className="mt-1 text-[10px]" style={{ ...caps, letterSpacing: '0.25em', color: mute }}>
+                    {sv.duration ? `${sv.duration} min` : ''}{sv.category ? ` · ${sv.category}` : ''}{sv.renterChargesEnabled && sv.renterDepositAmount > 0 ? ` · $${Number(sv.renterDepositAmount).toFixed(0)} deposit to hold` : ''}
+                  </p>
+                  {sv.description && <p className="mt-4 text-[15px] font-light leading-relaxed whitespace-pre-wrap">{sv.description}</p>}
+                  {sv.imageUrl && (yt || file) && <img src={sv.imageUrl} alt="" className="mt-4 w-full object-cover" style={{ aspectRatio: '4 / 3', borderRadius: 2 }} />}
+                  <button type="button" onClick={() => { setProviderPeek(null); setDialogService(sv); setDialogOpen(true); }}
+                    className="mt-6 flex h-14 w-full items-center justify-center text-[11px] font-medium" style={{ ...caps, letterSpacing: '0.3em', background: accent, color: onAcc, borderRadius: 999 }}>
+                    Book this
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     );
   }
