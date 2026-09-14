@@ -2208,7 +2208,7 @@ function MyBrand({ tenantId, token }: { tenantId: string; token: string }) {
       <div className="flex gap-2">
         <label className="h-10 flex-1 inline-flex items-center justify-center rounded-xl border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-600 cursor-pointer">
           {cover ? 'Change cover' : 'Add a cover image'}
-          <input type="file" accept="image/*" className="sr-only" aria-label="Cover image" onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (!f) return; try { setCoverData(await downscaleImageToDataUrl(f, { maxDim: 1600 })); } catch { setErr('Could not read that image.'); } }} />
+          <input type="file" accept="image/*" className="sr-only" aria-label="Cover image" onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (!f) return; try { const data = await downscaleImageToDataUrl(f, { maxDim: 1600 }); setCoverData(data); setBusy(true); const d = await api({ action: 'brand-save', tenantId, token, brand, coverData: data }); setBusy(false); if (d?.ok) { setBrand(d.brand); setCoverData(undefined); setSaved(true); setTimeout(() => setSaved(false), 1800); } else setErr(d?.error || 'Uploaded, but could not save — press Save my brand.'); } catch { setErr('Could not read that image.'); } }} />
         </label>
         {cover && <button type="button" onClick={() => setCoverData(null)} className="h-10 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Remove</button>}
       </div>
@@ -2314,7 +2314,13 @@ function MyPage({ tenantId, token }: { tenantId: string; token: string }) {
       const dataUrl: string = await downscaleImageToDataUrl(file, { maxDim: 1400 });
       const d = await api({ action: 'page-photo', tenantId, token, photoData: dataUrl });
       if (!d?.ok) { setErr(d?.error || 'Upload failed.'); return; }
-      upd(kind, { photos: [ ...(page.sections.find((x: any) => x.kind === kind)?.photos || []), d.url ].slice(0, 24) });
+      const next = { ...page, sections: page.sections.map((x: any) => x.kind === kind
+        ? { ...x, enabled: true, photos: [ ...(x.photos || []), d.url ].slice(0, 24) } : x) };
+      setPage(next);
+      // Persist now, not on Save: the photo is on the page the instant it lands.
+      const saved = await api({ action: 'page-save', tenantId, token, page: next });
+      if (saved?.ok) { setPage(saved.page); setSaved(true); setTimeout(() => setSaved(false), 1800); }
+      else setErr(saved?.error || 'Uploaded, but could not save the page — press Save my page.');
     } catch { setErr('Could not read that photo.'); } finally { setBusy(''); }
   };
   return (
@@ -2349,7 +2355,7 @@ function MyPage({ tenantId, token }: { tenantId: string; token: string }) {
                   <div className="space-y-2">
                     <div className="grid grid-cols-3 gap-1.5">
                       {(sec.photos || []).map((u: string, j: number) => (
-                        <button key={u} type="button" onClick={() => upd(sec.kind, { photos: sec.photos.filter((_: string, k: number) => k !== j) })} aria-label={`Remove photo ${j + 1}`} className="relative aspect-square overflow-hidden rounded-xl border-2 border-slate-200">
+                        <button key={u} type="button" onClick={async () => { const next = { ...page, sections: page.sections.map((x: any) => x.kind === sec.kind ? { ...x, photos: x.photos.filter((_: string, k: number) => k !== j) } : x) }; setPage(next); const d = await api({ action: 'page-save', tenantId, token, page: next }); if (d?.ok) setPage(d.page); }} aria-label={`Remove photo ${j + 1}`} className="relative aspect-square overflow-hidden rounded-xl border-2 border-slate-200">
                           <img src={u} alt="" className="h-full w-full object-cover" />
                           <span className="absolute inset-x-0 bottom-0 bg-slate-900/80 text-[8px] font-black uppercase tracking-widest text-white">Remove</span>
                         </button>
@@ -2520,6 +2526,7 @@ function MyServices({ data, tenantId, token, onChanged }: { data: any; tenantId:
                   <p className="text-[11px] font-bold text-slate-500">${Number(sv.price).toFixed(2)} · {sv.duration} min</p>
                 </div>
                 <div className="flex shrink-0 gap-2">
+                  {sv.imageUrl && <img src={sv.imageUrl} alt="" className="h-8 w-8 rounded-lg object-cover border" />}
                   <button onClick={() => setDraft({ ...sv })} className="h-8 rounded-lg border-2 px-3 text-[10px] font-black uppercase tracking-widest">Edit</button>
                   <button onClick={() => removeService(sv.id)} disabled={busy} className="h-8 rounded-lg px-2 text-[10px] font-black uppercase tracking-widest text-slate-400 disabled:opacity-50">Remove</button>
                 </div>
