@@ -1974,6 +1974,12 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
                   <div className="space-y-2 pt-1">
                     {(a.clientPhone || a.clientEmail) && <p className="text-[10px] font-bold text-slate-500">{[a.clientPhone, a.clientEmail].filter(Boolean).join(' · ')}</p>}
                     <textarea value={noteDraft} onChange={(ev) => setNoteDraft(ev.target.value.slice(0, 1000))} rows={2} aria-label="Your note" placeholder="Your note — formula, preferences, what to remember (only you see this)" className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm" />
+                    {(a.status === 'requested' || a.status === 'pending') && (
+                      <div className="flex gap-2 rounded-xl border-2 border-amber-300 bg-amber-50 p-2">
+                        <button type="button" disabled={busy === `d-${a.id}`} onClick={() => run(`d-${a.id}`, () => api({ action: 'book-decide', tenantId, token, appointmentId: a.id, decision: 'accept' }))} className="h-10 flex-1 rounded-xl bg-emerald-600 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">Accept</button>
+                        <button type="button" disabled={busy === `d-${a.id}`} onClick={() => run(`d-${a.id}`, () => api({ action: 'book-decide', tenantId, token, appointmentId: a.id, decision: 'decline' }))} className="h-10 flex-1 rounded-xl border-2 border-red-300 bg-white text-[10px] font-black uppercase tracking-widest text-red-700 disabled:opacity-40">Decline</button>
+                      </div>
+                    )}
                     <div className="flex flex-wrap gap-1.5">
                       <button type="button" disabled={busy === `n-${a.id}` || noteDraft === (a.note || '')} onClick={() => run(`n-${a.id}`, () => api({ action: 'book-note', tenantId, token, appointmentId: a.id, note: noteDraft }))} className="h-9 rounded-xl border-2 border-slate-200 px-3 text-[9px] font-black uppercase tracking-widest text-slate-700 disabled:opacity-40">Save note</button>
                       {!done && <button type="button" disabled={busy === `s-${a.id}`} onClick={() => run(`s-${a.id}`, () => api({ action: 'book-status', tenantId, token, appointmentId: a.id, outcome: 'completed' }))} className="h-9 rounded-xl bg-emerald-600 px-3 text-[9px] font-black uppercase tracking-widest text-white">Done ✓</button>}
