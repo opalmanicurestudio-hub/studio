@@ -705,7 +705,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
                           {sv.price != null && <span className="shrink-0 text-[15px] font-light tabular-nums" style={{ color: accent }}>${sv.price}</span>}
                         </div>
                         {sv.description && <p className="mt-1 text-[13px] font-light leading-snug line-clamp-2" style={{ color: mute }}>{sv.description}</p>}
-                        <p className="mt-1.5 text-[10px]" style={{ ...caps, letterSpacing: '0.25em', color: mute }}>{sv.duration ? `${sv.duration} min` : ''}{sv.renterChargesEnabled && sv.renterDepositAmount > 0 ? ` · $${Number(sv.renterDepositAmount).toFixed(0)} deposit` : ''}</p>
+                        <p className="mt-1.5 text-[10px]" style={{ ...caps, letterSpacing: '0.25em', color: mute }}>{sv.duration ? `${sv.duration} min` : ''}{sv.renterChargesEnabled && sv.renterDepositAmount > 0 ? ` · $${Number(sv.renterDepositAmount).toFixed(0)} deposit` : ''}{sv.videoUrl ? <span style={{ color: accent }}> · ▶ video</span> : null}</p>
                       </div>
                     </button>
                   ))}
