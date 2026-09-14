@@ -1500,6 +1500,10 @@ export async function POST(req: NextRequest) {
       // menu groups itself.
       const description = String(body.description || '').trim().slice(0, 400);
       const category = String(body.category || '').trim().slice(0, 40);
+      // A video of the result: a direct file (.mp4/.mov/.webm) or a YouTube
+      // link. Anything else is dropped rather than embedded blind.
+      const rawVideo = String(body.videoUrl || '').trim().slice(0, 300);
+      const videoUrl = /^https:\/\/(www\.)?(youtube\.com\/(watch\?v=|shorts\/)|youtu\.be\/)[\w-]+/.test(rawVideo) || /^https:\/\/.+\.(mp4|mov|webm)(\?.*)?$/i.test(rawVideo) ? rawVideo : '';
       let imageUrl: string | null | undefined = undefined;
       if (typeof body.imageData === 'string' && body.imageData.startsWith('data:image')) {
         const up = await uploadPortalImageFromDataUrl(tenantId, `renters/${session.renterId}/services/${Date.now()}`, body.imageData);
@@ -1543,7 +1547,7 @@ export async function POST(req: NextRequest) {
       await ref.set({
         id, tenantId, staffId: st.id, renterId: session.renterId,
         name, price: priceCents / 100, duration, productCost, depositAmount, depositPercent, depositMode: canCharge ? depositMode : 'none',
-        description, category,
+        description, category, videoUrl,
         ...(imageUrl !== undefined ? { imageUrl } : {}),
         isActive: true, collectsOwnPayment: true,
         updatedAt: new Date().toISOString(),
