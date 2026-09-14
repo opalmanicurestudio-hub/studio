@@ -686,8 +686,8 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
 
         {providerTab === 'book' && (
           <div className={pane}>
-            {eyebrow('Menu')}
-            <p className="mt-2 text-[32px] font-light leading-none" style={{ fontFamily: face }}>Book with {first}</p>
+            {eyebrow('Services')}
+            <p className="mt-2 text-[32px] font-light leading-none" style={{ fontFamily: face }}>Menu</p>
             {addr && <p className="mt-2 text-[12px] font-light" style={{ color: mute }}>{addr}</p>}
             <div className="mt-6">
               {services.length === 0 && <p className="text-sm font-light" style={{ color: mute }}>No services listed yet.</p>}
@@ -779,7 +779,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
 
         <div className="absolute inset-x-0 bottom-0 z-10 px-6 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3" style={{ background: bg, borderTop: `1px solid ${line}` }}>
           {providerTab !== 'book' && services.length > 0 && (
-            <button type="button" onClick={() => setProviderTab('book')} className="mb-3 flex h-12 w-full items-center justify-center text-[11px] font-medium" style={{ ...caps, letterSpacing: '0.3em', background: accent, color: onAcc, borderRadius: 999 }}>Book with {first}</button>
+            <button type="button" onClick={() => setProviderTab('book')} className="mb-3 flex h-12 w-full items-center justify-center text-[11px] font-medium" style={{ ...caps, letterSpacing: '0.3em', background: accent, color: onAcc, borderRadius: 999 }}>Book an appointment</button>
           )}
           <nav className="flex items-center justify-between" aria-label="Sections">
             {tabs.map(([k, l]) => (
