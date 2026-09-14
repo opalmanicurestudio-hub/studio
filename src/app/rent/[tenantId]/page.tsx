@@ -2456,7 +2456,7 @@ function MyServices({ data, tenantId, token, onChanged }: { data: any; tenantId:
       price: Number(draft.price), duration: Number(draft.duration), productCost: Number(draft.productCost || 0),
       depositMode: draft.depositMode || (Number(draft.depositAmount) > 0 ? 'flat' : 'none'),
       depositAmount: Number(draft.depositAmount || 0), depositPercent: Number(draft.depositPercent || 0),
-      description: draft.description || '', category: draft.category || '',
+      description: draft.description || '', category: draft.category || '', videoUrl: draft.videoUrl || '',
       ...(draft.imageData !== undefined ? { imageData: draft.imageData } : {}),
     });
     setBusy(false);
@@ -2573,6 +2573,12 @@ function MyServices({ data, tenantId, token, onChanged }: { data: any; tenantId:
               <textarea value={draft.description || ''} onChange={e => setDraft((d: any) => ({ ...d, description: e.target.value.slice(0, 400) }))} rows={3}
                         placeholder="What's included, how long it lasts, who it's for. Clients read this before they book."
                         className="w-full rounded-xl border-2 px-3 py-2 text-[13px]" />
+            </label>
+            <label className="block">
+              <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Video (optional)</span>
+              <input value={draft.videoUrl || ''} onChange={e => setDraft((d: any) => ({ ...d, videoUrl: e.target.value.slice(0, 300) }))} inputMode="url"
+                     placeholder="YouTube link, or a direct .mp4 — shows when a client opens this service"
+                     className="h-10 w-full rounded-xl border-2 px-3 text-[13px] font-bold" />
             </label>
             <div className="flex flex-wrap gap-2">
               <label className="flex-1 min-w-[8rem]">
