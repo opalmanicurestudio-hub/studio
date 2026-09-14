@@ -2315,6 +2315,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    // ── book-decide: accept or decline a request — the renter's call ─────
+    // When bookings come in as requests (approval mode, first-time guests),
+    // a renter's request is the RENTER'S to decide, in their own book, with
+    // the client told in their name. Accepting confirms; declining cancels
+    // fee-free. Deposits on a renter booking sit in the renter's Stripe, so
+    // nothing here touches the studio's money.
+    if (action === 'book-decide') {
+      const { st, ref, a, error } = await myAppt(String(body.appointmentId || ''));
+      if (!ref || !a) return NextResponse.json({ ok: false, error }, { status: 403 });
+      if (a.status !== 'requested' && a.status !== 'pending') return NextResponse.json({ ok: false, error: 'That booking is not waiting on a decision.' }, { status: 400 });
+      const accept = body.decision === 'accept';
+      const nowIso = new Date().toISOString();
+      const note = String(body.note || '').trim().slice(0, 300);
+      if (accept) {
+        await ref.set({ status: 'confirmed', confirmedAt: nowIso, decidedBy: 'renter', decisionNote: note }, { merge: true });
+        await tellClient(a, st, 'You are booked',
+          [`Your ${a.renterServiceName || 'appointment'} on ${fmtWhen(a.startTime)} is confirmed.${note ? ` ${note}` : ''}`, 'See you then — reply here if anything changes.'], 'renter_client_confirmed');
+      } else {
+        await ref.set({ status: 'cancelled', cancelledAt: nowIso, decidedBy: 'renter',
+          cancellationAudit: { actorType: 'studio', actorId: st.id, actorName: st.name || 'Provider', reason: 'request_declined', note, feeAmount: 0, feeWaived: true, paymentStatus: 'paid', timestamp: nowIso, via: 'renter_portal' } }, { merge: true });
+        await tellClient(a, st, 'About your booking request',
+          [`I can't take your ${a.renterServiceName || 'appointment'} on ${fmtWhen(a.startTime)} — sorry about that.${note ? ` ${note}` : ''}`, 'Nothing has been charged. Pick another time any time.'], 'renter_client_declined');
+      }
+      return NextResponse.json({ ok: true, status: accept ? 'confirmed' : 'cancelled' });
+    }
     if (action === 'book-status') {
       const { st, ref, a, error } = await myAppt(String(body.appointmentId || ''));
       if (!ref || !a) return NextResponse.json({ ok: false, error }, { status: 403 });
@@ -2511,6 +2536,15 @@ export async function POST(req: NextRequest) {
         if (x.redeem?.decidedAt && x.redeem.decidedAt >= since(7)) items.push({ kind: 'leave', tab: 'rent', title: x.redeem.status === 'approved' ? 'Banked days credited' : 'Banked days not approved', body: `${x.redeem.days} day${x.redeem.days === 1 ? '' : 's'}`, at: x.redeem.decidedAt, tone: x.redeem.status === 'approved' ? 'green' : 'amber' });
       }
 
+      // Requests waiting on the renter: their decision, so their inbox.
+      if (prov) {
+        const reqSnap = await db.collection(`tenants/${tenantId}/appointments`).where('staffId', '==', prov.id).where('status', '==', 'requested').get();
+        for (const d of reqSnap.docs) {
+          const a = d.data() as any;
+          if (!a.isRenterBooking) continue;
+          items.push({ kind: 'request', tab: 'book', title: 'Booking request — accept or decline', body: `${a.clientName || 'Client'} · ${a.renterServiceName || a.serviceName || ''} · ${String(a.startTime).slice(0, 10)}`, at: a.createdAt || a.requestedAt || since(0), tone: 'amber' });
+        }
+      }
       const todayAppts = appts.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((a: any) => a.isRenterBooking && a.status !== 'cancelled')
         .sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime)))
         .map((a: any) => ({ id: a.id, startTime: a.startTime, clientName: a.clientName || 'Client', serviceName: a.renterServiceName || a.serviceName || '', status: a.status }));
@@ -2518,7 +2552,7 @@ export async function POST(req: NextRequest) {
       items.sort((a, b) => String(b.at).localeCompare(String(a.at)));
       return NextResponse.json({
         ok: true, items: items.slice(0, 12), todayAppts,
-        badges: { studio: items.filter((i) => i.tab === 'studio' && i.tone !== 'green').length, rent: items.filter((i) => i.tab === 'rent').length, book: todayAppts.length },
+        badges: { studio: items.filter((i) => i.tab === 'studio' && i.tone !== 'green').length, rent: items.filter((i) => i.tab === 'rent').length, book: todayAppts.length + items.filter((i) => i.kind === 'request').length },
       });
     }
 
