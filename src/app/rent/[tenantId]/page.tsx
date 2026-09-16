@@ -796,10 +796,15 @@ function RenterThread({ tenantId, token, studioName }: { tenantId: string; token
   );
 }
 
+// The server has to know which Storage bucket to write to, and the only
+// party that reliably does is this browser (its Firebase config is the one
+// that has always worked). The Booth Hub used to record it on the tenant;
+// the hub is gone, so the portal sends it with every call instead.
+const STORAGE_BUCKET = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || '';
 const api = async (payload: any) => {
   const res = await fetch('/api/portal/renter', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, ...(STORAGE_BUCKET ? { storageBucket: STORAGE_BUCKET } : {}) }),
   });
   const d = await res.json().catch(() => ({}));
   return { status: res.status, ...d };
