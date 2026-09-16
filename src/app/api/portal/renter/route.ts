@@ -714,6 +714,19 @@ export async function POST(req: NextRequest) {
     }
     const db = getAdminDb();
 
+    // Ground truth for uploads: the bucket name the browser is actually
+    // using. Recorded on the tenant the first time it's seen (and whenever
+    // it changes), so the upload helper never has to guess. This replaces
+    // what the Booth Hub used to do before it was retired.
+    try {
+      const bucketFromClient = String(body.storageBucket || '').trim();
+      if (/^[a-z0-9.-]+\.(appspot\.com|firebasestorage\.app)$/i.test(bucketFromClient)) {
+        const tRef = db.doc(`tenants/${tenantId}`);
+        const cur = ((await tRef.get()).data() as any)?.storageBucket;
+        if (cur !== bucketFromClient) await tRef.set({ storageBucket: bucketFromClient, storageBucketRecordedAt: new Date().toISOString(), storageBucketRecordedBy: 'renter-portal' }, { merge: true });
+      }
+    } catch { /* never block the request on bookkeeping */ }
+
     // ═══ request-code ═════════════════════════════════════════════════════
     if (action === 'request-code') {
       const raw = String(body.contact || '').trim().slice(0, 160);
