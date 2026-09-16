@@ -339,7 +339,12 @@ export async function POST(req: NextRequest) {
         serviceId,
         addOnIds,
         staffId: requestedStaffId,
-        services,
+        // A renter's service lives in renterServices, not the house list.
+        // The route resolved it into `svc` above and then handed the engine
+        // the house list, which doesn't contain it — so every renter booking
+        // died with "Service not found" at the last step. The engine sees
+        // the service that was actually chosen.
+        services: renterSvc ? [...services, renterSvc] : services,
         staff: roster,
         appointments: liveAppointments,
         events,
