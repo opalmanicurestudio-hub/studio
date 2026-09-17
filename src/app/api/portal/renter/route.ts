@@ -720,7 +720,7 @@ export async function POST(req: NextRequest) {
     // what the Booth Hub used to do before it was retired.
     try {
       const bucketFromClient = String(body.storageBucket || '').trim();
-      if (/^[a-z0-9.-]+\.(appspot\.com|firebasestorage\.app)$/i.test(bucketFromClient)) {
+      if (/^[a-z0-9][a-z0-9._-]{2,220}[a-z0-9]$/i.test(bucketFromClient)) {
         const tRef = db.doc(`tenants/${tenantId}`);
         const cur = ((await tRef.get()).data() as any)?.storageBucket;
         if (cur !== bucketFromClient) await tRef.set({ storageBucket: bucketFromClient, storageBucketRecordedAt: new Date().toISOString(), storageBucketRecordedBy: 'renter-portal' }, { merge: true });
