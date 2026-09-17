@@ -827,29 +827,48 @@ function storageDiagnostic(): string {
 // then uploadImage() puts the file in Storage under Storage rules and returns
 // the download URL. The server never touches the bytes, so it never needs to
 // know the bucket. One sign-in per session; every upload after is instant.
-let storageSignIn: Promise<boolean> | null = null;
-async function ensureStorageSignIn(tenantId: string, token: string): Promise<boolean> {
+// Throws with the REAL reason rather than returning false — "could not
+// sign in, try reloading" is the least useful sentence in the app, and it
+// hid whichever of four different failures actually happened.
+let storageSignIn: Promise<void> | null = null;
+async function ensureStorageSignIn(tenantId: string, token: string): Promise<void> {
   if (storageSignIn) return storageSignIn;
   storageSignIn = (async () => {
+    const app = getApps()[0] || initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    if (auth.currentUser && auth.currentUser.uid.startsWith('renter:')) return;
+    const d = await api({ action: 'storage-token', tenantId, token });
+    if (!d?.ok || !d.token) throw new Error(d?.error || 'The server would not issue an upload token.');
     try {
-      const app = getApps()[0] || initializeApp(firebaseConfig);
-      const auth = getAuth(app);
-      if (auth.currentUser && auth.currentUser.uid.startsWith('renter:')) return true;
-      const d = await api({ action: 'storage-token', tenantId, token });
-      if (!d?.ok || !d.token) return false;
       await signInWithCustomToken(auth, d.token);
-      return true;
-    } catch { return false; }
+    } catch (e: any) {
+      const code = String(e?.code || '');
+      if (code.includes('operation-not-allowed') || code.includes('admin-restricted')) {
+        throw new Error('Uploads need Anonymous or Custom sign-in enabled: Firebase Console → Authentication → Sign-in method. (' + code + ')');
+      }
+      if (code.includes('invalid-custom-token') || code.includes('custom-token-mismatch')) {
+        throw new Error('The upload token was refused — the server\'s Firebase project does not match this app\'s. (' + code + ')');
+      }
+      if (code.includes('api-key') || code.includes('configuration-not-found')) {
+        throw new Error('Firebase Authentication is not configured for this site. (' + code + ')');
+      }
+      throw new Error(e?.message || code || 'Sign-in for uploads failed.');
+    }
   })();
-  const ok = await storageSignIn;
-  if (!ok) storageSignIn = null;
-  return ok;
+  try { await storageSignIn; } catch (e) { storageSignIn = null; throw e; }
 }
 async function uploadRenterPhoto(tenantId: string, token: string, renterId: string, sub: string, file: File, maxDim: number): Promise<string> {
-  const ok = await ensureStorageSignIn(tenantId, token);
-  if (!ok) throw new Error('Could not sign in for uploads — try reloading the portal.');
+  if (!renterId) throw new Error('Your renter record is still loading — try again in a moment.');
+  await ensureStorageSignIn(tenantId, token);
   const safe = sub.replace(/[^A-Za-z0-9/_-]/g, '');
-  return uploadImage(`tenants/${tenantId}/renters/${renterId}/${safe}/${Date.now()}.jpg`, file, maxDim);
+  try {
+    return await uploadImage(`tenants/${tenantId}/renters/${renterId}/${safe}/${Date.now()}.jpg`, file, maxDim);
+  } catch (e: any) {
+    const code = String(e?.code || '');
+    if (code.includes('unauthorized')) throw new Error('Storage refused the upload — publish the renters Storage rule in Firebase Console → Storage → Rules. (' + code + ')');
+    if (code.includes('unknown') || code.includes('retry-limit')) throw new Error('The upload could not reach Storage — check the connection and try again. (' + code + ')');
+    throw new Error(e?.message || code || 'The upload failed.');
+  }
 }
 
 const api = async (payload: any) => {
