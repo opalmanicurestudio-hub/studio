@@ -21,6 +21,9 @@
 // portal; this page is intentionally simpler.
 
 import { downscaleImageToDataUrl } from '@/lib/client-image';
+import { getApps, initializeApp } from 'firebase/app';
+import { getStorage, ref as storageRef } from 'firebase/storage';
+import { firebaseConfig } from '@/firebase/config';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { format, parseISO } from 'date-fns';
@@ -800,11 +803,21 @@ function RenterThread({ tenantId, token, studioName }: { tenantId: string; token
 // party that reliably does is this browser (its Firebase config is the one
 // that has always worked). The Booth Hub used to record it on the tenant;
 // the hub is gone, so the portal sends it with every call instead.
-const STORAGE_BUCKET = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || '';
+// Not the env var — the env var can be unset and the client still works,
+// because the client SDK falls back to the project's default bucket on its
+// own. Asking the SDK for a reference and reading its .bucket returns the
+// name it RESOLVED, which is the only name that is guaranteed to be real.
+function resolvedStorageBucket(): string {
+  try {
+    const app = getApps()[0] || initializeApp(firebaseConfig);
+    return String(storageRef(getStorage(app)).bucket || '');
+  } catch { return process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || ''; }
+}
 const api = async (payload: any) => {
+  const bucket = resolvedStorageBucket();
   const res = await fetch('/api/portal/renter', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...payload, ...(STORAGE_BUCKET ? { storageBucket: STORAGE_BUCKET } : {}) }),
+    body: JSON.stringify({ ...payload, ...(bucket ? { storageBucket: bucket } : {}) }),
   });
   const d = await res.json().catch(() => ({}));
   return { status: res.status, ...d };
