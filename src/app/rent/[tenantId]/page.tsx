@@ -23,6 +23,8 @@
 import { downscaleImageToDataUrl } from '@/lib/client-image';
 import { getApps, initializeApp } from 'firebase/app';
 import { getStorage, ref as storageRef } from 'firebase/storage';
+import { getAuth, signInWithCustomToken } from 'firebase/auth';
+import { uploadImage } from '@/lib/upload-image';
 import { firebaseConfig } from '@/firebase/config';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams } from 'next/navigation';
@@ -820,6 +822,36 @@ function storageDiagnostic(): string {
   const env = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || '';
   return env ? `Bucket from settings: ${env}, but the browser could not open it.` : 'No storage bucket is configured for this site (NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET is empty) — no upload anywhere in the app can work until it is set.';
 }
+// ── Browser-side uploads, the same road every other upload in the app uses ──
+// The renter signs into Firebase with a token scoped to their own record,
+// then uploadImage() puts the file in Storage under Storage rules and returns
+// the download URL. The server never touches the bytes, so it never needs to
+// know the bucket. One sign-in per session; every upload after is instant.
+let storageSignIn: Promise<boolean> | null = null;
+async function ensureStorageSignIn(tenantId: string, token: string): Promise<boolean> {
+  if (storageSignIn) return storageSignIn;
+  storageSignIn = (async () => {
+    try {
+      const app = getApps()[0] || initializeApp(firebaseConfig);
+      const auth = getAuth(app);
+      if (auth.currentUser && auth.currentUser.uid.startsWith('renter:')) return true;
+      const d = await api({ action: 'storage-token', tenantId, token });
+      if (!d?.ok || !d.token) return false;
+      await signInWithCustomToken(auth, d.token);
+      return true;
+    } catch { return false; }
+  })();
+  const ok = await storageSignIn;
+  if (!ok) storageSignIn = null;
+  return ok;
+}
+async function uploadRenterPhoto(tenantId: string, token: string, renterId: string, sub: string, file: File, maxDim: number): Promise<string> {
+  const ok = await ensureStorageSignIn(tenantId, token);
+  if (!ok) throw new Error('Could not sign in for uploads — try reloading the portal.');
+  const safe = sub.replace(/[^A-Za-z0-9/_-]/g, '');
+  return uploadImage(`tenants/${tenantId}/renters/${renterId}/${safe}/${Date.now()}.jpg`, file, maxDim);
+}
+
 const api = async (payload: any) => {
   const bucket = resolvedStorageBucket();
   const res = await fetch('/api/portal/renter', {
@@ -1134,6 +1166,7 @@ function MyProfile({ data, tenantId, token, onChanged }: { data: any; tenantId: 
   const [url, setUrl] = useState(p0.externalBookingUrl || '');
   const [listed, setListed] = useState(p0.listExternally === true);
   const [photo, setPhoto] = useState<string | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
@@ -1146,18 +1179,24 @@ function MyProfile({ data, tenantId, token, onChanged }: { data: any; tenantId: 
     const r = new FileReader();
     r.onload = () => { setPhoto(String(r.result || '')); setErr(''); };
     r.readAsDataURL(file);
+    setPhotoFile(file);
   };
 
   const save = async () => {
     setBusy(true); setErr('');
+    let photoUrl: string | undefined;
+    if (photoFile) {
+      try { photoUrl = await uploadRenterPhoto(tenantId, token, String(data?.renter?.id || ''), 'profile', photoFile, 1200); }
+      catch (ex: any) { setBusy(false); setErr(ex?.message || 'Could not upload that photo.'); return; }
+    }
     const d = await api({
       action: 'my-profile', tenantId, token,
       businessName: biz, bio, instagram: ig, links, externalBookingUrl: url, listExternally: listed,
-      ...(photo ? { photoData: photo } : {}),
+      ...(photoUrl ? { photoUrl } : {}),
     });
     setBusy(false);
     if (!d.ok) { setErr(d.error || 'Could not save that.'); return; }
-    setPhoto(null);
+    setPhoto(null); setPhotoFile(null);
     toast({ title: 'Profile saved', description: ownSystem ? 'Your booking link is live.' : 'Clients will see this on your booking page.' });
     onChanged();
   };
@@ -2198,7 +2237,7 @@ function MyClientMessages({ tenantId, token }: { tenantId: string; token: string
 }
 
 // ─── My Brand: colour, tone, cover, type — theirs ────────────────────────────
-function MyBrand({ tenantId, token }: { tenantId: string; token: string }) {
+function MyBrand({ tenantId, token, renterId }: { tenantId: string; token: string; renterId: string }) {
   const [brand, setBrand] = useState<any | null>(null);
   const [coverData, setCoverData] = useState<string | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
@@ -2239,7 +2278,7 @@ function MyBrand({ tenantId, token }: { tenantId: string; token: string }) {
       <div className="flex gap-2">
         <label className="h-10 flex-1 inline-flex items-center justify-center rounded-xl border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-600 cursor-pointer">
           {cover ? 'Change cover' : 'Add a cover image'}
-          <input type="file" accept="image/*" className="sr-only" aria-label="Cover image" onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (!f) return; try { const data = await downscaleImageToDataUrl(f, { maxDim: 1400, quality: 0.8 }); if (!/^data:image\/(jpeg|png|webp|gif);/.test(data)) { setErr('That photo format could not be converted — take a screenshot of it and upload that, or choose a JPG.'); return; } setCoverData(data); setBusy(true); const d = await api({ action: 'brand-save', tenantId, token, brand, coverData: data }); setBusy(false); if (d?.ok) { setBrand(d.brand); setCoverData(undefined); setSaved(true); setTimeout(() => setSaved(false), 1800); } else setErr(d?.error || 'Uploaded, but could not save — press Save my brand.'); } catch { setErr('Could not read that image.'); } }} />
+          <input type="file" accept="image/*" className="sr-only" aria-label="Cover image" onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (!f) return; setErr(''); setBusy(true); try { const url = await uploadRenterPhoto(tenantId, token, renterId, 'cover', f, 1600); const d = await api({ action: 'brand-save', tenantId, token, brand, coverUrl: url }); if (d?.ok) { setBrand(d.brand); setCoverData(undefined); setSaved(true); setTimeout(() => setSaved(false), 1800); } else setErr(d?.error || 'Uploaded, but could not save — press Save my brand.'); } catch (ex: any) { setErr(ex?.message || 'Could not upload that image.'); } finally { setBusy(false); } }} />
         </label>
         {cover && <button type="button" onClick={() => setCoverData(null)} className="h-10 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Remove</button>}
       </div>
@@ -2327,7 +2366,7 @@ function MyReviews({ tenantId, token }: { tenantId: string; token: string }) {
 }
 
 // ─── My Page: the content sections on their booking link ─────────────────────
-function MyPage({ tenantId, token }: { tenantId: string; token: string }) {
+function MyPage({ tenantId, token, renterId }: { tenantId: string; token: string; renterId: string }) {
   const [page, setPage] = useState<any | null>(null);
   const [open, setOpen] = useState('');
   const [busy, setBusy] = useState('');
@@ -2343,17 +2382,15 @@ function MyPage({ tenantId, token }: { tenantId: string; token: string }) {
     if (!file) return;
     setBusy('photo'); setErr('');
     try {
-      const dataUrl: string = await downscaleImageToDataUrl(file, { maxDim: 1400 });
-      const d = await api({ action: 'page-photo', tenantId, token, photoData: dataUrl });
-      if (!d?.ok) { setErr(d?.error || 'Upload failed.'); return; }
+      const url = await uploadRenterPhoto(tenantId, token, renterId, 'gallery', file, 1400);
       const next = { ...page, sections: page.sections.map((x: any) => x.kind === kind
-        ? { ...x, enabled: true, photos: [ ...(x.photos || []), d.url ].slice(0, 24) } : x) };
+        ? { ...x, enabled: true, photos: [ ...(x.photos || []), url ].slice(0, 24) } : x) };
       setPage(next);
       // Persist now, not on Save: the photo is on the page the instant it lands.
       const saved = await api({ action: 'page-save', tenantId, token, page: next });
       if (saved?.ok) { setPage(saved.page); setSaved(true); setTimeout(() => setSaved(false), 1800); }
       else setErr(saved?.error || 'Uploaded, but could not save the page — press Save my page.');
-    } catch { setErr('Could not read that photo.'); } finally { setBusy(''); }
+    } catch (ex: any) { setErr(ex?.message || 'Could not upload that photo.'); } finally { setBusy(''); }
   };
   return (
     <div className="space-y-3">
@@ -2483,7 +2520,8 @@ function MyServices({ data, tenantId, token, onChanged }: { data: any; tenantId:
       depositMode: draft.depositMode || (Number(draft.depositAmount) > 0 ? 'flat' : 'none'),
       depositAmount: Number(draft.depositAmount || 0), depositPercent: Number(draft.depositPercent || 0),
       description: draft.description || '', category: draft.category || '', videoUrl: draft.videoUrl || '',
-      ...(draft.imageData !== undefined ? { imageData: draft.imageData } : {}),
+      ...(draft.imageData === null ? { imageData: null } : {}),
+      ...(typeof draft.imageUrl === 'string' && draft.imageUrl ? { imageUrl: draft.imageUrl } : {}),
     });
     setBusy(false);
     if (!d.ok) { setErr(d.error || 'Could not save'); return; }
@@ -2621,7 +2659,7 @@ function MyServices({ data, tenantId, token, onChanged }: { data: any; tenantId:
                   <label className="h-10 flex-1 inline-flex items-center justify-center rounded-xl border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-600 cursor-pointer">
                     {(draft.imageData || draft.imageUrl) && draft.imageData !== null ? 'Change' : 'Add'}
                     <input type="file" accept="image/*" className="sr-only" aria-label="Service photo"
-                           onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (!f) return; try { const d: string = await downscaleImageToDataUrl(f, { maxDim: 1200 }); setDraft((x: any) => ({ ...x, imageData: d })); } catch { /* skip */ } }} />
+                           onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (!f) return; try { const url = await uploadRenterPhoto(tenantId, token, String(data?.renter?.id || ''), 'services', f, 1200); setDraft((x: any) => ({ ...x, imageUrl: url, imageData: undefined })); } catch (ex: any) { setErr(ex?.message || 'Could not upload that photo.'); } }} />
                   </label>
                   {(draft.imageData || draft.imageUrl) && draft.imageData !== null && (
                     <button type="button" onClick={() => setDraft((x: any) => ({ ...x, imageData: null, imageUrl: null }))} aria-label="Remove photo" className="h-10 w-10 rounded-xl border-2 text-slate-500 font-black">×</button>
@@ -3161,7 +3199,7 @@ export default function RenterPortalPage() {
                       </button>
                       {setupOpen === 'brand' && session?.token && (
                         <div className="px-3 pb-4">
-                          <MyBrand tenantId={tenantId} token={session.token} />
+                          <MyBrand tenantId={tenantId} token={session.token} renterId={String(data?.renter?.id || '')} />
                         </div>
                       )}
                     </div>
@@ -3175,7 +3213,7 @@ export default function RenterPortalPage() {
                       </button>
                       {setupOpen === 'page' && session?.token && (
                         <div className="px-3 pb-4">
-                          <MyPage tenantId={tenantId} token={session.token} />
+                          <MyPage tenantId={tenantId} token={session.token} renterId={String(data?.renter?.id || '')} />
                         </div>
                       )}
                     </div>
