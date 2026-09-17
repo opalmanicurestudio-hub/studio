@@ -1518,7 +1518,9 @@ export async function POST(req: NextRequest) {
       const rawVideo = String(body.videoUrl || '').trim().slice(0, 300);
       const videoUrl = /^https:\/\/(www\.)?(youtube\.com\/(watch\?v=|shorts\/)|youtu\.be\/)[\w-]+/.test(rawVideo) || /^https:\/\/.+\.(mp4|mov|webm)(\?.*)?$/i.test(rawVideo) ? rawVideo : '';
       let imageUrl: string | null | undefined = undefined;
-      if (typeof body.imageData === 'string' && body.imageData.startsWith('data:image')) {
+      if (typeof body.imageUrl === 'string' && /^https:\/\/firebasestorage\.googleapis\.com\//.test(body.imageUrl)) {
+        imageUrl = body.imageUrl;
+      } else if (typeof body.imageData === 'string' && body.imageData.startsWith('data:image')) {
         const up = await uploadPortalImageFromDataUrl(tenantId, `renters/${session.renterId}/services/${Date.now()}`, body.imageData);
         if (!up.url) return NextResponse.json({ ok: false, error: up.error || 'That photo didn’t upload — the service was not saved.' }, { status: 400 });
         imageUrl = up.url;
@@ -1615,7 +1617,9 @@ export async function POST(req: NextRequest) {
       const listExternally = body.listExternally === true;
 
       let photoUrl: string | null | undefined = undefined;
-      if (typeof body.photoData === 'string' && body.photoData.startsWith('data:')) {
+      if (typeof body.photoUrl === 'string' && /^https:\/\/firebasestorage\.googleapis\.com\//.test(body.photoUrl)) {
+        photoUrl = body.photoUrl;
+      } else if (typeof body.photoData === 'string' && body.photoData.startsWith('data:')) {
         const up = await uploadPortalImageFromDataUrl(tenantId, `renters/${session.renterId}/profile`, body.photoData);
         if (!up.url) return NextResponse.json({ ok: false, error: up.error || 'That photo didn’t upload.' }, { status: 400 });
         photoUrl = up.url;
@@ -2621,6 +2625,24 @@ export async function POST(req: NextRequest) {
       if (!stSnap.empty) await stSnap.docs[0].ref.set(staffMirrorFields({ page }), { merge: true });
       return NextResponse.json({ ok: true, page });
     }
+    // ── storage-token: sign the renter into Firebase so the BROWSER can upload ──
+    // Every other upload in the app goes browser → Storage under a signed-in
+    // user and Storage rules. The portal was routing photos through the
+    // server instead, and the server could not see the bucket. This puts
+    // renter uploads on the same road as everything else: a custom token
+    // scoped to this renter, used only for Storage.
+    if (action === 'storage-token') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      try {
+        const { getAuth } = await import('firebase-admin/auth');
+        const token = await getAuth().createCustomToken(`renter:${tenantId}:${session.renterId}`, {
+          tenantId, renterId: session.renterId, portal: true, isRenter: true,
+        });
+        return NextResponse.json({ ok: true, token });
+      } catch (e: any) {
+        return NextResponse.json({ ok: false, error: 'Could not prepare uploads — the server\'s Firebase admin credentials are not configured.' }, { status: 500 });
+      }
+    }
     if (action === 'brand-get') {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
       const { cleanBrand } = await import('@/lib/renter-identity');
@@ -2631,7 +2653,9 @@ export async function POST(req: NextRequest) {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
       const { cleanBrand, staffMirrorFields } = await import('@/lib/renter-identity');
       let coverUrl: string | null | undefined = undefined;
-      if (typeof body.coverData === 'string' && body.coverData.startsWith('data:image')) {
+      if (typeof body.coverUrl === 'string' && /^https:\/\/firebasestorage\.googleapis\.com\//.test(body.coverUrl)) {
+        coverUrl = body.coverUrl;
+      } else if (typeof body.coverData === 'string' && body.coverData.startsWith('data:image')) {
         const up = await uploadPortalImageFromDataUrl(tenantId, `renters/${session.renterId}/cover`, body.coverData);
         // A failed upload used to be swallowed here — the brand saved
         // without the cover and the portal said "Saved". The reason is the
