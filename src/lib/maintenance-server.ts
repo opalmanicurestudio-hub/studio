@@ -202,7 +202,7 @@ function describeUploadError(err: any): string {
   const msg = String(err?.message || err || '');
   const code = Number((err as any)?.code) || 0;
   if (code === 404 || /not exist|notfound|not found/i.test(msg)) {
-    return 'Photo not saved: the server could not find the storage bucket. Fix: the studio opens their Booth Hub once (it records the bucket automatically), then try again.';
+    return 'Photo not saved: the server could not find the storage bucket. Fix: in Firebase Console → Storage, copy the bucket name shown at the top (after gs://) and set NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET to it in Vercel, then redeploy. If the name is already in the list below, the server\'s service account is on a different Firebase project than the app.';
   }
   if (code === 403 || /permission|forbidden|unauthorized/i.test(msg)) {
     return 'Photo not saved: the server is not allowed to write to storage — give the Firebase service account the "Storage Admin" role.';
