@@ -39,7 +39,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createHash, randomBytes } from 'crypto';
-import { getAdminDb } from '@/lib/firebase-admin';
+import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
 import { smsConfigured, sendTenantSms } from '@/lib/sms';
 
@@ -2634,13 +2634,20 @@ export async function POST(req: NextRequest) {
     if (action === 'storage-token') {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
       try {
-        const { getAuth } = await import('firebase-admin/auth');
-        const token = await getAuth().createCustomToken(`renter:${tenantId}:${session.renterId}`, {
+        // getAuth() with no argument asks the DEFAULT Firebase app — and this
+        // codebase never initializes one. Every credential lives on the named
+        // 'admin' app (FIREBASE_ADMIN_* env vars), which is why Firestore
+        // works everywhere and this one call failed. Ask the app that has the
+        // private key; signing a custom token needs it.
+        const token = await getAdminAuth().createCustomToken(`renter:${tenantId}:${session.renterId}`, {
           tenantId, renterId: session.renterId, portal: true, isRenter: true,
         });
         return NextResponse.json({ ok: true, token });
       } catch (e: any) {
-        return NextResponse.json({ ok: false, error: 'Could not prepare uploads — the server\'s Firebase admin credentials are not configured.' }, { status: 500 });
+        // Say what actually broke — the generic sentence sent us hunting for
+        // credentials that were configured correctly all along.
+        const msg = String(e?.message || e?.code || 'unknown');
+        return NextResponse.json({ ok: false, error: `Could not prepare uploads: ${msg}` }, { status: 500 });
       }
     }
     if (action === 'brand-get') {
