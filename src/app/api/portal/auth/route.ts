@@ -27,7 +27,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
-import { getAdminDb } from '@/lib/firebase-admin';
+import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -143,8 +143,11 @@ export async function POST(req: NextRequest) {
       // SDK with tenant/role claims so Firestore rules can enforce scope.
       let customToken: string | null = null;
       try {
-        const { getAuth } = await import('firebase-admin/auth');
-        customToken = await getAuth().createCustomToken(`portal:${tenantId}:${staff.id}`, {
+        // Named 'admin' app, not the default one — the default app is never
+        // initialized in this codebase, so this signed nothing and fell into
+        // the catch below. Staff-portal uploads have been quietly failing for
+        // the same reason renter uploads were.
+        customToken = await getAdminAuth().createCustomToken(`portal:${tenantId}:${staff.id}`, {
           tenantId, staffId: staff.id, role: staff.role, isRenter: staff.isRenter, portal: true,
         });
       } catch { customToken = null; /* admin auth not configured — login still works */ }
