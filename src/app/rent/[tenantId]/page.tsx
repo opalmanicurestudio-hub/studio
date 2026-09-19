@@ -1925,7 +1925,12 @@ function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenantId: st
 function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token: string }) {
   const [book, setBook] = useState<{ upcoming: any[]; past: any[]; services: any[]; staffId: string } | null>(null);
   const [blocks, setBlocks] = useState<any[]>([]);
-  const [view, setView] = useState<'upcoming' | 'past' | 'blocks'>('upcoming');
+  // A day view, like the planner the studio's staff get — the same
+  // appointments and blocks already loaded, drawn on a clock instead of
+  // listed. A renter's day is the thing they check most; a list makes them
+  // do the arithmetic ("is 2pm free?") that a grid answers on sight.
+  const [view, setView] = useState<'day' | 'upcoming' | 'past' | 'blocks'>('day');
+  const [dayISO, setDayISO] = useState(() => new Date().toISOString().slice(0, 10));
   const [openId, setOpenId] = useState('');
   const [noteDraft, setNoteDraft] = useState('');
   const [busy, setBusy] = useState('');
@@ -2021,10 +2026,81 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
         {err && <p className="text-xs font-bold text-red-600">{err}</p>}
 
         <div className="flex gap-1.5">
-          {([['upcoming', `Upcoming · ${(book?.upcoming || []).length}`], ['past', 'Past'], ['blocks', `Blocks · ${blocks.length}`]] as const).map(([k, l]) => (
+          {([['day', 'Day'], ['upcoming', `Upcoming · ${(book?.upcoming || []).length}`], ['past', 'Past'], ['blocks', `Blocks · ${blocks.length}`]] as const).map(([k, l]) => (
             <button key={k} type="button" onClick={() => setView(k)} aria-pressed={view === k} className={cn('h-9 rounded-full border-2 px-3 text-[10px] font-black uppercase tracking-widest', view === k ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>{l}</button>
           ))}
         </div>
+
+        {view === 'day' && (() => {
+          // The day as a clock. Hours span the earliest start to the latest
+          // finish (08:00–18:00 at minimum), so an early or late booking is
+          // never off-screen. Appointments and blocks are laid on the same
+          // grid — the gaps between them are the answer to "am I free?".
+          const dayStart = (iso: string) => new Date(`${iso}T00:00:00`);
+          const shift = (n: number) => { const d = dayStart(dayISO); d.setDate(d.getDate() + n); setDayISO(d.toISOString().slice(0, 10)); };
+          const onDay = (iso: string) => String(iso || '').slice(0, 10) === dayISO;
+          const appts = [...(book?.upcoming || []), ...(book?.past || [])].filter((a: any) => onDay(a.startTime) && a.status !== 'cancelled');
+          const blks = blocks.filter((b: any) => onDay(b.startTime));
+          const mins = (iso: string) => { const d = new Date(iso); return d.getHours() * 60 + d.getMinutes(); };
+          const dur = (x: any) => Math.max(15, Number(x.duration) || (x.endTime ? Math.round((new Date(x.endTime).getTime() - new Date(x.startTime).getTime()) / 60000) : 60));
+          const all = [...appts.map((a: any) => ({ ...a, kind: 'appt' })), ...blks.map((b: any) => ({ ...b, kind: 'block' }))];
+          const firstMin = all.length ? Math.min(8 * 60, ...all.map((x) => mins(x.startTime))) : 8 * 60;
+          const lastMin = all.length ? Math.max(18 * 60, ...all.map((x) => mins(x.startTime) + dur(x))) : 18 * 60;
+          const startHour = Math.floor(firstMin / 60), endHour = Math.ceil(lastMin / 60);
+          const PX = 1.1; // pixels per minute — an hour is a comfortable thumb-height
+          const top = (iso: string) => (mins(iso) - startHour * 60) * PX;
+          const isToday = dayISO === new Date().toISOString().slice(0, 10);
+          const nowTop = isToday ? (new Date().getHours() * 60 + new Date().getMinutes() - startHour * 60) * PX : -1;
+          const booked = appts.reduce((n: number, a: any) => n + dur(a), 0);
+          const earned = appts.reduce((n: number, a: any) => n + (Number(a.price) || 0), 0);
+          return (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <button type="button" onClick={() => shift(-1)} aria-label="Previous day" className="h-9 w-9 rounded-xl border-2 border-slate-200 text-[12px] font-black text-slate-600">‹</button>
+                <button type="button" onClick={() => setDayISO(new Date().toISOString().slice(0, 10))} className="min-w-0 flex-1 text-center">
+                  <span className="block text-[12px] font-black text-slate-900">{new Date(`${dayISO}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</span>
+                  <span className="block text-[10px] font-bold text-slate-500">{isToday ? 'Today' : 'Tap for today'} · {appts.length} booked · {Math.round(booked / 6) / 10} hr{earned > 0 ? ` · $${earned.toFixed(0)}` : ''}</span>
+                </button>
+                <button type="button" onClick={() => shift(1)} aria-label="Next day" className="h-9 w-9 rounded-xl border-2 border-slate-200 text-[12px] font-black text-slate-600">›</button>
+              </div>
+              <div className="relative overflow-hidden rounded-2xl border-2 bg-white" style={{ height: (endHour - startHour) * 60 * PX + 8 }}>
+                {Array.from({ length: endHour - startHour + 1 }, (_, i) => startHour + i).map((h) => (
+                  <div key={h} className="absolute inset-x-0 flex items-start gap-2" style={{ top: (h - startHour) * 60 * PX }}>
+                    <span className="w-12 shrink-0 pl-2 text-[9px] font-black uppercase tracking-widest text-slate-300">{h % 12 === 0 ? 12 : h % 12}{h < 12 ? 'a' : 'p'}</span>
+                    <span className="mt-1.5 h-px flex-1 bg-slate-100" />
+                  </div>
+                ))}
+                {nowTop >= 0 && nowTop <= (endHour - startHour) * 60 * PX && (
+                  <div className="absolute inset-x-0 z-20 flex items-center gap-1" style={{ top: nowTop }}>
+                    <span className="ml-12 h-2 w-2 rounded-full bg-red-500" /><span className="h-px flex-1 bg-red-500" />
+                  </div>
+                )}
+                {blks.map((b: any) => (
+                  <div key={b.id} className="absolute left-14 right-2 z-10 rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 px-2 py-1"
+                       style={{ top: top(b.startTime), height: Math.max(22, dur(b) * PX - 2) }}>
+                    <p className="truncate text-[10px] font-black uppercase tracking-widest text-slate-500">{b.reason || 'Blocked'}</p>
+                  </div>
+                ))}
+                {appts.map((a: any) => {
+                  const h = Math.max(26, dur(a) * PX - 2);
+                  const req = a.status === 'requested' || a.status === 'pending';
+                  return (
+                    <button key={a.id} type="button" onClick={() => { setView('upcoming'); setOpenId(a.id); }}
+                            className={cn('absolute left-14 right-2 z-10 overflow-hidden rounded-lg border-2 px-2 py-1 text-left', req ? 'border-amber-300 bg-amber-50' : a.status === 'completed' ? 'border-slate-200 bg-slate-50' : 'border-slate-900 bg-slate-900')}
+                            style={{ top: top(a.startTime), height: h }}>
+                      <p className={cn('truncate text-[11px] font-black', req ? 'text-amber-900' : a.status === 'completed' ? 'text-slate-600' : 'text-white')}>{a.clientName}{req ? ' · asked' : ''}</p>
+                      {h > 34 && <p className={cn('truncate text-[10px] font-bold', req ? 'text-amber-800' : a.status === 'completed' ? 'text-slate-500' : 'text-slate-300')}>{a.serviceName}{a.price ? ` · $${Number(a.price).toFixed(0)}` : ''}</p>}
+                    </button>
+                  );
+                })}
+                {all.length === 0 && (
+                  <p className="absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-[11px] font-bold text-slate-400">Nothing on this day.</p>
+                )}
+              </div>
+              <p className="text-[9px] font-bold text-slate-400">Tap a booking to open it. Solid is confirmed, amber is waiting on you, dashed is time you blocked.</p>
+            </div>
+          );
+        })()}
 
         {view === 'blocks' && (blocks.length === 0 ? <p className="py-3 text-center text-[11px] font-bold text-slate-400">No blocked time.</p> : blocks.map((b) => (
           <div key={b.id} className="flex items-center justify-between gap-2 rounded-2xl border-2 p-3">
@@ -2033,7 +2109,7 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
           </div>
         )))}
 
-        {view !== 'blocks' && (book === null ? <p className="py-3 text-center text-[11px] font-bold text-slate-400">Loading your book…</p>
+        {view !== 'blocks' && view !== 'day' && (book === null ? <p className="py-3 text-center text-[11px] font-bold text-slate-400">Loading your book…</p>
           : rows.length === 0 ? <p className="py-3 text-center text-[11px] font-bold text-slate-400">{view === 'upcoming' ? 'Nothing coming up. Share your booking link or add a walk-in.' : 'No past appointments yet.'}</p>
           : rows.map((a) => {
             const isOpen = openId === a.id;
