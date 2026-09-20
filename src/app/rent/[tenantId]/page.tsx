@@ -2086,9 +2086,9 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
                   const req = a.status === 'requested' || a.status === 'pending';
                   return (
                     <button key={a.id} type="button" onClick={() => { setView('upcoming'); setOpenId(a.id); }}
-                            className={cn('absolute left-14 right-2 z-10 overflow-hidden rounded-lg border-2 px-2 py-1 text-left', req ? 'border-amber-300 bg-amber-50' : a.status === 'completed' ? 'border-slate-200 bg-slate-50' : 'border-slate-900 bg-slate-900')}
+                            className={cn('absolute left-14 right-2 z-10 overflow-hidden rounded-lg border-2 px-2 py-1 text-left', a.viaStudio ? 'border-slate-400 bg-white' : req ? 'border-amber-300 bg-amber-50' : a.status === 'completed' ? 'border-slate-200 bg-slate-50' : 'border-slate-900 bg-slate-900')}
                             style={{ top: top(a.startTime), height: h }}>
-                      <p className={cn('truncate text-[11px] font-black', req ? 'text-amber-900' : a.status === 'completed' ? 'text-slate-600' : 'text-white')}>{a.clientName}{req ? ' · asked' : ''}</p>
+                      <p className={cn('truncate text-[11px] font-black', a.viaStudio ? 'text-slate-700' : req ? 'text-amber-900' : a.status === 'completed' ? 'text-slate-600' : 'text-white')}>{a.clientName}{a.viaStudio ? ' · studio' : req ? ' · asked' : ''}</p>
                       {h > 34 && <p className={cn('truncate text-[10px] font-bold', req ? 'text-amber-800' : a.status === 'completed' ? 'text-slate-500' : 'text-slate-300')}>{a.serviceName}{a.price ? ` · $${Number(a.price).toFixed(0)}` : ''}</p>}
                     </button>
                   );
@@ -2097,7 +2097,7 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
                   <p className="absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-[11px] font-bold text-slate-400">Nothing on this day.</p>
                 )}
               </div>
-              <p className="text-[9px] font-bold text-slate-400">Tap a booking to open it. Solid is confirmed, amber is waiting on you, dashed is time you blocked.</p>
+              <p className="text-[9px] font-bold text-slate-400">Tap a booking to open it. Solid is confirmed, amber is waiting on you, outlined is a studio booking on your chair, dashed is time you blocked.</p>
             </div>
           );
         })()}
@@ -2218,7 +2218,7 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
           : rows.map((a) => {
             const isOpen = openId === a.id;
             const done = a.status === 'completed' || a.status === 'cancelled';
-            const chip = a.status === 'cancelled' ? (a.outcome === 'no_show' ? 'No-show' : 'Cancelled') : a.status === 'completed' ? 'Done' : a.status === 'requested' ? 'Requested' : a.status === 'pending_payment' || a.status === 'deposit_pending' ? 'Awaiting deposit' : 'Booked';
+            const chip = a.viaStudio ? 'Studio booking' : a.status === 'cancelled' ? (a.outcome === 'no_show' ? 'No-show' : 'Cancelled') : a.status === 'completed' ? 'Done' : a.status === 'requested' ? 'Requested' : a.status === 'pending_payment' || a.status === 'deposit_pending' ? 'Awaiting deposit' : 'Booked';
             return (
               <div key={a.id} className={cn('rounded-2xl border-2 p-3 space-y-2', a.status === 'cancelled' && 'opacity-60')}>
                 <button type="button" onClick={() => { setOpenId(isOpen ? '' : a.id); setNoteDraft(a.note || ''); setConfirmCancel(''); setResched(null); }} className="w-full text-left">
@@ -2233,7 +2233,13 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
                     </div>
                   </div>
                 </button>
-                {isOpen && (
+                {isOpen && a.viaStudio && (
+                  <div className="space-y-2 pt-1">
+                    {(a.clientPhone || a.clientEmail) && <p className="text-[10px] font-bold text-slate-500">{[a.clientPhone, a.clientEmail].filter(Boolean).join(' · ')}</p>}
+                    <p className="rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">Booked by the studio on your chair — the studio manages and is paid for this one. It&apos;s here so your day reads true; ask the studio to change it.</p>
+                  </div>
+                )}
+                {isOpen && !a.viaStudio && (
                   <div className="space-y-2 pt-1">
                     {(a.clientPhone || a.clientEmail) && <p className="text-[10px] font-bold text-slate-500">{[a.clientPhone, a.clientEmail].filter(Boolean).join(' · ')}</p>}
                     <textarea value={noteDraft} onChange={(ev) => setNoteDraft(ev.target.value.slice(0, 1000))} rows={2} aria-label="Your note" placeholder="Your note — formula, preferences, what to remember (only you see this)" className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm" />
