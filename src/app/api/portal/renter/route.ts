@@ -2307,12 +2307,18 @@ export async function POST(req: NextRequest) {
         db.collection(`tenants/${tenantId}/appointments`).where('staffId', '==', st.id).where('startTime', '>=', since).get(),
         db.collection(`tenants/${tenantId}/renterServices`).where('staffId', '==', st.id).get(),
       ]);
-      const rows = apSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((a: any) => a.isRenterBooking);
+      // EVERYTHING on their chair, not only what came through their own
+      // link. A booking the studio made for them — owner's planner, house
+      // booking page, anything from before they became a renter — occupies
+      // the same hour, so a planner that hides it is wrong. It's marked
+      // viaStudio and stays the studio's to change; the renter sees it.
+      const rows = apSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
       const shape = (a: any) => ({
         id: a.id, clientId: a.clientId || null, clientName: a.clientName || 'Client', clientPhone: a.clientPhone || null, clientEmail: a.clientEmail || null,
         serviceName: a.renterServiceName || a.serviceName || 'Service', price: Number(a.renterServicePrice) || 0,
         startTime: a.startTime, endTime: a.endTime || null, duration: a.duration || null, status: a.status,
         note: a.renterNote || '', outcome: a.renterOutcome || null, createdVia: a.createdVia || null,
+        viaStudio: !a.isRenterBooking,
       });
       const upcoming = rows.filter((a: any) => a.status !== 'cancelled' && a.startTime >= nowIso).sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime))).map(shape);
       const past = rows.filter((a: any) => a.startTime < nowIso).sort((a: any, b: any) => String(b.startTime).localeCompare(String(a.startTime))).slice(0, 60).map(shape);
@@ -2501,7 +2507,10 @@ export async function POST(req: NextRequest) {
         log = lSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((m) => m.recipientId && mine.has(String(m.recipientId)))
           .slice(0, 30).map((m) => ({ id: m.id, kind: m.kind, channel: m.channel, status: m.status, to: m.recipientName || m.to || '', at: m.createdAt }));
       } catch { /* index may be pending; the switches still work */ }
-      return NextResponse.json({ ok: true, comms: { remindersEnabled: c.remindersEnabled === true, thankYouEnabled: c.thankYouEnabled === true, signoff: String(c.signoff || '') }, log });
+      // Defaults ON — a renter's clients get the same reminders and thank-yous
+      // the studio's clients do, in the renter's name, unless the renter
+      // switches them off. Mirrors the main app instead of asking for opt-in.
+      return NextResponse.json({ ok: true, comms: { remindersEnabled: c.remindersEnabled !== false, thankYouEnabled: c.thankYouEnabled !== false, signoff: String(c.signoff || '') }, log });
     }
     if (action === 'comms-save') {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
@@ -2567,7 +2576,7 @@ export async function POST(req: NextRequest) {
           items.push({ kind: 'request', tab: 'book', title: 'Booking request — accept or decline', body: `${a.clientName || 'Client'} · ${a.renterServiceName || a.serviceName || ''} · ${String(a.startTime).slice(0, 10)}`, at: a.createdAt || a.requestedAt || since(0), tone: 'amber' });
         }
       }
-      const todayAppts = appts.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((a: any) => a.isRenterBooking && a.status !== 'cancelled')
+      const todayAppts = appts.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((a: any) => a.status !== 'cancelled')
         .sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime)))
         .map((a: any) => ({ id: a.id, startTime: a.startTime, clientName: a.clientName || 'Client', serviceName: a.renterServiceName || a.serviceName || '', status: a.status }));
 
