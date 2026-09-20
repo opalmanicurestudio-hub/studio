@@ -225,7 +225,8 @@ export async function GET(req: NextRequest) {
           // Renter's booking → renter's reminder, or nothing. Never the studio's.
           const rp = renterOf(a);
           if (a.isRenterBooking) {
-            if (!rp || rp.comms.remindersEnabled !== true) { skipped++; continue; }
+            // Mirrors the studio: on unless the renter switched it off.
+            if (!rp || rp.comms.remindersEnabled === false) { skipped++; continue; }
             const when = `${dayOf(at)} at ${timeOf(at)}`;
             const svc = a.renterServiceName || svcNames.get(String(a.serviceId || '')) || 'appointment';
             const signoff = String(rp.comms.signoff || '').trim();
@@ -334,7 +335,7 @@ export async function GET(req: NextRequest) {
               // The renter's thank-you: their name, their booking link, no
               // studio review link. Only if they turned it on.
               const rp = renterOf(a);
-              if (!rp || rp.comms.thankYouEnabled !== true) continue;
+              if (!rp || rp.comms.thankYouEnabled === false) continue;
               const { phone, email } = await contactFor(a);
               if (!phone && !email) continue;
               const signoff = String(rp.comms.signoff || '').trim();
