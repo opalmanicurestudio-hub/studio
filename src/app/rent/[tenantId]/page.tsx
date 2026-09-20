@@ -1929,7 +1929,7 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
   // appointments and blocks already loaded, drawn on a clock instead of
   // listed. A renter's day is the thing they check most; a list makes them
   // do the arithmetic ("is 2pm free?") that a grid answers on sight.
-  const [view, setView] = useState<'day' | 'upcoming' | 'past' | 'blocks'>('day');
+  const [view, setView] = useState<'day' | 'week' | 'upcoming' | 'past' | 'blocks'>('day');
   const [dayISO, setDayISO] = useState(() => new Date().toISOString().slice(0, 10));
   const [openId, setOpenId] = useState('');
   const [noteDraft, setNoteDraft] = useState('');
@@ -2026,7 +2026,7 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
         {err && <p className="text-xs font-bold text-red-600">{err}</p>}
 
         <div className="flex gap-1.5">
-          {([['day', 'Day'], ['upcoming', `Upcoming · ${(book?.upcoming || []).length}`], ['past', 'Past'], ['blocks', `Blocks · ${blocks.length}`]] as const).map(([k, l]) => (
+          {([['day', 'Day'], ['week', 'Week'], ['upcoming', `Upcoming · ${(book?.upcoming || []).length}`], ['past', 'Past'], ['blocks', `Blocks · ${blocks.length}`]] as const).map(([k, l]) => (
             <button key={k} type="button" onClick={() => setView(k)} aria-pressed={view === k} className={cn('h-9 rounded-full border-2 px-3 text-[10px] font-black uppercase tracking-widest', view === k ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>{l}</button>
           ))}
         </div>
@@ -2102,6 +2102,110 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
           );
         })()}
 
+        {view === 'week' && (() => {
+          // A WEEK AT A GLANCE, and the question a client actually asks:
+          // "what have you got next week?" Seven columns, each day's booked
+          // blocks drawn to scale against that day's working hours, so a
+          // renter can read their openings off the screen and answer on the
+          // phone. Tapping a day opens it; tapping an OPEN gap blocks it.
+          const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+          const base = new Date(`${dayISO}T12:00:00`);
+          const weekStart = new Date(base); weekStart.setDate(base.getDate() - base.getDay());
+          const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d; });
+          const iso = (d: Date) => d.toISOString().slice(0, 10);
+          const week = (data?.provider?.week || {}) as any;
+          const mins = (t: string) => { const [h, m] = String(t || '0:0').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
+          const atMins = (isoStr: string) => { const d = new Date(isoStr); return d.getHours() * 60 + d.getMinutes(); };
+          const dur = (x: any) => Math.max(15, Number(x.duration) || (x.endTime ? Math.round((new Date(x.endTime).getTime() - new Date(x.startTime).getTime()) / 60000) : 60));
+          const appts = [...(book?.upcoming || []), ...(book?.past || [])].filter((a: any) => a.status !== 'cancelled');
+          // One scale for the whole week so columns are comparable.
+          const opens = DAYS.map((k) => week[k]).filter((d: any) => d?.enabled && d?.start && d?.end);
+          const lo = opens.length ? Math.min(...opens.map((d: any) => mins(d.start))) : 8 * 60;
+          const hi = opens.length ? Math.max(...opens.map((d: any) => mins(d.end))) : 18 * 60;
+          const H = 200;
+          const y = (m: number) => Math.max(0, Math.min(H, ((m - lo) / Math.max(1, hi - lo)) * H));
+          const todayIso = new Date().toISOString().slice(0, 10);
+          const shiftWeek = (n: number) => { const d = new Date(weekStart); d.setDate(d.getDate() + n * 7); setDayISO(iso(d)); };
+          let weekBooked = 0, weekEarned = 0, weekOpen = 0;
+          const cols = days.map((d) => {
+            const key = iso(d);
+            const wk = week[DAYS[d.getDay()]];
+            const working = !!(wk?.enabled && wk?.start && wk?.end);
+            const dayAppts = appts.filter((a: any) => String(a.startTime).slice(0, 10) === key).sort((a: any, b: any) => atMins(a.startTime) - atMins(b.startTime));
+            const dayBlocks = blocks.filter((b: any) => String(b.startTime).slice(0, 10) === key);
+            const busy = [...dayAppts.map((a: any) => ({ s: atMins(a.startTime), e: atMins(a.startTime) + dur(a), kind: 'appt' as const })),
+                          ...dayBlocks.map((b: any) => ({ s: atMins(b.startTime), e: atMins(b.startTime) + dur(b), kind: 'block' as const }))]
+                          .sort((a, b) => a.s - b.s);
+            weekBooked += dayAppts.reduce((n: number, a: any) => n + dur(a), 0);
+            weekEarned += dayAppts.reduce((n: number, a: any) => n + (Number(a.price) || 0), 0);
+            // Free gaps INSIDE their working hours, 30 min or longer — the
+            // openings they'd offer on the phone.
+            const gaps: { s: number; e: number }[] = [];
+            if (working) {
+              let cur = mins(wk.start);
+              const end = mins(wk.end);
+              for (const b of busy) { if (b.s > cur) gaps.push({ s: cur, e: Math.min(b.s, end) }); cur = Math.max(cur, b.e); }
+              if (cur < end) gaps.push({ s: cur, e: end });
+            }
+            const real = gaps.filter((g) => g.e - g.s >= 30);
+            weekOpen += real.reduce((n, g) => n + (g.e - g.s), 0);
+            return { d, key, wk, working, dayAppts, busy, gaps: real };
+          });
+          const clock = (m: number) => { const h = Math.floor(m / 60), mm = m % 60; const ampm = h < 12 ? 'a' : 'p'; const hh = h % 12 === 0 ? 12 : h % 12; return `${hh}${mm ? ':' + String(mm).padStart(2, '0') : ''}${ampm}`; };
+          return (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <button type="button" onClick={() => shiftWeek(-1)} aria-label="Previous week" className="h-9 w-9 rounded-xl border-2 border-slate-200 text-[12px] font-black text-slate-600">‹</button>
+                <button type="button" onClick={() => setDayISO(todayIso)} className="min-w-0 flex-1 text-center">
+                  <span className="block text-[12px] font-black text-slate-900">{days[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – {days[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                  <span className="block text-[10px] font-bold text-slate-500">{Math.round(weekBooked / 6) / 10} hr booked{weekEarned > 0 ? ` · $${weekEarned.toFixed(0)}` : ''} · {Math.round(weekOpen / 6) / 10} hr open</span>
+                </button>
+                <button type="button" onClick={() => shiftWeek(1)} aria-label="Next week" className="h-9 w-9 rounded-xl border-2 border-slate-200 text-[12px] font-black text-slate-600">›</button>
+              </div>
+
+              <div className="grid grid-cols-7 gap-1">
+                {cols.map((c) => (
+                  <button key={c.key} type="button" onClick={() => { setDayISO(c.key); setView('day'); }} className="text-center">
+                    <span className={cn('block text-[9px] font-black uppercase tracking-widest', c.key === todayIso ? 'text-slate-900' : 'text-slate-400')}>{c.d.toLocaleDateString('en-US', { weekday: 'narrow' })}</span>
+                    <span className={cn('mx-auto mt-0.5 flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-black', c.key === todayIso ? 'bg-slate-900 text-white' : 'text-slate-700')}>{c.d.getDate()}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-7 gap-1 rounded-2xl border-2 bg-white p-1">
+                {cols.map((c) => (
+                  <div key={c.key} className="relative rounded-lg bg-slate-50" style={{ height: H }}>
+                    {!c.working && <span className="absolute inset-0 flex items-center justify-center text-[8px] font-black uppercase tracking-widest text-slate-300" style={{ writingMode: 'vertical-rl' }}>Off</span>}
+                    {c.working && c.gaps.map((g, i) => (
+                      <button key={`g${i}`} type="button" title={`Block ${clock(g.s)}–${clock(g.e)}`}
+                        onClick={() => { const pad = (n: number) => String(n).padStart(2, '0'); setBlk({ when: `${c.key}T${pad(Math.floor(g.s / 60))}:${pad(g.s % 60)}`, hours: String(Math.round(((g.e - g.s) / 60) * 10) / 10), reason: '' }); setBlockOpen(true); }}
+                        className="absolute inset-x-0.5 rounded bg-emerald-50 text-[8px] font-black text-emerald-700"
+                        style={{ top: y(g.s), height: Math.max(8, y(g.e) - y(g.s)) }}>
+                        {y(g.e) - y(g.s) > 22 ? clock(g.s) : ''}
+                      </button>
+                    ))}
+                    {c.busy.map((b, i) => (
+                      <span key={`b${i}`} className={cn('absolute inset-x-0.5 rounded', b.kind === 'block' ? 'border border-dashed border-slate-400 bg-white' : 'bg-slate-900')}
+                            style={{ top: y(b.s), height: Math.max(4, y(b.e) - y(b.s)) }} />
+                    ))}
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-1">
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Open times this week</p>
+                {cols.every((c) => c.gaps.length === 0) && <p className="text-[11px] font-bold text-slate-400">Nothing open — or your hours aren&apos;t set yet (Setup → Hours).</p>}
+                {cols.filter((c) => c.gaps.length > 0).map((c) => (
+                  <p key={c.key} className="text-[11px] font-bold text-slate-600">
+                    <span className="font-black text-slate-900">{c.d.toLocaleDateString('en-US', { weekday: 'short' })}</span> {c.gaps.map((g) => `${clock(g.s)}–${clock(g.e)}`).join(' · ')}
+                  </p>
+                ))}
+              </div>
+              <p className="text-[9px] font-bold text-slate-400">Tap a date to open that day. Tap a green gap to block it. Green is open, dark is booked, dashed is blocked.</p>
+            </div>
+          );
+        })()}
+
         {view === 'blocks' && (blocks.length === 0 ? <p className="py-3 text-center text-[11px] font-bold text-slate-400">No blocked time.</p> : blocks.map((b) => (
           <div key={b.id} className="flex items-center justify-between gap-2 rounded-2xl border-2 p-3">
             <div className="min-w-0"><p className="text-[12px] font-black truncate">{b.reason || 'Blocked'}</p><p className="text-[10px] font-bold text-slate-500">{when(b.startTime)} · {Math.round((b.duration || 60) / 60 * 10) / 10} hr</p></div>
@@ -2109,7 +2213,7 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
           </div>
         )))}
 
-        {view !== 'blocks' && view !== 'day' && (book === null ? <p className="py-3 text-center text-[11px] font-bold text-slate-400">Loading your book…</p>
+        {view !== 'blocks' && view !== 'day' && view !== 'week' && (book === null ? <p className="py-3 text-center text-[11px] font-bold text-slate-400">Loading your book…</p>
           : rows.length === 0 ? <p className="py-3 text-center text-[11px] font-bold text-slate-400">{view === 'upcoming' ? 'Nothing coming up. Share your booking link or add a walk-in.' : 'No past appointments yet.'}</p>
           : rows.map((a) => {
             const isOpen = openId === a.id;
