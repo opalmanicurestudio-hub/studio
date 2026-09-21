@@ -453,7 +453,9 @@ function PlannerPageContent() {
 
     if (activeView === 'staff') {
         (staffBlocksRaw || [])
-          .filter((b: any) => b && b.startTime && isSameDay(safeDate(b.startTime), targetDateStart))
+          // A renter can keep a block off the studio's calendar; the engine still
+          // refuses bookings into it either way.
+          .filter((b: any) => b && b.startTime && b.showOnStudioCalendar !== false && isSameDay(safeDate(b.startTime), targetDateStart))
           .forEach((b: any) => {
             if (!map.has(b.staffId)) return;
             const endTime = b.endTime || new Date(safeDate(b.startTime).getTime() + (Number(b.durationMin) || 60) * 60000).toISOString();
