@@ -11,6 +11,7 @@ import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { resolveBookingPlan } from '@/lib/deposit-policy';
 import { X as XIcon, ArrowRight } from 'lucide-react';
 import { linkHref, LINK_KINDS, livePageSections, cleanBrand, onAccent } from '@/lib/renter-identity';
+import { policyText } from '@/lib/package-credits';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import {
   ANIM_CSS, STACKS, GFONTS,
@@ -726,6 +727,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
                         <p className="text-[17px] font-light leading-tight" style={{ fontFamily: face }}>{pkg.name}</p>
                         <p className="mt-0.5 text-[12px] font-light" style={{ color: mute }}>{pkg.credits} visit{pkg.credits === 1 ? '' : 's'}{pkg.serviceName ? ` · ${pkg.serviceName}` : ''} · ${(pkg.priceCents / pkg.credits / 100).toFixed(0)} each · valid {pkg.validDays} days</p>
                         {pkg.description && <p className="mt-1 text-[12px] font-light leading-snug" style={{ color: mute }}>{pkg.description}</p>}
+                        <p className="mt-1 text-[10px] font-light" style={{ color: mute, opacity: 0.8 }}>{policyText(pkg)}</p>
                       </div>
                       <button type="button" disabled={pkgBuying === pkg.id} onClick={() => buyPackage(pkg)} className="shrink-0 rounded-full px-4 py-2 text-[11px] font-medium disabled:opacity-50" style={{ ...caps, letterSpacing: '0.2em', background: accent, color: onAcc }}>
                         {pkgBuying === pkg.id ? '…' : `$${(pkg.priceCents / 100).toFixed(0)}`}
