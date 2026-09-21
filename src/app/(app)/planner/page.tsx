@@ -183,6 +183,16 @@ function PlannerPageContent() {
     [firestore, tenantId]
   );
   const { data: rentInvoicesRaw } = useCollection<any>(rentInvoicesQ);
+
+  // Blocked time — written by renters from their portal and by staff from
+  // theirs. The booking engine has always refused to book over these; the
+  // planner never DREW them, so a blocked hour looked open here and the owner
+  // learned otherwise only when a booking was refused.
+  const staffBlocksQ = useMemoFirebase(
+    () => (firestore && tenantId ? collection(firestore, `tenants/${tenantId}/staffBlocks`) : null),
+    [firestore, tenantId],
+  );
+  const { data: staffBlocksRaw } = useCollection<any>(staffBlocksQ);
   const plannerLeasesQ = useMemoFirebase(
     () => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/leases`),
     [firestore, tenantId]
@@ -440,6 +450,16 @@ function PlannerPageContent() {
             (a.requiredResourceIds || []).forEach(rid => { if (map.has(rid)) map.get(rid)!.push({ ...a, itemType: 'appointment' } as any); });
         }
     });
+
+    if (activeView === 'staff') {
+        (staffBlocksRaw || [])
+          .filter((b: any) => b && b.startTime && isSameDay(safeDate(b.startTime), targetDateStart))
+          .forEach((b: any) => {
+            if (!map.has(b.staffId)) return;
+            const endTime = b.endTime || new Date(safeDate(b.startTime).getTime() + (Number(b.durationMin) || 60) * 60000).toISOString();
+            map.get(b.staffId)!.push({ ...b, endTime, itemType: 'block' } as any);
+          });
+    }
 
     if (map.has('business')) {
         billInstances?.filter(i => isSameDay(safeDate(i.dueDate), targetDateStart)).forEach(i => {
@@ -729,7 +749,7 @@ function PlannerPageContent() {
 
     map.forEach(items => items.sort((a, b) => safeDate(a.startTime || a.dueDate).getTime() - safeDate(b.startTime || b.dueDate).getTime()));
     return map;
-  }, [currentDate, appointments, columns, activeView, showCancelled, plannerLeasesRaw, billInstances, billDefinitions, events, studioEventsToday, toursToday, interviewsToday, rentItemsToday, reservationsToday, maintenanceToday]);
+  }, [currentDate, appointments, columns, activeView, showCancelled, plannerLeasesRaw, billInstances, billDefinitions, events, studioEventsToday, toursToday, interviewsToday, rentItemsToday, reservationsToday, maintenanceToday, staffBlocksRaw]);
 
   const { showProfitability } = useProfitabilityVisibility();
 
