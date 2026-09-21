@@ -227,7 +227,41 @@ export async function POST(req: NextRequest) {
     cancellationFeeWaived: !chargeFee,
   });
 
-  if (chargeFee && paymentMethod === 'add_to_balance' && appt.clientId) {
+  // A RENTER'S client cancelling a package-covered (or package-eligible)
+  // visit: the package's own terms decide whether a credit is kept or lost.
+  // The studio's cancellation fee never applies to a renter booking.
+  let packageNote: string | null = null;
+  if (appt.isRenterBooking) {
+    try {
+      const { decideCredit, hoursUntil } = await import('@/lib/package-credits');
+      const purCol = db.collection(`tenants/${tenantId}/renterPackagePurchases`);
+      let purchase: any = null;
+      if (appt.paidByPackageId) { const p = await purCol.doc(String(appt.paidByPackageId)).get(); purchase = p.exists ? { id: p.id, ...(p.data() as any) } : null; }
+      if (!purchase && appt.clientId) {
+        const snap = await purCol.where('clientId', '==', String(appt.clientId)).get();
+        purchase = snap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+          .filter((p: any) => p.status !== 'refunded' && (!p.expiresAt || p.expiresAt >= now) && ((Number(p.creditsTotal) || 0) - (Number(p.creditsUsed) || 0)) > 0)
+          .filter((p: any) => !p.serviceId || !appt.serviceId || p.serviceId === appt.serviceId)[0] || null;
+      }
+      if (purchase) {
+        const pkg = ((await db.doc(`tenants/${tenantId}/renterPackages/${String(purchase.packageId)}`).get()).data() as any) || {};
+        const d = decideCredit(pkg, { by: 'client', how: 'cancel', hoursBeforeStart: hoursUntil(appt.startTime) }, !!appt.paidByPackageId, ((Number(purchase.creditsTotal) || 0) - (Number(purchase.creditsUsed) || 0)) > 0);
+        const evRef = db.collection(`tenants/${tenantId}/packageEvents`).doc();
+        if (d.action === 'restore') {
+          batch.update(purCol.doc(purchase.id), { creditsUsed: Math.max(0, (Number(purchase.creditsUsed) || 0) - 1) });
+          batch.update(apptRef, { paidByPackageId: null, paidByPackageName: null, packageCreditRestoredAt: now });
+          batch.set(evRef, { id: evRef.id, purchaseId: purchase.id, appointmentId, clientId: appt.clientId || null, at: now, action: 'restore', reason: d.reason, ending: 'client_cancel' });
+        } else if (d.action === 'forfeit') {
+          batch.update(purCol.doc(purchase.id), { creditsUsed: (Number(purchase.creditsUsed) || 0) + 1, lastUsedAt: now });
+          batch.update(apptRef, { paidByPackageId: purchase.id, paidByPackageName: purchase.packageName || pkg.name || 'Package', packageForfeitedAt: now });
+          batch.set(evRef, { id: evRef.id, purchaseId: purchase.id, appointmentId, clientId: appt.clientId || null, at: now, action: 'forfeit', reason: d.reason, ending: 'client_cancel' });
+        }
+        packageNote = d.reason;
+      }
+    } catch (e) { console.error('[self-cancel] package rule', e); }
+  }
+
+  if (chargeFee && paymentMethod === 'add_to_balance' && appt.clientId && !appt.isRenterBooking) {
     batch.update(db.doc(`tenants/${tenantId}/clients/${appt.clientId}`), {
       outstandingBalance: FieldValue.increment(feeAmount),
       // appointmentDate set to NOW (when the fee was incurred), not the
@@ -314,7 +348,7 @@ export async function POST(req: NextRequest) {
     console.error('[self-cancel deposit resolution]', e);
   }
 
-  return NextResponse.json({ ok: true, feeCharged: chargeFee, feeAmount, isLate });
+  return NextResponse.json({ ok: true, feeCharged: chargeFee, feeAmount, isLate, packageNote });
 }
 
 // ── Deposit resolution — mirrors useCancellationConfirm v3's client-cancel ────
