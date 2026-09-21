@@ -292,6 +292,33 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   const [providerTab, setProviderTab] = useState<'book' | 'work' | 'about' | 'reviews'>('book');
   // The service a client is LOOKING AT, before they decide to book it.
   const [providerPeek, setProviderPeek] = useState<any | null>(null);
+  const [providerPackages, setProviderPackages] = useState<any[]>([]);
+  const [pkgBuying, setPkgBuying] = useState('');
+  const [pkgErr, setPkgErr] = useState('');
+  const [pkgThanks, setPkgThanks] = useState(false);
+  useEffect(() => {
+    if (!providerId || !tenantId) { setProviderPackages([]); return; }
+    try { if (new URLSearchParams(window.location.search).get('package') === 'thanks') setPkgThanks(true); } catch { /* no-op */ }
+    (async () => {
+      try {
+        const db = getDb(); if (!db) return;
+        const snap = await getDocs(query(collection(db, `tenants/${tenantId}/renterPackages`), where('staffId', '==', providerId)));
+        setProviderPackages(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((p: any) => p.isActive !== false).sort((a: any, b: any) => (a.priceCents || 0) - (b.priceCents || 0)));
+      } catch { setProviderPackages([]); }
+    })();
+  }, [providerId, tenantId, getDb]);
+  const buyPackage = async (pkg: any) => {
+    setPkgBuying(pkg.id); setPkgErr('');
+    try {
+      const name = window.prompt('Your name, for the package') || '';
+      if (!name.trim()) { setPkgBuying(''); return; }
+      const email = window.prompt('Your email — the receipt and your credits go here') || '';
+      const res = await fetch('/api/stripe/renter-package', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, packageId: pkg.id, clientName: name.trim(), clientEmail: email.trim() }) });
+      const d = await res.json().catch(() => ({}));
+      if (d?.ok && d.url) { window.location.href = d.url; return; }
+      setPkgErr(d?.error || 'Could not start checkout.');
+    } finally { setPkgBuying(''); }
+  };
   const providerBrandFont = providerId ? cleanBrand((staff.find((m: any) => m.id === providerId && m.isRenter) as any)?.brand).font : null;
   useEffect(() => { if (providerBrandFont) injectFonts(providerBrandFont, 'jakarta'); }, [providerBrandFont]);
   useEffect(() => {
@@ -688,6 +715,27 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
 
         {providerTab === 'book' && (
           <div className={pane}>
+            {pkgThanks && <p className="mb-4 rounded-2xl px-4 py-3 text-[13px] font-light" style={{ background: accent, color: onAcc }}>Thank you — your package is ready. Your credits come off each visit; just book as usual.</p>}
+            {providerPackages.length > 0 && (
+              <div className="mb-8">
+                {eyebrow('Packages')}
+                <div className="mt-3 space-y-2">
+                  {providerPackages.map((pkg: any) => (
+                    <div key={pkg.id} className="flex items-center justify-between gap-3 py-3" style={{ borderTop: `1px solid ${line}`, borderBottom: `1px solid ${line}` }}>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[17px] font-light leading-tight" style={{ fontFamily: face }}>{pkg.name}</p>
+                        <p className="mt-0.5 text-[12px] font-light" style={{ color: mute }}>{pkg.credits} visit{pkg.credits === 1 ? '' : 's'}{pkg.serviceName ? ` · ${pkg.serviceName}` : ''} · ${(pkg.priceCents / pkg.credits / 100).toFixed(0)} each · valid {pkg.validDays} days</p>
+                        {pkg.description && <p className="mt-1 text-[12px] font-light leading-snug" style={{ color: mute }}>{pkg.description}</p>}
+                      </div>
+                      <button type="button" disabled={pkgBuying === pkg.id} onClick={() => buyPackage(pkg)} className="shrink-0 rounded-full px-4 py-2 text-[11px] font-medium disabled:opacity-50" style={{ ...caps, letterSpacing: '0.2em', background: accent, color: onAcc }}>
+                        {pkgBuying === pkg.id ? '…' : `$${(pkg.priceCents / 100).toFixed(0)}`}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                {pkgErr && <p className="mt-2 text-[12px]" style={{ color: '#b91c1c' }}>{pkgErr}</p>}
+              </div>
+            )}
             {eyebrow('Services')}
             <p className="mt-2 text-[32px] font-light leading-none" style={{ fontFamily: face }}>Menu</p>
             {addr && <p className="mt-2 text-[12px] font-light" style={{ color: mute }}>{addr}</p>}
