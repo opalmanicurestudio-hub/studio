@@ -2465,7 +2465,11 @@ export async function POST(req: NextRequest) {
       if (isNaN(new Date(startTime).getTime())) return NextResponse.json({ ok: false, error: 'Pick a start time.' }, { status: 400 });
       const ref = db.collection(`tenants/${tenantId}/staffBlocks`).doc();
       const endTime = new Date(new Date(startTime).getTime() + duration * 60000).toISOString();
-      await ref.set({ id: ref.id, staffId: st.id, startTime: new Date(startTime).toISOString(), endTime, duration, reason: String(body.reason || 'Blocked').slice(0, 120), source: 'renter_portal', renterId: session.renterId, createdAt: new Date().toISOString() });
+      // Blocks are ALWAYS inviolable — the booking engine refuses every
+      // surface, whatever this flag says. The flag only decides whether the
+      // studio's planner draws it, so the owner knows the renter isn't in.
+      await ref.set({ id: ref.id, staffId: st.id, startTime: new Date(startTime).toISOString(), endTime, duration, reason: String(body.reason || 'Blocked').slice(0, 120), source: 'renter_portal', renterId: session.renterId, createdAt: new Date().toISOString(),
+        showOnStudioCalendar: body.showOnStudioCalendar !== false });
       return NextResponse.json({ ok: true, id: ref.id });
     }
     if (action === 'book-unblock') {
@@ -2479,8 +2483,20 @@ export async function POST(req: NextRequest) {
     if (action === 'book-blocks') {
       const st = await myProvider();
       if (!st) return NextResponse.json({ ok: true, blocks: [] });
-      const snap = await db.collection(`tenants/${tenantId}/staffBlocks`).where('staffId', '==', st.id).where('startTime', '>=', new Date(Date.now() - 86400000).toISOString()).get();
-      return NextResponse.json({ ok: true, blocks: snap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime))) });
+      // Same lesson as the appointments list: a compound query needs an index,
+      // and when the index is missing the whole list vanished silently — a
+      // block SAVED and never SHOWED. Try the indexed form; fall back to
+      // staffId alone with the date filtered here; never blank the planner.
+      const since = new Date(Date.now() - 86400000).toISOString();
+      const col = db.collection(`tenants/${tenantId}/staffBlocks`);
+      let rows: any[] = [];
+      try {
+        rows = (await col.where('staffId', '==', st.id).where('startTime', '>=', since).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+      } catch (e1) {
+        console.warn('[portal/renter] blocks: indexed query unavailable, filtering in memory', String((e1 as any)?.message || e1).slice(0, 160));
+        rows = (await col.where('staffId', '==', st.id).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((b: any) => String(b.startTime || '') >= since);
+      }
+      return NextResponse.json({ ok: true, blocks: rows.sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime))) });
     }
 
     // ── clients-list / client-save / client-archive: the renter's own book ──
