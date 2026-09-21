@@ -79,6 +79,46 @@ const localDay = (d: Date | string): string => {
   return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`;
 };
 
+// ─── Slot picker: only times that are actually free ──────────────────────────
+// Asks the engine (book-slots) for the day's open times for THIS service and
+// THIS renter — hours, existing bookings, blocks, events, day-offs all
+// applied — and offers only those. A typed time could double-book; a picked
+// slot cannot.
+function SlotPicker({ tenantId, token, serviceId, date, onDate, value, onPick }: {
+  tenantId: string; token: string; serviceId: string; date: string; onDate: (d: string) => void; value: string; onPick: (iso: string, label: string) => void;
+}) {
+  const [slots, setSlots] = useState<{ time: string; startIso: string }[] | null>(null);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    if (!serviceId || !date) { setSlots(null); return; }
+    let alive = true; setSlots(null); setErr('');
+    api({ action: 'book-slots', tenantId, token, serviceId, date }).then((d) => { if (!alive) return; if (d?.ok) setSlots(d.slots || []); else setErr(d?.error || 'Could not load times.'); });
+    return () => { alive = false; };
+  }, [tenantId, token, serviceId, date]);
+  const clock = (t: string) => { const [h, m] = t.split(':').map(Number); const ap = h < 12 ? 'am' : 'pm'; const hh = h % 12 === 0 ? 12 : h % 12; return `${hh}:${String(m || 0).padStart(2, '0')} ${ap}`; };
+  const step = (n: number) => { const d = new Date(`${date}T12:00:00`); d.setDate(d.getDate() + n); onDate(localDay(d)); };
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <button type="button" onClick={() => step(-1)} aria-label="Previous day" className="h-10 w-10 rounded-xl border-2 border-slate-200 text-[12px] font-black text-slate-600">‹</button>
+        <input type="date" value={date} onChange={(e) => onDate(e.target.value)} aria-label="Day" className="h-10 flex-1 rounded-xl border-2 border-slate-200 px-3 text-sm font-bold" />
+        <button type="button" onClick={() => step(1)} aria-label="Next day" className="h-10 w-10 rounded-xl border-2 border-slate-200 text-[12px] font-black text-slate-600">›</button>
+      </div>
+      {err && <p className="text-[11px] font-bold text-red-600">{err}</p>}
+      {slots === null && !err && <p className="text-[11px] font-bold text-slate-400">Finding open times…</p>}
+      {slots && slots.length === 0 && <p className="text-[11px] font-bold text-slate-500">Nothing open on {new Date(`${date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })} — try the next day.</p>}
+      {slots && slots.length > 0 && (
+        <div className="grid grid-cols-4 gap-1.5">
+          {slots.map((sl) => (
+            <button key={sl.startIso} type="button" aria-pressed={value === sl.startIso} onClick={() => onPick(sl.startIso, clock(sl.time))}
+              className={cn('h-10 rounded-xl border-2 text-[11px] font-black', value === sl.startIso ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 bg-white text-slate-800')}>{clock(sl.time)}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Appointment sheet: the whole appointment in one place ───────────────────
 // What the main app's appointment sheet gives the studio, for the renter:
 // the client (contact, notes, history, no-shows, favourite), the visit
@@ -92,9 +132,14 @@ function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bookViaEn
   const [client, setClient] = useState<any | null>(null);
   const [note, setNote] = useState(a.note || '');
   const [cnote, setCnote] = useState('');
-  const [mode, setMode] = useState<'view' | 'move' | 'rebook' | 'cancel'>('view');
-  const [when, setWhen] = useState('');
+  const [mode, setMode] = useState<'view' | 'move' | 'rebook' | 'series' | 'cancel'>('view');
+  const [when, setWhen] = useState('');          // chosen slot, as an instant
+  const [whenLabel, setWhenLabel] = useState('');
+  const [pickDate, setPickDate] = useState('');
   const [svcId, setSvcId] = useState('');
+  const [every, setEvery] = useState(4);        // weeks between visits
+  const [count, setCount] = useState(3);        // how many to book
+  const [seriesReport, setSeriesReport] = useState<string[]>([]);
   const [tell, setTell] = useState(true);
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
@@ -109,10 +154,9 @@ function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bookViaEn
     try { const d = await fn(); if (d && d.ok === false) { setErr(d.error || 'That did not work.'); return; } setOk(after || 'Done'); onChanged(); }
     catch (e: any) { setErr(e?.message || 'That did not work.'); } finally { setBusy(''); }
   };
-  const localToIso = (v: string) => { const d = new Date(v); return isNaN(d.getTime()) ? '' : d.toISOString(); };
   const move = async () => {
-    const iso = localToIso(when); const sid = svcMatch?.id || services[0]?.id;
-    if (!iso || !sid) { setErr('Pick a new time.'); return; }
+    const iso = when; const sid = svcMatch?.id || services[0]?.id;
+    if (!iso || !sid) { setErr('Pick an open time.'); return; }
     await run('move', async () => {
       const r = await bookViaEngine({ id: a.clientId || undefined, name: a.clientName, phone: a.clientPhone || undefined, email: a.clientEmail || undefined }, sid, iso);
       if (!r?.ok) return r;
@@ -120,9 +164,54 @@ function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bookViaEn
     }, 'Moved — the client gets the new confirmation');
   };
   const rebook = async () => {
-    const iso = localToIso(when); const sid = svcId || svcMatch?.id || services[0]?.id;
-    if (!iso || !sid) { setErr('Pick a service and a time.'); return; }
+    const iso = when; const sid = svcId || svcMatch?.id || services[0]?.id;
+    if (!iso || !sid) { setErr('Pick a service and an open time.'); return; }
     await run('rebook', () => bookViaEngine({ id: a.clientId || undefined, name: a.clientName, phone: a.clientPhone || undefined, email: a.clientEmail || undefined }, sid, iso), 'Booked — they have their confirmation');
+  };
+  // "See you in four weeks" — the most common thing a renter says at the
+  // chair. Same weekday, same service, the closest OPEN time to the same
+  // hour on that day. If the day is full, it says so and opens the picker.
+  const quickRebook = async (weeks: number) => {
+    const sid = svcMatch?.id || services[0]?.id;
+    if (!sid) { setErr('No service to rebook with.'); return; }
+    const base = new Date(a.startTime); const target = new Date(base); target.setDate(base.getDate() + weeks * 7);
+    const day = localDay(target);
+    setBusy(`q${weeks}`); setErr(''); setOk('');
+    try {
+      const d = await api({ action: 'book-slots', tenantId, token, serviceId: sid, date: day });
+      const slots: { time: string; startIso: string }[] = d?.ok ? d.slots || [] : [];
+      if (!slots.length) { setErr(`Nothing open on ${target.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} — pick another time.`); setPickDate(day); setSvcId(sid); setWhen(''); setMode('rebook'); return; }
+      const want = base.getTime() - new Date(localDay(base) + 'T00:00:00').getTime();
+      const best = slots.map((sl) => ({ sl, diff: Math.abs((new Date(sl.startIso).getTime() - new Date(day + 'T00:00:00').getTime()) - want) })).sort((x, y) => x.diff - y.diff)[0].sl;
+      const r = await bookViaEngine({ id: a.clientId || undefined, name: a.clientName, phone: a.clientPhone || undefined, email: a.clientEmail || undefined }, sid, best.startIso);
+      if (!r?.ok) { setErr(r?.error || 'Could not book that.'); return; }
+      setOk(`Booked ${new Date(best.startIso).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} — they have their confirmation`);
+      onChanged();
+    } finally { setBusy(''); }
+  };
+  // A standing appointment: every N weeks, M times, each at the nearest open
+  // time to this one. Books what it can and reports every date it couldn't.
+  const bookSeries = async () => {
+    const sid = svcId || svcMatch?.id || services[0]?.id;
+    if (!sid) { setErr('Pick a service.'); return; }
+    setBusy('series'); setErr(''); setOk(''); setSeriesReport([]);
+    const report: string[] = [];
+    try {
+      const base = new Date(a.startTime);
+      for (let i = 1; i <= count; i++) {
+        const target = new Date(base); target.setDate(base.getDate() + i * every * 7);
+        const day = localDay(target);
+        const label = target.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        const d = await api({ action: 'book-slots', tenantId, token, serviceId: sid, date: day });
+        const slots: { time: string; startIso: string }[] = d?.ok ? d.slots || [] : [];
+        if (!slots.length) { report.push(`${label}: nothing open — skipped`); continue; }
+        const want = base.getTime() - new Date(localDay(base) + 'T00:00:00').getTime();
+        const best = slots.map((sl) => ({ sl, diff: Math.abs((new Date(sl.startIso).getTime() - new Date(day + 'T00:00:00').getTime()) - want) })).sort((x, y) => x.diff - y.diff)[0].sl;
+        const r = await bookViaEngine({ id: a.clientId || undefined, name: a.clientName, phone: a.clientPhone || undefined, email: a.clientEmail || undefined }, sid, best.startIso);
+        report.push(r?.ok ? `${label} ${new Date(best.startIso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} ✓` : `${label}: ${r?.error || 'could not book'}`);
+      }
+      setSeriesReport(report); setOk('Series done'); onChanged();
+    } finally { setBusy(''); }
   };
   const Btn = ({ k, label, onClick, tone = 'border-2 border-slate-200 text-slate-700' }: { k: string; label: string; onClick: () => void; tone?: string }) => (
     <button type="button" disabled={!!busy} onClick={onClick} className={cn('h-10 rounded-xl px-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-40', tone)}>{busy === k ? '…' : label}</button>
@@ -186,12 +275,47 @@ function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bookViaEn
             )}
 
             {mode === 'view' && (
-              <div className="flex flex-wrap gap-1.5">
-                {!done && <Btn k="done" label="Done ✓" tone="bg-emerald-600 text-white" onClick={() => run('done', () => api({ action: 'book-status', tenantId, token, appointmentId: a.id, outcome: 'completed' }), 'Marked done')} />}
-                {!done && <Btn k="ns" label="No-show" tone="border-2 border-amber-300 text-amber-800" onClick={() => run('ns', () => api({ action: 'book-status', tenantId, token, appointmentId: a.id, outcome: 'no_show' }), 'Marked no-show')} />}
-                {!done && <Btn k="mv" label="Reschedule" onClick={() => { setWhen(''); setMode('move'); }} />}
-                <Btn k="rb" label="Rebook" onClick={() => { setWhen(''); setSvcId(svcMatch?.id || ''); setMode('rebook'); }} />
-                {!done && <Btn k="cx" label="Cancel visit" tone="border-2 border-red-300 text-red-700" onClick={() => setMode('cancel')} />}
+              <>
+                <div className="rounded-2xl border-2 border-slate-100 bg-slate-50 p-3">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Book them again — same day of the week, nearest open time</p>
+                  <div className="mt-2 flex gap-1.5">
+                    {[2, 3, 4, 6].map((w) => <Btn key={w} k={`q${w}`} label={`+${w} wks`} tone="bg-white border-2 border-slate-900 text-slate-900 flex-1" onClick={() => quickRebook(w)} />)}
+                  </div>
+                  <div className="mt-1.5 flex gap-1.5">
+                    <Btn k="rb" label="Pick a time" tone="flex-1" onClick={() => { setWhen(''); setPickDate(localDay(new Date(new Date(a.startTime).getTime() + 14 * 86400000))); setSvcId(svcMatch?.id || ''); setMode('rebook'); }} />
+                    <Btn k="sr" label="Standing appointment" tone="flex-1" onClick={() => { setSvcId(svcMatch?.id || ''); setSeriesReport([]); setMode('series'); }} />
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {!done && <Btn k="done" label="Done ✓" tone="bg-emerald-600 text-white" onClick={() => run('done', () => api({ action: 'book-status', tenantId, token, appointmentId: a.id, outcome: 'completed' }), 'Marked done')} />}
+                  {!done && <Btn k="ns" label="No-show" tone="border-2 border-amber-300 text-amber-800" onClick={() => run('ns', () => api({ action: 'book-status', tenantId, token, appointmentId: a.id, outcome: 'no_show' }), 'Marked no-show')} />}
+                  {!done && <Btn k="mv" label="Reschedule" onClick={() => { setWhen(''); setPickDate(localDay(new Date(a.startTime))); setMode('move'); }} />}
+                  {!done && <Btn k="cx" label="Cancel visit" tone="border-2 border-red-300 text-red-700" onClick={() => setMode('cancel')} />}
+                </div>
+              </>
+            )}
+            {mode === 'series' && (
+              <div className="rounded-2xl border-2 border-slate-900 p-3 space-y-2">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-800">Standing appointment</p>
+                <select value={svcId} onChange={(e) => setSvcId(e.target.value)} aria-label="Service" className="h-11 w-full rounded-xl border-2 border-slate-200 bg-white px-3 text-sm font-bold">
+                  {services.map((sv: any) => <option key={sv.id} value={sv.id}>{sv.name} · ${Number(sv.price).toFixed(0)} · {sv.duration}m</option>)}
+                </select>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-bold text-slate-600">Every</span>
+                  {[1, 2, 3, 4, 6].map((w) => <button key={w} type="button" aria-pressed={every === w} onClick={() => setEvery(w)} className={cn('h-9 w-10 rounded-lg border-2 text-[11px] font-black', every === w ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-700')}>{w}</button>)}
+                  <span className="text-[11px] font-bold text-slate-600">wks</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-bold text-slate-600">Book</span>
+                  {[2, 3, 4, 6, 8].map((n) => <button key={n} type="button" aria-pressed={count === n} onClick={() => setCount(n)} className={cn('h-9 w-10 rounded-lg border-2 text-[11px] font-black', count === n ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-700')}>{n}</button>)}
+                  <span className="text-[11px] font-bold text-slate-600">visits</span>
+                </div>
+                <p className="text-[10px] font-bold text-slate-500">Each one lands at the nearest open time to this visit&apos;s hour. Full days are skipped and listed, never double-booked. The client gets one confirmation per visit.</p>
+                {seriesReport.length > 0 && <div className="rounded-xl bg-slate-50 p-2">{seriesReport.map((l, i) => <p key={i} className="text-[10px] font-bold text-slate-700">{l}</p>)}</div>}
+                <div className="flex gap-2">
+                  <Btn k="series" label={`Book ${count} visits`} tone="bg-slate-900 text-white flex-1" onClick={bookSeries} />
+                  <Btn k="back" label="Back" onClick={() => setMode('view')} />
+                </div>
               </div>
             )}
             {(mode === 'move' || mode === 'rebook') && (
@@ -202,8 +326,8 @@ function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bookViaEn
                     {services.map((sv: any) => <option key={sv.id} value={sv.id}>{sv.name} · ${Number(sv.price).toFixed(0)} · {sv.duration}m</option>)}
                   </select>
                 )}
-                <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} aria-label="New time" className="h-11 w-full rounded-xl border-2 border-slate-200 px-3 text-sm font-bold" />
-                <p className="text-[10px] font-bold text-slate-500">{mode === 'move' ? 'The client gets one new confirmation; the old time is released quietly.' : 'Same client, same details — they get a confirmation.'}</p>
+                <SlotPicker tenantId={tenantId} token={token} serviceId={mode === 'rebook' ? (svcId || svcMatch?.id || services[0]?.id || '') : (svcMatch?.id || services[0]?.id || '')} date={pickDate} onDate={(d) => { setPickDate(d); setWhen(''); }} value={when} onPick={(iso, label) => { setWhen(iso); setWhenLabel(label); }} />
+                <p className="text-[10px] font-bold text-slate-500">{when ? `Chosen: ${new Date(pickDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at ${whenLabel}. ` : 'Only open times are shown. '}{mode === 'move' ? 'The client gets one new confirmation; the old time is released quietly.' : 'Same client, same details — they get a confirmation.'}</p>
                 <div className="flex gap-2">
                   <Btn k={mode} label={mode === 'move' ? 'Move' : 'Book'} tone="bg-slate-900 text-white flex-1" onClick={mode === 'move' ? move : rebook} />
                   <Btn k="back" label="Back" onClick={() => setMode('view')} />
@@ -2102,7 +2226,7 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
   const [walkIn, setWalkIn] = useState(false);
-  const [wi, setWi] = useState({ name: '', phone: '', serviceId: '', when: '' });
+  const [wi, setWi] = useState({ name: '', phone: '', serviceId: '', when: '', day: localDay(new Date()) });
   const [resched, setResched] = useState<{ id: string; when: string } | null>(null);
   const [blockOpen, setBlockOpen] = useState(false);
   const [blk, setBlk] = useState({ when: '', hours: '1', reason: '', showStudio: true });
@@ -2133,8 +2257,8 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
   };
   const submitWalkIn = () => run('walkin', async () => {
     if (!wi.name.trim() || !wi.serviceId || !wi.when) return { ok: false, error: 'Name, service and time are needed.' };
-    const r = await bookViaEngine({ name: wi.name.trim(), phone: wi.phone.trim() || undefined }, wi.serviceId, localToIso(wi.when));
-    if (r?.ok) { setWalkIn(false); setWi({ name: '', phone: '', serviceId: '', when: '' }); }
+    const r = await bookViaEngine({ name: wi.name.trim(), phone: wi.phone.trim() || undefined }, wi.serviceId, wi.when);
+    if (r?.ok) { setWalkIn(false); setWi({ name: '', phone: '', serviceId: '', when: '', day: localDay(new Date()) }); }
     return r;
   });
   const submitResched = (a: any) => run(`re-${a.id}`, async () => {
@@ -2171,7 +2295,9 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
               <option value="">Service…</option>
               {(book?.services || []).map((sv) => <option key={sv.id} value={sv.id}>{sv.name} · ${sv.price.toFixed(0)} · {sv.duration}m</option>)}
             </select>
-            <input type="datetime-local" value={wi.when} onChange={(ev) => setWi((f) => ({ ...f, when: ev.target.value }))} aria-label="When" className="h-11 w-full rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
+            {wi.serviceId
+              ? <SlotPicker tenantId={tenantId} token={token} serviceId={wi.serviceId} date={wi.day} onDate={(d) => setWi((f) => ({ ...f, day: d, when: '' }))} value={wi.when} onPick={(iso) => setWi((f) => ({ ...f, when: iso }))} />
+              : <p className="text-[10px] font-bold text-slate-400">Pick a service to see open times.</p>}
             <button type="button" onClick={submitWalkIn} disabled={busy === 'walkin'} className="h-11 w-full rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy === 'walkin' ? 'Booking…' : 'Book it'}</button>
             <p className="text-[9px] font-bold text-slate-400">Goes through the same booking engine as your link, so it can't double-book you. If they gave a phone or email, they get your confirmation.</p>
           </div>
