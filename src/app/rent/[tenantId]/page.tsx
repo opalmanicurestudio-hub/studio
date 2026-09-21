@@ -2105,7 +2105,7 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
   const [wi, setWi] = useState({ name: '', phone: '', serviceId: '', when: '' });
   const [resched, setResched] = useState<{ id: string; when: string } | null>(null);
   const [blockOpen, setBlockOpen] = useState(false);
-  const [blk, setBlk] = useState({ when: '', hours: '1', reason: '' });
+  const [blk, setBlk] = useState({ when: '', hours: '1', reason: '', showStudio: true });
   const [confirmCancel, setConfirmCancel] = useState('');
   const e = data?.earnings || {};
   const money = (c: number) => `$${((Number(c) || 0) / 100).toFixed(2)}`;
@@ -2114,7 +2114,7 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
     const [d, b] = await Promise.all([api({ action: 'book-list', tenantId, token }), api({ action: 'book-blocks', tenantId, token })]);
     if (d?.ok) { setBook({ upcoming: d.upcoming || [], past: d.past || [], services: d.services || [], staffId: d.staffId }); setBookErr(d.apptError ? `Appointments could not load: ${d.apptError}` : ''); }
     else setBookErr(d?.error || 'Your book could not load.');
-    if (b?.ok) setBlocks(b.blocks || []);
+    if (b?.ok) setBlocks(b.blocks || []); else if (b?.error) setBookErr((e) => e || `Blocked time could not load: ${b.error}`);
   }, [tenantId, token]);
   useEffect(() => { void load(); }, [load]);
   const localToIso = (v: string) => { const d = new Date(v); return isNaN(d.getTime()) ? '' : d.toISOString(); };
@@ -2184,8 +2184,12 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
                 {['0.5', '1', '1.5', '2', '3', '4', '8'].map((h) => <option key={h} value={h}>{h} hr{h === '1' ? '' : 's'}</option>)}
               </select>
               <input value={blk.reason} onChange={(ev) => setBlk((f) => ({ ...f, reason: ev.target.value.slice(0, 120) }))} aria-label="Reason" placeholder="Lunch, errand, class…" className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
+              <button type="button" aria-pressed={blk.showStudio} onClick={() => setBlk((f) => ({ ...f, showStudio: !f.showStudio }))}
+                className={cn('h-11 rounded-2xl border-2 px-3 text-left text-[10px] font-bold', blk.showStudio ? 'border-slate-900 bg-slate-50 text-slate-900' : 'border-slate-200 bg-white text-slate-500')}>
+                {blk.showStudio ? 'Shown on the studio\'s calendar — they\'ll see you\'re out' : 'Kept off the studio\'s calendar — clients still can\'t book it'}
+              </button>
             </div>
-            <button type="button" disabled={busy === 'block' || !blk.when} onClick={() => run('block', async () => { const r = await api({ action: 'book-block', tenantId, token, startTime: localToIso(blk.when), duration: Math.round(Number(blk.hours) * 60), reason: blk.reason }); if (r?.ok) { setBlockOpen(false); setBlk({ when: '', hours: '1', reason: '' }); if (view !== 'day' && view !== 'week') setView('blocks'); } return r; })}
+            <button type="button" disabled={busy === 'block' || !blk.when} onClick={() => run('block', async () => { const r = await api({ action: 'book-block', tenantId, token, startTime: localToIso(blk.when), duration: Math.round(Number(blk.hours) * 60), reason: blk.reason, showOnStudioCalendar: blk.showStudio }); if (r?.ok) { setBlockOpen(false); setBlk({ when: '', hours: '1', reason: '', showStudio: true }); if (view !== 'day' && view !== 'week') setView('blocks'); } return r; })}
               className="h-11 w-full rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy === 'block' ? 'Saving…' : 'Block it'}</button>
             <p className="text-[9px] font-bold text-slate-400">Clients can't book you during a block. Your rent doesn't change.</p>
           </div>
@@ -2345,7 +2349,7 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
                     {!c.working && <span className="absolute inset-0 flex items-center justify-center text-[8px] font-black uppercase tracking-widest text-slate-300" style={{ writingMode: 'vertical-rl' }}>Off</span>}
                     {c.working && c.gaps.map((g, i) => (
                       <button key={`g${i}`} type="button" title={`Block ${clock(g.s)}–${clock(g.e)}`}
-                        onClick={() => { const pad = (n: number) => String(n).padStart(2, '0'); setBlk({ when: `${c.key}T${pad(Math.floor(g.s / 60))}:${pad(g.s % 60)}`, hours: String(Math.round(((g.e - g.s) / 60) * 10) / 10), reason: '' }); setBlockOpen(true); }}
+                        onClick={() => { const pad = (n: number) => String(n).padStart(2, '0'); setBlk({ when: `${c.key}T${pad(Math.floor(g.s / 60))}:${pad(g.s % 60)}`, hours: String(Math.round(((g.e - g.s) / 60) * 10) / 10), reason: '', showStudio: true }); setBlockOpen(true); }}
                         className="absolute inset-x-0.5 rounded bg-emerald-50 text-[8px] font-black text-emerald-700"
                         style={{ top: y(g.s), height: Math.max(8, y(g.e) - y(g.s)) }}>
                         {y(g.e) - y(g.s) > 22 ? clock(g.s) : ''}
