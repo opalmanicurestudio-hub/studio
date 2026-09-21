@@ -2291,6 +2291,50 @@ export async function POST(req: NextRequest) {
     //   3. staffId == id only, dates filtered in memory (needs NO index)
     // Whichever works first wins; the fallback used is returned so the
     // portal can say when it is running on the slow path.
+    // ── Package credits, on every ending ──────────────────────────────────
+    // One function applies the package rules (src/lib/package-credits.ts)
+    // to a visit that is ending: restores a credit the renter took away,
+    // forfeits one when the terms say a no-show or late cancel costs it.
+    // Returns a sentence for the renter, and writes a `packageEvents` line so
+    // the client's credit history is auditable.
+    const settleCredit = async (a: any, apptRef: any, ending: any): Promise<string | null> => {
+      try {
+        const { decideCredit } = await import('@/lib/package-credits');
+        const purCol = db.collection(`tenants/${tenantId}/renterPackagePurchases`);
+        let purchase: any = null;
+        if (a.paidByPackageId) { const p = await purCol.doc(String(a.paidByPackageId)).get(); purchase = p.exists ? { id: p.id, ...(p.data() as any) } : null; }
+        if (!purchase && a.clientId) {
+          const nowIso = new Date().toISOString();
+          const snap = await purCol.where('clientId', '==', String(a.clientId)).get();
+          purchase = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
+            .filter((p: any) => p.status !== 'refunded' && (!p.expiresAt || p.expiresAt >= nowIso) && ((Number(p.creditsTotal) || 0) - (Number(p.creditsUsed) || 0)) > 0)
+            .filter((p: any) => !p.serviceId || !a.serviceId || p.serviceId === a.serviceId)
+            .sort((x: any, y: any) => String(x.expiresAt || '').localeCompare(String(y.expiresAt || '')))[0] || null;
+        }
+        if (!purchase) return null;
+        const pkg = ((await db.doc(`tenants/${tenantId}/renterPackages/${String(purchase.packageId)}`).get()).data() as any) || {};
+        const applied = !!a.paidByPackageId;
+        const live = ((Number(purchase.creditsTotal) || 0) - (Number(purchase.creditsUsed) || 0)) > 0;
+        const d = decideCredit(pkg, ending, applied, live);
+        const pRef = purCol.doc(purchase.id);
+        const evRef = db.collection(`tenants/${tenantId}/packageEvents`).doc();
+        const base = { id: evRef.id, purchaseId: purchase.id, packageName: purchase.packageName || pkg.name || 'Package', appointmentId: apptRef.id, clientId: a.clientId || null, clientName: a.clientName || null, renterId: session.renterId, at: new Date().toISOString(), ending, reason: d.reason };
+        if (d.action === 'restore') {
+          await pRef.set({ creditsUsed: Math.max(0, (Number(purchase.creditsUsed) || 0) - 1) }, { merge: true });
+          await apptRef.set({ paidByPackageId: null, paidByPackageName: null, packageCreditRestoredAt: new Date().toISOString() }, { merge: true });
+          await evRef.set({ ...base, action: 'restore' });
+          return `Credit returned to ${a.clientName || 'the client'} — ${d.reason}`;
+        }
+        if (d.action === 'forfeit') {
+          await pRef.set({ creditsUsed: (Number(purchase.creditsUsed) || 0) + 1, lastUsedAt: new Date().toISOString() }, { merge: true });
+          await apptRef.set({ paidByPackageId: purchase.id, paidByPackageName: purchase.packageName || pkg.name || 'Package', packageForfeitedAt: new Date().toISOString() }, { merge: true });
+          await evRef.set({ ...base, action: 'forfeit' });
+          return `One visit used from ${purchase.packageName || 'their package'} — ${d.reason}`;
+        }
+        return null;
+      } catch (e) { console.error('[portal/renter] settleCredit', e); return null; }
+    };
+
     const apptsFor = async (ids: string[], fromIso: string, toIso?: string): Promise<any[]> => {
       if (ids.length === 0) return [];
       const col = db.collection(`tenants/${tenantId}/appointments`);
@@ -2390,6 +2434,7 @@ export async function POST(req: NextRequest) {
       const { st, ref, a, error } = await myAppt(String(body.appointmentId || ''));
       if (!ref || !a) return NextResponse.json({ ok: false, error }, { status: 403 });
       if (a.status === 'cancelled') return NextResponse.json({ ok: true, already: true });
+      const creditNote = await settleCredit(a, ref, { by: 'renter', how: 'cancel' });
       const nowIso = new Date().toISOString();
       const note = String(body.note || '').trim().slice(0, 400);
       await ref.set({
@@ -2400,7 +2445,7 @@ export async function POST(req: NextRequest) {
         await tellClient(a, st, 'Your appointment has been cancelled',
           [`Your ${a.renterServiceName || 'appointment'} on ${fmtWhen(a.startTime)} has been cancelled.${note ? ` ${note}` : ''}`, 'Nothing has been charged. Reply or rebook any time.'], 'renter_client_cancelled');
       }
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: true, creditNote });
     }
 
     // ── book-decide: accept or decline a request — the renter's call ─────
@@ -2423,6 +2468,7 @@ export async function POST(req: NextRequest) {
       } else {
         await ref.set({ status: 'cancelled', cancelledAt: nowIso, decidedBy: 'renter',
           cancellationAudit: { actorType: 'studio', actorId: st.id, actorName: st.name || 'Provider', reason: 'request_declined', note, feeAmount: 0, feeWaived: true, paymentStatus: 'paid', timestamp: nowIso, via: 'renter_portal' } }, { merge: true });
+        await settleCredit(a, ref, { by: 'renter', how: 'decline' });
         await tellClient(a, st, 'About your booking request',
           [`I can't take your ${a.renterServiceName || 'appointment'} on ${fmtWhen(a.startTime)} — sorry about that.${note ? ` ${note}` : ''}`, 'Nothing has been charged. Pick another time any time.'], 'renter_client_declined');
       }
@@ -2500,6 +2546,7 @@ export async function POST(req: NextRequest) {
       if (!ref || !a) return NextResponse.json({ ok: false, error }, { status: 403 });
       const outcome = ['completed', 'no_show'].includes(String(body.outcome)) ? String(body.outcome) : null;
       if (!outcome) return NextResponse.json({ ok: false, error: 'Outcome must be completed or no_show.' }, { status: 400 });
+      const creditNote = outcome === 'no_show' ? await settleCredit(a, ref, { by: 'client', how: 'no_show' }) : null;
       const nowIso = new Date().toISOString();
       await ref.set({ status: outcome === 'completed' ? 'completed' : 'cancelled', renterOutcome: outcome, renterOutcomeAt: nowIso,
         ...(outcome === 'no_show' ? { cancelledAt: nowIso, cancellationAudit: { actorType: 'no_show', reason: 'no-show', actorName: st.name || 'Provider', timestamp: nowIso, feeAmount: 0, feeWaived: true, paymentStatus: 'paid', via: 'renter_portal' } } : { completedAt: nowIso }),
@@ -2514,7 +2561,7 @@ export async function POST(req: NextRequest) {
             : { visitCount: (Number(c.visitCount) || 0) + 1, lastAppointment: a.startTime, lifetimeValue: (Number(c.lifetimeValue) || 0) + (Number(a.renterServicePrice) || 0) }, { merge: true });
         }
       }
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: true, creditNote });
     }
 
     if (action === 'book-note') {
@@ -2666,7 +2713,10 @@ export async function POST(req: NextRequest) {
       const ref = id ? db.doc(`tenants/${tenantId}/renterPackages/${id}`) : db.collection(`tenants/${tenantId}/renterPackages`).doc();
       if (id) { const cur = ((await ref.get()).data() as any) || null; if (!cur || cur.staffId !== st.id) return NextResponse.json({ ok: false, error: 'Not your package.' }, { status: 403 }); }
       await ref.set({ id: ref.id, renterId: session.renterId, staffId: st.id, name, description: String(body.description || '').trim().slice(0, 300),
-        credits, priceCents, validDays, serviceId, serviceName, isActive: body.isActive !== false, updatedAt: new Date().toISOString(), ...(id ? {} : { createdAt: new Date().toISOString() }) }, { merge: true });
+        credits, priceCents, validDays, serviceId, serviceName, isActive: body.isActive !== false,
+        // The terms a client agrees to when they buy: what a no-show or a late cancel costs.
+        noShowForfeits: body.noShowForfeits !== false, lateCancelForfeits: body.lateCancelForfeits !== false, lateCancelHours: Math.max(0, Math.min(168, Math.round(Number(body.lateCancelHours ?? 24) || 0))),
+        updatedAt: new Date().toISOString(), ...(id ? {} : { createdAt: new Date().toISOString() }) }, { merge: true });
       return NextResponse.json({ ok: true, id: ref.id });
     }
     if (action === 'package-sell') {
@@ -2699,6 +2749,56 @@ export async function POST(req: NextRequest) {
       await pRef.set({ creditsUsed: (Number(p.creditsUsed) || 0) + 1, lastUsedAt: new Date().toISOString() }, { merge: true });
       await ref.set({ paidByPackageId: pRef.id, paidByPackageName: p.packageName || 'Package', packageRedeemedAt: new Date().toISOString() }, { merge: true });
       return NextResponse.json({ ok: true, remaining: remaining - 1 });
+    }
+    // ── ledger: the renter's books for a month ─────────────────────────────
+    // What they earned (completed visits at their price, package sales),
+    // what they paid in rent (their side of rentLedger), what they spent
+    // (expenses they log here), and the net. Package-covered visits count
+    // as $0 collected on the day — the money came in when the package sold.
+    if (action === 'ledger') {
+      const st = await myProvider();
+      const month = /^\d{4}-\d{2}$/.test(String(body.month || '')) ? String(body.month) : new Date().toISOString().slice(0, 7);
+      const from = `${month}-01T00:00:00.000Z`;
+      const toDate = new Date(`${month}-01T00:00:00Z`); toDate.setUTCMonth(toDate.getUTCMonth() + 1);
+      const to = toDate.toISOString();
+      const ids = st ? await myStaffIds() : [];
+      const appts = ids.length ? (await apptsFor(ids, from, to)).filter((a: any) => a.isRenterBooking && (a.status === 'completed' || a.renterOutcome === 'completed')) : [];
+      const visits = appts.map((a: any) => ({ id: a.id, date: String(a.startTime).slice(0, 10), clientName: a.clientName || 'Client', serviceName: a.renterServiceName || a.serviceName || '', cents: a.paidByPackageId ? 0 : Math.round((Number(a.renterServicePrice) || 0) * 100), covered: !!a.paidByPackageId, packageName: a.paidByPackageName || null }))
+        .sort((x: any, y: any) => x.date.localeCompare(y.date));
+      const pur = st ? (await db.collection(`tenants/${tenantId}/renterPackagePurchases`).where('staffId', '==', st.id).get()).docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((p: any) => String(p.purchasedAt || '') >= from && String(p.purchasedAt || '') < to && p.status !== 'refunded') : [];
+      const packages = pur.map((p: any) => ({ id: p.id, date: String(p.purchasedAt).slice(0, 10), clientName: p.clientName || 'Client', packageName: p.packageName || 'Package', cents: Number(p.amountCents) || 0, source: p.source || 'stripe' }));
+      const rentSnap = await db.collection(`tenants/${tenantId}/rentLedger`).where('renterId', '==', session.renterId).get().catch(() => ({ docs: [] } as any));
+      // Rent they PAID: 'payment' entries (manual, card, autopay's rent_charge
+      // when it succeeded). Credits (leave, sublet, abatement) reduce rent and
+      // show as negatives so the month's rent line is what actually left them.
+      const rent = rentSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((r: any) => String(r.date || r.createdAt || '').slice(0, 7) === month && ['payment', 'rent_charge', 'leave_credit', 'sublet_credit', 'rent_abatement'].includes(String(r.type || '')))
+        .map((r: any) => { const c = Math.abs(Number(r.amountCents) || Math.round((Number(r.amount) || 0) * 100)); const credit = ['leave_credit', 'sublet_credit', 'rent_abatement'].includes(String(r.type)); return { id: r.id, date: String(r.date || r.createdAt).slice(0, 10), cents: credit ? -c : c, method: credit ? String(r.type).replace('_', ' ') : (r.method || 'payment') }; });
+      const expSnap = await db.collection(`tenants/${tenantId}/renterExpenses`).where('renterId', '==', session.renterId).get().catch(() => ({ docs: [] } as any));
+      const expenses = expSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((e: any) => String(e.date || '').slice(0, 7) === month).sort((x: any, y: any) => String(x.date).localeCompare(String(y.date)));
+      const sum = (rows: any[]) => rows.reduce((n, r) => n + (Number(r.cents) || 0), 0);
+      const totals = { servicesCents: sum(visits), packagesCents: sum(packages), rentCents: sum(rent), expensesCents: sum(expenses) };
+      return NextResponse.json({ ok: true, month, visits, packages, rent, expenses, totals: { ...totals, earnedCents: totals.servicesCents + totals.packagesCents, netCents: totals.servicesCents + totals.packagesCents - totals.rentCents - totals.expensesCents } });
+    }
+    if (action === 'expense-save') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date || '')) ? String(body.date) : new Date().toISOString().slice(0, 10);
+      const cents = Math.round((Number(body.amount) || 0) * 100);
+      const category = String(body.category || 'Supplies').trim().slice(0, 40);
+      const note = String(body.note || '').trim().slice(0, 200);
+      if (cents <= 0) return NextResponse.json({ ok: false, error: 'An amount is needed.' }, { status: 400 });
+      const id = String(body.expenseId || '');
+      const ref = id ? db.doc(`tenants/${tenantId}/renterExpenses/${id}`) : db.collection(`tenants/${tenantId}/renterExpenses`).doc();
+      if (id) { const cur = ((await ref.get()).data() as any) || null; if (!cur || cur.renterId !== session.renterId) return NextResponse.json({ ok: false, error: 'Not yours.' }, { status: 403 }); }
+      await ref.set({ id: ref.id, renterId: session.renterId, date, cents, category, note, updatedAt: new Date().toISOString(), ...(id ? {} : { createdAt: new Date().toISOString() }) }, { merge: true });
+      return NextResponse.json({ ok: true, id: ref.id });
+    }
+    if (action === 'expense-delete') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const ref = db.doc(`tenants/${tenantId}/renterExpenses/${String(body.expenseId || '')}`);
+      const cur = ((await ref.get()).data() as any) || null;
+      if (!cur || cur.renterId !== session.renterId) return NextResponse.json({ ok: false, error: 'Not yours.' }, { status: 403 });
+      await ref.delete();
+      return NextResponse.json({ ok: true });
     }
     if (action === 'client-save') {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
