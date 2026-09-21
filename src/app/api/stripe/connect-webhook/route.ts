@@ -73,7 +73,16 @@ export async function POST(req: NextRequest) {
   const stripe2 = new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2025-04-30.basil' as any });
 
   // Helper: find tenant by connected Stripe account ID
-  const getTenant = async (accountId: string) => {
+  // A RENTER'S connected account is stored on the renter doc, not the
+  // tenant — so events from a renter's Stripe never matched a tenant here
+  // and were dropped. Every session this app creates carries tenantId in
+  // its metadata; that is the reliable key, with the account lookup as the
+  // legacy path.
+  const getTenant = async (accountId: string, metaTenantId?: string | null) => {
+    if (metaTenantId) {
+      const ref = db.doc(`tenants/${metaTenantId}`);
+      if ((await ref.get()).exists) return { id: metaTenantId, ref };
+    }
     const snap = await db.collection('tenants')
       .where('stripeAccountId', '==', accountId)
       .limit(1).get();
@@ -87,10 +96,50 @@ export async function POST(req: NextRequest) {
       // ── checkout.session.completed: deposit / completion / card vaulting ──
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
-        const tenant  = await getTenant(connAcct);
+        const tenant  = await getTenant(connAcct, session.metadata?.tenantId || null);
         if (!tenant) break;
 
         const sessionType = session.metadata?.type;
+
+        // ── A renter's package, bought by a client on the renter's page ──
+        // Money landed in the renter's Stripe. This records the credits on
+        // the renter's side only: nothing in the studio's ledger, ever.
+        if (sessionType === 'renter_package') {
+          const pkgId = String(session.metadata?.packageId || '');
+          const renterId = String(session.metadata?.renterId || '');
+          const staffId = String(session.metadata?.staffId || '');
+          if (pkgId && renterId) {
+            const pRef = db.doc(`tenants/${tenant.id}/renterPackages/${pkgId}`);
+            const pkg = ((await pRef.get()).data() as any) || {};
+            const email = String(session.customer_details?.email || session.metadata?.clientEmail || '').toLowerCase();
+            const name = String(session.customer_details?.name || session.metadata?.clientName || 'Client');
+            // Their client, in THEIR book.
+            let clientId: string | null = null;
+            if (email) {
+              const hits = await db.collection(`tenants/${tenant.id}/clients`).where('email', '==', email).limit(5).get();
+              const own = hits.docs.find((d: any) => (d.data() as any)?.ownerRenterId === renterId);
+              if (own) clientId = own.id;
+              else { const nRef = db.collection(`tenants/${tenant.id}/clients`).doc(); clientId = nRef.id; await nRef.set({ id: clientId, name, email, phone: '', status: 'active', lifetimeValue: 0, createdAt: new Date().toISOString(), ownerRenterId: renterId, ownerStaffId: staffId, createdVia: 'renter_package' }); }
+            }
+            const dup = await db.collection(`tenants/${tenant.id}/renterPackagePurchases`).where('stripeSessionId', '==', session.id).limit(1).get();
+            if (dup.empty) {
+              const credits = Number(pkg.credits) || Number(session.metadata?.credits) || 1;
+              const validDays = Number(pkg.validDays) || 365;
+              const ref = db.collection(`tenants/${tenant.id}/renterPackagePurchases`).doc();
+              await ref.set({
+                id: ref.id, packageId: pkgId, packageName: pkg.name || 'Package', renterId, staffId,
+                serviceId: pkg.serviceId || null, clientId, clientName: name, clientEmail: email || null,
+                creditsTotal: credits, creditsUsed: 0, amountCents: Number(session.amount_total) || 0,
+                purchasedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + validDays * 86400000).toISOString(),
+                status: 'active', source: 'stripe', stripeSessionId: session.id, stripeAccountId: connAcct,
+              });
+              const nRef = db.collection(`tenants/${tenant.id}/notifications`).doc();
+              await nRef.set({ id: nRef.id, type: 'renter_package_sold', read: false, createdAt: new Date().toISOString(), link: '/renters',
+                message: `${name} bought "${pkg.name || 'a package'}" (${credits} visits) from a renter — paid to the renter's Stripe.` }).catch(() => null);
+            }
+          }
+          break;
+        }
 
         // Resolve the resulting charge (if any) so fee tracking can link to it
         let chargeId: string | null = null;
