@@ -1,4118 +1,3483 @@
-'use client';
-
-// src/app/rent/[tenantId]/page.tsx
+// src/app/api/portal/renter/route.ts
 //
-// v81 — Guest portal for booth renters WITHOUT staff records (day/hourly
-// renters), plus a lightweight view for leased renters who never got a
-// staff login. Everything goes through /api/portal/renter — this page
-// makes ZERO direct Firestore reads, so it works under the hardened rules
-// with no client SDK auth at all.
+// v81 — Guest portal auth + data for booth renters WITHOUT staff records
+// (day/hourly renters). Staff-linked and hybrid renters keep using the
+// staff portal; this route exists for the guest who booked a chair with
+// just a name + phone/email and has nothing to log into.
 //
-// Flow: enter the phone/email you booked with → the studio front desk
-// receives a 6-digit code and relays it (SMS delivery slots in later,
-// server-side only) → 24h session (token in localStorage) → dashboard:
-//   · Today card — self check-in / check-out with honest settlement
-//     results (overage due / credit pending review)
-//   · Upcoming bookings + booking history
-//   · Credits balance (auto-applies at their next booking)
-//   · Lease + rent invoices (for leased renters) and payment history
+// Identity = contact footprint. A guest proves control of the phone/email
+// they booked with via a 6-digit code (10-min expiry, hashed at rest).
+// Until an SMS/email provider is wired, the code is delivered as a
+// notification to owners/admins — front desk relays it in person, same
+// manager-mediated pattern as staff PIN resets. The delivery hook is a
+// single function (deliverCode) so SMS can be swapped in later without
+// touching the flow.
 //
-// Hybrid renters (chair + salon booking system) keep the full staff
-// portal; this page is intentionally simpler.
+// Actions (POST { action, tenantId, ... }):
+//   request-code → { contact } — finds the contact's footprint across
+//                  renters + recent boothReservations. Always answers
+//                  ok:true (no account enumeration); only stores/delivers
+//                  a code when a footprint exists.
+//   verify-code  → { contact, code } — 5 attempts max; returns a session
+//                  token (24h, hashed at rest in private/renterSessions).
+//   me           → { token, today? } — everything the guest may see:
+//                  their reservations, credits, lease + invoices, and
+//                  booth-rent payment history. Contact-scoped only.
+//   check-in     → { token, reservationId, today? } — self check-in for a
+//                  confirmed reservation on its booked date. Mirrors the
+//                  owner-side checkInRes exactly (incl. the settleHourlyCents
+//                  rate snapshot and the `checked_inAt` underscore field).
+//   check-out    → { token, reservationId } — self check-out. Mirrors
+//                  checkOutRes settlement math exactly: 10-min grace, then
+//                  15-min increments of overage at the snapshotted rate;
+//                  30+ min early with ≥$1 value records a PENDING credit
+//                  for the owner to approve (never auto-issued).
+//
+// Rate limits (per tenant, sliding windows in tenants/{id}/private/renterAuth):
+//   10 code requests / 15 min · 5 failed verifies / 15 min (423 when locked).
 
-import { downscaleImageToDataUrl } from '@/lib/client-image';
-import { getApps, initializeApp } from 'firebase/app';
-import { getStorage, ref as storageRef } from 'firebase/storage';
-import { getAuth, signInWithCustomToken } from 'firebase/auth';
-import { uploadImage } from '@/lib/upload-image';
-import { firebaseConfig } from '@/firebase/config';
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useParams } from 'next/navigation';
-import { format, parseISO } from 'date-fns';
-import { cn } from '@/lib/utils';
-import { credentialViews, stateLabel, CREDENTIAL_LABEL } from '@/lib/compliance';
-import { LINK_KINDS, SECTION_KINDS, RENTER_FONTS, onAccent } from '@/lib/renter-identity';
-import { useToast } from '@/hooks/use-toast';
-import {
-  Armchair, CalendarDays, Clock, CreditCard, LogOut, Loader,
-  CheckCircle2, Sparkles, ChevronRight, Receipt, AlertTriangle,
-  Wallet, KeyRound, Phone, RefreshCw, Repeat, X,
-  MessageSquare,
-  CalendarClock,
-  Users,
-  Home,
-  Store,
-  BellRing,
-  ShieldAlert,
-  Wrench,
-  CloudLightning,
-  FileSignature,
-} from 'lucide-react';
+import { NextRequest, NextResponse } from 'next/server';
+import Stripe from 'stripe';
+import { createHash, randomBytes } from 'crypto';
+import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
+import { logAuditAdmin } from '@/lib/audit';
+import { smsConfigured, sendTenantSms } from '@/lib/sms';
 
-// Local YYYY-MM-DD — the UTC-slice version flips to tomorrow in the evening.
-const localISO = (d = new Date()) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const fmtDate = (s?: string | null) => {
-  if (!s) return '';
-  try { return format(parseISO(String(s).slice(0, 10) + 'T12:00:00'), 'EEE, MMM d'); } catch { return s; }
+const WEEK_DAYS = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+
+// ── The leased window is the outer bound on bookable hours ───────────────────
+// A part-time or shared lease holds the chair only on certain days (and
+// sometimes only part of those days). A renter can set any hours they like,
+// but clients can only ever book them inside what they actually lease —
+// otherwise two people end up in one chair. Applied on BOTH read and write, so
+// a later change to the lease can't leave stale hours behind.
+function clampWeekToLease(week: any, lease: any): any {
+  const slot = lease?.scheduleSlot;
+  if (!slot || !Array.isArray(slot.days) || slot.days.length === 0) return week || {};
+  const leasedDays = new Set(slot.days.map((d: any) => WEEK_DAYS[Number(d)] || ''));
+  const out: any = {};
+  for (const day of WEEK_DAYS) {
+    const row = (week || {})[day];
+    if (!row || !row.enabled) { out[day] = { enabled: false }; continue; }
+    if (!leasedDays.has(day)) { out[day] = { enabled: false }; continue; }
+    let start = String(row.start || '');
+    let end = String(row.end || '');
+    // A slot with times narrows the day; a slot without them takes it whole.
+    if (slot.startTime && start < slot.startTime) start = slot.startTime;
+    if (slot.endTime && end > slot.endTime) end = slot.endTime;
+    out[day] = (start && end && start < end) ? { enabled: true, start, end } : { enabled: false };
+  }
+  return out;
+}
+import { dueAtFor, respondByFor, ticketAcknowledged, responseCommitments, TICKET_STATUS_LABELS } from '@/lib/maintenance';
+import { uploadTicketPhotoFromDataUrl, uploadPortalImageFromDataUrl, autoAssignTicket } from '@/lib/maintenance-server';
+
+const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
+const WINDOW_MS = 15 * 60 * 1000;
+const CODE_TTL_MS = 10 * 60 * 1000;
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+const MAX_CODE_REQUESTS = 10;
+const MAX_VERIFY_FAILS = 5;
+
+// ── Contact normalization ─────────────────────────────────────────────────
+// Stored contact fields are un-normalized (raw-trimmed at write time), so
+// every comparison normalizes BOTH sides: emails trim+lowercase, phones
+// digits-only. This matches the staff-portal reader behavior.
+const isEmail = (v: string) => v.includes('@');
+const normEmail = (v: any) => String(v || '').trim().toLowerCase();
+const digits = (v: any) => String(v || '').replace(/\D/g, '');
+const normContact = (v: string) => (isEmail(v) ? normEmail(v) : digits(v));
+const contactMatches = (key: string, phone?: any, email?: any) =>
+  !!key && (
+    (isEmail(key) ? normEmail(email) === key : false) ||
+    (!isEmail(key) ? (digits(phone) && digits(phone) === key) : false)
+  );
+
+const maskContact = (c: string) => {
+  if (isEmail(c)) {
+    const [u, d] = c.split('@');
+    return `${u.slice(0, 1)}•••@${d}`;
+  }
+  const dg = digits(c);
+  return dg.length >= 4 ? `•••-${dg.slice(-4)}` : '•••';
 };
-const fmtMoney = (cents: number) => `$${((cents || 0) / 100).toFixed(2)}`;
-const fmtTime = (t?: string | null) => {
-  if (!t) return '';
-  try { return format(parseISO(`2000-01-01T${t}:00`), 'h:mm a'); } catch { return t; }
-};
 
-// ─── Leave ───────────────────────────────────────────────────────────────────
-// The renter asks; the studio decides. Only treatments the shop offers are
-// shown, and a request changes nothing until it is approved. Banked days work
-// the same way: asking to spend them is not spending them.
-// ─── Local calendar days ─────────────────────────────────────────────────────
-// Appointment and block times are stored in UTC. The portal planner was
-// turning them into DAYS by slicing the ISO string — which is the UTC day.
-// In US time zones a 9pm block is 1am tomorrow in UTC, so it landed on the
-// wrong column, and after 8pm "today" was already tomorrow. Every day
-// comparison now goes through the phone's own calendar.
-const localDay = (d: Date | string): string => {
-  const x = typeof d === 'string' ? new Date(d) : d;
-  if (isNaN(x.getTime())) return '';
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`;
-};
+const localTodayFallback = () => new Date().toISOString().slice(0, 10);
+const safeToday = (v: any) =>
+  typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : localTodayFallback();
 
-// ─── Slot picker: only times that are actually free ──────────────────────────
-// Asks the engine (book-slots) for the day's open times for THIS service and
-// THIS renter — hours, existing bookings, blocks, events, day-offs all
-// applied — and offers only those. A typed time could double-book; a picked
-// slot cannot.
-function SlotPicker({ tenantId, token, serviceId, date, onDate, value, onPick }: {
-  tenantId: string; token: string; serviceId: string; date: string; onDate: (d: string) => void; value: string; onPick: (iso: string, label: string) => void;
-}) {
-  const [slots, setSlots] = useState<{ time: string; startIso: string }[] | null>(null);
-  const [err, setErr] = useState('');
-  useEffect(() => {
-    if (!serviceId || !date) { setSlots(null); return; }
-    let alive = true; setSlots(null); setErr('');
-    api({ action: 'book-slots', tenantId, token, serviceId, date }).then((d) => { if (!alive) return; if (d?.ok) setSlots(d.slots || []); else setErr(d?.error || 'Could not load times.'); });
-    return () => { alive = false; };
-  }, [tenantId, token, serviceId, date]);
-  const clock = (t: string) => { const [h, m] = t.split(':').map(Number); const ap = h < 12 ? 'am' : 'pm'; const hh = h % 12 === 0 ? 12 : h % 12; return `${hh}:${String(m || 0).padStart(2, '0')} ${ap}`; };
-  const step = (n: number) => { const d = new Date(`${date}T12:00:00`); d.setDate(d.getDate() + n); onDate(localDay(d)); };
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <button type="button" onClick={() => step(-1)} aria-label="Previous day" className="h-10 w-10 rounded-xl border-2 border-slate-200 text-[12px] font-black text-slate-600">‹</button>
-        <input type="date" value={date} onChange={(e) => onDate(e.target.value)} aria-label="Day" className="h-10 flex-1 rounded-xl border-2 border-slate-200 px-3 text-sm font-bold" />
-        <button type="button" onClick={() => step(1)} aria-label="Next day" className="h-10 w-10 rounded-xl border-2 border-slate-200 text-[12px] font-black text-slate-600">›</button>
-      </div>
-      {err && <p className="text-[11px] font-bold text-red-600">{err}</p>}
-      {slots === null && !err && <p className="text-[11px] font-bold text-slate-400">Finding open times…</p>}
-      {slots && slots.length === 0 && <p className="text-[11px] font-bold text-slate-500">Nothing open on {new Date(`${date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })} — try the next day.</p>}
-      {slots && slots.length > 0 && (
-        <div className="grid grid-cols-4 gap-1.5">
-          {slots.map((sl) => (
-            <button key={sl.startIso} type="button" aria-pressed={value === sl.startIso} onClick={() => onPick(sl.startIso, clock(sl.time))}
-              className={cn('h-10 rounded-xl border-2 text-[11px] font-black', value === sl.startIso ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 bg-white text-slate-800')}>{clock(sl.time)}</button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+// ── Rate limiting (private/renterAuth: { requestedAt:[], failedAt:[] }) ──
+async function slidingWindow(db: any, tenantId: string, field: string, max: number): Promise<boolean> {
+  const snap = await db.doc(`tenants/${tenantId}/private/renterAuth`).get();
+  const stamps: number[] = (((snap.data() as any) || {})[field] || [])
+    .filter((t: number) => Date.now() - t < WINDOW_MS);
+  return stamps.length >= max;
+}
+async function recordStamp(db: any, tenantId: string, field: string, clear = false) {
+  const ref = db.doc(`tenants/${tenantId}/private/renterAuth`);
+  const snap = await ref.get();
+  const prior: number[] = (((snap.data() as any) || {})[field] || [])
+    .filter((t: number) => Date.now() - t < WINDOW_MS);
+  await ref.set({ [field]: clear ? [] : [...prior, Date.now()].slice(-30) }, { merge: true });
 }
 
-// ─── Appointment sheet: the whole appointment in one place ───────────────────
-// What the main app's appointment sheet gives the studio, for the renter:
-// the client (contact, notes, history, no-shows, favourite), the visit
-// (service, time, price, deposit), and every action — note, done, no-show,
-// reschedule, rebook, cancel-and-tell, accept/decline — without hunting
-// through a list row. Opened from Day, Week, Upcoming, Past.
-function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bookViaEngine }: {
-  a: any; services: any[]; tenantId: string; token: string; onClose: () => void; onChanged: () => void;
-  bookViaEngine: (client: any, serviceId: string, startIso: string) => Promise<any>;
-}) {
-  const [client, setClient] = useState<any | null>(null);
-  const [note, setNote] = useState(a.note || '');
-  const [cnote, setCnote] = useState('');
-  const [mode, setMode] = useState<'view' | 'move' | 'rebook' | 'series' | 'cancel'>('view');
-  const [when, setWhen] = useState('');          // chosen slot, as an instant
-  const [whenLabel, setWhenLabel] = useState('');
-  const [pickDate, setPickDate] = useState('');
-  const [svcId, setSvcId] = useState('');
-  const [every, setEvery] = useState(4);        // weeks between visits
-  const [count, setCount] = useState(3);        // how many to book
-  const [seriesReport, setSeriesReport] = useState<string[]>([]);
-  const [tell, setTell] = useState(true);
-  const [busy, setBusy] = useState('');
-  const [err, setErr] = useState('');
-  const [ok, setOk] = useState('');
-  useEffect(() => { let alive = true; api({ action: 'client-get', tenantId, token, clientId: a.clientId }).then((d) => { if (alive && d?.ok) { setClient(d.client); setCnote(d.client?.notes || ''); } }); return () => { alive = false; }; }, [tenantId, token, a.clientId]);
-  const done = a.status === 'completed' || a.status === 'cancelled';
-  const req = a.status === 'requested' || a.status === 'pending';
-  const fmt = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? iso : d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); };
-  const svcMatch = services.find((x: any) => x.name === a.serviceName);
-  const run = async (key: string, fn: () => Promise<any>, after?: string) => {
-    setBusy(key); setErr(''); setOk('');
-    try { const d = await fn(); if (d && d.ok === false) { setErr(d.error || 'That did not work.'); return; } setOk(after || 'Done'); onChanged(); }
-    catch (e: any) { setErr(e?.message || 'That did not work.'); } finally { setBusy(''); }
-  };
-  const move = async () => {
-    const iso = when; const sid = svcMatch?.id || services[0]?.id;
-    if (!iso || !sid) { setErr('Pick an open time.'); return; }
-    await run('move', async () => {
-      const r = await bookViaEngine({ id: a.clientId || undefined, name: a.clientName, phone: a.clientPhone || undefined, email: a.clientEmail || undefined }, sid, iso);
-      if (!r?.ok) return r;
-      return api({ action: 'book-cancel', tenantId, token, appointmentId: a.id, tellClient: false });
-    }, 'Moved — the client gets the new confirmation');
-  };
-  const rebook = async () => {
-    const iso = when; const sid = svcId || svcMatch?.id || services[0]?.id;
-    if (!iso || !sid) { setErr('Pick a service and an open time.'); return; }
-    await run('rebook', () => bookViaEngine({ id: a.clientId || undefined, name: a.clientName, phone: a.clientPhone || undefined, email: a.clientEmail || undefined }, sid, iso), 'Booked — they have their confirmation');
-  };
-  // "See you in four weeks" — the most common thing a renter says at the
-  // chair. Same weekday, same service, the closest OPEN time to the same
-  // hour on that day. If the day is full, it says so and opens the picker.
-  const quickRebook = async (weeks: number) => {
-    const sid = svcMatch?.id || services[0]?.id;
-    if (!sid) { setErr('No service to rebook with.'); return; }
-    const base = new Date(a.startTime); const target = new Date(base); target.setDate(base.getDate() + weeks * 7);
-    const day = localDay(target);
-    setBusy(`q${weeks}`); setErr(''); setOk('');
-    try {
-      const d = await api({ action: 'book-slots', tenantId, token, serviceId: sid, date: day });
-      const slots: { time: string; startIso: string }[] = d?.ok ? d.slots || [] : [];
-      if (!slots.length) { setErr(`Nothing open on ${target.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} — pick another time.`); setPickDate(day); setSvcId(sid); setWhen(''); setMode('rebook'); return; }
-      const want = base.getTime() - new Date(localDay(base) + 'T00:00:00').getTime();
-      const best = slots.map((sl) => ({ sl, diff: Math.abs((new Date(sl.startIso).getTime() - new Date(day + 'T00:00:00').getTime()) - want) })).sort((x, y) => x.diff - y.diff)[0].sl;
-      const r = await bookViaEngine({ id: a.clientId || undefined, name: a.clientName, phone: a.clientPhone || undefined, email: a.clientEmail || undefined }, sid, best.startIso);
-      if (!r?.ok) { setErr(r?.error || 'Could not book that.'); return; }
-      setOk(`Booked ${new Date(best.startIso).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} — they have their confirmation`);
-      onChanged();
-    } finally { setBusy(''); }
-  };
-  // A standing appointment: every N weeks, M times, each at the nearest open
-  // time to this one. Books what it can and reports every date it couldn't.
-  const bookSeries = async () => {
-    const sid = svcId || svcMatch?.id || services[0]?.id;
-    if (!sid) { setErr('Pick a service.'); return; }
-    setBusy('series'); setErr(''); setOk(''); setSeriesReport([]);
-    const report: string[] = [];
-    try {
-      const base = new Date(a.startTime);
-      for (let i = 1; i <= count; i++) {
-        const target = new Date(base); target.setDate(base.getDate() + i * every * 7);
-        const day = localDay(target);
-        const label = target.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-        const d = await api({ action: 'book-slots', tenantId, token, serviceId: sid, date: day });
-        const slots: { time: string; startIso: string }[] = d?.ok ? d.slots || [] : [];
-        if (!slots.length) { report.push(`${label}: nothing open — skipped`); continue; }
-        const want = base.getTime() - new Date(localDay(base) + 'T00:00:00').getTime();
-        const best = slots.map((sl) => ({ sl, diff: Math.abs((new Date(sl.startIso).getTime() - new Date(day + 'T00:00:00').getTime()) - want) })).sort((x, y) => x.diff - y.diff)[0].sl;
-        const r = await bookViaEngine({ id: a.clientId || undefined, name: a.clientName, phone: a.clientPhone || undefined, email: a.clientEmail || undefined }, sid, best.startIso);
-        report.push(r?.ok ? `${label} ${new Date(best.startIso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} ✓` : `${label}: ${r?.error || 'could not book'}`);
-      }
-      setSeriesReport(report); setOk('Series done'); onChanged();
-    } finally { setBusy(''); }
-  };
-  const Btn = ({ k, label, onClick, tone = 'border-2 border-slate-200 text-slate-700' }: { k: string; label: string; onClick: () => void; tone?: string }) => (
-    <button type="button" disabled={!!busy} onClick={onClick} className={cn('h-10 rounded-xl px-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-40', tone)}>{busy === k ? '…' : label}</button>
-  );
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end" role="dialog" aria-modal="true" aria-label="Appointment">
-      <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 bg-slate-900/40" />
-      <div className="relative max-h-[92dvh] overflow-y-auto overscroll-contain rounded-t-3xl bg-white px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4">
-        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-slate-200" />
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{a.viaStudio ? 'Studio booking on your chair' : req ? 'Request — needs your answer' : done ? (a.status === 'cancelled' ? 'Cancelled' : 'Completed') : 'Booked'}</p>
-            <p className="text-lg font-black text-slate-900">{a.clientName}</p>
-            <p className="text-[12px] font-bold text-slate-600">{a.serviceName}{a.price ? ` · $${Number(a.price).toFixed(0)}` : ''}{a.duration ? ` · ${a.duration} min` : ''}</p>
-            <p className="text-[12px] font-bold text-slate-900">{fmt(a.startTime)}</p>
-          </div>
-          <button type="button" onClick={onClose} aria-label="Close" className="h-9 w-9 shrink-0 rounded-xl border-2 border-slate-200 text-slate-500">×</button>
-        </div>
-
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {a.clientPhone && <a href={`sms:${a.clientPhone}`} className="h-9 inline-flex items-center rounded-xl border-2 border-slate-200 px-3 text-[9px] font-black uppercase tracking-widest text-slate-700">Text</a>}
-          {a.clientPhone && <a href={`tel:${a.clientPhone}`} className="h-9 inline-flex items-center rounded-xl border-2 border-slate-200 px-3 text-[9px] font-black uppercase tracking-widest text-slate-700">Call</a>}
-          {a.clientEmail && <a href={`mailto:${a.clientEmail}`} className="h-9 inline-flex items-center rounded-xl border-2 border-slate-200 px-3 text-[9px] font-black uppercase tracking-widest text-slate-700">Email</a>}
-        </div>
-
-        {client && (
-          <div className="mt-3 rounded-2xl border-2 border-slate-100 bg-slate-50 p-3 space-y-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Client</p>
-              <p className="text-[10px] font-bold text-slate-500">{client.visits} visit{client.visits === 1 ? '' : 's'}{client.noShows ? ` · ${client.noShows} no-show${client.noShows === 1 ? '' : 's'}` : ''}{client.favourite ? ` · usually ${client.favourite}` : ''}</p>
-            </div>
-            {client.mine ? (
-              <>
-                <textarea value={cnote} onChange={(e) => setCnote(e.target.value.slice(0, 2000))} rows={2} aria-label="Client notes" placeholder="Formulas, allergies, how they like it. Only you see this." className="w-full rounded-xl border-2 border-slate-200 bg-white px-3 py-2 text-[12px]" />
-                {cnote !== (client.notes || '') && <Btn k="cnote" label="Save client notes" onClick={() => run('cnote', () => api({ action: 'client-save', tenantId, token, clientId: client.id, name: client.name, phone: client.phone || '', email: client.email || '', notes: cnote }), 'Client notes saved')} />}
-              </>
-            ) : (
-              <p className="text-[10px] font-bold text-slate-500">This client is in the studio&apos;s book, not yours — their notes live there.</p>
-            )}
-            {client.history.length > 1 && (
-              <div className="pt-1">
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">History with you</p>
-                {client.history.filter((h: any) => h.id !== a.id).slice(0, 5).map((h: any) => (
-                  <p key={h.id} className="text-[10px] font-bold text-slate-600"><span className="font-black text-slate-800">{fmtDate(String(h.startTime).slice(0, 10))}</span> · {h.serviceName}{h.price ? ` · $${h.price.toFixed(0)}` : ''}{h.outcome === 'no_show' ? ' · no-show' : h.status === 'cancelled' ? ' · cancelled' : h.viaStudio ? ' · studio' : ''}</p>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {!a.viaStudio && (
-          <div className="mt-3 space-y-2">
-            <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, 1000))} rows={2} aria-label="Appointment note" placeholder="Note for this visit — only you see it" className="w-full rounded-xl border-2 border-slate-200 px-3 py-2 text-[12px]" />
-            {note !== (a.note || '') && <Btn k="note" label="Save note" onClick={() => run('note', () => api({ action: 'book-note', tenantId, token, appointmentId: a.id, note }), 'Note saved')} />}
-
-            {req && (
-              <div className="flex gap-2">
-                <Btn k="acc" label="Accept" tone="bg-emerald-600 text-white flex-1" onClick={() => run('acc', () => api({ action: 'book-decide', tenantId, token, appointmentId: a.id, decision: 'accept' }), 'Accepted — client told')} />
-                <Btn k="dec" label="Decline" tone="border-2 border-red-300 text-red-700 flex-1" onClick={() => run('dec', () => api({ action: 'book-decide', tenantId, token, appointmentId: a.id, decision: 'decline' }), 'Declined — client told')} />
-              </div>
-            )}
-
-            {mode === 'view' && (
-              <>
-                <div className="rounded-2xl border-2 border-slate-100 bg-slate-50 p-3">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Book them again — same day of the week, nearest open time</p>
-                  <div className="mt-2 flex gap-1.5">
-                    {[2, 3, 4, 6].map((w) => <Btn key={w} k={`q${w}`} label={`+${w} wks`} tone="bg-white border-2 border-slate-900 text-slate-900 flex-1" onClick={() => quickRebook(w)} />)}
-                  </div>
-                  <div className="mt-1.5 flex gap-1.5">
-                    <Btn k="rb" label="Pick a time" tone="flex-1" onClick={() => { setWhen(''); setPickDate(localDay(new Date(new Date(a.startTime).getTime() + 14 * 86400000))); setSvcId(svcMatch?.id || ''); setMode('rebook'); }} />
-                    <Btn k="sr" label="Standing appointment" tone="flex-1" onClick={() => { setSvcId(svcMatch?.id || ''); setSeriesReport([]); setMode('series'); }} />
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {!done && <Btn k="done" label="Done ✓" tone="bg-emerald-600 text-white" onClick={() => run('done', () => api({ action: 'book-status', tenantId, token, appointmentId: a.id, outcome: 'completed' }), 'Marked done')} />}
-                  {!done && <Btn k="ns" label="No-show" tone="border-2 border-amber-300 text-amber-800" onClick={() => run('ns', () => api({ action: 'book-status', tenantId, token, appointmentId: a.id, outcome: 'no_show' }), 'Marked no-show')} />}
-                  {!done && <Btn k="mv" label="Reschedule" onClick={() => { setWhen(''); setPickDate(localDay(new Date(a.startTime))); setMode('move'); }} />}
-                  {!done && <Btn k="cx" label="Cancel visit" tone="border-2 border-red-300 text-red-700" onClick={() => setMode('cancel')} />}
-                </div>
-              </>
-            )}
-            {mode === 'series' && (
-              <div className="rounded-2xl border-2 border-slate-900 p-3 space-y-2">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-800">Standing appointment</p>
-                <select value={svcId} onChange={(e) => setSvcId(e.target.value)} aria-label="Service" className="h-11 w-full rounded-xl border-2 border-slate-200 bg-white px-3 text-sm font-bold">
-                  {services.map((sv: any) => <option key={sv.id} value={sv.id}>{sv.name} · ${Number(sv.price).toFixed(0)} · {sv.duration}m</option>)}
-                </select>
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-bold text-slate-600">Every</span>
-                  {[1, 2, 3, 4, 6].map((w) => <button key={w} type="button" aria-pressed={every === w} onClick={() => setEvery(w)} className={cn('h-9 w-10 rounded-lg border-2 text-[11px] font-black', every === w ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-700')}>{w}</button>)}
-                  <span className="text-[11px] font-bold text-slate-600">wks</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-bold text-slate-600">Book</span>
-                  {[2, 3, 4, 6, 8].map((n) => <button key={n} type="button" aria-pressed={count === n} onClick={() => setCount(n)} className={cn('h-9 w-10 rounded-lg border-2 text-[11px] font-black', count === n ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-700')}>{n}</button>)}
-                  <span className="text-[11px] font-bold text-slate-600">visits</span>
-                </div>
-                <p className="text-[10px] font-bold text-slate-500">Each one lands at the nearest open time to this visit&apos;s hour. Full days are skipped and listed, never double-booked. The client gets one confirmation per visit.</p>
-                {seriesReport.length > 0 && <div className="rounded-xl bg-slate-50 p-2">{seriesReport.map((l, i) => <p key={i} className="text-[10px] font-bold text-slate-700">{l}</p>)}</div>}
-                <div className="flex gap-2">
-                  <Btn k="series" label={`Book ${count} visits`} tone="bg-slate-900 text-white flex-1" onClick={bookSeries} />
-                  <Btn k="back" label="Back" onClick={() => setMode('view')} />
-                </div>
-              </div>
-            )}
-            {(mode === 'move' || mode === 'rebook') && (
-              <div className="rounded-2xl border-2 border-slate-900 p-3 space-y-2">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-800">{mode === 'move' ? 'Move this visit to' : 'Book them again'}</p>
-                {mode === 'rebook' && (
-                  <select value={svcId} onChange={(e) => setSvcId(e.target.value)} aria-label="Service" className="h-11 w-full rounded-xl border-2 border-slate-200 bg-white px-3 text-sm font-bold">
-                    {services.map((sv: any) => <option key={sv.id} value={sv.id}>{sv.name} · ${Number(sv.price).toFixed(0)} · {sv.duration}m</option>)}
-                  </select>
-                )}
-                <SlotPicker tenantId={tenantId} token={token} serviceId={mode === 'rebook' ? (svcId || svcMatch?.id || services[0]?.id || '') : (svcMatch?.id || services[0]?.id || '')} date={pickDate} onDate={(d) => { setPickDate(d); setWhen(''); }} value={when} onPick={(iso, label) => { setWhen(iso); setWhenLabel(label); }} />
-                <p className="text-[10px] font-bold text-slate-500">{when ? `Chosen: ${new Date(pickDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at ${whenLabel}. ` : 'Only open times are shown. '}{mode === 'move' ? 'The client gets one new confirmation; the old time is released quietly.' : 'Same client, same details — they get a confirmation.'}</p>
-                <div className="flex gap-2">
-                  <Btn k={mode} label={mode === 'move' ? 'Move' : 'Book'} tone="bg-slate-900 text-white flex-1" onClick={mode === 'move' ? move : rebook} />
-                  <Btn k="back" label="Back" onClick={() => setMode('view')} />
-                </div>
-              </div>
-            )}
-            {mode === 'cancel' && (
-              <div className="rounded-2xl border-2 border-red-300 bg-red-50 p-3 space-y-2">
-                <p className="text-[10px] font-black uppercase tracking-widest text-red-800">Cancel this visit?</p>
-                <button type="button" aria-pressed={tell} onClick={() => setTell((v) => !v)} className={cn('h-10 w-full rounded-xl border-2 px-3 text-left text-[10px] font-bold', tell ? 'border-slate-900 bg-white text-slate-900' : 'border-slate-200 bg-white text-slate-500')}>{tell ? 'Will tell the client, as you' : 'Cancel quietly — no message'}</button>
-                <div className="flex gap-2">
-                  <Btn k="cx" label="Yes, cancel" tone="bg-red-700 text-white flex-1" onClick={() => run('cx', () => api({ action: 'book-cancel', tenantId, token, appointmentId: a.id, tellClient: tell }), 'Cancelled')} />
-                  <Btn k="back" label="Keep it" onClick={() => setMode('view')} />
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-        {a.viaStudio && <p className="mt-3 rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">Booked by the studio on your chair — the studio manages and is paid for this one. Ask the studio to change it.</p>}
-        {err && <p className="mt-2 text-xs font-bold text-red-600">{err}</p>}
-        {ok && <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-emerald-700">{ok}</p>}
-      </div>
-    </div>
-  );
-}
-
-// ─── Today: the reasons they logged in, one tap each ─────────────────────────
-function TodayQuick({ data, booksHere, onGo, tenantId, token, onBadges, visible }: { data: any; booksHere: boolean; onGo: (t: 'today' | 'book' | 'rent' | 'studio') => void; tenantId: string; token: string; onBadges: (b: Record<string, number>) => void; visible: boolean }) {
-  const [inbox, setInbox] = useState<{ items: any[]; todayAppts: any[] } | null>(null);
-  useEffect(() => {
-    let alive = true;
-    api({ action: 'today', tenantId, token }).then((d) => {
-      if (!alive || !d?.ok) return;
-      setInbox({ items: d.items || [], todayAppts: d.todayAppts || [] });
-      onBadges(d.badges || {});
-    });
-    return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantId, token, data?.invoices?.length]);
-  const due = (data?.invoices || []).filter((i: any) => i.status === 'due' || i.status === 'late');
-  const dueCents = due.reduce((n: number, i: any) => n + (Number(i.amountCents) || 0) + (Number(i.lateFeeCents) || 0), 0);
-  const late = due.some((i: any) => i.status === 'late');
-  const nextAppt = (data?.myBookings || []).filter((b: any) => b.status !== 'cancelled').sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime)))[0] || null;
-  const when = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? '' : d.toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' }); };
-  const clock = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? '' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); };
-  const ago = (iso: string) => { const h = Math.floor((Date.now() - new Date(iso).getTime()) / 3600000); return h < 1 ? 'just now' : h < 24 ? `${h}h ago` : `${Math.floor(h / 24)}d ago`; };
-  const tone: Record<string, string> = { red: 'border-red-300 bg-red-50', amber: 'border-amber-300 bg-amber-50', green: 'border-emerald-200 bg-emerald-50', slate: 'border-slate-200 bg-white' };
-  const quiet = inbox && inbox.items.length === 0 && due.length === 0 && (!booksHere || inbox.todayAppts.length === 0);
-  const Action = ({ label, sub, onClick }: { label: string; sub?: string; onClick: () => void }) => (
-    <button type="button" onClick={onClick} className="rounded-2xl border-2 bg-white px-3 py-3 text-left">
-      <span className="block text-[11px] font-black uppercase tracking-widest">{label}</span>
-      {sub && <span className="block text-[10px] font-bold text-slate-500 truncate">{sub}</span>}
-    </button>
-  );
-  return (
-    <section className={visible ? 'space-y-2' : 'hidden'}>
-      {due.length > 0 && (
-        <button type="button" onClick={() => onGo('rent')} className={cn('w-full rounded-2xl border-2 px-4 py-3 text-left', late ? 'border-red-300 bg-red-50' : 'border-amber-300 bg-amber-50')}>
-          <span className={cn('block text-[11px] font-black uppercase tracking-widest', late ? 'text-red-800' : 'text-amber-800')}>{late ? 'Rent is late' : 'Rent due'} · ${(dueCents / 100).toFixed(2)}</span>
-          <span className="block text-[10px] font-bold text-slate-600">Tap to see and pay.</span>
-        </button>
-      )}
-      {booksHere && inbox && inbox.todayAppts.length > 0 && (
-        <button type="button" onClick={() => onGo('book')} className="w-full rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-left space-y-1">
-          <span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Today · {inbox.todayAppts.length} appointment{inbox.todayAppts.length === 1 ? '' : 's'}</span>
-          {inbox.todayAppts.slice(0, 4).map((a) => (
-            <span key={a.id} className="block text-[11px] font-bold text-slate-700 truncate"><span className="font-black">{clock(a.startTime)}</span> · {a.clientName}{a.serviceName ? ` · ${a.serviceName}` : ''}</span>
-          ))}
-          {inbox.todayAppts.length > 4 && <span className="block text-[10px] font-bold text-slate-500">and {inbox.todayAppts.length - 4} more</span>}
-        </button>
-      )}
-      {booksHere && inbox && inbox.todayAppts.length === 0 && nextAppt && (
-        <button type="button" onClick={() => onGo('book')} className="w-full rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-left">
-          <span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Nothing today · next {when(nextAppt.startTime)}</span>
-          <span className="block text-[10px] font-bold text-slate-500 truncate">{nextAppt.clientName || 'Client'}{nextAppt.serviceName ? ` · ${nextAppt.serviceName}` : ''}</span>
-        </button>
-      )}
-      {inbox && inbox.items.map((it, i) => (
-        <button key={i} type="button" onClick={() => onGo(it.tab)} className={cn('w-full rounded-2xl border-2 px-4 py-3 text-left', tone[it.tone || 'slate'])}>
-          <span className="flex items-center justify-between gap-2">
-            <span className="text-[11px] font-black uppercase tracking-widest text-slate-800">{it.title}</span>
-            <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-slate-400">{ago(it.at)}</span>
-          </span>
-          {it.body && <span className="block text-[10px] font-bold text-slate-600 truncate">{it.body}</span>}
-        </button>
-      ))}
-      {quiet && (
-        <div className="rounded-2xl border-2 border-slate-100 bg-white px-4 py-3">
-          <p className="text-[11px] font-black uppercase tracking-widest text-slate-800">Nothing needs you</p>
-          <p className="text-[10px] font-bold text-slate-500">Rent is settled and nothing is waiting.{booksHere && data?.provider?.bookingUrl ? ' Share your booking link to fill the book.' : ''}</p>
-        </div>
-      )}
-      <div className="grid grid-cols-2 gap-2">
-        {booksHere && <Action label="Add walk-in" sub="Book someone now" onClick={() => onGo('book')} />}
-        <Action label="Pay rent" sub={due.length ? 'Something is due' : 'Nothing due right now'} onClick={() => onGo('rent')} />
-        <Action label="Report a problem" sub="Something broken?" onClick={() => onGo('studio')} />
-        <Action label="Message the studio" sub="Or raise a concern" onClick={() => onGo('studio')} />
-      </div>
-    </section>
-  );
-}
-
-// ─── Documents ───────────────────────────────────────────────────────────────
-// The paperwork after the lease, read and signed here. Signing is typing your
-// full name — the same way the lease was signed — and the record lands beside
-// it, with the exact text, the time, and the device. Declining is allowed and
-// is a message to the studio, not a silent no.
-const DOC_STATUS: Record<string, string> = { sent: 'Waiting for you', signed: 'Signed', declined: 'Declined', withdrawn: 'Withdrawn by the studio' };
-function RenterDocuments({ tenantId, token }: { tenantId: string; token: string }) {
-  const [state, setState] = useState<{ documents: any[]; signed: any[]; portalToken: string | null } | null>(null);
-  const [openId, setOpenId] = useState('');
-  const [name, setName] = useState('');
-  const [declining, setDeclining] = useState('');
-  const [declineNote, setDeclineNote] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const load = useCallback(async () => {
-    const d = await api({ action: 'documents-list', tenantId, token });
-    if (d?.ok) setState({ documents: d.documents || [], signed: d.signed || [], portalToken: d.portalToken || null });
-  }, [tenantId, token]);
-  useEffect(() => { void load(); }, [load]);
-  if (!state) return null;
-  const pending = state.documents.filter((d) => d.status === 'sent');
-  const past = state.documents.filter((d) => d.status !== 'sent').slice(0, 6);
-  if (pending.length === 0 && past.length === 0 && state.signed.length === 0) return null;
-  const sign = async (id: string) => {
-    setBusy(true); setErr('');
-    const d = await api({ action: 'document-sign', tenantId, token, documentId: id, signedName: name });
-    setBusy(false);
-    if (!d?.ok) { setErr(d?.error || 'Could not sign.'); return; }
-    setOpenId(''); setName(''); void load();
-  };
-  const decline = async (id: string) => {
-    setBusy(true); setErr('');
-    const d = await api({ action: 'document-decline', tenantId, token, documentId: id, note: declineNote });
-    setBusy(false);
-    if (!d?.ok) { setErr(d?.error || 'Could not send that.'); return; }
-    setDeclining(''); setDeclineNote(''); setOpenId(''); void load();
-  };
-  const printUrl = (id: string) => `/api/booths/renter-document?tenantId=${encodeURIComponent(tenantId)}&id=${encodeURIComponent(id)}${state.portalToken ? `&renter=${encodeURIComponent(state.portalToken)}` : ''}`;
-  return (
-    <section className="space-y-3">
-      <SectionTitle icon={FileSignature}>Documents</SectionTitle>
-      <div className="p-4 rounded-3xl bg-white border-2 border-slate-100 space-y-3">
-        {pending.map((d) => {
-          const isOpen = openId === d.id;
-          const verb = d.action === 'acknowledge' ? 'acknowledge' : 'sign';
-          return (
-            <div key={d.id} className="rounded-2xl border-2 border-amber-300 bg-amber-50 px-3.5 py-3 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[12px] font-black">{d.title}</p>
-                <span className="shrink-0 rounded-full bg-amber-200 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-amber-900">To {verb}</span>
-              </div>
-              <p className="text-[10px] font-bold text-amber-900">Sent {fmtDate(String(d.sentAt).slice(0, 10))} by {d.sentBy}</p>
-              {!isOpen ? (
-                <button type="button" onClick={() => { setOpenId(d.id); setErr(''); }} className="h-11 w-full rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white">Read it</button>
-              ) : (
-                <div className="space-y-2">
-                  <div className="max-h-80 overflow-y-auto overscroll-contain rounded-2xl bg-white border-2 border-slate-200 px-3.5 py-3 text-[12px] leading-relaxed font-medium text-slate-800 whitespace-pre-wrap">{d.body}</div>
-                  {declining === d.id ? (
-                    <div className="space-y-2">
-                      <textarea value={declineNote} onChange={(e) => setDeclineNote(e.target.value.slice(0, 600))} rows={2} aria-label="Why you are declining" placeholder="Tell the studio why (optional). This goes to them as a message." className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm bg-white" />
-                      <div className="flex gap-2">
-                        <button type="button" onClick={() => decline(d.id)} disabled={busy} className="h-11 flex-1 rounded-2xl border-2 border-red-300 bg-white text-[10px] font-black uppercase tracking-widest text-red-700 disabled:opacity-40">{busy ? '…' : 'Decline this document'}</button>
-                        <button type="button" onClick={() => setDeclining('')} className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Back</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <input value={name} onChange={(e) => setName(e.target.value.slice(0, 120))} aria-label="Type your full name to sign" placeholder="Type your full name to sign" autoComplete="name" className="h-11 w-full rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
-                      <p className="text-[9px] font-bold text-slate-500">Typing your name and tapping {verb} is your signature. The exact text above, the time and this device are recorded with it.</p>
-                      {err && <p className="text-xs font-bold text-red-600">{err}</p>}
-                      <div className="flex gap-2">
-                        <button type="button" onClick={() => sign(d.id)} disabled={busy || name.trim().length < 2} className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? '…' : verb === 'sign' ? 'Sign' : 'Acknowledge'}</button>
-                        <button type="button" onClick={() => setDeclining(d.id)} className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Decline</button>
-                        <a href={printUrl(d.id)} target="_blank" rel="noopener" className="h-11 inline-flex items-center rounded-2xl border-2 border-slate-200 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Print</a>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {(past.length > 0 || state.signed.length > 0) && (
-          <div className="space-y-1">
-            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">On file</p>
-            {past.map((d) => (
-              <p key={d.id} className="text-[10px] font-bold text-slate-600 flex items-center justify-between gap-2">
-                <span className="truncate">{d.title} · {DOC_STATUS[d.status] || d.status}{d.signedAt ? ` ${fmtDate(String(d.signedAt).slice(0, 10))}` : ''}</span>
-                {d.status === 'signed' && <a href={printUrl(d.id)} target="_blank" rel="noopener" className="shrink-0 text-[9px] font-black uppercase tracking-widest underline">Print</a>}
-              </p>
-            ))}
-            {state.signed.filter((sd) => !past.some((d) => d.signedDocumentId === sd.id)).map((sd) => (
-              <p key={sd.id} className="text-[10px] font-bold text-slate-600">{sd.title} · Signed {fmtDate(String(sd.signedAt).slice(0, 10))}</p>
-            ))}
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-// ─── Closures — what it cost you ─────────────────────────────────────────────
-// Shown only when the studio has recorded an interruption that touched this
-// renter's space. A rent credit covers the chair; this covers the clients they
-// turned away — the number THEIR insurer or accountant will ask for. They
-// write it, day by day, while it is fresh. The studio can read it, never edit
-// it. "Print my statement" is their slice of the packet, signed by them.
-const ITYPE: Record<string, string> = { flood: 'Flood / water damage', fire: 'Fire / smoke', power: 'Power loss', water: 'No running water', weather: 'Weather', closure: 'Forced closure', other: 'Closure' };
-function RenterInterruptions({ tenantId, token }: { tenantId: string; token: string }) {
-  const [state, setState] = useState<{ interruptions: any[]; portalToken: string | null } | null>(null);
-  const [logFor, setLogFor] = useState('');
-  const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), appointmentsLost: '', lost: '', note: '' });
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const [ticked, setTicked] = useState<Record<string, string[]>>({});
-  const [cancelToo, setCancelToo] = useState<Record<string, boolean>>({});
-  const [result, setResult] = useState('');
-  const load = useCallback(async () => {
-    const d = await api({ action: 'interruption-list', tenantId, token });
-    if (d?.ok) setState({ interruptions: d.interruptions || [], portalToken: d.portalToken || null });
-  }, [tenantId, token]);
-  const logTicked = async (id: string) => {
-    const ids = ticked[id] || [];
-    if (ids.length === 0) return;
-    setBusy(true); setErr(''); setResult('');
-    const d = await api({ action: 'interruption-loss', tenantId, token, interruptionId: id, appointmentIds: ids, cancelAndTell: !!cancelToo[id] });
-    setBusy(false);
-    if (!d?.ok) { setErr(d?.error || 'Could not log those.'); return; }
-    setResult(`Logged ${d.stamped} appointment${d.stamped === 1 ? '' : 's'} across ${d.days} day${d.days === 1 ? '' : 's'}${d.cancelled ? ` · cancelled ${d.cancelled} and told the clients` : ''}.`);
-    setTicked((m) => ({ ...m, [id]: [] })); void load();
-  };
-  useEffect(() => { void load(); }, [load]);
-  if (!state || state.interruptions.length === 0) return null;
-  const submit = async (id: string) => {
-    setBusy(true); setErr('');
-    const d = await api({ action: 'interruption-loss', tenantId, token, interruptionId: id, date: form.date, appointmentsLost: Number(form.appointmentsLost) || 0, lostCents: Math.round((Number(form.lost) || 0) * 100), note: form.note });
-    setBusy(false);
-    if (!d?.ok) { setErr(d?.error || 'Could not save that.'); return; }
-    setLogFor(''); setForm({ date: new Date().toISOString().slice(0, 10), appointmentsLost: '', lost: '', note: '' }); void load();
-  };
-  return (
-    <section className="space-y-3">
-      <SectionTitle icon={CloudLightning}>Closures · what it cost you</SectionTitle>
-      {state.interruptions.map((r) => (
-        <div key={r.id} className="p-4 rounded-3xl bg-white border-2 border-slate-100 space-y-3">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <p className="text-[12px] font-black truncate">{r.title}</p>
-              <p className="text-[10px] font-bold text-slate-500">{ITYPE[r.type] || 'Closure'} · {fmtDate(r.startDate)}{r.endDate ? ` – ${fmtDate(r.endDate)}` : ' – ongoing'}</p>
-            </div>
-            <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest', r.status === 'open' ? 'bg-red-600 text-white' : 'bg-slate-200 text-slate-700')}>{r.status === 'open' ? 'Ongoing' : 'Over'}</span>
-          </div>
-          {r.updates.length > 0 && (
-            <div className="space-y-1">
-              {r.updates.slice(-3).map((u: any, i: number) => <p key={i} className="text-[10px] font-medium text-slate-600"><span className="font-black">{fmtDate(String(u.at).slice(0, 10))}</span> · {u.text}</p>)}
-            </div>
-          )}
-          <div className="rounded-2xl bg-slate-50 border-2 border-slate-100 px-3.5 py-3 space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Your loss log</p>
-              <p className="text-[11px] font-black tabular-nums">{r.totals.appointmentsLost} appt{r.totals.appointmentsLost === 1 ? '' : 's'} · ${(r.totals.lostCents / 100).toFixed(2)} · {r.totals.days} day{r.totals.days === 1 ? '' : 's'}</p>
-            </div>
-            {Array.isArray(r.appointments) && r.appointments.length > 0 && (
-              <div className="rounded-xl bg-white border-2 border-slate-200 px-3 py-2.5 space-y-1.5">
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Your bookings inside the closure · tick the ones you couldn't do</p>
-                {r.appointments.map((a: any) => {
-                  const on = (ticked[r.id] || []).includes(a.id);
-                  const d = new Date(a.startTime);
-                  return (
-                    <button key={a.id} type="button" disabled={a.lost} aria-pressed={on || a.lost}
-                      onClick={() => setTicked((m) => ({ ...m, [r.id]: on ? (m[r.id] || []).filter((x) => x !== a.id) : [...(m[r.id] || []), a.id] }))}
-                      className={cn('w-full rounded-xl border-2 px-3 py-2 text-left flex items-center justify-between gap-2', a.lost ? 'border-slate-200 bg-slate-100 opacity-70' : on ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white')}>
-                      <span className="min-w-0"><span className="block text-[11px] font-black truncate">{a.clientName} · {a.serviceName}</span><span className={cn('block text-[10px] font-bold', on ? 'text-slate-300' : 'text-slate-500')}>{isNaN(d.getTime()) ? a.startTime : d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}{a.status === 'cancelled' ? ' · cancelled' : ''}{a.lost ? ' · logged' : ''}</span></span>
-                      <span className="shrink-0 text-[11px] font-black tabular-nums">${Number(a.price).toFixed(0)}</span>
-                    </button>
-                  );
-                })}
-                {(ticked[r.id] || []).length > 0 && (
-                  <div className="space-y-1.5 pt-1">
-                    <button type="button" aria-pressed={!!cancelToo[r.id]} onClick={() => setCancelToo((m) => ({ ...m, [r.id]: !m[r.id] }))}
-                      className={cn('h-10 w-full rounded-xl border-2 px-3 text-left text-[10px] font-bold', cancelToo[r.id] ? 'border-slate-900 bg-slate-50 text-slate-900' : 'border-slate-200 text-slate-600')}>
-                      {cancelToo[r.id] ? 'Will also cancel these and tell each client, as you' : 'Also cancel them and tell the clients?'}
-                    </button>
-                    <button type="button" disabled={busy} onClick={() => logTicked(r.id)} className="h-11 w-full rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">
-                      {busy ? '…' : `Log ${(ticked[r.id] || []).length} as lost · $${r.appointments.filter((a: any) => (ticked[r.id] || []).includes(a.id)).reduce((n: number, a: any) => n + Number(a.price || 0), 0).toFixed(0)}`}
-                    </button>
-                  </div>
-                )}
-                {result && <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">{result}</p>}
-              </div>
-            )}
-            {r.losses.length === 0 && <p className="text-[10px] font-bold text-slate-500">Nothing logged yet. A rent credit covers the chair — this is for the clients you couldn't see, the number your own insurer or accountant will ask for. Log it while it's fresh.</p>}
-            {r.losses.map((l: any) => (
-              <p key={l.id} className="text-[10px] font-medium text-slate-700"><span className="font-black">{fmtDate(l.date)}</span> · {l.appointmentsLost} appt{l.appointmentsLost === 1 ? '' : 's'} · ${(l.lostCents / 100).toFixed(2)}{l.note ? ` — ${l.note}` : ''}</p>
-            ))}
-            {logFor === r.id ? (
-              <div className="space-y-2">
-                <input type="date" value={form.date} min={r.startDate} max={r.endDate || undefined} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} aria-label="Which day" className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold bg-white" />
-                <div className="grid grid-cols-2 gap-2">
-                  <input inputMode="numeric" value={form.appointmentsLost} onChange={(e) => setForm((f) => ({ ...f, appointmentsLost: e.target.value.replace(/[^0-9]/g, '') }))} aria-label="Appointments you couldn't do" placeholder="Appts lost" className="h-11 rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold bg-white" />
-                  <input inputMode="decimal" value={form.lost} onChange={(e) => setForm((f) => ({ ...f, lost: e.target.value.replace(/[^0-9.]/g, '') }))} aria-label="Income lost, dollars" placeholder="$ lost (your estimate)" className="h-11 rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold bg-white" />
-                </div>
-                <input value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value.slice(0, 500) }))} aria-label="Note" placeholder="Who you rescheduled, what you refunded (optional)" className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm bg-white" />
-                {err && <p className="text-xs font-bold text-red-600">{err}</p>}
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => submit(r.id)} disabled={busy || !form.date} className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Saving…' : 'Save this day'}</button>
-                  <button type="button" onClick={() => setLogFor('')} className="h-11 rounded-2xl border-2 border-slate-200 px-4 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
-                </div>
-                <p className="text-[9px] font-bold text-slate-400">One entry per day. Saving a day again replaces it.</p>
-              </div>
-            ) : (
-              <div className="flex gap-2">
-                <button type="button" onClick={() => { setLogFor(r.id); setErr(''); }} className="h-10 flex-1 rounded-2xl border-2 border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-700">Log a day</button>
-                {r.losses.length > 0 && state.portalToken && (
-                  <a href={`/api/booths/interruption-packet?tenantId=${encodeURIComponent(tenantId)}&id=${encodeURIComponent(r.id)}&renter=${encodeURIComponent(state.portalToken)}`} target="_blank" rel="noopener"
-                    className="h-10 inline-flex items-center rounded-2xl border-2 border-slate-200 px-3 text-[10px] font-black uppercase tracking-widest text-slate-700">Print my statement</a>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      ))}
-    </section>
-  );
-}
-
-// ─── Maintenance ─────────────────────────────────────────────────────────────
-// Report a problem with the space, see the studio's promise BEFORE reporting,
-// then watch the ticket move. The two clocks are the studio's own commitments
-// (set in Maintenance → Rules), so what this page promises is exactly what
-// the ticket is measured against. A photo beats any description.
-const TICKET_CATS: [string, string][] = [
-  ['equipment', 'Equipment'], ['plumbing', 'Plumbing / water'], ['electrical', 'Electrical / power'], ['cleaning', 'Cleaning'],
-  ['safety', 'Safety'], ['request', 'A request'], ['other', 'Something else'],
-];
-const TSTATUS: Record<string, string> = { open: 'Open', in_progress: 'In progress', resolved: 'Resolved', cancelled: 'Cancelled' };
-const hrs = (h: number) => (h < 24 ? `${h} hr${h === 1 ? '' : 's'}` : h % 24 === 0 ? `${h / 24} day${h === 24 ? '' : 's'}` : `${Math.round(h / 24)} days`);
-const clock = (iso: string | null, done: boolean) => {
-  if (!iso || done) return null;
-  const ms = new Date(iso).getTime() - Date.now();
-  const h = Math.round(Math.abs(ms) / 3_600_000);
-  return ms >= 0 ? `${h < 1 ? 'under an hour' : hrs(h)} left` : `${hrs(Math.max(1, h))} over`;
-};
-function RenterMaintenance({ tenantId, token }: { tenantId: string; token: string }) {
-  const [state, setState] = useState<{ tickets: any[]; commitments: any[] } | null>(null);
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ title: '', category: 'equipment', priority: 'normal', description: '', photoData: '' });
-  const [noteFor, setNoteFor] = useState('');
-  const [note, setNote] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const [expanded, setExpanded] = useState('');
-  const load = useCallback(async () => {
-    const d = await api({ action: 'my-tickets', tenantId, token });
-    if (d?.ok) setState({ tickets: d.tickets || [], commitments: d.commitments || [] });
-  }, [tenantId, token]);
-  useEffect(() => { void load(); }, [load]);
-  const readPhoto = (file: File | undefined, cb: (dataUrl: string) => void) => {
-    if (!file) return;
-    if (file.size > 6 * 1024 * 1024) { setErr('That photo is over 6MB — try a smaller one.'); return; }
-    const r = new FileReader(); r.onload = () => cb(String(r.result || '')); r.readAsDataURL(file);
-  };
-  const submit = async () => {
-    setBusy(true); setErr('');
-    const d = await api({ action: 'create-ticket', tenantId, token, ...form });
-    setBusy(false);
-    if (!d?.ok) { setErr(d?.error || 'Could not send that.'); return; }
-    setOpen(false); setForm({ title: '', category: 'equipment', priority: 'normal', description: '', photoData: '' }); void load();
-  };
-  const addNote = async (ticketId: string, photoData?: string) => {
-    setBusy(true); setErr('');
-    const d = await api({ action: 'ticket-note', tenantId, token, ticketId, note: note.trim(), photoData: photoData || '' });
-    setBusy(false);
-    if (!d?.ok) { setErr(d?.error || 'Could not send that.'); return; }
-    setNote(''); setNoteFor(''); void load();
-  };
-  if (!state) return null;
-  const openT = state.tickets.filter((t) => t.status === 'open' || t.status === 'in_progress');
-  const doneT = state.tickets.filter((t) => !(t.status === 'open' || t.status === 'in_progress')).slice(0, 5);
-  const promise = state.commitments.filter((c) => c.renterCanPick);
-  const urgent = state.commitments.find((c) => c.priority === 'urgent');
-  return (
-    <section className="space-y-3">
-      <SectionTitle icon={Wrench}>Something broken?</SectionTitle>
-      <div className="p-4 rounded-3xl bg-white border-2 border-slate-100 space-y-3">
-        {promise.length > 0 && (
-          <div className="rounded-2xl bg-slate-50 border-2 border-slate-100 px-3.5 py-3">
-            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-1.5">The studio's promise</p>
-            <div className="space-y-1">
-              {promise.map((c) => (
-                <p key={c.priority} className="text-[11px] font-bold text-slate-700"><span className="capitalize font-black">{c.label}</span> · answered within {hrs(c.respondHours)}, fixed within {hrs(c.fixHours)}</p>
-              ))}
-              {urgent && <p className="text-[10px] font-bold text-slate-500">Safety or no-water issues the studio judges urgent: answered within {hrs(urgent.respondHours)}, fixed within {hrs(urgent.fixHours)}.</p>}
-            </div>
-          </div>
-        )}
-
-        {openT.map((t) => {
-          const done = t.status === 'resolved' || t.status === 'cancelled';
-          const ans = clock(t.respondBy, t.acknowledged || done);
-          const fix = clock(t.dueAt, done);
-          const isOpen = expanded === t.id;
-          return (
-            <div key={t.id} className="rounded-2xl border-2 border-slate-200 px-3.5 py-3 space-y-1.5">
-              <button type="button" onClick={() => setExpanded(isOpen ? '' : t.id)} aria-expanded={isOpen} className="w-full text-left">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-[12px] font-black truncate">{t.title}</p>
-                  <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest', t.status === 'in_progress' ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-700')}>{TSTATUS[t.status] || t.status}</span>
-                </div>
-                <p className="text-[10px] font-bold text-slate-500">
-                  {t.priority} · reported {fmtDate(String(t.createdAt).slice(0, 10))}
-                  {t.assigneeName ? ` · ${t.assigneeName} has it` : t.acknowledged ? ' · seen by the studio' : ans ? ` · answer due: ${ans}` : ''}
-                  {fix ? ` · fix due: ${fix}` : ''}
-                </p>
-              </button>
-              {isOpen && (
-                <div className="space-y-1.5 pt-1">
-                  {t.description && <p className="text-[11px] font-medium text-slate-700 whitespace-pre-wrap">{t.description}</p>}
-                  {(t.updates || []).slice(1).map((u: any, i: number) => (
-                    <p key={i} className="text-[10px] font-medium text-slate-600"><span className="font-black">{fmtDate(String(u.at).slice(0, 10))} · {u.by}</span>{u.note ? ` — ${u.note}` : ''}{u.status ? ` (${TSTATUS[u.status] || u.status})` : ''}{u.photoUrl ? ' · photo' : ''}</p>
-                  ))}
-                  {noteFor === t.id ? (
-                    <div className="space-y-1.5">
-                      <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, 1000))} rows={2} aria-label="Add to this ticket" placeholder="Still happening? Something changed?" className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm" />
-                      <div className="flex gap-2">
-                        <button type="button" disabled={busy || !note.trim()} onClick={() => addNote(t.id)} className="h-10 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">Add note</button>
-                        <label className="h-10 rounded-2xl border-2 border-slate-200 px-3 inline-flex items-center text-[10px] font-black uppercase tracking-widest text-slate-700 cursor-pointer">
-                          Photo<input type="file" accept="image/*" capture="environment" className="sr-only" aria-label="Add a photo to this ticket" onChange={(e) => readPhoto(e.target.files?.[0], (d) => addNote(t.id, d))} />
-                        </label>
-                        <button type="button" onClick={() => { setNoteFor(''); setNote(''); }} className="h-10 rounded-2xl border-2 border-slate-200 px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <button type="button" onClick={() => setNoteFor(t.id)} className="h-9 w-full rounded-2xl border-2 border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-700">Add a note or photo</button>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
-
-        {!open ? (
-          <button type="button" onClick={() => setOpen(true)} className="h-11 w-full rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white">Report a problem</button>
-        ) : (
-          <div className="space-y-2">
-            <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value.slice(0, 120) }))} aria-label="What's wrong, in a few words" placeholder="Dryer at my station won't turn on" className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold" />
-            <div className="grid grid-cols-2 gap-2">
-              <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} aria-label="Category" className="h-11 rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold bg-white">
-                {TICKET_CATS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
-              <select value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))} aria-label="How urgent" className="h-11 rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold bg-white">
-                <option value="high">High · can't work</option>
-                <option value="normal">Normal · a nuisance</option>
-                <option value="low">Low · whenever</option>
-              </select>
-            </div>
-            <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value.slice(0, 2000) }))} rows={3} aria-label="Details" placeholder="What's happening, since when, what you've tried." className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm" />
-            <label className="h-11 w-full rounded-2xl border-2 border-slate-200 inline-flex items-center justify-center text-[10px] font-black uppercase tracking-widest text-slate-700 cursor-pointer">
-              {form.photoData ? 'Photo attached · tap to change' : 'Add a photo'}
-              <input type="file" accept="image/*" capture="environment" className="sr-only" aria-label="Photo of the problem" onChange={(e) => readPhoto(e.target.files?.[0], (d) => setForm((f) => ({ ...f, photoData: d })))} />
-            </label>
-            {err && <p className="text-xs font-bold text-red-600">{err}</p>}
-            <div className="flex gap-2">
-              <button type="button" onClick={submit} disabled={busy || !form.title.trim()} className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Sending…' : 'Send it'}</button>
-              <button type="button" onClick={() => setOpen(false)} className="h-11 rounded-2xl border-2 border-slate-200 px-4 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
-            </div>
-          </div>
-        )}
-        {err && !open && <p className="text-xs font-bold text-red-600">{err}</p>}
-        {doneT.length > 0 && (
-          <div className="space-y-1">
-            {doneT.map((t) => <p key={t.id} className="text-[10px] font-bold text-slate-500">{t.title} · {TSTATUS[t.status] || t.status}{t.resolvedAt ? ` ${fmtDate(String(t.resolvedAt).slice(0, 10))}` : ''}</p>)}
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-// ─── Concerns ────────────────────────────────────────────────────────────────
-// Raising something properly: a category, what happened, when, what they'd
-// like to see. It gets a reference number and a receipt, and its status shows
-// here until it is resolved. Replies from the studio arrive in the thread
-// below with the reference on them. A chat message is for "is the back door
-// locked?"; this is for the thing that needs to be on record.
-const CONCERN_CATEGORIES: [string, string][] = [
-  ['space', 'My space'], ['equipment', 'Equipment'], ['cleanliness', 'Cleanliness'], ['noise', 'Noise or disruption'],
-  ['another_renter', 'Another renter'], ['staff', 'A staff member'], ['billing', 'Rent or billing'], ['safety', 'Safety'],
-  ['access', 'Access or hours'], ['other', 'Something else'],
-];
-const CONCERN_STATUS: Record<string, string> = { open: 'Received', acknowledged: 'Being looked at', resolved: 'Resolved', closed: 'Closed' };
-function RenterConcerns({ tenantId, token }: { tenantId: string; token: string }) {
-  const [list, setList] = useState<any[] | null>(null);
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ category: 'space', what: '', when: new Date().toISOString().slice(0, 10), wanted: '', confidential: false });
-  const [photos, setPhotos] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const [justFiled, setJustFiled] = useState('');
-  const load = useCallback(async () => {
-    const d = await api({ action: 'concern-list', tenantId, token });
-    if (d?.ok) setList(d.concerns || []);
-  }, [tenantId, token]);
-  useEffect(() => { void load(); }, [load]);
-  const sensitive = ['another_renter', 'staff', 'safety'].includes(form.category);
-  const submit = async () => {
-    setBusy(true); setErr('');
-    const d = await api({ action: 'concern-file', tenantId, token, ...form, confidential: form.confidential || sensitive, photos });
-    setBusy(false);
-    if (!d?.ok) { setErr(d?.error || 'Could not send that.'); return; }
-    setJustFiled(d.ref); setOpen(false); setPhotos([]);
-    setForm({ category: 'space', what: '', when: new Date().toISOString().slice(0, 10), wanted: '', confidential: false });
-    void load();
-  };
-  const openOnes = (list || []).filter((c) => c.status === 'open' || c.status === 'acknowledged');
-  const doneOnes = (list || []).filter((c) => !(c.status === 'open' || c.status === 'acknowledged')).slice(0, 5);
-  return (
-    <section className="space-y-3">
-      <SectionTitle icon={ShieldAlert}>Raise a concern</SectionTitle>
-      <div className="p-4 rounded-3xl bg-white border-2 border-slate-100 space-y-3">
-        {justFiled && (
-          <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-3.5 py-3">
-            <p className="text-[11px] font-black uppercase tracking-widest text-emerald-800">On file · {justFiled}</p>
-            <p className="text-[11px] font-bold text-emerald-900">Keep that reference. A receipt is on its way to your email, and you'll see replies below.</p>
-          </div>
-        )}
-        {openOnes.map((c) => (
-          <div key={c.id} className="rounded-2xl border-2 border-slate-200 bg-slate-50 px-3.5 py-3">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-[11px] font-black uppercase tracking-widest text-slate-700">{c.ref} · {(CONCERN_CATEGORIES.find(([k]) => k === c.category) || [])[1] || c.category}</p>
-              <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest', c.status === 'acknowledged' ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-700')}>{CONCERN_STATUS[c.status] || c.status}</span>
-            </div>
-            <p className="text-[11px] font-medium text-slate-700 mt-1 line-clamp-2">{c.what}</p>
-            <p className="text-[10px] font-bold text-slate-500 mt-1">Filed {fmtDate(String(c.filedAt).slice(0, 10))}{c.responses ? ` · ${c.responses} repl${c.responses === 1 ? 'y' : 'ies'} in your messages` : ''}</p>
-          </div>
-        ))}
-        {!open ? (
-          <button type="button" onClick={() => { setOpen(true); setJustFiled(''); }}
-            className="h-11 w-full rounded-2xl border-2 border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-700">
-            Raise a concern
-          </button>
-        ) : (
-          <div className="space-y-2">
-            <p className="text-[10px] font-bold text-slate-500">For anything that should be on record. Quick questions belong in messages below.</p>
-            <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} aria-label="What is it about"
-              className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold bg-white">
-              {CONCERN_CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
-            <input type="date" value={form.when} onChange={(e) => setForm((f) => ({ ...f, when: e.target.value }))} aria-label="When did it happen or start" className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold" />
-            <textarea value={form.what} onChange={(e) => setForm((f) => ({ ...f, what: e.target.value.slice(0, 2000) }))} rows={4} aria-label="What happened"
-              placeholder="What happened, in your words. Dates, names, what you've already tried." className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm" />
-            <textarea value={form.wanted} onChange={(e) => setForm((f) => ({ ...f, wanted: e.target.value.slice(0, 800) }))} rows={2} aria-label="What you would like to see happen"
-              placeholder="What would put this right? (optional)" className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm" />
-            <div className="flex flex-wrap items-center gap-2">
-              {photos.map((p, i) => (
-                <button key={i} type="button" onClick={() => setPhotos((ps) => ps.filter((_, j) => j !== i))} aria-label={`Remove photo ${i + 1}`} className="relative h-14 w-14 overflow-hidden rounded-xl border-2 border-slate-200">
-                  <img src={p} alt="" className="h-full w-full object-cover" />
-                  <span className="absolute inset-x-0 bottom-0 bg-slate-900/80 text-[8px] font-black uppercase tracking-widest text-white">Remove</span>
-                </button>
-              ))}
-              {photos.length < 3 && (
-                <label className="h-14 rounded-xl border-2 border-dashed border-slate-300 px-3 inline-flex items-center text-[10px] font-black uppercase tracking-widest text-slate-600 cursor-pointer">
-                  {photos.length ? 'Add another' : 'Add a photo'}
-                  <input type="file" accept="image/*" capture="environment" className="sr-only" aria-label="Add a photo to this concern"
-                    onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (!f) return; try { const d: string = await downscaleImageToDataUrl(f, { maxDim: 1400 }); setPhotos((ps) => [...ps, d].slice(0, 3)); } catch { setErr('Could not read that photo.'); } }} />
-                </label>
-              )}
-            </div>
-            <button type="button" aria-pressed={form.confidential || sensitive} onClick={() => setForm((f) => ({ ...f, confidential: !f.confidential }))} disabled={sensitive}
-              className={cn('h-10 w-full rounded-2xl border-2 px-3 text-left text-[10px] font-bold', (form.confidential || sensitive) ? 'border-slate-900 bg-slate-50 text-slate-900' : 'border-slate-200 text-slate-600')}>
-              {sensitive ? 'Treated as confidential — concerns about people always are' : form.confidential ? 'Confidential — for the studio owner only' : 'Mark confidential'}
-            </button>
-            {err && <p className="text-xs font-bold text-red-600">{err}</p>}
-            <div className="flex gap-2">
-              <button type="button" onClick={submit} disabled={busy || form.what.trim().length < 10}
-                className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Sending…' : 'Put it on record'}</button>
-              <button type="button" onClick={() => setOpen(false)} className="h-11 rounded-2xl border-2 border-slate-200 px-4 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
-            </div>
-          </div>
-        )}
-        {doneOnes.length > 0 && (
-          <div className="space-y-1">
-            {doneOnes.map((c) => (
-              <p key={c.id} className="text-[10px] font-bold text-slate-500">{c.ref} · {CONCERN_STATUS[c.status] || c.status}{c.resolvedAt ? ` ${fmtDate(String(c.resolvedAt).slice(0, 10))}` : ''}{c.resolution ? ` — ${c.resolution}` : ''}</p>
-            ))}
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function RenterLeave({ tenantId, token }: { tenantId: string; token: string }) {
-  const [state, setState] = useState<{ policy: any; leaves: any[] } | null>(null);
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ type: 'maternity', startDate: '', endDate: '', preferred: '', note: '' });
-  const [redeemFor, setRedeemFor] = useState('');
-  const [redeemDays, setRedeemDays] = useState('1');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const load = useCallback(async () => {
-    const d = await api({ action: 'leave-list', tenantId, token });
-    if (d?.ok) setState({ policy: d.policy, leaves: d.leaves || [] });
-  }, [tenantId, token]);
-  useEffect(() => { void load(); }, [load]);
-  if (!state || state.policy.offered.length === 0) return null;
-  const TL: Record<string, string> = { pause: 'Pause rent', reduced: 'Reduced holding rate', bank: 'Keep paying, bank days', sublet: 'Sublet while away' };
-  const pending = state.leaves.find((l) => l.status === 'requested');
-  const active = state.leaves.find((l) => l.status === 'approved');
-  const banked = state.leaves
-    .filter((l) => ['approved', 'ended'].includes(l.status))
-    .map((l) => ({ ...l, left: Math.max(0, (Number(l.bankedDays) || 0) - (Number(l.redeemedDays) || 0)) }))
-    .filter((l) => l.left > 0 || (l.redeem && l.redeem.status === 'requested'));
-  const submit = async () => {
-    setBusy(true); setErr('');
-    const d = await api({ action: 'leave-request', tenantId, token, ...form });
-    setBusy(false);
-    if (!d?.ok) { setErr(d?.error || 'Could not send that.'); return; }
-    setOpen(false); setForm({ type: 'maternity', startDate: '', endDate: '', preferred: '', note: '' }); void load();
-  };
-  const askRedeem = async (leaveId: string, max: number) => {
-    setBusy(true); setErr('');
-    const d = await api({ action: 'leave-redeem', tenantId, token, leaveId, days: Math.max(1, Math.min(max, Number(redeemDays) || 1)) });
-    setBusy(false);
-    if (!d?.ok) { setErr(d?.error || 'Could not send that.'); return; }
-    setRedeemFor(''); setRedeemDays('1'); void load();
-  };
-  return (
-    <section className="space-y-3">
-      <SectionTitle icon={CalendarClock}>Time away</SectionTitle>
-      <div className="p-4 rounded-3xl bg-white border-2 border-slate-100 space-y-3">
-        {active && (
-          <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-3.5 py-3">
-            <p className="text-[11px] font-black uppercase tracking-widest text-emerald-800">On leave · {fmtDate(active.startDate)} – {fmtDate(active.endDate)}</p>
-            <p className="text-[11px] font-bold text-emerald-900">{TL[active.treatment] || active.treatment}{active.treatment === 'bank' && active.bankedDays ? ` · ${active.bankedDays} day${active.bankedDays === 1 ? '' : 's'} banked so far` : ''}{active.treatment === 'pause' && active.pausedDays ? ` · lease extends ${active.pausedDays} day${active.pausedDays === 1 ? '' : 's'}` : ''}</p>
-          </div>
-        )}
-        {pending && (
-          <div className="rounded-2xl border-2 border-amber-200 bg-amber-50 px-3.5 py-3">
-            <p className="text-[11px] font-black uppercase tracking-widest text-amber-800">Requested · {fmtDate(pending.startDate)} – {fmtDate(pending.endDate)}</p>
-            <p className="text-[11px] font-bold text-amber-900">Waiting on the studio. Rent continues as normal until it is approved.</p>
-          </div>
-        )}
-
-        {banked.map((l) => (
-          <div key={`bank-${l.id}`} className="rounded-2xl border-2 border-slate-200 bg-slate-50 px-3.5 py-3 space-y-2">
-            <p className="text-[11px] font-black uppercase tracking-widest text-slate-700">{l.left} banked rental day{l.left === 1 ? '' : 's'}</p>
-            {l.redeem && l.redeem.status === 'requested' ? (
-              <p className="text-[11px] font-bold text-amber-800">You asked to use {l.redeem.days} — waiting on the studio.</p>
-            ) : redeemFor === l.id ? (
-              <div className="flex gap-2">
-                <input inputMode="numeric" aria-label="Days to use" value={redeemDays}
-                  onChange={(e) => setRedeemDays(e.target.value.replace(/[^0-9]/g, ''))}
-                  className="h-11 w-20 rounded-2xl border-2 border-slate-200 px-3 text-center text-sm font-bold" />
-                <button type="button" disabled={busy} onClick={() => askRedeem(l.id, l.left)}
-                  className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">Ask to use them</button>
-                <button type="button" onClick={() => setRedeemFor('')} className="h-11 rounded-2xl border-2 border-slate-200 px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
-              </div>
-            ) : (
-              <button type="button" onClick={() => { setRedeemFor(l.id); setRedeemDays(String(l.left)); }}
-                className="h-11 w-full rounded-2xl border-2 border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-700">Use banked days</button>
-            )}
-          </div>
-        ))}
-
-        {!open ? (
-          <button type="button" onClick={() => setOpen(true)} disabled={!!pending}
-            className="h-11 w-full rounded-2xl border-2 border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-700 disabled:opacity-50">
-            {pending ? 'Request pending' : 'Request time away'}
-          </button>
-        ) : (
-          <div className="space-y-2">
-            <p className="text-[10px] font-bold text-slate-500">
-              {state.policy.noticeDays > 0 ? `The studio asks for ${state.policy.noticeDays} days' notice where possible. ` : ''}Up to {state.policy.maxWeeks} weeks.
-            </p>
-            <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))} aria-label="Type of leave"
-              className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold bg-white">
-              {[['maternity', 'Maternity / parental'], ['medical', 'Medical'], ['family', 'Family'], ['personal', 'Personal'], ['other', 'Other']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
-            <div className="grid grid-cols-2 gap-2">
-              <input type="date" value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} aria-label="First day away" className="h-11 rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold" />
-              <input type="date" value={form.endDate} onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))} aria-label="Expected return" className="h-11 rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold" />
-            </div>
-            <div>
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">How you'd prefer rent handled</p>
-              <div className="flex flex-wrap gap-1.5">
-                {state.policy.offered.map((t: string) => (
-                  <button key={t} type="button" onClick={() => setForm((f) => ({ ...f, preferred: f.preferred === t ? '' : t }))}
-                    className={cn('h-10 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-widest', form.preferred === t ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>
-                    {TL[t]}
-                  </button>
-                ))}
-              </div>
-              <p className="text-[9px] font-bold text-slate-400 mt-1">A preference, not a promise — the studio decides.</p>
-            </div>
-            <textarea value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value.slice(0, 600) }))} rows={2} placeholder="Anything the studio should know (optional)" aria-label="Note"
-              className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm" />
-            <div className="flex gap-2">
-              <button type="button" onClick={submit} disabled={busy || !form.startDate || !form.endDate}
-                className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Sending…' : 'Send request'}</button>
-              <button type="button" onClick={() => setOpen(false)} className="h-11 rounded-2xl border-2 border-slate-200 px-4 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
-            </div>
-          </div>
-        )}
-        {err && <p className="text-xs font-bold text-red-600">{err}</p>}
-      </div>
-    </section>
-  );
-}
-
-// ─── Messages with the studio ─────────────────────────────────────────────────
-// The renter's side of the one conversation. Replies are on the record the
-// instant they're sent, and the studio is told in-app.
-function RenterThread({ tenantId, token, studioName }: { tenantId: string; token: string; studioName: string }) {
-  const [msgs, setMsgs] = useState<any[] | null>(null);
-  const [draft, setDraft] = useState('');
-  const [busy, setBusy] = useState(false);
-  const load = useCallback(async () => {
-    const d = await api({ action: 'thread-list', tenantId, token });
-    setMsgs(d?.ok ? [...(d.messages || [])].reverse() : []);
-  }, [tenantId, token]);
-  useEffect(() => { void load(); }, [load]);
-  const send = async () => {
-    const text = draft.trim(); if (!text || busy) return;
-    setBusy(true);
-    const d = await api({ action: 'thread-send', tenantId, token, text });
-    setBusy(false);
-    if (d?.ok) { setDraft(''); void load(); }
-  };
-  return (
-    <section className="space-y-3">
-      <SectionTitle icon={MessageSquare}>Messages with {studioName}</SectionTitle>
-      <div className="p-4 rounded-3xl bg-white border-2 border-slate-100 space-y-3">
-        <div className="space-y-2 max-h-72 overflow-y-auto">
-          {msgs === null ? <p className="text-[11px] text-slate-500">Loading…</p>
-            : msgs.length === 0 ? <p className="text-[11px] text-slate-500">Nothing yet. Ask a question, report something, or just say hi — it's all kept on your account.</p>
-            : msgs.map((m) => (
-              <div key={m.id} className={cn('max-w-[88%] rounded-2xl px-3.5 py-2.5', m.direction === 'inbound' ? 'ml-auto bg-slate-900 text-white' : 'mr-auto bg-slate-100')}>
-                <p className="text-xs font-medium whitespace-pre-wrap leading-snug">{m.text}</p>
-                <p className={cn('mt-1 text-[9px] font-bold', m.direction === 'inbound' ? 'text-white/60' : 'text-slate-500')}>
-                  {m.direction === 'inbound' ? 'You' : (m.byName || studioName)} · {fmtDate(m.createdAt)}
-                </p>
-              </div>
-            ))}
-        </div>
-        <div className="flex gap-2">
-          <textarea value={draft} onChange={(e) => setDraft(e.target.value.slice(0, 2000))} rows={2}
-            placeholder="Write to the studio…" aria-label="Message to the studio"
-            className="flex-1 rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm outline-none focus:border-slate-900" />
-          <button type="button" onClick={send} disabled={busy || !draft.trim()}
-            className="h-11 self-end rounded-2xl bg-slate-900 px-4 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">
-            {busy ? '…' : 'Send'}
-          </button>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// The server has to know which Storage bucket to write to, and the only
-// party that reliably does is this browser (its Firebase config is the one
-// that has always worked). The Booth Hub used to record it on the tenant;
-// the hub is gone, so the portal sends it with every call instead.
-// Not the env var — the env var can be unset and the client still works,
-// because the client SDK falls back to the project's default bucket on its
-// own. Asking the SDK for a reference and reading its .bucket returns the
-// name it RESOLVED, which is the only name that is guaranteed to be real.
-function resolvedStorageBucket(): string {
+// ── Code delivery — swap this for SMS/email when a provider is wired ─────
+async function deliverCode(db: any, tenantId: string, contact: string, code: string, name?: string) {
+  // SMS-FIRST: when Twilio is configured and the contact is a phone
+  // number, the code goes straight to the renter — the owner is out of
+  // the loop entirely. Anything else (email contact, SMS down, not yet
+  // configured) falls back to the owner's inbox for manual relay.
+  const isPhone = /^\+?[\d\s().-]{7,}$/.test(contact.trim());
+  // Secondary method: know their email too? SMS failure falls through to
+  // an emailed code before bothering the owner.
+  let fallbackEmail: string | null = null;
   try {
-    const app = getApps()[0] || initializeApp(firebaseConfig);
-    return String(storageRef(getStorage(app)).bucket || '');
-  } catch { return process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || ''; }
-}
-/** Why the browser could or couldn't resolve a bucket — shown in the brand panel so nobody has to guess. */
-function storageDiagnostic(): string {
-  const b = resolvedStorageBucket();
-  if (b) return `Uploads go to ${b}.`;
-  const env = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || '';
-  return env ? `Bucket from settings: ${env}, but the browser could not open it.` : 'No storage bucket is configured for this site (NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET is empty) — no upload anywhere in the app can work until it is set.';
-}
-// ── Browser-side uploads, the same road every other upload in the app uses ──
-// The renter signs into Firebase with a token scoped to their own record,
-// then uploadImage() puts the file in Storage under Storage rules and returns
-// the download URL. The server never touches the bytes, so it never needs to
-// know the bucket. One sign-in per session; every upload after is instant.
-// Throws with the REAL reason rather than returning false — "could not
-// sign in, try reloading" is the least useful sentence in the app, and it
-// hid whichever of four different failures actually happened.
-let storageSignIn: Promise<void> | null = null;
-async function ensureStorageSignIn(tenantId: string, token: string): Promise<void> {
-  if (storageSignIn) return storageSignIn;
-  storageSignIn = (async () => {
-    const app = getApps()[0] || initializeApp(firebaseConfig);
-    const auth = getAuth(app);
-    if (auth.currentUser && auth.currentUser.uid.startsWith('renter:')) return;
-    const d = await api({ action: 'storage-token', tenantId, token });
-    if (!d?.ok || !d.token) throw new Error(d?.error || 'The server would not issue an upload token.');
-    try {
-      await signInWithCustomToken(auth, d.token);
-    } catch (e: any) {
-      const code = String(e?.code || '');
-      if (code.includes('operation-not-allowed') || code.includes('admin-restricted')) {
-        throw new Error('Uploads need Anonymous or Custom sign-in enabled: Firebase Console → Authentication → Sign-in method. (' + code + ')');
-      }
-      if (code.includes('invalid-custom-token') || code.includes('custom-token-mismatch')) {
-        throw new Error('The upload token was refused — the server\'s Firebase project does not match this app\'s. (' + code + ')');
-      }
-      if (code.includes('api-key') || code.includes('configuration-not-found')) {
-        throw new Error('Firebase Authentication is not configured for this site. (' + code + ')');
-      }
-      throw new Error(e?.message || code || 'Sign-in for uploads failed.');
-    }
-  })();
-  try { await storageSignIn; } catch (e) { storageSignIn = null; throw e; }
-}
-async function uploadRenterPhoto(tenantId: string, token: string, renterId: string, sub: string, file: File, maxDim: number): Promise<string> {
-  if (!renterId) throw new Error('Your renter record is still loading — try again in a moment.');
-  await ensureStorageSignIn(tenantId, token);
-  const safe = sub.replace(/[^A-Za-z0-9/_-]/g, '');
-  try {
-    return await uploadImage(`tenants/${tenantId}/renters/${renterId}/${safe}/${Date.now()}.jpg`, file, maxDim);
-  } catch (e: any) {
-    const code = String(e?.code || '');
-    if (code.includes('unauthorized')) throw new Error('Storage refused the upload — publish the renters Storage rule in Firebase Console → Storage → Rules. (' + code + ')');
-    if (code.includes('unknown') || code.includes('retry-limit')) throw new Error('The upload could not reach Storage — check the connection and try again. (' + code + ')');
-    throw new Error(e?.message || code || 'The upload failed.');
-  }
-}
-
-const api = async (payload: any) => {
-  const bucket = resolvedStorageBucket();
-  const res = await fetch('/api/portal/renter', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...payload, ...(bucket ? { storageBucket: bucket } : {}) }),
-  });
-  const d = await res.json().catch(() => ({}));
-  return { status: res.status, ...d };
-};
-
-const STORE = (tenantId: string) => `opal_renter_${tenantId}`;
-
-// ─── My Hours: the renter's own weekly availability ──────────────────────────
-// Writes staff.availability.week, which the booking engine already treats as
-// layer 3 (per-staff weekly hours) — so a renter's template beats the house
-// profile for their own link, with no engine changes. Days left off simply
-// produce no slots.
-const DAY_ROWS: Array<[string, string]> = [
-  ['monday', 'Mon'], ['tuesday', 'Tue'], ['wednesday', 'Wed'], ['thursday', 'Thu'],
-  ['friday', 'Fri'], ['saturday', 'Sat'], ['sunday', 'Sun'],
-];
-
-function MyHours({ data, tenantId, token, onChanged }: { data: any; tenantId: string; token: string; onChanged: () => void }) {
-  const initial = () => {
-    const w = data?.provider?.week || {};
-    const out: any = {};
-    for (const [key] of DAY_ROWS) {
-      const r = w[key] || {};
-      out[key] = { enabled: !!r.enabled, start: r.start || '09:00', end: r.end || '17:00' };
-    }
-    return out;
-  };
-  const [week, setWeek] = useState<any>(initial);
-  const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [err, setErr] = useState('');
-
-  const set = (day: string, patch: any) => setWeek((w: any) => ({ ...w, [day]: { ...w[day], ...patch } }));
-
-  const save = async () => {
-    setBusy(true); setErr('');
-    const bad = DAY_ROWS.find(([k]) => week[k].enabled && !(week[k].start < week[k].end));
-    if (bad) { setBusy(false); setErr('End time has to be after start time.'); return; }
-    const d = await api({ action: 'my-hours', tenantId, token, week });
-    setBusy(false);
-    if (!d.ok) { setErr(d.error || 'Could not save'); return; }
-    setSaved(true); setTimeout(() => setSaved(false), 2000);
-    onChanged();
-  };
-
-  const anyOn = DAY_ROWS.some(([k]) => week[k].enabled);
-
-  return (
-    <section className="space-y-3">
-      <SectionTitle icon={Clock}>My Hours</SectionTitle>
-      <div className="p-4 rounded-3xl bg-white border-2 space-y-2">
-        <p className="text-[11px] font-bold text-slate-500">
-          When clients can book you. These are your hours — they don&apos;t have to match the studio&apos;s.
-        </p>
-        {Array.isArray(data?.provider?.leasedDays) && data.provider.leasedDays.length > 0 && (
-          <p className="rounded-2xl bg-slate-50 p-3 text-[11px] font-bold text-slate-600">
-            Your lease covers {data.provider.leasedDays.map((d: string) => d.slice(0, 3)).join(', ')}
-            {data.provider.leasedStart ? ' ' + data.provider.leasedStart + '\u2013' + (data.provider.leasedEnd || 'close') : ''}.
-            {' '}Hours outside that save as off — the chair belongs to someone else then.
-          </p>
-        )}
-        {DAY_ROWS.map(([key, label]) => (
-          <div key={key} className="flex items-center gap-2 rounded-2xl border-2 p-2">
-            <button type="button" onClick={() => set(key, { enabled: !week[key].enabled })}
-                    className={cn('h-9 w-16 shrink-0 rounded-xl text-[10px] font-black uppercase tracking-widest',
-                      week[key].enabled ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-400')}>
-              {label}
-            </button>
-            {week[key].enabled ? (
-              <div className="flex flex-1 items-center gap-2">
-                <input type="time" value={week[key].start} onChange={e => set(key, { start: e.target.value })}
-                       className="h-9 min-w-0 flex-1 rounded-xl border-2 px-2 text-[12px] font-bold" />
-                <span className="text-[11px] font-black text-slate-400">to</span>
-                <input type="time" value={week[key].end} onChange={e => set(key, { end: e.target.value })}
-                       className="h-9 min-w-0 flex-1 rounded-xl border-2 px-2 text-[12px] font-bold" />
-              </div>
-            ) : (
-              <span className="flex-1 text-[11px] font-bold text-slate-400">Off</span>
-            )}
-          </div>
-        ))}
-        {!anyOn && (
-          <p className="rounded-2xl bg-amber-50 p-3 text-[11px] font-bold text-amber-800">
-            Every day is off right now, so nobody can book you. Turn on at least one day.
-          </p>
-        )}
-        {err && <p className="text-[11px] font-black text-red-600">{err}</p>}
-        <button onClick={save} disabled={busy}
-                className="h-11 w-full rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white active:scale-95 disabled:opacity-50">
-          {busy ? 'Saving…' : saved ? 'Saved ✓' : 'Save my hours'}
-        </button>
-        <p className="text-[10px] font-bold text-slate-400">
-          Time off for a single day? Ask the studio to block it — that keeps the calendar honest for everyone.
-        </p>
-      </div>
-    </section>
-  );
-}
-
-// ─── Card payments: their own Stripe ─────────────────────────────────────────
-// Connecting here creates an account that belongs to the RENTER. Money, refunds
-// and disputes are all theirs; the studio is never in the path. Half-finished
-// onboarding is an expected state, not an error — services simply stay
-// pay-in-person until Stripe reports charges are live.
-function MyPayments({ data, tenantId, token }: { data: any; tenantId: string; token: string }) {
-  const [st, setSt] = useState<any>(null);
-  const [busy, setBusy] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch('/api/portal/renter-connect', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'status', tenantId, token }),
-        });
-        const d = await res.json().catch(() => ({}));
-        if (!cancelled) setSt(d);
-      } catch { /* offline — the card just shows the connect option */ }
-      if (!cancelled) setBusy(false);
-    })();
-    return () => { cancelled = true; };
-  }, [tenantId, token]);
-
-  const connected = !!st?.connected;
-  const live = !!st?.chargesEnabled;
-  const submitted = !!st?.detailsSubmitted;
-  const onboardHref = `/api/portal/renter-connect?tenantId=${encodeURIComponent(tenantId)}&token=${encodeURIComponent(token)}`;
-
-  return (
-    <section className="space-y-3">
-      <SectionTitle icon={CreditCard}>Card Payments</SectionTitle>
-      <div className="p-4 rounded-3xl bg-white border-2 space-y-3">
-        {busy ? (
-          <p className="py-3 text-center text-[11px] font-bold text-slate-400">Checking your account…</p>
-        ) : live ? (
-          <div className="rounded-2xl bg-emerald-50 p-4">
-            <p className="text-[13px] font-black text-emerald-900">You can take cards.</p>
-            <p className="mt-1 text-[11px] font-bold text-emerald-800">
-              Payments go straight to your own Stripe account and pay out to your bank. {data?.studioName || 'The studio'} never touches them.
-            </p>
-          </div>
-        ) : connected && submitted ? (
-          <div className="rounded-2xl bg-amber-50 p-4">
-            <p className="text-[13px] font-black text-amber-900">Stripe is still reviewing your details.</p>
-            <p className="mt-1 text-[11px] font-bold text-amber-800">
-              This usually takes a few minutes. Until it clears, your clients pay you in person as usual — nothing is broken.
-            </p>
-          </div>
-        ) : connected ? (
-          <div className="rounded-2xl bg-slate-50 p-4">
-            <p className="text-[13px] font-black text-slate-900">You started setting up — a few steps left.</p>
-            <p className="mt-1 text-[11px] font-bold text-slate-500">Pick up where you left off. Your bookings keep working meanwhile.</p>
-          </div>
-        ) : (
-          <div className="rounded-2xl bg-slate-50 p-4">
-            <p className="text-[13px] font-black text-slate-900">Want to take cards and deposits?</p>
-            <p className="mt-1 text-[11px] font-bold text-slate-500">
-              Connect your own Stripe account — you keep 100%, minus Stripe&apos;s normal processing fee. It pays out to your bank, not the studio&apos;s.
-            </p>
-          </div>
-        )}
-
-        {!live && !busy && (
-          <a href={onboardHref}
-             className="flex h-11 w-full items-center justify-center rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white active:scale-95">
-            {connected ? 'Finish setting up' : 'Connect my Stripe'}
-          </a>
-        )}
-        {live && (
-          <a href={onboardHref}
-             className="flex h-11 w-full items-center justify-center rounded-2xl border-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
-            Manage my account
-          </a>
-        )}
-        <p className="text-[10px] font-bold text-slate-400">
-          Payment questions go to Stripe, not the front desk — it&apos;s your account.
-        </p>
-      </div>
-    </section>
-  );
-}
-
-// ─── My Number: what they need to earn ───────────────────────────────────────
-// Rough is fine. These inputs live in a server-only subcollection the studio
-// cannot read — the card says so plainly, because a renter's landlord asking
-// about their household budget is exactly the thing that would stop them from
-// answering honestly. Sharing is one derived rate, opt-in, off by default.
-function MyNumber({ data, tenantId, token, onChanged }: { data: any; tenantId: string; token: string; onChanged: () => void }) {
-  const p = data?.pricing || {};
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const [personal, setPersonal] = useState(String(((Number(p.personalMonthlyCents) || 0) / 100) || ''));
-  const [business, setBusiness] = useState(String(((Number(p.businessMonthlyCents) || 0) / 100) || ''));
-  const [taxPct, setTaxPct] = useState(String(p.taxSetAsidePct ?? 25));
-  const [share, setShare] = useState(!!p.shareTargetHourly);
-
-  const save = async () => {
-    setBusy(true); setErr('');
-    const d = await api({
-      action: 'my-goals', tenantId, token,
-      personalMonthly: Number(personal) || 0,
-      businessMonthly: Number(business) || 0,
-      taxSetAsidePct: Number(taxPct) || 0,
-      shareTargetHourly: share,
-    });
-    setBusy(false);
-    if (!d.ok) { setErr(d.error || 'Could not save'); return; }
-    setOpen(false); onChanged();
-  };
-
-  const target = (Number(p.targetHourlyCents) || 0) / 100;
-  const monthly = (Number(p.monthlyTargetCents) || 0) / 100;
-
-  return (
-    <section className="space-y-3">
-      <SectionTitle icon={Wallet}>My Number</SectionTitle>
-      <div className="p-4 rounded-3xl bg-white border-2 space-y-3">
-        {p.hasGoals && !open ? (
-          <div className="rounded-2xl bg-slate-900 p-4 text-white">
-            <p className="text-[10px] font-black uppercase tracking-widest text-white/50">Your hour needs to make</p>
-            <p className="text-3xl font-black">${target.toFixed(2)}</p>
-            <p className="mt-1 text-[11px] font-bold text-white/70">
-              ${monthly.toFixed(2)} a month across {p.bookableHoursPerMonth} booked hours — rent, taxes and living covered.
-            </p>
-          </div>
-        ) : !open ? (
-          <div className="rounded-2xl bg-slate-50 p-4">
-            <p className="text-[13px] font-black text-slate-900">Know what your hour has to earn.</p>
-            <p className="mt-1 text-[11px] font-bold text-slate-500">
-              Tell us roughly what you need each month and we&apos;ll work backwards through taxes and rent to the number that makes your prices make sense.
-            </p>
-          </div>
-        ) : null}
-
-        {open && (
-          <div className="space-y-2">
-            <p className="rounded-2xl bg-emerald-50 p-3 text-[11px] font-bold text-emerald-900">
-              🔒 Only you can see these numbers. {data?.studioName || 'The studio'} sees that you&apos;ve set a goal, never what&apos;s in it.
-            </p>
-            <label className="block">
-              <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">What you need to live on, a month</span>
-              <input type="number" min={0} value={personal} onChange={e => setPersonal(e.target.value)} placeholder="3000"
-                     className="h-11 w-full rounded-xl border-2 px-3 text-[15px] font-black" />
-              <span className="mt-1 block text-[10px] font-bold text-slate-400">Housing, car, food, insurance, debt, savings — rough is fine.</span>
-            </label>
-            <div className="flex gap-2">
-              <label className="flex-1">
-                <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Business costs / mo</span>
-                <input type="number" min={0} value={business} onChange={e => setBusiness(e.target.value)} placeholder="200"
-                       className="h-11 w-full rounded-xl border-2 text-center text-[15px] font-black" />
-              </label>
-              <label className="flex-1">
-                <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Tax set-aside %</span>
-                <input type="number" min={0} max={60} value={taxPct} onChange={e => setTaxPct(e.target.value)}
-                       className="h-11 w-full rounded-xl border-2 text-center text-[15px] font-black" />
-              </label>
-            </div>
-            <button type="button" onClick={() => setShare(v => !v)}
-                    className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 p-3 text-left">
-              <span>
-                <span className="block text-[12px] font-black text-slate-900">Share just my hourly target with {data?.studioName || 'the studio'}</span>
-                <span className="block text-[10px] font-bold text-slate-500">One number, so they can help you price. Never your costs.</span>
-              </span>
-              <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest',
-                share ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500')}>{share ? 'On' : 'Off'}</span>
-            </button>
-            {err && <p className="text-[11px] font-black text-red-600">{err}</p>}
-            <div className="flex gap-2">
-              <button onClick={save} disabled={busy}
-                      className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white active:scale-95 disabled:opacity-50">
-                {busy ? 'Saving…' : 'Save my number'}
-              </button>
-              <button onClick={() => { setOpen(false); setErr(''); }} className="h-11 rounded-2xl border-2 px-4 text-[10px] font-black uppercase tracking-widest">Cancel</button>
-            </div>
-          </div>
-        )}
-
-        {!open && (
-          <button onClick={() => setOpen(true)}
-                  className="h-11 w-full rounded-2xl border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-500">
-            {p.hasGoals ? 'Update my number' : 'Set up my number'}
-          </button>
-        )}
-      </div>
-    </section>
-  );
-}
-
-
-
-// ─── My Profile ──────────────────────────────────────────────────────────────
-// What a client sees when they land on this person. Which fields matter depends
-// entirely on how they take bookings, so the card asks for different things:
-// someone booking through the studio needs a face and a line about themselves,
-// while someone on their own system needs their real booking URL, so a client
-// who lands here can still reach them instead of hitting a dead end.
-function MyProfile({ data, tenantId, token, onChanged }: { data: any; tenantId: string; token: string; onChanged: () => void }) {
-  const { toast } = useToast();
-  const p0 = data?.profile || {};
-  const ownSystem = data?.bookingMode === 'own';
-  const [biz, setBiz] = useState(data?.renter?.businessName || '');
-  const [bio, setBio] = useState(p0.bio || '');
-  const [ig, setIg] = useState(p0.instagram || '');
-  const [links, setLinks] = useState<{ kind: string; value: string; label?: string }[]>(Array.isArray(p0.links) ? p0.links : []);
-  const [url, setUrl] = useState(p0.externalBookingUrl || '');
-  const [listed, setListed] = useState(p0.listExternally === true);
-  const [photo, setPhoto] = useState<string | null>(null);
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-
-  const shown = photo || p0.photoUrl || '';
-
-  const pick = (e: any) => {
-    const file = e.target?.files?.[0];
-    if (!file) return;
-    if (file.size > 3 * 1024 * 1024) { setErr('Keep the photo under 3 MB.'); return; }
-    const r = new FileReader();
-    r.onload = () => { setPhoto(String(r.result || '')); setErr(''); };
-    r.readAsDataURL(file);
-    setPhotoFile(file);
-  };
-
-  const save = async () => {
-    setBusy(true); setErr('');
-    let photoUrl: string | undefined;
-    if (photoFile) {
-      try { photoUrl = await uploadRenterPhoto(tenantId, token, String(data?.renter?.id || ''), 'profile', photoFile, 1200); }
-      catch (ex: any) { setBusy(false); setErr(ex?.message || 'Could not upload that photo.'); return; }
-    }
-    const d = await api({
-      action: 'my-profile', tenantId, token,
-      businessName: biz, bio, instagram: ig, links, externalBookingUrl: url, listExternally: listed,
-      ...(photoUrl ? { photoUrl } : {}),
-    });
-    setBusy(false);
-    if (!d.ok) { setErr(d.error || 'Could not save that.'); return; }
-    setPhoto(null); setPhotoFile(null);
-    toast({ title: 'Profile saved', description: ownSystem ? 'Your booking link is live.' : 'Clients will see this on your booking page.' });
-    onChanged();
-  };
-
-  return (
-    <section className="space-y-3">
-      <SectionTitle icon={Sparkles}>My Profile</SectionTitle>
-      <div className="p-5 rounded-3xl bg-white border-2 space-y-4">
-        {!ownSystem && (
-          <>
-            <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-2xl bg-slate-100 overflow-hidden shrink-0 flex items-center justify-center">
-                {shown
-                  ? <img src={shown} alt="Your profile" className="w-full h-full object-cover" />
-                  : <Sparkles className="w-5 h-5 text-slate-300" />}
-              </div>
-              <div className="min-w-0">
-                <label htmlFor="pf-photo" className="block text-[11px] font-black uppercase tracking-widest text-slate-900 cursor-pointer underline">
-                  {shown ? 'Change photo' : 'Add a photo'}
-                </label>
-                <input id="pf-photo" type="file" accept="image/*" onChange={pick} className="hidden" />
-                <p className="text-[10px] font-bold text-slate-400 mt-1">A real face books better than a blank square.</p>
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <label htmlFor="pf-bio" className="block text-[10px] font-black uppercase tracking-widest text-slate-400">About you</label>
-              <label htmlFor="pf-biz" className="block text-[10px] font-black uppercase tracking-widest text-slate-400">Business name</label>
-              <input id="pf-biz" value={biz} onChange={(e) => setBiz(e.target.value.slice(0, 80))} maxLength={80}
-                placeholder={`${data?.renter?.firstName || ''} ${data?.renter?.lastName || ''}`.trim() || 'Your name'}
-                className="mb-1 h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold" />
-              <p className="mb-3 text-[10px] font-bold text-slate-400">
-                What clients see when they book you. Leave it empty and they see your own name.
-              </p>
-              <label htmlFor="pf-bio" className="block text-[10px] font-black uppercase tracking-widest text-slate-400">About you</label>
-              <textarea id="pf-bio" value={bio} onChange={(e) => setBio(e.target.value)} maxLength={300} rows={3}
-                placeholder="What you specialise in, how long you've been doing it…"
-                className="w-full px-3 py-3 rounded-xl border-2 border-slate-200 text-sm font-bold resize-none" />
-              <p className="text-[10px] font-bold text-slate-400">{300 - bio.length} left</p>
-            </div>
-
-            <div className="space-y-1">
-              <label htmlFor="pf-ig" className="block text-[10px] font-black uppercase tracking-widest text-slate-400">Instagram</label>
-              <input id="pf-ig" value={ig} onChange={(e) => setIg(e.target.value)} placeholder="yourhandle"
-                className="w-full px-3 py-3 rounded-xl border-2 border-slate-200 text-sm font-bold" />
-            </div>
-            <div className="space-y-2">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Your links</p>
-              <p className="text-[10px] font-bold text-slate-500">These show as buttons on your booking page, under your photo — TikTok, Facebook, your website, anything. Up to eight.</p>
-              {links.map((l, i) => {
-                const def = LINK_KINDS.find((k) => k.kind === l.kind) || LINK_KINDS[LINK_KINDS.length - 1];
-                return (
-                  <div key={i} className="flex gap-2">
-                    <select value={l.kind} onChange={(e) => setLinks((ls) => ls.map((x, j) => j === i ? { ...x, kind: e.target.value } : x))} aria-label="Link type"
-                      className="h-11 w-28 shrink-0 rounded-xl border-2 border-slate-200 bg-white px-2 text-[11px] font-bold">
-                      {LINK_KINDS.map((k) => <option key={k.kind} value={k.kind}>{k.label}</option>)}
-                    </select>
-                    <input value={l.value} onChange={(e) => setLinks((ls) => ls.map((x, j) => j === i ? { ...x, value: e.target.value.slice(0, 200) } : x))}
-                      placeholder={def.placeholder} aria-label={`${def.label} handle or URL`} inputMode="url"
-                      className="h-11 flex-1 min-w-0 rounded-xl border-2 border-slate-200 px-3 text-sm font-bold" />
-                    <button type="button" onClick={() => setLinks((ls) => ls.filter((_, j) => j !== i))} aria-label="Remove link"
-                      className="h-11 w-11 shrink-0 rounded-xl border-2 border-slate-200 text-slate-500 font-black">×</button>
-                  </div>
-                );
-              })}
-              {links.length < 8 && (
-                <button type="button" onClick={() => setLinks((ls) => [...ls, { kind: ls.some((x) => x.kind === 'tiktok') ? 'website' : 'tiktok', value: '' }])}
-                  className="h-10 w-full rounded-xl border-2 border-dashed border-slate-300 text-[10px] font-black uppercase tracking-widest text-slate-600">+ Add a link</button>
-              )}
-            </div>
-          </>
-        )}
-
-        {ownSystem && (
-          <>
-            <div className="space-y-1">
-              <label htmlFor="pf-url" className="block text-[10px] font-black uppercase tracking-widest text-slate-400">Your booking link</label>
-              <input id="pf-url" value={url} onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://yourname.glossgenius.com"
-                className="w-full px-3 py-3 rounded-xl border-2 border-slate-200 text-sm font-bold" />
-              <p className="text-[10px] font-bold text-slate-400">
-                Square, GlossGenius, Booksy, your own site — wherever clients actually book you.
-              </p>
-            </div>
-
-            <button onClick={() => setListed(!listed)}
-              className="w-full flex items-center justify-between gap-3 p-3 rounded-2xl border-2 text-left">
-              <span className="min-w-0">
-                <span className="block text-[12px] font-black text-slate-900">Show me on the studio&apos;s booking page</span>
-                <span className="block text-[11px] font-bold text-slate-500">
-                  Clients looking for you there get sent to your link instead of finding nothing.
-                </span>
-              </span>
-              <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest',
-                listed ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500')}>
-                {listed ? 'On' : 'Off'}
-              </span>
-            </button>
-          </>
-        )}
-
-        {err && (
-          <div className="flex items-start gap-2 text-red-600">
-            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-            <p className="text-[11px] font-bold">{err}</p>
-          </div>
-        )}
-
-        <button onClick={save} disabled={busy}
-          className="w-full py-3 rounded-2xl bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
-          {busy ? 'Saving…' : 'Save profile'}
-        </button>
-      </div>
-    </section>
-  );
-}
-
-// ─── Getting set up ──────────────────────────────────────────────────────────
-// Two things live here, and the first decides whether the second exists.
-//
-// BOOKING MODE is an explicit choice, not an absence. Plenty of renters already
-// run their own booking system and are never going to move; treating that as
-// "incomplete setup" would leave them staring at a permanent to-do list for
-// tools they don't want. Choosing "my own system" makes their portal complete
-// as it stands — rent, documents, credits — and switches every booking section
-// off, including on the booking page itself, not just here.
-//
-// THE CHECKLIST only appears for people who chose the studio system, is derived
-// live from what actually exists rather than a stored flag, and can be
-// dismissed once and for good. Setup prompts that come back are nags.
-function GettingSetUp({ data, tenantId, token, onChanged }: { data: any; tenantId: string; token: string; onChanged: () => void }) {
-  const { toast } = useToast();
-  const cl = data?.checklist;
-  const [busy, setBusy] = useState('');
-  const [switching, setSwitching] = useState(false);
-  const [err, setErr] = useState('');
-
-  if (!cl) return null;
-
-  const setMode = async (mode: 'studio' | 'own') => {
-    setBusy(mode); setErr('');
-    const d = await api({ action: 'booking-mode', tenantId, token, mode });
-    setBusy(''); setSwitching(false);
-    if (!d.ok) { setErr(d.error || 'Could not save that.'); return; }
-    toast({
-      title: mode === 'own' ? 'Set to your own system' : 'Set to the studio system',
-      description: mode === 'own'
-        ? 'Your booking sections are switched off. Your rent, documents and credits are unaffected.'
-        : 'Set your hours and add a service and clients can start booking you.',
-    });
-    onChanged();
-  };
-
-  const dismiss = async () => {
-    setBusy('dismiss');
-    await api({ action: 'checklist-dismiss', tenantId, token });
-    setBusy('');
-    onChanged();
-  };
-
-  if (!cl.modeChosen || switching) {
-    return (
-      <section className="space-y-3">
-        <SectionTitle icon={Sparkles}>Getting set up</SectionTitle>
-        <div className="p-5 rounded-3xl bg-white border-2 space-y-3">
-          <div>
-            <p className="font-black text-slate-900 text-sm">How do you take bookings?</p>
-            <p className="text-[11px] font-bold text-slate-500 mt-1">
-              Either answer is fine, and you can change it whenever you like. Your rent, documents and credits work the same either way.
-            </p>
-          </div>
-          <button onClick={() => setMode('studio')} disabled={!!busy}
-            className="w-full p-4 rounded-2xl border-2 text-left active:scale-[0.99] transition-all disabled:opacity-50">
-            <p className="text-[12px] font-black text-slate-900">I&apos;ll book through the studio</p>
-            <p className="text-[11px] font-bold text-slate-500 mt-0.5">
-              You get your own menu at your own prices, your own hours, a personal booking link, and you keep what you charge.
-            </p>
-          </button>
-          <button onClick={() => setMode('own')} disabled={!!busy}
-            className="w-full p-4 rounded-2xl border-2 text-left active:scale-[0.99] transition-all disabled:opacity-50">
-            <p className="text-[12px] font-black text-slate-900">I use my own booking system</p>
-            <p className="text-[11px] font-bold text-slate-500 mt-0.5">
-              Square, GlossGenius, Booksy, a paper book — whatever you already use. Nothing here will pester you about it.
-            </p>
-          </button>
-          {switching && (
-            <button onClick={() => setSwitching(false)}
-              className="text-[11px] font-black uppercase tracking-widest text-slate-400">Never mind</button>
-          )}
-          {err && (
-            <div className="flex items-start gap-2 text-red-600">
-              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-              <p className="text-[11px] font-bold">{err}</p>
-            </div>
-          )}
-        </div>
-      </section>
-    );
-  }
-
-  if (cl.mode === 'own') {
-    return (
-      <section className="space-y-3">
-        <div className="p-4 rounded-3xl bg-white border-2 border-slate-100">
-          <p className="text-[11px] font-bold text-slate-500">
-            You&apos;re running your own booking system. If you ever want to try the studio&apos;s — your own menu, your own prices, your own link —{' '}
-            <button onClick={() => setSwitching(true)} className="font-black text-slate-900 underline">switch it on here</button>.
-          </p>
-        </div>
-      </section>
-    );
-  }
-
-  if (cl.dismissed || cl.allDone) {
-    return (
-      <section className="space-y-3">
-        <div className="p-4 rounded-3xl bg-white border-2 border-slate-100">
-          <p className="text-[11px] font-bold text-slate-500">
-            Booking through the studio.{' '}
-            <button onClick={() => setSwitching(true)} className="font-black text-slate-900 underline">Use my own system instead</button>
-          </p>
-        </div>
-      </section>
-    );
-  }
-
-  return (
-    <section className="space-y-3">
-      <SectionTitle icon={Sparkles}>Getting set up</SectionTitle>
-      <div className="p-5 rounded-3xl bg-white border-2 space-y-3">
-        <div>
-          <p className="font-black text-slate-900 text-sm">
-            {cl.remaining === 1 ? 'One thing left' : `${cl.remaining} things left`}
-          </p>
-          <p className="text-[11px] font-bold text-slate-500 mt-0.5">
-            Until these are done, clients can&apos;t book you.
-          </p>
-        </div>
-        <div className="space-y-2">
-          {cl.items.map((it: any) => (
-            <div key={it.key} className={cn('flex items-start gap-3 p-3 rounded-2xl border-2',
-              it.done ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200')}>
-              {it.done
-                ? <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
-                : <div className="w-4 h-4 rounded-full border-2 border-slate-300 mt-0.5 shrink-0" />}
-              <div className="min-w-0">
-                <p className={cn('text-[12px] font-black', it.done ? 'text-emerald-900' : 'text-slate-900')}>
-                  {it.label}{it.optional ? ' · optional' : ''}
-                </p>
-                {it.hint && <p className="text-[11px] font-bold text-slate-500 mt-0.5">{it.hint}</p>}
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="flex items-center justify-between gap-3 pt-1">
-          <button onClick={() => setSwitching(true)} className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-            I use my own system
-          </button>
-          <button onClick={dismiss} disabled={!!busy} className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-            {busy === 'dismiss' ? '…' : 'Hide this'}
-          </button>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── Day Swaps: renter ↔ renter, the studio is told but never asked ───────────
-// A swap trades TIME, not money. Rent never moves — a permanent change of days
-// is a lease change, which is the owner's business.
-//
-// A day can be given whole, or from either EDGE — "I need to leave early", "I'm
-// coming in late". Never a hole out of the middle: the remainder has to stay one
-// window, and two handoffs in one chair helps nobody.
-//
-// If the other person has their own client inside the window, the request can
-// still be sent, but it arrives flagged and cannot be accepted until they move
-// that booking themselves. The clash is theirs to resolve, never the asker's to
-// override — a client who is not in this conversation would be the one moved.
-const SWAP_SLICE: Array<[string, string]> = [
-  ['whole', 'The whole day'],
-  ['trailing', 'Leave early — give away the end'],
-  ['leading', 'Come in late — give away the start'],
-];
-
-function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenantId: string; token: string; onChanged: () => void }) {
-  const { toast } = useToast();
-  const swaps = data?.swaps || {};
-  const incoming: any[] = swaps.incoming || [];
-  const outgoing: any[] = swaps.outgoing || [];
-  const confirmed: any[] = swaps.confirmed || [];
-  const openOffers: any[] = swaps.openOffers || [];
-  const myOpen: any[] = swaps.myOpen || [];
-
-  const [open, setOpen] = useState(false);
-  const [opts, setOpts] = useState<any>(null);
-  const [loadingOpts, setLoadingOpts] = useState(false);
-  const [giveDate, setGiveDate] = useState('');
-  const [slice, setSlice] = useState('whole');
-  const [edge, setEdge] = useState('');
-  const [toStaffId, setToStaffId] = useState('');
-  const [note, setNote] = useState('');
-  const [busy, setBusy] = useState('');
-  const [err, setErr] = useState('');
-  const [confirmAsk, setConfirmAsk] = useState('');
-  const [declineFor, setDeclineFor] = useState('');
-
-  const myDates: any[] = opts?.myDates || [];
-  const chosen = myDates.find((d: any) => d.date === giveDate) || null;
-  const partners: any[] = opts?.partners || [];
-
-  const seg = (() => {
-    if (!chosen) return null;
-    if (slice === 'whole') return chosen.held;
-    return slice === 'leading' ? chosen.leading : chosen.trailing;
-  })();
-
-  const win = (() => {
-    if (!seg || !chosen) return null;
-    if (slice === 'whole') return { start: chosen.held.start, end: chosen.held.end };
-    if (slice === 'leading') return { start: chosen.held.start, end: edge || seg.end };
-    return { start: edge || seg.start, end: chosen.held.end };
-  })();
-
-  const reset = () => {
-    setOpen(false); setOpts(null); setGiveDate(''); setSlice('whole'); setEdge('');
-    setToStaffId(''); setNote(''); setErr(''); setConfirmAsk('');
-  };
-
-  const start = async () => {
-    setOpen(true); setErr(''); setLoadingOpts(true);
-    const d = await api({ action: 'swap-options', tenantId, token, today: localISO() });
-    setLoadingOpts(false);
-    if (!d.ok) { setErr(d.error || 'Could not load your days.'); return; }
-    setOpts(d);
-  };
-
-  const pickDate = (d: any) => {
-    setGiveDate(d.date); setSlice('whole'); setEdge(''); setErr(''); setConfirmAsk('');
-  };
-  const pickSlice = (k: string) => {
-    setSlice(k); setErr(''); setConfirmAsk('');
-    if (!chosen) return;
-    const s2 = k === 'leading' ? chosen.leading : k === 'trailing' ? chosen.trailing : chosen.held;
-    setEdge(k === 'leading' ? (s2?.end || '') : k === 'trailing' ? (s2?.start || '') : '');
-  };
-
-  const send = async (askAnyway: boolean) => {
-    if (!win) return;
-    setBusy('send'); setErr('');
-    const d = await api({
-      action: 'swap-request', tenantId, token, today: localISO(),
-      toStaffId, giveDate, giveStart: win.start, giveEnd: win.end, note, askAnyway,
-    });
-    setBusy('');
-    if (d.needsConfirm) { setConfirmAsk(d.error || ''); return; }
-    if (!d.ok) { setErr(d.error || 'Could not send that request.'); setConfirmAsk(''); return; }
-    const who = partners.find((p: any) => p.staffId === toStaffId)?.name || 'They';
-    toast({
-      title: d.conflicted ? 'Asked anyway' : 'Swap request sent',
-      description: d.conflicted
-        ? `${who} will see it flagged — they can only accept if they move their own booking.`
-        : `${who} will get an email and a text.`,
-    });
-    reset(); onChanged();
-  };
-
-  const respond = async (id: string, decision: 'accept' | 'decline', reason?: string) => {
-    setBusy(id); setErr('');
-    const d = await api({ action: 'swap-respond', tenantId, token, today: localISO(), swapId: id, decision, reason });
-    setBusy('');
-    setDeclineFor('');
-    if (!d.ok) { setErr(d.error || 'That did not go through.'); onChanged(); return; }
-    toast({
-      title: decision === 'accept' ? 'Swap confirmed ✓' : 'Swap declined',
-      description: decision === 'accept'
-        ? 'Your booking hours have moved for that window only. Rent is unchanged.'
-        : 'Their day is unchanged and nothing was charged.',
-    });
-    onChanged();
-  };
-
-  const claim = async (id: string) => {
-    setBusy(id); setErr('');
-    const d = await api({ action: 'swap-claim', tenantId, token, today: localISO(), swapId: id });
-    setBusy('');
-    if (!d.ok) { setErr(d.error || 'Could not take that one.'); onChanged(); return; }
-    toast({ title: 'It’s yours ✓', description: 'Your booking hours have moved for that window only. Rent is unchanged.' });
-    onChanged();
-  };
-
-  const broadcast = async () => {
-    if (!win) return;
-    setBusy('send'); setErr('');
-    const d = await api({
-      action: 'swap-broadcast', tenantId, token, today: localISO(),
-      giveDate, giveStart: win.start, giveEnd: win.end, note,
-    });
-    setBusy('');
-    if (!d.ok) { setErr(d.error || 'Could not offer that.'); return; }
-    toast({
-      title: 'Offered to everyone who can take it',
-      description: `${d.offeredTo} ${d.offeredTo === 1 ? 'person was' : 'people were'} asked. First to take it gets it.`,
-    });
-    reset(); onChanged();
-  };
-
-  const withdraw = async (id: string) => {
-    setBusy(id);
-    const d = await api({ action: 'swap-cancel', tenantId, token, swapId: id });
-    setBusy('');
-    if (!d.ok) { setErr(d.error || 'Could not withdraw that.'); return; }
-    onChanged();
-  };
-
-  const line = (s2: any) =>
-    `${s2.iAmGiver ? 'They cover' : 'You cover'} ${s2.giveLabel}, ${s2.windowLabel}`;
-
-  return (
-    <section className="space-y-3">
-      <SectionTitle icon={Repeat}>Day Swaps</SectionTitle>
-
-      {openOffers.map((o: any) => (
-        <div key={o.id} className="p-4 rounded-3xl bg-white border-2 border-sky-300 space-y-3">
-          <div>
-            <p className="font-black text-slate-900 text-sm">{o.fromName} is offering a day</p>
-            <p className="text-[11px] font-bold text-slate-500 mt-0.5">
-              {o.giveLabel}, {o.windowLabel}{o.boothName ? ` · ${o.boothName}` : ''}
-            </p>
-            {o.note && <p className="text-[11px] font-bold text-slate-400 mt-1 italic">“{o.note}”</p>}
-          </div>
-          <button onClick={() => claim(o.id)} disabled={!!busy}
-            className="w-full py-3 rounded-2xl bg-sky-600 text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
-            {busy === o.id ? 'Taking…' : 'Take this day'}
-          </button>
-          <p className="text-[10px] font-bold text-slate-400">
-            First to take it gets it{o.offeredTo > 1 ? ` — ${o.offeredTo} people were asked` : ''}. Rent is not affected.
-          </p>
-        </div>
-      ))}
-
-      {myOpen.map((o: any) => (
-        <div key={o.id} className="p-4 rounded-3xl bg-white border-2 border-slate-100 flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="font-black text-slate-900 text-sm truncate">Offered to anyone who can take it</p>
-            <p className="text-[11px] font-bold text-slate-500 mt-0.5">
-              {o.giveLabel}, {o.windowLabel}{o.offeredTo ? ` · ${o.offeredTo} asked` : ''}
-            </p>
-          </div>
-          <button onClick={() => withdraw(o.id)} disabled={!!busy}
-            className="shrink-0 w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 active:scale-95 transition-all disabled:opacity-50">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      ))}
-
-      {incoming.map((s2: any) => (
-        <div key={s2.id} className={cn('p-4 rounded-3xl bg-white border-2 space-y-3',
-          s2.conflictCount > 0 ? 'border-red-300' : 'border-amber-300')}>
-          <div>
-            <p className="font-black text-slate-900 text-sm">{s2.otherName} wants you to cover</p>
-            <p className="text-[11px] font-bold text-slate-500 mt-0.5">{s2.giveLabel}, {s2.windowLabel}</p>
-            {s2.note && <p className="text-[11px] font-bold text-slate-400 mt-1 italic">“{s2.note}”</p>}
-          </div>
-
-          {s2.conflictCount > 0 ? (
-            <div className="space-y-2">
-              <div className="flex items-start gap-2 p-3 rounded-2xl bg-red-50">
-                <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
-                <p className="text-[11px] font-bold text-red-700">
-                  You have {s2.conflictCount === 1 ? 'a client' : `${s2.conflictCount} clients`} booked in that window,
-                  so you can&apos;t accept this yet. Move or cancel that booking yourself and this turns green on its own.
-                </p>
-              </div>
-              <button onClick={() => setDeclineFor(s2.id)} disabled={!!busy}
-                className="w-full py-3 rounded-2xl bg-slate-100 text-slate-600 text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
-                Decline
-              </button>
-            </div>
-          ) : (
-            <div className="flex gap-2">
-              <button onClick={() => respond(s2.id, 'accept')} disabled={!!busy}
-                className="flex-1 py-3 rounded-2xl bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
-                {busy === s2.id ? 'Working…' : 'Accept'}
-              </button>
-              <button onClick={() => setDeclineFor(s2.id)} disabled={!!busy}
-                className="px-5 py-3 rounded-2xl bg-slate-100 text-slate-600 text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
-                Decline
-              </button>
-            </div>
-          )}
-
-          {declineFor === s2.id && (
-            <div className="space-y-2 pt-1">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Why?</p>
-              <button onClick={() => respond(s2.id, 'decline', 'not_this_time')} disabled={!!busy}
-                className="w-full py-3 rounded-2xl bg-white border-2 text-slate-700 text-[11px] font-black active:scale-95 transition-all disabled:opacity-50">
-                Not this time
-              </button>
-              <button onClick={() => respond(s2.id, 'decline', 'never_that_day')} disabled={!!busy}
-                className="w-full py-3 rounded-2xl bg-white border-2 text-slate-700 text-[11px] font-black active:scale-95 transition-all disabled:opacity-50">
-                That day never works for me
-              </button>
-            </div>
-          )}
-
-          <p className="text-[10px] font-bold text-slate-400">Your rent is not affected either way.</p>
-        </div>
-      ))}
-
-      {outgoing.map((s2: any) => (
-        <div key={s2.id} className="p-4 rounded-3xl bg-white border-2 border-slate-100 flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="font-black text-slate-900 text-sm truncate">Waiting on {s2.otherName}</p>
-            <p className="text-[11px] font-bold text-slate-500 mt-0.5">{s2.giveLabel}, {s2.windowLabel}</p>
-          </div>
-          <button onClick={() => withdraw(s2.id)} disabled={!!busy}
-            className="shrink-0 w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 active:scale-95 transition-all disabled:opacity-50">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      ))}
-
-      {confirmed.map((s2: any) => (
-        <div key={s2.id} className="p-4 rounded-3xl bg-emerald-50 border-2 border-emerald-200">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <p className="font-black text-emerald-900 text-sm">Swapped with {s2.otherName}</p>
-          </div>
-          <p className="text-[11px] font-bold text-emerald-700 mt-1">{line(s2)}</p>
-        </div>
-      ))}
-
-      {!open ? (
-        <button onClick={start}
-          className="w-full p-4 rounded-3xl bg-white border-2 border-dashed border-slate-200 text-left active:scale-[0.99] transition-all">
-          <p className="font-black text-slate-900 text-sm">Give away a day, or part of one</p>
-          <p className="text-[11px] font-bold text-slate-500 mt-0.5">
-            Hand a whole day, or just your morning or afternoon, to another professional here. You arrange it between you.
-          </p>
-        </button>
-      ) : (
-        <div className="p-4 rounded-3xl bg-white border-2 space-y-4">
-          {loadingOpts ? (
-            <div className="flex items-center gap-2 py-4 text-slate-400">
-              <Loader className="w-4 h-4 animate-spin" />
-              <span className="text-[11px] font-black uppercase tracking-widest">Finding your free time…</span>
-            </div>
-          ) : myDates.length === 0 ? (
-            <div className="space-y-2">
-              <p className="text-[11px] font-bold text-slate-500">
-                Nothing to offer right now. A day shows up here when it is one of yours and somebody else could take at least part of it.
-              </p>
-              <button onClick={reset} className="text-[11px] font-black uppercase tracking-widest text-slate-400">Close</button>
-            </div>
-          ) : (
-            <>
-              <div className="space-y-2">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">1 · Which day</p>
-                <div className="flex flex-wrap gap-2">
-                  {myDates.map((d: any) => (
-                    <button key={d.date} onClick={() => pickDate(d)}
-                      className={cn('px-3 py-2 rounded-xl text-[11px] font-black border-2 transition-all',
-                        giveDate === d.date ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200')}>
-                      {d.label}
-                    </button>
-                  ))}
-                </div>
-                {chosen && (
-                  <p className="text-[10px] font-bold text-slate-400">
-                    You hold {fmtTime(chosen.held.start)}–{fmtTime(chosen.held.end)} that day.
-                  </p>
-                )}
-              </div>
-
-              {chosen && (
-                <div className="space-y-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">2 · How much of it</p>
-                  <div className="space-y-2">
-                    {SWAP_SLICE.map(([k, label]) => {
-                      const avail = k === 'whole' ? chosen.held : k === 'leading' ? chosen.leading : chosen.trailing;
-                      if (!avail) return null;
-                      return (
-                        <button key={k} onClick={() => pickSlice(k)}
-                          className={cn('w-full px-3 py-3 rounded-xl text-left text-[11px] font-black border-2 transition-all',
-                            slice === k ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200')}>
-                          {label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {slice !== 'whole' && seg && (
-                    <div className="flex items-center gap-2 pt-1">
-                      <label htmlFor="swap-edge" className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                        {slice === 'leading' ? 'Coming in at' : 'Leaving at'}
-                      </label>
-                      <input id="swap-edge" type="time" value={edge}
-                        min={slice === 'leading' ? seg.start : seg.start}
-                        max={slice === 'leading' ? seg.end : seg.end}
-                        onChange={(e) => setEdge(e.target.value)}
-                        className="px-3 py-2 rounded-xl border-2 border-slate-200 text-sm font-bold" />
-                    </div>
-                  )}
-                  {win && (
-                    <p className="text-[10px] font-bold text-slate-400">
-                      Giving away {fmtTime(win.start)}–{fmtTime(win.end)}.
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {chosen && win && (
-                <div className="space-y-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">3 · Who you&apos;re asking</p>
-                  <div className="flex flex-wrap gap-2">
-                    {partners.map((pp: any) => (
-                      <button key={pp.staffId} onClick={() => { setToStaffId(pp.staffId); setConfirmAsk(''); setErr(''); }}
-                        className={cn('px-3 py-2 rounded-xl text-[11px] font-black border-2 transition-all',
-                          toStaffId === pp.staffId ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200')}>
-                        {pp.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {toStaffId && (
-                <div className="space-y-2">
-                  <label htmlFor="swap-note" className="block text-[10px] font-black uppercase tracking-widest text-slate-400">Message (optional)</label>
-                  <input id="swap-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={240}
-                    placeholder="Family thing that afternoon…"
-                    className="w-full px-3 py-3 rounded-xl border-2 border-slate-200 text-sm font-bold" />
-                </div>
-              )}
-
-              {confirmAsk && (
-                <div className="p-3 rounded-2xl bg-amber-50 border-2 border-amber-200 space-y-2">
-                  <p className="text-[11px] font-bold text-amber-800">{confirmAsk}</p>
-                  <div className="flex gap-2">
-                    <button onClick={() => send(true)} disabled={!!busy}
-                      className="flex-1 py-3 rounded-2xl bg-amber-500 text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
-                      {busy === 'send' ? 'Sending…' : 'Ask anyway'}
-                    </button>
-                    <button onClick={() => setConfirmAsk('')}
-                      className="px-5 py-3 rounded-2xl bg-white border-2 text-slate-600 text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all">
-                      Back
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {err && (
-                <div className="flex items-start gap-2 text-red-600">
-                  <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                  <p className="text-[11px] font-bold">{err}</p>
-                </div>
-              )}
-
-              {chosen && win && !confirmAsk && (
-                <button onClick={broadcast} disabled={!!busy}
-                  className="w-full p-3 rounded-2xl bg-sky-50 border-2 border-sky-200 text-left active:scale-[0.99] transition-all disabled:opacity-50">
-                  <p className="text-[11px] font-black text-sky-800">
-                    {busy === 'send' ? 'Offering…' : 'Or offer it to anyone who can take it'}
-                  </p>
-                  <p className="text-[10px] font-bold text-sky-600 mt-0.5">
-                    Everyone who could actually cover it gets asked once. First to take it gets it — no chasing.
-                  </p>
-                </button>
-              )}
-
-              {!confirmAsk && (
-                <div className="flex gap-2">
-                  <button onClick={() => send(false)} disabled={!giveDate || !toStaffId || !win || !!busy}
-                    className="flex-1 py-3 rounded-2xl bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-40">
-                    {busy === 'send' ? 'Sending…' : 'Send request'}
-                  </button>
-                  <button onClick={reset}
-                    className="px-5 py-3 rounded-2xl bg-slate-100 text-slate-600 text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all">
-                    Cancel
-                  </button>
-                </div>
-              )}
-              <p className="text-[10px] font-bold text-slate-400">
-                Nothing moves until they accept, and rent stays exactly where it is.
-              </p>
-            </>
-          )}
-        </div>
-      )}
-
-      {err && !open && (
-        <div className="flex items-start gap-2 text-red-600 px-1">
-          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-          <p className="text-[11px] font-bold">{err}</p>
-        </div>
-      )}
-    </section>
-  );
-}
-
-// ─── My Book: the renter's appointments, run from here ───────────────────────
-// Their ledger AND their controls. Cancel, complete, no-show, a note, a
-// walk-in, a blocked hour — all against their own provider record, never the
-// studio's. Walk-ins and reschedules go through the same public booking
-// engine their link uses (source 'renter_portal'), so conflicts and client
-// scoping are exactly the ones every other booking gets.
-function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token: string }) {
-  const [book, setBook] = useState<{ upcoming: any[]; past: any[]; services: any[]; staffId: string } | null>(null);
-  const [blocks, setBlocks] = useState<any[]>([]);
-  // A day view, like the planner the studio's staff get — the same
-  // appointments and blocks already loaded, drawn on a clock instead of
-  // listed. A renter's day is the thing they check most; a list makes them
-  // do the arithmetic ("is 2pm free?") that a grid answers on sight.
-  const [view, setView] = useState<'day' | 'week' | 'upcoming' | 'past' | 'blocks'>('day');
-  const [dayISO, setDayISO] = useState(() => localDay(new Date()));
-  const [openId, setOpenId] = useState('');
-  const [sheetId, setSheetId] = useState('');
-  const [bookErr, setBookErr] = useState('');
-  const [noteDraft, setNoteDraft] = useState('');
-  const [busy, setBusy] = useState('');
-  const [err, setErr] = useState('');
-  const [walkIn, setWalkIn] = useState(false);
-  const [wi, setWi] = useState({ name: '', phone: '', serviceId: '', when: '', day: localDay(new Date()) });
-  const [resched, setResched] = useState<{ id: string; when: string } | null>(null);
-  const [blockOpen, setBlockOpen] = useState(false);
-  const [blk, setBlk] = useState({ when: '', hours: '1', reason: '', showStudio: true });
-  const [confirmCancel, setConfirmCancel] = useState('');
-  const e = data?.earnings || {};
-  const money = (c: number) => `$${((Number(c) || 0) / 100).toFixed(2)}`;
-  const when = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? iso : d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); };
-  const load = useCallback(async () => {
-    const [d, b] = await Promise.all([api({ action: 'book-list', tenantId, token }), api({ action: 'book-blocks', tenantId, token })]);
-    if (d?.ok) { setBook({ upcoming: d.upcoming || [], past: d.past || [], services: d.services || [], staffId: d.staffId }); setBookErr(d.apptError ? `Appointments could not load: ${d.apptError}` : ''); }
-    else setBookErr(d?.error || 'Your book could not load.');
-    if (b?.ok) setBlocks(b.blocks || []); else if (b?.error) setBookErr((e) => e || `Blocked time could not load: ${b.error}`);
-  }, [tenantId, token]);
-  useEffect(() => { void load(); }, [load]);
-  const localToIso = (v: string) => { const d = new Date(v); return isNaN(d.getTime()) ? '' : d.toISOString(); };
-  const run = async (key: string, fn: () => Promise<any>) => {
-    setBusy(key); setErr('');
-    try { const r = await fn(); if (r && r.ok === false) setErr(r.error || 'That did not work.'); else await load(); }
-    finally { setBusy(''); }
-  };
-  // Walk-in and reschedule share the public engine. A reschedule is a new
-  // booking at the new time, then the old one cancelled — the client is told
-  // once, as a move, not as a cancel-and-rebook.
-  const bookViaEngine = async (client: { name: string; phone?: string; email?: string; id?: string }, serviceId: string, startIso: string) => {
-    const res = await fetch('/api/appointments/book', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenantId, source: 'renter_portal', serviceId, staffId: book?.staffId, startTime: startIso, client }) });
-    return res.json().catch(() => ({ ok: false, error: 'Could not book that.' }));
-  };
-  const submitWalkIn = () => run('walkin', async () => {
-    if (!wi.name.trim() || !wi.serviceId || !wi.when) return { ok: false, error: 'Name, service and time are needed.' };
-    const r = await bookViaEngine({ name: wi.name.trim(), phone: wi.phone.trim() || undefined }, wi.serviceId, wi.when);
-    if (r?.ok) { setWalkIn(false); setWi({ name: '', phone: '', serviceId: '', when: '', day: localDay(new Date()) }); }
-    return r;
-  });
-  const submitResched = (a: any) => run(`re-${a.id}`, async () => {
-    if (!resched?.when) return { ok: false, error: 'Pick the new time.' };
-    const svc = (book?.services || []).find((x) => x.name === a.serviceName);
-    if (!svc) return { ok: false, error: 'That service is no longer on your menu — cancel and rebook instead.' };
-    const r = await bookViaEngine({ id: a.clientId || undefined, name: a.clientName, phone: a.clientPhone || undefined, email: a.clientEmail || undefined }, svc.id, localToIso(resched.when));
-    if (!r?.ok) return r;
-    await api({ action: 'book-cancel', tenantId, token, appointmentId: a.id, tellClient: false });
-    setResched(null);
-    return r;
-  });
-  const rows = view === 'upcoming' ? (book?.upcoming || []) : (book?.past || []);
-  return (
-    <section className="space-y-3">
-      <SectionTitle icon={CalendarDays}>My Book</SectionTitle>
-      <div className="p-4 rounded-3xl bg-white border-2 space-y-3">
-        <div className="rounded-2xl bg-slate-50 p-3">
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Booked this month</p>
-          <p className="text-2xl font-black text-slate-900">{money(e.monthBookedCents)}</p>
-          <p className="text-[11px] font-bold text-slate-500">{e.monthCount || 0} appointment{(e.monthCount || 0) === 1 ? '' : 's'} so far · {(book?.upcoming || []).length} coming up</p>
-          <p className="mt-1 text-[10px] font-bold text-slate-400">You collect these directly — this is your record, not a payout.</p>
-        </div>
-
-        <div className="flex gap-2">
-          <button type="button" onClick={() => { setWalkIn((v) => !v); setBlockOpen(false); }} className="h-10 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white">{walkIn ? 'Close' : 'Add a walk-in'}</button>
-          <button type="button" onClick={() => { setBlockOpen((v) => !v); setWalkIn(false); }} className="h-10 flex-1 rounded-2xl border-2 border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-700">{blockOpen ? 'Close' : 'Block time'}</button>
-        </div>
-        {walkIn && (
-          <div className="rounded-2xl border-2 border-slate-200 bg-slate-50 p-3 space-y-2">
-            <input value={wi.name} onChange={(ev) => setWi((f) => ({ ...f, name: ev.target.value.slice(0, 120) }))} aria-label="Client name" placeholder="Client name" className="h-11 w-full rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
-            <input value={wi.phone} onChange={(ev) => setWi((f) => ({ ...f, phone: ev.target.value.slice(0, 40) }))} inputMode="tel" aria-label="Client phone" placeholder="Phone (optional — for their confirmation)" className="h-11 w-full rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
-            <select value={wi.serviceId} onChange={(ev) => setWi((f) => ({ ...f, serviceId: ev.target.value }))} aria-label="Service" className="h-11 w-full rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold">
-              <option value="">Service…</option>
-              {(book?.services || []).map((sv) => <option key={sv.id} value={sv.id}>{sv.name} · ${sv.price.toFixed(0)} · {sv.duration}m</option>)}
-            </select>
-            {wi.serviceId
-              ? <SlotPicker tenantId={tenantId} token={token} serviceId={wi.serviceId} date={wi.day} onDate={(d) => setWi((f) => ({ ...f, day: d, when: '' }))} value={wi.when} onPick={(iso) => setWi((f) => ({ ...f, when: iso }))} />
-              : <p className="text-[10px] font-bold text-slate-400">Pick a service to see open times.</p>}
-            <button type="button" onClick={submitWalkIn} disabled={busy === 'walkin'} className="h-11 w-full rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy === 'walkin' ? 'Booking…' : 'Book it'}</button>
-            <p className="text-[9px] font-bold text-slate-400">Goes through the same booking engine as your link, so it can't double-book you. If they gave a phone or email, they get your confirmation.</p>
-          </div>
-        )}
-        {blockOpen && (
-          <div className="rounded-2xl border-2 border-slate-200 bg-slate-50 p-3 space-y-2">
-            <input type="datetime-local" value={blk.when} onChange={(ev) => setBlk((f) => ({ ...f, when: ev.target.value }))} aria-label="Block from" className="h-11 w-full rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
-            <div className="grid grid-cols-2 gap-2">
-              <select value={blk.hours} onChange={(ev) => setBlk((f) => ({ ...f, hours: ev.target.value }))} aria-label="For how long" className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold">
-                {['0.5', '1', '1.5', '2', '3', '4', '8'].map((h) => <option key={h} value={h}>{h} hr{h === '1' ? '' : 's'}</option>)}
-              </select>
-              <input value={blk.reason} onChange={(ev) => setBlk((f) => ({ ...f, reason: ev.target.value.slice(0, 120) }))} aria-label="Reason" placeholder="Lunch, errand, class…" className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
-              <button type="button" aria-pressed={blk.showStudio} onClick={() => setBlk((f) => ({ ...f, showStudio: !f.showStudio }))}
-                className={cn('h-11 rounded-2xl border-2 px-3 text-left text-[10px] font-bold', blk.showStudio ? 'border-slate-900 bg-slate-50 text-slate-900' : 'border-slate-200 bg-white text-slate-500')}>
-                {blk.showStudio ? 'Shown on the studio\'s calendar — they\'ll see you\'re out' : 'Kept off the studio\'s calendar — clients still can\'t book it'}
-              </button>
-            </div>
-            <button type="button" disabled={busy === 'block' || !blk.when} onClick={() => run('block', async () => { const r = await api({ action: 'book-block', tenantId, token, startTime: localToIso(blk.when), duration: Math.round(Number(blk.hours) * 60), reason: blk.reason, showOnStudioCalendar: blk.showStudio }); if (r?.ok) { setBlockOpen(false); setBlk({ when: '', hours: '1', reason: '', showStudio: true }); if (view !== 'day' && view !== 'week') setView('blocks'); } return r; })}
-              className="h-11 w-full rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy === 'block' ? 'Saving…' : 'Block it'}</button>
-            <p className="text-[9px] font-bold text-slate-400">Clients can't book you during a block. Your rent doesn't change.</p>
-          </div>
-        )}
-        {err && <p className="text-xs font-bold text-red-600">{err}</p>}
-
-        <div className="flex gap-1.5">
-          {([['day', 'Day'], ['week', 'Week'], ['upcoming', `Upcoming · ${(book?.upcoming || []).length}`], ['past', 'Past'], ['blocks', `Blocks · ${blocks.length}`]] as const).map(([k, l]) => (
-            <button key={k} type="button" onClick={() => setView(k)} aria-pressed={view === k} className={cn('h-9 rounded-full border-2 px-3 text-[10px] font-black uppercase tracking-widest', view === k ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>{l}</button>
-          ))}
-        </div>
-
-        {view === 'day' && (() => {
-          // The day as a clock. Hours span the earliest start to the latest
-          // finish (08:00–18:00 at minimum), so an early or late booking is
-          // never off-screen. Appointments and blocks are laid on the same
-          // grid — the gaps between them are the answer to "am I free?".
-          const dayStart = (iso: string) => new Date(`${iso}T00:00:00`);
-          const shift = (n: number) => { const d = dayStart(dayISO); d.setDate(d.getDate() + n); setDayISO(localDay(d)); };
-          const onDay = (iso: string) => localDay(iso) === dayISO;
-          const appts = [...(book?.upcoming || []), ...(book?.past || [])].filter((a: any) => onDay(a.startTime) && a.status !== 'cancelled');
-          const blks = blocks.filter((b: any) => onDay(b.startTime));
-          const mins = (iso: string) => { const d = new Date(iso); return d.getHours() * 60 + d.getMinutes(); };
-          const dur = (x: any) => Math.max(15, Number(x.duration) || (x.endTime ? Math.round((new Date(x.endTime).getTime() - new Date(x.startTime).getTime()) / 60000) : 60));
-          const all = [...appts.map((a: any) => ({ ...a, kind: 'appt' })), ...blks.map((b: any) => ({ ...b, kind: 'block' }))];
-          const firstMin = all.length ? Math.min(8 * 60, ...all.map((x) => mins(x.startTime))) : 8 * 60;
-          const lastMin = all.length ? Math.max(18 * 60, ...all.map((x) => mins(x.startTime) + dur(x))) : 18 * 60;
-          const startHour = Math.floor(firstMin / 60), endHour = Math.ceil(lastMin / 60);
-          const PX = 1.1; // pixels per minute — an hour is a comfortable thumb-height
-          const top = (iso: string) => (mins(iso) - startHour * 60) * PX;
-          const isToday = dayISO === localDay(new Date());
-          const nowTop = isToday ? (new Date().getHours() * 60 + new Date().getMinutes() - startHour * 60) * PX : -1;
-          const booked = appts.reduce((n: number, a: any) => n + dur(a), 0);
-          const earned = appts.reduce((n: number, a: any) => n + (Number(a.price) || 0), 0);
-          return (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <button type="button" onClick={() => shift(-1)} aria-label="Previous day" className="h-9 w-9 rounded-xl border-2 border-slate-200 text-[12px] font-black text-slate-600">‹</button>
-                <button type="button" onClick={() => setDayISO(localDay(new Date()))} className="min-w-0 flex-1 text-center">
-                  <span className="block text-[12px] font-black text-slate-900">{new Date(`${dayISO}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</span>
-                  <span className="block text-[10px] font-bold text-slate-500">{isToday ? 'Today' : 'Tap for today'} · {appts.length} booked · {Math.round(booked / 6) / 10} hr{earned > 0 ? ` · $${earned.toFixed(0)}` : ''}</span>
-                </button>
-                <button type="button" onClick={() => shift(1)} aria-label="Next day" className="h-9 w-9 rounded-xl border-2 border-slate-200 text-[12px] font-black text-slate-600">›</button>
-              </div>
-              <div className="relative overflow-hidden rounded-2xl border-2 bg-white" style={{ height: (endHour - startHour) * 60 * PX + 8 }}>
-                {Array.from({ length: endHour - startHour + 1 }, (_, i) => startHour + i).map((h) => (
-                  <div key={h} className="absolute inset-x-0 flex items-start gap-2" style={{ top: (h - startHour) * 60 * PX }}>
-                    <span className="w-12 shrink-0 pl-2 text-[9px] font-black uppercase tracking-widest text-slate-300">{h % 12 === 0 ? 12 : h % 12}{h < 12 ? 'a' : 'p'}</span>
-                    <span className="mt-1.5 h-px flex-1 bg-slate-100" />
-                  </div>
-                ))}
-                {nowTop >= 0 && nowTop <= (endHour - startHour) * 60 * PX && (
-                  <div className="absolute inset-x-0 z-20 flex items-center gap-1" style={{ top: nowTop }}>
-                    <span className="ml-12 h-2 w-2 rounded-full bg-red-500" /><span className="h-px flex-1 bg-red-500" />
-                  </div>
-                )}
-                {blks.map((b: any) => (
-                  <div key={b.id} className="absolute left-14 right-2 z-10 rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 px-2 py-1"
-                       style={{ top: top(b.startTime), height: Math.max(22, dur(b) * PX - 2) }}>
-                    <p className="truncate text-[10px] font-black uppercase tracking-widest text-slate-500">{b.reason || 'Blocked'}</p>
-                  </div>
-                ))}
-                {appts.map((a: any) => {
-                  const h = Math.max(26, dur(a) * PX - 2);
-                  const req = a.status === 'requested' || a.status === 'pending';
-                  return (
-                    <button key={a.id} type="button" onClick={() => setSheetId(a.id)}
-                            className={cn('absolute left-14 right-2 z-10 overflow-hidden rounded-lg border-2 px-2 py-1 text-left', a.viaStudio ? 'border-slate-400 bg-white' : req ? 'border-amber-300 bg-amber-50' : a.status === 'completed' ? 'border-slate-200 bg-slate-50' : 'border-slate-900 bg-slate-900')}
-                            style={{ top: top(a.startTime), height: h }}>
-                      <p className={cn('truncate text-[11px] font-black', a.viaStudio ? 'text-slate-700' : req ? 'text-amber-900' : a.status === 'completed' ? 'text-slate-600' : 'text-white')}>{a.clientName}{a.viaStudio ? ' · studio' : req ? ' · asked' : ''}</p>
-                      {h > 34 && <p className={cn('truncate text-[10px] font-bold', req ? 'text-amber-800' : a.status === 'completed' ? 'text-slate-500' : 'text-slate-300')}>{a.serviceName}{a.price ? ` · $${Number(a.price).toFixed(0)}` : ''}</p>}
-                    </button>
-                  );
-                })}
-                {all.length === 0 && (
-                  <p className="absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-[11px] font-bold text-slate-400">Nothing on this day.</p>
-                )}
-              </div>
-              <p className="text-[9px] font-bold text-slate-400">Tap a booking to open it. Solid is confirmed, amber is waiting on you, outlined is a studio booking on your chair, dashed is time you blocked.</p>
-            </div>
-          );
-        })()}
-
-        {view === 'week' && (() => {
-          // A WEEK AT A GLANCE, and the question a client actually asks:
-          // "what have you got next week?" Seven columns, each day's booked
-          // blocks drawn to scale against that day's working hours, so a
-          // renter can read their openings off the screen and answer on the
-          // phone. Tapping a day opens it; tapping an OPEN gap blocks it.
-          const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-          const base = new Date(`${dayISO}T12:00:00`);
-          const weekStart = new Date(base); weekStart.setDate(base.getDate() - base.getDay());
-          const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d; });
-          const iso = (d: Date) => localDay(d);
-          const week = (data?.provider?.week || {}) as any;
-          const mins = (t: string) => { const [h, m] = String(t || '0:0').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
-          const atMins = (isoStr: string) => { const d = new Date(isoStr); return d.getHours() * 60 + d.getMinutes(); };
-          const dur = (x: any) => Math.max(15, Number(x.duration) || (x.endTime ? Math.round((new Date(x.endTime).getTime() - new Date(x.startTime).getTime()) / 60000) : 60));
-          const appts = [...(book?.upcoming || []), ...(book?.past || [])].filter((a: any) => a.status !== 'cancelled');
-          // One scale for the whole week so columns are comparable.
-          const opens = DAYS.map((k) => week[k]).filter((d: any) => d?.enabled && d?.start && d?.end);
-          const lo = opens.length ? Math.min(...opens.map((d: any) => mins(d.start))) : 8 * 60;
-          const hi = opens.length ? Math.max(...opens.map((d: any) => mins(d.end))) : 18 * 60;
-          const H = 200;
-          const y = (m: number) => Math.max(0, Math.min(H, ((m - lo) / Math.max(1, hi - lo)) * H));
-          const todayIso = localDay(new Date());
-          const shiftWeek = (n: number) => { const d = new Date(weekStart); d.setDate(d.getDate() + n * 7); setDayISO(iso(d)); };
-          let weekBooked = 0, weekEarned = 0, weekOpen = 0;
-          const cols = days.map((d) => {
-            const key = iso(d);
-            const wk = week[DAYS[d.getDay()]];
-            const working = !!(wk?.enabled && wk?.start && wk?.end);
-            const dayAppts = appts.filter((a: any) => localDay(a.startTime) === key).sort((a: any, b: any) => atMins(a.startTime) - atMins(b.startTime));
-            const dayBlocks = blocks.filter((b: any) => localDay(b.startTime) === key);
-            const busy = [...dayAppts.map((a: any) => ({ s: atMins(a.startTime), e: atMins(a.startTime) + dur(a), kind: 'appt' as const })),
-                          ...dayBlocks.map((b: any) => ({ s: atMins(b.startTime), e: atMins(b.startTime) + dur(b), kind: 'block' as const }))]
-                          .sort((a, b) => a.s - b.s);
-            weekBooked += dayAppts.reduce((n: number, a: any) => n + dur(a), 0);
-            weekEarned += dayAppts.reduce((n: number, a: any) => n + (Number(a.price) || 0), 0);
-            // Free gaps INSIDE their working hours, 30 min or longer — the
-            // openings they'd offer on the phone.
-            const gaps: { s: number; e: number }[] = [];
-            if (working) {
-              let cur = mins(wk.start);
-              const end = mins(wk.end);
-              for (const b of busy) { if (b.s > cur) gaps.push({ s: cur, e: Math.min(b.s, end) }); cur = Math.max(cur, b.e); }
-              if (cur < end) gaps.push({ s: cur, e: end });
-            }
-            const real = gaps.filter((g) => g.e - g.s >= 30);
-            weekOpen += real.reduce((n, g) => n + (g.e - g.s), 0);
-            return { d, key, wk, working, dayAppts, busy, gaps: real };
-          });
-          const clock = (m: number) => { const h = Math.floor(m / 60), mm = m % 60; const ampm = h < 12 ? 'a' : 'p'; const hh = h % 12 === 0 ? 12 : h % 12; return `${hh}${mm ? ':' + String(mm).padStart(2, '0') : ''}${ampm}`; };
-          return (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <button type="button" onClick={() => shiftWeek(-1)} aria-label="Previous week" className="h-9 w-9 rounded-xl border-2 border-slate-200 text-[12px] font-black text-slate-600">‹</button>
-                <button type="button" onClick={() => setDayISO(todayIso)} className="min-w-0 flex-1 text-center">
-                  <span className="block text-[12px] font-black text-slate-900">{days[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – {days[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                  <span className="block text-[10px] font-bold text-slate-500">{Math.round(weekBooked / 6) / 10} hr booked{weekEarned > 0 ? ` · $${weekEarned.toFixed(0)}` : ''} · {Math.round(weekOpen / 6) / 10} hr open</span>
-                </button>
-                <button type="button" onClick={() => shiftWeek(1)} aria-label="Next week" className="h-9 w-9 rounded-xl border-2 border-slate-200 text-[12px] font-black text-slate-600">›</button>
-              </div>
-
-              <div className="grid grid-cols-7 gap-1">
-                {cols.map((c) => (
-                  <button key={c.key} type="button" onClick={() => { setDayISO(c.key); setView('day'); }} className="text-center">
-                    <span className={cn('block text-[9px] font-black uppercase tracking-widest', c.key === todayIso ? 'text-slate-900' : 'text-slate-400')}>{c.d.toLocaleDateString('en-US', { weekday: 'narrow' })}</span>
-                    <span className={cn('mx-auto mt-0.5 flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-black', c.key === todayIso ? 'bg-slate-900 text-white' : 'text-slate-700')}>{c.d.getDate()}</span>
-                  </button>
-                ))}
-              </div>
-
-              <div className="grid grid-cols-7 gap-1 rounded-2xl border-2 bg-white p-1">
-                {cols.map((c) => (
-                  <div key={c.key} className="relative rounded-lg bg-slate-50" style={{ height: H }}>
-                    {!c.working && <span className="absolute inset-0 flex items-center justify-center text-[8px] font-black uppercase tracking-widest text-slate-300" style={{ writingMode: 'vertical-rl' }}>Off</span>}
-                    {c.working && c.gaps.map((g, i) => (
-                      <button key={`g${i}`} type="button" title={`Block ${clock(g.s)}–${clock(g.e)}`}
-                        onClick={() => { const pad = (n: number) => String(n).padStart(2, '0'); setBlk({ when: `${c.key}T${pad(Math.floor(g.s / 60))}:${pad(g.s % 60)}`, hours: String(Math.round(((g.e - g.s) / 60) * 10) / 10), reason: '', showStudio: true }); setBlockOpen(true); }}
-                        className="absolute inset-x-0.5 rounded bg-emerald-50 text-[8px] font-black text-emerald-700"
-                        style={{ top: y(g.s), height: Math.max(8, y(g.e) - y(g.s)) }}>
-                        {y(g.e) - y(g.s) > 22 ? clock(g.s) : ''}
-                      </button>
-                    ))}
-                    {c.busy.map((b, i) => (
-                      <span key={`b${i}`} className={cn('absolute inset-x-0.5 rounded', b.kind === 'block' ? 'border border-dashed border-slate-400 bg-white' : 'bg-slate-900')}
-                            style={{ top: y(b.s), height: Math.max(4, y(b.e) - y(b.s)) }} />
-                    ))}
-                  </div>
-                ))}
-              </div>
-
-              <div className="space-y-1">
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Open times this week</p>
-                {cols.every((c) => c.gaps.length === 0) && <p className="text-[11px] font-bold text-slate-400">Nothing open — or your hours aren&apos;t set yet (Setup → Hours).</p>}
-                {cols.filter((c) => c.gaps.length > 0).map((c) => (
-                  <p key={c.key} className="text-[11px] font-bold text-slate-600">
-                    <span className="font-black text-slate-900">{c.d.toLocaleDateString('en-US', { weekday: 'short' })}</span> {c.gaps.map((g) => `${clock(g.s)}–${clock(g.e)}`).join(' · ')}
-                  </p>
-                ))}
-              </div>
-              <p className="text-[9px] font-bold text-slate-400">Tap a date to open that day. Tap a green gap to block it. Green is open, dark is booked, dashed is blocked.</p>
-            </div>
-          );
-        })()}
-
-        {view === 'blocks' && (blocks.length === 0 ? <p className="py-3 text-center text-[11px] font-bold text-slate-400">No blocked time.</p> : blocks.map((b) => (
-          <div key={b.id} className="flex items-center justify-between gap-2 rounded-2xl border-2 p-3">
-            <div className="min-w-0"><p className="text-[12px] font-black truncate">{b.reason || 'Blocked'}</p><p className="text-[10px] font-bold text-slate-500">{when(b.startTime)} · {Math.round((b.duration || 60) / 60 * 10) / 10} hr</p></div>
-            <button type="button" disabled={busy === `ub-${b.id}`} onClick={() => run(`ub-${b.id}`, () => api({ action: 'book-unblock', tenantId, token, blockId: b.id }))} className="h-9 shrink-0 rounded-xl border-2 border-slate-200 px-3 text-[9px] font-black uppercase tracking-widest text-slate-600">Remove</button>
-          </div>
-        )))}
-
-        {bookErr && <p className="rounded-xl border-2 border-red-200 bg-red-50 px-3 py-2 text-[11px] font-bold text-red-700">{bookErr}</p>}
-        {view !== 'blocks' && view !== 'day' && view !== 'week' && (book === null ? <p className="py-3 text-center text-[11px] font-bold text-slate-400">{bookErr ? 'Nothing to show.' : 'Loading your book…'}</p>
-          : rows.length === 0 ? <p className="py-3 text-center text-[11px] font-bold text-slate-400">{view === 'upcoming' ? 'Nothing coming up. Share your booking link or add a walk-in.' : 'No past appointments yet.'}</p>
-          : rows.map((a) => {
-            const isOpen = openId === a.id;
-            const done = a.status === 'completed' || a.status === 'cancelled';
-            const chip = a.viaStudio ? 'Studio booking' : a.status === 'cancelled' ? (a.outcome === 'no_show' ? 'No-show' : 'Cancelled') : a.status === 'completed' ? 'Done' : a.status === 'requested' ? 'Requested' : a.status === 'pending_payment' || a.status === 'deposit_pending' ? 'Awaiting deposit' : 'Booked';
-            return (
-              <div key={a.id} className={cn('rounded-2xl border-2 p-3 space-y-2', a.status === 'cancelled' && 'opacity-60')}>
-                <button type="button" onClick={() => setSheetId(a.id)} className="w-full text-left">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-black text-slate-900">{a.clientName}</p>
-                      <p className="text-[11px] font-bold text-slate-500">{a.serviceName} · {when(a.startTime)}</p>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <p className="text-[13px] font-black text-slate-900">${Number(a.price || 0).toFixed(2)}</p>
-                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">{chip}</p>
-                    </div>
-                  </div>
-                </button>
-                {isOpen && a.viaStudio && (
-                  <div className="space-y-2 pt-1">
-                    {(a.clientPhone || a.clientEmail) && <p className="text-[10px] font-bold text-slate-500">{[a.clientPhone, a.clientEmail].filter(Boolean).join(' · ')}</p>}
-                    <p className="rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">Booked by the studio on your chair — the studio manages and is paid for this one. It&apos;s here so your day reads true; ask the studio to change it.</p>
-                  </div>
-                )}
-                {isOpen && !a.viaStudio && (
-                  <div className="space-y-2 pt-1">
-                    {(a.clientPhone || a.clientEmail) && <p className="text-[10px] font-bold text-slate-500">{[a.clientPhone, a.clientEmail].filter(Boolean).join(' · ')}</p>}
-                    <textarea value={noteDraft} onChange={(ev) => setNoteDraft(ev.target.value.slice(0, 1000))} rows={2} aria-label="Your note" placeholder="Your note — formula, preferences, what to remember (only you see this)" className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm" />
-                    {(a.status === 'requested' || a.status === 'pending') && (
-                      <div className="flex gap-2 rounded-xl border-2 border-amber-300 bg-amber-50 p-2">
-                        <button type="button" disabled={busy === `d-${a.id}`} onClick={() => run(`d-${a.id}`, () => api({ action: 'book-decide', tenantId, token, appointmentId: a.id, decision: 'accept' }))} className="h-10 flex-1 rounded-xl bg-emerald-600 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">Accept</button>
-                        <button type="button" disabled={busy === `d-${a.id}`} onClick={() => run(`d-${a.id}`, () => api({ action: 'book-decide', tenantId, token, appointmentId: a.id, decision: 'decline' }))} className="h-10 flex-1 rounded-xl border-2 border-red-300 bg-white text-[10px] font-black uppercase tracking-widest text-red-700 disabled:opacity-40">Decline</button>
-                      </div>
-                    )}
-                    <div className="flex flex-wrap gap-1.5">
-                      <button type="button" disabled={busy === `n-${a.id}` || noteDraft === (a.note || '')} onClick={() => run(`n-${a.id}`, () => api({ action: 'book-note', tenantId, token, appointmentId: a.id, note: noteDraft }))} className="h-9 rounded-xl border-2 border-slate-200 px-3 text-[9px] font-black uppercase tracking-widest text-slate-700 disabled:opacity-40">Save note</button>
-                      {!done && <button type="button" disabled={busy === `s-${a.id}`} onClick={() => run(`s-${a.id}`, () => api({ action: 'book-status', tenantId, token, appointmentId: a.id, outcome: 'completed' }))} className="h-9 rounded-xl bg-emerald-600 px-3 text-[9px] font-black uppercase tracking-widest text-white">Done ✓</button>}
-                      {!done && <button type="button" disabled={busy === `s-${a.id}`} onClick={() => run(`s-${a.id}`, () => api({ action: 'book-status', tenantId, token, appointmentId: a.id, outcome: 'no_show' }))} className="h-9 rounded-xl border-2 border-amber-300 px-3 text-[9px] font-black uppercase tracking-widest text-amber-800">No-show</button>}
-                      {!done && view === 'upcoming' && <button type="button" onClick={() => setResched(resched?.id === a.id ? null : { id: a.id, when: '' })} className="h-9 rounded-xl border-2 border-slate-200 px-3 text-[9px] font-black uppercase tracking-widest text-slate-700">Move</button>}
-                      {!done && (confirmCancel === a.id
-                        ? <button type="button" disabled={busy === `c-${a.id}`} onClick={() => run(`c-${a.id}`, () => api({ action: 'book-cancel', tenantId, token, appointmentId: a.id, tellClient: true }))} className="h-9 rounded-xl bg-red-700 px-3 text-[9px] font-black uppercase tracking-widest text-white">Tap again · cancel &amp; tell them</button>
-                        : <button type="button" onClick={() => setConfirmCancel(a.id)} className="h-9 rounded-xl border-2 border-red-200 px-3 text-[9px] font-black uppercase tracking-widest text-red-700">Cancel</button>)}
-                    </div>
-                    {resched && resched.id === a.id && (
-                      <div className="flex gap-2">
-                        <input type="datetime-local" value={resched.when} onChange={(ev) => setResched({ id: a.id, when: ev.target.value })} aria-label="New time" className="h-11 flex-1 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
-                        <button type="button" disabled={busy === `re-${a.id}` || !resched.when} onClick={() => submitResched(a)} className="h-11 rounded-2xl bg-slate-900 px-4 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy === `re-${a.id}` ? '…' : 'Move it'}</button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          }))}
-      </div>
-      {sheetId && (() => {
-        const target = [...(book?.upcoming || []), ...(book?.past || [])].find((x: any) => x.id === sheetId);
-        if (!target) return null;
-        return <ApptSheet a={target} services={book?.services || []} tenantId={tenantId} token={token} onClose={() => setSheetId('')} onChanged={() => { void load(); }} bookViaEngine={bookViaEngine} />;
-      })()}
-    </section>
-  );
-}
-
-// ─── My Clients: the renter's own directory ─────────────────────────────────
-// Built from the book they own (ownerRenterId) and their own appointments:
-// last visit, next visit, visits, no-shows, what they usually get, spend.
-// "Hasn't been in" is the one number that fills a slow week. Notes are the
-// renter's; the studio never sees this list.
-const weeksAgo = (iso: string | null) => { if (!iso) return null; const w = Math.floor((Date.now() - new Date(iso).getTime()) / (7 * 86400000)); return w < 0 ? 0 : w; };
-function MyClients({ tenantId, token }: { tenantId: string; token: string }) {
-  const [list, setList] = useState<any[] | null>(null);
-  const [q, setQ] = useState('');
-  const [filter, setFilter] = useState<'all' | 'lapsed' | 'new' | 'archived'>('all');
-  const [openId, setOpenId] = useState('');
-  const [edit, setEdit] = useState<{ id: string; name: string; phone: string; email: string; notes: string } | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [busy, setBusy] = useState('');
-  const [err, setErr] = useState('');
-  const load = useCallback(async () => { const d = await api({ action: 'clients-list', tenantId, token }); if (d?.ok) setList(d.clients || []); }, [tenantId, token]);
-  useEffect(() => { void load(); }, [load]);
-  const when = (iso: string | null) => iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
-  const save = async () => {
-    if (!edit) return;
-    setBusy('save'); setErr('');
-    const d = await api({ action: 'client-save', tenantId, token, clientId: edit.id || undefined, name: edit.name, phone: edit.phone, email: edit.email, notes: edit.notes });
-    setBusy('');
-    if (!d?.ok) { setErr(d?.error || 'Could not save.'); return; }
-    setEdit(null); setAdding(false); void load(); if (!edit.id) setOpenId(d.id);
-  };
-  const rows = (list || []).filter((c) => {
-    if (filter === 'archived' ? !c.archived : c.archived) return false;
-    if (filter === 'lapsed' && !(c.visits > 0 && (weeksAgo(c.lastVisit) ?? 0) >= 6 && !c.nextVisit)) return false;
-    if (filter === 'new' && c.visits > 1) return false;
-    if (q.trim()) { const t = q.trim().toLowerCase(); return [c.name, c.phone, c.email].some((v) => String(v || '').toLowerCase().includes(t)); }
-    return true;
-  });
-  const lapsedCount = (list || []).filter((c) => !c.archived && c.visits > 0 && (weeksAgo(c.lastVisit) ?? 0) >= 6 && !c.nextVisit).length;
-  return (
-    <section className="space-y-3">
-      <SectionTitle icon={Users}>My Clients</SectionTitle>
-      <div className="p-4 rounded-3xl bg-white border-2 space-y-3">
-        <div className="flex gap-2">
-          <input value={q} onChange={(ev) => setQ(ev.target.value)} aria-label="Search clients" placeholder="Search name, phone, email" className="h-11 flex-1 rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold" />
-          <button type="button" onClick={() => { setAdding(true); setEdit({ id: '', name: '', phone: '', email: '', notes: '' }); }} className="h-11 rounded-2xl bg-slate-900 px-4 text-[10px] font-black uppercase tracking-widest text-white">Add</button>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {([['all', `Everyone · ${(list || []).filter((c) => !c.archived).length}`], ['lapsed', `Haven't been in 6+ wks · ${lapsedCount}`], ['new', 'First-timers'], ['archived', 'Archived']] as const).map(([k, l]) => (
-            <button key={k} type="button" onClick={() => setFilter(k)} aria-pressed={filter === k} className={cn('h-9 rounded-full border-2 px-3 text-[10px] font-black uppercase tracking-widest', filter === k ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>{l}</button>
-          ))}
-        </div>
-        {(adding || (edit && edit.id)) && edit && (
-          <div className="rounded-2xl border-2 border-slate-200 bg-slate-50 p-3 space-y-2">
-            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">{edit.id ? 'Edit client' : 'New client'}</p>
-            <input value={edit.name} onChange={(ev) => setEdit({ ...edit, name: ev.target.value.slice(0, 120) })} aria-label="Name" placeholder="Name" className="h-11 w-full rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
-            <div className="grid grid-cols-2 gap-2">
-              <input value={edit.phone} onChange={(ev) => setEdit({ ...edit, phone: ev.target.value.slice(0, 40) })} inputMode="tel" aria-label="Phone" placeholder="Phone" className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
-              <input value={edit.email} onChange={(ev) => setEdit({ ...edit, email: ev.target.value.slice(0, 160) })} inputMode="email" aria-label="Email" placeholder="Email" className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
-            </div>
-            <textarea value={edit.notes} onChange={(ev) => setEdit({ ...edit, notes: ev.target.value.slice(0, 2000) })} rows={3} aria-label="Notes" placeholder="Formulas, allergies, how they take their coffee. Only you see this." className="w-full rounded-2xl border-2 border-slate-200 bg-white px-3.5 py-2.5 text-sm" />
-            {err && <p className="text-xs font-bold text-red-600">{err}</p>}
-            <div className="flex gap-2">
-              <button type="button" onClick={save} disabled={busy === 'save' || edit.name.trim().length < 2} className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy === 'save' ? 'Saving…' : 'Save'}</button>
-              <button type="button" onClick={() => { setEdit(null); setAdding(false); }} className="h-11 rounded-2xl border-2 border-slate-200 px-4 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
-            </div>
-          </div>
-        )}
-        {list === null ? <p className="py-3 text-center text-[11px] font-bold text-slate-400">Loading…</p>
-          : rows.length === 0 ? <p className="py-3 text-center text-[11px] font-bold text-slate-400">{(list || []).length === 0 ? 'Nobody yet. Clients who book through your link land here automatically.' : 'No one matches.'}</p>
-          : rows.map((c) => {
-            const isOpen = openId === c.id;
-            const w = weeksAgo(c.lastVisit);
-            const lapsed = c.visits > 0 && (w ?? 0) >= 6 && !c.nextVisit;
-            return (
-              <div key={c.id} className="rounded-2xl border-2 p-3 space-y-2">
-                <button type="button" onClick={() => { setOpenId(isOpen ? '' : c.id); setEdit(null); setAdding(false); }} className="w-full text-left">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-black text-slate-900">{c.name}</p>
-                      <p className="text-[10px] font-bold text-slate-500">
-                        {c.nextVisit ? `Next ${when(c.nextVisit.startTime)}` : c.lastVisit ? `Last ${when(c.lastVisit)}${w !== null && w > 0 ? ` · ${w} wk${w === 1 ? '' : 's'} ago` : ''}` : 'No visits yet'}
-                        {c.favourite ? ` · usually ${c.favourite}` : ''}
-                      </p>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <p className="text-[12px] font-black text-slate-900">{c.visits} visit{c.visits === 1 ? '' : 's'}</p>
-                      {lapsed && <p className="text-[9px] font-black uppercase tracking-widest text-amber-700">Reach out</p>}
-                      {c.noShows > 0 && <p className="text-[9px] font-black uppercase tracking-widest text-red-700">{c.noShows} no-show{c.noShows === 1 ? '' : 's'}</p>}
-                    </div>
-                  </div>
-                </button>
-                {isOpen && (
-                  <div className="space-y-2 pt-1">
-                    <p className="text-[10px] font-bold text-slate-500">{[c.phone, c.email].filter(Boolean).join(' · ') || 'No contact details'} · ${(c.spentCents / 100).toFixed(0)} with you</p>
-                    {c.notes && <p className="rounded-xl bg-amber-50 border-2 border-amber-100 px-3 py-2 text-[11px] font-medium text-amber-950 whitespace-pre-wrap">{c.notes}</p>}
-                    <div className="flex flex-wrap gap-1.5">
-                      {c.phone && <a href={`sms:${c.phone}`} className="h-9 inline-flex items-center rounded-xl border-2 border-slate-200 px-3 text-[9px] font-black uppercase tracking-widest text-slate-700">Text</a>}
-                      {c.phone && <a href={`tel:${c.phone}`} className="h-9 inline-flex items-center rounded-xl border-2 border-slate-200 px-3 text-[9px] font-black uppercase tracking-widest text-slate-700">Call</a>}
-                      <button type="button" onClick={() => setEdit({ id: c.id, name: c.name, phone: c.phone || '', email: c.email || '', notes: c.notes || '' })} className="h-9 rounded-xl border-2 border-slate-200 px-3 text-[9px] font-black uppercase tracking-widest text-slate-700">Edit &amp; notes</button>
-                      <button type="button" disabled={busy === `a-${c.id}`} onClick={async () => { setBusy(`a-${c.id}`); await api({ action: 'client-archive', tenantId, token, clientId: c.id, restore: c.archived }); setBusy(''); void load(); }} className="h-9 rounded-xl border-2 border-slate-200 px-3 text-[9px] font-black uppercase tracking-widest text-slate-500">{c.archived ? 'Restore' : 'Archive'}</button>
-                    </div>
-                    {c.history.length > 0 && (
-                      <div className="space-y-1">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">History</p>
-                        {c.history.slice(0, 8).map((h: any) => (
-                          <p key={h.id} className="text-[10px] font-bold text-slate-600"><span className="font-black text-slate-800">{when(h.startTime)}</span> · {h.serviceName} · ${Number(h.price).toFixed(0)}{h.outcome === 'no_show' ? ' · no-show' : h.status === 'cancelled' ? ' · cancelled' : ''}{h.note ? ` — ${h.note}` : ''}</p>
-                        ))}
-                      </div>
-                    )}
-                    <p className="text-[9px] font-bold text-slate-400">To book them: add a walk-in in My Book, or send them your booking link.</p>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-      </div>
-    </section>
-  );
-}
-
-// ─── My client messages ──────────────────────────────────────────────────────
-// The renter's switches for what their clients hear from them, automatically:
-// a reminder the day before, a thank-you the day after. Off until they say
-// so. Sent in their name; the studio's message settings never touch these.
-const COMMS_KIND: Record<string, string> = { renter_client_reminder: 'Reminder', renter_client_thanks: 'Thank-you', renter_client_cancelled: 'Cancellation' };
-function MyClientMessages({ tenantId, token }: { tenantId: string; token: string }) {
-  const [state, setState] = useState<{ comms: { remindersEnabled: boolean; thankYouEnabled: boolean; signoff: string }; log: any[] } | null>(null);
-  const [draft, setDraft] = useState<{ remindersEnabled: boolean; thankYouEnabled: boolean; signoff: string } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const load = useCallback(async () => { const d = await api({ action: 'comms-get', tenantId, token }); if (d?.ok) { setState({ comms: d.comms, log: d.log || [] }); setDraft(d.comms); } }, [tenantId, token]);
-  useEffect(() => { void load(); }, [load]);
-  if (!state || !draft) return null;
-  const dirty = JSON.stringify(draft) !== JSON.stringify(state.comms);
-  const save = async () => { setBusy(true); const d = await api({ action: 'comms-save', tenantId, token, ...draft }); setBusy(false); if (d?.ok) { setSaved(true); setTimeout(() => setSaved(false), 1800); void load(); } };
-  const Row = ({ k, title, body }: { k: 'remindersEnabled' | 'thankYouEnabled'; title: string; body: string }) => (
-    <button type="button" aria-pressed={draft[k]} onClick={() => setDraft({ ...draft, [k]: !draft[k] })}
-      className={cn('w-full rounded-2xl border-2 px-3.5 py-3 flex items-center justify-between gap-3 text-left', draft[k] ? 'border-slate-900 bg-slate-50' : 'border-slate-200 bg-white')}>
-      <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest">{title}</span><span className="block text-[10px] font-bold text-slate-500">{body}</span></span>
-      <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest', draft[k] ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500')}>{draft[k] ? 'On' : 'Off'}</span>
-    </button>
-  );
-  return (
-    <section className="space-y-3">
-      <SectionTitle icon={BellRing}>My client messages</SectionTitle>
-      <div className="p-4 rounded-3xl bg-white border-2 space-y-3">
-        <p className="text-[10px] font-bold text-slate-500">Sent in your name to your clients, automatically. These are your messages — the studio's message settings don't touch them.</p>
-        <Row k="remindersEnabled" title="Reminder the day before" body="“Reminder — your Gel Fill with Ana is Tue, Sep 8 at 2:00 PM.” Text first, email if there's no phone." />
-        <Row k="thankYouEnabled" title="Thank-you the day after" body="A thanks and your booking link, the morning after a visit. No review link — that's yours to ask for." />
-        <div>
-          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">Sign-off (optional)</p>
-          <input value={draft.signoff} onChange={(ev) => setDraft({ ...draft, signoff: ev.target.value.slice(0, 160) })} aria-label="Sign-off added to your messages" placeholder="Can't wait to see you! — Ana" className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold" />
-        </div>
-        <div className="flex items-center justify-end gap-2">
-          {saved && <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Saved</span>}
-          <button type="button" onClick={save} disabled={busy || !dirty} className="h-11 rounded-2xl bg-slate-900 px-5 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Saving…' : 'Save'}</button>
-        </div>
-        {state.log.length > 0 && (
-          <div className="space-y-1">
-            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Recently sent for you</p>
-            {state.log.map((m) => (
-              <p key={m.id} className="text-[10px] font-bold text-slate-600">{fmtDate(String(m.at).slice(0, 10))} · {COMMS_KIND[m.kind] || m.kind} · {m.channel} to {m.to} · <span className={cn('font-black', m.status === 'sent' ? 'text-emerald-700' : 'text-slate-500')}>{m.status}</span></p>
-            ))}
-          </div>
-        )}
-        <p className="text-[9px] font-bold text-slate-400">Reminders go out at the studio's reminder hour, the day before. Cancellations you make in My Book are always sent when you choose “cancel & tell them”.</p>
-      </div>
-    </section>
-  );
-}
-
-// ─── My Brand: colour, tone, cover, type — theirs ────────────────────────────
-function MyBrand({ tenantId, token, renterId }: { tenantId: string; token: string; renterId: string }) {
-  const [brand, setBrand] = useState<any | null>(null);
-  const [coverData, setCoverData] = useState<string | null | undefined>(undefined);
-  const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [err, setErr] = useState('');
-  useEffect(() => { api({ action: 'brand-get', tenantId, token }).then((d) => { if (d?.ok) setBrand(d.brand); }); }, [tenantId, token]);
-  // The five faces, for the preview only — the app itself stays on Jakarta.
-  useEffect(() => {
-    if (document.getElementById('renter-brand-fonts')) return;
-    const l = document.createElement('link'); l.id = 'renter-brand-fonts'; l.rel = 'stylesheet';
-    l.href = 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500&family=Lora:wght@400;500&family=Abril+Fatface&family=Raleway:wght@200;300;400&family=Outfit:wght@300;400;500&display=swap';
-    document.head.appendChild(l);
-  }, []);
-  if (!brand) return <p className="py-2 text-center text-[11px] font-bold text-slate-400">Loading…</p>;
-  const save = async () => {
-    setBusy(true); setErr('');
-    const d = await api({ action: 'brand-save', tenantId, token, brand, ...(coverData !== undefined ? { coverData } : {}) });
-    setBusy(false);
-    if (!d?.ok) { setErr(d?.error || 'Could not save.'); return; }
-    setBrand(d.brand); setCoverData(undefined); setSaved(true); setTimeout(() => setSaved(false), 1800);
-  };
-  const cover = coverData === null ? null : (coverData || brand.coverUrl);
-  const dark = brand.tone === 'dark';
-  const SWATCHES = ['#1c1917', '#7c2d12', '#9f1239', '#6d28d9', '#1e3a8a', '#065f46', '#b45309', '#a16207', '#0f766e', '#831843'];
-  return (
-    <div className="space-y-3">
-      <p className="text-[10px] font-bold text-slate-500">Your page is your brand, not the studio&apos;s. Pick a colour, light or dark, a cover, a typeface. Clients see it the moment they open your link.</p>
-      <div className="relative overflow-hidden rounded-2xl border-2" style={{ background: dark ? '#0c0a09' : '#faf9f7', aspectRatio: '4 / 3' }}>
-        {cover && <img src={cover} alt="" className="absolute inset-0 h-full w-full object-cover opacity-80" />}
-        <div className="absolute inset-0" style={{ background: `linear-gradient(180deg, transparent 40%, ${dark ? '#0c0a09' : '#faf9f7'} 100%)` }} />
-        <div className="absolute inset-x-0 bottom-0 p-4">
-          <p className="text-[9px] font-black uppercase tracking-[0.3em]" style={{ color: brand.accent }}>Preview</p>
-          <p className="text-2xl font-light" style={{ color: dark ? '#fafaf9' : '#1c1917', fontFamily: RENTER_FONT_STACK[brand.font] }}>Your name</p>
-          {brand.tagline && <p className="text-[11px]" style={{ color: dark ? '#a8a29e' : '#57534e' }}>{brand.tagline}</p>}
-          <span className="mt-2 inline-block rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-widest" style={{ background: brand.accent, color: onAccent(brand.accent) }}>Book</span>
-        </div>
-      </div>
-      <div className="flex gap-2">
-        <label className="h-10 flex-1 inline-flex items-center justify-center rounded-xl border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-600 cursor-pointer">
-          {cover ? 'Change cover' : 'Add a cover image'}
-          <input type="file" accept="image/*" className="sr-only" aria-label="Cover image" onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (!f) return; setErr(''); setBusy(true); try { const url = await uploadRenterPhoto(tenantId, token, renterId, 'cover', f, 1600); const d = await api({ action: 'brand-save', tenantId, token, brand, coverUrl: url }); if (d?.ok) { setBrand(d.brand); setCoverData(undefined); setSaved(true); setTimeout(() => setSaved(false), 1800); } else setErr(d?.error || 'Uploaded, but could not save — press Save my brand.'); } catch (ex: any) { setErr(ex?.message || 'Could not upload that image.'); } finally { setBusy(false); } }} />
-        </label>
-        {cover && <button type="button" onClick={() => setCoverData(null)} className="h-10 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Remove</button>}
-      </div>
-      <div>
-        <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-slate-400">Accent colour</p>
-        <div className="flex flex-wrap items-center gap-2">
-          {SWATCHES.map((c) => (
-            <button key={c} type="button" aria-label={`Use ${c}`} aria-pressed={brand.accent === c} onClick={() => setBrand({ ...brand, accent: c })}
-              className={cn('h-9 w-9 rounded-full border-2', brand.accent === c ? 'border-slate-900 ring-2 ring-slate-900 ring-offset-2' : 'border-white')} style={{ background: c }} />
-          ))}
-          <input type="color" value={brand.accent} onChange={(e) => setBrand({ ...brand, accent: e.target.value })} aria-label="Custom accent colour" className="h-9 w-12 rounded-lg border-2 bg-white p-0.5" />
-        </div>
-      </div>
-      <div className="flex gap-2">
-        {(['light', 'dark'] as const).map((t) => (
-          <button key={t} type="button" aria-pressed={brand.tone === t} onClick={() => setBrand({ ...brand, tone: t })}
-            className={cn('h-10 flex-1 rounded-xl border-2 text-[10px] font-black uppercase tracking-widest', brand.tone === t ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>{t}</button>
-        ))}
-      </div>
-      <div>
-        <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-slate-400">Typeface</p>
-        <div className="grid grid-cols-2 gap-1.5">
-          {RENTER_FONTS.map((f) => (
-            <button key={f.id} type="button" aria-pressed={brand.font === f.id} onClick={() => setBrand({ ...brand, font: f.id })}
-              className={cn('rounded-xl border-2 px-3 py-2 text-left', brand.font === f.id ? 'border-slate-900 bg-slate-50' : 'border-slate-200')}>
-              <span className="block text-lg leading-tight" style={{ fontFamily: RENTER_FONT_STACK[f.id] }}>{f.label}</span>
-              <span className="block text-[9px] font-bold text-slate-500">{f.feel}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-      <input value={brand.tagline || ''} onChange={(e) => setBrand({ ...brand, tagline: e.target.value.slice(0, 80) })} aria-label="Tagline" placeholder="One line under your name — “Gel & structure, by appointment”"
-        className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold" />
-      {err && <p className="text-xs font-bold text-red-600">{err}</p>}
-      <p className="text-[9px] font-bold text-slate-400">{storageDiagnostic()}</p>
-      <div className="flex items-center justify-end gap-2">
-        {saved && <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Saved — it&apos;s live</span>}
-        <button type="button" onClick={save} disabled={busy} className="h-11 rounded-2xl bg-slate-900 px-5 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Saving…' : 'Save my brand'}</button>
-      </div>
-    </div>
-  );
-}
-const RENTER_FONT_STACK: Record<string, string> = {
-  cormorant: "'Cormorant Garamond', Georgia, serif", lora: "'Lora', Georgia, serif", abril: "'Abril Fatface', Georgia, serif",
-  raleway: "'Raleway', system-ui, sans-serif", outfit: "'Outfit', system-ui, sans-serif", jakarta: "'Plus Jakarta Sans', system-ui, sans-serif",
-};
-
-// ─── My Reviews: what clients said, and which ones go public ─────────────────
-function MyReviews({ tenantId, token }: { tenantId: string; token: string }) {
-  const [list, setList] = useState<any[] | null>(null);
-  const [busy, setBusy] = useState('');
-  const [filter, setFilter] = useState<'pending' | 'published' | 'hidden'>('pending');
-  const load = useCallback(async () => { const d = await api({ action: 'reviews-list', tenantId, token }); if (d?.ok) setList(d.reviews || []); }, [tenantId, token]);
-  useEffect(() => { void load(); }, [load]);
-  if (!list) return <p className="py-2 text-center text-[11px] font-bold text-slate-400">Loading…</p>;
-  const counts = { pending: list.filter((r) => r.status === 'pending').length, published: list.filter((r) => r.status === 'published').length, hidden: list.filter((r) => r.status === 'hidden').length };
-  const rows = list.filter((r) => r.status === filter);
-  const act = async (id: string, status: 'published' | 'hidden') => { setBusy(id); await api({ action: 'review-moderate', tenantId, token, reviewId: id, status }); setBusy(''); void load(); };
-  const stars = (n: number) => '★'.repeat(Math.max(0, Math.min(5, n))) + '☆'.repeat(5 - Math.max(0, Math.min(5, n)));
-  return (
-    <div className="space-y-3">
-      <p className="text-[10px] font-bold text-slate-500">Every review here is from a client who actually completed a visit with you — the ask goes out in your thank-you the day after. Nothing shows on your page until you publish it.</p>
-      <div className="flex gap-1.5">
-        {(['pending', 'published', 'hidden'] as const).map((k) => (
-          <button key={k} type="button" onClick={() => setFilter(k)} aria-pressed={filter === k} className={cn('h-9 rounded-full border-2 px-3 text-[10px] font-black uppercase tracking-widest', filter === k ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>{k === 'pending' ? 'New' : k} · {counts[k]}</button>
-        ))}
-      </div>
-      {rows.length === 0 && <p className="py-3 text-center text-[11px] font-bold text-slate-400">{filter === 'pending' ? 'No new reviews. They arrive after clients get your thank-you.' : `Nothing ${filter}.`}</p>}
-      {rows.map((r) => (
-        <div key={r.id} className="rounded-2xl border-2 border-slate-200 p-3 space-y-1.5">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-[12px] font-black text-slate-900">{r.clientName || 'Client'}<span className="font-bold text-slate-500"> · {r.serviceName}</span></p>
-            <span className="shrink-0 text-[12px] font-black tracking-tight text-amber-500">{stars(Number(r.rating) || 0)}</span>
-          </div>
-          {r.text && <p className="text-[12px] font-medium text-slate-700 whitespace-pre-wrap">{r.text}</p>}
-          <p className="text-[10px] font-bold text-slate-400">Visited {fmtDate(String(r.visitedAt || r.createdAt).slice(0, 10))}</p>
-          <div className="flex gap-2">
-            {r.status !== 'published' && <button type="button" disabled={busy === r.id} onClick={() => act(r.id, 'published')} className="h-9 flex-1 rounded-xl bg-emerald-600 text-[9px] font-black uppercase tracking-widest text-white disabled:opacity-40">Show on my page</button>}
-            {r.status !== 'hidden' && <button type="button" disabled={busy === r.id} onClick={() => act(r.id, 'hidden')} className="h-9 flex-1 rounded-xl border-2 border-slate-200 text-[9px] font-black uppercase tracking-widest text-slate-600 disabled:opacity-40">{r.status === 'published' ? 'Take down' : 'Keep private'}</button>}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ─── My Page: the content sections on their booking link ─────────────────────
-function MyPage({ tenantId, token, renterId }: { tenantId: string; token: string; renterId: string }) {
-  const [page, setPage] = useState<any | null>(null);
-  const [open, setOpen] = useState('');
-  const [busy, setBusy] = useState('');
-  const [saved, setSaved] = useState(false);
-  const [err, setErr] = useState('');
-  const load = useCallback(async () => { const d = await api({ action: 'page-get', tenantId, token }); if (d?.ok) setPage(d.page); }, [tenantId, token]);
-  useEffect(() => { void load(); }, [load]);
-  if (!page) return <p className="py-2 text-center text-[11px] font-bold text-slate-400">Loading…</p>;
-  const upd = (kind: string, patch: any) => setPage((p: any) => ({ ...p, sections: p.sections.map((x: any) => x.kind === kind ? { ...x, ...patch } : x) }));
-  const move = (kind: string, dir: -1 | 1) => setPage((p: any) => { const i = p.sections.findIndex((x: any) => x.kind === kind); const j = i + dir; if (j < 0 || j >= p.sections.length) return p; const arr = p.sections.slice(); [arr[i], arr[j]] = [arr[j], arr[i]]; return { ...p, sections: arr }; });
-  const save = async () => { setBusy('save'); setErr(''); const d = await api({ action: 'page-save', tenantId, token, page }); setBusy(''); if (!d?.ok) { setErr(d?.error || 'Could not save.'); return; } setPage(d.page); setSaved(true); setTimeout(() => setSaved(false), 1800); };
-  const addPhoto = async (kind: string, file?: File) => {
-    if (!file) return;
-    setBusy('photo'); setErr('');
-    try {
-      const url = await uploadRenterPhoto(tenantId, token, renterId, 'gallery', file, 1400);
-      const next = { ...page, sections: page.sections.map((x: any) => x.kind === kind
-        ? { ...x, enabled: true, photos: [ ...(x.photos || []), url ].slice(0, 24) } : x) };
-      setPage(next);
-      // Persist now, not on Save: the photo is on the page the instant it lands.
-      const saved = await api({ action: 'page-save', tenantId, token, page: next });
-      if (saved?.ok) { setPage(saved.page); setSaved(true); setTimeout(() => setSaved(false), 1800); }
-      else setErr(saved?.error || 'Uploaded, but could not save the page — press Save my page.');
-    } catch (ex: any) { setErr(ex?.message || 'Could not upload that photo.'); } finally { setBusy(''); }
-  };
-  return (
-    <div className="space-y-3">
-      <p className="text-[10px] font-bold text-slate-500">What shows on your booking page, under your links and above your menu. Switch a section on, fill it, save. Styling matches the studio so it all feels like one place.</p>
-      {page.sections.map((sec: any, i: number) => {
-        const def = SECTION_KINDS.find((k) => k.kind === sec.kind);
-        const isOpen = open === sec.kind;
-        return (
-          <div key={sec.kind} className={cn('rounded-2xl border-2', sec.enabled ? 'border-slate-900' : 'border-slate-200')}>
-            <div className="flex items-center gap-2 px-3.5 py-3">
-              <button type="button" aria-pressed={sec.enabled} onClick={() => upd(sec.kind, { enabled: !sec.enabled })}
-                className={cn('h-8 shrink-0 rounded-full px-3 text-[9px] font-black uppercase tracking-widest', sec.enabled ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500')}>{sec.enabled ? 'On' : 'Off'}</button>
-              <button type="button" onClick={() => setOpen(isOpen ? '' : sec.kind)} aria-expanded={isOpen} className="min-w-0 flex-1 text-left">
-                <span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">{def?.label || sec.kind}</span>
-                <span className="block text-[10px] font-bold text-slate-500 truncate">{def?.blurb}</span>
-              </button>
-              <div className="flex shrink-0 flex-col gap-0.5">
-                <button type="button" aria-label="Move up" disabled={i === 0} onClick={() => move(sec.kind, -1)} className="h-4 w-7 rounded border text-[9px] font-black text-slate-500 disabled:opacity-30">▲</button>
-                <button type="button" aria-label="Move down" disabled={i === page.sections.length - 1} onClick={() => move(sec.kind, 1)} className="h-4 w-7 rounded border text-[9px] font-black text-slate-500 disabled:opacity-30">▼</button>
-              </div>
-            </div>
-            {isOpen && (
-              <div className="space-y-2 border-t-2 border-slate-100 px-3.5 py-3">
-                <input value={sec.title || ''} onChange={(e) => upd(sec.kind, { title: e.target.value.slice(0, 60) })} aria-label="Section title" placeholder="Section title" className="h-10 w-full rounded-xl border-2 border-slate-200 px-3 text-sm font-bold" />
-                {(sec.kind === 'about' || sec.kind === 'policies') && (
-                  <textarea value={sec.text || ''} onChange={(e) => upd(sec.kind, { text: e.target.value.slice(0, 2500) })} rows={6} aria-label={`${def?.label} text`}
-                    placeholder={sec.kind === 'about' ? "How you got here, what you specialise in, what a first visit is like." : "Deposits, how late is too late, how to cancel, what happens to no-shows."}
-                    className="w-full rounded-xl border-2 border-slate-200 px-3 py-2 text-sm leading-relaxed" />
-                )}
-                {sec.kind === 'gallery' && (
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {(sec.photos || []).map((u: string, j: number) => (
-                        <button key={u} type="button" onClick={async () => { const next = { ...page, sections: page.sections.map((x: any) => x.kind === sec.kind ? { ...x, photos: x.photos.filter((_: string, k: number) => k !== j) } : x) }; setPage(next); const d = await api({ action: 'page-save', tenantId, token, page: next }); if (d?.ok) setPage(d.page); }} aria-label={`Remove photo ${j + 1}`} className="relative aspect-square overflow-hidden rounded-xl border-2 border-slate-200">
-                          <img src={u} alt="" className="h-full w-full object-cover" />
-                          <span className="absolute inset-x-0 bottom-0 bg-slate-900/80 text-[8px] font-black uppercase tracking-widest text-white">Remove</span>
-                        </button>
-                      ))}
-                      {(sec.photos || []).length < 24 && (
-                        <label className={cn('flex aspect-square cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-slate-300 text-[10px] font-black uppercase tracking-widest text-slate-500', busy === 'photo' && 'opacity-50')}>
-                          {busy === 'photo' ? '…' : '+ Photo'}
-                          <input type="file" accept="image/*" className="sr-only" aria-label="Add a photo" disabled={busy === 'photo'} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; void addPhoto(sec.kind, f); }} />
-                        </label>
-                      )}
-                    </div>
-                    <p className="text-[9px] font-bold text-slate-400">{(sec.photos || []).length} of 24. Tap a photo to remove it. Your best three go first.</p>
-                  </div>
-                )}
-                {sec.kind === 'faq' && (
-                  <div className="space-y-2">
-                    {(sec.items || []).map((it: any, j: number) => (
-                      <div key={j} className="space-y-1 rounded-xl border-2 border-slate-100 p-2">
-                        <input value={it.q} onChange={(e) => upd(sec.kind, { items: sec.items.map((x: any, k: number) => k === j ? { ...x, q: e.target.value.slice(0, 160) } : x) })} aria-label="Question" placeholder="Do you take walk-ins?" className="h-10 w-full rounded-lg border-2 border-slate-200 px-3 text-sm font-bold" />
-                        <textarea value={it.a} onChange={(e) => upd(sec.kind, { items: sec.items.map((x: any, k: number) => k === j ? { ...x, a: e.target.value.slice(0, 800) } : x) })} rows={2} aria-label="Answer" placeholder="Answer" className="w-full rounded-lg border-2 border-slate-200 px-3 py-2 text-sm" />
-                        <button type="button" onClick={() => upd(sec.kind, { items: sec.items.filter((_: any, k: number) => k !== j) })} className="text-[9px] font-black uppercase tracking-widest text-slate-400">Remove</button>
-                      </div>
-                    ))}
-                    {(sec.items || []).length < 12 && <button type="button" onClick={() => upd(sec.kind, { items: [ ...(sec.items || []), { q: '', a: '' } ] })} className="h-10 w-full rounded-xl border-2 border-dashed border-slate-300 text-[10px] font-black uppercase tracking-widest text-slate-600">+ Add a question</button>}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })}
-      {err && <p className="text-xs font-bold text-red-600">{err}</p>}
-      <div className="flex items-center justify-end gap-2">
-        {saved && <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Saved — it&apos;s live</span>}
-        <button type="button" onClick={save} disabled={busy === 'save'} className="h-11 rounded-2xl bg-slate-900 px-5 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy === 'save' ? 'Saving…' : 'Save my page'}</button>
-      </div>
-    </div>
-  );
-}
-
-// ─── My Services: menu editor + pricing coach ─────────────────────────────────
-// The renter's own business tool. Every number here is derived from THEIR rent
-// and THEIR hours — the studio never sees these calculations, only the menu
-// that results. The lease floor is shown as the agreed term it is, and the
-// server enforces it too, so a refused save is never a surprise.
-function MyServices({ data, tenantId, token, onChanged }: { data: any; tenantId: string; token: string; onChanged: () => void }) {
-  const [linkCopied, setLinkCopied] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const [hours, setHours] = useState(String(data?.pricing?.bookableHoursPerMonth || 100));
-  const [draft, setDraft] = useState<any>(null);
-
-  const pricing = data?.pricing || {};
-  const rentPerHour = (Number(pricing.rentPerHourCents) || 0) / 100;
-  const floor = (Number(pricing.priceFloorCents) || 0) / 100;
-  const services: any[] = data?.myServices || [];
-
-  // When they've told us what they need to live on, the bar becomes THEIR
-  // target hourly instead of a generic multiple of rent. Same shape either
-  // way, so the UI doesn't branch — only the standard gets more honest.
-  const targetHourly = (Number(pricing.targetHourlyCents) || 0) / 100;
-  const hasGoals = !!pricing.hasGoals && targetHourly > 0;
-
-  const coach = (price: number, duration: number, productCost: number) => {
-    const hrs = Math.max(0.01, (Number(duration) || 60) / 60);
-    const rentShare = rentPerHour * hrs;
-    const keep = (Number(price) || 0) - rentShare - (Number(productCost) || 0);
-    const perHour = keep / hrs;
-    const bar = hasGoals ? targetHourly : rentPerHour * 2;
-    const tone = keep <= 0 ? 'bad' : perHour < bar ? 'thin' : 'good';
-    const monthlyTarget = hasGoals
-      ? (Number(pricing.monthlyTargetCents) || 0) / 100
-      : (Number(pricing.monthlyRentCents) || 0) / 100;
-    const needed = keep > 0 ? Math.ceil(monthlyTarget / keep) : 0;
-    return { rentShare, keep, perHour, tone, needed, bar };
-  };
-
-  const saveHours = async () => {
-    setBusy(true); setErr('');
-    const d = await api({ action: 'my-hours', tenantId, token, bookableHoursPerMonth: Number(hours) });
-    setBusy(false);
-    if (!d.ok) { setErr(d.error || 'Could not save'); return; }
-    onChanged();
-  };
-
-  const saveService = async () => {
-    if (!draft) return;
-    setBusy(true); setErr('');
-    const d = await api({
-      action: 'my-service-save', tenantId, token,
-      serviceId: draft.id || '', name: draft.name,
-      price: Number(draft.price), duration: Number(draft.duration), productCost: Number(draft.productCost || 0),
-      depositMode: draft.depositMode || (Number(draft.depositAmount) > 0 ? 'flat' : 'none'),
-      depositAmount: Number(draft.depositAmount || 0), depositPercent: Number(draft.depositPercent || 0),
-      description: draft.description || '', category: draft.category || '', videoUrl: draft.videoUrl || '',
-      ...(draft.imageData === null ? { imageData: null } : {}),
-      ...(typeof draft.imageUrl === 'string' && draft.imageUrl ? { imageUrl: draft.imageUrl } : {}),
-    });
-    setBusy(false);
-    if (!d.ok) { setErr(d.error || 'Could not save'); return; }
-    setDraft(null); onChanged();
-  };
-
-  const removeService = async (id: string) => {
-    setBusy(true); setErr('');
-    const d = await api({ action: 'my-service-remove', tenantId, token, serviceId: id });
-    setBusy(false);
-    if (!d.ok) { setErr(d.error || 'Could not remove'); return; }
-    onChanged();
-  };
-
-  const live = draft ? coach(Number(draft.price) || 0, Number(draft.duration) || 60, Number(draft.productCost) || 0) : null;
-
-  return (
-    <section className="space-y-3">
-      <SectionTitle icon={Sparkles}>My Services</SectionTitle>
-
-      <div className="p-4 rounded-3xl bg-white border-2 space-y-3">
-        <div className="space-y-2">
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Your booking link</p>
-          <a href={data?.provider?.bookingUrl || '#'} target="_blank" rel="noopener noreferrer"
-             className="block truncate text-[11px] font-bold text-slate-700 underline decoration-slate-300 underline-offset-2">
-            {data?.provider?.bookingUrl}
-          </a>
-          <div className="flex gap-2">
-            <a href={data?.provider?.bookingUrl || '#'} target="_blank" rel="noopener noreferrer"
-               className="h-10 flex-1 inline-flex items-center justify-center rounded-xl border-2 border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-700">
-              Open my page
-            </a>
-            <button type="button" onClick={async () => { try { await navigator.clipboard?.writeText(data?.provider?.bookingUrl || ''); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 1800); } catch { /* clipboard blocked — the link is tappable above */ } }}
-                    className={cn('h-10 flex-1 rounded-xl px-4 text-[10px] font-black uppercase tracking-widest active:scale-95', linkCopied ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-white')}>
-              {linkCopied ? 'Copied ✓' : 'Copy link'}
-            </button>
-          </div>
-        </div>
-
-        <div className="rounded-2xl bg-slate-50 p-3 space-y-2">
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-            {hasGoals ? 'What an hour needs to earn' : 'What an hour costs you'}
-          </p>
-          <p className="text-[13px] font-bold text-slate-700">
-            {hasGoals ? (
-              <>Your hour needs to make <span className="font-black text-slate-900">${targetHourly.toFixed(2)}</span> — rent, taxes and what you live on, over the hours you book.</>
-            ) : (
-              <>Your rent works out to <span className="font-black text-slate-900">${rentPerHour.toFixed(2)}/hour</span> in the chair.</>
-            )}
-          </p>
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-bold text-slate-500">Hours you book a month</span>
-            <input type="number" min={1} max={400} value={hours} onChange={e => setHours(e.target.value)}
-                   className="h-9 w-20 rounded-xl border-2 text-center text-[12px] font-black" />
-            <button onClick={saveHours} disabled={busy}
-                    className="h-9 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-50">Save</button>
-          </div>
-        </div>
-
-        {floor > 0 && (
-          <p className="text-[11px] font-bold text-slate-500">Your lease sets a ${floor.toFixed(2)} minimum per service.</p>
-        )}
-        {err && <p className="text-[11px] font-black text-red-600">{err}</p>}
-
-        {services.map((sv: any) => {
-          const c = coach(sv.price, sv.duration, sv.productCost);
-          return (
-            <div key={sv.id} className="rounded-2xl border-2 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-black text-slate-900">{sv.name}</p>
-                  <p className="text-[11px] font-bold text-slate-500">${Number(sv.price).toFixed(2)} · {sv.duration} min</p>
-                </div>
-                <div className="flex shrink-0 gap-2">
-                  {sv.imageUrl && <img src={sv.imageUrl} alt="" className="h-8 w-8 rounded-lg object-cover border" />}
-                  <button onClick={() => setDraft({ ...sv })} className="h-8 rounded-lg border-2 px-3 text-[10px] font-black uppercase tracking-widest">Edit</button>
-                  <button onClick={() => removeService(sv.id)} disabled={busy} className="h-8 rounded-lg px-2 text-[10px] font-black uppercase tracking-widest text-slate-400 disabled:opacity-50">Remove</button>
-                </div>
-              </div>
-              <p className={cn('mt-2 text-[11px] font-bold',
-                c.tone === 'bad' ? 'text-red-600' : c.tone === 'thin' ? 'text-amber-600' : 'text-emerald-700')}>
-                {c.keep <= 0
-                  ? `You lose $${Math.abs(c.keep).toFixed(2)} on this one after rent and product.`
-                  : `You keep $${c.keep.toFixed(2)} — that's $${c.perHour.toFixed(2)}/hour. ${c.needed} a month ${hasGoals ? 'hits your goal' : 'covers your rent'}.`}
-              </p>
-            </div>
-          );
-        })}
-
-        {draft ? (
-          <div className="rounded-2xl border-2 border-slate-900 p-3 space-y-2">
-            <input placeholder="Service name" value={draft.name || ''} onChange={e => setDraft((d: any) => ({ ...d, name: e.target.value }))}
-                   className="h-10 w-full rounded-xl border-2 px-3 text-[13px] font-bold" />
-            <div className="flex flex-wrap gap-2">
-              <label className="flex-1 min-w-[5rem]">
-                <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Price</span>
-                <input type="number" min={0} value={draft.price ?? ''} onChange={e => setDraft((d: any) => ({ ...d, price: e.target.value }))}
-                       className="h-10 w-full rounded-xl border-2 text-center text-[13px] font-black" />
-              </label>
-              <label className="flex-1 min-w-[5rem]">
-                <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Minutes</span>
-                <input type="number" min={5} step={5} value={draft.duration ?? 60} onChange={e => setDraft((d: any) => ({ ...d, duration: e.target.value }))}
-                       className="h-10 w-full rounded-xl border-2 text-center text-[13px] font-black" />
-              </label>
-              <label className="flex-1 min-w-[5rem]">
-                <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Product $</span>
-                <input type="number" min={0} value={draft.productCost ?? 0} onChange={e => setDraft((d: any) => ({ ...d, productCost: e.target.value }))}
-                       className="h-10 w-full rounded-xl border-2 text-center text-[13px] font-black" />
-              </label>
-            </div>
-            <label className="block">
-              <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">What it is</span>
-              <textarea value={draft.description || ''} onChange={e => setDraft((d: any) => ({ ...d, description: e.target.value.slice(0, 400) }))} rows={3}
-                        placeholder="What's included, how long it lasts, who it's for. Clients read this before they book."
-                        className="w-full rounded-xl border-2 px-3 py-2 text-[13px]" />
-            </label>
-            <label className="block">
-              <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Video (optional)</span>
-              <input value={draft.videoUrl || ''} onChange={e => setDraft((d: any) => ({ ...d, videoUrl: e.target.value.slice(0, 300) }))} inputMode="url"
-                     placeholder="YouTube link, or a direct .mp4 — shows when a client opens this service"
-                     className="h-10 w-full rounded-xl border-2 px-3 text-[13px] font-bold" />
-            </label>
-            <div className="flex flex-wrap gap-2">
-              <label className="flex-1 min-w-[8rem]">
-                <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Category (optional)</span>
-                <input value={draft.category || ''} onChange={e => setDraft((d: any) => ({ ...d, category: e.target.value.slice(0, 40) }))} placeholder="Gel, Acrylic, Add-ons…"
-                       className="h-10 w-full rounded-xl border-2 px-3 text-[13px] font-bold" />
-              </label>
-              <div className="flex-1 min-w-[8rem]">
-                <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Photo</span>
-                <div className="flex items-center gap-2">
-                  {(draft.imageData || draft.imageUrl) && draft.imageData !== null && (
-                    <img src={draft.imageData || draft.imageUrl} alt="" className="h-10 w-10 rounded-lg object-cover border-2" />
-                  )}
-                  <label className="h-10 flex-1 inline-flex items-center justify-center rounded-xl border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-600 cursor-pointer">
-                    {(draft.imageData || draft.imageUrl) && draft.imageData !== null ? 'Change' : 'Add'}
-                    <input type="file" accept="image/*" className="sr-only" aria-label="Service photo"
-                           onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (!f) return; try { const url = await uploadRenterPhoto(tenantId, token, String(data?.renter?.id || ''), 'services', f, 1200); setDraft((x: any) => ({ ...x, imageUrl: url, imageData: undefined })); } catch (ex: any) { setErr(ex?.message || 'Could not upload that photo.'); } }} />
-                  </label>
-                  {(draft.imageData || draft.imageUrl) && draft.imageData !== null && (
-                    <button type="button" onClick={() => setDraft((x: any) => ({ ...x, imageData: null, imageUrl: null }))} aria-label="Remove photo" className="h-10 w-10 rounded-xl border-2 text-slate-500 font-black">×</button>
-                  )}
-                </div>
-              </div>
-            </div>
-            {data?.provider?.chargesEnabled ? (
-              <div className="rounded-xl border-2 p-3 space-y-2">
-                <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Deposit to hold the slot</span>
-                <div className="flex gap-1.5">
-                  {([['none', 'None'], ['flat', 'Fixed $'], ['percent', '% of price']] as const).map(([k, l]) => {
-                    const cur = draft.depositMode || (Number(draft.depositAmount) > 0 ? 'flat' : 'none');
-                    return <button key={k} type="button" aria-pressed={cur === k} onClick={() => setDraft((d: any) => ({ ...d, depositMode: k }))}
-                      className={cn('h-9 flex-1 rounded-full border-2 text-[10px] font-black uppercase tracking-widest', cur === k ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>{l}</button>;
-                  })}
-                </div>
-                {(draft.depositMode || (Number(draft.depositAmount) > 0 ? 'flat' : 'none')) === 'flat' && (
-                  <input type="number" min={0} value={draft.depositAmount ?? 0} onChange={e => setDraft((d: any) => ({ ...d, depositAmount: e.target.value }))} aria-label="Deposit in dollars"
-                         className="h-10 w-full rounded-xl border-2 text-center text-[13px] font-black" />
-                )}
-                {(draft.depositMode || 'none') === 'percent' && (
-                  <div className="flex items-center gap-2">
-                    <input type="number" min={0} max={100} value={draft.depositPercent ?? 25} onChange={e => setDraft((d: any) => ({ ...d, depositPercent: e.target.value }))} aria-label="Deposit percent"
-                           className="h-10 w-24 rounded-xl border-2 text-center text-[13px] font-black" />
-                    <span className="text-[11px] font-bold text-slate-500">% = ${(((Number(draft.price) || 0) * (Number(draft.depositPercent ?? 25) || 0)) / 100).toFixed(2)} on this service</span>
-                  </div>
-                )}
-                <p className="text-[10px] font-bold text-slate-400">Goes straight to your Stripe when they book. The rest they pay you at the visit.</p>
-              </div>
-            ) : (
-              <p className="text-[10px] font-bold text-slate-400">Connect your Stripe below to start taking deposits and stop losing no-shows.</p>
-            )}
-            {live && (
-              <div className={cn('rounded-xl p-3',
-                live.tone === 'bad' ? 'bg-red-50' : live.tone === 'thin' ? 'bg-amber-50' : 'bg-emerald-50')}>
-                <p className={cn('text-[12px] font-black',
-                  live.tone === 'bad' ? 'text-red-700' : live.tone === 'thin' ? 'text-amber-700' : 'text-emerald-800')}>
-                  {live.keep <= 0
-                    ? `At this price you lose $${Math.abs(live.keep).toFixed(2)} each time.`
-                    : `You keep $${live.keep.toFixed(2)} — $${live.perHour.toFixed(2)}/hour.`}
-                </p>
-                <p className="mt-1 text-[11px] font-bold text-slate-600">
-                  Rent share ${live.rentShare.toFixed(2)}{Number(draft.productCost) > 0 ? ` · product $${Number(draft.productCost).toFixed(2)}` : ''}
-                  {live.needed > 0 ? ` · ${live.needed} a month covers your rent` : ''}
-                </p>
-              </div>
-            )}
-            <div className="flex gap-2">
-              <button onClick={saveService} disabled={busy}
-                      className="h-10 flex-1 rounded-xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white active:scale-95 disabled:opacity-50">
-                {busy ? 'Saving…' : 'Save service'}
-              </button>
-              <button onClick={() => { setDraft(null); setErr(''); }} className="h-10 rounded-xl border-2 px-4 text-[10px] font-black uppercase tracking-widest">Cancel</button>
-            </div>
-          </div>
-        ) : (
-          <button onClick={() => setDraft({ name: '', price: '', duration: 60, productCost: 0 })}
-                  className="h-11 w-full rounded-2xl border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-500">
-            ＋ Add a service
-          </button>
-        )}
-      </div>
-    </section>
-  );
-}
-
-// ─── Shared UI bits ───────────────────────────────────────────────────────────
-const SectionTitle = ({ icon: Icon, children }: { icon: any; children: React.ReactNode }) => (
-  <div className="flex items-center gap-2 px-1">
-    <Icon className="w-3.5 h-3.5 text-primary" />
-    <h2 className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">{children}</h2>
-  </div>
-);
-
-const Chip = ({ tone, children }: { tone: 'green' | 'amber' | 'red' | 'slate' | 'violet'; children: React.ReactNode }) => (
-  <span className={cn('inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest',
-    tone === 'green' && 'bg-emerald-100 text-emerald-700',
-    tone === 'amber' && 'bg-amber-100 text-amber-700',
-    tone === 'red' && 'bg-red-100 text-red-700',
-    tone === 'violet' && 'bg-violet-100 text-violet-700',
-    tone === 'slate' && 'bg-slate-100 text-slate-600')}>
-    {children}
-  </span>
-);
-
-// ─── Login (contact → code) ───────────────────────────────────────────────────
-const LoginFlow = ({ tenantId, onSession }: {
-  tenantId: string;
-  onSession: (s: { token: string; expiresAt: number; name: string | null }) => void;
-}) => {
-  const { toast } = useToast();
-  const [phase, setPhase] = useState<'contact' | 'code'>('contact');
-  const [contact, setContact] = useState('');
-  const [code, setCode] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const requestCode = async () => {
-    if (!contact.trim()) return;
-    setBusy(true);
-    const d = await api({ action: 'request-code', tenantId, contact: contact.trim() });
-    setBusy(false);
-    if (d.ok) {
-      setPhase('code');
-    } else {
-      toast({ variant: 'destructive', title: 'Couldn’t send a code', description: d.error || 'Try again.' });
-    }
-  };
-
-  const verify = async () => {
-    if (code.length !== 6) return;
-    setBusy(true);
-    const d = await api({ action: 'verify-code', tenantId, contact: contact.trim(), code });
-    setBusy(false);
-    if (d.ok && d.token) {
-      onSession({ token: d.token, expiresAt: d.expiresAt, name: d.name || null });
-    } else {
-      setCode('');
-      toast({ variant: 'destructive', title: 'Code didn’t match', description: d.error || 'Check the code and try again.' });
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-gradient-to-b from-violet-50 via-white to-white flex items-center justify-center p-6">
-      <div className="w-full max-w-sm space-y-8">
-        <div className="text-center space-y-3">
-          <div className="w-16 h-16 rounded-3xl bg-violet-100 flex items-center justify-center mx-auto">
-            <Armchair className="w-8 h-8 text-violet-600" />
-          </div>
-          <h1 className="text-3xl font-black uppercase tracking-tighter text-slate-900">Renter Portal</h1>
-          <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
-            {phase === 'contact' ? 'Your bookings, credits & rent — one place' : 'Enter your access code'}
-          </p>
-        </div>
-
-        {phase === 'contact' ? (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-1">
-                Phone or email you booked with
-              </label>
-
-              <p className="text-[10px] font-medium text-slate-400 px-1 leading-snug">
-                We'll text a one-time sign-in code to this number. Msg &amp; data rates may
-                apply. Reply STOP to opt out. <a href="/terms" target="_blank" rel="noreferrer" className="underline">SMS Terms</a> · <a href="/privacy" target="_blank" rel="noreferrer" className="underline">Privacy</a>
-              </p>
-              <div className="relative">
-                <Phone className="w-4 h-4 text-slate-300 absolute left-4 top-1/2 -translate-y-1/2" />
-                <input
-                  value={contact}
-                  onChange={e => setContact(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && requestCode()}
-                  inputMode="email"
-                  autoComplete="tel"
-                  placeholder="(555) 123-4567 or you@email.com"
-                  className="w-full h-14 pl-11 pr-4 rounded-2xl border-2 border-slate-200 bg-white font-bold text-slate-900 placeholder:text-slate-300 focus:border-violet-400 focus:outline-none"
-                />
-              </div>
-            </div>
-            <button
-              onClick={requestCode}
-              disabled={busy || !contact.trim()}
-              className="w-full h-14 rounded-2xl bg-slate-900 text-white font-black uppercase tracking-widest text-xs shadow-xl shadow-slate-900/20 active:scale-[0.98] transition-all disabled:opacity-40 flex items-center justify-center gap-2"
-            >
-              {busy ? <Loader className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
-              Get Access Code
-            </button>
-            <p className="text-[10px] font-medium text-slate-400 text-center leading-relaxed px-4">
-              We’ll verify it’s really you. The studio front desk can share your one-time code.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="p-4 rounded-2xl bg-violet-50 border border-violet-100 text-center">
-              <p className="text-[10px] font-bold text-violet-700 leading-relaxed">
-                A 6-digit code was sent to the studio for <strong>{contact.trim()}</strong>.
-                Ask the front desk to read it to you.
-              </p>
-            </div>
-            <input
-              value={code}
-              onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              onKeyDown={e => e.key === 'Enter' && verify()}
-              inputMode="numeric"
-              autoFocus
-              placeholder="••••••"
-              className="w-full h-16 rounded-2xl border-2 border-slate-200 bg-white font-black text-3xl text-center tracking-[0.5em] text-slate-900 placeholder:text-slate-200 focus:border-violet-400 focus:outline-none"
-            />
-            <button
-              onClick={verify}
-              disabled={busy || code.length !== 6}
-              className="w-full h-14 rounded-2xl bg-slate-900 text-white font-black uppercase tracking-widest text-xs shadow-xl shadow-slate-900/20 active:scale-[0.98] transition-all disabled:opacity-40 flex items-center justify-center gap-2"
-            >
-              {busy ? <Loader className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-              Sign In
-            </button>
-            <button
-              onClick={() => { setPhase('contact'); setCode(''); }}
-              className="w-full text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 py-2"
-            >
-              Use a different phone / email
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// ─── Reservation card ─────────────────────────────────────────────────────────
-const ResCard = ({ r, isToday, onCheckIn, onCheckOut, onRequestReschedule, busy }: {
-  r: any; isToday: boolean;
-  onCheckIn?: (id: string) => void; onCheckOut?: (id: string) => void;
-  onRequestReschedule?: (id: string) => void; busy?: boolean;
-}) => {
-  const window = r.bookingType === 'hourly' && r.startTime
-    ? `${fmtTime(r.startTime)} – ${fmtTime(r.endTime)}`
-    : r.startDate === r.endDate ? 'All day' : `through ${fmtDate(r.endDate)}`;
-  const statusChip =
-    r.status === 'checked_in' ? <Chip tone="green">Checked in</Chip> :
-    r.status === 'confirmed' ? <Chip tone="violet">Confirmed</Chip> :
-    r.status === 'completed' ? <Chip tone="slate">Completed</Chip> :
-    r.status === 'refunded' ? <Chip tone="slate">Refunded</Chip> :
-    <Chip tone="slate">{String(r.status || '').replace(/_/g, ' ')}</Chip>;
-
-  return (
-    <div className={cn('p-4 rounded-3xl border-2 bg-white space-y-3',
-      isToday ? 'border-violet-200 shadow-lg shadow-violet-100' : 'border-slate-100')}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="font-black text-slate-900 text-sm truncate">{r.boothName}</p>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-0.5">
-            {fmtDate(r.startDate)} · {window}{r.slotLabel ? ` · ${r.slotLabel}` : ''}
-          </p>
-        </div>
-        {statusChip}
-      </div>
-
-      {(r.balanceDueCents > 0 && !r.balancePaid && r.status !== 'refunded') && (
-        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-50 border border-amber-100">
-          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-          <p className="text-[10px] font-bold text-amber-700">
-            {fmtMoney(r.balanceDueCents)} balance {r.balanceMode === 'at_checkin' ? 'due at check-in' : 'payable in person'}
-          </p>
-        </div>
-      )}
-      {r.overageStatus === 'due' && r.overageDueCents > 0 && (
-        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-red-50 border border-red-100">
-          <Clock className="w-3.5 h-3.5 text-red-600 shrink-0" />
-          <p className="text-[10px] font-bold text-red-700">
-            {fmtMoney(r.overageDueCents)} overtime due ({r.overageMinutes} min past booked time)
-          </p>
-        </div>
-      )}
-      {r.creditDecision === 'pending' && r.potentialCreditCents > 0 && (
-        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-50 border border-emerald-100">
-          <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-          <p className="text-[10px] font-bold text-emerald-700">
-            {fmtMoney(r.potentialCreditCents)} credit for unused time — pending studio review
-          </p>
-        </div>
-      )}
-
-      {isToday && r.status === 'confirmed' && onCheckIn && (
-        <button onClick={() => onCheckIn(r.id)} disabled={busy}
-          className="w-full h-12 rounded-2xl bg-violet-600 text-white font-black uppercase tracking-widest text-[11px] shadow-lg shadow-violet-200 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-          {busy ? <Loader className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Check In
-        </button>
-      )}
-      {isToday && r.status === 'checked_in' && onCheckOut && (
-        <button onClick={() => onCheckOut(r.id)} disabled={busy}
-          className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase tracking-widest text-[11px] active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-          {busy ? <Loader className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />} Check Out
-        </button>
-      )}
-      {!isToday && r.status === 'confirmed' && onRequestReschedule && (
-        r.rescheduleRequestedAt ? (
-          <p className="text-[10px] font-black uppercase tracking-widest text-violet-500 text-center py-1.5">
-            ⏱ Reschedule requested — the studio will reach out
-          </p>
-        ) : (
-          <button onClick={() => onRequestReschedule(r.id)} disabled={busy}
-            className="w-full h-10 rounded-2xl border-2 border-slate-200 text-slate-500 font-black uppercase tracking-widest text-[10px] active:scale-[0.98] transition-all disabled:opacity-50">
-            Request Reschedule
-          </button>
-        )
-      )}
-    </div>
-  );
-};
-
-// ─── Main page ────────────────────────────────────────────────────────────────
-export default function RenterPortalPage() {
-  const params = useParams();
-  const tenantId = params.tenantId as string;
-  const { toast } = useToast();
-
-  const [session, setSession] = useState<{ token: string; expiresAt: number; name: string | null } | null>(() => {
-    if (typeof window === 'undefined') return null;
-    try {
-      const s = JSON.parse(localStorage.getItem(STORE(tenantId)) || 'null');
-      return s && s.expiresAt > Date.now() ? s : null;
-    } catch { return null; }
-  });
-  const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [actionBusy, setActionBusy] = useState(false);
-  const [credBusy, setCredBusy] = useState<'license' | 'insurance' | null>(null);
-  const [credDone, setCredDone] = useState<'license' | 'insurance' | null>(null);
-  const [credOpen, setCredOpen] = useState<'license' | 'insurance' | null>(null);
-  const [credForm, setCredForm] = useState({ expiry: '', carrier: '', policyNumber: '' });
-
-  const saveSession = (s: { token: string; expiresAt: number; name: string | null } | null) => {
-    if (s) localStorage.setItem(STORE(tenantId), JSON.stringify(s));
-    else localStorage.removeItem(STORE(tenantId));
-    setSession(s);
-    if (!s) setData(null);
-  };
-
-  // Magic link (?rt=TOKEN): the owner shared a personal sign-in link from
-  // the renter's profile — exchange it for a session on arrival, then wipe
-  // the token from the URL so it doesn't linger in history or share sheets.
-  // This is the no-SMS path: it works before Twilio is configured.
-  useEffect(() => {
-    if (typeof window === 'undefined' || session?.token) return;
-    const rt = new URLSearchParams(window.location.search).get('rt');
-    if (!rt) return;
-    window.history.replaceState({}, '', window.location.pathname);
-    (async () => {
-      const d = await api({ action: 'token-login', tenantId, magicToken: rt });
-      if (d.ok && d.token) saveSession({ token: d.token, expiresAt: d.expiresAt, name: d.name || null });
-      else toast({ variant: 'destructive', title: 'Link didn’t work', description: d.error || 'Sign in with your phone or email below.' });
-    })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const refresh = useCallback(async (tok?: string) => {
-    const token = tok || session?.token;
-    if (!token) return;
-    setLoading(true);
-    const d = await api({ action: 'me', tenantId, token, today: localISO() });
-    setLoading(false);
-    if (d.ok) setData(d);
-    else if (d.status === 401) saveSession(null);
-    else toast({ variant: 'destructive', title: 'Couldn’t load your info', description: d.error || 'Pull to refresh or try again.' });
-  }, [session?.token, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => { if (session?.token && !data) refresh(); }, [session?.token]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Returning from Stripe Checkout (?cfInvoiceId=&cfSession=) → confirm the
-  // payment server-side (idempotent), then clean the URL.
-  useEffect(() => {
-    if (typeof window === 'undefined' || !session?.token) return;
-    const params = new URLSearchParams(window.location.search);
-    const invoiceId = params.get('cfInvoiceId');
-    const sessionId = params.get('cfSession');
-    if (!invoiceId || !sessionId) return;
-    window.history.replaceState({}, '', window.location.pathname);
-    (async () => {
-      const d = await api({ action: 'confirm-invoice', tenantId, token: session.token, invoiceId, sessionId });
-      if (d.ok) toast({ title: 'Rent paid ✓', description: 'Your receipt is in Payment History below.' });
-      else toast({ variant: 'destructive', title: 'Payment needs attention', description: d.error || 'If you were charged, contact the studio — nothing is lost.' });
-      refresh();
-    })();
-  }, [session?.token]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const today = localISO();
-  const todays = useMemo(() => (data?.upcoming || []).filter((r: any) => r.startDate <= today && r.endDate >= today), [data, today]);
-  const later = useMemo(() => (data?.upcoming || []).filter((r: any) => r.startDate > today), [data, today]);
-
-  // Every booking section hangs off this one derived flag. A renter on their
-  // own system keeps rent, documents and credits and loses the rest — and the
-  // engine enforces the same thing server-side, so this is presentation
-  // following truth rather than pretending.
-  const booksHere = !!data?.provider && data?.bookingMode !== 'own';
-  // ── Four destinations, not twenty-one sections ─────────────────────────
-  // A renter logs in for one thing: today, their book, their rent, or the
-  // studio. Every section still exists; it now lives under the tab it
-  // belongs to, and the bottom bar lights up the tab that has something
-  // waiting. Hidden tabs stay mounted (CSS), so switching is instant and no
-  // subscription re-fires.
-  const [tab, setTab] = useState<'today' | 'book' | 'rent' | 'studio'>('today');
-  useEffect(() => { if (!booksHere && tab === 'book') setTab('today'); }, [booksHere, tab]);
-  const [badges, setBadges] = useState<Record<string, number>>({});
-  // Book → Setup: seven configuration panels folded into one list, opened one at a time.
-  const [setupOpen, setSetupOpen] = useState<string>('');
-  // Rent → History: the archive folded away until asked for.
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const rentDue = (data?.invoices || []).some((i: any) => i.status === 'due' || i.status === 'late');
-  const rentLate = (data?.invoices || []).some((i: any) => i.status === 'late');
-  const openInvoices = useMemo(() => (data?.invoices || []).filter((i: any) => i.status === 'due' || i.status === 'late'), [data]);
-
-  const doCheckIn = async (reservationId: string) => {
-    if (!session) return;
-    setActionBusy(true);
-    const d = await api({ action: 'check-in', tenantId, token: session.token, reservationId, today: localISO() });
-    setActionBusy(false);
-    if (d.ok) {
-      toast({
-        title: 'You’re checked in ✓',
-        description: d.needsBalance
-          ? `Reminder: ${fmtMoney(d.balanceDueCents)} balance is ${d.balanceMode === 'at_checkin' ? 'due now at the front desk' : 'payable in person'}.`
-          : 'Have a great day at the studio.',
+    const rs = await db.collection(`tenants/${tenantId}/renters`).get();
+    const norm = (s: any) => String(s || '').replace(/\D+/g, '');
+    const r = rs.docs.map((d: any) => d.data() as any).find((x: any) => norm(x.phone) && norm(x.phone) === norm(contact));
+    if (r?.email && /@/.test(r.email)) fallbackEmail = r.email;
+  } catch { /* fallback is a bonus */ }
+  if (isPhone && smsConfigured()) {
+    const sent = await sendTenantSms(db, tenantId, contact,
+      `Your renter portal sign-in code is ${code}. It expires in 10 minutes. Didn't request this? Ignore it.`,
+      { email: fallbackEmail, subject: 'Your sign-in code' });
+    if (sent.ok) {
+      const ref = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await ref.set({
+        id: ref.id, userId: null, read: false, createdAt: new Date().toISOString(),
+        type: 'renter_code', link: 'inbox',
+        message: `${name || 'A renter'} signed in to the renter portal — code texted to them automatically.`,
       });
-      refresh();
-    } else if (d.status === 401) { saveSession(null); }
-    else toast({ variant: 'destructive', title: 'Check-in didn’t go through', description: d.error || 'See the front desk.' });
+      return;
+    }
+  }
+  // Contact IS an email (or SMS+email both failed) → email the code
+  // directly before falling back to the owner inbox.
+  const contactIsEmail = /@/.test(contact);
+  if ((contactIsEmail || fallbackEmail) && process.env.RESEND_API_KEY) {
+    try {
+      let studioName = 'The studio';
+      try { studioName = ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.name || studioName; } catch { /* cosmetic */ }
+      const { brandedEmailHtml } = await import('@/lib/email-template');
+      // Through the logged sender, as a mandatory kind: a sign-in code the
+      // owner cannot see in the delivery log is a support call waiting to
+      // happen ("I never got my code" — did it bounce, or was it never sent?).
+      const { sendNotification } = await import('@/lib/notify');
+      const sent = await sendNotification(db, {
+        tenantId, channel: 'email',
+        to: (contactIsEmail ? contact.trim() : fallbackEmail) || '',
+        subject: `Your sign-in code — ${studioName}`,
+        text: `Your renter portal sign-in code is ${code}. It expires in 10 minutes. Didn't request this? Ignore it.`,
+        html: brandedEmailHtml({
+          studioName,
+          title: 'Your sign-in code',
+          bodyLines: ['Use this code to sign in to your renter portal. It expires in 10 minutes.'],
+          bigCode: code,
+          footerNote: `Didn't request this? You can safely ignore it. Sent by ${studioName}.`,
+        }),
+        kind: 'renter_signin_code',
+        recipientType: 'renter', recipientName: name || null,
+      });
+      if (sent.ok) {
+        const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+        await nRef.set({
+          id: nRef.id, userId: null, read: false, createdAt: new Date().toISOString(),
+          type: 'renter_code', link: 'inbox',
+          message: `${name || 'A renter'} signed in to the renter portal — code emailed to them automatically.`,
+        });
+        return;
+      }
+    } catch { /* fall through to the owner inbox */ }
+  }
+  const ref = db.collection(`tenants/${tenantId}/notifications`).doc();
+  await ref.set({
+    id: ref.id,
+    userId: null, // owners/admins inbox
+    read: false,
+    createdAt: new Date().toISOString(),
+    type: 'renter_code',
+    link: 'inbox',
+    message: `${name || 'A renter'} is signing in to the renter portal and needs their code: ${code} (valid 10 min). ${isPhone ? `Text it to ${contact.trim()}.` : `Send it to ${contact.trim()}.`}`,
+  });
+}
+
+// ── Contact footprint: does this phone/email belong to a renter here? ────
+async function findFootprint(db: any, tenantId: string, key: string): Promise<{ found: boolean; name: string | null; renterId: string | null }> {
+  // 1) renters directory (small collection — scan and normalize-compare)
+  const renters = await db.collection(`tenants/${tenantId}/renters`).get();
+  for (const d of renters.docs) {
+    const r = d.data() as any;
+    if (contactMatches(key, r.phone, r.email)) {
+      const name = [r.firstName, r.lastName].filter(Boolean).join(' ') || null;
+      return { found: true, name, renterId: d.id };
+    }
+  }
+  // 2) recent reservations (last 180 days) — day/hourly guests live here
+  const cutoff = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
+  const res = await db.collection(`tenants/${tenantId}/boothReservations`)
+    .where('createdAt', '>=', cutoff).get();
+  for (const d of res.docs) {
+    const r = d.data() as any;
+    if (contactMatches(key, r.phone, r.email)) {
+      return { found: true, name: r.name || null, renterId: null };
+    }
+  }
+  return { found: false, name: null, renterId: null };
+}
+
+// ── Session helpers (private/renterSessions: { [sha256(token)]: {...} }) ─
+async function createSession(db: any, tenantId: string, key: string, name: string | null, renterId: string | null) {
+  const token = randomBytes(24).toString('hex');
+  const ref = db.doc(`tenants/${tenantId}/private/renterSessions`);
+  const snap = await ref.get();
+  const all = ((snap.data() as any) || {});
+  // prune expired sessions while we're here
+  const kept: any = {};
+  for (const [k, v] of Object.entries<any>(all)) {
+    if (v && v.expiresAt > Date.now()) kept[k] = v;
+  }
+  kept[sha256(token)] = {
+    contactKey: key, name, renterId,
+    expiresAt: Date.now() + SESSION_TTL_MS,
+    createdAt: new Date().toISOString(),
   };
+  await ref.set(kept); // whole-doc set = prune sticks
+  return { token, expiresAt: kept[sha256(token)].expiresAt };
+}
+async function resolveSession(db: any, tenantId: string, token: any) {
+  if (!token || typeof token !== 'string') return null;
+  const snap = await db.doc(`tenants/${tenantId}/private/renterSessions`).get();
+  const entry = (((snap.data() as any) || {})[sha256(token)]) || null;
+  if (!entry || entry.expiresAt < Date.now()) return null;
+  return entry as { contactKey: string; name: string | null; renterId: string | null };
+}
 
-  const payInvoice = async (invoiceId: string) => {
-    if (!session) return;
-    setActionBusy(true);
-    const d = await api({ action: 'pay-invoice', tenantId, token: session.token, invoiceId, returnUrl: window.location.href });
-    setActionBusy(false);
-    if (d.ok && d.url) { window.location.href = d.url; }
-    else if (d.ok && d.alreadyPaid) { toast({ title: 'Already paid ✓' }); refresh(); }
-    else if (d.status === 401) { saveSession(null); }
-    else toast({ variant: 'destructive', title: 'Couldn’t start payment', description: d.error || 'You can always pay at the front desk.' });
+// ── Reservation shaping (guest-safe subset) ───────────────────────────────
+const safeReservation = (id: string, r: any) => ({
+  id,
+  boothId: r.boothId || null,
+  boothName: r.boothName || 'Space',
+  startDate: r.startDate, endDate: r.endDate,
+  bookingType: r.bookingType || 'daily',
+  startTime: r.startTime || null, endTime: r.endTime || null,
+  slotLabel: r.slotLabel || null,
+  status: r.status,
+  amountCents: r.amountCents || 0,
+  netDueCents: r.netDueCents ?? null,
+  creditAppliedCents: r.creditAppliedCents || 0,
+  balanceDueCents: r.balanceDueCents || 0,
+  balanceMode: r.balanceMode || null,
+  balancePaid: !!r.balancePaid,
+  checked_inAt: r.checked_inAt || null,
+  actualCheckIn: r.actualCheckIn || null,
+  completedAt: r.completedAt || null,
+  overageMinutes: r.overageMinutes || 0,
+  overageDueCents: r.overageDueCents || 0,
+  overageStatus: r.overageStatus || null,
+  unusedMinutes: r.unusedMinutes || 0,
+  potentialCreditCents: r.potentialCreditCents || 0,
+  creditDecision: r.creditDecision || null,
+  rescheduleRequestedAt: r.rescheduleRequestedAt || null,
+});
+
+const hourlyCentsOf = (booth: any): number => {
+  const opts = Array.isArray(booth?.pricingOptions) ? booth.pricingOptions : [];
+  return opts.find((o: any) => o.frequency === 'hourly' && o.amountCents > 0)?.amountCents || 0;
+};
+
+
+
+// ── Lease-window stamp ───────────────────────────────────────────────────────
+// A money-free copy of what this renter's lease holds — days, times, station,
+// turnover — written onto their STAFF doc, because the availability engine
+// enforces the leased window at read time and the PUBLIC booking page reads
+// staff but must never read leases (leases carry rent).
+//
+// Deliberately duplicated in /api/cron/nightly rather than imported: a route is
+// an endpoint, not a module. The cron is the safety net for lease edits nobody
+// is present for; these two call sites make a renter's own actions instant.
+const DEFAULT_TURNOVER_MINUTES = 15;
+
+function leaseWindowStamp(lease: any, boothBufferMinutes: any, tenant: any): any {
+  if (!lease) return null;
+  const slot = lease.scheduleSlot;
+  const days = Array.isArray(slot?.days) && slot.days.length > 0
+    ? slot.days.map((d: any) => Number(d)).filter((n: number) => n >= 0 && n <= 6)
+    : null;
+  const raw = boothBufferMinutes ?? tenant?.boothTurnoverMinutes ?? DEFAULT_TURNOVER_MINUTES;
+  const turnoverMinutes = Math.max(0, Math.min(120, Number(raw) || 0));
+  return {
+    days,
+    startTime: slot?.startTime || '',
+    endTime: slot?.endTime || '',
+    boothId: lease.boothId || null,
+    turnoverMinutes,
   };
+}
 
-  const requestReschedule = async (reservationId: string) => {
-    if (!session) return;
-    setActionBusy(true);
-    const d = await api({ action: 'request-reschedule', tenantId, token: session.token, reservationId });
-    setActionBusy(false);
-    if (d.ok) {
-      toast({ title: 'Request sent ✓', description: 'The studio will reach out to move your booking.' });
-      refresh();
-    } else if (d.status === 401) { saveSession(null); }
-    else toast({ variant: 'destructive', title: 'Couldn’t send request', description: d.error || 'Try again.' });
+/** True when the stored stamp already says exactly this — skip a pointless write. */
+function sameLeaseWindow(a: any, b: any): boolean {
+  if (!a || !b) return (!a && !b);
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** Refresh the stamp when it has drifted. Never fails the caller. */
+async function syncLeaseWindow(db: any, tenantId: string, staffDoc: any, lease: any, tenant: any) {
+  try {
+    let bufferMinutes: any = undefined;
+    if (lease?.boothId) {
+      const b = await db.doc(`tenants/${tenantId}/booths/${lease.boothId}`).get();
+      bufferMinutes = b.exists ? (b.data() as any)?.dayUseBufferMinutes : undefined;
+    }
+    const next = leaseWindowStamp(lease, bufferMinutes, tenant);
+    if (sameLeaseWindow(staffDoc?.leaseWindow || null, next)) return;
+    await db.doc(`tenants/${tenantId}/staff/${staffDoc.id}`).set({ leaseWindow: next }, { merge: true });
+  } catch { /* the stamp is self-healing — the nightly sweep catches it */ }
+}
+
+// ═══ Renter day swaps ═══════════════════════════════════════════════════════
+// Two renters trading a day between themselves. The owner is NOT in the
+// approval path — she is told, not asked — because a swap trades TIME, never
+// money. Rent does not move, invoices do not move, and a permanent change of
+// days is a lease change, which IS her business. Keeping rent still is exactly
+// what stops a swap quietly becoming a sublet.
+//
+// An accepted swap writes ONE thing: a date override on each staff record
+// (availability.dates['yyyy-MM-dd']), which the availability engine reads as
+// layer 3a. The giver's date turns off; the taker's turns on with the giver's
+// window. Neither lease is touched, so every rent cron keeps working untouched.
+//
+// Everything is filtered BEFORE a request can be sent — you can only offer a
+// day you actually hold and have no clients booked on, and you can only offer
+// it to someone who is not already holding a chair that day. A request that
+// could fail on accept is a request that should never have been sendable.
+
+const SWAP_HORIZON_DAYS = 42;
+const SWAP_DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const SWAP_DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const swapDayIndex = (dateKey: string) => {
+  const d = new Date(`${dateKey}T12:00:00Z`);
+  return Number.isNaN(d.getTime()) ? -1 : d.getUTCDay();
+};
+const swapAddDays = (dateKey: string, n: number) => {
+  const d = new Date(`${dateKey}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+const swapDateLabel = (dateKey: string) => {
+  const i = swapDayIndex(dateKey);
+  const parts = String(dateKey).split('-');
+  return `${SWAP_DAY_SHORT[i] || ''} ${Number(parts[1])}/${Number(parts[2])}`.trim();
+};
+const isDateKey = (v: any) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+const fmtHM = (t: any) => {
+  const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(t || ''));
+  if (!m) return String(t || '');
+  const h = Number(m[1]);
+  return `${((h + 11) % 12) + 1}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`;
+};
+/** 'HH:mm' ⇄ minutes past midnight. Wall-clock only — never an instant. */
+const toMin = (t: any): number => {
+  const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(t || ''));
+  return m ? Number(m[1]) * 60 + Number(m[2]) : -1;
+};
+const fromMin = (n: number): string =>
+  `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`;
+
+type SwapSeg = { start: string; end: string };
+type SwapCtx = {
+  renterId: string; staffId: string; name: string;
+  email: string | null; phone: string | null; portalToken: string | null;
+  week: any; dates: Record<string, any>;
+  leaseDays: number[] | null; leaseStart: string; leaseEnd: string;
+  leaseEndDate: string | null;
+  boothId: string | null; boothName: string | null; turnoverMinutes: number;
+  /** dateKey → the wall-clock spans their own clients already occupy. */
+  appts: Record<string, Array<{ s: number; e: number }>>;
+  busyDates: Set<string>;
+  shortestServiceMinutes: number;
+};
+
+/**
+ * The window this person actually holds on that date.
+ * An accepted swap (date override) wins; otherwise their weekly template,
+ * narrowed to the times their lease holds — the same read-time clamp the
+ * booking engine applies, so the two can never disagree about the chair.
+ */
+function swapHeld(ctx: SwapCtx, dateKey: string): SwapSeg | null {
+  const ov = ctx.dates?.[dateKey];
+  if (ov) {
+    if (ov.enabled !== true) return null;
+    return ov.start && ov.end ? { start: String(ov.start), end: String(ov.end) } : null;
+  }
+  const idx = swapDayIndex(dateKey);
+  if (idx < 0) return null;
+  if (ctx.leaseDays && !ctx.leaseDays.includes(idx)) return null;
+  const row = ctx.week?.[SWAP_DAY_NAMES[idx]];
+  if (!row || !row.enabled || !row.start || !row.end) return null;
+  let start = String(row.start); let end = String(row.end);
+  if (ctx.leaseStart && start < ctx.leaseStart) start = ctx.leaseStart;
+  if (ctx.leaseEnd && end > ctx.leaseEnd) end = ctx.leaseEnd;
+  return start < end ? { start, end } : null;
+}
+
+const swapApptsOn = (ctx: SwapCtx, dateKey: string) => ctx.appts?.[dateKey] || [];
+const segOverlaps = (a: { s: number; e: number }, b: { s: number; e: number }) => a.s < b.e && b.s < a.e;
+
+/**
+ * The slices of a day someone may offer.
+ *
+ * DELIBERATE CONSTRAINT: a partial swap takes the START or the END of a day,
+ * never a hole out of the middle. Two reasons, and they point the same way.
+ * Practically, "I need to leave early" and "I'm coming in late" are what people
+ * actually swap for, while a mid-day hole means two handoffs in one chair.
+ * Structurally, the remainder has to stay ONE window — a date override carries
+ * a single {start,end}, so a hole would need a second blocking primitive, and
+ * the obvious candidate (staffBlocks) stores true UTC instants while swap
+ * windows are wall-clock. Keeping slices at the edges keeps the whole feature
+ * inside the override layer with no timezone conversion anywhere near it.
+ */
+function swapOfferableSegments(ctx: SwapCtx, dateKey: string): { held: SwapSeg | null; leading: SwapSeg | null; trailing: SwapSeg | null } {
+  const held = swapHeld(ctx, dateKey);
+  if (!held) return { held: null, leading: null, trailing: null };
+  const hs = toMin(held.start); const he = toMin(held.end);
+  const mine = swapApptsOn(ctx, dateKey).filter((a) => segOverlaps(a, { s: hs, e: he }))
+    .sort((a, b) => a.s - b.s);
+  if (mine.length === 0) return { held, leading: { ...held }, trailing: { ...held } };
+  const firstStart = mine[0].s;
+  const lastEnd = mine[mine.length - 1].e;
+  return {
+    held,
+    leading: firstStart > hs ? { start: held.start, end: fromMin(Math.min(firstStart, he)) } : null,
+    trailing: lastEnd < he ? { start: fromMin(Math.max(lastEnd, hs)), end: held.end } : null,
   };
+}
 
-  const doCheckOut = async (reservationId: string) => {
-    if (!session) return;
-    setActionBusy(true);
-    const d = await api({ action: 'check-out', tenantId, token: session.token, reservationId });
-    setActionBusy(false);
-    if (d.ok) {
-      const desc = d.overageDueCents > 0
-        ? `${fmtMoney(d.overageDueCents)} for ${d.overageMinutes} extra minutes will be settled by the studio.`
-        : d.potentialCreditCents > 0
-          ? `${fmtMoney(d.potentialCreditCents)} of unused time was sent to the studio for credit review.`
-          : 'All settled — see you next time.';
-      toast({ title: 'Checked out ✓', description: desc });
-      refresh();
-    } else if (d.status === 401) { saveSession(null); }
-    else toast({ variant: 'destructive', title: 'Check-out didn’t go through', description: d.error || 'See the front desk.' });
-  };
+/** Empty string = they may offer exactly this window. Otherwise the honest reason. */
+function swapGiveBlock(ctx: SwapCtx, dateKey: string, today: string, win: SwapSeg): string {
+  if (dateKey <= today) return 'Today or past';
+  if (ctx.leaseEndDate && dateKey > ctx.leaseEndDate) return 'After your lease ends';
+  if (ctx.busyDates.has(dateKey)) return 'Already in a swap';
+  const held = swapHeld(ctx, dateKey);
+  if (!held) return 'Not one of your days';
+  const ws = toMin(win.start); const we = toMin(win.end);
+  const hs = toMin(held.start); const he = toMin(held.end);
+  if (ws < 0 || we < 0 || ws >= we) return 'That is not a real window';
+  if (ws < hs || we > he) return 'Outside the hours you hold';
+  // Edge slice only — the remainder must stay one window.
+  if (ws !== hs && we !== he) return 'Give away the start or the end of a day, not the middle';
+  if (swapApptsOn(ctx, dateKey).some((a) => segOverlaps(a, { s: ws, e: we }))) {
+    return 'You have clients booked in that window';
+  }
+  return '';
+}
 
-  if (!session) return <LoginFlow tenantId={tenantId} onSession={s => { saveSession(s); refresh(s.token); }} />;
+/**
+ * Can this person take that window? Three answers, not two.
+ *   ''          → clean
+ *   'conflict:N' → they have N of their OWN clients booked inside it. Askable,
+ *                  never auto-acceptable: the person who would have to move is
+ *                  a client who is not in this conversation.
+ *   anything else → a hard no.
+ */
+function swapTakeBlock(ctx: SwapCtx, dateKey: string, today: string, win: SwapSeg): string {
+  if (dateKey <= today) return 'Today or past';
+  if (ctx.leaseEndDate && dateKey > ctx.leaseEndDate) return 'After their lease ends';
+  if (ctx.busyDates.has(dateKey)) return 'Already in a swap that day';
+  const ws = toMin(win.start); const we = toMin(win.end);
+  if (ws < 0 || we < 0 || ws >= we) return 'That is not a real window';
+  if (we - ws < ctx.shortestServiceMinutes) return 'Too short for anything they offer';
+  const held = swapHeld(ctx, dateKey);
+  if (held) {
+    const hs = toMin(held.start); const he = toMin(held.end);
+    if (segOverlaps({ s: hs, e: he }, { s: ws, e: we })) return 'They are already working then';
+    // Taking a window on a day they already work is only safe when it sits
+    // flush against what they hold — otherwise THEIR day grows a hole, which
+    // is the same shape this design refuses to create for the giver.
+    const gap = ws >= he ? ws - he : hs - we;
+    if (gap > Math.max(ctx.turnoverMinutes, 0)) return 'It would leave a gap in their day';
+  }
+  const clash = swapApptsOn(ctx, dateKey).filter((a) => segOverlaps(a, { s: ws, e: we })).length;
+  if (clash > 0) return `conflict:${clash}`;
+  return '';
+}
 
-  const firstName = (data?.name || session.name || '').split(' ')[0] || 'there';
+/** What the taker's date override becomes: the window, or its union with what they already hold. */
+function swapTakerSpan(ctx: SwapCtx, dateKey: string, win: SwapSeg): SwapSeg {
+  const held = swapHeld(ctx, dateKey);
+  if (!held) return { ...win };
+  const s = Math.min(toMin(held.start), toMin(win.start));
+  const e = Math.max(toMin(held.end), toMin(win.end));
+  return { start: fromMin(s), end: fromMin(e) };
+}
 
-  return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="max-w-lg mx-auto px-4 pb-16">
+/** What the giver keeps: the remainder of their day, or nothing. */
+function swapGiverRemainder(ctx: SwapCtx, dateKey: string, win: SwapSeg): SwapSeg | null {
+  const held = swapHeld(ctx, dateKey);
+  if (!held) return null;
+  const hs = toMin(held.start); const he = toMin(held.end);
+  const ws = toMin(win.start); const we = toMin(win.end);
+  if (ws <= hs && we >= he) return null;
+  if (ws === hs) return { start: win.end, end: held.end };
+  return { start: held.start, end: win.start };
+}
 
-        <header className="flex items-center justify-between pt-8 pb-6">
-          <div>
-            <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">{data?.studioName || 'Studio'}</p>
-            <h1 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Hi, {firstName}</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => refresh()} disabled={loading}
-              className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:text-slate-600 active:scale-95 transition-all">
-              <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
-            </button>
-            <button onClick={() => saveSession(null)}
-              className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:text-red-500 active:scale-95 transition-all">
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
-        </header>
+/**
+ * Everyone who can take part in a swap, with everything needed to decide.
+ * One pass over staff/renters/leases/appointments/services/swaps — the
+ * alternative was a query per person per date, which does not survive a busy
+ * studio. Appointment spans are kept as wall-clock minutes and NEVER returned
+ * to another renter: they decide eligibility server-side and stop there.
+ */
+async function loadSwapProviders(db: any, tenantId: string, today: string): Promise<SwapCtx[]> {
+  const horizonEnd = swapAddDays(today, SWAP_HORIZON_DAYS);
+  const [staffSnap, renterSnap, leaseSnap, svcSnap] = await Promise.all([
+    db.collection(`tenants/${tenantId}/staff`).get(),
+    db.collection(`tenants/${tenantId}/renters`).get(),
+    db.collection(`tenants/${tenantId}/leases`).get(),
+    db.collection(`tenants/${tenantId}/renterServices`).get(),
+  ]);
 
-        {loading && !data ? (
-          <div className="flex flex-col items-center py-24 gap-3 text-slate-400">
-            <Loader className="w-8 h-8 animate-spin" />
-            <p className="text-[10px] font-black uppercase tracking-widest">Loading your studio life…</p>
-          </div>
-        ) : (
-          <div className="space-y-8 pb-24">
-            {session?.token && <TodayQuick data={data} booksHere={booksHere} onGo={setTab} tenantId={tenantId} token={session.token} onBadges={setBadges} visible={tab === 'today'} />}
-            <div className={tab === 'today' ? 'space-y-8' : 'hidden'}>
-            {todays.length > 0 && (
-              <section className="space-y-3">
-                <SectionTitle icon={Clock}>Today</SectionTitle>
-                {todays.map((r: any) => (
-                  <ResCard key={r.id} r={r} isToday onCheckIn={doCheckIn} onCheckOut={doCheckOut} busy={actionBusy} />
-                ))}
-              </section>
-            )}
+  const renterById = new Map<string, any>();
+  renterSnap.docs.forEach((d: any) => renterById.set(d.id, { id: d.id, ...(d.data() as any) }));
 
-            {session?.token && (
-              <GettingSetUp data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
-            )}
+  const leaseByRenter = new Map<string, any>();
+  const boothIds = new Set<string>();
+  leaseSnap.docs.forEach((d: any) => {
+    const l: any = { id: d.id, ...(d.data() as any) };
+    if (!['active', 'on_leave'].includes(String(l.status))) return;
+    if (l.renterId && !leaseByRenter.has(l.renterId)) {
+      leaseByRenter.set(l.renterId, l);
+      if (l.boothId) boothIds.add(String(l.boothId));
+    }
+  });
+  const boothInfo = new Map<string, any>();
+  await Promise.all(Array.from(boothIds).map(async (bid) => {
+    try {
+      const b = await db.doc(`tenants/${tenantId}/booths/${bid}`).get();
+      if (b.exists) boothInfo.set(bid, b.data() as any);
+    } catch { /* booth detail is cosmetic */ }
+  }));
 
-            {session?.token && data?.renter?.id && !booksHere && (
-              <section className="space-y-3">
-                <SectionTitle icon={CalendarDays}>Bookings</SectionTitle>
-                <div className="p-4 rounded-3xl bg-white border-2 border-slate-100">
-                  {data?.bookingMode === 'own' ? (
-                    <>
-                      <p className="text-[12px] font-bold text-slate-800">You take your own bookings.</p>
-                      <p className="mt-1 text-[11px] font-medium text-slate-500">
-                        Your menu, calendar and clients live in your own system, so this portal keeps to rent, documents and messages.
-                        If you ever want to run bookings from here instead, ask the studio to switch it on.
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-[12px] font-bold text-slate-800">Bookings aren&apos;t switched on for you here yet.</p>
-                      <p className="mt-1 text-[11px] font-medium text-slate-500">
-                        Once the studio enables it, this portal gains your service menu, your hours, a booking link of your own,
-                        your appointment book, your client list and your payouts. Ask them to turn it on — it takes them one tap.
-                      </p>
-                    </>
-                  )}
-                </div>
-              </section>
-            )}
+  // Shortest sellable service per provider — a window nobody can fill is noise.
+  const shortestByStaff = new Map<string, number>();
+  svcSnap.docs.forEach((d: any) => {
+    const sv: any = d.data() || {};
+    if (!sv.staffId || sv.isActive === false) return;
+    const dur = Math.max(5, Number(sv.duration) || 60);
+    const cur = shortestByStaff.get(sv.staffId);
+    if (cur === undefined || dur < cur) shortestByStaff.set(sv.staffId, dur);
+  });
 
-            </div>
-            <div className={tab === 'book' ? 'space-y-8' : 'hidden'}>
-            {booksHere && session?.token && <MyBook data={data} tenantId={tenantId} token={session.token} />}
-            {booksHere && session?.token && <MyClients tenantId={tenantId} token={session.token} />}
+  // Booked client spans, one range query instead of one per person.
+  const apptByStaff = new Map<string, Record<string, Array<{ s: number; e: number }>>>();
+  const ap = await db.collection(`tenants/${tenantId}/appointments`)
+    .where('startTime', '>=', `${today}T00:00:00`)
+    .where('startTime', '<=', `${horizonEnd}T23:59:59`).get();
+  ap.docs.forEach((d: any) => {
+    const x: any = d.data() || {};
+    if (!x.staffId || x.status === 'cancelled') return;
+    const iso = String(x.startTime || '');
+    const key = iso.slice(0, 10);
+    if (!isDateKey(key)) return;
+    const s = toMin(iso.slice(11, 16));
+    if (s < 0) return;
+    let e = toMin(String(x.endTime || '').slice(11, 16));
+    if (e < 0 || e <= s) e = s + Math.max(5, Number(x.duration) || 60);
+    if (!apptByStaff.has(x.staffId)) apptByStaff.set(x.staffId, {});
+    const byDate = apptByStaff.get(x.staffId) as Record<string, Array<{ s: number; e: number }>>;
+    (byDate[key] = byDate[key] || []).push({ s, e });
+  });
 
-            {booksHere && (
-              <section className="space-y-3">
-                <SectionTitle icon={Sparkles}>Setup</SectionTitle>
-                <div className="rounded-3xl bg-white border-2 border-slate-100 divide-y-2 divide-slate-100 overflow-hidden">
-                  {(
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'brand' ? '' : 'brand')} aria-expanded={setupOpen === 'brand'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">My brand</span><span className="block text-[10px] font-bold text-slate-500">Colour, cover, typeface — what your link looks like</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'brand' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'brand' && session?.token && (
-                        <div className="px-3 pb-4">
-                          <MyBrand tenantId={tenantId} token={session.token} renterId={String(data?.renter?.id || '')} />
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {(
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'page' ? '' : 'page')} aria-expanded={setupOpen === 'page'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">My page</span><span className="block text-[10px] font-bold text-slate-500">Gallery, about, questions, policies — on your booking link</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'page' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'page' && session?.token && (
-                        <div className="px-3 pb-4">
-                          <MyPage tenantId={tenantId} token={session.token} renterId={String(data?.renter?.id || '')} />
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {(
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'reviews' ? '' : 'reviews')} aria-expanded={setupOpen === 'reviews'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Reviews</span><span className="block text-[10px] font-bold text-slate-500">What clients said — you choose what shows</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'reviews' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'reviews' && session?.token && (
-                        <div className="px-3 pb-4">
-                          <MyReviews tenantId={tenantId} token={session.token} />
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {(
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'services' ? '' : 'services')} aria-expanded={setupOpen === 'services'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Services</span><span className="block text-[10px] font-bold text-slate-500">Your menu and prices</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'services' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'services' && (
-                        <div className="px-3 pb-4">
-            {booksHere && session?.token && (
-              <MyServices data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
-            )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {(
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'hours' ? '' : 'hours')} aria-expanded={setupOpen === 'hours'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Hours</span><span className="block text-[10px] font-bold text-slate-500">When clients can book you</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'hours' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'hours' && (
-                        <div className="px-3 pb-4">
-            {booksHere && session?.token && (
-              <MyHours data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
-            )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {(
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'profile' ? '' : 'profile')} aria-expanded={setupOpen === 'profile'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Profile</span><span className="block text-[10px] font-bold text-slate-500">Photo, name, bio, Instagram</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'profile' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'profile' && (
-                        <div className="px-3 pb-4">
-            {data?.provider && session?.token && (
-              <MyProfile data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
-            )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {(
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'number' ? '' : 'number')} aria-expanded={setupOpen === 'number'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Booking number</span><span className="block text-[10px] font-bold text-slate-500">The number on your link</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'number' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'number' && (
-                        <div className="px-3 pb-4">
-            {booksHere && session?.token && (
-              <MyNumber data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
-            )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {(
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'messages' ? '' : 'messages')} aria-expanded={setupOpen === 'messages'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Client messages</span><span className="block text-[10px] font-bold text-slate-500">Reminders and thank-yous, in your name</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'messages' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'messages' && (
-                        <div className="px-3 pb-4">
-            {booksHere && session?.token && <MyClientMessages tenantId={tenantId} token={session.token} />}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {data?.swaps?.enabled !== false && (
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'swaps' ? '' : 'swaps')} aria-expanded={setupOpen === 'swaps'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Swaps</span><span className="block text-[10px] font-bold text-slate-500">Shared-space day swaps</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'swaps' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'swaps' && (
-                        <div className="px-3 pb-4">
-            {booksHere && session?.token && data?.swaps?.enabled !== false && (
-              <MySwaps data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
-            )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {(
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'payouts' ? '' : 'payouts')} aria-expanded={setupOpen === 'payouts'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Payouts</span><span className="block text-[10px] font-bold text-slate-500">Where your money lands</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'payouts' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'payouts' && (
-                        <div className="px-3 pb-4">
-            {booksHere && session?.token && (
-              <MyPayments data={data} tenantId={tenantId} token={session.token} />
-            )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </section>
-            )}
-            </div>
-            <div className={tab === 'rent' ? 'space-y-8' : 'hidden'}>
-            {data?.lease && (
-              <section className="space-y-3">
-                <SectionTitle icon={Wallet}>Your Rent</SectionTitle>
-                <div className="p-4 rounded-3xl bg-white border-2 border-slate-100 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-black text-slate-900 text-sm">{data.lease.boothName || 'Your space'}</p>
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-0.5">
-                        {fmtMoney(data.lease.rentAmountCents)} / {String(data.lease.frequency || 'month').replace('biweekly', '2 weeks').replace('ly', '')}
-                      </p>
-                    </div>
-                    {openInvoices.some((i: any) => i.status === 'late')
-                      ? <Chip tone="red">Late</Chip>
-                      : openInvoices.length > 0 ? <Chip tone="amber">Due</Chip> : <Chip tone="green">Current</Chip>}
-                  </div>
-                  {openInvoices.map((i: any) => (
-                    <div key={i.id} className={cn('flex items-center justify-between p-3 rounded-xl',
-                      i.status === 'late' ? 'bg-red-50' : 'bg-amber-50')}>
-                      <div>
-                        <p className={cn('text-[11px] font-black', i.status === 'late' ? 'text-red-700' : 'text-amber-700')}>
-                          {fmtMoney(i.amountCents + i.lateFeeCents)}
-                          {i.lateFeeCents > 0 && <span className="font-bold opacity-70"> (incl. {fmtMoney(i.lateFeeCents)} late fee)</span>}
-                        </p>
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Due {fmtDate(i.dueDate)}</p>
-                      </div>
-                      <button onClick={() => payInvoice(i.id)} disabled={actionBusy}
-                        className={cn('h-9 px-4 rounded-xl font-black uppercase tracking-widest text-[10px] text-white active:scale-95 transition-all disabled:opacity-50 shrink-0',
-                          i.status === 'late' ? 'bg-red-600' : 'bg-slate-900')}>
-                        {actionBusy ? '…' : 'Pay Now'}
-                      </button>
-                    </div>
-                  ))}
-                  {/* Autopay — their own switch. Reads the same flag the owner
-                      can set; refuses without a card on file. */}
-                  {(() => {
-                    const r: any = data?.renter || {};
-                    const on = r.autopayEnabled === true;
-                    return (
-                      <button type="button" disabled={actionBusy}
-                        onClick={async () => {
-                          if (!on && !r.cardOnFile) { toast({ variant: 'destructive', title: 'No card on file', description: 'Add a card first — autopay needs one to draft from.' }); return; }
-                          setActionBusy(true);
-                          const d = await api({ action: 'autopay-set', tenantId, token: session?.token, enabled: !on });
-                          setActionBusy(false);
-                          if (!d.ok) { toast({ variant: 'destructive', title: 'Could not change autopay', description: d.error || 'Try again in a moment.' }); return; }
-                          toast({ title: !on ? 'Autopay on' : 'Autopay off', description: !on ? 'Your rent drafts on each due day.' : 'You pay each invoice yourself from now on.' });
-                          refresh();
-                        }}
-                        aria-pressed={on}
-                        className={cn('w-full rounded-2xl border-2 px-4 py-3 flex items-center justify-between gap-3 text-left transition-colors disabled:opacity-50',
-                          on ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-white')}>
-                        <span className="min-w-0">
-                          <span className="block text-[11px] font-black uppercase tracking-widest text-slate-900">Autopay</span>
-                          <span className="block text-[10px] font-bold text-slate-500">
-                            {on
-                              ? `Your rent drafts on each due day from ${r.cardBrand || 'your card'} ····${r.cardLast4 || ''}. Nothing to remember.`
-                              : r.cardOnFile ? `Off — you pay each invoice yourself. Your ${r.cardBrand || 'card'} ····${r.cardLast4 || ''} is saved if you'd like it automatic.`
-                              : 'Off — add a card on file to turn this on.'}
-                          </span>
-                        </span>
-                        <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest',
-                          on ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500')}>{on ? 'On' : 'Off'}</span>
-                      </button>
-                    );
-                  })()}
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-slate-300 text-center">Prefer cash or check? Pay at the front desk — it posts here too.</p>
-                </div>
-              </section>
-            )}
+  // Dates already spoken for by a live swap — one trade per person per date.
+  const busyByRenter = new Map<string, Set<string>>();
+  try {
+    const sw = await db.collection(`tenants/${tenantId}/renterSwaps`).get();
+    sw.docs.forEach((d: any) => {
+      const x: any = d.data() || {};
+      if (!['pending', 'accepted'].includes(String(x.status))) return;
+      for (const [rid, dk] of [
+        [x.fromRenterId, x.giveDate], [x.toRenterId, x.giveDate],
+        [x.fromRenterId, x.returnDate], [x.toRenterId, x.returnDate],
+      ] as any[]) {
+        if (!rid || !isDateKey(dk) || dk < today) continue;
+        if (!busyByRenter.has(rid)) busyByRenter.set(rid, new Set());
+        (busyByRenter.get(rid) as Set<string>).add(dk);
+      }
+    });
+  } catch { /* no swaps yet */ }
 
-            {(data?.availableCreditCents > 0 || (data?.credits || []).length > 0) && (
-              <section className="space-y-3">
-                <SectionTitle icon={Sparkles}>Studio Credit</SectionTitle>
-                <div className="p-5 rounded-3xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-xl shadow-emerald-200">
-                  <p className="text-[9px] font-black uppercase tracking-[0.3em] opacity-70">Available balance</p>
-                  <p className="text-4xl font-black tracking-tighter font-mono mt-1">{fmtMoney(data?.availableCreditCents || 0)}</p>
-                  <p className="text-[10px] font-bold opacity-80 mt-2">Applies automatically to your next booking.</p>
-                </div>
-              </section>
-            )}
+  const out: SwapCtx[] = [];
+  staffSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+    .filter((m: any) => m.isRenter && m.isActive !== false && m.renterId)
+    .forEach((m: any) => {
+      const r = renterById.get(m.renterId);
+      if (!r) return;
+      // Someone running their own booking system has no chair here to trade.
+      if (r.bookingMode === 'own') return;
+      const lease = leaseByRenter.get(m.renterId) || null;
+      const days = lease?.scheduleSlot?.days;
+      const booth = lease?.boothId ? boothInfo.get(String(lease.boothId)) : null;
+      const rawTurn = booth?.dayUseBufferMinutes;
+      out.push({
+        renterId: m.renterId,
+        staffId: m.id,
+        name: `${r.firstName || ''} ${r.lastName || ''}`.trim() || m.name || 'Renter',
+        email: r.email || null,
+        phone: r.phone || null,
+        portalToken: r.portalToken || null,
+        week: (m.availability?.week && typeof m.availability.week === 'object') ? m.availability.week : {},
+        dates: (m.availability?.dates && typeof m.availability.dates === 'object') ? m.availability.dates : {},
+        leaseDays: Array.isArray(days) && days.length > 0
+          ? days.map((x: any) => Number(x)).filter((n: number) => n >= 0 && n <= 6) : null,
+        leaseStart: lease?.scheduleSlot?.startTime || '',
+        leaseEnd: lease?.scheduleSlot?.endTime || '',
+        leaseEndDate: isDateKey(lease?.endDate) ? String(lease.endDate).slice(0, 10) : null,
+        boothId: lease?.boothId || null,
+        boothName: booth?.name || null,
+        turnoverMinutes: Math.max(0, Math.min(120, Number(rawTurn ?? 15) || 0)),
+        appts: apptByStaff.get(m.id) || {},
+        busyDates: busyByRenter.get(m.renterId) || new Set<string>(),
+        shortestServiceMinutes: shortestByStaff.get(m.id) ?? 30,
+      });
+    });
+  return out;
+}
 
-            {session?.token && data?.lease && (
-              <RenterLeave tenantId={tenantId} token={session.token} />
-            )}
+/**
+ * Email AND text, to the person who has to act or wants to know. Both are
+ * toggleable per business; both fail silently, because a swap that is already
+ * written must never be undone by a mail outage.
+ */
+async function swapNotify(
+  db: any, tenantId: string, tenant: any,
+  target: { name: string; email: string | null; phone: string | null; portalToken: string | null },
+  subject: string, headline: string, lines: string[], smsText: string,
+  // A conflicted "ask anyway" is not urgent. Texting for it trains people to
+  // mute swap notifications, which costs the ones that DO need answering.
+  emailOnly = false,
+) {
+  const comms = (tenant?.rentComms || {}) as any;
+  const studioName = tenant?.name || 'The studio';
+  const origin = String(tenant?.publicOrigin
+    || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/+$/, '');
+  const portalUrl = origin
+    ? `${origin}/rent/${tenantId}${target.portalToken ? `?rt=${encodeURIComponent(target.portalToken)}` : ''}`
+    : '';
 
-            {session?.token && data?.renter?.id && (
-              <RenterInterruptions tenantId={tenantId} token={session.token} />
-            )}
+  if (comms.swapNotifyEmail !== false && target.email && /@/.test(target.email)) {
+    try {
+      const { brandedEmailHtml } = await import('@/lib/email-template');
+      const { sendNotification } = await import('@/lib/notify');
+      await sendNotification(db, {
+        tenantId, channel: 'email', to: target.email,
+        subject,
+        text: `${headline}\n\n${lines.join('\n')}${portalUrl ? `\n\n${portalUrl}` : ''}`,
+        html: brandedEmailHtml({
+          studioName,
+          title: headline,
+          bodyLines: lines,
+          ...(portalUrl ? { cta: { label: 'Open my portal', url: portalUrl } } : {}),
+          footerNote: `Day swaps are between you and the other professional — rent is not affected. Sent by ${studioName}.`,
+        }),
+        kind: 'renter_day_swap',
+        recipientType: 'renter', recipientName: target.name || null,
+      });
+    } catch { /* the swap stands whether or not the email lands */ }
+  }
 
+  if (!emailOnly && comms.swapNotifySms !== false && target.phone && smsConfigured()) {
+    try {
+      await sendTenantSms(db, tenantId, target.phone, smsText, { email: target.email, subject });
+    } catch { /* same */ }
+  }
+}
 
-            <section className="space-y-3">
-              <button type="button" onClick={() => setHistoryOpen((v) => !v)} aria-expanded={historyOpen}
-                className="flex w-full items-center justify-between gap-3 rounded-3xl border-2 border-slate-100 bg-white px-4 py-3.5 text-left">
-                <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">History</span><span className="block text-[10px] font-bold text-slate-500">Payments made, day bookings, past visits</span></span>
-                <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', historyOpen && 'rotate-90')} />
-              </button>
-              {historyOpen && (
-                <div className="space-y-8">
-            {(data?.payments || []).length > 0 && (
-              <section className="space-y-3">
-                <SectionTitle icon={Receipt}>Payment History</SectionTitle>
-                <div className="rounded-3xl bg-white border-2 border-slate-100 divide-y divide-slate-50 overflow-hidden">
-                  {(data.payments || []).map((p: any) => (
-                    <div key={p.id || p.date + p.description} className="flex items-center justify-between p-3.5">
-                      <div className="min-w-0 pr-3">
-                        <p className="text-[11px] font-bold text-slate-800 truncate">{p.description || p.category}</p>
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">
-                          {p.date ? fmtDate(String(p.date).slice(0, 10)) : ''}
-                        </p>
-                      </div>
-                      <p className={cn('text-xs font-black font-mono shrink-0',
-                        p.type === 'reversal' ? 'text-slate-400' : 'text-slate-900')}>
-                        {p.type === 'reversal' ? '−' : ''}${Number(p.amount || 0).toFixed(2)}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
+/** The owner is told, never asked. She needs to know who is in the building. */
+async function swapTellOwner(db: any, tenantId: string, message: string) {
+  try {
+    const ref = db.collection(`tenants/${tenantId}/notifications`).doc();
+    await ref.set({
+      id: ref.id, userId: null, read: false, createdAt: new Date().toISOString(),
+      type: 'renter_swap', link: 'booths', message,
+    });
+  } catch { /* visibility is a bonus, never a blocker */ }
+}
 
-            <section className="space-y-3">
-              <SectionTitle icon={CalendarDays}>Upcoming Bookings</SectionTitle>
-              {later.length === 0 && todays.length === 0 ? (
-                <div className="p-6 rounded-3xl bg-white border-2 border-dashed border-slate-200 text-center space-y-2">
-                  <Armchair className="w-8 h-8 text-slate-200 mx-auto" />
-                  <p className="text-[11px] font-bold text-slate-400">No upcoming bookings</p>
-                </div>
-              ) : (
-                later.map((r: any) => <ResCard key={r.id} r={r} isToday={false} onRequestReschedule={requestReschedule} busy={actionBusy} />)
-              )}
-              {data?.rebookUrl && (
-                <a href={data.rebookUrl}
-                  className="w-full h-12 rounded-2xl border-2 border-violet-200 bg-violet-50 text-violet-700 font-black uppercase tracking-widest text-[11px] active:scale-[0.98] transition-all flex items-center justify-center gap-2">
-                  Book Another Visit <ChevronRight className="w-4 h-4" />
-                </a>
-              )}
-            </section>
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { action, tenantId } = body || {};
+    if (!action || !tenantId) {
+      return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
+    }
+    const db = getAdminDb();
 
-            {(data?.past || []).length > 0 && (
-              <section className="space-y-3">
-                <SectionTitle icon={CreditCard}>Past Visits</SectionTitle>
-                <div className="space-y-2">
-                  {(data.past || []).map((r: any) => (
-                    <div key={r.id} className="flex items-center justify-between p-3.5 rounded-2xl bg-white border border-slate-100">
-                      <div className="min-w-0 pr-3">
-                        <p className="text-[11px] font-bold text-slate-800 truncate">{r.boothName}</p>
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">{fmtDate(r.startDate)}</p>
-                      </div>
-                      <Chip tone={r.status === 'refunded' ? 'slate' : 'slate'}>
-                        {String(r.status || '').replace(/_/g, ' ')}
-                      </Chip>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-                </div>
-              )}
-            </section>
-            </div>
-            <div className={tab === 'studio' ? 'space-y-8' : 'hidden'}>
-            {session?.token && data?.renter?.id && (
-              <RenterThread tenantId={tenantId} token={session.token} studioName={data?.studioName || data?.tenant?.name || 'the studio'} />
-            )}
+    // Ground truth for uploads: the bucket name the browser is actually
+    // using. Recorded on the tenant the first time it's seen (and whenever
+    // it changes), so the upload helper never has to guess. This replaces
+    // what the Booth Hub used to do before it was retired.
+    try {
+      const bucketFromClient = String(body.storageBucket || '').trim();
+      if (/^[a-z0-9][a-z0-9._-]{2,220}[a-z0-9]$/i.test(bucketFromClient)) {
+        const tRef = db.doc(`tenants/${tenantId}`);
+        const cur = ((await tRef.get()).data() as any)?.storageBucket;
+        if (cur !== bucketFromClient) await tRef.set({ storageBucket: bucketFromClient, storageBucketRecordedAt: new Date().toISOString(), storageBucketRecordedBy: 'renter-portal' }, { merge: true });
+      }
+    } catch { /* never block the request on bookkeeping */ }
 
-            {session?.token && data?.renter?.id && (
-              <RenterMaintenance tenantId={tenantId} token={session.token} />
-            )}
+    // ═══ request-code ═════════════════════════════════════════════════════
+    if (action === 'request-code') {
+      const raw = String(body.contact || '').trim().slice(0, 160);
+      const key = normContact(raw);
+      if (!key || (!isEmail(raw) && key.length < 7)) {
+        return NextResponse.json({ ok: false, error: 'Enter the phone number or email you booked with.' }, { status: 400 });
+      }
+      if (await slidingWindow(db, tenantId, 'requestedAt', MAX_CODE_REQUESTS)) {
+        return NextResponse.json({ ok: false, error: 'Too many code requests — try again in a few minutes.' }, { status: 429 });
+      }
+      await recordStamp(db, tenantId, 'requestedAt');
 
-            {session?.token && data?.renter?.id && (
-              <RenterConcerns tenantId={tenantId} token={session.token} />
-            )}
+      const fp = await findFootprint(db, tenantId, key);
+      if (fp.found) {
+        const code = String(Math.floor(100000 + Math.random() * 900000));
+        await db.doc(`tenants/${tenantId}/private/renterCodes`).set({
+          [key]: { codeHash: sha256(code), expiresAt: Date.now() + CODE_TTL_MS, attempts: 0, createdAt: new Date().toISOString(), name: fp.name, renterId: fp.renterId },
+        }, { merge: true });
+        await deliverCode(db, tenantId, raw, code, fp.name || undefined);
+        await logAuditAdmin(db, tenantId, {
+          action: 'portal.renter_code_requested',
+          targetType: 'renterContact', targetId: maskContact(raw),
+          summary: `Renter portal access code requested for ${fp.name || maskContact(raw)}`,
+          actor: { type: 'system', name: 'renter-portal' },
+        });
+      }
+      // Same answer either way — no account enumeration.
+      return NextResponse.json({ ok: true, delivery: 'studio' });
+    }
 
-            {session?.token && data?.renter?.id && (
-              <RenterDocuments tenantId={tenantId} token={session.token} />
-            )}
+    // ═══ verify-code ══════════════════════════════════════════════════════
+    if (action === 'verify-code') {
+      const raw = String(body.contact || '').trim().slice(0, 160);
+      const key = normContact(raw);
+      const code = String(body.code || '').trim();
+      if (!key || !/^\d{6}$/.test(code)) {
+        return NextResponse.json({ ok: false, error: 'Enter the 6-digit code.' }, { status: 400 });
+      }
+      if (await slidingWindow(db, tenantId, 'failedAt', MAX_VERIFY_FAILS)) {
+        return NextResponse.json({ ok: false, error: 'Too many attempts — try again in 15 minutes.' }, { status: 423 });
+      }
+      const codesRef = db.doc(`tenants/${tenantId}/private/renterCodes`);
+      const entry = ((((await codesRef.get()).data() as any) || {})[key]) || null;
+      if (!entry || Date.now() > entry.expiresAt || entry.attempts >= 5 || entry.codeHash !== sha256(code)) {
+        if (entry) await codesRef.set({ [key]: { ...entry, attempts: (entry.attempts || 0) + 1 } }, { merge: true });
+        await recordStamp(db, tenantId, 'failedAt');
+        return NextResponse.json({ ok: false, error: 'That code isn’t valid — check it or request a new one.' }, { status: 401 });
+      }
+      await codesRef.set({ [key]: null }, { merge: true }); // single-use
+      await recordStamp(db, tenantId, 'failedAt', true);
+      const session = await createSession(db, tenantId, key, entry.name || null, entry.renterId || null);
+      if (entry.renterId) {
+        await db.doc(`tenants/${tenantId}/renters/${entry.renterId}`)
+          .set({ portalInviteStatus: 'accepted', portalFirstSeenAt: new Date().toISOString() }, { merge: true })
+          .catch(() => {});
+      }
+      await logAuditAdmin(db, tenantId, {
+        action: 'portal.renter_login',
+        targetType: 'renterContact', targetId: maskContact(raw),
+        summary: `${entry.name || maskContact(raw)} signed in to the renter portal`,
+        actor: { type: 'user', name: entry.name || null, role: 'renter', via: 'renter-portal' },
+      });
+      return NextResponse.json({ ok: true, token: session.token, expiresAt: session.expiresAt, name: entry.name || null });
+    }
 
-            <section className="space-y-3">
-              <SectionTitle icon={Receipt}>Insurance &amp; licence</SectionTitle>
-              <div className="rounded-3xl bg-white border-2 border-slate-100 p-4 space-y-2.5">
-                {credentialViews(data?.renter, { bookingPageSettings: { automationRules: data?.compliance || {} } }, new Date().toISOString().slice(0, 10)).map((v) => {
-                  const kind = v.kind;
-                  const tone = v.state === 'ok' ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : v.state === 'expiring' ? 'border-amber-200 bg-amber-50 text-amber-900' : (v.state === 'expired' || (v.state === 'missing' && v.required)) ? 'border-red-200 bg-red-50 text-red-900' : 'border-slate-200 bg-slate-50 text-slate-700';
-                  return (
-                    <div key={kind} className={cn('rounded-2xl border-2 px-3.5 py-3 space-y-2', tone)}>
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-[11px] font-black uppercase tracking-widest">{CREDENTIAL_LABEL[kind]}</p>
-                        <span className="text-[10px] font-black">{stateLabel(v)}</span>
-                      </div>
-                      {kind === 'insurance' && (v.carrier || v.policyNumber) && <p className="text-[11px] font-bold">{v.carrier}{v.carrier && v.policyNumber ? ' · ' : ''}{v.policyNumber ? `policy ${v.policyNumber}` : ''}</p>}
-                      {v.state === 'missing' && v.required && <p className="text-[10px] font-bold">The studio requires this on file to rent here.</p>}
-                      {v.docUrl && <a href={v.docUrl} target="_blank" rel="noopener" className="text-[10px] font-black uppercase tracking-widest underline">See the copy on file</a>}
-                      {credOpen === kind ? (
-                        <div className="space-y-2 pt-1">
-                          <input type="date" value={credForm.expiry} onChange={(e) => setCredForm((f) => ({ ...f, expiry: e.target.value }))} aria-label="Expiry date on the document" className="h-11 w-full rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
-                          {kind === 'insurance' && (
-                            <div className="grid grid-cols-2 gap-2">
-                              <input value={credForm.carrier} onChange={(e) => setCredForm((f) => ({ ...f, carrier: e.target.value.slice(0, 120) }))} aria-label="Insurance carrier" placeholder="Carrier" className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
-                              <input value={credForm.policyNumber} onChange={(e) => setCredForm((f) => ({ ...f, policyNumber: e.target.value.slice(0, 80) }))} aria-label="Policy number" placeholder="Policy number" className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
-                            </div>
-                          )}
-                          <p className="text-[9px] font-bold opacity-80">Enter the expiry date exactly as it appears on the document, then attach a photo of it. The studio is notified automatically.</p>
-                          <div className="flex gap-2">
-                            <label className={cn('h-11 flex-1 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest flex items-center justify-center cursor-pointer', (credBusy === kind || !credForm.expiry) && 'opacity-50 pointer-events-none')}>
-                              {credBusy === kind ? 'Uploading…' : 'Attach photo & save'}
-                              <input type="file" accept="image/*" capture="environment" className="hidden" disabled={!!credBusy || !credForm.expiry}
-                                onChange={async (e) => {
-                                  const f = e.target.files?.[0]; e.target.value = '';
-                                  if (!f || !session) return;
-                                  setCredBusy(kind);
-                                  try {
-                                    const dataUrl: string = await downscaleImageToDataUrl(f, { maxDim: 1600 });
-                                    const d = await api({ action: 'upload-credential', tenantId, token: session.token, kind, photoData: dataUrl, expiry: credForm.expiry, carrier: credForm.carrier, policyNumber: credForm.policyNumber });
-                                    if (d.ok) { setCredDone(kind); setCredOpen(null); setCredForm({ expiry: '', carrier: '', policyNumber: '' }); toast({ title: 'On file ✓', description: 'The studio has been notified.' }); void refresh(); }
-                                    else toast({ variant: 'destructive', title: 'Upload failed', description: d.error || 'Try again.' });
-                                  } catch { toast({ variant: 'destructive', title: 'Upload failed', description: 'Try again.' }); }
-                                  finally { setCredBusy(null); }
-                                }} />
-                            </label>
-                            <button type="button" onClick={() => setCredOpen(null)} className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
-                          </div>
-                        </div>
-                      ) : (
-                        <button type="button" onClick={() => { setCredOpen(kind); setCredForm({ expiry: v.expiry || '', carrier: v.carrier || '', policyNumber: v.policyNumber || '' }); }}
-                          className="h-10 w-full rounded-2xl border-2 border-current/20 bg-white text-[10px] font-black uppercase tracking-widest text-slate-700">
-                          {credDone === kind ? 'Uploaded ✓ · update again' : v.docUrl ? 'Upload a renewed one' : `Add ${kind === 'insurance' ? 'insurance' : 'licence'}`}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
+    // ═══ token-login — the renter's MAGIC LINK ════════════════════════════
+    // The owner shares /rent/{tenantId}?rt=TOKEN from the renter's profile;
+    // opening it signs the renter straight in — no code, no SMS required.
+    // This is what makes the portal usable BEFORE Twilio is set up (and
+    // easier after). The token lives on the renter doc; the owner clears or
+    // regenerates it to revoke. Same rate-limit pool as code attempts, so
+    // token guessing burns the same budget as code guessing.
+    if (action === 'token-login') {
+      const tok = String(body.magicToken || '').trim();
+      if (!tok || tok.length < 12) {
+        return NextResponse.json({ ok: false, error: 'This link is incomplete — ask the studio to resend it.' }, { status: 400 });
+      }
+      if (await slidingWindow(db, tenantId, 'failedAt', MAX_VERIFY_FAILS)) {
+        return NextResponse.json({ ok: false, error: 'Too many attempts — try again in 15 minutes.' }, { status: 423 });
+      }
+      const rs = await db.collection(`tenants/${tenantId}/renters`).where('portalToken', '==', tok).limit(1).get();
+      if (rs.empty) {
+        await recordStamp(db, tenantId, 'failedAt');
+        return NextResponse.json({ ok: false, error: 'This link is no longer valid — ask the studio for a fresh one.' }, { status: 401 });
+      }
+      const r = { id: rs.docs[0].id, ...(rs.docs[0].data() as any) };
+      const key = normContact(String(r.phone || r.email || ''));
+      if (!key) {
+        return NextResponse.json({ ok: false, error: 'No phone or email on your renter record — the studio needs to add one.' }, { status: 400 });
+      }
+      await recordStamp(db, tenantId, 'failedAt', true);
+      const session = await createSession(db, tenantId, key, r.name || null, r.id);
+      if (r.portalInviteStatus !== 'accepted') {
+        await db.doc(`tenants/${tenantId}/renters/${r.id}`)
+          .set({ portalInviteStatus: 'accepted', portalFirstSeenAt: new Date().toISOString() }, { merge: true })
+          .catch(() => {});
+      }
+      await logAuditAdmin(db, tenantId, {
+        action: 'portal.renter_login',
+        targetType: 'renter', targetId: r.id,
+        summary: `${r.name || 'A renter'} signed in to the renter portal via their personal link`,
+        actor: { type: 'user', name: r.name || null, role: 'renter', via: 'renter-portal-magic-link' },
+      });
+      return NextResponse.json({ ok: true, token: session.token, expiresAt: session.expiresAt, name: r.name || null });
+    }
 
-            </div>
-          </div>
-        )}
-      </div>
-      {session && !loading && (
-        <nav aria-label="Portal sections"
-          className="fixed inset-x-0 bottom-0 z-40 border-t-2 border-slate-200 bg-white/95 backdrop-blur pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-          <div className="mx-auto grid max-w-md gap-1 px-2 pt-2" style={{ gridTemplateColumns: `repeat(${booksHere ? 4 : 3}, minmax(0, 1fr))` }}>
-            {([
-              ['today', 'Today', Home, false],
-              ...(booksHere ? [['book', 'Book', CalendarDays, (badges.book || 0) > 0]] : []),
-              ['rent', 'Rent', Wallet, rentDue || (badges.rent || 0) > 0],
-              ['studio', 'Studio', Store, (badges.studio || 0) > 0],
-            ] as [typeof tab, string, any, boolean][]).map(([k, label, Icon, dot]) => (
-              <button key={k} type="button" onClick={() => { setTab(k); window.scrollTo({ top: 0 }); }} aria-pressed={tab === k} aria-label={label}
-                className={cn('relative flex h-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[9px] font-black uppercase tracking-widest', tab === k ? 'bg-slate-900 text-white' : 'text-slate-500')}>
-                <Icon className="h-4 w-4" aria-hidden="true" />
-                {label}
-                {dot && <span className={cn('absolute right-3 top-1.5 h-2 w-2 rounded-full', rentLate ? 'bg-red-500' : 'bg-amber-400', tab === k && 'ring-2 ring-slate-900')} />}
-              </button>
-            ))}
-          </div>
-        </nav>
-      )}
-    </div>
-  );
+    // ═══ Everything below requires a session ══════════════════════════════
+    const session = await resolveSession(db, tenantId, body.token);
+    if (!session) {
+      return NextResponse.json({ ok: false, error: 'Session expired — sign in again.' }, { status: 401 });
+    }
+    const key = session.contactKey;
+
+    // ═══ MAINTENANCE TICKETS — renters report and follow issues ═══════════
+    // The renter portal is a first-class entry to the same ticket queue the
+    // owner and techs work. No phone tag: they file it, they watch it move.
+    if (action === 'create-ticket') {
+      const title = String(body.title || '').trim().slice(0, 140);
+      const description = String(body.description || '').trim().slice(0, 2000);
+      const category = ['equipment', 'plumbing', 'electrical', 'cleaning', 'safety', 'other'].includes(body.category) ? body.category : 'other';
+      // Renters can flag urgency, but 'urgent' (4h SLA + station lockout) is
+      // an owner/tech call — renter submissions cap at 'high'.
+      const priority = ['high', 'normal', 'low'].includes(body.priority) ? body.priority : 'normal';
+      if (!title) return NextResponse.json({ ok: false, error: 'Give the issue a short title.' }, { status: 400 });
+      // Attach their station automatically when they have one.
+      let boothId: string | null = null; let boothName: string | null = null;
+      if (session.renterId) {
+        try {
+          const ls = await db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', session.renterId).get();
+          const l = ls.docs.map((d: any) => d.data() as any).find((x: any) => ['active', 'on_leave'].includes(x.status));
+          if (l?.boothId) {
+            boothId = l.boothId;
+            const b = await db.doc(`tenants/${tenantId}/booths/${l.boothId}`).get();
+            boothName = b.exists ? ((b.data() as any).name || null) : null;
+          }
+        } catch { /* station attach is a bonus */ }
+      }
+      const nowIso = new Date().toISOString();
+      const ref = db.collection(`tenants/${tenantId}/tickets`).doc();
+      // Both clocks start from THIS shop's commitments, so what the renter was
+      // promised on the page is exactly what the ticket is measured against.
+      const ticketRules = ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.maintenanceRules || null;
+      // Optional photo — "here's what it looks like" beats any description.
+      let photoUrl: string | null = null;
+      let photoError: string | undefined;
+      if (typeof body.photoData === 'string' && body.photoData.startsWith('data:image')) {
+        const up = await uploadTicketPhotoFromDataUrl(tenantId, ref.id, body.photoData);
+        photoUrl = up.url; photoError = up.error;
+      }
+      await ref.set({
+        id: ref.id, tenantId, locationId: null,
+        title, description, category, priority, status: 'open',
+        boothId, boothName,
+        photoUrls: photoUrl ? [photoUrl] : [],
+        reporter: { type: 'renter', name: session.name || 'Renter', phone: /\d{7,}/.test(key) ? key : '', renterId: session.renterId || null },
+        assigneeId: null, assigneeName: null,
+        updates: [{ at: nowIso, by: session.name || 'Renter', byType: 'renter', note: 'Ticket created', status: 'open', ...(photoUrl ? { photoUrl } : {}) }],
+        createdAt: nowIso, updatedAt: nowIso, resolvedAt: null,
+        dueAt: dueAtFor(priority, nowIso, ticketRules), respondBy: respondByFor(priority, nowIso, ticketRules),
+      });
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/maintenance',
+        message: `Maintenance request from ${session.name || 'a renter'}: "${title}"${boothName ? ` (${boothName})` : ''} — ${priority} priority${photoUrl ? ' · photo attached' : ''}.` });
+      // Rotation: with auto-assign on, the ticket already has a worker (and
+      // they already have a text) before the owner even sees the notification.
+      const assigned = await autoAssignTicket(db, tenantId, ref.id, { title, boothName, priority }, req.headers.get('origin') || undefined);
+      return NextResponse.json({ ok: true, ticketId: ref.id, photoError, assignedTo: assigned?.assigneeName || null });
+    }
+
+    // ═══ upload-credential — paperwork renews ITSELF ══════════════════════
+    // The expiry text says "upload the renewed one in your portal"; this is
+    // where that lands. Photo goes up with admin credentials, the renter
+    // record updates, the expiry-nag stamp clears, and the owner gets a
+    // "Maya uploaded her renewed license" notification instead of a chore.
+    if (action === 'upload-credential') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'Your account isn\'t linked to a renter record — ask the studio to update it.' }, { status: 403 });
+      const kind = body.kind === 'insurance' ? 'insurance' : 'license';
+      if (typeof body.photoData !== 'string' || !body.photoData.startsWith('data:image')) {
+        return NextResponse.json({ ok: false, error: 'Attach a photo of the document.' }, { status: 400 });
+      }
+      const up = await uploadTicketPhotoFromDataUrl(tenantId, `credential-${session.renterId}`, body.photoData);
+      if (!up.url) return NextResponse.json({ ok: false, error: up.error || 'Upload failed — try again.' }, { status: 500 });
+      const expiry = /^\d{4}-\d{2}-\d{2}$/.test(String(body.expiry || '')) ? String(body.expiry) : null;
+      const carrier = String(body.carrier || '').trim().slice(0, 120);
+      const policyNumber = String(body.policyNumber || '').trim().slice(0, 80);
+      const patch: any = kind === 'license'
+        ? { licenseDocUrl: up.url, ...(expiry ? { licenseExpiry: expiry } : {}), credNotified_licenseExpiry: null, licenseUploadedAt: new Date().toISOString() }
+        : {
+            insuranceDocUrl: up.url, ...(expiry ? { insuranceExpiry: expiry } : {}), credNotified_insuranceExpiry: null, insuranceMissingNaggedAt: null,
+            ...(carrier ? { insuranceCarrier: carrier } : {}), ...(policyNumber ? { insurancePolicyNumber: policyNumber } : {}),
+            insuranceUploadedAt: new Date().toISOString(),
+          };
+      await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set(patch, { merge: true });
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({
+        id: nRef.id, type: 'credential', read: false, createdAt: new Date().toISOString(), link: '/renters',
+        message: `${session.name || 'A renter'} uploaded a renewed ${kind}${expiry ? ` (expires ${expiry})` : ''} — it's on their profile.`,
+      });
+      await logAuditAdmin(db, tenantId, {
+        action: 'renter.credential_uploaded', targetType: 'renter', targetId: session.renterId,
+        summary: `${session.name || 'Renter'} self-uploaded renewed ${kind}${expiry ? ` (exp ${expiry})` : ''}`,
+        actor: { type: 'user', name: session.name || 'Renter', role: 'renter', via: 'renter-portal' },
+      });
+      return NextResponse.json({ ok: true, url: up.url });
+    }
+
+    if (action === 'my-tickets') {
+      const snap = await db.collection(`tenants/${tenantId}/tickets`).get();
+      const mine = snap.docs
+        .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+        .filter((t: any) => (session.renterId && t.reporter?.renterId === session.renterId)
+          || (t.reporter?.phone && t.reporter.phone === key))
+        .sort((a: any, b: any) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+        .slice(0, 25)
+        .map((t: any) => ({
+          id: t.id, title: t.title, description: t.description,
+          dueAt: t.dueAt || null, respondBy: t.respondBy || null,
+          acknowledged: ticketAcknowledged(t),
+          category: t.category, priority: t.priority,
+          status: t.status, statusLabel: TICKET_STATUS_LABELS[t.status as keyof typeof TICKET_STATUS_LABELS] || t.status,
+          boothName: t.boothName || null, createdAt: t.createdAt, resolvedAt: t.resolvedAt || null,
+          assigneeName: t.assigneeName || null,
+          photoUrls: Array.isArray(t.photoUrls) ? t.photoUrls : [],
+          updates: (t.updates || []).map((u: any) => ({ at: u.at, by: u.by, byType: u.byType, note: u.note || null, status: u.status || null, photoUrl: u.photoUrl || null })),
+        }));
+      const rulesRaw = ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.maintenanceRules || null;
+      return NextResponse.json({ ok: true, tickets: mine, commitments: responseCommitments(rulesRaw) });
+    }
+
+    if (action === 'ticket-note') {
+      const { ticketId } = body;
+      const note = String(body.note || '').trim().slice(0, 1000);
+      const hasPhoto = typeof body.photoData === 'string' && body.photoData.startsWith('data:image');
+      if (!ticketId || (!note && !hasPhoto)) return NextResponse.json({ ok: false, error: 'Write a note or attach a photo first.' }, { status: 400 });
+      const ref = db.doc(`tenants/${tenantId}/tickets/${ticketId}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
+      const t = snap.data() as any;
+      const owns = (session.renterId && t.reporter?.renterId === session.renterId) || (t.reporter?.phone && t.reporter.phone === key);
+      if (!owns) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
+      const nowIso = new Date().toISOString();
+      let photoUrl: string | null = null;
+      if (hasPhoto) photoUrl = (await uploadTicketPhotoFromDataUrl(tenantId, ticketId, body.photoData)).url;
+      await ref.set({
+        updates: [...(t.updates || []), { at: nowIso, by: session.name || 'Renter', byType: 'renter', ...(note ? { note } : {}), ...(photoUrl ? { photoUrl } : {}) }],
+        ...(photoUrl ? { photoUrls: [...(Array.isArray(t.photoUrls) ? t.photoUrls : []), photoUrl] } : {}),
+        updatedAt: nowIso,
+      }, { merge: true });
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/maintenance',
+        message: `${session.name || 'Renter'} added to ticket "${t.title}"${note ? `: "${note.slice(0, 120)}"` : ' — photo attached.'}` });
+      return NextResponse.json({ ok: true, photoUrl });
+    }
+
+    // ═══ me ═══════════════════════════════════════════════════════════════
+    if (action === 'me') {
+      const today = safeToday(body.today);
+      const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
+      const tenant = (tenantSnap.data() as any) || {};
+
+      // Renter directory entry (may not exist for pure day guests)
+      let renter: any = null;
+      if (session.renterId) {
+        const rd = await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get();
+        if (rd.exists) renter = { id: rd.id, ...(rd.data() as any) };
+      }
+      if (!renter) {
+        const renters = await db.collection(`tenants/${tenantId}/renters`).get();
+        const hit = renters.docs.find((d: any) => { const r = d.data(); return contactMatches(key, r.phone, r.email); });
+        if (hit) renter = { id: hit.id, ...(hit.data() as any) };
+      }
+
+      // Lease + invoices (leased renters only)
+      let lease: any = null; let invoices: any[] = []; let leaseBoothName: string | null = null;
+      if (renter) {
+        const leases = await db.collection(`tenants/${tenantId}/leases`)
+          .where('renterId', '==', renter.id).get();
+        const activeish = leases.docs
+          .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+          .filter((l: any) => ['active', 'on_leave', 'pending_signature'].includes(l.status));
+        lease = activeish[0] || null;
+        if (lease) {
+          if (lease.boothId) {
+            const b = await db.doc(`tenants/${tenantId}/booths/${lease.boothId}`).get();
+            leaseBoothName = b.exists ? ((b.data() as any).name || null) : null;
+          }
+          const inv = await db.collection(`tenants/${tenantId}/rentInvoices`)
+            .where('leaseId', '==', lease.id).get();
+          invoices = inv.docs
+            .map((d: any) => { const v = d.data() as any; return {
+              id: d.id, amountCents: v.amountCents || 0, lateFeeCents: v.lateFeeCents || 0,
+              dueDate: String(v.dueDate || '').slice(0, 10), status: v.status || 'due',
+            }; })
+            .sort((a: any, b: any) => (b.dueDate || '').localeCompare(a.dueDate || ''));
+        }
+      }
+
+      // Credits — contactKey is stored un-normalized, so normalize both sides
+      const creditsSnap = await db.collection(`tenants/${tenantId}/boothCredits`).get();
+      const credits = creditsSnap.docs
+        .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+        .filter((c: any) => normContact(String(c.contactKey || '')) === key
+          || contactMatches(key, c.phone, c.email))
+        .map((c: any) => ({
+          id: c.id, amountCents: c.amountCents || 0, minutes: c.minutes || 0,
+          status: c.status, sourceBoothName: c.sourceBoothName || null, createdAt: c.createdAt || null,
+        }));
+      const availableCreditCents = credits
+        .filter((c: any) => c.status === 'available')
+        .reduce((s: number, c: any) => s + (c.amountCents || 0), 0);
+
+      // Reservations (last 180 days), split upcoming vs past
+      const cutoff = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
+      const resSnap = await db.collection(`tenants/${tenantId}/boothReservations`)
+        .where('createdAt', '>=', cutoff).get();
+      const mine = resSnap.docs
+        .filter((d: any) => { const r = d.data(); return contactMatches(key, r.phone, r.email); })
+        .map((d: any) => safeReservation(d.id, d.data()));
+      const ACTIVE = ['confirmed', 'checked_in'];
+      const upcoming = mine
+        .filter((r: any) => ACTIVE.includes(r.status) && r.endDate >= today)
+        .sort((a: any, b: any) => (a.startDate + (a.startTime || '')).localeCompare(b.startDate + (b.startTime || '')));
+      const past = mine
+        .filter((r: any) => !ACTIVE.includes(r.status) || r.endDate < today)
+        .sort((a: any, b: any) => (b.startDate || '').localeCompare(a.startDate || ''))
+        .slice(0, 8);
+
+      // Booth-rent payment history — matched by name, same as the staff portal
+      const namesToMatch = new Set<string>();
+      if (session.name) namesToMatch.add(session.name.toLowerCase());
+      if (renter) namesToMatch.add(`${renter.firstName || ''} ${renter.lastName || ''}`.trim().toLowerCase());
+      const resNames = resSnap.docs
+        .filter((d: any) => { const r = d.data(); return contactMatches(key, r.phone, r.email); })
+        .map((d: any) => String((d.data() as any).name || '').trim().toLowerCase())
+        .filter(Boolean);
+      resNames.forEach((n: string) => namesToMatch.add(n));
+      let payments: any[] = [];
+      try {
+        const txSnap = await db.collection(`tenants/${tenantId}/transactions`)
+          .where('source', '==', 'booth_rent').get();
+        payments = txSnap.docs
+          .map((d: any) => d.data() as any)
+          .filter((t: any) => namesToMatch.has(String(t.clientOrVendor || '').trim().toLowerCase()))
+          .map((t: any) => ({
+            id: t.id, date: t.date, description: t.description || '',
+            amount: t.amount || 0, type: t.type, category: t.category || '',
+          }))
+          .sort((a: any, b: any) => (b.date || '').localeCompare(a.date || ''))
+          .slice(0, 15);
+      } catch { /* payments are informational — never fail the whole call */ }
+
+      // ── Independent-provider block: their menu + the pricing coach inputs ──
+      // Their staff record is the provider identity; the menu is keyed to it.
+      // The coach numbers are derived HERE, server-side, from their own lease
+      // so the portal never has to guess and never sees another renter's data.
+      let provider: any = null;
+      let myServices: any[] = [];
+      let pricing: any = null;
+      let myBookings: any[] = [];
+      let earnings: any = null;
+      try {
+        if (renter) {
+          const stSnap = await db.collection(`tenants/${tenantId}/staff`)
+            .where('renterId', '==', renter.id).get();
+          const st = stSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+            .find((m: any) => m.isRenter && m.isActive !== false);
+          if (st) {
+            await syncLeaseWindow(db, tenantId, st, lease, tenant);
+            // The link has to be ABSOLUTE or it cannot be shared: a relative
+            // /book/… pasted into a message opens nothing. Shop's own domain
+            // first, then the production URL, then this request's origin —
+            // never an empty string.
+            const origin = String(
+              tenant.publicOrigin
+              || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')
+              || req.nextUrl?.origin
+              || '',
+            ).replace(/\/+$/, '');
+            provider = {
+              staffId: st.id,
+              // Their weekly template, in the shape the availability engine
+              // already honors as layer 3 (per-staff weekly hours).
+              week: clampWeekToLease(
+                (st.availability?.week && typeof st.availability.week === 'object') ? st.availability.week : {},
+                lease,
+              ),
+              // Shown so the renter understands why a day may be unavailable.
+              leasedDays: Array.isArray(lease?.scheduleSlot?.days)
+                ? lease.scheduleSlot.days.map((d: any) => WEEK_DAYS[Number(d)] || '').filter(Boolean)
+                : null,
+              leasedStart: lease?.scheduleSlot?.startTime || '',
+              leasedEnd: lease?.scheduleSlot?.endTime || '',
+              // Deposits can only be offered once their own Stripe can charge.
+              chargesEnabled: renter?.stripeChargesEnabled === true,
+              bookingUrl: origin ? `${origin}/book/${tenantId}?provider=${st.id}` : `/book/${tenantId}?provider=${st.id}`,
+            };
+            // Their own book: client appointments booked through their link.
+            // This is the renter's ledger — the studio's reports exclude these
+            // entirely, so the two sets of books never overlap.
+            try {
+              const since = new Date(Date.now() - 60 * 86400000).toISOString();
+              const apSnap = await db.collection(`tenants/${tenantId}/appointments`)
+                .where('staffId', '==', st.id).where('startTime', '>=', since).get();
+              const rows = apSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+                .filter((a: any) => a.isRenterBooking && a.status !== 'cancelled');
+              const nowIso = new Date().toISOString();
+              myBookings = rows
+                .filter((a: any) => a.startTime >= nowIso)
+                .sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime)))
+                .slice(0, 20)
+                .map((a: any) => ({
+                  id: a.id, clientName: a.clientName || 'Client',
+                  serviceName: a.renterServiceName || '', price: Number(a.renterServicePrice) || 0,
+                  startTime: a.startTime, status: a.status,
+                }));
+              const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+              const monthIso = monthStart.toISOString();
+              const done = rows.filter((a: any) => a.startTime >= monthIso && a.startTime < nowIso);
+              earnings = {
+                monthBookedCents: Math.round(done.reduce((sum: number, a: any) => sum + (Number(a.renterServicePrice) || 0), 0) * 100),
+                monthCount: done.length,
+                upcomingCount: myBookings.length,
+              };
+            } catch { /* their book is additive — never fail the whole call */ }
+
+            const svSnap = await db.collection(`tenants/${tenantId}/renterServices`)
+              .where('staffId', '==', st.id).get();
+            myServices = svSnap.docs
+              .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+              .filter((sv: any) => sv.isActive !== false)
+              .map((sv: any) => ({ id: sv.id, name: sv.name || '', price: Number(sv.price) || 0, duration: Number(sv.duration) || 60, productCost: Number(sv.productCost) || 0, depositAmount: Number(sv.depositAmount) || 0 }))
+              .sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)));
+
+            // Rent → cost per bookable hour. Weekly/biweekly leases are
+            // normalized to a month so the number means the same thing for
+            // everyone. Bookable hours are the renter's own estimate.
+            const freq = String(lease?.frequency || 'monthly');
+            const rentCents = Number(lease?.rentAmountCents) || 0;
+            const monthlyRentCents = freq === 'weekly' ? Math.round(rentCents * 52 / 12)
+              : freq === 'biweekly' ? Math.round(rentCents * 26 / 12)
+              : rentCents;
+            const bookableHours = Math.max(1, Number(renter.bookableHoursPerMonth) || 100);
+            // ── Their goals: PRIVATE ────────────────────────────────────────
+            // Lives in a subcollection the security rules close to every
+            // client, reachable only through this session-checked API. The
+            // studio's own pages cannot read it — that is the promise the
+            // portal makes to a renter, made structurally true rather than
+            // just stated. Only a target hourly, and only if they opt in, is
+            // ever visible to the owner (see shareTargetHourly).
+            let goals: any = null;
+            try {
+              const g = await db.doc(`tenants/${tenantId}/renters/${renter.id}/private/goals`).get();
+              if (g.exists) goals = g.data() as any;
+            } catch { /* no goals yet */ }
+
+            const personalCents = Number(goals?.personalMonthlyCents) || 0;
+            const businessCents = Number(goals?.businessMonthlyCents) || 0;
+            const taxPct = Math.min(60, Math.max(0, Number(goals?.taxSetAsidePct ?? 25)));
+            // Backwards from what they need to KEEP: gross up for tax, add rent
+            // and business costs, spread over the hours they actually book.
+            const grossNeededCents = personalCents > 0
+              ? Math.round(personalCents / Math.max(0.1, 1 - taxPct / 100)) + monthlyRentCents + businessCents
+              : 0;
+
+            pricing = {
+              monthlyRentCents,
+              bookableHoursPerMonth: bookableHours,
+              rentPerHourCents: Math.round(monthlyRentCents / bookableHours),
+              // Lease floor — a term they agreed to, shown plainly, not a leash.
+              priceFloorCents: Number(lease?.priceFloorCents) || 0,
+              hasGoals: !!goals && personalCents > 0,
+              targetHourlyCents: grossNeededCents > 0 ? Math.round(grossNeededCents / bookableHours) : 0,
+              monthlyTargetCents: grossNeededCents,
+              taxSetAsidePct: taxPct,
+              personalMonthlyCents: personalCents,
+              businessMonthlyCents: businessCents,
+              shareTargetHourly: !!goals?.shareTargetHourly,
+            };
+          }
+        }
+      } catch { /* the provider block is additive — never fail the whole call */ }
+
+      // ── Day swaps: what is waiting on me, what I am waiting on ────────────
+      // The clash on a flagged request is recomputed HERE, every read, rather
+      // than trusted from what it was when it was sent. That is what makes it
+      // self-clearing: the moment they move their own client, Accept lights up
+      // on its own — nothing has to re-send and no sweep has to notice.
+      let swaps: any = null;
+      try {
+        if (provider && renter) {
+          const swSnap = await db.collection(`tenants/${tenantId}/renterSwaps`).get();
+          const rows = swSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+            .filter((x: any) => x.fromRenterId === renter.id || x.toRenterId === renter.id)
+            .filter((x: any) => isDateKey(x.giveDate) && x.giveDate >= today);
+
+          let liveConflict: (x: any) => number = () => 0;
+          if (rows.some((x: any) => x.status === 'pending' && x.toRenterId === renter.id)) {
+            const all = await loadSwapProviders(db, tenantId, today);
+            const meCtx = all.find((c) => c.renterId === renter.id);
+            if (meCtx) {
+              liveConflict = (x: any) => {
+                const v = swapTakeBlock(
+                  { ...meCtx, busyDates: new Set([...meCtx.busyDates].filter((d) => d !== x.giveDate)) },
+                  x.giveDate, today, { start: String(x.giveStart || ''), end: String(x.giveEnd || '') },
+                );
+                return v.startsWith('conflict:') ? (Number(v.split(':')[1]) || 1) : 0;
+              };
+            }
+          }
+
+          const shape = (x: any) => {
+            const mine = x.toRenterId === renter.id;
+            const clash = (mine && x.status === 'pending') ? liveConflict(x) : 0;
+            const other = x.fromRenterId === renter.id ? (x.toName || 'whoever takes it') : x.fromName;
+            return {
+              id: x.id, status: x.status,
+              iAmGiver: x.fromRenterId === renter.id,
+              otherName: other,
+              giveDate: x.giveDate, giveLabel: swapDateLabel(x.giveDate),
+              giveStart: x.giveStart || '', giveEnd: x.giveEnd || '',
+              wholeDay: x.wholeDay !== false,
+              windowLabel: x.wholeDay !== false ? 'the whole day' : `${fmtHM(x.giveStart)}–${fmtHM(x.giveEnd)}`,
+              conflictCount: clash,
+              note: x.note || null, createdAt: x.createdAt || null,
+            };
+          };
+          const bySoonest = (a2: any, b2: any) => String(a2.giveDate).localeCompare(String(b2.giveDate));
+
+          // ── Open offers anyone can take ─────────────────────────────────
+          // Broadcasts are the one place this portal shows a renter something
+          // that is not theirs, so it is filtered hard: only OTHER people's
+          // open offers, only where this renter could actually take it right
+          // now. An offer they cannot action is noise, and noise is how a
+          // studio learns to ignore the whole feature.
+          const openRows = swSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+            .filter((x: any) => x.kind === 'broadcast' && x.status === 'open'
+              && isDateKey(x.giveDate) && x.giveDate > today
+              && x.fromRenterId !== renter.id);
+          let openOffers: any[] = [];
+          if (openRows.length > 0) {
+            const all2 = await loadSwapProviders(db, tenantId, today);
+            const meCtx2 = all2.find((c) => c.renterId === renter.id);
+            if (meCtx2) {
+              openOffers = openRows.filter((x: any) => swapTakeBlock(
+                { ...meCtx2, busyDates: new Set([...meCtx2.busyDates].filter((d) => d !== x.giveDate)) },
+                x.giveDate, today, { start: String(x.giveStart || ''), end: String(x.giveEnd || '') },
+              ) === '').map((x: any) => ({
+                id: x.id, fromName: x.fromName,
+                giveDate: x.giveDate, giveLabel: swapDateLabel(x.giveDate),
+                wholeDay: x.wholeDay !== false,
+                windowLabel: x.wholeDay !== false ? 'the whole day' : `${fmtHM(x.giveStart)}–${fmtHM(x.giveEnd)}`,
+                boothName: x.giveBoothName || null, note: x.note || null,
+                offeredTo: Number(x.offeredTo) || 0,
+              })).sort(bySoonest);
+            }
+          }
+
+          swaps = {
+            enabled: tenant.renterSwapsEnabled !== false,
+            incoming: rows.filter((x: any) => x.status === 'pending' && x.toRenterId === renter.id).map(shape).sort(bySoonest),
+            outgoing: rows.filter((x: any) => x.status === 'pending' && x.fromRenterId === renter.id).map(shape).sort(bySoonest),
+            confirmed: rows.filter((x: any) => x.status === 'accepted' || x.status === 'taken').map(shape).sort(bySoonest),
+            myOpen: rows.filter((x: any) => x.kind === 'broadcast' && x.status === 'open' && x.fromRenterId === renter.id)
+              .map((x: any) => ({
+                id: x.id, giveDate: x.giveDate, giveLabel: swapDateLabel(x.giveDate),
+                windowLabel: x.wholeDay !== false ? 'the whole day' : `${fmtHM(x.giveStart)}–${fmtHM(x.giveEnd)}`,
+                offeredTo: Number(x.offeredTo) || 0,
+              })).sort(bySoonest),
+            openOffers,
+          };
+        }
+      } catch { /* swaps are additive — never fail the whole call */ }
+
+      // ── Setup checklist ───────────────────────────────────────────────────
+      // Derived fresh every read from what actually exists, never from a
+      // stored "onboarded" flag — a flag would keep saying done after they
+      // deleted their last service, and would say not-done forever for the
+      // renters who were already set up before this existed.
+      //
+      // It ADAPTS to booking mode: someone on their own system is not
+      // half-finished, they are finished. Nagging them about hours and menus
+      // they will never use is how a portal gets ignored.
+      let checklist: any = null;
+      try {
+        if (renter) {
+          const mode = renter.bookingMode === 'own' ? 'own' : 'studio';
+          const modeChosen = renter.bookingMode === 'own' || renter.bookingMode === 'studio';
+          const items: any[] = [];
+          if (mode === 'studio' && provider) {
+            const week = (provider as any).week || {};
+            const hasHours = Object.keys(week).some((k) => week[k]?.enabled && week[k]?.start && week[k]?.end);
+            items.push({
+              key: 'hours', label: 'Set the hours you work',
+              hint: hasHours ? '' : 'Until this is set, nobody can book you at all.',
+              done: hasHours, optional: false,
+            });
+            items.push({
+              key: 'services', label: 'Add at least one service',
+              hint: (myServices || []).length > 0 ? '' : 'Your prices, your menu — clients see only yours.',
+              done: (myServices || []).length > 0, optional: false,
+            });
+            items.push({
+              key: 'deposits', label: 'Connect Stripe to take deposits',
+              hint: renter.stripeChargesEnabled ? '' : 'Optional. Without it, clients pay you in person.',
+              done: renter.stripeChargesEnabled === true, optional: true,
+            });
+          }
+          const required = items.filter((i) => !i.optional);
+          checklist = {
+            mode, modeChosen,
+            dismissed: !!renter.checklistDismissedAt,
+            items,
+            remaining: required.filter((i) => !i.done).length,
+            allDone: required.every((i) => i.done),
+          };
+        }
+      } catch { /* the checklist is additive — never fail the whole call */ }
+
+      return NextResponse.json({
+        ok: true,
+        name: session.name,
+        studioName: tenant.name || 'Studio',
+        rebookUrl: tenant.boothListingUrl || tenant.publicBookingUrl || null,
+        renter: renter ? {
+          id: renter.id,
+          firstName: renter.firstName || '', lastName: renter.lastName || '',
+          businessName: renter.businessName || null,
+          cardOnFile: !!renter.cardOnFile, cardBrand: renter.cardBrand || null, cardLast4: renter.cardLast4 || null,
+          autopayEnabled: renter.autopayEnabled === true,
+          insuranceExpiry: renter.insuranceExpiry || null, insuranceDocUrl: renter.insuranceDocUrl || null,
+          insuranceCarrier: renter.insuranceCarrier || null, insurancePolicyNumber: renter.insurancePolicyNumber || null,
+          licenseExpiry: renter.licenseExpiry || null, licenseDocUrl: renter.licenseDocUrl || null,
+        } : null,
+        compliance: {
+          requireInsurance: tenant?.bookingPageSettings?.automationRules?.requireInsurance === true,
+          requireLicense: tenant?.bookingPageSettings?.automationRules?.requireLicense === true,
+        },
+        lease: lease ? {
+          id: lease.id, boothName: leaseBoothName,
+          rentAmountCents: lease.rentAmountCents || 0, frequency: lease.frequency || 'monthly',
+          dueDay: lease.dueDay ?? 1, endDate: lease.endDate || null, status: lease.status,
+          scheduleSlot: lease.scheduleSlot || null,
+        } : null,
+        invoices, credits, availableCreditCents,
+        upcoming, past,
+        payments,
+        provider, myServices, pricing, myBookings, earnings, swaps, checklist,
+        profile: {
+          bio: renter?.bio || '',
+          instagram: renter?.instagram || '',
+          photoUrl: renter?.photoUrl || '',
+          externalBookingUrl: renter?.externalBookingUrl || '',
+          listExternally: renter?.listExternally === true,
+          links: Array.isArray(renter?.links) ? renter.links : [],
+        },
+        bookingMode: renter?.bookingMode === 'own' ? 'own' : 'studio',
+        // Why the business half of the portal is or is not there. Without
+        // this the sections simply vanish, which reads to a renter as "this
+        // app can't do that" rather than "nobody has switched it on".
+        bookable: !!provider,
+      });
+    }
+
+    // ═══ my-goals ═════════════════════════════════════════════════════════
+    // What they need to earn, in their own words. Written to the private
+    // subcollection; nothing here is ever returned to an owner-facing surface.
+    // shareTargetHourly is opt-in and shares ONE derived number, never the
+    // inputs behind it.
+    if (action === 'my-goals') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const personal = Math.max(0, Math.round((Number(body.personalMonthly) || 0) * 100));
+      const business = Math.max(0, Math.round((Number(body.businessMonthly) || 0) * 100));
+      const taxPct = Math.min(60, Math.max(0, Number(body.taxSetAsidePct ?? 25)));
+      const share = body.shareTargetHourly === true;
+      await db.doc(`tenants/${tenantId}/renters/${session.renterId}/private/goals`).set({
+        personalMonthlyCents: personal,
+        businessMonthlyCents: business,
+        taxSetAsidePct: taxPct,
+        shareTargetHourly: share,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+      // The opt-in shares exactly one derived figure on the renter record —
+      // the owner sees a rate, never a household budget.
+      try {
+        const rRef = db.doc(`tenants/${tenantId}/renters/${session.renterId}`);
+        if (share) {
+          const ls = await db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', session.renterId).get();
+          const active = ls.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+            .find((l: any) => ['active', 'on_leave'].includes(l.status));
+          const freq = String(active?.frequency || 'monthly');
+          const rentCents = Number(active?.rentAmountCents) || 0;
+          const monthlyRentCents = freq === 'weekly' ? Math.round(rentCents * 52 / 12)
+            : freq === 'biweekly' ? Math.round(rentCents * 26 / 12) : rentCents;
+          const rSnap = await rRef.get();
+          const hrs = Math.max(1, Number((rSnap.data() as any)?.bookableHoursPerMonth) || 100);
+          const gross = personal > 0 ? Math.round(personal / Math.max(0.1, 1 - taxPct / 100)) + monthlyRentCents + business : 0;
+          await rRef.set({ sharedTargetHourlyCents: gross > 0 ? Math.round(gross / hrs) : 0 }, { merge: true });
+        } else {
+          await rRef.set({ sharedTargetHourlyCents: 0 }, { merge: true });
+        }
+      } catch { /* sharing is a bonus — the private save already stands */ }
+      return NextResponse.json({ ok: true });
+    }
+
+    // ═══ my-service-save / my-service-remove / my-hours ═══════════════════
+    // A renter editing their own menu. The session's renterId decides which
+    // staff record they own; the serviceId is re-read and re-checked against
+    // it, so a forged id can only ever hit their own row. The lease floor is
+    // enforced HERE, not just in the UI.
+    if (action === 'my-service-save' || action === 'my-service-remove' || action === 'my-hours') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const stSnap = await db.collection(`tenants/${tenantId}/staff`).where('renterId', '==', session.renterId).get();
+      const st = stSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+        .find((m: any) => m.isRenter && m.isActive !== false);
+      if (!st) return NextResponse.json({ ok: false, error: 'Bookings are not enabled for you yet' }, { status: 403 });
+
+      if (action === 'my-hours') {
+        // Two things share this action: the pricing input (hours per month)
+        // and, optionally, the weekly template the booking engine reads.
+        const patch: any = {};
+        if (body.bookableHoursPerMonth !== undefined) {
+          const hours = Math.max(1, Math.min(400, Number(body.bookableHoursPerMonth) || 0));
+          if (!hours) return NextResponse.json({ ok: false, error: 'Enter your bookable hours' }, { status: 400 });
+          patch.bookableHoursPerMonth = hours;
+        }
+        if (Object.keys(patch).length > 0) {
+          await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set(patch, { merge: true });
+        }
+
+        if (body.week && typeof body.week === 'object') {
+          const DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+          const clock = (v: any) => (/^([01]\d|2[0-3]):[0-5]\d$/.test(String(v || '')) ? String(v) : '');
+          const week: any = {};
+          for (const d of DAYS) {
+            const row = (body.week as any)[d] || {};
+            const enabled = row.enabled === true;
+            const start = clock(row.start);
+            const end = clock(row.end);
+            // A day is only "on" if it carries a real, ordered pair of times —
+            // otherwise it is written as off rather than as a broken window
+            // the booking grid would have to guess about.
+            week[d] = (enabled && start && end && start < end)
+              ? { enabled: true, start, end }
+              : { enabled: false };
+          }
+          // Re-read their active lease here rather than trusting the client,
+          // then clamp before saving.
+          let activeLease: any = null;
+          try {
+            const ls = await db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', session.renterId).get();
+            activeLease = ls.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+              .find((l: any) => ['active', 'on_leave'].includes(l.status)) || null;
+          } catch { /* no lease readable — save as entered */ }
+          const clamped = clampWeekToLease(week, activeLease);
+          await db.doc(`tenants/${tenantId}/staff/${st.id}`).set({ availability: { week: clamped } }, { merge: true });
+          // Saved hours are only half the story — the engine clamps to the
+          // lease at read time, so keep the stamp it reads current too.
+          try {
+            const tSnap = await db.doc(`tenants/${tenantId}`).get();
+            await syncLeaseWindow(db, tenantId, st, activeLease, (tSnap.data() as any) || {});
+          } catch { /* nightly sweep catches it */ }
+          return NextResponse.json({ ok: true, week: clamped });
+        }
+        return NextResponse.json({ ok: true, ...patch });
+      }
+
+      if (action === 'my-service-remove') {
+        const id = String(body.serviceId || '');
+        const ref = db.doc(`tenants/${tenantId}/renterServices/${id}`);
+        const cur = await ref.get();
+        if (!cur.exists || (cur.data() as any)?.staffId !== st.id) {
+          return NextResponse.json({ ok: false, error: 'Not your service' }, { status: 403 });
+        }
+        await ref.set({ isActive: false }, { merge: true });
+        return NextResponse.json({ ok: true });
+      }
+
+      const name = String(body.name || '').trim().slice(0, 80);
+      const priceCents = Math.round((Number(body.price) || 0) * 100);
+      const duration = Math.max(5, Math.min(600, Number(body.duration) || 60));
+      const productCost = Math.max(0, Number(body.productCost) || 0);
+      // What a service IS, not just what it costs: a description a client
+      // reads before they book, a photo of the result, a category so a long
+      // menu groups itself.
+      const description = String(body.description || '').trim().slice(0, 400);
+      const category = String(body.category || '').trim().slice(0, 40);
+      // A video of the result: a direct file (.mp4/.mov/.webm) or a YouTube
+      // link. Anything else is dropped rather than embedded blind.
+      const rawVideo = String(body.videoUrl || '').trim().slice(0, 300);
+      const videoUrl = /^https:\/\/(www\.)?(youtube\.com\/(watch\?v=|shorts\/)|youtu\.be\/)[\w-]+/.test(rawVideo) || /^https:\/\/.+\.(mp4|mov|webm)(\?.*)?$/i.test(rawVideo) ? rawVideo : '';
+      let imageUrl: string | null | undefined = undefined;
+      if (typeof body.imageUrl === 'string' && /^https:\/\/firebasestorage\.googleapis\.com\//.test(body.imageUrl)) {
+        imageUrl = body.imageUrl;
+      } else if (typeof body.imageData === 'string' && body.imageData.startsWith('data:image')) {
+        const up = await uploadPortalImageFromDataUrl(tenantId, `renters/${session.renterId}/services/${Date.now()}`, body.imageData);
+        if (!up.url) return NextResponse.json({ ok: false, error: up.error || 'That photo didn’t upload — the service was not saved.' }, { status: 400 });
+        imageUrl = up.url;
+      } else if (body.imageData === null) {
+        imageUrl = null;
+      }
+      // A deposit is only honored when Stripe has actually enabled charges on
+      // their account — otherwise it silently stays off rather than promising
+      // a client a payment step that can't run. Flat or a percent of the
+      // price; the client sees a dollar figure either way.
+      const rSnap2 = await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get();
+      const canCharge = ((rSnap2.data() as any)?.stripeChargesEnabled === true);
+      const depositMode = ['none', 'flat', 'percent'].includes(String(body.depositMode)) ? String(body.depositMode) : (Number(body.depositAmount) > 0 ? 'flat' : 'none');
+      const depositPercent = canCharge && depositMode === 'percent' ? Math.max(0, Math.min(100, Math.round(Number(body.depositPercent) || 0))) : 0;
+      const depositAmount = canCharge && depositMode === 'flat' ? Math.max(0, Number(body.depositAmount) || 0) : 0;
+      if (!name) return NextResponse.json({ ok: false, error: 'Give the service a name' }, { status: 400 });
+      if (priceCents <= 0) return NextResponse.json({ ok: false, error: 'Set a price' }, { status: 400 });
+
+      // Lease floor: refuse rather than save something that breaks their terms.
+      let floorCents = 0;
+      try {
+        const ls = await db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', session.renterId).get();
+        const active = ls.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+          .find((l: any) => ['active', 'on_leave'].includes(l.status));
+        floorCents = Number(active?.priceFloorCents) || 0;
+      } catch { /* no floor readable — treat as none */ }
+      if (floorCents > 0 && priceCents < floorCents) {
+        return NextResponse.json({
+          ok: false,
+          error: `Your lease sets a $${(floorCents / 100).toFixed(2)} minimum per service.`,
+        }, { status: 400 });
+      }
+
+      const id = String(body.serviceId || '') || `rs_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      const ref = db.doc(`tenants/${tenantId}/renterServices/${id}`);
+      const cur = await ref.get();
+      if (cur.exists && (cur.data() as any)?.staffId !== st.id) {
+        return NextResponse.json({ ok: false, error: 'Not your service' }, { status: 403 });
+      }
+      await ref.set({
+        id, tenantId, staffId: st.id, renterId: session.renterId,
+        name, price: priceCents / 100, duration, productCost, depositAmount, depositPercent, depositMode: canCharge ? depositMode : 'none',
+        description, category, videoUrl,
+        ...(imageUrl !== undefined ? { imageUrl } : {}),
+        isActive: true, collectsOwnPayment: true,
+        updatedAt: new Date().toISOString(),
+        ...(cur.exists ? {} : { createdAt: new Date().toISOString() }),
+      }, { merge: true });
+      return NextResponse.json({ ok: true, serviceId: id });
+    }
+
+    // ═══ my-profile ═════════════════════════════════════════════════════════
+    // Who a client sees behind the link. Until now a personal booking link led
+    // to a bare name, which is a poor advertisement for someone whose whole
+    // pitch is that they are their own business.
+    //
+    // Renters on their OWN booking system get the field that matters to them
+    // instead: their real booking URL, so a client who lands on the studio's
+    // page can still reach them rather than hitting a dead end.
+    //
+    // Everything saved here is public by nature, so it is mirrored onto the
+    // STAFF doc — the booking page reads staff and must never read renters,
+    // which hold rent, payouts and Stripe ids.
+    if (action === 'my-profile') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      // Their trading name is theirs to set. Blank it and clients see their
+      // own name again — no separate switch, the field decides.
+      const businessName = body.businessName === undefined ? undefined : String(body.businessName ?? '').trim().slice(0, 80);
+      const bio = String(body.bio ?? '').trim().slice(0, 300);
+      const { cleanLinks } = await import('@/lib/renter-identity');
+      const links = body.links === undefined ? undefined : cleanLinks(body.links);
+      const instagram = String(body.instagram ?? '').trim()
+        .replace(/^https?:\/\/(www\.)?instagram\.com\//i, '')
+        .replace(/^@/, '').replace(/\/+$/, '').slice(0, 40);
+      if (instagram && !/^[A-Za-z0-9._]+$/.test(instagram)) {
+        return NextResponse.json({ ok: false, error: 'That Instagram handle has characters it shouldn’t.' }, { status: 400 });
+      }
+
+      // Only https. A booking link is rendered as something a stranger taps,
+      // so javascript: and data: URLs are refused outright rather than escaped.
+      let externalBookingUrl = String(body.externalBookingUrl ?? '').trim().slice(0, 300);
+      if (externalBookingUrl) {
+        if (!/^https:\/\//i.test(externalBookingUrl)) {
+          externalBookingUrl = `https://${externalBookingUrl.replace(/^\w+:\/\//, '')}`;
+        }
+        try {
+          const u = new URL(externalBookingUrl);
+          if (u.protocol !== 'https:') throw new Error('bad');
+          externalBookingUrl = u.toString();
+        } catch {
+          return NextResponse.json({ ok: false, error: 'That booking link doesn’t look like a web address.' }, { status: 400 });
+        }
+      }
+      const listExternally = body.listExternally === true;
+
+      let photoUrl: string | null | undefined = undefined;
+      if (typeof body.photoUrl === 'string' && /^https:\/\/firebasestorage\.googleapis\.com\//.test(body.photoUrl)) {
+        photoUrl = body.photoUrl;
+      } else if (typeof body.photoData === 'string' && body.photoData.startsWith('data:')) {
+        const up = await uploadPortalImageFromDataUrl(tenantId, `renters/${session.renterId}/profile`, body.photoData);
+        if (!up.url) return NextResponse.json({ ok: false, error: up.error || 'That photo didn’t upload.' }, { status: 400 });
+        photoUrl = up.url;
+      } else if (body.photoData === null) {
+        photoUrl = null;
+      }
+
+      const renterPatch: any = { bio, instagram, externalBookingUrl, listExternally };
+      if (photoUrl !== undefined) renterPatch.photoUrl = photoUrl;
+      if (businessName !== undefined) renterPatch.businessName = businessName;
+      if (links !== undefined) renterPatch.links = links;
+      await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set(renterPatch, { merge: true });
+
+      try {
+        const stSnap = await db.collection(`tenants/${tenantId}/staff`)
+          .where('renterId', '==', session.renterId).limit(1).get();
+        if (!stSnap.empty) {
+          // One description of what "the same person" means, shared with the
+          // owner's renter card — including the name the booking page shows.
+          const { staffMirrorFields } = await import('@/lib/renter-identity');
+          const cur = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+          const mirror: any = {
+            ...staffMirrorFields({
+              firstName: cur.firstName, lastName: cur.lastName,
+              businessName: businessName === undefined ? cur.businessName : businessName,
+              bio, instagram, photoUrl, links: links === undefined ? cur.links : links,
+            }),
+            externalBookingUrl, listExternally,
+          };
+          await stSnap.docs[0].ref.set(mirror, { merge: true });
+        }
+      } catch { /* the portal still shows it; the booking page catches up on the next save */ }
+
+      return NextResponse.json({ ok: true, photoUrl: photoUrl === undefined ? null : photoUrl });
+    }
+
+    // ═══ booking-mode ═══════════════════════════════════════════════════════
+    // "I book through the studio" vs "I use my own system". This is an explicit
+    // CHOICE, not an absence — plenty of renters already run Square or Booksy
+    // and are not going to move. Recording it means the portal can stop
+    // nagging them about hours and menus they will never use, and their booking
+    // link can stop existing, without anybody having to pretend they are
+    // half-set-up forever.
+    if (action === 'booking-mode') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const mode = String(body.mode || '');
+      if (!['studio', 'own'].includes(mode)) {
+        return NextResponse.json({ ok: false, error: 'Pick how you take bookings.' }, { status: 400 });
+      }
+      await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set({
+        bookingMode: mode, bookingModeSetAt: new Date().toISOString(),
+      }, { merge: true });
+
+      // Mirror ONE public-safe flag onto the staff doc. The booking page reads
+      // staff and never renters, and the availability engine reads this to make
+      // the opt-out real rather than cosmetic.
+      try {
+        const stSnap = await db.collection(`tenants/${tenantId}/staff`)
+          .where('renterId', '==', session.renterId).limit(1).get();
+        if (!stSnap.empty) {
+          await stSnap.docs[0].ref.set({ bookingOptOut: mode === 'own' }, { merge: true });
+        }
+      } catch { /* the engine also treats a missing flag as opted-in */ }
+
+      await logAuditAdmin(db, tenantId, {
+        action: 'renter.booking_mode', targetType: 'renter', targetId: session.renterId,
+        summary: `${session.name || 'A renter'} set booking to ${mode === 'own' ? 'their own system' : 'the studio system'}`,
+        actor: { type: 'user', name: session.name || 'Renter', role: 'renter', via: 'renter-portal' },
+      });
+      return NextResponse.json({ ok: true, mode });
+    }
+
+    // ═══ checklist-dismiss ══════════════════════════════════════════════════
+    // One dismissal, permanent. A setup prompt that comes back is a nag.
+    if (action === 'checklist-dismiss') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set({
+        checklistDismissedAt: new Date().toISOString(),
+      }, { merge: true });
+      return NextResponse.json({ ok: true });
+    }
+
+    // ═══ swap-options ═══════════════════════════════════════════════════
+    // The days this renter could offer, as edge slices already cleared of
+    // their own clients, plus who could take them. Nothing about anyone
+    // else's clients is returned — eligibility is decided server-side.
+    if (action === 'swap-options') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const today = safeToday(body.today);
+      const tenant = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      if (tenant.renterSwapsEnabled === false) {
+        return NextResponse.json({ ok: true, enabled: false, myDates: [], partners: [] });
+      }
+      const all = await loadSwapProviders(db, tenantId, today);
+      const me = all.find((x) => x.renterId === session.renterId);
+      if (!me) return NextResponse.json({ ok: false, error: 'Bookings are not enabled for you yet' }, { status: 403 });
+      const others = all.filter((x) => x.renterId !== me.renterId);
+
+      const myDates: any[] = [];
+      for (let i = 1; i <= SWAP_HORIZON_DAYS; i++) {
+        const dk = swapAddDays(today, i);
+        if (me.busyDates.has(dk)) continue;
+        if (me.leaseEndDate && dk > me.leaseEndDate) continue;
+        const { held, leading, trailing } = swapOfferableSegments(me, dk);
+        if (!held) continue;
+        // Someone must be able to take at least the whole held window, or one
+        // of its edges — otherwise the date is dead weight in the picker.
+        const anyTaker = [held, leading, trailing].filter(Boolean).some((seg: any) =>
+          others.some((o) => {
+            const v = swapTakeBlock(o, dk, today, seg);
+            return v === '' || v.startsWith('conflict:');
+          }));
+        if (!anyTaker) continue;
+        myDates.push({
+          date: dk, label: swapDateLabel(dk),
+          held, leading, trailing,
+          isSplit: !!(leading && trailing && (leading.end !== held.end || trailing.start !== held.start)),
+        });
+      }
+
+      const partners = others.map((o) => ({ staffId: o.staffId, name: o.name, boothName: o.boothName }));
+      return NextResponse.json({ ok: true, enabled: true, myDates, partners, boothName: me.boothName });
+    }
+
+    // ═══ swap-request ═══════════════════════════════════════════════════════
+    // Sends, or — when the other person has their own client inside the window
+    // — comes back asking whether to send it anyway. An ask-anyway request is
+    // still just a request: it can be sent, but it can never be accepted while
+    // the clash stands. See swap-respond.
+    if (action === 'swap-request') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const today = safeToday(body.today);
+      const tenant = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      if (tenant.renterSwapsEnabled === false) {
+        return NextResponse.json({ ok: false, error: 'Day swaps are turned off for this studio.' }, { status: 403 });
+      }
+      const toStaffId = String(body.toStaffId || '');
+      const giveDate = String(body.giveDate || '');
+      const note = String(body.note || '').trim().slice(0, 240);
+      const askAnyway = body.askAnyway === true;
+      if (!isDateKey(giveDate)) return NextResponse.json({ ok: false, error: 'Pick a date to offer.' }, { status: 400 });
+
+      const all = await loadSwapProviders(db, tenantId, today);
+      const me = all.find((x) => x.renterId === session.renterId);
+      const other = all.find((x) => x.staffId === toStaffId);
+      if (!me) return NextResponse.json({ ok: false, error: 'Bookings are not enabled for you yet' }, { status: 403 });
+      if (!other || other.renterId === me.renterId) {
+        return NextResponse.json({ ok: false, error: 'Pick who you want to swap with.' }, { status: 400 });
+      }
+
+      const held = swapHeld(me, giveDate);
+      if (!held) return NextResponse.json({ ok: false, error: 'That is not one of your days.' }, { status: 400 });
+      const win: SwapSeg = {
+        start: /^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.giveStart || '')) ? String(body.giveStart) : held.start,
+        end: /^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.giveEnd || '')) ? String(body.giveEnd) : held.end,
+      };
+      const giveBlock = swapGiveBlock(me, giveDate, today, win);
+      if (giveBlock) return NextResponse.json({ ok: false, error: `${giveBlock}.` }, { status: 400 });
+
+      const takeBlock = swapTakeBlock(other, giveDate, today, win);
+      const conflictCount = takeBlock.startsWith('conflict:') ? Number(takeBlock.split(':')[1]) || 1 : 0;
+      if (takeBlock && conflictCount === 0) {
+        return NextResponse.json({ ok: false, error: `${other.name} can’t take that — ${takeBlock.toLowerCase()}.` }, { status: 400 });
+      }
+      if (conflictCount > 0 && !askAnyway) {
+        // Not a refusal — a question. They may still want to ask.
+        return NextResponse.json({
+          ok: false, needsConfirm: true, conflictCount,
+          error: `${other.name} already has ${conflictCount === 1 ? 'a client' : `${conflictCount} clients`} booked in that window. You can still ask, but they won’t be able to accept unless they move it themselves.`,
+        }, { status: 409 });
+      }
+
+      const whole = win.start === held.start && win.end === held.end;
+      const ref = db.collection(`tenants/${tenantId}/renterSwaps`).doc();
+      await ref.set({
+        id: ref.id, tenantId, status: 'pending',
+        fromRenterId: me.renterId, fromStaffId: me.staffId, fromName: me.name,
+        toRenterId: other.renterId, toStaffId: other.staffId, toName: other.name,
+        giveDate, giveStart: win.start, giveEnd: win.end,
+        wholeDay: whole,
+        giveBoothId: me.boothId, giveBoothName: me.boothName,
+        returnDate: null, returnStart: null, returnEnd: null,
+        returnBoothId: null, returnBoothName: null,
+        conflicted: conflictCount > 0, conflictCountAtSend: conflictCount,
+        note: note || null,
+        createdAt: new Date().toISOString(), respondedAt: null,
+      });
+
+      const winText = whole ? 'the whole day' : `${fmtHM(win.start)}–${fmtHM(win.end)}`;
+      await swapNotify(db, tenantId, tenant, other,
+        `Day swap request from ${me.name}`,
+        conflictCount > 0 ? 'A swap request you may not be able to take' : 'A day swap is waiting for you',
+        [`${me.name} is offering you ${swapDateLabel(giveDate)}, ${winText}.`,
+         ...(note ? [`They said: “${note}”`] : []),
+         ...(conflictCount > 0
+           ? [`Heads up: you already have ${conflictCount === 1 ? 'a client' : `${conflictCount} clients`} booked in that window, so you can’t accept as things stand. If you move that booking yourself, the request becomes acceptable on its own.`]
+           : ['Open your portal to accept or decline.']),
+         'Nothing changes until you answer, and your rent is not affected either way.'],
+        `${me.name} wants to swap ${swapDateLabel(giveDate)} (${winText}). Open your portal to accept or decline.`,
+        conflictCount > 0);
+
+      await swapTellOwner(db, tenantId,
+        `${me.name} asked ${other.name} to cover ${swapDateLabel(giveDate)}, ${winText} — waiting on ${other.name}.`);
+      await logAuditAdmin(db, tenantId, {
+        action: 'renter.swap_requested', targetType: 'renterSwap', targetId: ref.id,
+        summary: `${me.name} requested a swap with ${other.name} for ${giveDate} ${win.start}-${win.end}${conflictCount > 0 ? ' (sent despite a booking clash)' : ''}`,
+        actor: { type: 'user', name: me.name, role: 'renter', via: 'renter-portal' },
+      });
+      return NextResponse.json({ ok: true, swapId: ref.id, conflicted: conflictCount > 0 });
+    }
+
+    // ═══ swap-respond ═══════════════════════════════════════════════════════
+    // Accepting is the only place a window actually moves, so everything is
+    // checked AGAIN here. A request sent last week may have been overtaken by a
+    // booking, and the honest answer then is no — not a double-booked chair.
+    if (action === 'swap-respond') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const today = safeToday(body.today);
+      const decision = String(body.decision || '');
+      if (!['accept', 'decline'].includes(decision)) {
+        return NextResponse.json({ ok: false, error: 'Accept or decline.' }, { status: 400 });
+      }
+      const ref = db.doc(`tenants/${tenantId}/renterSwaps/${String(body.swapId || '')}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'That request is gone.' }, { status: 404 });
+      const sw: any = snap.data();
+      if (sw.toRenterId !== session.renterId) {
+        return NextResponse.json({ ok: false, error: 'That request isn’t yours to answer.' }, { status: 403 });
+      }
+      if (sw.status !== 'pending') {
+        return NextResponse.json({ ok: false, error: 'That request has already been answered.' }, { status: 409 });
+      }
+      const tenant = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      const all = await loadSwapProviders(db, tenantId, today);
+      const from = all.find((x) => x.renterId === sw.fromRenterId);
+      const to = all.find((x) => x.renterId === sw.toRenterId);
+      const win: SwapSeg = { start: String(sw.giveStart || ''), end: String(sw.giveEnd || '') };
+      const winText = sw.wholeDay ? 'the whole day' : `${fmtHM(win.start)}–${fmtHM(win.end)}`;
+
+      if (decision === 'decline') {
+        const reason = String(body.reason || '') === 'never_that_day' ? 'never_that_day' : 'not_this_time';
+        await ref.set({ status: 'declined', declineReason: reason, respondedAt: new Date().toISOString() }, { merge: true });
+        if (from) {
+          await swapNotify(db, tenantId, tenant, from,
+            `${sw.toName} declined the swap`, 'Swap declined',
+            [`${sw.toName} can’t take ${swapDateLabel(sw.giveDate)}, ${winText}. Your day is unchanged and your rent was never affected.`,
+             reason === 'never_that_day'
+               ? `They said that day doesn’t work for them generally — worth asking someone else next time.`
+               : 'You can offer it to someone else from your portal.'],
+            `${sw.toName} declined the ${swapDateLabel(sw.giveDate)} swap. Your day is unchanged.`);
+        }
+        await logAuditAdmin(db, tenantId, {
+          action: 'renter.swap_declined', targetType: 'renterSwap', targetId: ref.id,
+          summary: `${sw.toName} declined ${sw.fromName}'s swap for ${sw.giveDate} (${reason})`,
+          actor: { type: 'user', name: sw.toName, role: 'renter', via: 'renter-portal' },
+        });
+        return NextResponse.json({ ok: true, status: 'declined' });
+      }
+
+      if (!isDateKey(sw.giveDate) || sw.giveDate <= today) {
+        await ref.set({ status: 'expired', respondedAt: new Date().toISOString() }, { merge: true });
+        return NextResponse.json({ ok: false, error: 'That day has already come around — the request expired.' }, { status: 409 });
+      }
+      if (!from || !to) {
+        return NextResponse.json({ ok: false, error: 'One of you is no longer set up for bookings.' }, { status: 409 });
+      }
+      // Re-check ignoring THIS request's own hold on the date.
+      const without = (ctx: SwapCtx) => {
+        const clone: SwapCtx = { ...ctx, busyDates: new Set(ctx.busyDates) };
+        clone.busyDates.delete(sw.giveDate);
+        return clone;
+      };
+      const fromC = without(from); const toC = without(to);
+      const giveStale = swapGiveBlock(fromC, sw.giveDate, today, win);
+      if (giveStale) {
+        return NextResponse.json({ ok: false, error: `This swap no longer works — ${giveStale.toLowerCase()}. Ask them to send a new one.` }, { status: 409 });
+      }
+      const takeStale = swapTakeBlock(toC, sw.giveDate, today, win);
+      if (takeStale.startsWith('conflict:')) {
+        const n = Number(takeStale.split(':')[1]) || 1;
+        // THE POINT OF ASK-ANYWAY: it may be sent, never auto-accepted. The
+        // person who would have to move is a client who is not in this
+        // conversation, so only their own provider can resolve it.
+        return NextResponse.json({
+          ok: false, conflictCount: n,
+          error: `You still have ${n === 1 ? 'a client' : `${n} clients`} booked in that window. Move or cancel that booking first, then this becomes acceptable.`,
+        }, { status: 409 });
+      }
+      if (takeStale) {
+        return NextResponse.json({ ok: false, error: `You can’t take this — ${takeStale.toLowerCase()}.` }, { status: 409 });
+      }
+
+      const takerSpan = swapTakerSpan(toC, sw.giveDate, win);
+      const giverRest = swapGiverRemainder(fromC, sw.giveDate, win);
+      const stamp = { reason: 'swap', swapId: ref.id, setAt: new Date().toISOString() };
+      const batch = db.batch();
+      batch.set(db.doc(`tenants/${tenantId}/staff/${from.staffId}`), {
+        availability: { dates: { [sw.giveDate]: giverRest
+          ? { enabled: true, start: giverRest.start, end: giverRest.end, ...stamp, note: `Gave ${winText} to ${to.name}` }
+          : { enabled: false, ...stamp, note: `Swapped to ${to.name}` } } },
+      }, { merge: true });
+      batch.set(db.doc(`tenants/${tenantId}/staff/${to.staffId}`), {
+        availability: { dates: { [sw.giveDate]: { enabled: true, start: takerSpan.start, end: takerSpan.end, ...stamp, note: `Covering ${winText} for ${from.name}`, boothId: sw.giveBoothId || null } } },
+      }, { merge: true });
+      batch.set(ref, { status: 'accepted', respondedAt: new Date().toISOString(), acceptedTakerStart: takerSpan.start, acceptedTakerEnd: takerSpan.end }, { merge: true });
+      await batch.commit();
+
+      const both = `${to.name} covers ${swapDateLabel(sw.giveDate)}, ${winText}${giverRest ? `; ${from.name} still works ${fmtHM(giverRest.start)}–${fmtHM(giverRest.end)}` : ''}.`;
+      for (const target of [from, to]) {
+        await swapNotify(db, tenantId, tenant, target,
+          `Swap confirmed — ${swapDateLabel(sw.giveDate)}`, 'Your swap is confirmed',
+          [both, 'Booking hours have already moved for that window only. Rent is unchanged — a swap trades time, not money.'],
+          `Swap confirmed: ${both}`);
+      }
+      await swapTellOwner(db, tenantId,
+        `${to.name} is covering ${from.name} on ${swapDateLabel(sw.giveDate)}, ${winText}${sw.giveBoothName ? ` (${sw.giveBoothName})` : ''}. Rent unchanged.`);
+      await logAuditAdmin(db, tenantId, {
+        action: 'renter.swap_accepted', targetType: 'renterSwap', targetId: ref.id,
+        summary: `${to.name} accepted ${from.name}'s swap: ${sw.giveDate} ${win.start}-${win.end} (rent unchanged)`,
+        actor: { type: 'user', name: to.name, role: 'renter', via: 'renter-portal' },
+      });
+      return NextResponse.json({ ok: true, status: 'accepted' });
+    }
+
+    // ═══ swap-broadcast ═════════════════════════════════════════════════════
+    // Put a day (or an edge of one) up for whoever can take it, instead of
+    // leaning on one person. This is the honest answer to "I need Thursday
+    // covered": ask everyone who could actually say yes, once, and let the
+    // first taker close it. No badgering, no repeat asks, no chasing.
+    if (action === 'swap-broadcast') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const today = safeToday(body.today);
+      const tenant = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      if (tenant.renterSwapsEnabled === false) {
+        return NextResponse.json({ ok: false, error: 'Day swaps are turned off for this studio.' }, { status: 403 });
+      }
+      const giveDate = String(body.giveDate || '');
+      const note = String(body.note || '').trim().slice(0, 240);
+      if (!isDateKey(giveDate)) return NextResponse.json({ ok: false, error: 'Pick a date to offer.' }, { status: 400 });
+
+      const all = await loadSwapProviders(db, tenantId, today);
+      const me = all.find((x) => x.renterId === session.renterId);
+      if (!me) return NextResponse.json({ ok: false, error: 'Bookings are not enabled for you yet' }, { status: 403 });
+      const held = swapHeld(me, giveDate);
+      if (!held) return NextResponse.json({ ok: false, error: 'That is not one of your days.' }, { status: 400 });
+      const win: SwapSeg = {
+        start: /^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.giveStart || '')) ? String(body.giveStart) : held.start,
+        end: /^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.giveEnd || '')) ? String(body.giveEnd) : held.end,
+      };
+      const giveBlock = swapGiveBlock(me, giveDate, today, win);
+      if (giveBlock) return NextResponse.json({ ok: false, error: `${giveBlock}.` }, { status: 400 });
+
+      // Only people who could actually say yes are told. A clash means they
+      // could not accept it anyway, and a broadcast nobody can action is the
+      // fastest way to teach a studio to ignore these.
+      const eligible = all.filter((o) => o.renterId !== me.renterId
+        && swapTakeBlock(o, giveDate, today, win) === '');
+      if (eligible.length === 0) {
+        return NextResponse.json({ ok: false, error: 'Nobody here can take that window right now. Try a different day or a shorter slice.' }, { status: 409 });
+      }
+
+      const whole = win.start === held.start && win.end === held.end;
+      const ref = db.collection(`tenants/${tenantId}/renterSwaps`).doc();
+      await ref.set({
+        id: ref.id, tenantId, kind: 'broadcast', status: 'open',
+        fromRenterId: me.renterId, fromStaffId: me.staffId, fromName: me.name,
+        toRenterId: null, toStaffId: null, toName: null,
+        giveDate, giveStart: win.start, giveEnd: win.end, wholeDay: whole,
+        giveBoothId: me.boothId, giveBoothName: me.boothName,
+        note: note || null, offeredTo: eligible.length,
+        createdAt: new Date().toISOString(), respondedAt: null,
+      });
+
+      const winText = whole ? 'the whole day' : `${fmtHM(win.start)}–${fmtHM(win.end)}`;
+      // Email only, deliberately. A broadcast goes to several people about
+      // something first-come; texting the whole studio for it is exactly how
+      // swap notifications end up muted.
+      for (const target of eligible) {
+        await swapNotify(db, tenantId, tenant, target,
+          `${me.name} is offering ${swapDateLabel(giveDate)}`,
+          'A day is up for grabs',
+          [`${me.name} is offering ${swapDateLabel(giveDate)}, ${winText}${me.boothName ? ` at ${me.boothName}` : ''}.`,
+           ...(note ? [`They said: “${note}”`] : []),
+           `It goes to whoever takes it first — ${eligible.length === 1 ? 'you are the only one who can' : `${eligible.length} of you can`} take this one.`,
+           'Rent is not affected: a swap trades time, not money.'],
+          '', true);
+      }
+      await swapTellOwner(db, tenantId,
+        `${me.name} offered ${swapDateLabel(giveDate)}, ${winText} to whoever can take it (${eligible.length} asked).`);
+      await logAuditAdmin(db, tenantId, {
+        action: 'renter.swap_broadcast', targetType: 'renterSwap', targetId: ref.id,
+        summary: `${me.name} offered ${giveDate} ${win.start}-${win.end} to ${eligible.length} eligible providers`,
+        actor: { type: 'user', name: me.name, role: 'renter', via: 'renter-portal' },
+      });
+      return NextResponse.json({ ok: true, swapId: ref.id, offeredTo: eligible.length });
+    }
+
+    // ═══ swap-claim ═════════════════════════════════════════════════════════
+    // First to take it wins, and that has to be true under a real race — two
+    // renters tapping at the same moment must not both end up in the chair.
+    // The status flip happens INSIDE a transaction, so the second one reads
+    // 'taken' and loses cleanly.
+    if (action === 'swap-claim') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const today = safeToday(body.today);
+      const ref = db.doc(`tenants/${tenantId}/renterSwaps/${String(body.swapId || '')}`);
+      const pre = await ref.get();
+      if (!pre.exists) return NextResponse.json({ ok: false, error: 'That offer is gone.' }, { status: 404 });
+      const sw0: any = pre.data();
+      if (sw0.kind !== 'broadcast') return NextResponse.json({ ok: false, error: 'That is not an open offer.' }, { status: 400 });
+      if (sw0.status !== 'open') return NextResponse.json({ ok: false, error: 'Someone else already took that one.' }, { status: 409 });
+      if (sw0.fromRenterId === session.renterId) return NextResponse.json({ ok: false, error: 'That is your own offer.' }, { status: 400 });
+      if (!isDateKey(sw0.giveDate) || sw0.giveDate <= today) {
+        return NextResponse.json({ ok: false, error: 'That day has already come around.' }, { status: 409 });
+      }
+
+      const tenant = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      const all = await loadSwapProviders(db, tenantId, today);
+      const from = all.find((x) => x.renterId === sw0.fromRenterId);
+      const to = all.find((x) => x.renterId === session.renterId);
+      if (!from || !to) return NextResponse.json({ ok: false, error: 'One of you is no longer set up for bookings.' }, { status: 409 });
+      const win: SwapSeg = { start: String(sw0.giveStart || ''), end: String(sw0.giveEnd || '') };
+      const without = (ctx: SwapCtx) => ({ ...ctx, busyDates: new Set([...ctx.busyDates].filter((d) => d !== sw0.giveDate)) });
+      const fromC = without(from); const toC = without(to);
+
+      const giveStale = swapGiveBlock(fromC, sw0.giveDate, today, win);
+      if (giveStale) return NextResponse.json({ ok: false, error: `That offer no longer works — ${giveStale.toLowerCase()}.` }, { status: 409 });
+      const takeStale = swapTakeBlock(toC, sw0.giveDate, today, win);
+      if (takeStale.startsWith('conflict:')) {
+        const n = Number(takeStale.split(':')[1]) || 1;
+        return NextResponse.json({ ok: false, error: `You have ${n === 1 ? 'a client' : `${n} clients`} booked in that window. Move that booking first, then you can take this.` }, { status: 409 });
+      }
+      if (takeStale) return NextResponse.json({ ok: false, error: `You can’t take this — ${takeStale.toLowerCase()}.` }, { status: 409 });
+
+      const takerSpan = swapTakerSpan(toC, sw0.giveDate, win);
+      const giverRest = swapGiverRemainder(fromC, sw0.giveDate, win);
+      const stamp = { reason: 'swap', swapId: ref.id, setAt: new Date().toISOString() };
+      const winText = sw0.wholeDay ? 'the whole day' : `${fmtHM(win.start)}–${fmtHM(win.end)}`;
+
+      try {
+        await db.runTransaction(async (tx: any) => {
+          const live = await tx.get(ref);
+          if (!live.exists || (live.data() as any).status !== 'open') {
+            throw new Error('ALREADY_TAKEN');
+          }
+          tx.set(db.doc(`tenants/${tenantId}/staff/${from.staffId}`), {
+            availability: { dates: { [sw0.giveDate]: giverRest
+              ? { enabled: true, start: giverRest.start, end: giverRest.end, ...stamp, note: `Gave ${winText} to ${to.name}` }
+              : { enabled: false, ...stamp, note: `Swapped to ${to.name}` } } },
+          }, { merge: true });
+          tx.set(db.doc(`tenants/${tenantId}/staff/${to.staffId}`), {
+            availability: { dates: { [sw0.giveDate]: { enabled: true, start: takerSpan.start, end: takerSpan.end, ...stamp, note: `Covering ${winText} for ${from.name}`, boothId: sw0.giveBoothId || null } } },
+          }, { merge: true });
+          tx.set(ref, {
+            status: 'taken', toRenterId: to.renterId, toStaffId: to.staffId, toName: to.name,
+            respondedAt: new Date().toISOString(),
+            acceptedTakerStart: takerSpan.start, acceptedTakerEnd: takerSpan.end,
+          }, { merge: true });
+        });
+      } catch (e: any) {
+        if (String(e?.message) === 'ALREADY_TAKEN') {
+          return NextResponse.json({ ok: false, error: 'Someone else got there first.' }, { status: 409 });
+        }
+        throw e;
+      }
+
+      const both = `${to.name} covers ${swapDateLabel(sw0.giveDate)}, ${winText}${giverRest ? `; ${from.name} still works ${fmtHM(giverRest.start)}–${fmtHM(giverRest.end)}` : ''}.`;
+      for (const target of [from, to]) {
+        await swapNotify(db, tenantId, tenant, target,
+          `Covered — ${swapDateLabel(sw0.giveDate)}`, 'That day is covered',
+          [both, 'Booking hours have already moved for that window only. Rent is unchanged — a swap trades time, not money.'],
+          `Covered: ${both}`);
+      }
+      await swapTellOwner(db, tenantId,
+        `${to.name} took ${from.name}'s offer for ${swapDateLabel(sw0.giveDate)}, ${winText}${sw0.giveBoothName ? ` (${sw0.giveBoothName})` : ''}. Rent unchanged.`);
+      await logAuditAdmin(db, tenantId, {
+        action: 'renter.swap_claimed', targetType: 'renterSwap', targetId: ref.id,
+        summary: `${to.name} claimed ${from.name}'s open offer: ${sw0.giveDate} ${win.start}-${win.end} (rent unchanged)`,
+        actor: { type: 'user', name: to.name, role: 'renter', via: 'renter-portal' },
+      });
+      return NextResponse.json({ ok: true, status: 'taken' });
+    }
+
+    // ═══ swap-cancel ════════════════════════════════════════════════════════
+    if (action === 'swap-cancel') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const ref = db.doc(`tenants/${tenantId}/renterSwaps/${String(body.swapId || '')}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'That request is gone.' }, { status: 404 });
+      const sw: any = snap.data();
+      if (sw.fromRenterId !== session.renterId) {
+        return NextResponse.json({ ok: false, error: 'That request isn’t yours to cancel.' }, { status: 403 });
+      }
+      if (sw.status !== 'pending' && sw.status !== 'open') {
+        return NextResponse.json({ ok: false, error: 'That has already been answered.' }, { status: 409 });
+      }
+      await ref.set({ status: 'cancelled', respondedAt: new Date().toISOString() }, { merge: true });
+      await logAuditAdmin(db, tenantId, {
+        action: 'renter.swap_cancelled', targetType: 'renterSwap', targetId: ref.id,
+        summary: `${sw.fromName} withdrew the swap request to ${sw.toName} for ${sw.giveDate}`,
+        actor: { type: 'user', name: sw.fromName, role: 'renter', via: 'renter-portal' },
+      });
+      return NextResponse.json({ ok: true });
+    }
+
+    // ═══ check-in ═════════════════════════════════════════════════════════
+    if (action === 'check-in') {
+      const reservationId = String(body.reservationId || '');
+      const today = safeToday(body.today);
+      const ref = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
+      const snap = await ref.get();
+      const r = snap.exists ? (snap.data() as any) : null;
+      if (!r || !contactMatches(key, r.phone, r.email)) {
+        return NextResponse.json({ ok: false, error: 'Reservation not found.' }, { status: 404 });
+      }
+      if (r.status !== 'confirmed') {
+        return NextResponse.json({ ok: false, error: `This booking can’t be checked in (status: ${String(r.status).replace(/_/g, ' ')}).` }, { status: 409 });
+      }
+      if (today < r.startDate || today > r.endDate) {
+        return NextResponse.json({ ok: false, error: `This booking is for ${r.startDate}${r.endDate !== r.startDate ? ` – ${r.endDate}` : ''}.` }, { status: 409 });
+      }
+      // Rate snapshot — same as owner-side checkInRes (settle at the rate in
+      // force during the stay, not whatever the booth costs later).
+      let settleHourlyCents = r.settleHourlyCents || 0;
+      if (!settleHourlyCents && r.boothId) {
+        const b = await db.doc(`tenants/${tenantId}/booths/${r.boothId}`).get();
+        settleHourlyCents = b.exists ? hourlyCentsOf(b.data()) : 0;
+      }
+      const nowIso = new Date().toISOString();
+      await ref.set({
+        status: 'checked_in',
+        checked_inAt: nowIso,       // NOTE: underscore — matches every reader
+        actualCheckIn: nowIso,
+        settleHourlyCents,
+        selfCheckIn: true,
+      }, { merge: true });
+      await logAuditAdmin(db, tenantId, {
+        action: 'booth.renter_checked_in',
+        targetType: 'boothReservation', targetId: reservationId,
+        summary: `${r.name || 'Renter'} self-checked in to ${r.boothName || 'their space'} via renter portal`,
+        actor: { type: 'user', name: r.name || session.name || null, role: 'renter', via: 'renter-portal' },
+      });
+      const notifRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await notifRef.set({
+        id: notifRef.id, userId: null, read: false, createdAt: nowIso,
+        type: 'booth_reservation', link: '/pos?tab=spaces',
+        message: `${r.name || 'A renter'} checked in to ${r.boothName || 'their space'} (self check-in).`,
+      });
+      const needsBalance = (r.balanceDueCents || 0) > 0 && !r.balancePaid;
+      return NextResponse.json({
+        ok: true,
+        reservation: safeReservation(reservationId, { ...r, status: 'checked_in', checked_inAt: nowIso, actualCheckIn: nowIso }),
+        needsBalance,
+        balanceDueCents: needsBalance ? r.balanceDueCents : 0,
+        balanceMode: r.balanceMode || null,
+      });
+    }
+
+    // ═══ check-out ════════════════════════════════════════════════════════
+    if (action === 'check-out') {
+      const reservationId = String(body.reservationId || '');
+      const ref = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
+      const snap = await ref.get();
+      const r = snap.exists ? (snap.data() as any) : null;
+      if (!r || !contactMatches(key, r.phone, r.email)) {
+        return NextResponse.json({ ok: false, error: 'Reservation not found.' }, { status: 404 });
+      }
+      if (r.status !== 'checked_in') {
+        return NextResponse.json({ ok: false, error: 'This booking isn’t checked in.' }, { status: 409 });
+      }
+      // Settlement math — mirrors owner-side checkOutRes exactly.
+      const now = new Date();
+      const updates: any = {
+        status: 'completed',
+        completedAt: now.toISOString(),
+        actualCheckOut: now.toISOString(),
+        selfCheckOut: true,
+      };
+      if (r.bookingType === 'hourly' && r.startTime && r.endTime && r.actualCheckIn) {
+        const bookedEnd = new Date(`${r.startDate}T${r.endTime}:00`);
+        let rate = r.settleHourlyCents > 0 ? r.settleHourlyCents : 0;
+        if (!rate && r.boothId) {
+          const b = await db.doc(`tenants/${tenantId}/booths/${r.boothId}`).get();
+          rate = b.exists ? hourlyCentsOf(b.data()) : 0;
+        }
+        const GRACE_MS = 10 * 60 * 1000;
+        const diffMs = now.getTime() - bookedEnd.getTime();
+        if (diffMs > GRACE_MS && rate > 0) {
+          const overQuarters = Math.ceil((diffMs - GRACE_MS) / (15 * 60 * 1000));
+          updates.overageMinutes = overQuarters * 15;
+          updates.overageDueCents = Math.round(rate * (overQuarters * 15) / 60);
+          updates.overageStatus = 'due';
+        } else if (diffMs < -(30 * 60 * 1000) && rate > 0) {
+          const underQuarters = Math.floor(-diffMs / (15 * 60 * 1000));
+          const creditCents = Math.round(rate * (underQuarters * 15) / 60);
+          if (creditCents >= 100) {
+            updates.unusedMinutes = underQuarters * 15;
+            updates.potentialCreditCents = creditCents;
+            updates.creditDecision = 'pending'; // owner approves — never auto-issued
+          }
+        }
+      }
+      await ref.set(updates, { merge: true });
+      const bits: string[] = [];
+      if (updates.overageDueCents) bits.push(`$${(updates.overageDueCents / 100).toFixed(2)} overage due (${updates.overageMinutes} min)`);
+      if (updates.potentialCreditCents) bits.push(`$${(updates.potentialCreditCents / 100).toFixed(2)} potential credit pending review`);
+      await logAuditAdmin(db, tenantId, {
+        action: 'booth.renter_checked_out',
+        targetType: 'boothReservation', targetId: reservationId,
+        summary: `${r.name || 'Renter'} self-checked out of ${r.boothName || 'their space'} via renter portal${bits.length ? ` — ${bits.join(', ')}` : ''}`,
+        amount: updates.overageDueCents ? updates.overageDueCents / 100 : undefined,
+        actor: { type: 'user', name: r.name || session.name || null, role: 'renter', via: 'renter-portal' },
+      });
+      if (updates.overageDueCents || updates.potentialCreditCents) {
+        const notifRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+        await notifRef.set({
+          id: notifRef.id, userId: null, read: false, createdAt: now.toISOString(),
+          type: 'booth_reservation', link: '/pos?tab=spaces',
+          message: `${r.name || 'A renter'} checked out of ${r.boothName || 'their space'} — ${bits.join(', ')}.`,
+        });
+      }
+      return NextResponse.json({
+        ok: true,
+        reservation: safeReservation(reservationId, { ...r, ...updates }),
+        overageDueCents: updates.overageDueCents || 0,
+        overageMinutes: updates.overageMinutes || 0,
+        potentialCreditCents: updates.potentialCreditCents || 0,
+      });
+    }
+
+    // ═══ pay-invoice — Stripe Checkout for an open rent invoice ═══════════
+    // Ownership chain verified server-side: invoice → lease → renter →
+    // renter's contact must match this session. Works for every renter,
+    // card on file or not (Checkout collects the card).
+    // ── book-list / book-cancel / book-status / book-note / book-block ──────
+    // The renter's own book, run from the portal. Every action here proves
+    // the appointment belongs to THEIR provider record first; the studio's
+    // appointments are never reachable through this door. Walk-ins and
+    // reschedules go through the public booking route with source
+    // 'renter_portal' (same engine, same conflicts, same client scoping) —
+    // the portal page calls it directly; nothing here duplicates the engine.
+    const myProvider = async () => {
+      if (!session.renterId) return null;
+      const stSnap = await db.collection(`tenants/${tenantId}/staff`).where('renterId', '==', session.renterId).get();
+      return stSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).find((m: any) => m.isRenter && m.isActive !== false) || null;
+    };
+    // EVERY staff record that belongs to this renter — not just the one
+    // flagged as the provider. A renter who was an employee first, or was
+    // set up through the old rent page, can have two records with the same
+    // name: old appointments point at the old one, the portal reads the new
+    // one, and the planner looks empty. Their chair is their chair whichever
+    // record booked it, so the book reads all of them.
+    const myStaffIds = async (): Promise<string[]> => {
+      if (!session.renterId) return [];
+      const stSnap = await db.collection(`tenants/${tenantId}/staff`).where('renterId', '==', session.renterId).get();
+      const ids = stSnap.docs.map((d: any) => d.id);
+      // Same person by name, never linked (renterId missing on the old record).
+      const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      const full = `${r.firstName || ''} ${r.lastName || ''}`.trim().toLowerCase();
+      if (full) {
+        const byName = await db.collection(`tenants/${tenantId}/staff`).get();
+        for (const d of byName.docs) { const x = d.data() as any; if (!ids.includes(d.id) && String(x.name || '').trim().toLowerCase() === full && (x.isRenter || !x.renterId)) ids.push(d.id); }
+      }
+      return ids.slice(0, 10); // Firestore 'in' cap
+    };
+    // Three ways down, so a missing Firestore index can never blank the book:
+    //   1. staffId IN ids + date range (needs a composite index)
+    //   2. one staffId == id + date range per record (needs the older index)
+    //   3. staffId == id only, dates filtered in memory (needs NO index)
+    // Whichever works first wins; the fallback used is returned so the
+    // portal can say when it is running on the slow path.
+    const apptsFor = async (ids: string[], fromIso: string, toIso?: string): Promise<any[]> => {
+      if (ids.length === 0) return [];
+      const col = db.collection(`tenants/${tenantId}/appointments`);
+      const inRange = (a: any) => String(a.startTime || '') >= fromIso && (!toIso || String(a.startTime || '') <= toIso);
+      try {
+        let q: any = col.where('staffId', 'in', ids).where('startTime', '>=', fromIso);
+        if (toIso) q = q.where('startTime', '<=', toIso);
+        return (await q.get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+      } catch (e1) {
+        console.warn('[portal/renter] appointments: IN+range query unavailable (index?), falling back', String((e1 as any)?.message || e1).slice(0, 160));
+      }
+      try {
+        const out: any[] = [];
+        for (const id of ids) {
+          let q: any = col.where('staffId', '==', id).where('startTime', '>=', fromIso);
+          if (toIso) q = q.where('startTime', '<=', toIso);
+          out.push(...(await q.get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })));
+        }
+        return out;
+      } catch (e2) {
+        console.warn('[portal/renter] appointments: ==+range query unavailable (index?), falling back to in-memory', String((e2 as any)?.message || e2).slice(0, 160));
+      }
+      const out: any[] = [];
+      for (const id of ids) {
+        const snap = await col.where('staffId', '==', id).get();
+        out.push(...snap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter(inRange));
+      }
+      return out;
+    };
+    const myAppt = async (apptId: string) => {
+      const st = await myProvider();
+      if (!st) return { st: null, ref: null, a: null, error: 'Your booking profile is not set up yet.' };
+      const ref = db.doc(`tenants/${tenantId}/appointments/${apptId}`);
+      const snap = await ref.get();
+      const a = (snap.data() as any) || null;
+      if (!snap.exists || !a.isRenterBooking || (a.renterProviderId || a.staffId) !== st.id) return { st, ref: null, a: null, error: 'That appointment is not in your book.' };
+      return { st, ref, a, error: null };
+    };
+    const tellClient = async (a: any, st: any, subject: string, lines: string[], kind: string) => {
+      const to = String(a.clientEmail || '').trim();
+      const phone = String(a.clientPhone || '').trim();
+      if (!to && !phone) return;
+      const rSnap = await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get();
+      const r = (rSnap.data() as any) || {};
+      const from = `${r.firstName || ''} ${r.lastName || ''}`.trim() || st.name || 'Your provider';
+      const studio = ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.name || 'the studio';
+      try {
+        const { brandedEmailHtml } = await import('@/lib/email-template');
+        const { sendNotification } = await import('@/lib/notify');
+        if (to.includes('@')) {
+          await sendNotification(db, { tenantId, channel: 'email', to, subject,
+            html: brandedEmailHtml({ studioName: from, title: subject, bodyLines: lines, footerNote: `Sent by ${from}, renting at ${studio}.` }),
+            kind, recipientType: 'client', recipientId: a.clientId || null, recipientName: a.clientName || null });
+        }
+        if (phone) {
+          await sendNotification(db, { tenantId, channel: 'sms', to: phone, text: `${from}: ${lines[0]}`, kind, recipientType: 'client', recipientId: a.clientId || null, recipientName: a.clientName || null } as any);
+        }
+      } catch { /* the change stands; the notice is best-effort */ }
+    };
+    const fmtWhen = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? iso : d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); };
+
+    if (action === 'book-list') {
+      const st = await myProvider();
+      if (!st) return NextResponse.json({ ok: true, upcoming: [], past: [], services: [] });
+      const since = new Date(Date.now() - 90 * 86400000).toISOString();
+      const nowIso = new Date().toISOString();
+      // Services and appointments are loaded SEPARATELY so a problem with one
+      // never blanks the other — the walk-in picker used to go empty whenever
+      // the appointments query failed, which read as "the menu is gone".
+      const svSnap = await db.collection(`tenants/${tenantId}/renterServices`).where('staffId', '==', st.id).get();
+      let apRows: any[] = [];
+      let apptError: string | null = null;
+      try { apRows = await apptsFor(await myStaffIds(), since); }
+      catch (e: any) { apptError = String(e?.message || e || 'appointments query failed').slice(0, 200); console.error('[portal/renter] book-list appointments failed', apptError); }
+      const apSnap = { docs: apRows.map((r: any) => ({ id: r.id, data: () => r })) };
+      // EVERYTHING on their chair, not only what came through their own
+      // link. A booking the studio made for them — owner's planner, house
+      // booking page, anything from before they became a renter — occupies
+      // the same hour, so a planner that hides it is wrong. It's marked
+      // viaStudio and stays the studio's to change; the renter sees it.
+      const rows = apSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+      const shape = (a: any) => ({
+        id: a.id, clientId: a.clientId || null, clientName: a.clientName || 'Client', clientPhone: a.clientPhone || null, clientEmail: a.clientEmail || null,
+        serviceName: a.renterServiceName || a.serviceName || 'Service', price: Number(a.renterServicePrice) || 0,
+        startTime: a.startTime, endTime: a.endTime || null, duration: a.duration || null, status: a.status,
+        note: a.renterNote || '', outcome: a.renterOutcome || null, createdVia: a.createdVia || null,
+        viaStudio: !a.isRenterBooking,
+      });
+      const upcoming = rows.filter((a: any) => a.status !== 'cancelled' && a.startTime >= nowIso).sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime))).map(shape);
+      const past = rows.filter((a: any) => a.startTime < nowIso).sort((a: any, b: any) => String(b.startTime).localeCompare(String(a.startTime))).slice(0, 60).map(shape);
+      const services = svSnap.docs.map((d: any) => { const x = d.data() as any; return { id: d.id, name: x.name, price: Number(x.price) || 0, duration: Number(x.duration) || 60, active: x.active !== false }; }).filter((x: any) => x.active);
+      return NextResponse.json({ ok: true, upcoming, past, services, staffId: st.id, ...(apptError ? { apptError } : {}) });
+    }
+
+    if (action === 'book-cancel') {
+      const { st, ref, a, error } = await myAppt(String(body.appointmentId || ''));
+      if (!ref || !a) return NextResponse.json({ ok: false, error }, { status: 403 });
+      if (a.status === 'cancelled') return NextResponse.json({ ok: true, already: true });
+      const nowIso = new Date().toISOString();
+      const note = String(body.note || '').trim().slice(0, 400);
+      await ref.set({
+        status: 'cancelled', cancelledAt: nowIso,
+        cancellationAudit: { actorType: 'studio', actorId: st.id, actorName: st.name || 'Provider', reason: 'provider_cancel', note, feeAmount: 0, feeWaived: true, paymentStatus: 'paid', timestamp: nowIso, via: 'renter_portal' },
+      }, { merge: true });
+      if (body.tellClient !== false) {
+        await tellClient(a, st, 'Your appointment has been cancelled',
+          [`Your ${a.renterServiceName || 'appointment'} on ${fmtWhen(a.startTime)} has been cancelled.${note ? ` ${note}` : ''}`, 'Nothing has been charged. Reply or rebook any time.'], 'renter_client_cancelled');
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    // ── book-decide: accept or decline a request — the renter's call ─────
+    // When bookings come in as requests (approval mode, first-time guests),
+    // a renter's request is the RENTER'S to decide, in their own book, with
+    // the client told in their name. Accepting confirms; declining cancels
+    // fee-free. Deposits on a renter booking sit in the renter's Stripe, so
+    // nothing here touches the studio's money.
+    if (action === 'book-decide') {
+      const { st, ref, a, error } = await myAppt(String(body.appointmentId || ''));
+      if (!ref || !a) return NextResponse.json({ ok: false, error }, { status: 403 });
+      if (a.status !== 'requested' && a.status !== 'pending') return NextResponse.json({ ok: false, error: 'That booking is not waiting on a decision.' }, { status: 400 });
+      const accept = body.decision === 'accept';
+      const nowIso = new Date().toISOString();
+      const note = String(body.note || '').trim().slice(0, 300);
+      if (accept) {
+        await ref.set({ status: 'confirmed', confirmedAt: nowIso, decidedBy: 'renter', decisionNote: note }, { merge: true });
+        await tellClient(a, st, 'You are booked',
+          [`Your ${a.renterServiceName || 'appointment'} on ${fmtWhen(a.startTime)} is confirmed.${note ? ` ${note}` : ''}`, 'See you then — reply here if anything changes.'], 'renter_client_confirmed');
+      } else {
+        await ref.set({ status: 'cancelled', cancelledAt: nowIso, decidedBy: 'renter',
+          cancellationAudit: { actorType: 'studio', actorId: st.id, actorName: st.name || 'Provider', reason: 'request_declined', note, feeAmount: 0, feeWaived: true, paymentStatus: 'paid', timestamp: nowIso, via: 'renter_portal' } }, { merge: true });
+        await tellClient(a, st, 'About your booking request',
+          [`I can't take your ${a.renterServiceName || 'appointment'} on ${fmtWhen(a.startTime)} — sorry about that.${note ? ` ${note}` : ''}`, 'Nothing has been charged. Pick another time any time.'], 'renter_client_declined');
+      }
+      return NextResponse.json({ ok: true, status: accept ? 'confirmed' : 'cancelled' });
+    }
+    // ── book-slots: the renter's OPEN times on a day, from the real engine ──
+    // Reschedule and rebook used to take any typed time and let the server
+    // refuse it afterwards. Now the portal asks for the day's open slots
+    // first — the same computeAvailability the public page and the studio
+    // planner use, with the same inputs (their hours, existing bookings,
+    // blocks, events, day-offs, resources) — so a renter can only pick a
+    // time that is actually free. Overbooking is impossible by construction.
+    if (action === 'book-slots') {
+      const st = await myProvider();
+      if (!st) return NextResponse.json({ ok: false, error: 'Your booking profile is not set up yet.' }, { status: 400 });
+      const dateStr = String(body.date || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return NextResponse.json({ ok: false, error: 'Pick a day.' }, { status: 400 });
+      const svSnap = await db.doc(`tenants/${tenantId}/renterServices/${String(body.serviceId || '')}`).get();
+      const sv = (svSnap.data() as any) || null;
+      if (!sv || sv.staffId !== st.id) return NextResponse.json({ ok: false, error: 'Pick one of your services.' }, { status: 400 });
+      const tenant = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      const { computeAvailability } = await import('@/lib/availability');
+      // Same zone maths as the book route (it keeps this helper private).
+      const offsetMinutesForZone = (timeZone: string, at: Date): number | null => {
+        try {
+          const parts = new Intl.DateTimeFormat('en-US', { timeZone, hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+            .formatToParts(at).reduce((acc: any, p) => { acc[p.type] = p.value; return acc; }, {});
+          const asUtc = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour) % 24, Number(parts.minute), Number(parts.second));
+          return Number.isFinite(asUtc) ? Math.round((asUtc - at.getTime()) / 60000) : null;
+        } catch { return null; }
+      };
+      const tzOffset = (() => {
+        const cfg = (tenant.clientNotify || {}) as any;
+        if (Number.isFinite(Number(cfg.tzOffsetMinutes))) return Number(cfg.tzOffsetMinutes);
+        if (tenant.timezone) { const z = offsetMinutesForZone(String(tenant.timezone), new Date(`${dateStr}T12:00:00Z`)); if (z !== null) return z; }
+        return -300;
+      })();
+      const shiftMs = tzOffset * 60000;
+      const toLocalIso = (v: any): string | null => { if (v === null || v === undefined || v === '') return null; const d = v instanceof Date ? v : new Date(String(v)); return Number.isNaN(d.getTime()) ? null : new Date(d.getTime() + shiftMs).toISOString(); };
+      const shiftDate = (d: string, n: number) => { const x = new Date(`${d}T12:00:00Z`); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+      const prevDay = shiftDate(dateStr, -1), nextDayEnd = shiftDate(dateStr, 1);
+      const col = (name: string) => db.collection(`tenants/${tenantId}/${name}`);
+      const safeRead = async (q: any): Promise<any[]> => { try { return (await q.get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })); } catch { return []; } };
+      const [nearby, rawEvents, rawShifts, rawBlocks, dayOffBlocks, resources, rawTickets, maintenancePlans, scheduleProfiles, staffSnap] = await Promise.all([
+        safeRead(col('appointments').where('startTime', '>=', prevDay).where('startTime', '<=', nextDayEnd)),
+        safeRead(col('events').where('startTime', '>=', shiftDate(dateStr, -31)).where('startTime', '<=', nextDayEnd)),
+        safeRead(col('shifts').where('date', '>=', prevDay).where('date', '<=', nextDayEnd)),
+        safeRead(col('staffBlocks').where('startTime', '>=', prevDay).where('startTime', '<=', nextDayEnd)),
+        safeRead(col('shiftDayOffBlocks').where('date', '>=', prevDay).where('date', '<=', nextDayEnd)),
+        safeRead(col('resources')),
+        safeRead(col('tickets').where('status', 'in', ['open', 'in_progress'])),
+        safeRead(col('maintenancePlans')),
+        safeRead(col('scheduleProfiles')),
+        safeRead(col('staff')),
+      ]);
+      const appointments = nearby.filter((a: any) => !['cancelled', 'canceled'].includes(String(a.status || '').toLowerCase()) && toLocalIso(a.startTime))
+        .map((a: any) => ({ ...a, startTime: toLocalIso(a.startTime), endTime: toLocalIso(a.endTime) ?? toLocalIso(a.startTime), createdAt: toLocalIso(a.createdAt) ?? a.createdAt }));
+      const events = rawEvents.map((e: any) => ({ ...e, startTime: toLocalIso(e.startTime) ?? e.startTime, endTime: toLocalIso(e.endTime) ?? e.endTime }));
+      const staffBlocks = rawBlocks.map((b: any) => ({ ...b, startTime: toLocalIso(b.startTime) ?? b.startTime, endTime: toLocalIso(b.endTime) ?? b.endTime }));
+      const tickets = rawTickets.map((t: any) => ({ ...t, createdAt: toLocalIso(t.createdAt) ?? t.createdAt }));
+      const service = { id: svSnap.id, ...sv, staffIds: [st.id], collectsOwnPayment: true };
+      const result = computeAvailability({
+        date: dateStr, serviceId: service.id, staffId: st.id, addOnIds: [],
+        services: [service], staff: staffSnap, appointments, events, scheduleProfiles, tenant, shifts: rawShifts,
+        staffBlocks, dayOffBlocks, resources, tickets, maintenancePlans,
+        now: new Date(Date.now() + shiftMs), fallbackHours: { start: '08:00', end: '20:00' },
+      } as any);
+      // Each slot as an INSTANT the portal can book with: local wall-clock → UTC.
+      const toInstant = (t: string) => { const [hh, mm] = String(t).split(':').map(Number); const local = new Date(`${dateStr}T${String(hh).padStart(2, '0')}:${String(mm || 0).padStart(2, '0')}:00Z`); return new Date(local.getTime() - shiftMs).toISOString(); };
+      const times: string[] = Array.isArray((result as any).times) ? (result as any).times : (result.slots || []).map((x: any) => x.time || x);
+      return NextResponse.json({ ok: true, date: dateStr, slots: times.map((t: string) => ({ time: t, startIso: toInstant(t) })), warnings: result.warnings || [] });
+    }
+    if (action === 'book-status') {
+      const { st, ref, a, error } = await myAppt(String(body.appointmentId || ''));
+      if (!ref || !a) return NextResponse.json({ ok: false, error }, { status: 403 });
+      const outcome = ['completed', 'no_show'].includes(String(body.outcome)) ? String(body.outcome) : null;
+      if (!outcome) return NextResponse.json({ ok: false, error: 'Outcome must be completed or no_show.' }, { status: 400 });
+      const nowIso = new Date().toISOString();
+      await ref.set({ status: outcome === 'completed' ? 'completed' : 'cancelled', renterOutcome: outcome, renterOutcomeAt: nowIso,
+        ...(outcome === 'no_show' ? { cancelledAt: nowIso, cancellationAudit: { actorType: 'no_show', reason: 'no-show', actorName: st.name || 'Provider', timestamp: nowIso, feeAmount: 0, feeWaived: true, paymentStatus: 'paid', via: 'renter_portal' } } : { completedAt: nowIso }),
+      }, { merge: true });
+      // The renter's client record keeps its own count — their book, their history.
+      if (a.clientId) {
+        const cRef = db.doc(`tenants/${tenantId}/clients/${a.clientId}`);
+        const c = ((await cRef.get()).data() as any) || null;
+        if (c && c.ownerRenterId === session.renterId) {
+          await cRef.set(outcome === 'no_show'
+            ? { noShowCount: (Number(c.noShowCount) || 0) + 1, lastNoShowAt: nowIso }
+            : { visitCount: (Number(c.visitCount) || 0) + 1, lastAppointment: a.startTime, lifetimeValue: (Number(c.lifetimeValue) || 0) + (Number(a.renterServicePrice) || 0) }, { merge: true });
+        }
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === 'book-note') {
+      const { ref, a, error } = await myAppt(String(body.appointmentId || ''));
+      if (!ref || !a) return NextResponse.json({ ok: false, error }, { status: 403 });
+      await ref.set({ renterNote: String(body.note || '').trim().slice(0, 1000), renterNoteAt: new Date().toISOString() }, { merge: true });
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === 'book-block') {
+      // Block time: a hold the availability engine already honours (staffBlocks).
+      const st = await myProvider();
+      if (!st) return NextResponse.json({ ok: false, error: 'Your booking profile is not set up yet.' }, { status: 400 });
+      const startTime = String(body.startTime || '');
+      const duration = Math.max(15, Math.min(24 * 60, Math.round(Number(body.duration) || 60)));
+      if (isNaN(new Date(startTime).getTime())) return NextResponse.json({ ok: false, error: 'Pick a start time.' }, { status: 400 });
+      const ref = db.collection(`tenants/${tenantId}/staffBlocks`).doc();
+      const endTime = new Date(new Date(startTime).getTime() + duration * 60000).toISOString();
+      // Blocks are ALWAYS inviolable — the booking engine refuses every
+      // surface, whatever this flag says. The flag only decides whether the
+      // studio's planner draws it, so the owner knows the renter isn't in.
+      await ref.set({ id: ref.id, staffId: st.id, startTime: new Date(startTime).toISOString(), endTime, duration, reason: String(body.reason || 'Blocked').slice(0, 120), source: 'renter_portal', renterId: session.renterId, createdAt: new Date().toISOString(),
+        showOnStudioCalendar: body.showOnStudioCalendar !== false });
+      return NextResponse.json({ ok: true, id: ref.id });
+    }
+    if (action === 'book-unblock') {
+      const st = await myProvider();
+      const ref = db.doc(`tenants/${tenantId}/staffBlocks/${String(body.blockId || '')}`);
+      const b = ((await ref.get()).data() as any) || null;
+      if (!st || !b || b.staffId !== st.id) return NextResponse.json({ ok: false, error: 'That block is not yours.' }, { status: 403 });
+      await ref.delete();
+      return NextResponse.json({ ok: true });
+    }
+    if (action === 'book-blocks') {
+      const st = await myProvider();
+      if (!st) return NextResponse.json({ ok: true, blocks: [] });
+      // Same lesson as the appointments list: a compound query needs an index,
+      // and when the index is missing the whole list vanished silently — a
+      // block SAVED and never SHOWED. Try the indexed form; fall back to
+      // staffId alone with the date filtered here; never blank the planner.
+      const since = new Date(Date.now() - 86400000).toISOString();
+      const col = db.collection(`tenants/${tenantId}/staffBlocks`);
+      let rows: any[] = [];
+      try {
+        rows = (await col.where('staffId', '==', st.id).where('startTime', '>=', since).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+      } catch (e1) {
+        console.warn('[portal/renter] blocks: indexed query unavailable, filtering in memory', String((e1 as any)?.message || e1).slice(0, 160));
+        rows = (await col.where('staffId', '==', st.id).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((b: any) => String(b.startTime || '') >= since);
+      }
+      return NextResponse.json({ ok: true, blocks: rows.sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime))) });
+    }
+
+    // ── clients-list / client-save / client-archive: the renter's own book ──
+    // Reads only clients carrying THIS renter's ownerRenterId; history is
+    // computed from their own appointments. The studio's clients are never
+    // returned here, and a renter cannot reach a record they do not own.
+    if (action === 'clients-list') {
+      const st = await myProvider();
+      if (!st) return NextResponse.json({ ok: true, clients: [] });
+      const [cSnap, aSnap] = await Promise.all([
+        db.collection(`tenants/${tenantId}/clients`).where('ownerRenterId', '==', session.renterId).get(),
+        db.collection(`tenants/${tenantId}/appointments`).where('staffId', '==', st.id).get(),
+      ]);
+      const nowIso = new Date().toISOString();
+      const byClient = new Map<string, any[]>();
+      for (const d of aSnap.docs) { const a = d.data() as any; if (!a.isRenterBooking || !a.clientId) continue; const l = byClient.get(a.clientId) || []; l.push({ id: d.id, ...a }); byClient.set(a.clientId, l); }
+      const clients = cSnap.docs.map((d) => {
+        const c = d.data() as any;
+        const ap = (byClient.get(d.id) || []).sort((x, y) => String(y.startTime).localeCompare(String(x.startTime)));
+        const done = ap.filter((a) => a.status === 'completed' || (a.status !== 'cancelled' && a.startTime < nowIso));
+        const next = ap.filter((a) => a.status !== 'cancelled' && a.status !== 'completed' && a.startTime >= nowIso).sort((x, y) => String(x.startTime).localeCompare(String(y.startTime)))[0] || null;
+        const noShows = ap.filter((a) => a.renterOutcome === 'no_show').length;
+        const spent = done.reduce((n, a) => n + (Number(a.renterServicePrice) || 0), 0);
+        return {
+          id: d.id, name: c.name || 'Client', phone: c.phone || null, email: c.email || null,
+          notes: typeof c.renterNotes === 'string' ? c.renterNotes : '', archived: c.status === 'archived',
+          visits: done.length, noShows, spentCents: Math.round(spent * 100),
+          lastVisit: done[0]?.startTime || null, nextVisit: next ? { id: next.id, startTime: next.startTime, serviceName: next.renterServiceName || next.serviceName || '' } : null,
+          favourite: (() => { const m = new Map<string, number>(); for (const a of done) { const k = a.renterServiceName || a.serviceName; if (k) m.set(k, (m.get(k) || 0) + 1); } return [...m.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] || null; })(),
+          history: ap.slice(0, 30).map((a) => ({ id: a.id, startTime: a.startTime, serviceName: a.renterServiceName || a.serviceName || '', price: Number(a.renterServicePrice) || 0, status: a.status, outcome: a.renterOutcome || null, note: a.renterNote || '' })),
+          createdAt: c.createdAt || null,
+        };
+      }).sort((x, y) => String(y.lastVisit || y.nextVisit?.startTime || '').localeCompare(String(x.lastVisit || x.nextVisit?.startTime || '')));
+      return NextResponse.json({ ok: true, clients });
+    }
+    // ── client-get: everything the appointment sheet needs about one client ──
+    // Their notes, their history with this renter, no-shows, what they
+    // usually get — in one call, so the sheet opens complete.
+    if (action === 'client-get') {
+      const st = await myProvider();
+      const clientId = String(body.clientId || '');
+      if (!st || !clientId) return NextResponse.json({ ok: true, client: null });
+      const cSnap = await db.doc(`tenants/${tenantId}/clients/${clientId}`).get();
+      const c = (cSnap.data() as any) || null;
+      const mine = !!c && c.ownerRenterId === session.renterId;
+      const ids = await myStaffIds();
+      const ap = (await apptsFor(ids, new Date(Date.now() - 365 * 86400000).toISOString())).filter((a: any) => a.clientId === clientId)
+        .sort((x: any, y: any) => String(y.startTime).localeCompare(String(x.startTime)));
+      const nowIso = new Date().toISOString();
+      const done = ap.filter((a: any) => a.status === 'completed' || (a.status !== 'cancelled' && a.startTime < nowIso));
+      const m = new Map<string, number>();
+      for (const a of done) { const k = a.renterServiceName || a.serviceName; if (k) m.set(k, (m.get(k) || 0) + 1); }
+      return NextResponse.json({ ok: true, client: {
+        id: clientId, name: c?.name || ap[0]?.clientName || 'Client', phone: c?.phone || ap[0]?.clientPhone || null, email: c?.email || ap[0]?.clientEmail || null,
+        mine, notes: mine && typeof c?.renterNotes === 'string' ? c.renterNotes : '',
+        visits: done.length, noShows: ap.filter((a: any) => a.renterOutcome === 'no_show').length,
+        lastVisit: done[0]?.startTime || null, favourite: [...m.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] || null,
+        history: ap.slice(0, 12).map((a: any) => ({ id: a.id, startTime: a.startTime, serviceName: a.renterServiceName || a.serviceName || '', price: Number(a.renterServicePrice ?? a.price) || 0, status: a.status, outcome: a.renterOutcome || null, note: a.renterNote || '', viaStudio: !a.isRenterBooking })),
+      } });
+    }
+    if (action === 'client-save') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const st = await myProvider();
+      if (!st) return NextResponse.json({ ok: false, error: 'Your booking profile is not set up yet.' }, { status: 400 });
+      const name = String(body.name || '').trim().slice(0, 120);
+      if (name.length < 2) return NextResponse.json({ ok: false, error: 'A name is needed.' }, { status: 400 });
+      const phone = String(body.phone || '').trim().slice(0, 40) || null;
+      const email = String(body.email || '').trim().toLowerCase().slice(0, 160) || null;
+      const renterNotes = String(body.notes || '').trim().slice(0, 2000);
+      const id = String(body.clientId || '');
+      const nowIso = new Date().toISOString();
+      if (id) {
+        const ref = db.doc(`tenants/${tenantId}/clients/${id}`);
+        const c = ((await ref.get()).data() as any) || null;
+        if (!c || c.ownerRenterId !== session.renterId) return NextResponse.json({ ok: false, error: 'That client is not in your book.' }, { status: 403 });
+        await ref.set({ name, phone, email, renterNotes, updatedAt: nowIso }, { merge: true });
+        return NextResponse.json({ ok: true, id });
+      }
+      // New client, in THIS book. Same phone/email as a studio client is fine —
+      // two businesses, two records.
+      const ref = db.collection(`tenants/${tenantId}/clients`).doc();
+      await ref.set({ id: ref.id, name, phone, email, renterNotes, status: 'active', lifetimeValue: 0, lastAppointment: nowIso, createdVia: 'renter_portal', createdAt: nowIso,
+        ownerRenterId: session.renterId, ownerStaffId: st.id });
+      return NextResponse.json({ ok: true, id: ref.id });
+    }
+    if (action === 'client-archive') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const ref = db.doc(`tenants/${tenantId}/clients/${String(body.clientId || '')}`);
+      const c = ((await ref.get()).data() as any) || null;
+      if (!c || c.ownerRenterId !== session.renterId) return NextResponse.json({ ok: false, error: 'That client is not in your book.' }, { status: 403 });
+      await ref.set({ status: body.restore ? 'active' : 'archived', updatedAt: new Date().toISOString() }, { merge: true });
+      return NextResponse.json({ ok: true });
+    }
+
+    // ── comms-get / comms-save: how the renter messages THEIR clients ──────
+    // Reminders and thank-yous to a renter's clients go out in the renter's
+    // name, on the renter's switches — never the studio's Settings → Messages.
+    // Default off: nothing is sent to anyone's client until they turn it on.
+    if (action === 'comms-get') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      const c = r.clientComms || {};
+      const cSnap = await db.collection(`tenants/${tenantId}/clients`).where('ownerRenterId', '==', session.renterId).get();
+      const mine = new Set(cSnap.docs.map((d) => d.id));
+      let log: any[] = [];
+      try {
+        const lSnap = await db.collection(`tenants/${tenantId}/messageLog`).where('kind', 'in', ['renter_client_reminder', 'renter_client_thanks', 'renter_client_cancelled']).orderBy('createdAt', 'desc').limit(80).get();
+        log = lSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((m) => m.recipientId && mine.has(String(m.recipientId)))
+          .slice(0, 30).map((m) => ({ id: m.id, kind: m.kind, channel: m.channel, status: m.status, to: m.recipientName || m.to || '', at: m.createdAt }));
+      } catch { /* index may be pending; the switches still work */ }
+      // Defaults ON — a renter's clients get the same reminders and thank-yous
+      // the studio's clients do, in the renter's name, unless the renter
+      // switches them off. Mirrors the main app instead of asking for opt-in.
+      return NextResponse.json({ ok: true, comms: { remindersEnabled: c.remindersEnabled !== false, thankYouEnabled: c.thankYouEnabled !== false, signoff: String(c.signoff || '') }, log });
+    }
+    if (action === 'comms-save') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set({ clientComms: {
+        remindersEnabled: body.remindersEnabled === true, thankYouEnabled: body.thankYouEnabled === true,
+        signoff: String(body.signoff || '').trim().slice(0, 160), updatedAt: new Date().toISOString(),
+      } }, { merge: true });
+      return NextResponse.json({ ok: true });
+    }
+
+    // ── today: the inbox — what has moved since they last looked ────────────
+    // One call, one screen. Everything here already exists in its own
+    // section; this is the same facts, filtered to "needs you" or "changed
+    // recently", so the reason they logged in is the first thing they see.
+    // Recency is a window, not a read-receipt: items age out on their own.
+    if (action === 'today') {
+      if (!session.renterId) return NextResponse.json({ ok: true, items: [], badges: {} });
+      const rid = session.renterId;
+      const now = Date.now();
+      const since = (days: number) => new Date(now - days * 86400000).toISOString();
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const prov = await myProvider();
+
+      const [thread, docs, tickets, concerns, leaves, appts] = await Promise.all([
+        db.doc(`tenants/${tenantId}/renterThreads/${rid}`).get(),
+        db.collection(`tenants/${tenantId}/renterDocuments`).where('renterId', '==', rid).where('status', '==', 'sent').get(),
+        db.collection(`tenants/${tenantId}/tickets`).where('reporter.renterId', '==', rid).get(),
+        db.collection(`tenants/${tenantId}/renterGrievances`).where('renterId', '==', rid).get(),
+        db.collection(`tenants/${tenantId}/renterLeaves`).where('renterId', '==', rid).get(),
+        prov ? myStaffIds().then((ids) => apptsFor(ids, `${todayIso}T00:00:00.000Z`, `${todayIso}T23:59:59.999Z`)).then((rows) => ({ docs: rows.map((r: any) => ({ id: r.id, data: () => r })) })) : Promise.resolve({ docs: [] } as any),
+      ]);
+
+      type Item = { kind: string; tab: 'book' | 'rent' | 'studio'; title: string; body: string; at: string; tone?: 'red' | 'amber' | 'green' | 'slate' };
+      const items: Item[] = [];
+      const t = (thread.data() as any) || {};
+      if (t.unreadForRenter === true) items.push({ kind: 'message', tab: 'studio', title: 'The studio replied', body: String(t.lastText || '').slice(0, 90), at: t.lastAt || since(0), tone: 'amber' });
+
+      for (const d of docs.docs) { const x = d.data() as any; items.push({ kind: 'document', tab: 'studio', title: x.action === 'acknowledge' ? 'A document to read' : 'A document to sign', body: x.title, at: x.sentAt, tone: 'amber' }); }
+
+      for (const d of tickets.docs) {
+        const x = d.data() as any;
+        const last = (x.updates || []).slice().reverse().find((u: any) => u.byType && u.byType !== 'renter');
+        if (x.status === 'resolved' && x.resolvedAt && x.resolvedAt >= since(3)) items.push({ kind: 'ticket', tab: 'studio', title: 'Fixed', body: `${x.title}${x.resolutionNote ? ` — ${String(x.resolutionNote).slice(0, 80)}` : ''}`, at: x.resolvedAt, tone: 'green' });
+        else if (['open', 'in_progress'].includes(x.status) && last && last.at >= since(7)) items.push({ kind: 'ticket', tab: 'studio', title: x.assigneeName ? `${x.assigneeName} is on it` : 'Update on your repair', body: `${x.title}${last.note ? ` — ${String(last.note).slice(0, 80)}` : ''}`, at: last.at, tone: 'slate' });
+      }
+      for (const d of concerns.docs) {
+        const x = d.data() as any;
+        const at = x.resolvedAt || x.acknowledgedAt;
+        if (at && at >= since(7) && x.status !== 'open') items.push({ kind: 'concern', tab: 'studio', title: x.status === 'acknowledged' ? 'Your concern is being looked at' : `Concern ${x.status}`, body: `${x.ref}${x.resolution ? ` — ${String(x.resolution).slice(0, 80)}` : ''}`, at, tone: x.status === 'acknowledged' ? 'slate' : 'green' });
+      }
+      for (const d of leaves.docs) {
+        const x = d.data() as any;
+        if (x.decidedAt && x.decidedAt >= since(7)) items.push({ kind: 'leave', tab: 'rent', title: x.status === 'approved' ? 'Time away approved' : x.status === 'declined' ? 'Time away not approved' : 'Leave updated', body: `${x.startDate} → ${x.endDate}`, at: x.decidedAt, tone: x.status === 'approved' ? 'green' : 'amber' });
+        if (x.redeem?.decidedAt && x.redeem.decidedAt >= since(7)) items.push({ kind: 'leave', tab: 'rent', title: x.redeem.status === 'approved' ? 'Banked days credited' : 'Banked days not approved', body: `${x.redeem.days} day${x.redeem.days === 1 ? '' : 's'}`, at: x.redeem.decidedAt, tone: x.redeem.status === 'approved' ? 'green' : 'amber' });
+      }
+
+      // Requests waiting on the renter: their decision, so their inbox.
+      if (prov) {
+        const reqSnap = await db.collection(`tenants/${tenantId}/appointments`).where('staffId', '==', prov.id).where('status', '==', 'requested').get();
+        for (const d of reqSnap.docs) {
+          const a = d.data() as any;
+          if (!a.isRenterBooking) continue;
+          items.push({ kind: 'request', tab: 'book', title: 'Booking request — accept or decline', body: `${a.clientName || 'Client'} · ${a.renterServiceName || a.serviceName || ''} · ${String(a.startTime).slice(0, 10)}`, at: a.createdAt || a.requestedAt || since(0), tone: 'amber' });
+        }
+      }
+      const todayAppts = appts.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((a: any) => a.status !== 'cancelled')
+        .sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime)))
+        .map((a: any) => ({ id: a.id, startTime: a.startTime, clientName: a.clientName || 'Client', serviceName: a.renterServiceName || a.serviceName || '', status: a.status }));
+
+      items.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+      return NextResponse.json({
+        ok: true, items: items.slice(0, 12), todayAppts,
+        badges: { studio: items.filter((i) => i.tab === 'studio' && i.tone !== 'green').length, rent: items.filter((i) => i.tab === 'rent').length, book: todayAppts.length + items.filter((i) => i.kind === 'request').length },
+      });
+    }
+
+    // ── reviews-list / review-moderate: what clients said, what goes public ──
+    // Every review is from a completed booking (the public API enforces it).
+    // The renter decides which appear. Published ones are mirrored onto the
+    // provider record so the booking page reads them with no new rule.
+    if (action === 'reviews-list') {
+      const st = await myProvider();
+      if (!st) return NextResponse.json({ ok: true, reviews: [] });
+      const snap = await db.collection(`tenants/${tenantId}/renterReviews`).where('staffId', '==', st.id).get();
+      const reviews = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+      return NextResponse.json({ ok: true, reviews, reviewUrlBase: `${req.nextUrl?.origin || ''}/review/${tenantId}/` });
+    }
+    if (action === 'review-moderate') {
+      const st = await myProvider();
+      if (!st) return NextResponse.json({ ok: false, error: 'Your booking profile is not set up yet.' }, { status: 400 });
+      const ref = db.doc(`tenants/${tenantId}/renterReviews/${String(body.reviewId || '')}`);
+      const r = ((await ref.get()).data() as any) || null;
+      if (!r || r.staffId !== st.id) return NextResponse.json({ ok: false, error: 'That review is not yours.' }, { status: 403 });
+      const status = ['published', 'hidden'].includes(String(body.status)) ? String(body.status) : 'hidden';
+      await ref.set({ status, moderatedAt: new Date().toISOString() }, { merge: true });
+      // Mirror the published set — newest first, capped — onto the provider record.
+      const pub = await db.collection(`tenants/${tenantId}/renterReviews`).where('staffId', '==', st.id).where('status', '==', 'published').get();
+      const reviews = pub.docs.map((d) => d.data() as any).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 20)
+        .map((x) => ({ rating: Number(x.rating) || 5, text: String(x.text || ''), name: String(x.clientName || 'Client').split(' ')[0], at: String(x.visitedAt || x.createdAt).slice(0, 10), service: x.serviceName || '' }));
+      const count = pub.size;
+      const avg = count ? Math.round((pub.docs.reduce((n, d) => n + (Number((d.data() as any).rating) || 0), 0) / count) * 10) / 10 : 0;
+      await db.doc(`tenants/${tenantId}/staff/${st.id}`).set({ reviews, reviewCount: count, reviewAverage: avg }, { merge: true });
+      return NextResponse.json({ ok: true, status, published: count, average: avg });
+    }
+
+    // ── page-get / page-save / page-photo: their page, their words ─────────
+    if (action === 'page-get') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const { cleanPage } = await import('@/lib/renter-identity');
+      const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      return NextResponse.json({ ok: true, page: cleanPage(r.page) });
+    }
+    if (action === 'page-save') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const { cleanPage, staffMirrorFields } = await import('@/lib/renter-identity');
+      const page = cleanPage(body.page);
+      const rRef = db.doc(`tenants/${tenantId}/renters/${session.renterId}`);
+      await rRef.set({ page, pageUpdatedAt: new Date().toISOString() }, { merge: true });
+      // The public page reads the provider record; mirror through the same door as everything else.
+      const stSnap = await db.collection(`tenants/${tenantId}/staff`).where('renterId', '==', session.renterId).limit(1).get();
+      if (!stSnap.empty) await stSnap.docs[0].ref.set(staffMirrorFields({ page }), { merge: true });
+      return NextResponse.json({ ok: true, page });
+    }
+    // ── storage-token: sign the renter into Firebase so the BROWSER can upload ──
+    // Every other upload in the app goes browser → Storage under a signed-in
+    // user and Storage rules. The portal was routing photos through the
+    // server instead, and the server could not see the bucket. This puts
+    // renter uploads on the same road as everything else: a custom token
+    // scoped to this renter, used only for Storage.
+    if (action === 'storage-token') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      try {
+        // getAuth() with no argument asks the DEFAULT Firebase app — and this
+        // codebase never initializes one. Every credential lives on the named
+        // 'admin' app (FIREBASE_ADMIN_* env vars), which is why Firestore
+        // works everywhere and this one call failed. Ask the app that has the
+        // private key; signing a custom token needs it.
+        const token = await getAdminAuth().createCustomToken(`renter:${tenantId}:${session.renterId}`, {
+          tenantId, renterId: session.renterId, portal: true, isRenter: true,
+        });
+        return NextResponse.json({ ok: true, token });
+      } catch (e: any) {
+        // Say what actually broke — the generic sentence sent us hunting for
+        // credentials that were configured correctly all along.
+        const msg = String(e?.message || e?.code || 'unknown');
+        return NextResponse.json({ ok: false, error: `Could not prepare uploads: ${msg}` }, { status: 500 });
+      }
+    }
+    if (action === 'brand-get') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const { cleanBrand } = await import('@/lib/renter-identity');
+      const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      return NextResponse.json({ ok: true, brand: cleanBrand(r.brand) });
+    }
+    if (action === 'brand-save') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const { cleanBrand, staffMirrorFields } = await import('@/lib/renter-identity');
+      let coverUrl: string | null | undefined = undefined;
+      if (typeof body.coverUrl === 'string' && /^https:\/\/firebasestorage\.googleapis\.com\//.test(body.coverUrl)) {
+        coverUrl = body.coverUrl;
+      } else if (typeof body.coverData === 'string' && body.coverData.startsWith('data:image')) {
+        const up = await uploadPortalImageFromDataUrl(tenantId, `renters/${session.renterId}/cover`, body.coverData);
+        // A failed upload used to be swallowed here — the brand saved
+        // without the cover and the portal said "Saved". The reason is the
+        // only thing that lets anyone fix it, so it comes back as the error.
+        if (!up.url) return NextResponse.json({ ok: false, error: up.error || 'That image didn’t upload.' }, { status: 400 });
+        coverUrl = up.url;
+      } else if (body.coverData === null) coverUrl = null;
+      const cur = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      const brand = cleanBrand({ ...(cur.brand || {}), ...(body.brand || {}), ...(coverUrl !== undefined ? { coverUrl } : {}) });
+      await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set({ brand, brandUpdatedAt: new Date().toISOString() }, { merge: true });
+      const stSnap = await db.collection(`tenants/${tenantId}/staff`).where('renterId', '==', session.renterId).limit(1).get();
+      if (!stSnap.empty) await stSnap.docs[0].ref.set(staffMirrorFields({ brand }), { merge: true });
+      return NextResponse.json({ ok: true, brand });
+    }
+    if (action === 'page-photo') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      if (typeof body.photoData !== 'string' || !body.photoData.startsWith('data:image')) return NextResponse.json({ ok: false, error: 'Not an image.' }, { status: 400 });
+      const up = await uploadPortalImageFromDataUrl(tenantId, `renters/${session.renterId}/gallery/${Date.now()}`, body.photoData);
+      if (!up.url) return NextResponse.json({ ok: false, error: up.error || 'Upload failed.' }, { status: 500 });
+      return NextResponse.json({ ok: true, url: up.url });
+    }
+
+    // ── documents-list / document-sign / document-decline ────────────────────
+    // The paperwork after the lease: a plain-words summary, the move-in
+    // condition report, a written notice, a renewal. Each is a frozen snapshot
+    // the renter reads and signs by typing their name; the signature lands in
+    // signedDocuments beside the lease. A renewal changes the lease HERE, at
+    // signature, and nowhere else — the signature is the agreement.
+    if (action === 'documents-list') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const [dSnap, sSnap] = await Promise.all([
+        db.collection(`tenants/${tenantId}/renterDocuments`).where('renterId', '==', session.renterId).get(),
+        db.collection(`tenants/${tenantId}/signedDocuments`).where('subjectId', '==', session.renterId).get(),
+      ]);
+      const docs = dSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).sort((a, b) => String(b.sentAt).localeCompare(String(a.sentAt)));
+      const signed = sSnap.docs.map((d) => { const x = d.data() as any; return { id: d.id, kind: x.kind, title: x.title, signedAt: x.signedAt, signedName: x.signedName }; })
+        .sort((a, b) => String(b.signedAt).localeCompare(String(a.signedAt)));
+      const renter = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      return NextResponse.json({ ok: true, documents: docs, signed, portalToken: renter.portalToken || null });
+    }
+    if (action === 'document-sign' || action === 'document-decline') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const docId = String(body.documentId || '');
+      const dRef = db.doc(`tenants/${tenantId}/renterDocuments/${docId}`);
+      const dSnap = await dRef.get();
+      const d = (dSnap.data() as any) || null;
+      if (!dSnap.exists || d.renterId !== session.renterId) return NextResponse.json({ ok: false, error: 'That document is not yours.' }, { status: 403 });
+      if (d.status !== 'sent') return NextResponse.json({ ok: false, error: `This document is already ${d.status}.` }, { status: 400 });
+      const nowIso = new Date().toISOString();
+      const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      const renterName = `${r.firstName || ''} ${r.lastName || ''}`.trim() || 'Renter';
+      const { logAuditAdmin } = await import('@/lib/audit');
+
+      if (action === 'document-decline') {
+        const note = String(body.note || '').trim().slice(0, 600);
+        await dRef.set({ status: 'declined', declinedAt: nowIso, declineNote: note }, { merge: true });
+        const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+        await nRef.set({ id: nRef.id, type: 'renter_document', read: false, createdAt: nowIso, link: '/renters',
+          message: `${renterName} declined "${d.title}"${note ? `: "${note.slice(0, 120)}"` : ''}.` });
+        const mRef = db.collection(`tenants/${tenantId}/renterThreads/${session.renterId}/messages`).doc();
+        await mRef.set({ id: mRef.id, renterId: session.renterId, direction: 'inbound', createdAt: nowIso, documentId: docId, text: `Declined "${d.title}"${note ? `\n\n${note}` : ''}` });
+        await db.doc(`tenants/${tenantId}/renterThreads/${session.renterId}`).set({ renterId: session.renterId, lastAt: nowIso, lastText: `Declined "${d.title}"`, lastDirection: 'inbound', unreadForOwner: true }, { merge: true });
+        return NextResponse.json({ ok: true });
+      }
+
+      const signedName = String(body.signedName || '').trim().slice(0, 120);
+      if (signedName.length < 2) return NextResponse.json({ ok: false, error: 'Type your full name to sign.' }, { status: 400 });
+      const { buildSignedRecord } = await import('@/lib/esign');
+      const sRef = db.collection(`tenants/${tenantId}/signedDocuments`).doc();
+      const record = buildSignedRecord(sRef.id, {
+        subjectType: 'renter', subjectId: session.renterId, subjectName: renterName,
+        kind: d.kind === 'renewal_offer' ? 'lease' : 'policy',
+        title: d.title, agreementText: d.body,
+        meta: { renterDocumentId: docId, renterDocKind: d.kind, leaseId: d.leaseId || null, ...(d.meta || {}) },
+      }, signedName);
+      (record as any).userAgent = req.headers.get('user-agent') || null;
+      (record as any).ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null;
+      (record as any).action = d.action || 'sign';
+      await sRef.set(record);
+      await dRef.set({ status: 'signed', signedAt: nowIso, signedName, signedDocumentId: sRef.id }, { merge: true });
+
+      // A renewal changes the lease at signature. End date now; a rent change
+      // takes effect on its start date — today if that has passed, otherwise
+      // it waits on the lease as scheduledRent for the nightly to apply.
+      let leaseNote = '';
+      if (d.kind === 'renewal_offer' && d.leaseId) {
+        const { renewalLeasePatch } = await import('@/lib/renter-documents');
+        const patch = renewalLeasePatch(d.meta);
+        if (patch) {
+          const lRef = db.doc(`tenants/${tenantId}/leases/${d.leaseId}`);
+          const lease = ((await lRef.get()).data() as any) || {};
+          const today = nowIso.slice(0, 10);
+          const upd: Record<string, any> = { renewedAt: nowIso, renewalDocumentId: docId, updatedAt: nowIso };
+          if (patch.endDate) { upd.endDate = patch.endDate; upd.previousEndDate = lease.endDate || null; }
+          if (patch.rentAmountCents) {
+            if (!patch.renewalEffective || patch.renewalEffective <= today) { upd.rentAmountCents = patch.rentAmountCents; upd.previousRentAmountCents = Number(lease.rentAmountCents) || 0; leaseNote = ' Rent updated now.'; }
+            else { upd.scheduledRent = { cents: patch.rentAmountCents, from: patch.renewalEffective, documentId: docId }; leaseNote = ` Rent changes on ${patch.renewalEffective}.`; }
+          }
+          await lRef.set(upd, { merge: true });
+          await logAuditAdmin(db, tenantId, {
+            action: 'lease.renewed', targetType: 'lease', targetId: d.leaseId,
+            summary: `Renewal signed by ${signedName}${patch.endDate ? ` — ends ${patch.endDate}` : ''}${patch.rentAmountCents ? `, rent ${(patch.rentAmountCents / 100).toFixed(2)}${patch.renewalEffective ? ` from ${patch.renewalEffective}` : ''}` : ''}`,
+            actor: { type: 'user', id: session.renterId, name: `${signedName} (renter)` },
+          });
+        }
+      }
+
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({ id: nRef.id, type: 'renter_document', read: false, createdAt: nowIso, link: '/renters',
+        message: `${renterName} ${d.action === 'acknowledge' ? 'acknowledged' : 'signed'} "${d.title}".${leaseNote}` });
+      const mRef = db.collection(`tenants/${tenantId}/renterThreads/${session.renterId}/messages`).doc();
+      await mRef.set({ id: mRef.id, renterId: session.renterId, direction: 'inbound', createdAt: nowIso, documentId: docId, signedDocumentId: sRef.id,
+        text: `${d.action === 'acknowledge' ? 'Acknowledged' : 'Signed'} "${d.title}" as ${signedName}.` });
+      await db.doc(`tenants/${tenantId}/renterThreads/${session.renterId}`).set({ renterId: session.renterId, lastAt: nowIso, lastText: `${d.action === 'acknowledge' ? 'Acknowledged' : 'Signed'} "${d.title}"`, lastDirection: 'inbound', unreadForOwner: true }, { merge: true });
+      return NextResponse.json({ ok: true, signedDocumentId: sRef.id });
+    }
+
+    // ── interruption-list / interruption-loss: what a closure cost THEM ──────
+    // Interruptions touching the renter's space (open, or resolved in the last
+    // 120 days), with the remedy notes the shop chose to share, and the
+    // renter's own loss entries. The shop reads the log; only the renter
+    // writes it — a number the shop typed for them is worth nothing to the
+    // renter's insurer.
+    if (action === 'interruption-list') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const { affectsBooth, lossTotals } = await import('@/lib/interruptions');
+      const leaseSnap = await db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', session.renterId).get();
+      const myBooths = new Set(leaseSnap.docs.map((d) => (d.data() as any)).filter((l) => ['active', 'on_leave'].includes(String(l.status))).map((l) => String(l.boothId || '')));
+      const cutoff = new Date(Date.now() - 120 * 86_400_000).toISOString().slice(0, 10);
+      const iSnap = await db.collection(`tenants/${tenantId}/interruptions`).get();
+      const mine = iSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
+        .filter((r) => [...myBooths].some((b) => affectsBooth(r, b)))
+        .filter((r) => r.status === 'open' || String(r.endDate || r.startDate) >= cutoff)
+        .sort((a, b) => String(b.startDate).localeCompare(String(a.startDate)));
+      if (mine.length === 0) return NextResponse.json({ ok: true, interruptions: [] });
+      const lSnap = await db.collection(`tenants/${tenantId}/interruptionLosses`).where('renterId', '==', session.renterId).get();
+      const losses = lSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+      const renter = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      // Their bookings inside each window, if they book through us: the
+      // tick-list that replaces "type how many".
+      const { appointmentsInWindow } = await import('@/lib/interruptions');
+      const prov = await myProvider();
+      const earliest = mine.reduce((m, r) => (String(r.startDate) < m ? String(r.startDate) : m), '9999-12-31');
+      const myAppts = prov
+        ? (await db.collection(`tenants/${tenantId}/appointments`).where('staffId', '==', prov.id).where('startTime', '>=', `${earliest}T00:00:00.000Z`).get())
+            .docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((a) => a.isRenterBooking)
+        : [];
+      const today = new Date().toISOString().slice(0, 10);
+      return NextResponse.json({
+        ok: true, portalToken: renter.portalToken || null, booksHere: !!prov,
+        interruptions: mine.map((r) => {
+          const own = losses.filter((l) => l.interruptionId === r.id).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+          const hit = appointmentsInWindow(myAppts, r, null, today).map((a) => ({
+            id: a.id, startTime: a.startTime, clientName: a.clientName || 'Client', serviceName: a.renterServiceName || a.serviceName || '',
+            price: Number(a.renterServicePrice) || 0, status: a.status, lost: a.interruptionId === r.id,
+          }));
+          return {
+            id: r.id, title: r.title, type: r.type, startDate: r.startDate, endDate: r.endDate || null, status: r.status,
+            updates: (r.remedy || []).filter((x: any) => x.sharedWithRenters).map((x: any) => ({ at: x.at, text: x.text })),
+            losses: own.map((l) => ({ id: l.id, date: l.date, appointmentsLost: l.appointmentsLost, lostCents: l.lostCents, note: l.note })),
+            totals: lossTotals(own),
+            appointments: hit,
+          };
+        }),
+      });
+    }
+    if (action === 'interruption-loss') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const interruptionId = String(body.interruptionId || '');
+      const iSnap = await db.doc(`tenants/${tenantId}/interruptions/${interruptionId}`).get();
+      if (!iSnap.exists) return NextResponse.json({ ok: false, error: 'That closure is not on record.' }, { status: 404 });
+      const rec = iSnap.data() as any;
+
+      // ── From the bookings themselves ─────────────────────────────────────
+      // Ticked appointments become day entries: count and dollars come from
+      // the bookings, not from memory. Each appointment is stamped with the
+      // closure so the packet can name them. Optionally cancelled and the
+      // client told — as the renter, with the closure wording.
+      if (Array.isArray(body.appointmentIds) && body.appointmentIds.length > 0) {
+        const st = await myProvider();
+        if (!st) return NextResponse.json({ ok: false, error: 'Your booking profile is not set up yet.' }, { status: 400 });
+        const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+        const renterName = `${r.firstName || ''} ${r.lastName || ''}`.trim() || 'Renter';
+        const last = rec.endDate || new Date().toISOString().slice(0, 10);
+        const byDay = new Map<string, { n: number; cents: number }>();
+        const nowIso = new Date().toISOString();
+        let stamped = 0, cancelled = 0;
+        for (const id of body.appointmentIds.slice(0, 200).map(String)) {
+          const ref = db.doc(`tenants/${tenantId}/appointments/${id}`);
+          const a = ((await ref.get()).data() as any) || null;
+          if (!a || !a.isRenterBooking || (a.renterProviderId || a.staffId) !== st.id) continue;
+          const day = String(a.startTime).slice(0, 10);
+          if (day < String(rec.startDate) || day > String(last)) continue;
+          const patch: Record<string, any> = { interruptionId, lostToInterruption: true, lostStampedAt: nowIso };
+          if (body.cancelAndTell === true && a.status !== 'cancelled' && a.status !== 'completed') {
+            patch.status = 'cancelled'; patch.cancelledAt = nowIso;
+            patch.cancellationAudit = { actorType: 'studio', actorId: st.id, actorName: st.name || renterName, reason: 'closure', note: rec.title, feeAmount: 0, feeWaived: true, paymentStatus: 'paid', timestamp: nowIso, via: 'renter_portal' };
+            cancelled++;
+            await tellClient(a, st, `We have to cancel ${fmtWhen(a.startTime)}`,
+              [`${renterName} here — the studio is unexpectedly closed (${rec.title}), so I have to cancel your ${a.renterServiceName || 'appointment'} on ${fmtWhen(a.startTime)}. I am so sorry.`, 'Nothing has been charged. As soon as we are back open I would love to get you in — reply here or book again any time.'],
+              'renter_client_cancelled');
+          }
+          await ref.set(patch, { merge: true });
+          stamped++;
+          const d = byDay.get(day) || { n: 0, cents: 0 };
+          d.n += 1; d.cents += Math.round((Number(a.renterServicePrice) || 0) * 100);
+          byDay.set(day, d);
+        }
+        for (const [date, d] of byDay) {
+          const dup = await db.collection(`tenants/${tenantId}/interruptionLosses`).where('renterId', '==', session.renterId).where('interruptionId', '==', interruptionId).where('date', '==', date).limit(1).get();
+          const ref = dup.empty ? db.collection(`tenants/${tenantId}/interruptionLosses`).doc() : dup.docs[0].ref;
+          await ref.set({ id: ref.id, interruptionId, renterId: session.renterId, renterName, date, appointmentsLost: d.n, lostCents: d.cents,
+            note: 'From booked appointments', loggedAt: nowIso, fromBookings: true }, { merge: true });
+        }
+        return NextResponse.json({ ok: true, stamped, cancelled, days: byDay.size });
+      }
+      const date = String(body.date || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return NextResponse.json({ ok: false, error: 'Pick the day.' }, { status: 400 });
+      const last = rec.endDate || new Date().toISOString().slice(0, 10);
+      if (date < String(rec.startDate) || date > String(last)) return NextResponse.json({ ok: false, error: `That day is outside the closure (${rec.startDate} to ${last}).` }, { status: 400 });
+      const appointmentsLost = Math.max(0, Math.min(200, Math.floor(Number(body.appointmentsLost) || 0)));
+      const lostCents = Math.max(0, Math.min(5_000_000, Math.round(Number(body.lostCents) || 0)));
+      if (appointmentsLost === 0 && lostCents === 0) return NextResponse.json({ ok: false, error: 'Enter appointments lost, an amount, or both.' }, { status: 400 });
+      const dup = await db.collection(`tenants/${tenantId}/interruptionLosses`).where('renterId', '==', session.renterId).where('interruptionId', '==', interruptionId).where('date', '==', date).limit(1).get();
+      const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      const nowIso = new Date().toISOString();
+      const entry = {
+        interruptionId, renterId: session.renterId, renterName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || 'Renter',
+        date, appointmentsLost, lostCents, note: String(body.note || '').trim().slice(0, 500), loggedAt: nowIso,
+      };
+      // One entry per day: logging the same day again REPLACES it, so a
+      // corrected number never sits next to the wrong one it corrected.
+      const ref = dup.empty ? db.collection(`tenants/${tenantId}/interruptionLosses`).doc() : dup.docs[0].ref;
+      await ref.set({ id: ref.id, ...entry }, { merge: true });
+      return NextResponse.json({ ok: true, id: ref.id, replaced: !dup.empty });
+    }
+
+    // ── concern-list / concern-file: a grievance, raised properly ───────────
+    // The structured record lives in renterGrievances; the CONVERSATION about
+    // it lives in the renter's thread like everything else, so the drawer,
+    // the timeline and the account record show it with no extra plumbing.
+    // Filing sends a receipt with the reference — a receipt, not a decision.
+    if (action === 'concern-list') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const snap = await db.collection(`tenants/${tenantId}/renterGrievances`).where('renterId', '==', session.renterId).get();
+      return NextResponse.json({ ok: true, concerns: snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).sort((a, b) => String(b.filedAt).localeCompare(String(a.filedAt))) });
+    }
+    if (action === 'concern-file') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const { GRIEVANCE_CATEGORY_LABEL, CONFIDENTIAL_BY_DEFAULT, makeGrievanceRef } = await import('@/lib/grievances');
+      const category = Object.prototype.hasOwnProperty.call(GRIEVANCE_CATEGORY_LABEL, body.category) ? body.category : 'other';
+      const what = String(body.what || '').trim().slice(0, 2000);
+      const wanted = String(body.wanted || '').trim().slice(0, 800);
+      const when = /^\d{4}-\d{2}-\d{2}$/.test(String(body.when || '')) ? String(body.when) : new Date().toISOString().slice(0, 10);
+      if (what.length < 10) return NextResponse.json({ ok: false, error: 'Tell us what happened \u2014 a sentence or two.' }, { status: 400 });
+      const openSnap = await db.collection(`tenants/${tenantId}/renterGrievances`).where('renterId', '==', session.renterId).where('status', 'in', ['open', 'acknowledged']).get();
+      if (openSnap.size >= 5) return NextResponse.json({ ok: false, error: 'You have five concerns open already \u2014 let us work through those first.' }, { status: 429 });
+      const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      const renterName = `${r.firstName || ''} ${r.lastName || ''}`.trim() || 'Renter';
+      const nowIso = new Date().toISOString();
+      const ref = makeGrievanceRef(nowIso);
+      const confidential = typeof body.confidential === 'boolean' ? body.confidential : CONFIDENTIAL_BY_DEFAULT.includes(category);
+      const gRef = db.collection(`tenants/${tenantId}/renterGrievances`).doc();
+      // Up to three photos, uploaded with admin credentials to the same
+      // evidence pipeline tickets use. A failed upload never blocks the
+      // concern — the words are the record; the photo is support.
+      const photoUrls: string[] = [];
+      const photos = Array.isArray(body.photos) ? body.photos.slice(0, 3) : [];
+      for (const p of photos) {
+        if (typeof p !== 'string' || !p.startsWith('data:image')) continue;
+        const up = await uploadTicketPhotoFromDataUrl(tenantId, `concern-${gRef.id}-${photoUrls.length}`, p);
+        if (up.url) photoUrls.push(up.url);
+      }
+      await gRef.set({
+        id: gRef.id, ref, renterId: session.renterId, renterName, category, what, when, wanted, confidential, photoUrls,
+        status: 'open', filedAt: nowIso, acknowledgedAt: null, resolvedAt: null, resolution: null, responses: 0,
+      });
+      // The line in their thread: what the drawer, timeline and account record read.
+      const mRef = db.collection(`tenants/${tenantId}/renterThreads/${session.renterId}/messages`).doc();
+      await mRef.set({
+        id: mRef.id, renterId: session.renterId, direction: 'inbound', createdAt: nowIso, grievanceId: gRef.id,
+        text: `Raised a concern ${ref} \u00b7 ${GRIEVANCE_CATEGORY_LABEL[category as keyof typeof GRIEVANCE_CATEGORY_LABEL]}${confidential ? ' \u00b7 confidential' : ''}${photoUrls.length ? ` \u00b7 ${photoUrls.length} photo${photoUrls.length === 1 ? '' : 's'}` : ''}\n\n${what}${wanted ? `\n\nWhat they would like: ${wanted}` : ''}`,
+        ...(photoUrls.length ? { photoUrl: photoUrls[0], photoUrls } : {}),
+      });
+      await db.doc(`tenants/${tenantId}/renterThreads/${session.renterId}`).set({
+        renterId: session.renterId, lastAt: nowIso, lastText: `Concern ${ref} \u00b7 ${GRIEVANCE_CATEGORY_LABEL[category as keyof typeof GRIEVANCE_CATEGORY_LABEL]}`, lastDirection: 'inbound', unreadForOwner: true,
+      }, { merge: true });
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({ id: nRef.id, type: 'renter_concern', read: false, createdAt: nowIso, link: '/renters',
+        message: `${renterName} raised a concern (${ref}) \u2014 ${GRIEVANCE_CATEGORY_LABEL[category as keyof typeof GRIEVANCE_CATEGORY_LABEL]}.` });
+      // The receipt. Reference, what we have on file, what happens next.
+      const to = String(r.email || '').trim();
+      if (to.includes('@')) {
+        try {
+          let studioName = 'The studio';
+          try { studioName = ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.name || studioName; } catch { /* cosmetic */ }
+          const { brandedEmailHtml } = await import('@/lib/email-template');
+          const { sendNotification } = await import('@/lib/notify');
+          await sendNotification(db, {
+            tenantId, channel: 'email', to,
+            subject: `We have your concern \u2014 ${ref}`,
+            html: brandedEmailHtml({
+              studioName, title: 'Received',
+              bodyLines: [
+                `Hi ${r.firstName || 'there'} \u2014 your concern is on file as ${ref} (${GRIEVANCE_CATEGORY_LABEL[category as keyof typeof GRIEVANCE_CATEGORY_LABEL]}).`,
+                'Keep that reference; quote it if you follow up. You will see its status in your portal, and every reply we send lands there too.',
+              ],
+              footerNote: `Sent by ${studioName}.`,
+            }),
+            kind: 'grievance_received', recipientType: 'renter', recipientId: session.renterId, recipientName: renterName,
+          });
+        } catch { /* the record stands; the receipt is best-effort */ }
+      }
+      return NextResponse.json({ ok: true, id: gRef.id, ref });
+    }
+
+    // ── leave-list / leave-request / leave-redeem ──────────────────────────
+    // The renter asks; the owner decides. Nothing here changes rent — it
+    // records a request and raises a decision. Banked days are the same
+    // shape: asking to spend them is not spending them.
+    if (action === 'leave-list') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const snap = await db.collection(`tenants/${tenantId}/renterLeaves`).where('renterId', '==', session.renterId).get();
+      const { resolveLeavePolicy } = await import('@/lib/leave-policy');
+      const tenantDoc = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      return NextResponse.json({
+        ok: true, policy: resolveLeavePolicy(tenantDoc),
+        leaves: snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).sort((a, b) => String(b.requestedAt).localeCompare(String(a.requestedAt))),
+      });
+    }
+    if (action === 'leave-request') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const { resolveLeavePolicy, leaveDays } = await import('@/lib/leave-policy');
+      const tenantDoc = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      const policy = resolveLeavePolicy(tenantDoc);
+      if (policy.offered.length === 0) return NextResponse.json({ ok: false, error: 'Leave is not offered here yet \u2014 message the studio.' }, { status: 400 });
+      const type = ['maternity', 'medical', 'family', 'personal', 'other'].includes(body.type) ? body.type : 'other';
+      const startDate = String(body.startDate || '').slice(0, 10), endDate = String(body.endDate || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate) || endDate < startDate) {
+        return NextResponse.json({ ok: false, error: 'Pick a start and an expected return.' }, { status: 400 });
+      }
+      const leaseSnap = await db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', session.renterId).where('status', '==', 'active').limit(1).get();
+      if (leaseSnap.empty) return NextResponse.json({ ok: false, error: 'No active lease to take leave from.' }, { status: 400 });
+      const preferred = policy.offered.includes(body.preferred) ? body.preferred : null;
+      const nowIso = new Date().toISOString();
+      const ref = db.collection(`tenants/${tenantId}/renterLeaves`).doc();
+      const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      await ref.set({
+        id: ref.id, renterId: session.renterId, leaseId: leaseSnap.docs[0].id, type, startDate, endDate,
+        days: leaveDays(startDate, endDate), preferred, treatment: null, status: 'requested',
+        note: String(body.note || '').trim().slice(0, 600), requestedAt: nowIso,
+        renterName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || 'Renter',
+      });
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({
+        id: nRef.id, type: 'renter_leave', read: false, createdAt: nowIso, link: '/rent',
+        message: `${r.firstName || 'A renter'} ${r.lastName || ''} requested ${type} leave, ${startDate} to ${endDate} \u2014 needs your decision.`.replace(/\s+/g, ' '),
+      });
+      return NextResponse.json({ ok: true, id: ref.id });
+    }
+    if (action === 'leave-redeem') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const { bankedAvailable, redeemValueCents } = await import('@/lib/leave-policy');
+      const leaveId = String(body.leaveId || '');
+      const lRef = db.doc(`tenants/${tenantId}/renterLeaves/${leaveId}`);
+      const lSnap = await lRef.get();
+      const leave = (lSnap.data() as any) || null;
+      if (!lSnap.exists || leave.renterId !== session.renterId) return NextResponse.json({ ok: false, error: 'That leave is not yours.' }, { status: 403 });
+      if (leave.redeem && leave.redeem.status === 'requested') return NextResponse.json({ ok: false, error: 'You already have a request waiting on the studio.' }, { status: 400 });
+      const available = bankedAvailable(leave);
+      const days = Math.max(1, Math.min(available, Math.floor(Number(body.days) || 0)));
+      if (available <= 0) return NextResponse.json({ ok: false, error: 'No banked days left to use.' }, { status: 400 });
+      const leaseSnap = await db.doc(`tenants/${tenantId}/leases/${leave.leaseId}`).get();
+      const nowIso = new Date().toISOString();
+      await lRef.set({
+        redeem: {
+          days, note: String(body.note || '').trim().slice(0, 400), requestedAt: nowIso,
+          status: 'requested', creditCents: redeemValueCents((leaseSnap.data() as any) || {}, days),
+        },
+      }, { merge: true });
+      const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({
+        id: nRef.id, type: 'renter_leave', read: false, createdAt: nowIso, link: '/rent',
+        message: `${r.firstName || 'A renter'} asked to use ${days} banked rental day${days === 1 ? '' : 's'} \u2014 approve it to credit their rent.`,
+      });
+      return NextResponse.json({ ok: true, days });
+    }
+
+    // ── thread-list / thread-send: the renter's side of the conversation ───
+    // Same thread the owner writes to from the renter card. A reply here is
+    // documented the instant it is written, and the owner is told in-app —
+    // no more "they texted me" with nothing on the record.
+    if (action === 'thread-list') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const snap = await db.collection(`tenants/${tenantId}/renterThreads/${session.renterId}/messages`)
+        .orderBy('createdAt', 'desc').limit(100).get();
+      await db.doc(`tenants/${tenantId}/renterThreads/${session.renterId}`).set({ unreadForRenter: false, renterSeenAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+      return NextResponse.json({ ok: true, messages: snap.docs.map((d) => {
+        const m = d.data() as any;
+        return { id: d.id, direction: m.direction, text: m.text, byName: m.byName || null, createdAt: m.createdAt };
+      }) });
+    }
+    if (action === 'thread-send') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const clean = String(body.text || '').trim().slice(0, 2000);
+      if (!clean) return NextResponse.json({ ok: false, error: 'Write something first.' }, { status: 400 });
+      const rSnap = await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get();
+      const r = (rSnap.data() as any) || {};
+      const nowIso = new Date().toISOString();
+      const mRef = db.collection(`tenants/${tenantId}/renterThreads/${session.renterId}/messages`).doc();
+      await mRef.set({ id: mRef.id, renterId: session.renterId, direction: 'inbound', text: clean, byName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || 'Renter', createdAt: nowIso });
+      await db.doc(`tenants/${tenantId}/renterThreads/${session.renterId}`).set({
+        renterId: session.renterId, lastAt: nowIso, lastText: clean.slice(0, 140), lastDirection: 'inbound', unreadForOwner: true,
+      }, { merge: true });
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({ id: nRef.id, type: 'renter_message', read: false, createdAt: nowIso, link: '/renters',
+        message: `${r.firstName || 'A renter'} ${r.lastName || ''}: “${clean.slice(0, 90)}${clean.length > 90 ? '…' : ''}”`.replace(/\s+/g, ' ') });
+      return NextResponse.json({ ok: true, id: mRef.id });
+    }
+
+    // ── autopay-set: the renter's own switch ───────────────────────────────
+    // Same flag the owner flips on the renter card; this is their side of it.
+    // Refused without a card on file, because an autopay with nothing to draft
+    // from is a promise the shop cannot keep.
+    if (action === 'autopay-set') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const rRef = db.doc(`tenants/${tenantId}/renters/${session.renterId}`);
+      const rSnap = await rRef.get();
+      const r = (rSnap.data() as any) || {};
+      const on = body.enabled === true;
+      const hasCard = !!(r.cardOnFile && r.stripeCustomerId && (r.stripePaymentMethodId || r.defaultPaymentMethodId));
+      if (on && !hasCard) {
+        return NextResponse.json({ ok: false, error: 'Add a card first — autopay needs one to draft from.' }, { status: 400 });
+      }
+      const nowIso = new Date().toISOString();
+      await rRef.set({ autopayEnabled: on, autopayChangedAt: nowIso, autopayChangedBy: 'renter' }, { merge: true });
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({ id: nRef.id, type: 'renter_autopay', read: false, createdAt: nowIso, link: '/rent',
+        message: `${r.firstName || 'A renter'} ${r.lastName || ''} turned autopay ${on ? 'on' : 'off'} from their portal.`.replace(/\s+/g, ' ') });
+      return NextResponse.json({ ok: true, autopayEnabled: on });
+    }
+
+    if (action === 'pay-invoice' || action === 'confirm-invoice') {
+      const invoiceId = String(body.invoiceId || '');
+      if (!invoiceId) return NextResponse.json({ ok: false, error: 'Missing invoice.' }, { status: 400 });
+      if (!process.env.STRIPE_SECRET_KEY) {
+        return NextResponse.json({ ok: false, error: 'Online payments aren’t set up yet — pay at the front desk.' }, { status: 400 });
+      }
+      const invRef = db.doc(`tenants/${tenantId}/rentInvoices/${invoiceId}`);
+      const invSnap = await invRef.get();
+      const inv = invSnap.exists ? (invSnap.data() as any) : null;
+      if (!inv) return NextResponse.json({ ok: false, error: 'Invoice not found.' }, { status: 404 });
+      const leaseSnap = inv.leaseId ? await db.doc(`tenants/${tenantId}/leases/${inv.leaseId}`).get() : null;
+      const lease = leaseSnap?.exists ? (leaseSnap.data() as any) : null;
+      const renterSnap = lease?.renterId ? await db.doc(`tenants/${tenantId}/renters/${lease.renterId}`).get() : null;
+      const renter = renterSnap?.exists ? (renterSnap.data() as any) : null;
+      if (!renter || !contactMatches(key, renter.phone, renter.email)) {
+        return NextResponse.json({ ok: false, error: 'This invoice belongs to a different renter.' }, { status: 403 });
+      }
+      const renterName = `${renter.firstName || ''} ${renter.lastName || ''}`.trim() || 'Renter';
+      const totalCents = (inv.amountCents || 0) + (inv.lateFeeCents || 0);
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
+
+      if (action === 'pay-invoice') {
+        if (inv.status === 'paid') return NextResponse.json({ ok: true, alreadyPaid: true });
+        if (!['due', 'late'].includes(inv.status)) {
+          return NextResponse.json({ ok: false, error: 'This invoice isn’t open.' }, { status: 409 });
+        }
+        if (totalCents <= 0) return NextResponse.json({ ok: false, error: 'Nothing to pay.' }, { status: 400 });
+        const returnUrl = String(body.returnUrl || '');
+        if (!returnUrl) return NextResponse.json({ ok: false, error: 'Missing return URL.' }, { status: 400 });
+        const base = returnUrl.split('?')[0];
+        // Reuse the renter's Stripe customer if one exists (from setup-card or a
+        // prior payment); otherwise create it now. The renter doc is the single
+        // card-on-file store — paying rent online enrolls the card automatically,
+        // so no separate setup step is needed for incidentals.
+        let customerId: string | null = renter.stripeCustomerId || null;
+        if (!customerId) {
+          const customer = await stripe.customers.create({
+            email: renter.email || undefined,
+            name: renterName,
+            metadata: { tenantId, renterId: lease?.renterId || '', leaseId: inv.leaseId || '' },
+          });
+          customerId = customer.id;
+          if (lease?.renterId) {
+            await db.doc(`tenants/${tenantId}/renters/${lease.renterId}`).set({ stripeCustomerId: customerId }, { merge: true });
+          }
+        }
+        const checkout = await stripe.checkout.sessions.create({
+          mode: 'payment',
+          customer: customerId,
+          // Save the card for off-session incidental charges (hotel-style),
+          // governed by the studio's capped incidentals policy.
+          payment_intent_data: { setup_future_usage: 'off_session' },
+          line_items: [{
+            quantity: 1,
+            price_data: {
+              currency: 'usd',
+              unit_amount: totalCents,
+              product_data: {
+                name: `Booth rent — due ${String(inv.dueDate || '').slice(0, 10)}`,
+                description: renterName + (inv.lateFeeCents > 0 ? ` · incl. $${(inv.lateFeeCents / 100).toFixed(2)} late fee` : ''),
+              },
+            },
+          }],
+          success_url: `${base}?cfInvoiceId=${invoiceId}&cfSession={CHECKOUT_SESSION_ID}`,
+          cancel_url: base,
+          metadata: { tenantId, invoiceId, kind: 'rent_invoice' },
+        });
+        await invRef.set({ stripeSessionId: checkout.id, paymentStartedAt: new Date().toISOString() }, { merge: true });
+        return NextResponse.json({ ok: true, url: checkout.url });
+      }
+
+      // ═══ confirm-invoice — after Stripe redirects back ═════════════════
+      if (inv.status === 'paid') return NextResponse.json({ ok: true, alreadyPaid: true });
+      const sessionId = String(body.sessionId || '');
+      if (!sessionId) return NextResponse.json({ ok: false, error: 'Missing session.' }, { status: 400 });
+      const cs: any = await stripe.checkout.sessions.retrieve(sessionId);
+      if (cs?.payment_status !== 'paid' || cs?.metadata?.invoiceId !== invoiceId) {
+        return NextResponse.json({ ok: false, error: 'Payment not completed — nothing was charged.' }, { status: 402 });
+      }
+      const nowIso = new Date().toISOString();
+      // Idempotent: refreshing the return page must never double-book income.
+      const existing = await db.collection(`tenants/${tenantId}/transactions`)
+        .where('sourceId', '==', invoiceId).get();
+      let txnId = existing.docs.find((d: any) => (d.data() as any).type === 'income')?.id || null;
+      if (!txnId) {
+        const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+        txnId = txnRef.id;
+        await txnRef.set({
+          id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
+          source: 'booth_rent', category: 'Booth Rent',
+          amount: totalCents / 100,
+          description: `Booth rent — due ${String(inv.dueDate || '').slice(0, 10)} (paid online)${inv.lateFeeCents > 0 ? ` · incl. $${(inv.lateFeeCents / 100).toFixed(2)} late fee` : ''}`,
+          clientOrVendor: renterName, date: nowIso, paymentMethod: 'Card (Stripe)',
+          hasReceipt: false, sourceId: invoiceId,
+          stripePaymentIntentId: cs.payment_intent || null,
+          tenantId, createdAt: nowIso,
+        });
+        // Paired Stripe fee — fail-open, fee recording never blocks revenue.
+        try {
+          const pi: any = await stripe.paymentIntents.retrieve(String(cs.payment_intent), { expand: ['latest_charge.balance_transaction'] });
+          const bt: any = pi?.latest_charge?.balance_transaction;
+          const feeCents = bt?.fee ?? 0;
+          if (feeCents > 0) {
+            const feeRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+            await feeRef.set({
+              id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
+              category: 'Processing Fee', amount: feeCents / 100,
+              description: `Stripe fee — rent due ${String(inv.dueDate || '').slice(0, 10)}`,
+              clientOrVendor: 'Stripe', date: nowIso, paymentMethod: 'Deducted from payout',
+              hasReceipt: false, relatedTxnId: txnId, sourceId: invoiceId, tenantId, createdAt: nowIso,
+            });
+          }
+        } catch { /* fee is informational */ }
+      }
+      await invRef.set({
+        status: 'paid', paidAt: nowIso, paidMethod: 'Card (Stripe)',
+        paidAmountCents: totalCents, paidLedgerEntryId: txnId,
+        stripePaymentIntentId: cs.payment_intent || null,
+      }, { merge: true });
+      // Save the card on file to the RENTER doc (the single card store the
+      // studio's capped incidentals charge reads) so incidentals can be charged
+      // off-session later. Best-effort — never blocks the receipt.
+      try {
+        if (lease?.renterId && cs.payment_intent) {
+          const pi: any = await stripe.paymentIntents.retrieve(String(cs.payment_intent));
+          const pmId = pi?.payment_method ? String(pi.payment_method) : null;
+          const custId = pi?.customer ? String(pi.customer) : (cs.customer ? String(cs.customer) : null);
+          if (pmId) {
+            let brand = 'card', last4 = '';
+            try {
+              const pm: any = await stripe.paymentMethods.retrieve(pmId);
+              brand = pm?.card?.brand || 'card';
+              last4 = pm?.card?.last4 || '';
+            } catch { /* card summary is cosmetic */ }
+            await db.doc(`tenants/${tenantId}/renters/${lease.renterId}`).set({
+              stripeCustomerId: custId || renter.stripeCustomerId || null,
+              stripePaymentMethodId: pmId,
+              cardOnFile: true,
+              cardBrand: brand,
+              cardLast4: last4,
+              cardSetupAt: nowIso,
+            }, { merge: true });
+          }
+        }
+      } catch { /* card-on-file capture is best-effort */ }
+      await logAuditAdmin(db, tenantId, {
+        action: 'rent.paid_online', targetType: 'rentInvoice', targetId: invoiceId,
+        summary: `${renterName} paid $${(totalCents / 100).toFixed(2)} rent online (due ${String(inv.dueDate || '').slice(0, 10)})`,
+        amount: totalCents / 100,
+        actor: { type: 'user', name: renterName, role: 'renter', via: 'renter-portal' },
+      });
+      const payNotif = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await payNotif.set({
+        id: payNotif.id, userId: null, read: false, createdAt: nowIso,
+        type: 'rent_paid', link: '/rent',
+        message: `💚 ${renterName} paid $${(totalCents / 100).toFixed(2)} rent online.`,
+      });
+      return NextResponse.json({ ok: true, paidCents: totalCents });
+    }
+
+    // ═══ request-reschedule ═══════════════════════════════════════════════
+    if (action === 'request-reschedule') {
+      const reservationId = String(body.reservationId || '');
+      const note = String(body.note || '').slice(0, 300);
+      const ref = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
+      const snap = await ref.get();
+      const r = snap.exists ? (snap.data() as any) : null;
+      if (!r || !contactMatches(key, r.phone, r.email)) {
+        return NextResponse.json({ ok: false, error: 'Reservation not found.' }, { status: 404 });
+      }
+      if (r.status !== 'confirmed') {
+        return NextResponse.json({ ok: false, error: 'Only upcoming confirmed bookings can be rescheduled.' }, { status: 409 });
+      }
+      const nowIso = new Date().toISOString();
+      await ref.set({ rescheduleRequestedAt: nowIso, rescheduleRequestNote: note || null }, { merge: true });
+      await logAuditAdmin(db, tenantId, {
+        action: 'booth.reschedule_requested', targetType: 'boothReservation', targetId: reservationId,
+        summary: `${r.name || 'Renter'} asked to move their ${r.boothName || 'space'} booking (${r.startDate}${r.startTime ? ` ${r.startTime}` : ''})${note ? ` — “${note}”` : ''}`,
+        actor: { type: 'user', name: r.name || session.name || null, role: 'renter', via: 'renter-portal' },
+      });
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({
+        id: nRef.id, userId: null, read: false, createdAt: nowIso,
+        type: 'booth_reservation', link: '/pos?tab=spaces',
+        message: `${r.name || 'A renter'} wants to reschedule ${r.boothName || 'their space'} (${r.startDate})${note ? `: “${note}”` : ''} — use Reschedule on their booking card.`,
+      });
+      return NextResponse.json({ ok: true });
+    }
+
+    return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
+  } catch (err: any) {
+    console.error('[portal/renter] failed', err);
+    // The reason, in the response. "Something went wrong" hid a missing
+    // Firestore index behind a sentence nobody could act on.
+    const msg = String(err?.message || err || '').slice(0, 240);
+    const hint = /index/i.test(msg) ? ' This needs a Firestore index — the link to create it is in the Vercel function log for /api/portal/renter.' : '';
+    return NextResponse.json({ ok: false, error: `Something went wrong: ${msg || 'unknown error'}.${hint}` }, { status: 500 });
+  }
 }
