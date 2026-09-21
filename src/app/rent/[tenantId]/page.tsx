@@ -1932,6 +1932,7 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
   const [view, setView] = useState<'day' | 'week' | 'upcoming' | 'past' | 'blocks'>('day');
   const [dayISO, setDayISO] = useState(() => new Date().toISOString().slice(0, 10));
   const [openId, setOpenId] = useState('');
+  const [bookErr, setBookErr] = useState('');
   const [noteDraft, setNoteDraft] = useState('');
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
@@ -1946,7 +1947,8 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
   const when = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? iso : d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); };
   const load = useCallback(async () => {
     const [d, b] = await Promise.all([api({ action: 'book-list', tenantId, token }), api({ action: 'book-blocks', tenantId, token })]);
-    if (d?.ok) setBook({ upcoming: d.upcoming || [], past: d.past || [], services: d.services || [], staffId: d.staffId });
+    if (d?.ok) { setBook({ upcoming: d.upcoming || [], past: d.past || [], services: d.services || [], staffId: d.staffId }); setBookErr(d.apptError ? `Appointments could not load: ${d.apptError}` : ''); }
+    else setBookErr(d?.error || 'Your book could not load.');
     if (b?.ok) setBlocks(b.blocks || []);
   }, [tenantId, token]);
   useEffect(() => { void load(); }, [load]);
@@ -2213,7 +2215,8 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
           </div>
         )))}
 
-        {view !== 'blocks' && view !== 'day' && view !== 'week' && (book === null ? <p className="py-3 text-center text-[11px] font-bold text-slate-400">Loading your book…</p>
+        {bookErr && <p className="rounded-xl border-2 border-red-200 bg-red-50 px-3 py-2 text-[11px] font-bold text-red-700">{bookErr}</p>}
+        {view !== 'blocks' && view !== 'day' && view !== 'week' && (book === null ? <p className="py-3 text-center text-[11px] font-bold text-slate-400">{bookErr ? 'Nothing to show.' : 'Loading your book…'}</p>
           : rows.length === 0 ? <p className="py-3 text-center text-[11px] font-bold text-slate-400">{view === 'upcoming' ? 'Nothing coming up. Share your booking link or add a walk-in.' : 'No past appointments yet.'}</p>
           : rows.map((a) => {
             const isOpen = openId === a.id;
