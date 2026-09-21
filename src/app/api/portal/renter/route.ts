@@ -2266,6 +2266,32 @@ export async function POST(req: NextRequest) {
       const stSnap = await db.collection(`tenants/${tenantId}/staff`).where('renterId', '==', session.renterId).get();
       return stSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).find((m: any) => m.isRenter && m.isActive !== false) || null;
     };
+    // EVERY staff record that belongs to this renter — not just the one
+    // flagged as the provider. A renter who was an employee first, or was
+    // set up through the old rent page, can have two records with the same
+    // name: old appointments point at the old one, the portal reads the new
+    // one, and the planner looks empty. Their chair is their chair whichever
+    // record booked it, so the book reads all of them.
+    const myStaffIds = async (): Promise<string[]> => {
+      if (!session.renterId) return [];
+      const stSnap = await db.collection(`tenants/${tenantId}/staff`).where('renterId', '==', session.renterId).get();
+      const ids = stSnap.docs.map((d: any) => d.id);
+      // Same person by name, never linked (renterId missing on the old record).
+      const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      const full = `${r.firstName || ''} ${r.lastName || ''}`.trim().toLowerCase();
+      if (full) {
+        const byName = await db.collection(`tenants/${tenantId}/staff`).get();
+        for (const d of byName.docs) { const x = d.data() as any; if (!ids.includes(d.id) && String(x.name || '').trim().toLowerCase() === full && (x.isRenter || !x.renterId)) ids.push(d.id); }
+      }
+      return ids.slice(0, 10); // Firestore 'in' cap
+    };
+    const apptsFor = async (ids: string[], fromIso: string, toIso?: string) => {
+      if (ids.length === 0) return [] as any[];
+      let q: any = db.collection(`tenants/${tenantId}/appointments`).where('staffId', 'in', ids).where('startTime', '>=', fromIso);
+      if (toIso) q = q.where('startTime', '<=', toIso);
+      const snap = await q.get();
+      return snap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+    };
     const myAppt = async (apptId: string) => {
       const st = await myProvider();
       if (!st) return { st: null, ref: null, a: null, error: 'Your booking profile is not set up yet.' };
@@ -2304,7 +2330,7 @@ export async function POST(req: NextRequest) {
       const since = new Date(Date.now() - 90 * 86400000).toISOString();
       const nowIso = new Date().toISOString();
       const [apSnap, svSnap] = await Promise.all([
-        db.collection(`tenants/${tenantId}/appointments`).where('staffId', '==', st.id).where('startTime', '>=', since).get(),
+        myStaffIds().then((ids) => apptsFor(ids, since)).then((rows) => ({ docs: rows.map((r: any) => ({ id: r.id, data: () => r })) })),
         db.collection(`tenants/${tenantId}/renterServices`).where('staffId', '==', st.id).get(),
       ]);
       // EVERYTHING on their chair, not only what came through their own
@@ -2540,7 +2566,7 @@ export async function POST(req: NextRequest) {
         db.collection(`tenants/${tenantId}/tickets`).where('reporter.renterId', '==', rid).get(),
         db.collection(`tenants/${tenantId}/renterGrievances`).where('renterId', '==', rid).get(),
         db.collection(`tenants/${tenantId}/renterLeaves`).where('renterId', '==', rid).get(),
-        prov ? db.collection(`tenants/${tenantId}/appointments`).where('staffId', '==', prov.id).where('startTime', '>=', `${todayIso}T00:00:00.000Z`).where('startTime', '<=', `${todayIso}T23:59:59.999Z`).get() : Promise.resolve({ docs: [] } as any),
+        prov ? myStaffIds().then((ids) => apptsFor(ids, `${todayIso}T00:00:00.000Z`, `${todayIso}T23:59:59.999Z`)).then((rows) => ({ docs: rows.map((r: any) => ({ id: r.id, data: () => r })) })) : Promise.resolve({ docs: [] } as any),
       ]);
 
       type Item = { kind: string; tab: 'book' | 'rent' | 'studio'; title: string; body: string; at: string; tone?: 'red' | 'amber' | 'green' | 'slate' };
