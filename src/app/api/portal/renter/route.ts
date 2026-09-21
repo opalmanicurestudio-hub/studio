@@ -2516,6 +2516,31 @@ export async function POST(req: NextRequest) {
       }).sort((x, y) => String(y.lastVisit || y.nextVisit?.startTime || '').localeCompare(String(x.lastVisit || x.nextVisit?.startTime || '')));
       return NextResponse.json({ ok: true, clients });
     }
+    // ── client-get: everything the appointment sheet needs about one client ──
+    // Their notes, their history with this renter, no-shows, what they
+    // usually get — in one call, so the sheet opens complete.
+    if (action === 'client-get') {
+      const st = await myProvider();
+      const clientId = String(body.clientId || '');
+      if (!st || !clientId) return NextResponse.json({ ok: true, client: null });
+      const cSnap = await db.doc(`tenants/${tenantId}/clients/${clientId}`).get();
+      const c = (cSnap.data() as any) || null;
+      const mine = !!c && c.ownerRenterId === session.renterId;
+      const ids = await myStaffIds();
+      const ap = (await apptsFor(ids, new Date(Date.now() - 365 * 86400000).toISOString())).filter((a: any) => a.clientId === clientId)
+        .sort((x: any, y: any) => String(y.startTime).localeCompare(String(x.startTime)));
+      const nowIso = new Date().toISOString();
+      const done = ap.filter((a: any) => a.status === 'completed' || (a.status !== 'cancelled' && a.startTime < nowIso));
+      const m = new Map<string, number>();
+      for (const a of done) { const k = a.renterServiceName || a.serviceName; if (k) m.set(k, (m.get(k) || 0) + 1); }
+      return NextResponse.json({ ok: true, client: {
+        id: clientId, name: c?.name || ap[0]?.clientName || 'Client', phone: c?.phone || ap[0]?.clientPhone || null, email: c?.email || ap[0]?.clientEmail || null,
+        mine, notes: mine && typeof c?.renterNotes === 'string' ? c.renterNotes : '',
+        visits: done.length, noShows: ap.filter((a: any) => a.renterOutcome === 'no_show').length,
+        lastVisit: done[0]?.startTime || null, favourite: [...m.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] || null,
+        history: ap.slice(0, 12).map((a: any) => ({ id: a.id, startTime: a.startTime, serviceName: a.renterServiceName || a.serviceName || '', price: Number(a.renterServicePrice ?? a.price) || 0, status: a.status, outcome: a.renterOutcome || null, note: a.renterNote || '', viaStudio: !a.isRenterBooking })),
+      } });
+    }
     if (action === 'client-save') {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
       const st = await myProvider();
