@@ -66,6 +66,170 @@ const fmtTime = (t?: string | null) => {
 // The renter asks; the studio decides. Only treatments the shop offers are
 // shown, and a request changes nothing until it is approved. Banked days work
 // the same way: asking to spend them is not spending them.
+// ─── Local calendar days ─────────────────────────────────────────────────────
+// Appointment and block times are stored in UTC. The portal planner was
+// turning them into DAYS by slicing the ISO string — which is the UTC day.
+// In US time zones a 9pm block is 1am tomorrow in UTC, so it landed on the
+// wrong column, and after 8pm "today" was already tomorrow. Every day
+// comparison now goes through the phone's own calendar.
+const localDay = (d: Date | string): string => {
+  const x = typeof d === 'string' ? new Date(d) : d;
+  if (isNaN(x.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`;
+};
+
+// ─── Appointment sheet: the whole appointment in one place ───────────────────
+// What the main app's appointment sheet gives the studio, for the renter:
+// the client (contact, notes, history, no-shows, favourite), the visit
+// (service, time, price, deposit), and every action — note, done, no-show,
+// reschedule, rebook, cancel-and-tell, accept/decline — without hunting
+// through a list row. Opened from Day, Week, Upcoming, Past.
+function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bookViaEngine }: {
+  a: any; services: any[]; tenantId: string; token: string; onClose: () => void; onChanged: () => void;
+  bookViaEngine: (client: any, serviceId: string, startIso: string) => Promise<any>;
+}) {
+  const [client, setClient] = useState<any | null>(null);
+  const [note, setNote] = useState(a.note || '');
+  const [cnote, setCnote] = useState('');
+  const [mode, setMode] = useState<'view' | 'move' | 'rebook' | 'cancel'>('view');
+  const [when, setWhen] = useState('');
+  const [svcId, setSvcId] = useState('');
+  const [tell, setTell] = useState(true);
+  const [busy, setBusy] = useState('');
+  const [err, setErr] = useState('');
+  const [ok, setOk] = useState('');
+  useEffect(() => { let alive = true; api({ action: 'client-get', tenantId, token, clientId: a.clientId }).then((d) => { if (alive && d?.ok) { setClient(d.client); setCnote(d.client?.notes || ''); } }); return () => { alive = false; }; }, [tenantId, token, a.clientId]);
+  const done = a.status === 'completed' || a.status === 'cancelled';
+  const req = a.status === 'requested' || a.status === 'pending';
+  const fmt = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? iso : d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); };
+  const svcMatch = services.find((x: any) => x.name === a.serviceName);
+  const run = async (key: string, fn: () => Promise<any>, after?: string) => {
+    setBusy(key); setErr(''); setOk('');
+    try { const d = await fn(); if (d && d.ok === false) { setErr(d.error || 'That did not work.'); return; } setOk(after || 'Done'); onChanged(); }
+    catch (e: any) { setErr(e?.message || 'That did not work.'); } finally { setBusy(''); }
+  };
+  const localToIso = (v: string) => { const d = new Date(v); return isNaN(d.getTime()) ? '' : d.toISOString(); };
+  const move = async () => {
+    const iso = localToIso(when); const sid = svcMatch?.id || services[0]?.id;
+    if (!iso || !sid) { setErr('Pick a new time.'); return; }
+    await run('move', async () => {
+      const r = await bookViaEngine({ id: a.clientId || undefined, name: a.clientName, phone: a.clientPhone || undefined, email: a.clientEmail || undefined }, sid, iso);
+      if (!r?.ok) return r;
+      return api({ action: 'book-cancel', tenantId, token, appointmentId: a.id, tellClient: false });
+    }, 'Moved — the client gets the new confirmation');
+  };
+  const rebook = async () => {
+    const iso = localToIso(when); const sid = svcId || svcMatch?.id || services[0]?.id;
+    if (!iso || !sid) { setErr('Pick a service and a time.'); return; }
+    await run('rebook', () => bookViaEngine({ id: a.clientId || undefined, name: a.clientName, phone: a.clientPhone || undefined, email: a.clientEmail || undefined }, sid, iso), 'Booked — they have their confirmation');
+  };
+  const Btn = ({ k, label, onClick, tone = 'border-2 border-slate-200 text-slate-700' }: { k: string; label: string; onClick: () => void; tone?: string }) => (
+    <button type="button" disabled={!!busy} onClick={onClick} className={cn('h-10 rounded-xl px-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-40', tone)}>{busy === k ? '…' : label}</button>
+  );
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col justify-end" role="dialog" aria-modal="true" aria-label="Appointment">
+      <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 bg-slate-900/40" />
+      <div className="relative max-h-[92dvh] overflow-y-auto overscroll-contain rounded-t-3xl bg-white px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4">
+        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-slate-200" />
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{a.viaStudio ? 'Studio booking on your chair' : req ? 'Request — needs your answer' : done ? (a.status === 'cancelled' ? 'Cancelled' : 'Completed') : 'Booked'}</p>
+            <p className="text-lg font-black text-slate-900">{a.clientName}</p>
+            <p className="text-[12px] font-bold text-slate-600">{a.serviceName}{a.price ? ` · $${Number(a.price).toFixed(0)}` : ''}{a.duration ? ` · ${a.duration} min` : ''}</p>
+            <p className="text-[12px] font-bold text-slate-900">{fmt(a.startTime)}</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="h-9 w-9 shrink-0 rounded-xl border-2 border-slate-200 text-slate-500">×</button>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {a.clientPhone && <a href={`sms:${a.clientPhone}`} className="h-9 inline-flex items-center rounded-xl border-2 border-slate-200 px-3 text-[9px] font-black uppercase tracking-widest text-slate-700">Text</a>}
+          {a.clientPhone && <a href={`tel:${a.clientPhone}`} className="h-9 inline-flex items-center rounded-xl border-2 border-slate-200 px-3 text-[9px] font-black uppercase tracking-widest text-slate-700">Call</a>}
+          {a.clientEmail && <a href={`mailto:${a.clientEmail}`} className="h-9 inline-flex items-center rounded-xl border-2 border-slate-200 px-3 text-[9px] font-black uppercase tracking-widest text-slate-700">Email</a>}
+        </div>
+
+        {client && (
+          <div className="mt-3 rounded-2xl border-2 border-slate-100 bg-slate-50 p-3 space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Client</p>
+              <p className="text-[10px] font-bold text-slate-500">{client.visits} visit{client.visits === 1 ? '' : 's'}{client.noShows ? ` · ${client.noShows} no-show${client.noShows === 1 ? '' : 's'}` : ''}{client.favourite ? ` · usually ${client.favourite}` : ''}</p>
+            </div>
+            {client.mine ? (
+              <>
+                <textarea value={cnote} onChange={(e) => setCnote(e.target.value.slice(0, 2000))} rows={2} aria-label="Client notes" placeholder="Formulas, allergies, how they like it. Only you see this." className="w-full rounded-xl border-2 border-slate-200 bg-white px-3 py-2 text-[12px]" />
+                {cnote !== (client.notes || '') && <Btn k="cnote" label="Save client notes" onClick={() => run('cnote', () => api({ action: 'client-save', tenantId, token, clientId: client.id, name: client.name, phone: client.phone || '', email: client.email || '', notes: cnote }), 'Client notes saved')} />}
+              </>
+            ) : (
+              <p className="text-[10px] font-bold text-slate-500">This client is in the studio&apos;s book, not yours — their notes live there.</p>
+            )}
+            {client.history.length > 1 && (
+              <div className="pt-1">
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">History with you</p>
+                {client.history.filter((h: any) => h.id !== a.id).slice(0, 5).map((h: any) => (
+                  <p key={h.id} className="text-[10px] font-bold text-slate-600"><span className="font-black text-slate-800">{fmtDate(String(h.startTime).slice(0, 10))}</span> · {h.serviceName}{h.price ? ` · $${h.price.toFixed(0)}` : ''}{h.outcome === 'no_show' ? ' · no-show' : h.status === 'cancelled' ? ' · cancelled' : h.viaStudio ? ' · studio' : ''}</p>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {!a.viaStudio && (
+          <div className="mt-3 space-y-2">
+            <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, 1000))} rows={2} aria-label="Appointment note" placeholder="Note for this visit — only you see it" className="w-full rounded-xl border-2 border-slate-200 px-3 py-2 text-[12px]" />
+            {note !== (a.note || '') && <Btn k="note" label="Save note" onClick={() => run('note', () => api({ action: 'book-note', tenantId, token, appointmentId: a.id, note }), 'Note saved')} />}
+
+            {req && (
+              <div className="flex gap-2">
+                <Btn k="acc" label="Accept" tone="bg-emerald-600 text-white flex-1" onClick={() => run('acc', () => api({ action: 'book-decide', tenantId, token, appointmentId: a.id, decision: 'accept' }), 'Accepted — client told')} />
+                <Btn k="dec" label="Decline" tone="border-2 border-red-300 text-red-700 flex-1" onClick={() => run('dec', () => api({ action: 'book-decide', tenantId, token, appointmentId: a.id, decision: 'decline' }), 'Declined — client told')} />
+              </div>
+            )}
+
+            {mode === 'view' && (
+              <div className="flex flex-wrap gap-1.5">
+                {!done && <Btn k="done" label="Done ✓" tone="bg-emerald-600 text-white" onClick={() => run('done', () => api({ action: 'book-status', tenantId, token, appointmentId: a.id, outcome: 'completed' }), 'Marked done')} />}
+                {!done && <Btn k="ns" label="No-show" tone="border-2 border-amber-300 text-amber-800" onClick={() => run('ns', () => api({ action: 'book-status', tenantId, token, appointmentId: a.id, outcome: 'no_show' }), 'Marked no-show')} />}
+                {!done && <Btn k="mv" label="Reschedule" onClick={() => { setWhen(''); setMode('move'); }} />}
+                <Btn k="rb" label="Rebook" onClick={() => { setWhen(''); setSvcId(svcMatch?.id || ''); setMode('rebook'); }} />
+                {!done && <Btn k="cx" label="Cancel visit" tone="border-2 border-red-300 text-red-700" onClick={() => setMode('cancel')} />}
+              </div>
+            )}
+            {(mode === 'move' || mode === 'rebook') && (
+              <div className="rounded-2xl border-2 border-slate-900 p-3 space-y-2">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-800">{mode === 'move' ? 'Move this visit to' : 'Book them again'}</p>
+                {mode === 'rebook' && (
+                  <select value={svcId} onChange={(e) => setSvcId(e.target.value)} aria-label="Service" className="h-11 w-full rounded-xl border-2 border-slate-200 bg-white px-3 text-sm font-bold">
+                    {services.map((sv: any) => <option key={sv.id} value={sv.id}>{sv.name} · ${Number(sv.price).toFixed(0)} · {sv.duration}m</option>)}
+                  </select>
+                )}
+                <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} aria-label="New time" className="h-11 w-full rounded-xl border-2 border-slate-200 px-3 text-sm font-bold" />
+                <p className="text-[10px] font-bold text-slate-500">{mode === 'move' ? 'The client gets one new confirmation; the old time is released quietly.' : 'Same client, same details — they get a confirmation.'}</p>
+                <div className="flex gap-2">
+                  <Btn k={mode} label={mode === 'move' ? 'Move' : 'Book'} tone="bg-slate-900 text-white flex-1" onClick={mode === 'move' ? move : rebook} />
+                  <Btn k="back" label="Back" onClick={() => setMode('view')} />
+                </div>
+              </div>
+            )}
+            {mode === 'cancel' && (
+              <div className="rounded-2xl border-2 border-red-300 bg-red-50 p-3 space-y-2">
+                <p className="text-[10px] font-black uppercase tracking-widest text-red-800">Cancel this visit?</p>
+                <button type="button" aria-pressed={tell} onClick={() => setTell((v) => !v)} className={cn('h-10 w-full rounded-xl border-2 px-3 text-left text-[10px] font-bold', tell ? 'border-slate-900 bg-white text-slate-900' : 'border-slate-200 bg-white text-slate-500')}>{tell ? 'Will tell the client, as you' : 'Cancel quietly — no message'}</button>
+                <div className="flex gap-2">
+                  <Btn k="cx" label="Yes, cancel" tone="bg-red-700 text-white flex-1" onClick={() => run('cx', () => api({ action: 'book-cancel', tenantId, token, appointmentId: a.id, tellClient: tell }), 'Cancelled')} />
+                  <Btn k="back" label="Keep it" onClick={() => setMode('view')} />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {a.viaStudio && <p className="mt-3 rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">Booked by the studio on your chair — the studio manages and is paid for this one. Ask the studio to change it.</p>}
+        {err && <p className="mt-2 text-xs font-bold text-red-600">{err}</p>}
+        {ok && <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-emerald-700">{ok}</p>}
+      </div>
+    </div>
+  );
+}
+
 // ─── Today: the reasons they logged in, one tap each ─────────────────────────
 function TodayQuick({ data, booksHere, onGo, tenantId, token, onBadges, visible }: { data: any; booksHere: boolean; onGo: (t: 'today' | 'book' | 'rent' | 'studio') => void; tenantId: string; token: string; onBadges: (b: Record<string, number>) => void; visible: boolean }) {
   const [inbox, setInbox] = useState<{ items: any[]; todayAppts: any[] } | null>(null);
@@ -1930,8 +2094,9 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
   // listed. A renter's day is the thing they check most; a list makes them
   // do the arithmetic ("is 2pm free?") that a grid answers on sight.
   const [view, setView] = useState<'day' | 'week' | 'upcoming' | 'past' | 'blocks'>('day');
-  const [dayISO, setDayISO] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dayISO, setDayISO] = useState(() => localDay(new Date()));
   const [openId, setOpenId] = useState('');
+  const [sheetId, setSheetId] = useState('');
   const [bookErr, setBookErr] = useState('');
   const [noteDraft, setNoteDraft] = useState('');
   const [busy, setBusy] = useState('');
@@ -2020,7 +2185,7 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
               </select>
               <input value={blk.reason} onChange={(ev) => setBlk((f) => ({ ...f, reason: ev.target.value.slice(0, 120) }))} aria-label="Reason" placeholder="Lunch, errand, class…" className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
             </div>
-            <button type="button" disabled={busy === 'block' || !blk.when} onClick={() => run('block', async () => { const r = await api({ action: 'book-block', tenantId, token, startTime: localToIso(blk.when), duration: Math.round(Number(blk.hours) * 60), reason: blk.reason }); if (r?.ok) { setBlockOpen(false); setBlk({ when: '', hours: '1', reason: '' }); setView('blocks'); } return r; })}
+            <button type="button" disabled={busy === 'block' || !blk.when} onClick={() => run('block', async () => { const r = await api({ action: 'book-block', tenantId, token, startTime: localToIso(blk.when), duration: Math.round(Number(blk.hours) * 60), reason: blk.reason }); if (r?.ok) { setBlockOpen(false); setBlk({ when: '', hours: '1', reason: '' }); if (view !== 'day' && view !== 'week') setView('blocks'); } return r; })}
               className="h-11 w-full rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy === 'block' ? 'Saving…' : 'Block it'}</button>
             <p className="text-[9px] font-bold text-slate-400">Clients can't book you during a block. Your rent doesn't change.</p>
           </div>
@@ -2039,8 +2204,8 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
           // never off-screen. Appointments and blocks are laid on the same
           // grid — the gaps between them are the answer to "am I free?".
           const dayStart = (iso: string) => new Date(`${iso}T00:00:00`);
-          const shift = (n: number) => { const d = dayStart(dayISO); d.setDate(d.getDate() + n); setDayISO(d.toISOString().slice(0, 10)); };
-          const onDay = (iso: string) => String(iso || '').slice(0, 10) === dayISO;
+          const shift = (n: number) => { const d = dayStart(dayISO); d.setDate(d.getDate() + n); setDayISO(localDay(d)); };
+          const onDay = (iso: string) => localDay(iso) === dayISO;
           const appts = [...(book?.upcoming || []), ...(book?.past || [])].filter((a: any) => onDay(a.startTime) && a.status !== 'cancelled');
           const blks = blocks.filter((b: any) => onDay(b.startTime));
           const mins = (iso: string) => { const d = new Date(iso); return d.getHours() * 60 + d.getMinutes(); };
@@ -2051,7 +2216,7 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
           const startHour = Math.floor(firstMin / 60), endHour = Math.ceil(lastMin / 60);
           const PX = 1.1; // pixels per minute — an hour is a comfortable thumb-height
           const top = (iso: string) => (mins(iso) - startHour * 60) * PX;
-          const isToday = dayISO === new Date().toISOString().slice(0, 10);
+          const isToday = dayISO === localDay(new Date());
           const nowTop = isToday ? (new Date().getHours() * 60 + new Date().getMinutes() - startHour * 60) * PX : -1;
           const booked = appts.reduce((n: number, a: any) => n + dur(a), 0);
           const earned = appts.reduce((n: number, a: any) => n + (Number(a.price) || 0), 0);
@@ -2059,7 +2224,7 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <button type="button" onClick={() => shift(-1)} aria-label="Previous day" className="h-9 w-9 rounded-xl border-2 border-slate-200 text-[12px] font-black text-slate-600">‹</button>
-                <button type="button" onClick={() => setDayISO(new Date().toISOString().slice(0, 10))} className="min-w-0 flex-1 text-center">
+                <button type="button" onClick={() => setDayISO(localDay(new Date()))} className="min-w-0 flex-1 text-center">
                   <span className="block text-[12px] font-black text-slate-900">{new Date(`${dayISO}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</span>
                   <span className="block text-[10px] font-bold text-slate-500">{isToday ? 'Today' : 'Tap for today'} · {appts.length} booked · {Math.round(booked / 6) / 10} hr{earned > 0 ? ` · $${earned.toFixed(0)}` : ''}</span>
                 </button>
@@ -2087,7 +2252,7 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
                   const h = Math.max(26, dur(a) * PX - 2);
                   const req = a.status === 'requested' || a.status === 'pending';
                   return (
-                    <button key={a.id} type="button" onClick={() => { setView('upcoming'); setOpenId(a.id); }}
+                    <button key={a.id} type="button" onClick={() => setSheetId(a.id)}
                             className={cn('absolute left-14 right-2 z-10 overflow-hidden rounded-lg border-2 px-2 py-1 text-left', a.viaStudio ? 'border-slate-400 bg-white' : req ? 'border-amber-300 bg-amber-50' : a.status === 'completed' ? 'border-slate-200 bg-slate-50' : 'border-slate-900 bg-slate-900')}
                             style={{ top: top(a.startTime), height: h }}>
                       <p className={cn('truncate text-[11px] font-black', a.viaStudio ? 'text-slate-700' : req ? 'text-amber-900' : a.status === 'completed' ? 'text-slate-600' : 'text-white')}>{a.clientName}{a.viaStudio ? ' · studio' : req ? ' · asked' : ''}</p>
@@ -2114,7 +2279,7 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
           const base = new Date(`${dayISO}T12:00:00`);
           const weekStart = new Date(base); weekStart.setDate(base.getDate() - base.getDay());
           const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d; });
-          const iso = (d: Date) => d.toISOString().slice(0, 10);
+          const iso = (d: Date) => localDay(d);
           const week = (data?.provider?.week || {}) as any;
           const mins = (t: string) => { const [h, m] = String(t || '0:0').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
           const atMins = (isoStr: string) => { const d = new Date(isoStr); return d.getHours() * 60 + d.getMinutes(); };
@@ -2126,15 +2291,15 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
           const hi = opens.length ? Math.max(...opens.map((d: any) => mins(d.end))) : 18 * 60;
           const H = 200;
           const y = (m: number) => Math.max(0, Math.min(H, ((m - lo) / Math.max(1, hi - lo)) * H));
-          const todayIso = new Date().toISOString().slice(0, 10);
+          const todayIso = localDay(new Date());
           const shiftWeek = (n: number) => { const d = new Date(weekStart); d.setDate(d.getDate() + n * 7); setDayISO(iso(d)); };
           let weekBooked = 0, weekEarned = 0, weekOpen = 0;
           const cols = days.map((d) => {
             const key = iso(d);
             const wk = week[DAYS[d.getDay()]];
             const working = !!(wk?.enabled && wk?.start && wk?.end);
-            const dayAppts = appts.filter((a: any) => String(a.startTime).slice(0, 10) === key).sort((a: any, b: any) => atMins(a.startTime) - atMins(b.startTime));
-            const dayBlocks = blocks.filter((b: any) => String(b.startTime).slice(0, 10) === key);
+            const dayAppts = appts.filter((a: any) => localDay(a.startTime) === key).sort((a: any, b: any) => atMins(a.startTime) - atMins(b.startTime));
+            const dayBlocks = blocks.filter((b: any) => localDay(b.startTime) === key);
             const busy = [...dayAppts.map((a: any) => ({ s: atMins(a.startTime), e: atMins(a.startTime) + dur(a), kind: 'appt' as const })),
                           ...dayBlocks.map((b: any) => ({ s: atMins(b.startTime), e: atMins(b.startTime) + dur(b), kind: 'block' as const }))]
                           .sort((a, b) => a.s - b.s);
@@ -2224,7 +2389,7 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
             const chip = a.viaStudio ? 'Studio booking' : a.status === 'cancelled' ? (a.outcome === 'no_show' ? 'No-show' : 'Cancelled') : a.status === 'completed' ? 'Done' : a.status === 'requested' ? 'Requested' : a.status === 'pending_payment' || a.status === 'deposit_pending' ? 'Awaiting deposit' : 'Booked';
             return (
               <div key={a.id} className={cn('rounded-2xl border-2 p-3 space-y-2', a.status === 'cancelled' && 'opacity-60')}>
-                <button type="button" onClick={() => { setOpenId(isOpen ? '' : a.id); setNoteDraft(a.note || ''); setConfirmCancel(''); setResched(null); }} className="w-full text-left">
+                <button type="button" onClick={() => setSheetId(a.id)} className="w-full text-left">
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[13px] font-black text-slate-900">{a.clientName}</p>
@@ -2273,6 +2438,11 @@ function MyBook({ data, tenantId, token }: { data: any; tenantId: string; token:
             );
           }))}
       </div>
+      {sheetId && (() => {
+        const target = [...(book?.upcoming || []), ...(book?.past || [])].find((x: any) => x.id === sheetId);
+        if (!target) return null;
+        return <ApptSheet a={target} services={book?.services || []} tenantId={tenantId} token={token} onClose={() => setSheetId('')} onChanged={() => { void load(); }} bookViaEngine={bookViaEngine} />;
+      })()}
     </section>
   );
 }
