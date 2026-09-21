@@ -595,6 +595,20 @@ export const DayTimeline = ({
                             ))}
                             {(positionedItemsByColumn.get(column.id) || []).map(item => {
                                 if (item.itemType === 'bill') return renderBill(item);
+                                if (item.itemType === 'block') {
+                                    const startTime = safeDate(item.startTime);
+                                    const endTime = safeDate(item.endTime);
+                                    const mins = differenceInMinutes(startTime, setHours(startOfDay(startTime), START_HOUR));
+                                    const height = Math.max(22, differenceInMinutes(endTime, startTime) * PX_PER_MIN);
+                                    const style = { top: `${mins * PX_PER_MIN}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.5rem)`, left: item.layout.left };
+                                    return (
+                                        <div key={item.id} style={style} title={`${item.reason || 'Blocked'} · ${item.source === 'renter_portal' ? 'set by the renter' : 'blocked'}`}
+                                             className="absolute z-[5] overflow-hidden rounded-lg border-2 border-dashed border-slate-300 bg-slate-50/90 px-2 py-1 text-left">
+                                            <p className="truncate text-[9px] font-black uppercase tracking-widest text-slate-500">{item.reason || 'Blocked'}</p>
+                                            {height > 34 && <p className="truncate text-[9px] font-bold text-slate-400">{item.source === 'renter_portal' ? 'Set by renter' : 'Not bookable'}</p>}
+                                        </div>
+                                    );
+                                }
                                 if (item.itemType === 'event') {
                                     if (item.type === 'tour' || item.type === 'reservation') return renderBooking(item);
                                     return renderEvent(item);
