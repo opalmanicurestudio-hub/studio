@@ -2285,12 +2285,40 @@ export async function POST(req: NextRequest) {
       }
       return ids.slice(0, 10); // Firestore 'in' cap
     };
-    const apptsFor = async (ids: string[], fromIso: string, toIso?: string) => {
-      if (ids.length === 0) return [] as any[];
-      let q: any = db.collection(`tenants/${tenantId}/appointments`).where('staffId', 'in', ids).where('startTime', '>=', fromIso);
-      if (toIso) q = q.where('startTime', '<=', toIso);
-      const snap = await q.get();
-      return snap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+    // Three ways down, so a missing Firestore index can never blank the book:
+    //   1. staffId IN ids + date range (needs a composite index)
+    //   2. one staffId == id + date range per record (needs the older index)
+    //   3. staffId == id only, dates filtered in memory (needs NO index)
+    // Whichever works first wins; the fallback used is returned so the
+    // portal can say when it is running on the slow path.
+    const apptsFor = async (ids: string[], fromIso: string, toIso?: string): Promise<any[]> => {
+      if (ids.length === 0) return [];
+      const col = db.collection(`tenants/${tenantId}/appointments`);
+      const inRange = (a: any) => String(a.startTime || '') >= fromIso && (!toIso || String(a.startTime || '') <= toIso);
+      try {
+        let q: any = col.where('staffId', 'in', ids).where('startTime', '>=', fromIso);
+        if (toIso) q = q.where('startTime', '<=', toIso);
+        return (await q.get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+      } catch (e1) {
+        console.warn('[portal/renter] appointments: IN+range query unavailable (index?), falling back', String((e1 as any)?.message || e1).slice(0, 160));
+      }
+      try {
+        const out: any[] = [];
+        for (const id of ids) {
+          let q: any = col.where('staffId', '==', id).where('startTime', '>=', fromIso);
+          if (toIso) q = q.where('startTime', '<=', toIso);
+          out.push(...(await q.get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })));
+        }
+        return out;
+      } catch (e2) {
+        console.warn('[portal/renter] appointments: ==+range query unavailable (index?), falling back to in-memory', String((e2 as any)?.message || e2).slice(0, 160));
+      }
+      const out: any[] = [];
+      for (const id of ids) {
+        const snap = await col.where('staffId', '==', id).get();
+        out.push(...snap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter(inRange));
+      }
+      return out;
     };
     const myAppt = async (apptId: string) => {
       const st = await myProvider();
@@ -2329,10 +2357,15 @@ export async function POST(req: NextRequest) {
       if (!st) return NextResponse.json({ ok: true, upcoming: [], past: [], services: [] });
       const since = new Date(Date.now() - 90 * 86400000).toISOString();
       const nowIso = new Date().toISOString();
-      const [apSnap, svSnap] = await Promise.all([
-        myStaffIds().then((ids) => apptsFor(ids, since)).then((rows) => ({ docs: rows.map((r: any) => ({ id: r.id, data: () => r })) })),
-        db.collection(`tenants/${tenantId}/renterServices`).where('staffId', '==', st.id).get(),
-      ]);
+      // Services and appointments are loaded SEPARATELY so a problem with one
+      // never blanks the other — the walk-in picker used to go empty whenever
+      // the appointments query failed, which read as "the menu is gone".
+      const svSnap = await db.collection(`tenants/${tenantId}/renterServices`).where('staffId', '==', st.id).get();
+      let apRows: any[] = [];
+      let apptError: string | null = null;
+      try { apRows = await apptsFor(await myStaffIds(), since); }
+      catch (e: any) { apptError = String(e?.message || e || 'appointments query failed').slice(0, 200); console.error('[portal/renter] book-list appointments failed', apptError); }
+      const apSnap = { docs: apRows.map((r: any) => ({ id: r.id, data: () => r })) };
       // EVERYTHING on their chair, not only what came through their own
       // link. A booking the studio made for them — owner's planner, house
       // booking page, anything from before they became a renter — occupies
@@ -2349,7 +2382,7 @@ export async function POST(req: NextRequest) {
       const upcoming = rows.filter((a: any) => a.status !== 'cancelled' && a.startTime >= nowIso).sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime))).map(shape);
       const past = rows.filter((a: any) => a.startTime < nowIso).sort((a: any, b: any) => String(b.startTime).localeCompare(String(a.startTime))).slice(0, 60).map(shape);
       const services = svSnap.docs.map((d: any) => { const x = d.data() as any; return { id: d.id, name: x.name, price: Number(x.price) || 0, duration: Number(x.duration) || 60, active: x.active !== false }; }).filter((x: any) => x.active);
-      return NextResponse.json({ ok: true, upcoming, past, services, staffId: st.id });
+      return NextResponse.json({ ok: true, upcoming, past, services, staffId: st.id, ...(apptError ? { apptError } : {}) });
     }
 
     if (action === 'book-cancel') {
@@ -3331,8 +3364,12 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
-  } catch (err) {
+  } catch (err: any) {
     console.error('[portal/renter] failed', err);
-    return NextResponse.json({ ok: false, error: 'Something went wrong — try again.' }, { status: 500 });
+    // The reason, in the response. "Something went wrong" hid a missing
+    // Firestore index behind a sentence nobody could act on.
+    const msg = String(err?.message || err || '').slice(0, 240);
+    const hint = /index/i.test(msg) ? ' This needs a Firestore index — the link to create it is in the Vercel function log for /api/portal/renter.' : '';
+    return NextResponse.json({ ok: false, error: `Something went wrong: ${msg || 'unknown error'}.${hint}` }, { status: 500 });
   }
 }
