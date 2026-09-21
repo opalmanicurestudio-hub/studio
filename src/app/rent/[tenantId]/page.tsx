@@ -243,6 +243,19 @@ function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bookViaEn
               <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Client</p>
               <p className="text-[10px] font-bold text-slate-500">{client.visits} visit{client.visits === 1 ? '' : 's'}{client.noShows ? ` · ${client.noShows} no-show${client.noShows === 1 ? '' : 's'}` : ''}{client.favourite ? ` · usually ${client.favourite}` : ''}</p>
             </div>
+            {Array.isArray(client.credits) && client.credits.length > 0 && (
+              <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-2 space-y-1">
+                {client.credits.map((cr: any) => (
+                  <div key={cr.id} className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-black text-emerald-900">{cr.packageName} · {cr.remaining} left</span>
+                    {!a.viaStudio && !a.paidByPackageId && (
+                      <Btn k={`rd-${cr.id}`} label="Use a credit" tone="bg-emerald-600 text-white" onClick={() => run(`rd-${cr.id}`, () => api({ action: 'package-redeem', tenantId, token, appointmentId: a.id, purchaseId: cr.id }), 'Credit used for this visit')} />
+                    )}
+                  </div>
+                ))}
+                {a.paidByPackageId && <p className="text-[10px] font-bold text-emerald-800">This visit is covered by {a.paidByPackageName || 'a package'}.</p>}
+              </div>
+            )}
             {client.mine ? (
               <>
                 <textarea value={cnote} onChange={(e) => setCnote(e.target.value.slice(0, 2000))} rows={2} aria-label="Client notes" placeholder="Formulas, allergies, how they like it. Only you see this." className="w-full rounded-xl border-2 border-slate-200 bg-white px-3 py-2 text-[12px]" />
@@ -2834,6 +2847,98 @@ const RENTER_FONT_STACK: Record<string, string> = {
   raleway: "'Raleway', system-ui, sans-serif", outfit: "'Outfit', system-ui, sans-serif", jakarta: "'Plus Jakarta Sans', system-ui, sans-serif",
 };
 
+// ─── My Packages: prepaid bundles, on their own Stripe ───────────────────────
+function MyPackages({ data, tenantId, token }: { data: any; tenantId: string; token: string }) {
+  const [st, setSt] = useState<{ packages: any[]; purchases: any[]; soldCents: number } | null>(null);
+  const [draft, setDraft] = useState<any | null>(null);
+  const [sell, setSell] = useState<{ packageId: string; clientId: string; note: string } | null>(null);
+  const [clients, setClients] = useState<any[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const services: any[] = data?.myServices || [];
+  const canCharge = data?.provider?.chargesEnabled === true;
+  const load = useCallback(async () => { const d = await api({ action: 'packages-list', tenantId, token }); if (d?.ok) setSt({ packages: d.packages || [], purchases: d.purchases || [], soldCents: d.soldCents || 0 }); }, [tenantId, token]);
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (sell && clients.length === 0) api({ action: 'clients-list', tenantId, token }).then((d) => { if (d?.ok) setClients((d.clients || []).filter((c: any) => !c.archived)); }); }, [sell, clients.length, tenantId, token]);
+  const save = async () => {
+    setBusy(true); setErr('');
+    const d = await api({ action: 'package-save', tenantId, token, packageId: draft.id || undefined, name: draft.name, credits: draft.credits, price: draft.price, validDays: draft.validDays, serviceId: draft.serviceId || '', description: draft.description || '', isActive: draft.isActive !== false });
+    setBusy(false); if (!d?.ok) { setErr(d?.error || 'Could not save.'); return; } setDraft(null); void load();
+  };
+  const doSell = async () => {
+    if (!sell?.clientId) { setErr('Pick a client.'); return; }
+    setBusy(true); setErr('');
+    const d = await api({ action: 'package-sell', tenantId, token, ...sell });
+    setBusy(false); if (!d?.ok) { setErr(d?.error || 'Could not record that.'); return; } setSell(null); void load();
+  };
+  if (!st) return <p className="py-2 text-center text-[11px] font-bold text-slate-400">Loading…</p>;
+  const active = st.purchases.filter((p) => p.status === 'active');
+  return (
+    <div className="space-y-3">
+      <p className="text-[10px] font-bold text-slate-500">Prepaid bundles of your services — “5 gel fills for $300”. Sold on your booking page through your Stripe, or at the chair. A credit comes off each time you mark a visit done. Your money, your Stripe; the studio sees none of it.</p>
+      {!canCharge && <p className="rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-900">Connect your Stripe (Payouts) to sell packages online. Until then you can still record packages sold at the chair.</p>}
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">{st.packages.length} package{st.packages.length === 1 ? '' : 's'} · ${(st.soldCents / 100).toFixed(0)} sold · {active.length} active</p>
+        <button type="button" onClick={() => setDraft({ name: '', credits: 5, price: '', validDays: 365, serviceId: services[0]?.id || '', description: '', isActive: true })} className="h-9 rounded-xl bg-slate-900 px-3 text-[10px] font-black uppercase tracking-widest text-white">New</button>
+      </div>
+      {draft && (
+        <div className="rounded-2xl border-2 border-slate-900 p-3 space-y-2">
+          <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value.slice(0, 80) })} placeholder="Package name — “5 Gel Fills”" aria-label="Package name" className="h-11 w-full rounded-xl border-2 border-slate-200 px-3 text-sm font-bold" />
+          <div className="grid grid-cols-3 gap-2">
+            <label className="block"><span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Visits</span><input type="number" min={1} max={50} value={draft.credits} onChange={(e) => setDraft({ ...draft, credits: e.target.value })} className="h-10 w-full rounded-xl border-2 border-slate-200 text-center text-sm font-black" /></label>
+            <label className="block"><span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Price $</span><input type="number" min={0} value={draft.price} onChange={(e) => setDraft({ ...draft, price: e.target.value })} className="h-10 w-full rounded-xl border-2 border-slate-200 text-center text-sm font-black" /></label>
+            <label className="block"><span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Valid days</span><input type="number" min={30} max={730} value={draft.validDays} onChange={(e) => setDraft({ ...draft, validDays: e.target.value })} className="h-10 w-full rounded-xl border-2 border-slate-200 text-center text-sm font-black" /></label>
+          </div>
+          <select value={draft.serviceId} onChange={(e) => setDraft({ ...draft, serviceId: e.target.value })} aria-label="For which service" className="h-11 w-full rounded-xl border-2 border-slate-200 bg-white px-3 text-sm font-bold">
+            <option value="">Any of my services</option>
+            {services.map((sv: any) => <option key={sv.id} value={sv.id}>{sv.name} · ${Number(sv.price).toFixed(0)}</option>)}
+          </select>
+          <textarea value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value.slice(0, 300) })} rows={2} placeholder="What's included, who it's for" aria-label="Description" className="w-full rounded-xl border-2 border-slate-200 px-3 py-2 text-sm" />
+          {draft.name && Number(draft.price) > 0 && Number(draft.credits) > 0 && <p className="text-[10px] font-bold text-slate-500">${(Number(draft.price) / Number(draft.credits)).toFixed(2)} per visit{draft.serviceId && services.find((x: any) => x.id === draft.serviceId) ? ` vs $${Number(services.find((x: any) => x.id === draft.serviceId).price).toFixed(2)} single` : ''}</p>}
+          {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+          <div className="flex gap-2">
+            <button type="button" onClick={save} disabled={busy} className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Saving…' : 'Save package'}</button>
+            <button type="button" onClick={() => setDraft(null)} className="h-11 rounded-2xl border-2 border-slate-200 px-4 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
+          </div>
+        </div>
+      )}
+      {st.packages.map((p) => (
+        <div key={p.id} className={cn('rounded-2xl border-2 p-3', p.isActive === false ? 'border-slate-100 opacity-60' : 'border-slate-200')}>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0"><p className="text-[13px] font-black text-slate-900">{p.name}</p><p className="text-[10px] font-bold text-slate-500">{p.credits} visit{p.credits === 1 ? '' : 's'} · ${(p.priceCents / 100).toFixed(0)}{p.serviceName ? ` · ${p.serviceName}` : ' · any service'} · valid {p.validDays} days{p.isActive === false ? ' · hidden' : ''}</p></div>
+            <div className="flex shrink-0 gap-1.5">
+              <button type="button" onClick={() => setSell({ packageId: p.id, clientId: '', note: '' })} className="h-8 rounded-lg bg-slate-900 px-2.5 text-[9px] font-black uppercase tracking-widest text-white">Sell at chair</button>
+              <button type="button" onClick={() => setDraft({ ...p, price: p.priceCents / 100 })} className="h-8 rounded-lg border-2 px-2.5 text-[9px] font-black uppercase tracking-widest">Edit</button>
+            </div>
+          </div>
+          {sell?.packageId === p.id && (
+            <div className="mt-2 space-y-2 rounded-xl border-2 border-slate-200 bg-slate-50 p-2">
+              <select value={sell?.clientId || ''} onChange={(e) => setSell((x) => (x ? { ...x, clientId: e.target.value } : x))} aria-label="Client" className="h-10 w-full rounded-xl border-2 border-slate-200 bg-white px-3 text-sm font-bold">
+                <option value="">Which client?</option>
+                {clients.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <input value={sell?.note || ''} onChange={(e) => setSell((x) => (x ? { ...x, note: e.target.value.slice(0, 200) } : x))} placeholder="How they paid (cash, Venmo…) — for your records" aria-label="Note" className="h-10 w-full rounded-xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
+              {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+              <div className="flex gap-2">
+                <button type="button" onClick={doSell} disabled={busy} className="h-10 flex-1 rounded-xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">Record sale</button>
+                <button type="button" onClick={() => setSell(null)} className="h-10 rounded-xl border-2 border-slate-200 px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+      {st.purchases.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Who holds credits</p>
+          {st.purchases.slice(0, 20).map((p) => (
+            <p key={p.id} className="text-[11px] font-bold text-slate-600"><span className="font-black text-slate-900">{p.clientName}</span> · {p.packageName} · <span className={cn('font-black', p.status === 'active' ? 'text-emerald-700' : 'text-slate-400')}>{p.remaining} of {p.creditsTotal} left</span>{p.status !== 'active' ? ` · ${p.status}` : ''} · {p.source === 'stripe' ? 'paid online' : 'paid at chair'}</p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── My Reviews: what clients said, and which ones go public ─────────────────
 function MyReviews({ tenantId, token }: { tenantId: string; token: string }) {
   const [list, setList] = useState<any[] | null>(null);
@@ -3752,6 +3857,20 @@ export default function RenterPortalPage() {
             {booksHere && session?.token && (
               <MyServices data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
             )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {(
+                    <div>
+                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'packages' ? '' : 'packages')} aria-expanded={setupOpen === 'packages'}
+                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
+                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Packages</span><span className="block text-[10px] font-bold text-slate-500">Prepaid bundles of your services, on your Stripe</span></span>
+                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'packages' && 'rotate-90')} />
+                      </button>
+                      {setupOpen === 'packages' && session?.token && (
+                        <div className="px-3 pb-4">
+                          <MyPackages data={data} tenantId={tenantId} token={session.token} />
                         </div>
                       )}
                     </div>
