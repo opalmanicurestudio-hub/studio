@@ -151,7 +151,7 @@ function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bookViaEn
   const svcMatch = services.find((x: any) => x.name === a.serviceName);
   const run = async (key: string, fn: () => Promise<any>, after?: string) => {
     setBusy(key); setErr(''); setOk('');
-    try { const d = await fn(); if (d && d.ok === false) { setErr(d.error || 'That did not work.'); return; } setOk(after || 'Done'); onChanged(); }
+    try { const d = await fn(); if (d && d.ok === false) { setErr(d.error || 'That did not work.'); return; } setOk(d?.creditNote ? `${after || 'Done'} · ${d.creditNote}` : (after || 'Done')); onChanged(); }
     catch (e: any) { setErr(e?.message || 'That did not work.'); } finally { setBusy(''); }
   };
   const move = async () => {
@@ -2862,7 +2862,7 @@ function MyPackages({ data, tenantId, token }: { data: any; tenantId: string; to
   useEffect(() => { if (sell && clients.length === 0) api({ action: 'clients-list', tenantId, token }).then((d) => { if (d?.ok) setClients((d.clients || []).filter((c: any) => !c.archived)); }); }, [sell, clients.length, tenantId, token]);
   const save = async () => {
     setBusy(true); setErr('');
-    const d = await api({ action: 'package-save', tenantId, token, packageId: draft.id || undefined, name: draft.name, credits: draft.credits, price: draft.price, validDays: draft.validDays, serviceId: draft.serviceId || '', description: draft.description || '', isActive: draft.isActive !== false });
+    const d = await api({ action: 'package-save', tenantId, token, packageId: draft.id || undefined, name: draft.name, credits: draft.credits, price: draft.price, validDays: draft.validDays, serviceId: draft.serviceId || '', description: draft.description || '', isActive: draft.isActive !== false, noShowForfeits: draft.noShowForfeits !== false, lateCancelForfeits: draft.lateCancelForfeits !== false, lateCancelHours: Number(draft.lateCancelHours ?? 24) });
     setBusy(false); if (!d?.ok) { setErr(d?.error || 'Could not save.'); return; } setDraft(null); void load();
   };
   const doSell = async () => {
@@ -2894,6 +2894,15 @@ function MyPackages({ data, tenantId, token }: { data: any; tenantId: string; to
             {services.map((sv: any) => <option key={sv.id} value={sv.id}>{sv.name} · ${Number(sv.price).toFixed(0)}</option>)}
           </select>
           <textarea value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value.slice(0, 300) })} rows={2} placeholder="What's included, who it's for" aria-label="Description" className="w-full rounded-xl border-2 border-slate-200 px-3 py-2 text-sm" />
+          <div className="rounded-xl border-2 border-slate-200 p-2 space-y-1.5">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Terms — shown to the client before they buy</p>
+            <button type="button" aria-pressed={draft.noShowForfeits !== false} onClick={() => setDraft({ ...draft, noShowForfeits: draft.noShowForfeits === false })} className={cn('h-9 w-full rounded-lg border-2 px-2 text-left text-[10px] font-bold', draft.noShowForfeits !== false ? 'border-slate-900 bg-slate-50 text-slate-900' : 'border-slate-200 text-slate-500')}>{draft.noShowForfeits !== false ? 'A no-show uses a visit' : 'A no-show does not use a visit'}</button>
+            <div className="flex items-center gap-2">
+              <button type="button" aria-pressed={draft.lateCancelForfeits !== false} onClick={() => setDraft({ ...draft, lateCancelForfeits: draft.lateCancelForfeits === false })} className={cn('h-9 flex-1 rounded-lg border-2 px-2 text-left text-[10px] font-bold', draft.lateCancelForfeits !== false ? 'border-slate-900 bg-slate-50 text-slate-900' : 'border-slate-200 text-slate-500')}>{draft.lateCancelForfeits !== false ? 'Late cancel uses a visit' : 'Late cancel is free'}</button>
+              {draft.lateCancelForfeits !== false && <label className="flex items-center gap-1 text-[10px] font-bold text-slate-600">under <input type="number" min={0} max={168} value={draft.lateCancelHours ?? 24} onChange={(e) => setDraft({ ...draft, lateCancelHours: e.target.value })} className="h-9 w-14 rounded-lg border-2 border-slate-200 text-center text-[11px] font-black" /> h</label>}
+            </div>
+            <p className="text-[9px] font-bold text-slate-400">If you cancel, decline or move a visit, the client never loses a credit — and one already used comes back.</p>
+          </div>
           {draft.name && Number(draft.price) > 0 && Number(draft.credits) > 0 && <p className="text-[10px] font-bold text-slate-500">${(Number(draft.price) / Number(draft.credits)).toFixed(2)} per visit{draft.serviceId && services.find((x: any) => x.id === draft.serviceId) ? ` vs $${Number(services.find((x: any) => x.id === draft.serviceId).price).toFixed(2)} single` : ''}</p>}
           {err && <p className="text-xs font-bold text-red-600">{err}</p>}
           <div className="flex gap-2">
@@ -2934,6 +2943,80 @@ function MyPackages({ data, tenantId, token }: { data: any; tenantId: string; to
             <p key={p.id} className="text-[11px] font-bold text-slate-600"><span className="font-black text-slate-900">{p.clientName}</span> · {p.packageName} · <span className={cn('font-black', p.status === 'active' ? 'text-emerald-700' : 'text-slate-400')}>{p.remaining} of {p.creditsTotal} left</span>{p.status !== 'active' ? ` · ${p.status}` : ''} · {p.source === 'stripe' ? 'paid online' : 'paid at chair'}</p>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ─── My Books: the month, in and out ─────────────────────────────────────────
+function MyBooks({ tenantId, token }: { tenantId: string; token: string }) {
+  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [led, setLed] = useState<any | null>(null);
+  const [exp, setExp] = useState<{ date: string; amount: string; category: string; note: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const load = useCallback(async () => { const d = await api({ action: 'ledger', tenantId, token, month }); if (d?.ok) setLed(d); }, [tenantId, token, month]);
+  useEffect(() => { void load(); }, [load]);
+  const $ = (c: number) => `${c < 0 ? '−' : ''}$${(Math.abs(c) / 100).toFixed(2)}`;
+  const shift = (n: number) => { const [y, m] = month.split('-').map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); setMonth(d.toISOString().slice(0, 7)); };
+  const label = new Date(`${month}-01T12:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const saveExp = async () => {
+    if (!exp) return; setBusy(true); setErr('');
+    const d = await api({ action: 'expense-save', tenantId, token, ...exp }); setBusy(false);
+    if (!d?.ok) { setErr(d?.error || 'Could not save.'); return; } setExp(null); void load();
+  };
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <button type="button" onClick={() => shift(-1)} aria-label="Previous month" className="h-9 w-9 rounded-xl border-2 border-slate-200 text-[12px] font-black text-slate-600">‹</button>
+        <p className="text-[12px] font-black text-slate-900">{label}</p>
+        <button type="button" onClick={() => shift(1)} aria-label="Next month" className="h-9 w-9 rounded-xl border-2 border-slate-200 text-[12px] font-black text-slate-600">›</button>
+      </div>
+      {!led ? <p className="py-2 text-center text-[11px] font-bold text-slate-400">Loading…</p> : (
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            {[['Earned', led.totals.earnedCents, 'text-emerald-700'], ['Rent', -led.totals.rentCents, 'text-slate-700'], ['Expenses', -led.totals.expensesCents, 'text-slate-700'], ['Net', led.totals.netCents, led.totals.netCents >= 0 ? 'text-emerald-800' : 'text-red-700']].map(([l, c, tone]) => (
+              <div key={String(l)} className="rounded-2xl border-2 border-slate-100 px-3 py-2"><p className="text-[9px] font-black uppercase tracking-widest text-slate-400">{l}</p><p className={cn('text-[16px] font-black tabular-nums', tone as string)}>{$(Number(c))}</p></div>
+            ))}
+          </div>
+          <p className="text-[10px] font-bold text-slate-500">Earned = {led.visits.length} completed visit{led.visits.length === 1 ? '' : 's'} at your prices ({$(led.totals.servicesCents)}) + {led.packages.length} package sale{led.packages.length === 1 ? '' : 's'} ({$(led.totals.packagesCents)}). Package-covered visits count $0 on the day — the money came in when the package sold. Tips paid to you directly aren&apos;t tracked here.</p>
+          <div className="flex items-center justify-between">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Expenses</p>
+            <button type="button" onClick={() => setExp({ date: new Date().toISOString().slice(0, 10), amount: '', category: 'Supplies', note: '' })} className="h-8 rounded-lg bg-slate-900 px-3 text-[9px] font-black uppercase tracking-widest text-white">+ Add</button>
+          </div>
+          {exp && (
+            <div className="rounded-2xl border-2 border-slate-900 p-3 space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <input type="date" value={exp.date} onChange={(e) => setExp({ ...exp, date: e.target.value })} aria-label="Date" className="h-10 rounded-xl border-2 border-slate-200 px-2 text-sm font-bold" />
+                <input type="number" min={0} step="0.01" value={exp.amount} onChange={(e) => setExp({ ...exp, amount: e.target.value })} placeholder="Amount $" aria-label="Amount" className="h-10 rounded-xl border-2 border-slate-200 px-2 text-sm font-black" />
+              </div>
+              <select value={exp.category} onChange={(e) => setExp({ ...exp, category: e.target.value })} aria-label="Category" className="h-10 w-full rounded-xl border-2 border-slate-200 bg-white px-3 text-sm font-bold">
+                {['Supplies', 'Products', 'Equipment', 'Education', 'Marketing', 'Insurance', 'Licence & fees', 'Software', 'Travel', 'Other'].map((c) => <option key={c}>{c}</option>)}
+              </select>
+              <input value={exp.note} onChange={(e) => setExp({ ...exp, note: e.target.value.slice(0, 200) })} placeholder="What it was" aria-label="Note" className="h-10 w-full rounded-xl border-2 border-slate-200 px-3 text-sm font-bold" />
+              {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+              <div className="flex gap-2">
+                <button type="button" onClick={saveExp} disabled={busy} className="h-10 flex-1 rounded-xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">Save</button>
+                <button type="button" onClick={() => setExp(null)} className="h-10 rounded-xl border-2 border-slate-200 px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
+              </div>
+            </div>
+          )}
+          {led.expenses.length === 0 && !exp && <p className="text-[11px] font-bold text-slate-400">No expenses logged this month.</p>}
+          {led.expenses.map((e: any) => (
+            <div key={e.id} className="flex items-center justify-between gap-2 text-[11px] font-bold text-slate-600">
+              <span className="min-w-0 truncate"><span className="font-black text-slate-800">{fmtDate(e.date)}</span> · {e.category}{e.note ? ` · ${e.note}` : ''}</span>
+              <span className="flex shrink-0 items-center gap-2 tabular-nums">{$(e.cents)}<button type="button" onClick={async () => { await api({ action: 'expense-delete', tenantId, token, expenseId: e.id }); void load(); }} aria-label="Delete" className="text-slate-400">×</button></span>
+            </div>
+          ))}
+          <details className="pt-1"><summary className="cursor-pointer text-[9px] font-black uppercase tracking-widest text-slate-400">Every line this month</summary>
+            <div className="mt-1 space-y-0.5">
+              {led.visits.map((v: any) => <p key={v.id} className="text-[10px] font-bold text-slate-600"><span className="font-black text-slate-800">{fmtDate(v.date)}</span> · {v.clientName} · {v.serviceName} · {v.covered ? `covered by ${v.packageName}` : $(v.cents)}</p>)}
+              {led.packages.map((p: any) => <p key={p.id} className="text-[10px] font-bold text-emerald-700"><span className="font-black">{fmtDate(p.date)}</span> · {p.clientName} bought {p.packageName} · {$(p.cents)} · {p.source === 'stripe' ? 'online' : 'at chair'}</p>)}
+              {led.rent.map((r: any) => <p key={r.id} className="text-[10px] font-bold text-slate-500"><span className="font-black">{fmtDate(r.date)}</span> · rent {r.method} · {$(-r.cents)}</p>)}
+            </div>
+          </details>
+          <button type="button" onClick={() => window.print()} className="h-9 w-full rounded-xl border-2 border-slate-200 text-[9px] font-black uppercase tracking-widest text-slate-600">Print this month</button>
+        </>
       )}
     </div>
   );
@@ -3949,6 +4032,20 @@ export default function RenterPortalPage() {
             {booksHere && session?.token && data?.swaps?.enabled !== false && (
               <MySwaps data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
             )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {(
+                    <div>
+                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'books' ? '' : 'books')} aria-expanded={setupOpen === 'books'}
+                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
+                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Books</span><span className="block text-[10px] font-bold text-slate-500">Earned, rent, expenses, net — by month</span></span>
+                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'books' && 'rotate-90')} />
+                      </button>
+                      {setupOpen === 'books' && session?.token && (
+                        <div className="px-3 pb-4">
+                          <MyBooks tenantId={tenantId} token={session.token} />
                         </div>
                       )}
                     </div>
