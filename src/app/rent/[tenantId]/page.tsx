@@ -171,6 +171,9 @@ function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bookViaEn
   // "See you in four weeks" — the most common thing a renter says at the
   // chair. Same weekday, same service, the closest OPEN time to the same
   // hour on that day. If the day is full, it says so and opens the picker.
+  // "+4 wks" jumps to that day and SHOWS the open times, with the slot
+  // nearest this visit's hour already selected — one more tap to confirm,
+  // never a booking the renter didn't see. Same weekday, same service.
   const quickRebook = async (weeks: number) => {
     const sid = svcMatch?.id || services[0]?.id;
     if (!sid) { setErr('No service to rebook with.'); return; }
@@ -178,15 +181,14 @@ function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bookViaEn
     const day = localDay(target);
     setBusy(`q${weeks}`); setErr(''); setOk('');
     try {
+      setSvcId(sid); setPickDate(day); setWhen(''); setWhenLabel(''); setMode('rebook');
       const d = await api({ action: 'book-slots', tenantId, token, serviceId: sid, date: day });
       const slots: { time: string; startIso: string }[] = d?.ok ? d.slots || [] : [];
-      if (!slots.length) { setErr(`Nothing open on ${target.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} — pick another time.`); setPickDate(day); setSvcId(sid); setWhen(''); setMode('rebook'); return; }
+      if (!slots.length) { setErr(`Nothing open on ${target.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} — step to a nearby day.`); return; }
       const want = base.getTime() - new Date(localDay(base) + 'T00:00:00').getTime();
       const best = slots.map((sl) => ({ sl, diff: Math.abs((new Date(sl.startIso).getTime() - new Date(day + 'T00:00:00').getTime()) - want) })).sort((x, y) => x.diff - y.diff)[0].sl;
-      const r = await bookViaEngine({ id: a.clientId || undefined, name: a.clientName, phone: a.clientPhone || undefined, email: a.clientEmail || undefined }, sid, best.startIso);
-      if (!r?.ok) { setErr(r?.error || 'Could not book that.'); return; }
-      setOk(`Booked ${new Date(best.startIso).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} — they have their confirmation`);
-      onChanged();
+      const [h, m] = best.time.split(':').map(Number); const ap = h < 12 ? 'am' : 'pm'; const hh = h % 12 === 0 ? 12 : h % 12;
+      setWhen(best.startIso); setWhenLabel(`${hh}:${String(m || 0).padStart(2, '0')} ${ap}`);
     } finally { setBusy(''); }
   };
   // A standing appointment: every N weeks, M times, each at the nearest open
@@ -304,7 +306,7 @@ function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bookViaEn
             {mode === 'view' && (
               <>
                 <div className="rounded-2xl border-2 border-slate-100 bg-slate-50 p-3">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Book them again — same day of the week, nearest open time</p>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Book them again — jumps to that day, shows what&apos;s open, nearest time preselected</p>
                   <div className="mt-2 flex gap-1.5">
                     {[2, 3, 4, 6].map((w) => <Btn key={w} k={`q${w}`} label={`+${w} wks`} tone="bg-white border-2 border-slate-900 text-slate-900 flex-1" onClick={() => quickRebook(w)} />)}
                   </div>
