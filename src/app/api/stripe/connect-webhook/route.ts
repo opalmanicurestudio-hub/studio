@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
+import { renterVoice, tellClient, alertRenter, membershipWelcomeLines } from '@/lib/renter-comms';
 
 // ─── /api/stripe/connect-webhook/route.ts ─────────────────────────────────────
 // CONNECTED ACCOUNTS webhook — events on your tenants' Stripe accounts.
@@ -72,6 +73,17 @@ export async function POST(req: NextRequest) {
   const db      = getAdminDb();
   const stripe2 = new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2025-04-30.basil' as any });
 
+  // A self-service link for a member: update the card, see invoices, cancel.
+  // Stripe's own Billing Portal on the RENTER'S account — nothing for us to
+  // build, and the card never touches this app.
+  const manageLink = async (customerId: string | null, returnUrl: string): Promise<string | null> => {
+    if (!customerId) return null;
+    try {
+      const ps = await stripe.billingPortal.sessions.create({ customer: customerId, return_url: returnUrl }, { stripeAccount: connAcct });
+      return ps.url || null;
+    } catch { return null; }
+  };
+
   // Helper: find tenant by connected Stripe account ID
   // A RENTER'S connected account is stored on the renter doc, not the
   // tenant — so events from a renter's Stripe never matched a tenant here
@@ -136,6 +148,11 @@ export async function POST(req: NextRequest) {
               });
               const nRef = db.collection(`tenants/${tenant.id}/notifications`).doc();
               await nRef.set({ id: nRef.id, type: 'renter_member_joined', read: false, createdAt: new Date().toISOString(), link: '/renters', message: `${name} joined "${mem.name || 'a membership'}" with a renter — billed to the renter's Stripe.` }).catch(() => null);
+              // The client hears from the RENTER, with their perks and a manage link; the renter hears in their inbox.
+              const v = await renterVoice(db, tenant.id, renterId);
+              const manage = await manageLink(typeof session.customer === 'string' ? session.customer : null, v.bookingUrl || `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL || ''}`);
+              await tellClient(db, v, { email, clientId, name }, `Welcome to ${mem.name || 'the membership'}`, membershipWelcomeLines(v, { name: mem.name || 'Membership', includedVisits: Number(mem.includedVisits) || 0, discountPct: Number(mem.discountPct) || 0, perks: Array.isArray(mem.perks) ? mem.perks : [], priceCents: Number(mem.priceCents) || 0 }, manage), 'renter_member_welcome');
+              await alertRenter(db, tenant.id, renterId, 'member_joined', `${name} joined ${mem.name || 'your membership'} · $${((Number(mem.priceCents) || 0) / 100).toFixed(0)}/mo`, 'book', 'green');
             }
           }
           break;
@@ -176,6 +193,11 @@ export async function POST(req: NextRequest) {
               const nRef = db.collection(`tenants/${tenant.id}/notifications`).doc();
               await nRef.set({ id: nRef.id, type: 'renter_package_sold', read: false, createdAt: new Date().toISOString(), link: '/renters',
                 message: `${name} bought "${pkg.name || 'a package'}" (${credits} visits) from a renter — paid to the renter's Stripe.` }).catch(() => null);
+              const v = await renterVoice(db, tenant.id, renterId);
+              const { policyText } = await import('@/lib/package-credits');
+              await tellClient(db, v, { email, clientId, name }, `Your ${pkg.name || 'package'} is ready`,
+                [`Thank you! ${credits} visit${credits === 1 ? '' : 's'} are on your account${pkg.serviceName ? ` for ${pkg.serviceName}` : ''}, valid ${validDays} days.`, `Each time we mark a visit done, one comes off. ${policyText(pkg)}`, v.bookingUrl ? `Book your next visit: ${v.bookingUrl}` : ''].filter(Boolean), 'renter_package_confirmed');
+              await alertRenter(db, tenant.id, renterId, 'package_sold', `${name} bought ${pkg.name || 'a package'} · $${((Number(session.amount_total) || 0) / 100).toFixed(0)}`, 'book', 'green');
             }
           }
           break;
@@ -651,9 +673,38 @@ export async function POST(req: NextRequest) {
             // First invoice is the checkout itself — don't double-reset a period that just opened.
             if (inv.billing_reason !== 'subscription_create') {
               await snap.docs[0].ref.set({ visitsUsedThisPeriod: 0, currentPeriodEnd: end, lastPaidAt: new Date().toISOString(), status: 'active', renewals: (Number(cur.renewals) || 0) + 1 }, { merge: true });
+              await alertRenter(db, meta.tenantId, String(cur.renterId), 'member_renewed', `${cur.clientName || 'A member'} renewed ${cur.membershipName || 'their membership'} · visits reset`, 'book', 'slate');
             } else {
               await snap.docs[0].ref.set({ currentPeriodEnd: end, lastPaidAt: new Date().toISOString() }, { merge: true });
             }
+          }
+        }
+        break;
+      }
+      // ── invoice.payment_failed: a member's card declined ──
+      // Stripe retries on its own schedule (Smart Retries). This side marks
+      // the membership past-due, tells the MEMBER in the renter's voice with
+      // a one-tap link to update the card, and tells the RENTER. If retries
+      // exhaust, Stripe cancels and the deleted handler below closes it out.
+      case 'invoice.payment_failed': {
+        const inv = event.data.object as Stripe.Invoice;
+        const subId = typeof inv.subscription === 'string' ? inv.subscription : (inv.subscription as any)?.id || null;
+        const meta: any = (inv as any).subscription_details?.metadata || {};
+        if (subId && meta.type === 'renter_membership' && meta.tenantId) {
+          const snap = await db.collection(`tenants/${meta.tenantId}/renterMemberSubscriptions`).where('stripeSubscriptionId', '==', subId).limit(1).get();
+          if (!snap.empty) {
+            const cur = snap.docs[0].data() as any;
+            const attempt = Number(inv.attempt_count) || 1;
+            await snap.docs[0].ref.set({ status: 'past_due', lastFailedAt: new Date().toISOString(), failedAttempts: attempt, nextRetryAt: inv.next_payment_attempt ? new Date(inv.next_payment_attempt * 1000).toISOString() : null }, { merge: true });
+            const v = await renterVoice(db, meta.tenantId, String(cur.renterId));
+            const manage = await manageLink(cur.stripeCustomerId || (typeof inv.customer === 'string' ? inv.customer : null), v.bookingUrl || `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL || ''}`);
+            const retry = inv.next_payment_attempt ? new Date(inv.next_payment_attempt * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
+            // Say it once per attempt, not once per retry-hour.
+            if (attempt === 1 || attempt === 3) {
+              await tellClient(db, v, { email: cur.clientEmail, clientId: cur.clientId, name: cur.clientName }, `Your ${cur.membershipName || 'membership'} payment didn't go through`,
+                [`The card on file for your ${cur.membershipName || 'membership'} ($${((Number(cur.priceCents) || 0) / 100).toFixed(2)}) was declined.`, manage ? `Update your card here and you're all set: ${manage}` : 'Reply to this message and I\'ll sort it out with you.', retry ? `We'll try again on ${retry}. Your included visits pause until it clears.` : 'Your included visits pause until it clears.'], 'renter_member_payment_failed');
+            }
+            await alertRenter(db, meta.tenantId, String(cur.renterId), 'member_payment_failed', `${cur.clientName || 'A member'}'s card was declined for ${cur.membershipName || 'their membership'}${retry ? ` · Stripe retries ${retry}` : ''}`, 'book', 'red');
           }
         }
         break;
@@ -667,7 +718,17 @@ export async function POST(req: NextRequest) {
           const snap = await db.collection(`tenants/${meta.tenantId}/renterMemberSubscriptions`).where('stripeSubscriptionId', '==', sub.id).limit(1).get();
           if (!snap.empty) {
             const status = sub.status === 'active' || sub.status === 'trialing' ? 'active' : sub.status === 'past_due' || sub.status === 'unpaid' ? 'past_due' : 'cancelled';
+            const cur = snap.docs[0].data() as any;
             await snap.docs[0].ref.set({ status, stripeStatus: sub.status, cancelAtPeriodEnd: !!sub.cancel_at_period_end, ...(status === 'cancelled' ? { endedAt: new Date().toISOString() } : {}) }, { merge: true });
+            if (status === 'cancelled' && cur.status !== 'cancelled') {
+              const v = await renterVoice(db, meta.tenantId, String(cur.renterId));
+              const why = sub.status === 'canceled' && (cur.status === 'past_due') ? 'after the card could not be charged' : '';
+              await tellClient(db, v, { email: cur.clientEmail, clientId: cur.clientId, name: cur.clientName }, `Your ${cur.membershipName || 'membership'} has ended`,
+                [`Your ${cur.membershipName || 'membership'} is now closed${why ? ` ${why}` : ''}. Thank you for being a member.`, v.bookingUrl ? `You can still book any time: ${v.bookingUrl}` : ''].filter(Boolean), 'renter_member_ended');
+              await alertRenter(db, meta.tenantId, String(cur.renterId), 'member_ended', `${cur.clientName || 'A member'}'s ${cur.membershipName || 'membership'} ended${why ? ` ${why}` : ''}`, 'book', 'amber');
+            } else if (sub.cancel_at_period_end && !cur.cancelAtPeriodEnd) {
+              await alertRenter(db, meta.tenantId, String(cur.renterId), 'member_cancelling', `${cur.clientName || 'A member'} cancelled ${cur.membershipName || 'their membership'} — ends ${cur.currentPeriodEnd ? String(cur.currentPeriodEnd).slice(0, 10) : 'at period end'}`, 'book', 'amber');
+            }
           }
         }
         break;
