@@ -1122,6 +1122,7 @@ export async function POST(req: NextRequest) {
               // Deposits can only be offered once their own Stripe can charge.
               chargesEnabled: renter?.stripeChargesEnabled === true,
               bookingUrl: origin ? `${origin}/book/${tenantId}?provider=${st.id}` : `/book/${tenantId}?provider=${st.id}`,
+              bookingWindow: { horizonDays: Number(st.renterBooking?.horizonDays) || 0, memberHorizonDays: Number(st.renterBooking?.memberHorizonDays) || 0 },
             };
             // Their own book: client appointments booked through their link.
             // This is the renter's ledger — the studio's reports exclude these
@@ -2319,16 +2320,24 @@ export async function POST(req: NextRequest) {
         const pRef = purCol.doc(purchase.id);
         const evRef = db.collection(`tenants/${tenantId}/packageEvents`).doc();
         const base = { id: evRef.id, purchaseId: purchase.id, packageName: purchase.packageName || pkg.name || 'Package', appointmentId: apptRef.id, clientId: a.clientId || null, clientName: a.clientName || null, renterId: session.renterId, at: new Date().toISOString(), ending, reason: d.reason };
+        const { renterVoice, tellClient: tell } = await import('@/lib/renter-comms');
+        const left = (n: number) => Math.max(0, (Number(purchase.creditsTotal) || 0) - n);
         if (d.action === 'restore') {
-          await pRef.set({ creditsUsed: Math.max(0, (Number(purchase.creditsUsed) || 0) - 1) }, { merge: true });
+          const used = Math.max(0, (Number(purchase.creditsUsed) || 0) - 1);
+          await pRef.set({ creditsUsed: used }, { merge: true });
           await apptRef.set({ paidByPackageId: null, paidByPackageName: null, packageCreditRestoredAt: new Date().toISOString() }, { merge: true });
           await evRef.set({ ...base, action: 'restore' });
+          const v = await renterVoice(db, tenantId, String(session.renterId || ''));
+          await tell(db, v, { email: a.clientEmail, phone: a.clientPhone, clientId: a.clientId, name: a.clientName }, 'A visit went back on your package', [`${d.reason} You have ${left(used)} visit${left(used) === 1 ? '' : 's'} left on ${purchase.packageName || 'your package'}.`], 'renter_package_credit_restored');
           return `Credit returned to ${a.clientName || 'the client'} — ${d.reason}`;
         }
         if (d.action === 'forfeit') {
-          await pRef.set({ creditsUsed: (Number(purchase.creditsUsed) || 0) + 1, lastUsedAt: new Date().toISOString() }, { merge: true });
+          const used = (Number(purchase.creditsUsed) || 0) + 1;
+          await pRef.set({ creditsUsed: used, lastUsedAt: new Date().toISOString() }, { merge: true });
           await apptRef.set({ paidByPackageId: purchase.id, paidByPackageName: purchase.packageName || pkg.name || 'Package', packageForfeitedAt: new Date().toISOString() }, { merge: true });
           await evRef.set({ ...base, action: 'forfeit' });
+          const v = await renterVoice(db, tenantId, String(session.renterId || ''));
+          await tell(db, v, { email: a.clientEmail, phone: a.clientPhone, clientId: a.clientId, name: a.clientName }, 'A visit was used from your package', [`${d.reason} You have ${left(used)} visit${left(used) === 1 ? '' : 's'} left on ${purchase.packageName || 'your package'}.`], 'renter_package_credit_forfeited');
           return `One visit used from ${purchase.packageName || 'their package'} — ${d.reason}`;
         }
         return null;
@@ -2812,6 +2821,18 @@ export async function POST(req: NextRequest) {
     // and perks in the renter's words. Billing is Stripe's job on their
     // connected account; this side defines the plan, shows who's a member,
     // and spends included visits.
+    // ── booking window: how far out clients can book, and how much further members can ──
+    // The engine already enforces a horizon (tenant.bookingHorizonDays). A
+    // renter sets their own, and a LONGER one for members — that is what
+    // "early booking" means in practice, and it is enforced, not printed.
+    if (action === 'booking-window-save') {
+      const st = await myProvider();
+      if (!st) return NextResponse.json({ ok: false, error: 'Your booking profile is not set up yet.' }, { status: 400 });
+      const horizonDays = Math.max(0, Math.min(365, Math.round(Number(body.horizonDays) || 0)));
+      const memberHorizonDays = Math.max(horizonDays, Math.min(365, Math.round(Number(body.memberHorizonDays) || horizonDays)));
+      await db.doc(`tenants/${tenantId}/staff/${st.id}`).set({ renterBooking: { horizonDays, memberHorizonDays } }, { merge: true });
+      return NextResponse.json({ ok: true, horizonDays, memberHorizonDays });
+    }
     if (action === 'memberships-list') {
       const st = await myProvider();
       if (!st) return NextResponse.json({ ok: true, memberships: [], members: [] });
@@ -2838,6 +2859,29 @@ export async function POST(req: NextRequest) {
         noShowForfeits: body.noShowForfeits !== false, lateCancelForfeits: body.lateCancelForfeits !== false, lateCancelHours: Math.max(0, Math.min(168, Math.round(Number(body.lateCancelHours ?? 24) || 0))),
         isActive: body.isActive !== false, updatedAt: new Date().toISOString(), ...(id ? {} : { createdAt: new Date().toISOString() }) }, { merge: true });
       return NextResponse.json({ ok: true, id: ref.id });
+    }
+    if (action === 'membership-cancel') {
+      // Ends at the period end — the member keeps what they paid for. Done on
+      // the renter's Stripe; the webhook closes it out and tells the member.
+      const st = await myProvider();
+      if (!st) return NextResponse.json({ ok: false, error: 'Your booking profile is not set up yet.' }, { status: 400 });
+      const mRef = db.doc(`tenants/${tenantId}/renterMemberSubscriptions/${String(body.subscriptionId || '')}`);
+      const m = ((await mRef.get()).data() as any) || null;
+      if (!m || m.staffId !== st.id) return NextResponse.json({ ok: false, error: 'Not your member.' }, { status: 403 });
+      if (!m.stripeSubscriptionId || !m.stripeAccountId) return NextResponse.json({ ok: false, error: 'This membership is not linked to Stripe.' }, { status: 400 });
+      try {
+        const Stripe = (await import('stripe')).default;
+        const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' });
+        const immediate = body.immediately === true;
+        if (immediate) await stripe.subscriptions.cancel(m.stripeSubscriptionId, {}, { stripeAccount: m.stripeAccountId });
+        else await stripe.subscriptions.update(m.stripeSubscriptionId, { cancel_at_period_end: true }, { stripeAccount: m.stripeAccountId });
+        await mRef.set({ cancelAtPeriodEnd: !immediate, cancelRequestedAt: new Date().toISOString(), cancelRequestedBy: 'renter', ...(immediate ? { status: 'cancelled', endedAt: new Date().toISOString() } : {}) }, { merge: true });
+        const { renterVoice, tellClient: tell } = await import('@/lib/renter-comms');
+        const v = await renterVoice(db, tenantId, String(session.renterId || ''));
+        await tell(db, v, { email: m.clientEmail, clientId: m.clientId, name: m.clientName }, `About your ${m.membershipName || 'membership'}`,
+          [immediate ? `Your ${m.membershipName || 'membership'} has been ended and you won't be billed again.` : `Your ${m.membershipName || 'membership'} will end on ${m.currentPeriodEnd ? new Date(m.currentPeriodEnd).toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) : 'your renewal date'} — you keep everything until then, and you won't be billed again.`, 'Thank you for being a member — you can always book as usual.'], 'renter_member_cancelled');
+        return NextResponse.json({ ok: true });
+      } catch (e: any) { return NextResponse.json({ ok: false, error: e?.message || 'Stripe refused that.' }, { status: 500 }); }
     }
     if (action === 'membership-redeem') {
       // One included visit off this month's allowance, against one visit.
@@ -2964,6 +3008,11 @@ export async function POST(req: NextRequest) {
         if (x.redeem?.decidedAt && x.redeem.decidedAt >= since(7)) items.push({ kind: 'leave', tab: 'rent', title: x.redeem.status === 'approved' ? 'Banked days credited' : 'Banked days not approved', body: `${x.redeem.days} day${x.redeem.days === 1 ? '' : 's'}`, at: x.redeem.decidedAt, tone: x.redeem.status === 'approved' ? 'green' : 'amber' });
       }
 
+      // Money and members: what the webhook wrote for them (14 days).
+      try {
+        const alSnap = await db.collection(`tenants/${tenantId}/renterAlerts`).where('renterId', '==', rid).get();
+        for (const d of alSnap.docs) { const x = d.data() as any; if (x.at >= since(14)) items.push({ kind: x.kind || 'alert', tab: x.tab || 'book', title: x.text, body: '', at: x.at, tone: x.tone || 'slate' }); }
+      } catch { /* alerts are best-effort */ }
       // Requests waiting on the renter: their decision, so their inbox.
       if (prov) {
         const reqSnap = await db.collection(`tenants/${tenantId}/appointments`).where('staffId', '==', prov.id).where('status', '==', 'requested').get();
@@ -3710,4 +3759,4 @@ export async function POST(req: NextRequest) {
     const hint = /index/i.test(msg) ? ' This needs a Firestore index — the link to create it is in the Vercel function log for /api/portal/renter.' : '';
     return NextResponse.json({ ok: false, error: `Something went wrong: ${msg || 'unknown error'}.${hint}` }, { status: 500 });
   }
-}
+} 
