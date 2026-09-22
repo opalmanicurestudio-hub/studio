@@ -101,6 +101,46 @@ export async function POST(req: NextRequest) {
 
         const sessionType = session.metadata?.type;
 
+        // ── A renter's membership: the first payment just cleared ──
+        // Records the membership under the renter, attaches it to the
+        // client's record in the RENTER'S book (matched by email, created if
+        // new), and opens the first period. Renewals and cancellations arrive
+        // as invoice.paid / customer.subscription.deleted below.
+        if (sessionType === 'renter_membership') {
+          const membershipId = String(session.metadata?.membershipId || '');
+          const renterId = String(session.metadata?.renterId || '');
+          const staffId = String(session.metadata?.staffId || '');
+          const subId = typeof session.subscription === 'string' ? session.subscription : (session.subscription as any)?.id || null;
+          if (membershipId && renterId && subId) {
+            const mem = ((await db.doc(`tenants/${tenant.id}/renterMemberships/${membershipId}`).get()).data() as any) || {};
+            const email = String(session.customer_details?.email || session.metadata?.clientEmail || '').toLowerCase();
+            const name = String(session.customer_details?.name || session.metadata?.clientName || 'Client');
+            const phone = String(session.metadata?.clientPhone || '');
+            let clientId: string | null = null;
+            if (email) {
+              const hits = await db.collection(`tenants/${tenant.id}/clients`).where('email', '==', email).limit(5).get();
+              const own = hits.docs.find((d: any) => (d.data() as any)?.ownerRenterId === renterId);
+              if (own) clientId = own.id;
+              else { const nRef = db.collection(`tenants/${tenant.id}/clients`).doc(); clientId = nRef.id; await nRef.set({ id: clientId, name, email, phone, status: 'active', lifetimeValue: 0, createdAt: new Date().toISOString(), ownerRenterId: renterId, ownerStaffId: staffId, createdVia: 'renter_membership' }); }
+            }
+            const dup = await db.collection(`tenants/${tenant.id}/renterMemberSubscriptions`).where('stripeSubscriptionId', '==', subId).limit(1).get();
+            if (dup.empty) {
+              const ref = db.collection(`tenants/${tenant.id}/renterMemberSubscriptions`).doc();
+              const periodEnd = new Date(); periodEnd.setMonth(periodEnd.getMonth() + 1);
+              await ref.set({
+                id: ref.id, membershipId, membershipName: mem.name || 'Membership', renterId, staffId,
+                clientId, clientName: name, clientEmail: email || null,
+                includedVisits: Number(mem.includedVisits) || 0, visitsUsedThisPeriod: 0, discountPct: Number(mem.discountPct) || 0, perks: Array.isArray(mem.perks) ? mem.perks : [],
+                priceCents: Number(mem.priceCents) || 0, status: 'active', startedAt: new Date().toISOString(), currentPeriodEnd: periodEnd.toISOString(),
+                stripeSubscriptionId: subId, stripeCustomerId: typeof session.customer === 'string' ? session.customer : null, stripeAccountId: connAcct,
+              });
+              const nRef = db.collection(`tenants/${tenant.id}/notifications`).doc();
+              await nRef.set({ id: nRef.id, type: 'renter_member_joined', read: false, createdAt: new Date().toISOString(), link: '/renters', message: `${name} joined "${mem.name || 'a membership'}" with a renter — billed to the renter's Stripe.` }).catch(() => null);
+            }
+          }
+          break;
+        }
+
         // ── A renter's package, bought by a client on the renter's page ──
         // Money landed in the renter's Stripe. This records the credits on
         // the renter's side only: nothing in the studio's ledger, ever.
@@ -597,6 +637,42 @@ export async function POST(req: NextRequest) {
       }
 
       // ── charge.succeeded: record exact Stripe processing fee ─────────────
+      // ── invoice.paid: a renter membership renewed — new period, visits reset ──
+      case 'invoice.paid': {
+        const inv = event.data.object as Stripe.Invoice;
+        const subId = typeof inv.subscription === 'string' ? inv.subscription : (inv.subscription as any)?.id || null;
+        const meta: any = (inv as any).subscription_details?.metadata || {};
+        if (subId && meta.type === 'renter_membership' && meta.tenantId) {
+          const snap = await db.collection(`tenants/${meta.tenantId}/renterMemberSubscriptions`).where('stripeSubscriptionId', '==', subId).limit(1).get();
+          if (!snap.empty) {
+            const cur = snap.docs[0].data() as any;
+            const line = inv.lines?.data?.[0] as any;
+            const end = line?.period?.end ? new Date(line.period.end * 1000).toISOString() : (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d.toISOString(); })();
+            // First invoice is the checkout itself — don't double-reset a period that just opened.
+            if (inv.billing_reason !== 'subscription_create') {
+              await snap.docs[0].ref.set({ visitsUsedThisPeriod: 0, currentPeriodEnd: end, lastPaidAt: new Date().toISOString(), status: 'active', renewals: (Number(cur.renewals) || 0) + 1 }, { merge: true });
+            } else {
+              await snap.docs[0].ref.set({ currentPeriodEnd: end, lastPaidAt: new Date().toISOString() }, { merge: true });
+            }
+          }
+        }
+        break;
+      }
+      // ── customer.subscription.deleted / updated: the membership ended or lapsed ──
+      case 'customer.subscription.deleted':
+      case 'customer.subscription.updated': {
+        const sub = event.data.object as Stripe.Subscription;
+        const meta: any = sub.metadata || {};
+        if (meta.type === 'renter_membership' && meta.tenantId) {
+          const snap = await db.collection(`tenants/${meta.tenantId}/renterMemberSubscriptions`).where('stripeSubscriptionId', '==', sub.id).limit(1).get();
+          if (!snap.empty) {
+            const status = sub.status === 'active' || sub.status === 'trialing' ? 'active' : sub.status === 'past_due' || sub.status === 'unpaid' ? 'past_due' : 'cancelled';
+            await snap.docs[0].ref.set({ status, stripeStatus: sub.status, cancelAtPeriodEnd: !!sub.cancel_at_period_end, ...(status === 'cancelled' ? { endedAt: new Date().toISOString() } : {}) }, { merge: true });
+          }
+        }
+        break;
+      }
+
       case 'charge.succeeded': {
         // A renter's charge carries renterProviderId in its metadata (set on
         // the session). Its Stripe fee came out of THEIR balance; posting it
