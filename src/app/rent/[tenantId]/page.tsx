@@ -243,6 +243,20 @@ function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bookViaEn
               <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Client</p>
               <p className="text-[10px] font-bold text-slate-500">{client.visits} visit{client.visits === 1 ? '' : 's'}{client.noShows ? ` · ${client.noShows} no-show${client.noShows === 1 ? '' : 's'}` : ''}{client.favourite ? ` · usually ${client.favourite}` : ''}</p>
             </div>
+            {client.membership && (
+              <div className="rounded-xl border-2 border-violet-200 bg-violet-50 p-2 space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-black text-violet-900">Member · {client.membership.name}{client.membership.status === 'past_due' ? ' · payment overdue' : ''}</span>
+                  <span className="text-[10px] font-bold text-violet-800">{client.membership.left} of {client.membership.includedVisits} visits left</span>
+                </div>
+                {client.membership.discountPct > 0 && <p className="text-[10px] font-bold text-violet-800">{client.membership.discountPct}% off other services{a.price ? ` — this one at $${(Number(a.price) * (1 - client.membership.discountPct / 100)).toFixed(0)}` : ''}.</p>}
+                {(client.membership.perks || []).length > 0 && <p className="text-[10px] font-bold text-violet-700">{client.membership.perks.join(' · ')}</p>}
+                {!a.viaStudio && !a.paidByPackageId && !a.paidByMembershipId && client.membership.status === 'active' && client.membership.left > 0 && (
+                  <Btn k="mv-use" label="Use an included visit" tone="bg-violet-700 text-white" onClick={() => run('mv-use', () => api({ action: 'membership-redeem', tenantId, token, appointmentId: a.id, subscriptionId: client.membership.id }), 'Included visit used')} />
+                )}
+                {a.paidByMembershipId && <p className="text-[10px] font-bold text-violet-800">This visit is covered by their membership.</p>}
+              </div>
+            )}
             {Array.isArray(client.credits) && client.credits.length > 0 && (
               <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-2 space-y-1">
                 {client.credits.map((cr: any) => (
@@ -2948,6 +2962,76 @@ function MyPackages({ data, tenantId, token }: { data: any; tenantId: string; to
   );
 }
 
+// ─── My Memberships: recurring plans with perks, on their Stripe ─────────────
+function MyMemberships({ data, tenantId, token }: { data: any; tenantId: string; token: string }) {
+  const [st, setSt] = useState<{ memberships: any[]; members: any[]; mrrCents: number } | null>(null);
+  const [draft, setDraft] = useState<any | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const canCharge = data?.provider?.chargesEnabled === true;
+  const load = useCallback(async () => { const d = await api({ action: 'memberships-list', tenantId, token }); if (d?.ok) setSt({ memberships: d.memberships || [], members: d.members || [], mrrCents: d.mrrCents || 0 }); }, [tenantId, token]);
+  useEffect(() => { void load(); }, [load]);
+  const save = async () => {
+    setBusy(true); setErr('');
+    const d = await api({ action: 'membership-save', tenantId, token, membershipId: draft.id || undefined, name: draft.name, price: draft.price, includedVisits: draft.includedVisits, discountPct: draft.discountPct, perks: String(draft.perksText || '').split('\n').map((x: string) => x.trim()).filter(Boolean), description: draft.description || '', isActive: draft.isActive !== false, noShowForfeits: draft.noShowForfeits !== false, lateCancelForfeits: draft.lateCancelForfeits !== false, lateCancelHours: Number(draft.lateCancelHours ?? 24) });
+    setBusy(false); if (!d?.ok) { setErr(d?.error || 'Could not save.'); return; } setDraft(null); void load();
+  };
+  if (!st) return <p className="py-2 text-center text-[11px] font-bold text-slate-400">Loading…</p>;
+  const active = st.members.filter((m) => m.status === 'active');
+  return (
+    <div className="space-y-3">
+      <p className="text-[10px] font-bold text-slate-500">A monthly plan: visits included, a discount on everything else, and the perks you promise — priority booking, a free add-on, whatever makes it yours. Billed by Stripe on your account every month; cancel any time from Stripe.</p>
+      {!canCharge && <p className="rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-900">Memberships bill through Stripe — connect yours under Payouts to offer them.</p>}
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">{active.length} member{active.length === 1 ? '' : 's'} · ${(st.mrrCents / 100).toFixed(0)}/mo</p>
+        <button type="button" onClick={() => setDraft({ name: '', price: '', includedVisits: 1, discountPct: 10, perksText: 'Priority booking\nFree nail art on one nail', description: '', isActive: true })} className="h-9 rounded-xl bg-slate-900 px-3 text-[10px] font-black uppercase tracking-widest text-white">New</button>
+      </div>
+      {draft && (
+        <div className="rounded-2xl border-2 border-slate-900 p-3 space-y-2">
+          <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value.slice(0, 80) })} placeholder="Plan name — “Gel Club”" aria-label="Plan name" className="h-11 w-full rounded-xl border-2 border-slate-200 px-3 text-sm font-bold" />
+          <div className="grid grid-cols-3 gap-2">
+            <label className="block"><span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">$ / month</span><input type="number" min={1} value={draft.price} onChange={(e) => setDraft({ ...draft, price: e.target.value })} className="h-10 w-full rounded-xl border-2 border-slate-200 text-center text-sm font-black" /></label>
+            <label className="block"><span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Visits / mo</span><input type="number" min={0} max={31} value={draft.includedVisits} onChange={(e) => setDraft({ ...draft, includedVisits: e.target.value })} className="h-10 w-full rounded-xl border-2 border-slate-200 text-center text-sm font-black" /></label>
+            <label className="block"><span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">% off else</span><input type="number" min={0} max={90} value={draft.discountPct} onChange={(e) => setDraft({ ...draft, discountPct: e.target.value })} className="h-10 w-full rounded-xl border-2 border-slate-200 text-center text-sm font-black" /></label>
+          </div>
+          <label className="block"><span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Perks — one per line, shown to members</span>
+            <textarea value={draft.perksText} onChange={(e) => setDraft({ ...draft, perksText: e.target.value.slice(0, 800) })} rows={4} className="w-full rounded-xl border-2 border-slate-200 px-3 py-2 text-sm" /></label>
+          <textarea value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value.slice(0, 300) })} rows={2} placeholder="Who it's for" aria-label="Description" className="w-full rounded-xl border-2 border-slate-200 px-3 py-2 text-sm" />
+          <div className="rounded-xl border-2 border-slate-200 p-2 space-y-1.5">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Terms for included visits</p>
+            <button type="button" aria-pressed={draft.noShowForfeits !== false} onClick={() => setDraft({ ...draft, noShowForfeits: draft.noShowForfeits === false })} className={cn('h-9 w-full rounded-lg border-2 px-2 text-left text-[10px] font-bold', draft.noShowForfeits !== false ? 'border-slate-900 bg-slate-50 text-slate-900' : 'border-slate-200 text-slate-500')}>{draft.noShowForfeits !== false ? 'A no-show uses an included visit' : 'No-shows are forgiven'}</button>
+            <div className="flex items-center gap-2">
+              <button type="button" aria-pressed={draft.lateCancelForfeits !== false} onClick={() => setDraft({ ...draft, lateCancelForfeits: draft.lateCancelForfeits === false })} className={cn('h-9 flex-1 rounded-lg border-2 px-2 text-left text-[10px] font-bold', draft.lateCancelForfeits !== false ? 'border-slate-900 bg-slate-50 text-slate-900' : 'border-slate-200 text-slate-500')}>{draft.lateCancelForfeits !== false ? 'Late cancel uses a visit' : 'Late cancel is free'}</button>
+              {draft.lateCancelForfeits !== false && <label className="flex items-center gap-1 text-[10px] font-bold text-slate-600">under <input type="number" min={0} max={168} value={draft.lateCancelHours ?? 24} onChange={(e) => setDraft({ ...draft, lateCancelHours: e.target.value })} className="h-9 w-14 rounded-lg border-2 border-slate-200 text-center text-[11px] font-black" /> h</label>}
+            </div>
+          </div>
+          {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+          <div className="flex gap-2">
+            <button type="button" onClick={save} disabled={busy} className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Saving…' : 'Save plan'}</button>
+            <button type="button" onClick={() => setDraft(null)} className="h-11 rounded-2xl border-2 border-slate-200 px-4 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
+          </div>
+        </div>
+      )}
+      {st.memberships.map((m) => (
+        <div key={m.id} className={cn('rounded-2xl border-2 p-3', m.isActive === false ? 'border-slate-100 opacity-60' : 'border-slate-200')}>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0"><p className="text-[13px] font-black text-slate-900">{m.name}</p><p className="text-[10px] font-bold text-slate-500">${(m.priceCents / 100).toFixed(0)}/mo · {m.includedVisits} visit{m.includedVisits === 1 ? '' : 's'} included{m.discountPct ? ` · ${m.discountPct}% off other services` : ''}{m.isActive === false ? ' · hidden' : ''}</p>{(m.perks || []).length > 0 && <p className="mt-0.5 text-[10px] font-bold text-slate-600">{m.perks.join(' · ')}</p>}</div>
+            <button type="button" onClick={() => setDraft({ ...m, price: m.priceCents / 100, perksText: (m.perks || []).join('\n') })} className="h-8 shrink-0 rounded-lg border-2 px-2.5 text-[9px] font-black uppercase tracking-widest">Edit</button>
+          </div>
+        </div>
+      ))}
+      {st.members.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Members</p>
+          {st.members.slice(0, 30).map((m) => (
+            <p key={m.id} className="text-[11px] font-bold text-slate-600"><span className="font-black text-slate-900">{m.clientName}</span> · {m.membershipName} · <span className={cn('font-black', m.status === 'active' ? 'text-emerald-700' : m.status === 'past_due' ? 'text-amber-700' : 'text-slate-400')}>{m.status === 'active' ? `${Math.max(0, (m.includedVisits || 0) - (m.visitsUsedThisPeriod || 0))} of ${m.includedVisits || 0} visits left` : m.status.replace('_', ' ')}</span>{m.currentPeriodEnd ? ` · renews ${fmtDate(String(m.currentPeriodEnd).slice(0, 10))}` : ''}</p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── My Books: the month, in and out ─────────────────────────────────────────
 function MyBooks({ tenantId, token }: { tenantId: string; token: string }) {
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
@@ -3954,6 +4038,20 @@ export default function RenterPortalPage() {
                       {setupOpen === 'packages' && session?.token && (
                         <div className="px-3 pb-4">
                           <MyPackages data={data} tenantId={tenantId} token={session.token} />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {(
+                    <div>
+                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'memberships' ? '' : 'memberships')} aria-expanded={setupOpen === 'memberships'}
+                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
+                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Memberships</span><span className="block text-[10px] font-bold text-slate-500">Monthly plans with included visits and perks</span></span>
+                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'memberships' && 'rotate-90')} />
+                      </button>
+                      {setupOpen === 'memberships' && session?.token && (
+                        <div className="px-3 pb-4">
+                          <MyMemberships data={data} tenantId={tenantId} token={session.token} />
                         </div>
                       )}
                     </div>
