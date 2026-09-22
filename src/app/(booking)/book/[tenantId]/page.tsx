@@ -300,6 +300,21 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   const [buying, setBuying] = useState<{ kind: 'package' | 'membership'; item: any } | null>(null);
   const [buyer, setBuyer] = useState({ name: '', email: '', phone: '', existing: false });
   const [memberThanks, setMemberThanks] = useState(false);
+  // "I'm a member" — an email check against the renter's active members.
+  // Unlocks the member booking window on this page; the server re-checks the
+  // same email at confirm, so it is a convenience, not the gate.
+  const [memberEmail, setMemberEmail] = useState('');
+  const [memberOk, setMemberOk] = useState<boolean | null>(null);
+  const [memberChecking, setMemberChecking] = useState(false);
+  const checkMember = async () => {
+    const e = memberEmail.trim().toLowerCase(); if (!e || !providerId) return;
+    setMemberChecking(true);
+    try {
+      const db = getDb(); if (!db) return;
+      const snap = await getDocs(query(collection(db, `tenants/${tenantId}/renterMemberSubscriptions`), where('staffId', '==', providerId), where('clientEmail', '==', e)));
+      setMemberOk(snap.docs.some((d) => (d.data() as any)?.status === 'active'));
+    } catch { setMemberOk(false); } finally { setMemberChecking(false); }
+  };
   const [pkgBuying, setPkgBuying] = useState('');
   const [pkgErr, setPkgErr] = useState('');
   const [pkgThanks, setPkgThanks] = useState(false);
@@ -620,7 +635,15 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           scheduleProfiles={scheduleProfiles}
           services={services}
           consentForms={consentForms}
-          tenant={tenant}
+          tenant={(() => {
+            // Renter's booking window on their own page: their public horizon,
+            // or the longer member horizon once a member has identified.
+            const prov: any = providerId ? staff.find((m: any) => m.id === providerId && m.isRenter) : null;
+            const win = prov?.renterBooking || {};
+            const pub = Number(win.horizonDays) || 0, mem = Number(win.memberHorizonDays) || pub;
+            const days = prov ? (memberOk ? mem : pub) : 0;
+            return days > 0 ? { ...tenant, bookingHorizonDays: days } : tenant;
+          })()}
           shifts={shifts}
           staffBlocks={staffBlocks}
           dayOffBlocks={dayOffBlocks}
@@ -791,6 +814,27 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
                 {pkgErr && <p className="mt-2 text-[12px]" style={{ color: '#b91c1c' }}>{pkgErr}</p>}
               </div>
             )}
+            {(() => {
+              const win = (linkedProvider as any)?.renterBooking || {};
+              const pub = Number(win.horizonDays) || 0, mem = Number(win.memberHorizonDays) || 0;
+              if (!(mem > pub && providerMemberships.length > 0)) return null;
+              return (
+                <div className="mb-6 rounded-2xl p-3" style={{ background: card, border: `1px solid ${memberOk ? accent : line}` }}>
+                  {memberOk ? (
+                    <p className="text-[12px]" style={{ color: ink }}>✓ Member — you can book up to <span style={{ color: accent }}>{mem} days</span> ahead{pub ? ` (everyone else: ${pub})` : ''}.</p>
+                  ) : (
+                    <>
+                      <p className="text-[12px]" style={{ color: ink }}>Members book up to <span style={{ color: accent }}>{mem} days</span> ahead{pub ? ` — everyone else, ${pub}` : ''}.</p>
+                      <div className="mt-2 flex gap-2">
+                        <input value={memberEmail} onChange={(e) => { setMemberEmail(e.target.value); setMemberOk(null); }} inputMode="email" placeholder="Member? Your email" aria-label="Member email" className="h-10 min-w-0 flex-1 rounded-xl px-3 text-[13px]" style={{ background: bg, color: ink, border: `1px solid ${line}` }} />
+                        <button type="button" disabled={memberChecking} onClick={checkMember} className="h-10 shrink-0 rounded-xl px-3 text-[10px] font-medium disabled:opacity-50" style={{ ...caps, letterSpacing: '0.2em', background: accent, color: onAcc }}>{memberChecking ? '…' : 'Unlock'}</button>
+                      </div>
+                      {memberOk === false && <p className="mt-1 text-[11px]" style={{ color: mute }}>No active membership under that email.</p>}
+                    </>
+                  )}
+                </div>
+              );
+            })()}
             {eyebrow('Services')}
             <p className="mt-2 text-[32px] font-light leading-none" style={{ fontFamily: face }}>Menu</p>
             {addr && <p className="mt-2 text-[12px] font-light" style={{ color: mute }}>{addr}</p>}
