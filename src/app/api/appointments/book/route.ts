@@ -335,10 +335,34 @@ export async function POST(req: NextRequest) {
       const flexible = body.flexible === true;
       const flexWindowMin = Math.min(Math.max(Number(body.flexWindowMin) || 240, 0), 480);
 
+      // A renter's booking window. Public clients get horizonDays; an ACTIVE
+      // member (matched by the email on this booking) gets memberHorizonDays.
+      // This is "early booking" enforced at the moment of booking, so a link
+      // that shows more calendar to a member cannot be worked around by
+      // editing the request.
+      let renterHorizonDays: number | undefined = undefined;
+      if (renterSvc) {
+        const provider: any = roster.find((m: any) => m.id === renterSvc.staffId);
+        const win = provider?.renterBooking || {};
+        const pub = Number(win.horizonDays) || 0;
+        const mem = Number(win.memberHorizonDays) || pub;
+        if (pub > 0 || mem > 0) {
+          renterHorizonDays = pub > 0 ? pub : undefined;
+          const email = String(body?.client?.email || '').trim().toLowerCase();
+          if (email && mem > pub) {
+            try {
+              const subs = await db.collection(`tenants/${tenantId}/renterMemberSubscriptions`).where('staffId', '==', String(renterSvc.staffId)).where('clientEmail', '==', email).get();
+              if (subs.docs.some((d: any) => (d.data() as any)?.status === 'active')) renterHorizonDays = mem;
+            } catch { /* fall back to the public window */ }
+          }
+        }
+      }
+
       const engineContext = {
         serviceId,
         addOnIds,
         staffId: requestedStaffId,
+        ...(renterHorizonDays !== undefined ? { maxHorizonDays: renterHorizonDays } : {}),
         // A renter's service lives in renterServices, not the house list.
         // The route resolved it into `svc` above and then handed the engine
         // the house list, which doesn't contain it — so every renter booking
