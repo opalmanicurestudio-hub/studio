@@ -2971,6 +2971,9 @@ function MyMemberships({ data, tenantId, token }: { data: any; tenantId: string;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const canCharge = data?.provider?.chargesEnabled === true;
+  const [win, setWin] = useState({ horizonDays: Number(data?.provider?.bookingWindow?.horizonDays) || 0, memberHorizonDays: Number(data?.provider?.bookingWindow?.memberHorizonDays) || 0 });
+  const [winBusy, setWinBusy] = useState(false);
+  const [winSaved, setWinSaved] = useState(false);
   const load = useCallback(async () => { const d = await api({ action: 'memberships-list', tenantId, token }); if (d?.ok) setSt({ memberships: d.memberships || [], members: d.members || [], mrrCents: d.mrrCents || 0 }); }, [tenantId, token]);
   useEffect(() => { void load(); }, [load]);
   const save = async () => {
@@ -2982,7 +2985,16 @@ function MyMemberships({ data, tenantId, token }: { data: any; tenantId: string;
   const active = st.members.filter((m) => m.status === 'active');
   return (
     <div className="space-y-3">
-      <p className="text-[10px] font-bold text-slate-500">A monthly plan: visits included, a discount on everything else, and the perks you promise — priority booking, a free add-on, whatever makes it yours. Billed by Stripe on your account every month; cancel any time from Stripe.</p>
+      <p className="text-[10px] font-bold text-slate-500">A monthly plan: visits included, a discount on everything else, and the perks you promise. Billed by Stripe on your account every month.</p>
+      <div className="rounded-2xl border-2 border-slate-200 p-3 space-y-2">
+        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Early booking — the perk that actually does something</p>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block"><span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Everyone books up to</span><div className="flex items-center gap-1"><input type="number" min={0} max={365} value={win.horizonDays} onChange={(e) => setWin({ ...win, horizonDays: Number(e.target.value) || 0 })} className="h-10 w-full rounded-xl border-2 border-slate-200 text-center text-sm font-black" /><span className="text-[10px] font-bold text-slate-500">days</span></div></label>
+          <label className="block"><span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Members up to</span><div className="flex items-center gap-1"><input type="number" min={0} max={365} value={win.memberHorizonDays} onChange={(e) => setWin({ ...win, memberHorizonDays: Number(e.target.value) || 0 })} className="h-10 w-full rounded-xl border-2 border-slate-200 text-center text-sm font-black" /><span className="text-[10px] font-bold text-slate-500">days</span></div></label>
+        </div>
+        <p className="text-[10px] font-bold text-slate-500">0 = no limit. Members identify by email on your page and get the longer window; the booking engine enforces it. Other perks you list are your promise to keep at the chair.</p>
+        <button type="button" disabled={winBusy} onClick={async () => { setWinBusy(true); const d = await api({ action: 'booking-window-save', tenantId, token, ...win }); setWinBusy(false); if (d?.ok) { setWin({ horizonDays: d.horizonDays, memberHorizonDays: d.memberHorizonDays }); setWinSaved(true); setTimeout(() => setWinSaved(false), 1800); } }} className="h-10 w-full rounded-xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{winSaved ? 'Saved' : winBusy ? 'Saving…' : 'Save booking window'}</button>
+      </div>
       {!canCharge && <p className="rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-900">Memberships bill through Stripe — connect yours under Payouts to offer them.</p>}
       <div className="flex items-center justify-between">
         <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">{active.length} member{active.length === 1 ? '' : 's'} · ${(st.mrrCents / 100).toFixed(0)}/mo</p>
@@ -3026,7 +3038,10 @@ function MyMemberships({ data, tenantId, token }: { data: any; tenantId: string;
         <div className="space-y-1">
           <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Members</p>
           {st.members.slice(0, 30).map((m) => (
-            <p key={m.id} className="text-[11px] font-bold text-slate-600"><span className="font-black text-slate-900">{m.clientName}</span> · {m.membershipName} · <span className={cn('font-black', m.status === 'active' ? 'text-emerald-700' : m.status === 'past_due' ? 'text-amber-700' : 'text-slate-400')}>{m.status === 'active' ? `${Math.max(0, (m.includedVisits || 0) - (m.visitsUsedThisPeriod || 0))} of ${m.includedVisits || 0} visits left` : m.status.replace('_', ' ')}</span>{m.currentPeriodEnd ? ` · renews ${fmtDate(String(m.currentPeriodEnd).slice(0, 10))}` : ''}</p>
+            <div key={m.id} className="flex items-center justify-between gap-2">
+              <p className="min-w-0 text-[11px] font-bold text-slate-600"><span className="font-black text-slate-900">{m.clientName}</span> · {m.membershipName} · <span className={cn('font-black', m.status === 'active' ? 'text-emerald-700' : m.status === 'past_due' ? 'text-amber-700' : 'text-slate-400')}>{m.status === 'active' ? `${Math.max(0, (m.includedVisits || 0) - (m.visitsUsedThisPeriod || 0))} of ${m.includedVisits || 0} visits left` : m.status === 'past_due' ? 'card declined — Stripe retrying' : m.status.replace('_', ' ')}</span>{m.cancelAtPeriodEnd ? ' · ending' : m.currentPeriodEnd && m.status === 'active' ? ` · renews ${fmtDate(String(m.currentPeriodEnd).slice(0, 10))}` : ''}</p>
+              {m.status !== 'cancelled' && !m.cancelAtPeriodEnd && <button type="button" onClick={async () => { if (!window.confirm(`End ${m.clientName}'s ${m.membershipName} at the end of this period? They keep what they paid for.`)) return; const d = await api({ action: 'membership-cancel', tenantId, token, subscriptionId: m.id }); if (!d?.ok) setErr(d?.error || 'Could not end that.'); void load(); }} className="h-7 shrink-0 rounded-lg border-2 border-slate-200 px-2 text-[9px] font-black uppercase tracking-widest text-slate-500">End</button>}
+            </div>
           ))}
         </div>
       )}
