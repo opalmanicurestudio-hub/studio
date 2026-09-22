@@ -294,27 +294,40 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   // The service a client is LOOKING AT, before they decide to book it.
   const [providerPeek, setProviderPeek] = useState<any | null>(null);
   const [providerPackages, setProviderPackages] = useState<any[]>([]);
+  const [providerMemberships, setProviderMemberships] = useState<any[]>([]);
+  // The purchase form: which product, and the buyer's details. Replaces
+  // two browser prompts with a sheet that matches the page.
+  const [buying, setBuying] = useState<{ kind: 'package' | 'membership'; item: any } | null>(null);
+  const [buyer, setBuyer] = useState({ name: '', email: '', phone: '', existing: false });
+  const [memberThanks, setMemberThanks] = useState(false);
   const [pkgBuying, setPkgBuying] = useState('');
   const [pkgErr, setPkgErr] = useState('');
   const [pkgThanks, setPkgThanks] = useState(false);
   useEffect(() => {
     if (!providerId || !tenantId) { setProviderPackages([]); return; }
-    try { if (new URLSearchParams(window.location.search).get('package') === 'thanks') setPkgThanks(true); } catch { /* no-op */ }
+    try { const q = new URLSearchParams(window.location.search); if (q.get('package') === 'thanks') setPkgThanks(true); if (q.get('member') === 'thanks') setMemberThanks(true); } catch { /* no-op */ }
     (async () => {
       try {
         const db = getDb(); if (!db) return;
-        const snap = await getDocs(query(collection(db, `tenants/${tenantId}/renterPackages`), where('staffId', '==', providerId)));
-        setProviderPackages(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((p: any) => p.isActive !== false).sort((a: any, b: any) => (a.priceCents || 0) - (b.priceCents || 0)));
-      } catch { setProviderPackages([]); }
+        const [ps, ms] = await Promise.all([
+          getDocs(query(collection(db, `tenants/${tenantId}/renterPackages`), where('staffId', '==', providerId))),
+          getDocs(query(collection(db, `tenants/${tenantId}/renterMemberships`), where('staffId', '==', providerId))),
+        ]);
+        setProviderPackages(ps.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((p: any) => p.isActive !== false).sort((a: any, b: any) => (a.priceCents || 0) - (b.priceCents || 0)));
+        setProviderMemberships(ms.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((m: any) => m.isActive !== false).sort((a: any, b: any) => (a.priceCents || 0) - (b.priceCents || 0)));
+      } catch { setProviderPackages([]); setProviderMemberships([]); }
     })();
   }, [providerId, tenantId, getDb]);
-  const buyPackage = async (pkg: any) => {
-    setPkgBuying(pkg.id); setPkgErr('');
+  const buyPackage = (pkg: any) => { setPkgErr(''); setBuying({ kind: 'package', item: pkg }); };
+  const joinMembership = (m: any) => { setPkgErr(''); setBuying({ kind: 'membership', item: m }); };
+  const submitPurchase = async () => {
+    if (!buying) return;
+    if (!buyer.name.trim() || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(buyer.email.trim())) { setPkgErr('A name and a valid email are needed — the receipt and your credits go there.'); return; }
+    setPkgBuying(buying.item.id); setPkgErr('');
     try {
-      const name = window.prompt('Your name, for the package') || '';
-      if (!name.trim()) { setPkgBuying(''); return; }
-      const email = window.prompt('Your email — the receipt and your credits go here') || '';
-      const res = await fetch('/api/stripe/renter-package', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, packageId: pkg.id, clientName: name.trim(), clientEmail: email.trim() }) });
+      const url = buying.kind === 'package' ? '/api/stripe/renter-package' : '/api/stripe/renter-membership';
+      const idKey = buying.kind === 'package' ? 'packageId' : 'membershipId';
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, [idKey]: buying.item.id, clientName: buyer.name.trim(), clientEmail: buyer.email.trim().toLowerCase(), clientPhone: buyer.phone.trim() }) });
       const d = await res.json().catch(() => ({}));
       if (d?.ok && d.url) { window.location.href = d.url; return; }
       setPkgErr(d?.error || 'Could not start checkout.');
@@ -643,11 +656,25 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     const dark = brand.tone === 'dark';
     const bg = dark ? '#0c0a09' : '#faf9f7';
     const ink = dark ? '#fafaf9' : '#1c1917';
-    const mute = dark ? '#a8a29e' : '#78716c';
+    const mute = dark ? '#c8c2ba' : '#78716c';
     const line = dark ? 'rgba(250,250,249,0.12)' : 'rgba(28,25,23,0.10)';
     const card = dark ? 'rgba(250,250,249,0.05)' : 'rgba(255,255,255,0.7)';
-    const accent = brand.accent;
+    // Night mode: the default accent is near-black, so on a dark page every
+    // accent-coloured element — eyebrows, prices, the tab indicator, stars —
+    // disappeared, and thin light type at 10px on dark was hard to read. On
+    // dark: lift a too-dark accent toward white until it clears the page,
+    // brighten the muted grey, and don't go below 400 weight.
+    const lift = (hex: string): string => {
+      const m = /^#([0-9a-f]{6})$/i.exec(hex); if (!m) return hex;
+      const n = parseInt(m[1], 16); const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+      const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+      if (lum > 0.45) return hex;
+      const t = 0.72; const mix = (c: number) => Math.round(c + (255 - c) * t);
+      return `#${[mix(r), mix(g), mix(b)].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+    };
+    const accent = dark ? lift(brand.accent) : brand.accent;
     const onAcc = onAccent(accent);
+    const lightWeight = dark ? 400 : 300;
     const face = STACKS[brand.font] || STACKS.cormorant;
     const body = STACKS.jakarta;
     const first = String(p.name || '').split(' ')[0] || 'them';
@@ -686,7 +713,8 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
 
     if (!providerEntered) {
       return (
-        <div className="fixed inset-0 overflow-hidden" style={{ background: bg, fontFamily: body }}>
+        <div className="fixed inset-0 overflow-hidden" data-tone={dark ? 'dark' : 'light'} style={{ background: bg, fontFamily: body }}>
+          <style>{`[data-tone="dark"] .font-light { font-weight: 400; }`}</style>
           {cover && <img src={cover} alt="" className="absolute inset-0 h-full w-full object-cover" style={{ opacity: dark ? 0.55 : 0.9 }} />}
           <div className="absolute inset-0" style={{ background: `linear-gradient(180deg, ${dark ? 'rgba(12,10,9,0.15)' : 'rgba(250,249,247,0.05)'} 0%, ${bg} 78%)` }} />
           <div className="absolute inset-x-0 bottom-0 px-8 pb-[max(2.5rem,env(safe-area-inset-bottom))]">
@@ -707,7 +735,8 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
 
     const pane = 'absolute inset-x-0 top-14 bottom-[calc(7.5rem+env(safe-area-inset-bottom))] overflow-y-auto overscroll-contain px-6 pt-4 pb-6';
     return (
-      <div className="fixed inset-0 overflow-hidden" style={{ background: bg, color: ink, fontFamily: body }}>
+      <div className="fixed inset-0 overflow-hidden" data-tone={dark ? 'dark' : 'light'} style={{ background: bg, color: ink, fontFamily: body }}>
+        <style>{`[data-tone="dark"] .font-light { font-weight: 400; } [data-tone="dark"] .text-\\[10px\\] { font-size: 11px; }`}</style>
         <header className="absolute inset-x-0 top-0 z-10 flex h-14 items-center gap-3 px-6" style={{ background: bg, borderBottom: `1px solid ${line}` }}>
           {photo ? <img src={photo} alt="" className="h-8 w-8 rounded-full object-cover" /> : <span className="h-8 w-8 rounded-full" style={{ background: accent }} />}
           <span className="min-w-0 truncate text-[17px] font-light" style={{ fontFamily: face }}>{p.name || 'Provider'}</span>
@@ -716,7 +745,31 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
 
         {providerTab === 'book' && (
           <div className={pane}>
-            {pkgThanks && <p className="mb-4 rounded-2xl px-4 py-3 text-[13px] font-light" style={{ background: accent, color: onAcc }}>Thank you — your package is ready. Your credits come off each visit; just book as usual.</p>}
+            {pkgThanks && <p className="mb-4 rounded-2xl px-4 py-3 text-[13px]" style={{ background: accent, color: onAcc, fontWeight: lightWeight }}>Thank you — your package is ready. Your credits come off each visit; just book as usual.</p>}
+            {memberThanks && <p className="mb-4 rounded-2xl px-4 py-3 text-[13px]" style={{ background: accent, color: onAcc, fontWeight: lightWeight }}>Welcome — you&apos;re a member. Your included visits and perks apply from your next booking.</p>}
+            {providerMemberships.length > 0 && (
+              <div className="mb-8">
+                {eyebrow('Membership')}
+                <div className="mt-3 space-y-3">
+                  {providerMemberships.map((m: any) => (
+                    <div key={m.id} className="rounded-2xl p-4" style={{ background: card, border: `1px solid ${line}` }}>
+                      <div className="flex items-baseline justify-between gap-3">
+                        <p className="text-[19px] leading-tight" style={{ fontFamily: face, fontWeight: lightWeight }}>{m.name}</p>
+                        <p className="shrink-0 text-[15px] tabular-nums" style={{ color: accent, fontWeight: lightWeight }}>${(m.priceCents / 100).toFixed(0)}<span className="text-[11px]" style={{ color: mute }}>/mo</span></p>
+                      </div>
+                      {m.description && <p className="mt-1 text-[13px] leading-snug" style={{ color: mute, fontWeight: lightWeight }}>{m.description}</p>}
+                      <ul className="mt-3 space-y-1">
+                        {m.includedVisits > 0 && <li className="flex gap-2 text-[13px]" style={{ fontWeight: lightWeight }}><span style={{ color: accent }}>✓</span>{m.includedVisits} visit{m.includedVisits === 1 ? '' : 's'} included every month</li>}
+                        {m.discountPct > 0 && <li className="flex gap-2 text-[13px]" style={{ fontWeight: lightWeight }}><span style={{ color: accent }}>✓</span>{m.discountPct}% off every other service</li>}
+                        {(m.perks || []).map((p: string, i: number) => <li key={i} className="flex gap-2 text-[13px]" style={{ fontWeight: lightWeight }}><span style={{ color: accent }}>✓</span>{p}</li>)}
+                      </ul>
+                      <p className="mt-2 text-[10px]" style={{ color: mute }}>{policyText(m)} Cancel any time.</p>
+                      <button type="button" onClick={() => joinMembership(m)} className="mt-3 w-full rounded-full py-3 text-[11px] font-medium" style={{ ...caps, letterSpacing: '0.25em', background: accent, color: onAcc }}>Become a member</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {providerPackages.length > 0 && (
               <div className="mb-8">
                 {eyebrow('Packages')}
@@ -844,6 +897,29 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           <a href={`/book/${tenantId}`} className="mt-2 block text-center text-[8px]" style={{ ...caps, letterSpacing: '0.3em', color: mute, opacity: 0.5 }}>Partnered with {tenant?.name || 'the studio'}</a>
         </div>
 
+        {buying && (
+          <div className="fixed inset-0 z-30 flex flex-col justify-end" role="dialog" aria-modal="true" aria-label="Your details">
+            <button type="button" aria-label="Close" onClick={() => setBuying(null)} className="absolute inset-0" style={{ background: dark ? 'rgba(0,0,0,0.6)' : 'rgba(28,25,23,0.35)' }} />
+            <div className="relative max-h-[88dvh] overflow-y-auto overscroll-contain px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-5" style={{ background: bg, color: ink, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}>
+              {eyebrow(buying.kind === 'package' ? 'Buy a package' : 'Become a member')}
+              <p className="mt-2 text-[24px] leading-tight" style={{ fontFamily: face, fontWeight: lightWeight }}>{buying.item.name}</p>
+              <p className="mt-1 text-[13px]" style={{ color: mute, fontWeight: lightWeight }}>{buying.kind === 'package' ? `${buying.item.credits} visit${buying.item.credits === 1 ? '' : 's'} · $${(buying.item.priceCents / 100).toFixed(0)} once` : `$${(buying.item.priceCents / 100).toFixed(0)} a month · cancel any time`}</p>
+              <div className="mt-4 space-y-2">
+                <button type="button" aria-pressed={buyer.existing} onClick={() => setBuyer((b) => ({ ...b, existing: !b.existing }))} className="w-full rounded-xl px-3 py-2.5 text-left text-[12px]" style={{ border: `1px solid ${buyer.existing ? accent : line}`, color: ink, fontWeight: lightWeight }}>
+                  {buyer.existing ? `✓ I already book with ${first} — use the email on my record` : `Already a client of ${first}? Tap here`}
+                </button>
+                <input value={buyer.name} onChange={(e) => setBuyer((b) => ({ ...b, name: e.target.value.slice(0, 120) }))} placeholder="Your name" aria-label="Your name" className="h-12 w-full rounded-xl px-4 text-[15px]" style={{ background: card, color: ink, border: `1px solid ${line}` }} />
+                <input value={buyer.email} onChange={(e) => setBuyer((b) => ({ ...b, email: e.target.value.slice(0, 160) }))} inputMode="email" placeholder={buyer.existing ? 'The email you book with' : 'Email — receipt and credits go here'} aria-label="Email" className="h-12 w-full rounded-xl px-4 text-[15px]" style={{ background: card, color: ink, border: `1px solid ${line}` }} />
+                <input value={buyer.phone} onChange={(e) => setBuyer((b) => ({ ...b, phone: e.target.value.slice(0, 40) }))} inputMode="tel" placeholder="Mobile (optional)" aria-label="Mobile" className="h-12 w-full rounded-xl px-4 text-[15px]" style={{ background: card, color: ink, border: `1px solid ${line}` }} />
+              </div>
+              <p className="mt-2 text-[11px]" style={{ color: mute }}>{buyer.existing ? `We match by email, so this lands on your existing record with ${first} — your history and credits in one place.` : `Paid securely through ${first}'s Stripe. Your ${buying.kind === 'package' ? 'credits' : 'membership'} are recorded under this email.`}</p>
+              {pkgErr && <p className="mt-2 text-[12px]" style={{ color: '#ef4444' }}>{pkgErr}</p>}
+              <button type="button" disabled={!!pkgBuying} onClick={submitPurchase} className="mt-4 flex h-14 w-full items-center justify-center text-[11px] font-medium disabled:opacity-50" style={{ ...caps, letterSpacing: '0.3em', background: accent, color: onAcc, borderRadius: 999 }}>
+                {pkgBuying ? 'Opening checkout…' : buying.kind === 'package' ? `Pay $${(buying.item.priceCents / 100).toFixed(0)}` : `Start · $${(buying.item.priceCents / 100).toFixed(0)}/mo`}
+              </button>
+            </div>
+          </div>
+        )}
         {providerPeek && (() => {
           const sv = providerPeek;
           const yt = /(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([\w-]+)/.exec(String(sv.videoUrl || ''));
