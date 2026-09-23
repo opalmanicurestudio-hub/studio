@@ -12,6 +12,7 @@ import { resolveBookingPlan } from '@/lib/deposit-policy';
 import { X as XIcon, ArrowRight } from 'lucide-react';
 import { linkHref, LINK_KINDS, livePageSections, cleanBrand, onAccent } from '@/lib/renter-identity';
 import { policyText } from '@/lib/package-credits';
+import { horizonDaysFor, releaseSentence } from '@/lib/booking-release';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import {
   ANIM_CSS, STACKS, GFONTS,
@@ -668,13 +669,13 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           services={services}
           consentForms={consentForms}
           tenant={(() => {
-            // Renter's booking window on their own page: their public horizon,
-            // or the longer member horizon once a member has identified.
+            // Renter's release settings on their own page — rolling or monthly —
+            // for a member once identified, otherwise the public window. The
+            // same function the server enforces with, so the calendar never
+            // shows a day the booking would then refuse.
             const prov: any = providerId ? staff.find((m: any) => m.id === providerId && m.isRenter) : null;
-            const win = prov?.renterBooking || {};
-            const pub = Number(win.horizonDays) || 0, mem = Number(win.memberHorizonDays) || pub;
-            const days = prov ? (memberOk ? mem : pub) : 0;
-            return days > 0 ? { ...tenant, bookingHorizonDays: days } : tenant;
+            const days = prov ? horizonDaysFor(prov.renterBooking || null, memberOk === true, new Date(), tenant?.timezone || 'America/New_York') : null;
+            return days !== null && days > 0 ? { ...tenant, bookingHorizonDays: days } : tenant;
           })()}
           shifts={shifts}
           staffBlocks={staffBlocks}
@@ -848,20 +849,25 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
               </div>
             )}
             {(() => {
-              const win = (linkedProvider as any)?.renterBooking || {};
-              const pub = Number(win.horizonDays) || 0, mem = Number(win.memberHorizonDays) || 0;
-              if (!(mem > pub && providerMemberships.length > 0)) return null;
+              const rel = (linkedProvider as any)?.renterBooking || null;
+              const sent = releaseSentence(rel, new Date(), tenant?.timezone || 'America/New_York');
+              const anyMembersOnly = services.some((x: any) => x.membersOnly === true);
+              const memberPerk = !!sent.members || anyMembersOnly;
+              const hasRelease = !!rel && (rel.mode || 'off') !== 'off';
+              if (!hasRelease && !anyMembersOnly) return null;
               return (
                 <div className="mb-6 rounded-2xl p-3" style={{ background: card, border: `1px solid ${memberOk ? accent : line}` }}>
                   {memberOk ? (
-                    <p className="text-[12px]" style={{ color: ink }}>✓ Member — you can book up to <span style={{ color: accent }}>{mem} days</span> ahead{pub ? ` (everyone else: ${pub})` : ''}.</p>
+                    <p className="text-[12px]" style={{ color: ink }}>✓ Member{sent.members ? ` — ${sent.members.replace(/^Members /, 'you ')}` : ''}{anyMembersOnly ? ' Members-only services are unlocked below.' : ''}</p>
                   ) : (
                     <>
-                      <p className="text-[12px]" style={{ color: ink }}>Members book up to <span style={{ color: accent }}>{mem} days</span> ahead{pub ? ` — everyone else, ${pub}` : ''}.</p>
-                      <div className="mt-2 flex gap-2">
-                        <input value={memberEmail} onChange={(e) => { setMemberEmail(e.target.value); setMemberOk(null); }} inputMode="email" placeholder="Member? Your email" aria-label="Member email" className="h-10 min-w-0 flex-1 rounded-xl px-3 text-[13px]" style={{ background: bg, color: ink, border: `1px solid ${line}` }} />
-                        <button type="button" disabled={memberChecking} onClick={checkMember} className="h-10 shrink-0 rounded-xl px-3 text-[10px] font-medium disabled:opacity-50" style={{ ...caps, letterSpacing: '0.2em', background: accent, color: onAcc }}>{memberChecking ? '…' : 'Unlock'}</button>
-                      </div>
+                      <p className="text-[12px]" style={{ color: ink }}>{sent.everyone}{sent.members ? ` ${sent.members}` : ''}{anyMembersOnly ? ' Some services are members only.' : ''}</p>
+                      {(sent.members || anyMembersOnly) && (
+                        <div className="mt-2 flex gap-2">
+                          <input value={memberEmail} onChange={(e) => { setMemberEmail(e.target.value); setMemberOk(null); }} inputMode="email" placeholder="Member? Your email" aria-label="Member email" className="h-10 min-w-0 flex-1 rounded-xl px-3 text-[13px]" style={{ background: bg, color: ink, border: `1px solid ${line}` }} />
+                          <button type="button" disabled={memberChecking} onClick={checkMember} className="h-10 shrink-0 rounded-xl px-3 text-[10px] font-medium disabled:opacity-50" style={{ ...caps, letterSpacing: '0.2em', background: accent, color: onAcc }}>{memberChecking ? '…' : 'Unlock'}</button>
+                        </div>
+                      )}
                       {memberOk === false && <p className="mt-1 text-[11px]" style={{ color: mute }}>No active membership under that email.</p>}
                     </>
                   )}
@@ -876,12 +882,12 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
               {(cats.length ? cats : ['']).map((cat) => (
                 <div key={cat || 'all'} className="mb-6">
                   {cat && <p className="mb-2 text-[10px]" style={{ ...caps, letterSpacing: '0.3em', color: mute }}>{cat}</p>}
-                  {services.filter((sv: any) => (cat ? String(sv.category || '').trim() === cat : true)).map((sv: any, i: number, arr: any[]) => (
+                  {services.filter((sv: any) => (cat ? String(sv.category || '').trim() === cat : true) && (sv.membersOnly !== true || memberOk === true)).map((sv: any, i: number, arr: any[]) => (
                     <button key={sv.id} onClick={() => setProviderPeek(sv)} className="group flex w-full items-start gap-4 py-4 text-left" style={{ borderTop: i === 0 ? `1px solid ${line}` : undefined, borderBottom: `1px solid ${line}` }}>
                       {sv.imageUrl && <img src={sv.imageUrl} alt="" className="h-16 w-16 shrink-0 object-cover" style={{ borderRadius: 2 }} />}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-baseline justify-between gap-3">
-                          <p className="text-[19px] font-light leading-tight" style={{ fontFamily: face }}>{sv.name}</p>
+                          <p className="text-[19px] font-light leading-tight" style={{ fontFamily: face }}>{sv.name}{sv.membersOnly ? <span className="ml-2 align-middle text-[9px]" style={{ ...caps, letterSpacing: '0.2em', color: accent }}>Members</span> : null}</p>
                           {sv.price != null && <span className="shrink-0 text-[15px] font-light tabular-nums" style={{ color: accent }}>${sv.price}</span>}
                         </div>
                         {sv.description && <p className="mt-1 text-[13px] font-light leading-snug line-clamp-2" style={{ color: mute }}>{sv.description}</p>}
