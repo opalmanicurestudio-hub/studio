@@ -445,6 +445,8 @@ export type Service = {
   isPrivate?: boolean;
   /** Members only: hidden from non-members on the booking page, refused at booking. */
   membersOnly?: boolean;
+  /** Reconnect: nudge a client this many weeks after this service, if they haven't rebooked. */
+  rebookWeeks?: number;
   confirmationMessage?: string;
   requiredFormIds?: string[];
   // v3 — service-level required documents (Photo ID, etc.), configured
@@ -1191,6 +1193,8 @@ export type Tenant = {
   cancellationWindowHours?: number;
   /** Booking release (src/lib/booking-release.ts): how far ahead clients can book, and how much earlier members can. */
   bookingRelease?: import('@/lib/booking-release').ReleaseSettings | null;
+  /** Reconnect nudges for the studio's own clients (src/lib/reconnect.ts). */
+  reconnect?: import('@/lib/reconnect').ReconnectSettings | null;
   noShowFee?: number;
   cancellationPolicy?: string;
   noShowPolicy?: string;
