@@ -1123,7 +1123,7 @@ export async function POST(req: NextRequest) {
               // Deposits can only be offered once their own Stripe can charge.
               chargesEnabled: renter?.stripeChargesEnabled === true,
               bookingUrl: origin ? `${origin}/book/${tenantId}?provider=${st.id}` : `/book/${tenantId}?provider=${st.id}`,
-              bookingWindow: { horizonDays: Number(st.renterBooking?.horizonDays) || 0, memberHorizonDays: Number(st.renterBooking?.memberHorizonDays) || 0 },
+              bookingWindow: st.renterBooking || null,
             };
             // Their own book: client appointments booked through their link.
             // This is the renter's ledger — the studio's reports exclude these
@@ -1159,7 +1159,9 @@ export async function POST(req: NextRequest) {
             myServices = svSnap.docs
               .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
               .filter((sv: any) => sv.isActive !== false)
-              .map((sv: any) => ({ id: sv.id, name: sv.name || '', price: Number(sv.price) || 0, duration: Number(sv.duration) || 60, productCost: Number(sv.productCost) || 0, depositAmount: Number(sv.depositAmount) || 0 }))
+              .map((sv: any) => ({ id: sv.id, name: sv.name || '', price: Number(sv.price) || 0, duration: Number(sv.duration) || 60, productCost: Number(sv.productCost) || 0, depositAmount: Number(sv.depositAmount) || 0,
+                depositPercent: Number(sv.depositPercent) || 0, depositMode: sv.depositMode || 'none', description: sv.description || '', category: sv.category || '', videoUrl: sv.videoUrl || '', imageUrl: sv.imageUrl || null,
+                membersOnly: sv.membersOnly === true }))
               .sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)));
 
             // Rent → cost per bookable hour. Weekly/biweekly leases are
@@ -1566,6 +1568,7 @@ export async function POST(req: NextRequest) {
         id, tenantId, staffId: st.id, renterId: session.renterId,
         name, price: priceCents / 100, duration, productCost, depositAmount, depositPercent, depositMode: canCharge ? depositMode : 'none',
         description, category, videoUrl,
+        membersOnly: body.membersOnly === true,
         ...(imageUrl !== undefined ? { imageUrl } : {}),
         isActive: true, collectsOwnPayment: true,
         updatedAt: new Date().toISOString(),
@@ -2898,10 +2901,11 @@ export async function POST(req: NextRequest) {
     if (action === 'booking-window-save') {
       const st = await myProvider();
       if (!st) return NextResponse.json({ ok: false, error: 'Your booking profile is not set up yet.' }, { status: 400 });
-      const horizonDays = Math.max(0, Math.min(365, Math.round(Number(body.horizonDays) || 0)));
-      const memberHorizonDays = Math.max(horizonDays, Math.min(365, Math.round(Number(body.memberHorizonDays) || horizonDays)));
-      await db.doc(`tenants/${tenantId}/staff/${st.id}`).set({ renterBooking: { horizonDays, memberHorizonDays } }, { merge: true });
-      return NextResponse.json({ ok: true, horizonDays, memberHorizonDays });
+      const { cleanRelease, releaseSentence } = await import('@/lib/booking-release');
+      const tenant = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      const release = cleanRelease(body);
+      await db.doc(`tenants/${tenantId}/staff/${st.id}`).set({ renterBooking: release }, { merge: true });
+      return NextResponse.json({ ok: true, release, sentence: releaseSentence(release, new Date(), tenant.timezone || 'America/New_York') });
     }
     if (action === 'memberships-list') {
       const st = await myProvider();
