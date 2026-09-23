@@ -108,7 +108,7 @@ export function nudgeText(settings: ReturnType<typeof cleanReconnect>, d: Exclud
 export async function runReconnect(db: any, opts: {
   tenantId: string; renterId: string | null; staffIds: string[] | null; settings: any;
   bookingUrl: string | null; signer: string; stopUrl: (clientId: string) => string;
-  send: (to: { email: string | null; phone: string | null; clientId: string; name: string }, text: string, subject: string, kind: string) => Promise<boolean>;
+  send: (to: { email: string | null; phone: string | null; smsOk: boolean; clientId: string; name: string }, text: string, subject: string, kind: string) => Promise<boolean>;
 }): Promise<{ checked: number; sent: number; due: number; miss: number; skippedCap: number }> {
   const s = cleanReconnect(opts.settings);
   const out = { checked: 0, sent: 0, due: 0, miss: 0, skippedCap: 0 };
@@ -164,7 +164,8 @@ export async function runReconnect(db: any, opts: {
     const hist: ClientHistory = {
       clientId: c.id, first: String(c.name || 'there').trim().split(/\s+/)[0] || 'there',
       lastVisitIso: last?.startTime || null, lastServiceId: last?.serviceId || null, lastServiceName: last?.renterServiceName || last?.serviceName || null,
-      hasUpcoming: upcoming, optedOut: c.reconnectOptOut === true, hasContact: !!(c.phone || (c.email && String(c.email).includes('@'))),
+      // Texts only to clients who said yes to marketing texts; otherwise email.
+      hasUpcoming: upcoming, optedOut: c.reconnectOptOut === true || c.marketingOptOut === true, hasContact: !!((c.phone && c.smsMarketingOptIn === true) || (c.email && String(c.email).includes('@'))),
       lastNudgeIso: lastNudge.get(c.id) || null, lastMissNudgeIso: lastMiss.get(c.id) || null,
     };
     const d = decideNudge(s, hist, rebook, now);
@@ -173,7 +174,7 @@ export async function runReconnect(db: any, opts: {
     const text = nudgeText(s, d, hist.first, opts.bookingUrl, opts.signer);
     const withStop = `${text}${c.email ? `\n\nPrefer not to get these? ${opts.stopUrl(c.id)}` : ''}`;
     const subject = d.kind === 'due' ? `Time for your ${d.serviceName}?` : `We'd love to see you again`;
-    const ok = await opts.send({ email: c.email || null, phone: c.phone || null, clientId: c.id, name: c.name || '' }, withStop, subject, d.kind === 'due' ? 'reconnect_due' : 'reconnect_miss');
+    const ok = await opts.send({ email: c.email || null, phone: c.phone || null, smsOk: c.smsMarketingOptIn === true, clientId: c.id, name: c.name || '' }, withStop, subject, d.kind === 'due' ? 'reconnect_due' : 'reconnect_miss');
     if (!ok) continue;
     const ref = col('reconnectNudges').doc();
     await ref.set({ id: ref.id, sender: opts.renterId || 'studio', renterId: opts.renterId || null, clientId: c.id, clientName: c.name || null, kind: d.kind, weeks: d.weeks, serviceName: (d as any).serviceName || null, sentAt: nowIso, converted: false });
