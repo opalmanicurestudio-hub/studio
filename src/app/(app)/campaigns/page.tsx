@@ -112,11 +112,11 @@ const CampaignCard = ({ campaign, onSend, onDelete }: { campaign: Campaign, onSe
             <div className="grid grid-cols-2 gap-3 pt-2">
                 <div className="p-3 rounded-xl bg-muted/20 border shadow-inner">
                     <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-0.5">Reach</p>
-                    <p className="font-black font-mono text-sm">{campaign.status === 'sent' ? safeNumber(campaign.recipientCount) : '—'}</p>
+                    <p className="font-black font-mono text-sm">{campaign.status === 'draft' ? '—' : `${safeNumber(campaign.recipientCount)}${campaign.status === 'sending' ? ' · sending' : ''}${safeNumber(campaign.failedCount) ? ` (${safeNumber(campaign.failedCount)} failed)` : ''}`}</p>
                 </div>
                 <div className="p-3 rounded-xl bg-primary/[0.03] border border-primary/5 shadow-inner">
-                    <p className="text-[8px] font-black uppercase text-primary/40 mb-0.5">Yield</p>
-                    <p className="font-black font-mono text-sm text-primary">${safeNumber(campaign.generatedRevenue).toFixed(0)}</p>
+                    <p className="text-[8px] font-black uppercase text-primary/40 mb-0.5">Rebooked in 14 days</p>
+                    <p className="font-black font-mono text-sm text-primary">{campaign.status === 'draft' ? '—' : safeNumber(campaign.convertedCount)}</p>
                 </div>
             </div>
 
@@ -174,22 +174,18 @@ export default function CampaignsPage() {
   }, [campaigns]);
 
   const kpiData = useMemo(() => {
-    if (!campaigns) return { totalCampaigns: 0, totalRecipients: 0, avgOpenRate: 0, totalRevenue: 0 };
+    if (!campaigns) return { totalCampaigns: 0, totalRecipients: 0, totalRebooked: 0, rebookRate: 0 };
     
     const sentCampaigns = campaigns.filter(c => c.status === 'sent');
     const totalRecipients = sentCampaigns.reduce((sum, c) => sum + safeNumber(c.recipientCount), 0);
-    const totalRevenue = sentCampaigns.reduce((sum, c) => sum + safeNumber(c.generatedRevenue), 0);
-    
-    const campaignsWithOpenRate = sentCampaigns.filter(c => typeof c.openRate === 'number');
-    const avgOpenRate = campaignsWithOpenRate.length > 0
-      ? campaignsWithOpenRate.reduce((sum, c) => sum + safeNumber(c.openRate), 0) / campaignsWithOpenRate.length
-      : 0;
-
+    // Real outcomes only: who it reached, and who booked within 14 days.
+    // (Open rates and revenue were never measured — they were placeholders.)
+    const totalRebooked = sentCampaigns.reduce((sum, c) => sum + safeNumber((c as any).convertedCount), 0);
     return {
       totalCampaigns: campaigns.length,
       totalRecipients,
-      avgOpenRate: parseFloat(avgOpenRate.toFixed(1)),
-      totalRevenue,
+      totalRebooked,
+      rebookRate: totalRecipients ? Math.round((totalRebooked / totalRecipients) * 1000) / 10 : 0,
     };
   }, [campaigns]);
 
@@ -214,8 +210,8 @@ export default function CampaignsPage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <KpiCard title="Total Dispatches" value={kpiData.totalCampaigns.toString()} icon={Megaphone} description="Total campaigns created." />
             <KpiCard title="Tactical Reach" value={kpiData.totalRecipients.toLocaleString()} icon={Users} description="Total clients engaged." />
-            <KpiCard title="Avg. Open Velocity" value={`${kpiData.avgOpenRate}%`} icon={Eye} description="Email engagement rate." />
-            <KpiCard title="Marketing Yield" value={`$${kpiData.totalRevenue.toFixed(0)}`} icon={TrendingUp} colorClass="text-primary" description="Direct revenue yield." />
+            <KpiCard title="Rebooked" value={`${kpiData.totalRebooked}`} icon={Eye} description="Recipients who booked within 14 days." />
+            <KpiCard title="Rebook Rate" value={`${kpiData.rebookRate}%`} icon={TrendingUp} colorClass="text-primary" description="Of everyone a campaign reached." />
         </div>
         
         <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
@@ -239,7 +235,7 @@ export default function CampaignsPage() {
                                 <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Logic Type</TableHead>
                                 <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Target Audience</TableHead>
                                 <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Reach</TableHead>
-                                <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Yield</TableHead>
+                                <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Rebooked</TableHead>
                                 <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Status</TableHead>
                                 <TableHead className="text-right font-black text-[10px] uppercase tracking-[0.2em] pr-10 text-slate-900">Actions</TableHead>
                             </TableRow>
@@ -272,8 +268,8 @@ export default function CampaignsPage() {
                                             <span>{audienceText[campaign.targetAudience]}</span>
                                         </div>
                                     </TableCell>
-                                    <TableCell className="font-black font-mono text-sm text-slate-700">{campaign.status === 'sent' ? safeNumber(campaign.recipientCount) : '—'}</TableCell>
-                                    <TableCell className="font-black font-mono text-sm text-primary">{campaign.status === 'sent' ? `$${safeNumber(campaign.generatedRevenue).toFixed(0)}` : '—'}</TableCell>
+                                    <TableCell className="font-black font-mono text-sm text-slate-700">{campaign.status === 'draft' ? '—' : `${safeNumber(campaign.recipientCount)}${campaign.status === 'sending' ? ' · sending' : ''}`}</TableCell>
+                                    <TableCell className="font-black font-mono text-sm text-primary">{campaign.status === 'draft' ? '—' : safeNumber(campaign.convertedCount)}</TableCell>
                                     <TableCell>
                                         <Badge variant={campaign.status === 'sent' ? 'default' : 'secondary'} className="h-5 px-2 font-black text-[8px] uppercase border-none shadow-sm">{campaign.status}</Badge>
                                     </TableCell>
