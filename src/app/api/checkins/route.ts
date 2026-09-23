@@ -59,6 +59,32 @@ export async function POST(req: NextRequest) {
 
     // Scoped write (the target state) + legacy mirror (compatibility).
     await db.doc(`tenants/${tenantId}/appointmentCheckIns/${token}`).set(clean, { merge: true });
+
+    // A RENTER'S client saying "on my way" / "running late" / "I'm here":
+    // the studio's planner reads appointmentCheckIns, the renter's portal
+    // reads the appointment. Mirror the status onto the appointment and drop
+    // a line in the renter's inbox, so the renter hears it — it's their
+    // chair the client is walking toward.
+    if (clean.checkInStatus && clean.appointmentId) {
+      try {
+        const aRef = db.doc(`tenants/${tenantId}/appointments/${String(clean.appointmentId)}`);
+        const a = (await aRef.get()).data() as any;
+        if (a?.isRenterBooking) {
+          const nowIso = new Date().toISOString();
+          await aRef.set({ clientCheckInStatus: String(clean.checkInStatus), clientLateMinutes: Number(clean.lateTimeMinutes) || null, clientStatusAt: nowIso,
+            ...(String(clean.checkInStatus) === 'arrived' && !['servicing', 'completed', 'cancelled'].includes(String(a.status || '')) ? { status: 'checked_in', checkedInAt: nowIso } : {}) }, { merge: true });
+          const st = a.staffId ? ((await db.doc(`tenants/${tenantId}/staff/${String(a.staffId)}`).get()).data() as any) : null;
+          if (st?.renterId) {
+            const when = new Date(a.startTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+            const text = String(clean.checkInStatus) === 'arrived' ? `${a.clientName || 'Your client'} has arrived for ${when}`
+              : String(clean.checkInStatus) === 'running_late' ? `${a.clientName || 'Your client'} is running ~${Number(clean.lateTimeMinutes) || 10} min late for ${when}`
+              : `${a.clientName || 'Your client'} is on the way for ${when}`;
+            const alRef = db.collection(`tenants/${tenantId}/renterAlerts`).doc();
+            await alRef.set({ id: alRef.id, renterId: st.renterId, kind: `client_${String(clean.checkInStatus)}`, tab: 'book', tone: String(clean.checkInStatus) === 'running_late' ? 'amber' : 'green', at: nowIso, text });
+          }
+        }
+      } catch (e) { console.error('[checkins] renter mirror', e); }
+    }
     await db.doc(`appointmentCheckIns/${token}`).set(clean, { merge: true }); // TODO: remove after legacy rule closes
 
     // Owner-visible audit trail for self-service status changes.
