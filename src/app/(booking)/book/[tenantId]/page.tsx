@@ -328,6 +328,21 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   // Unlocks the member booking window on this page; the server re-checks the
   // same email at confirm, so it is a convenience, not the gate.
   const [memberEmail, setMemberEmail] = useState('');
+  // Studio members: same idea on the studio's own page — a member unlocks
+  // their earlier release and members-only services. The server checks the
+  // same thing at confirm; this only changes what the calendar shows.
+  const [studioMemberOk, setStudioMemberOk] = useState<boolean | null>(null);
+  const [studioMemberInput, setStudioMemberInput] = useState('');
+  const [studioMemberBusy, setStudioMemberBusy] = useState(false);
+  const checkStudioMember = async () => {
+    const v = studioMemberInput.trim(); if (!v) return;
+    setStudioMemberBusy(true);
+    try {
+      const res = await fetch('/api/booking/member-check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, contact: v }) });
+      const d = await res.json().catch(() => ({}));
+      setStudioMemberOk(!!d?.member);
+    } catch { setStudioMemberOk(false); } finally { setStudioMemberBusy(false); }
+  };
   const [memberOk, setMemberOk] = useState<boolean | null>(null);
   const [memberChecking, setMemberChecking] = useState(false);
   const checkMember = async () => {
@@ -385,7 +400,10 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   }, [resolvedStyle]);
 
   const data: PageData = {
-    tenant, services, staff, events, tenantId,
+    tenant,
+    // Members-only services stay off the studio's page until a member unlocks.
+    services: services.filter((sv: any) => sv.membersOnly !== true || studioMemberOk === true),
+    staff, events, tenantId,
     // Everything the booking sheet needs to reach the same verdict as the
     // server. Passed through in one object so there is exactly one place to
     // keep in step when a new blocking source is added.
@@ -674,7 +692,9 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
             // same function the server enforces with, so the calendar never
             // shows a day the booking would then refuse.
             const prov: any = providerId ? staff.find((m: any) => m.id === providerId && m.isRenter) : null;
-            const days = prov ? horizonDaysFor(prov.renterBooking || null, memberOk === true, new Date(), tenant?.timezone || 'America/New_York') : null;
+            const days = prov
+              ? horizonDaysFor(prov.renterBooking || null, memberOk === true, new Date(), tenant?.timezone || 'America/New_York')
+              : horizonDaysFor((tenant as any)?.bookingRelease || null, studioMemberOk === true, new Date(), tenant?.timezone || 'America/New_York');
             return days !== null && days > 0 ? { ...tenant, bookingHorizonDays: days } : tenant;
           })()}
           shifts={shifts}
@@ -1123,6 +1143,34 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
         </div>
       )}
 
+      {(() => {
+        const rel = (tenant as any)?.bookingRelease || null;
+        const hasRelease = !!rel && (rel.mode || 'off') !== 'off';
+        const anyMembersOnly = services.some((sv: any) => sv.membersOnly === true);
+        if (!hasRelease && !anyMembersOnly) return null;
+        const sent = releaseSentence(rel, new Date(), (tenant as any)?.timezone || 'America/New_York');
+        const memberPerk = !!sent.members || anyMembersOnly;
+        return (
+          <div className="mx-auto w-full max-w-3xl px-4 pt-4">
+            <div className="rounded-2xl border px-4 py-3" style={{ borderColor: studioMemberOk ? 'currentColor' : 'rgba(120,113,108,0.3)' }}>
+              {studioMemberOk ? (
+                <p className="text-[13px]">✓ Member — {sent.members ? sent.members.replace(/^Members /, 'you ') : 'welcome back.'}{anyMembersOnly ? ' Members-only services are unlocked below.' : ''}</p>
+              ) : (
+                <>
+                  <p className="text-[13px]">{hasRelease ? sent.everyone : ''}{sent.members ? ` ${sent.members}` : ''}{anyMembersOnly ? ' Some services are members only.' : ''}</p>
+                  {memberPerk && (
+                    <div className="mt-2 flex gap-2">
+                      <input value={studioMemberInput} onChange={(e) => { setStudioMemberInput(e.target.value); setStudioMemberOk(null); }} placeholder="Member? Email or phone" aria-label="Member email or phone" className="h-10 min-w-0 flex-1 rounded-xl border bg-transparent px-3 text-[13px]" />
+                      <button type="button" disabled={studioMemberBusy} onClick={checkStudioMember} className="h-10 shrink-0 rounded-xl bg-slate-900 px-4 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50">{studioMemberBusy ? '…' : 'Unlock'}</button>
+                    </div>
+                  )}
+                  {studioMemberOk === false && <p className="mt-1 text-[11px] opacity-70">No active membership under that — check the email or phone on your membership.</p>}
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })()}
       {activeSections.map(section => (
         <SectionWrapper key={section.id} section={section} isPreview={false}
           onEdit={() => {}} onFieldTap={() => {}}>
