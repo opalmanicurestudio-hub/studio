@@ -33,6 +33,7 @@ import { StripeConnectSetup } from '@/components/settings/StripeConnectSetup';
 import { TerminalSettings } from '@/components/pos/TerminalSettings';
 import { LocationsSettingsTab } from '@/components/settings/LocationsSettingsTab';
 import { TimezoneSettingCard } from '@/components/settings/TimezoneSettingCard';
+import { releaseSentence } from '@/lib/booking-release';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const defaultRecoveryPresets: RecoveryPreset[] = [
@@ -806,6 +807,51 @@ function SettingsPageImpl() {
                         </label>
                       ))}
                     </RadioGroup>
+                  </div>
+                  {/* ── Booking release: how far ahead clients can book, and how much
+                      earlier members can. Same engine and settings shape the renters
+                      use — one function decides what the page shows and what the
+                      booking route enforces. Off by default. ── */}
+                  <div className="pt-4 border-t border-dashed space-y-3">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Booking Release</Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {([['off', 'No limit'], ['rolling', 'Rolling window'], ['monthly', 'Monthly release']] as const).map(([k, l]) => (
+                        <button key={k} type="button" disabled={!isEditing} aria-pressed={(tenantData.bookingRelease?.mode || 'off') === k}
+                          onClick={() => setTenantData(prev => ({ ...prev, bookingRelease: { ...(prev.bookingRelease || {}), mode: k } }))}
+                          className={cn('h-12 rounded-2xl border-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-60', (tenantData.bookingRelease?.mode || 'off') === k ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>{l}</button>
+                      ))}
+                    </div>
+                    {tenantData.bookingRelease?.mode === 'rolling' && (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1"><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Everyone, up to (days)</Label>
+                          <Input type="number" min={1} max={365} value={tenantData.bookingRelease?.horizonDays ?? 30} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, bookingRelease: { ...(prev.bookingRelease || {}), horizonDays: parseInt(e.target.value) || 0 } }))} className="h-12 rounded-2xl border-2 font-black text-center" /></div>
+                        <div className="space-y-1"><Label className="text-[9px] font-black uppercase tracking-widest text-violet-700 ml-1">Members, up to (days)</Label>
+                          <Input type="number" min={1} max={365} value={tenantData.bookingRelease?.memberHorizonDays ?? 60} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, bookingRelease: { ...(prev.bookingRelease || {}), memberHorizonDays: parseInt(e.target.value) || 0 } }))} className="h-12 rounded-2xl border-2 border-violet-200 font-black text-center" /></div>
+                      </div>
+                    )}
+                    {tenantData.bookingRelease?.mode === 'monthly' && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="rounded-2xl border-2 border-dashed p-3 space-y-2">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Next month opens to everyone on the</p>
+                          <div className="flex items-center gap-2">
+                            <Input type="number" min={1} max={28} value={tenantData.bookingRelease?.releaseDay ?? 25} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, bookingRelease: { ...(prev.bookingRelease || {}), releaseDay: parseInt(e.target.value) || 1 } }))} className="h-11 w-20 rounded-xl border-2 font-black text-center" />
+                            <span className="text-[10px] font-bold text-muted-foreground">at</span>
+                            <select value={tenantData.bookingRelease?.releaseHour ?? 9} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, bookingRelease: { ...(prev.bookingRelease || {}), releaseHour: parseInt(e.target.value) } }))} className="h-11 rounded-xl border-2 bg-background px-2 font-black">{Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{h % 12 === 0 ? 12 : h % 12}{h < 12 ? 'am' : 'pm'}</option>)}</select>
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border-2 border-dashed border-violet-200 bg-violet-50/40 p-3 space-y-2">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-violet-700">Members get it early — on the</p>
+                          <div className="flex items-center gap-2">
+                            <Input type="number" min={1} max={28} value={tenantData.bookingRelease?.memberReleaseDay ?? 20} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, bookingRelease: { ...(prev.bookingRelease || {}), memberReleaseDay: parseInt(e.target.value) || 1 } }))} className="h-11 w-20 rounded-xl border-2 border-violet-200 font-black text-center" />
+                            <span className="text-[10px] font-bold text-violet-800">at</span>
+                            <select value={tenantData.bookingRelease?.memberReleaseHour ?? 9} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, bookingRelease: { ...(prev.bookingRelease || {}), memberReleaseHour: parseInt(e.target.value) } }))} className="h-11 rounded-xl border-2 border-violet-200 bg-background px-2 font-black">{Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{h % 12 === 0 ? 12 : h % 12}{h < 12 ? 'am' : 'pm'}</option>)}</select>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {(() => { const rs = releaseSentence(tenantData.bookingRelease || null, new Date(), (tenantData as any).timezone || 'America/New_York'); return (
+                    <p className="text-[10px] font-bold text-muted-foreground ml-1">{rs.everyone}{rs.members ? ` ${rs.members}` : ''} Members are clients with an active membership; the booking page and the booking engine both enforce this. Services can also be marked Members Only in their editor.</p>
+                    ); })()}
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4 border-t border-dashed">
                     <div className="space-y-3">
