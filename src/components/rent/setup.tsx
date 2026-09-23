@@ -913,7 +913,8 @@ export function MyBooks({ tenantId, token }: { tenantId: string; token: string }
   const [exp, setExp] = useState<{ date: string; amount: string; category: string; note: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  const load = useCallback(async () => { const d = await api({ action: 'ledger', tenantId, token, month }); if (d?.ok) setLed(d); }, [tenantId, token, month]);
+  const [kpi, setKpi] = useState<any | null>(null);
+  const load = useCallback(async () => { const [d, k] = await Promise.all([api({ action: 'ledger', tenantId, token, month }), api({ action: 'kpis', tenantId, token, month })]); if (d?.ok) setLed(d); if (k?.ok) setKpi(k); }, [tenantId, token, month]);
   useEffect(() => { void load(); }, [load]);
   const $ = (c: number) => `${c < 0 ? '−' : ''}$${(Math.abs(c) / 100).toFixed(2)}`;
   const shift = (n: number) => { const [y, m] = month.split('-').map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); setMonth(d.toISOString().slice(0, 7)); };
@@ -937,6 +938,30 @@ export function MyBooks({ tenantId, token }: { tenantId: string; token: string }
               <div key={String(l)} className="rounded-2xl border-2 border-slate-100 px-3 py-2"><p className="text-[9px] font-black uppercase tracking-widest text-slate-400">{l}</p><p className={cn('text-[16px] font-black tabular-nums', tone as string)}>{$(Number(c))}</p></div>
             ))}
           </div>
+          {kpi && (
+            <div className="rounded-2xl border-2 border-slate-100 p-3 space-y-2">
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Timing — from the chair clock</p>
+              <div className="grid grid-cols-3 gap-2">
+                <div><p className="text-[16px] font-black tabular-nums text-slate-900">{kpi.noShowRate}%</p><p className="text-[9px] font-black uppercase tracking-widest text-slate-400">No-show</p></div>
+                <div><p className="text-[16px] font-black tabular-nums text-slate-900">{kpi.onTimeRate === null ? '—' : `${kpi.onTimeRate}%`}</p><p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Started on time</p></div>
+                <div><p className="text-[16px] font-black tabular-nums text-slate-900">{kpi.chairMinutes ? `${Math.round(kpi.chairMinutes / 6) / 10}h` : '—'}</p><p className="text-[9px] font-black uppercase tracking-widest text-slate-400">In the chair</p></div>
+              </div>
+              {kpi.services.length === 0 ? (
+                <p className="text-[10px] font-bold text-slate-500">Tap Start and Finish on your visits and this fills in: booked vs actual, per service, so you can fix the ones that always run over.</p>
+              ) : (
+                <div className="space-y-1">
+                  {kpi.services.map((sv: any) => (
+                    <div key={sv.name} className="flex items-center justify-between gap-2 text-[11px] font-bold text-slate-600">
+                      <span className="min-w-0 truncate"><span className="font-black text-slate-900">{sv.name}</span> · {sv.n} timed</span>
+                      <span className={cn('shrink-0 tabular-nums font-black', sv.driftMin > 5 ? 'text-red-700' : sv.driftMin < -5 ? 'text-amber-700' : 'text-emerald-700')}>{sv.actualAvg} vs {sv.bookedAvg} min · {sv.driftMin > 0 ? '+' : ''}{sv.driftMin}</span>
+                    </div>
+                  ))}
+                  <p className="text-[9px] font-bold text-slate-400">Red runs over the booked time — pad it or price it. Amber finishes early — you may be able to fit more in.</p>
+                </div>
+              )}
+              {kpi.avgLateMin !== null && kpi.avgLateMin > 5 && <p className="text-[10px] font-bold text-amber-700">Visits started {kpi.avgLateMin} min late on average — a buffer between bookings would fix it.</p>}
+            </div>
+          )}
           <p className="text-[10px] font-bold text-slate-500">Earned = {led.visits.length} completed visit{led.visits.length === 1 ? '' : 's'} at your prices ({$(led.totals.servicesCents)}) + {led.packages.length} package sale{led.packages.length === 1 ? '' : 's'} ({$(led.totals.packagesCents)}). Package-covered visits count $0 on the day — the money came in when the package sold. Tips paid to you directly aren&apos;t tracked here.</p>
           <div className="flex items-center justify-between">
             <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Expenses</p>
