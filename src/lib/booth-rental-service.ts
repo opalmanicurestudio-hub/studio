@@ -1184,7 +1184,8 @@ export async function createLocation(
  * address the same document, so the worst case is one harmless overwrite rather
  * than N locations.
  */
-export const DEFAULT_LOCATION_DOC_ID = 'primary';
+export { DEFAULT_LOCATION_DOC_ID, isBusinessLocation, looksAutoProvisioned } from './location-kind';
+import { DEFAULT_LOCATION_DOC_ID } from './location-kind';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Default-location auto-provisioning
