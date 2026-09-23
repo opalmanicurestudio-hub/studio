@@ -76,6 +76,7 @@ function hoursUntil(dateStr: string): number {
 }
 
 const CLIENT_REASON_VALUES = [
+  'rescheduled',
   'schedule_conflict',
   'changed_mind',
   'found_alternative',
@@ -127,8 +128,14 @@ export async function GET(req: NextRequest) {
     ok: true,
     appointment: {
       clientName: appt.clientName || null,
+      clientEmail: appt.clientEmail || null,
+      clientPhone: appt.clientPhone || null,
       startTime: appt.startTime,
-      serviceName: service.name || 'Service',
+      serviceName: appt.renterServiceName || service.name || 'Service',
+      serviceId: appt.serviceId || null,
+      staffId: appt.staffId || null,
+      isRenterBooking: !!appt.isRenterBooking,
+      status: appt.status || null,
     },
     studioName: tenant.name || 'The Studio',
     studioPhone: tenant.twilioPhoneNumber || tenant.phone || null,
@@ -146,7 +153,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 });
   }
 
-  const { tenantId, appointmentId, clientReason } = body;
+  const { tenantId, appointmentId } = body;
+  // "Rescheduled online" arrives from the booking page after the NEW visit
+  // is already booked; it is a move, not a cancellation, and carries no fee
+  // and no package forfeit.
+  const rescheduledToId = typeof body.rescheduledToId === 'string' ? body.rescheduledToId : null;
+  const clientReason = body.clientReason === 'Rescheduled online' ? 'rescheduled' : body.clientReason;
   if (!tenantId || !appointmentId) {
     return NextResponse.json({ ok: false, error: 'Missing tenantId or appointmentId' }, { status: 400 });
   }
@@ -183,7 +195,8 @@ export async function POST(req: NextRequest) {
   const svcSnap = await db.doc(`tenants/${tenantId}/services/${appt.serviceId}`).get();
   const service = svcSnap.data() || {};
 
-  const feeAmount = isLate ? (tenant.cancellationFee || service.price || 0) : 0;
+  const isReschedule = clientReason === 'rescheduled' && !!rescheduledToId;
+  const feeAmount = isLate && !isReschedule ? (tenant.cancellationFee || service.price || 0) : 0;
   const chargeFee = feeAmount > 0; // flagged, not waived, when inside the window
 
   // Read the card's customer + payment method from where the Connect webhook
@@ -218,9 +231,20 @@ export async function POST(req: NextRequest) {
 
   const batch = db.batch();
 
+  // A credit or included visit already applied to the old visit FOLLOWS the
+  // move to the new one — the client paid for it once.
+  if (isReschedule && rescheduledToId && (appt.paidByPackageId || appt.paidByMembershipId)) {
+    batch.set(db.doc(`tenants/${tenantId}/appointments/${rescheduledToId}`), {
+      ...(appt.paidByPackageId ? { paidByPackageId: appt.paidByPackageId, paidByPackageName: appt.paidByPackageName || null } : {}),
+      ...(appt.paidByMembershipId ? { paidByMembershipId: appt.paidByMembershipId, paidByMembershipName: appt.paidByMembershipName || null } : {}),
+      creditMovedFromAppointmentId: appointmentId, creditMovedAt: now,
+    }, { merge: true });
+  }
+
   batch.update(apptRef, {
     status: 'cancelled',
     cancelledAt: now,
+    ...(isReschedule ? { rescheduledToId, cancellationReason: 'rescheduled', paidByPackageId: null, paidByPackageName: null, paidByMembershipId: null, paidByMembershipName: null } : {}),
     cancellationAudit,
     cancellationEventId: eventId,
     cancellationFeeCharged: feeAmount,
@@ -231,7 +255,7 @@ export async function POST(req: NextRequest) {
   // visit: the package's own terms decide whether a credit is kept or lost.
   // The studio's cancellation fee never applies to a renter booking.
   let packageNote: string | null = null;
-  if (appt.isRenterBooking) {
+  if (appt.isRenterBooking && !isReschedule) {
     try {
       const { decideCredit, hoursUntil } = await import('@/lib/package-credits');
       const purCol = db.collection(`tenants/${tenantId}/renterPackagePurchases`);
