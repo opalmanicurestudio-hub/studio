@@ -343,19 +343,22 @@ export async function POST(req: NextRequest) {
       let renterHorizonDays: number | undefined = undefined;
       if (renterSvc) {
         const provider: any = roster.find((m: any) => m.id === renterSvc.staffId);
-        const win = provider?.renterBooking || {};
-        const pub = Number(win.horizonDays) || 0;
-        const mem = Number(win.memberHorizonDays) || pub;
-        if (pub > 0 || mem > 0) {
-          renterHorizonDays = pub > 0 ? pub : undefined;
-          const email = String(body?.client?.email || '').trim().toLowerCase();
-          if (email && mem > pub) {
-            try {
-              const subs = await db.collection(`tenants/${tenantId}/renterMemberSubscriptions`).where('staffId', '==', String(renterSvc.staffId)).where('clientEmail', '==', email).get();
-              if (subs.docs.some((d: any) => (d.data() as any)?.status === 'active')) renterHorizonDays = mem;
-            } catch { /* fall back to the public window */ }
-          }
+        const { horizonDaysFor } = await import('@/lib/booking-release');
+        // Is this client a member of THIS renter? Matched by the booking email.
+        let isMember = false;
+        const email = String(body?.client?.email || '').trim().toLowerCase();
+        if (email) {
+          try {
+            const subs = await db.collection(`tenants/${tenantId}/renterMemberSubscriptions`).where('staffId', '==', String(renterSvc.staffId)).where('clientEmail', '==', email).get();
+            isMember = subs.docs.some((d: any) => (d.data() as any)?.status === 'active');
+          } catch { /* treated as a non-member */ }
         }
+        // A members-only service is a perk, enforced here, not a label.
+        if (renterSvc.membersOnly === true && !isMember) {
+          return NextResponse.json({ ok: false, error: `${renterSvc.name || 'That service'} is for members only. Join on ${renterSvc.providerName || 'the provider'}'s page, then book with the same email.` }, { status: 403 });
+        }
+        const h = horizonDaysFor(provider?.renterBooking || null, isMember, new Date(), tenant.timezone || 'America/New_York');
+        if (h !== null) renterHorizonDays = h;
       }
 
       const engineContext = {
