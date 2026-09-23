@@ -34,7 +34,7 @@ import { useDoc } from '@/firebase/firestore/use-doc';
 import { doc } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { Location, BOOTH_RENTAL_COLLECTIONS } from '@/lib/booth-rental-types';
-import { provisionDefaultLocation } from '@/lib/booth-rental-service';
+import { provisionDefaultLocation, isBusinessLocation } from '@/lib/booth-rental-service';
 
 // ─────────────────────────────────────────────────────────────────────────
 // CORRECTIONS — what changed once the real TenantContext.tsx arrived
@@ -103,8 +103,10 @@ export const LocationProvider = ({ children }: { children: ReactNode }) => {
     return collection(firestore, BOOTH_RENTAL_COLLECTIONS.locations(tenantId));
   }, [firestore, tenantId]);
 
-  const { data: allLocations, isLoading: locationsLoading } =
+  const { data: rawLocations, isLoading: locationsLoading } =
     useCollection<Location>(locationsQuery);
+  // Inventory storage areas share this collection; they are not studios.
+  const allLocations = useMemo(() => (rawLocations ?? []).filter(isBusinessLocation), [rawLocations]);
 
   // ── Staff member doc — only fetched for non-owners, mirroring
   // TenantContext's "staff path only runs when user has no owned
