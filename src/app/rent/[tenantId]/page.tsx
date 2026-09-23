@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 import { Chip, SectionTitle, fmtDate, fmtMoney, localISO } from '@/components/rent/shared';
 import { MyBook, MyClientMessages, MyClients, TellMeWhen } from '@/components/rent/business';
-import { GettingSetUp, MyBooks, MyBrand, MyHours, MyMemberships, MyNumber, MyPackages, MyPage, MyPayments, MyProfile, MyReviews, MyServices } from '@/components/rent/setup';
+import { GettingSetUp, MyBooks, MyBrand, MyHours, MyMemberships, MyNumber, MyPackages, MyPage, MyPayments, MyProfile, MyReconnect, MyReviews, MyServices } from '@/components/rent/setup';
 import { LoginFlow, MySwaps, RenterConcerns, RenterDocuments, RenterInterruptions, RenterLeave, RenterMaintenance, RenterThread, ResCard, STORE, TodayQuick, api } from '@/components/rent/studio';
 
 // ─── Main page ────────────────────────────────────────────────────────────────
@@ -415,6 +415,20 @@ export default function RenterPortalPage() {
                       {setupOpen === 'messages' && (
                         <div className="px-3 pb-4">
             {booksHere && session?.token && <MyClientMessages tenantId={tenantId} token={session.token} />}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {booksHere && (
+                    <div>
+                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'reconnect' ? '' : 'reconnect')} aria-expanded={setupOpen === 'reconnect'}
+                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
+                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Reconnect</span><span className="block text-[10px] font-bold text-slate-500">Nudge clients who've gone quiet</span></span>
+                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'reconnect' && 'rotate-90')} />
+                      </button>
+                      {setupOpen === 'reconnect' && session?.token && (
+                        <div className="px-3 pb-4">
+                          <MyReconnect tenantId={tenantId} token={session.token} />
                         </div>
                       )}
                     </div>
