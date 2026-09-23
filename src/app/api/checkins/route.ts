@@ -79,8 +79,9 @@ export async function POST(req: NextRequest) {
             const text = String(clean.checkInStatus) === 'arrived' ? `${a.clientName || 'Your client'} has arrived for ${when}`
               : String(clean.checkInStatus) === 'running_late' ? `${a.clientName || 'Your client'} is running ~${Number(clean.lateTimeMinutes) || 10} min late for ${when}`
               : `${a.clientName || 'Your client'} is on the way for ${when}`;
-            const alRef = db.collection(`tenants/${tenantId}/renterAlerts`).doc();
-            await alRef.set({ id: alRef.id, renterId: st.renterId, kind: `client_${String(clean.checkInStatus)}`, tab: 'book', tone: String(clean.checkInStatus) === 'running_late' ? 'amber' : 'green', at: nowIso, text });
+            const { notifyRenter } = await import('@/lib/renter-comms');
+            const kind = String(clean.checkInStatus) === 'running_late' ? 'running_late' : String(clean.checkInStatus) === 'arrived' ? 'arrived' : 'arrived';
+            await notifyRenter(db, tenantId, String(st.renterId), kind as any, text, { tone: String(clean.checkInStatus) === 'running_late' ? 'amber' : 'green', subject: text });
           }
         }
       } catch (e) { console.error('[checkins] renter mirror', e); }
