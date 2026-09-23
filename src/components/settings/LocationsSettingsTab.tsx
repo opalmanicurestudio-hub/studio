@@ -33,6 +33,7 @@
 
 import { useState } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useLocation } from '@/context/LocationContext';
@@ -51,7 +52,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import {
-  MapPin, Plus, Pencil, Building, AlertCircle, Target, CheckCircle2, Loader, Clock,
+  MapPin, Plus, Pencil, Building, AlertCircle, Target, CheckCircle2, Loader, Clock, Trash2,
 } from 'lucide-react';
 
 // A modest, common-case list — not exhaustive. Free-text would risk typos in
@@ -330,6 +331,39 @@ export function LocationsSettingsTab() {
     }
   };
 
+  // ── Delete — only when nothing points at the location ──
+  // The server checks what references it (booths, renters, leases, station
+  // bookings, appointments, maintenance, rent ledger, staff access) and
+  // refuses if anything does, or if it's the last location. The dialog shows
+  // the answer first; the delete only runs after that.
+  const [delTarget, setDelTarget] = useState<Location | null>(null);
+  const [delCheck, setDelCheck] = useState<{ canDelete: boolean; reason: string | null; refs: { label: string; count: number }[] } | null>(null);
+  const [delBusy, setDelBusy] = useState(false);
+  const [delError, setDelError] = useState('');
+  const callDelete = async (locationId: string, mode: 'check' | 'delete') => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    try { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : null; if (tk) headers.Authorization = `Bearer ${tk}`; } catch { /* 401 explains */ }
+    const res = await fetch('/api/locations/delete', { method: 'POST', headers, body: JSON.stringify({ tenantId, locationId, mode }) });
+    return res.json().catch(() => ({ ok: false, error: 'No response' }));
+  };
+  const openDelete = async (loc: Location) => {
+    setDelTarget(loc); setDelCheck(null); setDelError(''); setDelBusy(true);
+    const d = await callDelete(loc.id, 'check');
+    setDelBusy(false);
+    if (d?.ok) setDelCheck({ canDelete: !!d.canDelete, reason: d.reason || null, refs: d.refs || [] });
+    else setDelError(d?.error || 'Could not check that location.');
+  };
+  const confirmDelete = async () => {
+    if (!delTarget) return;
+    setDelBusy(true); setDelError('');
+    const d = await callDelete(delTarget.id, 'delete');
+    setDelBusy(false);
+    if (d?.ok) {
+      if (selectedLocationId === delTarget.id) { const next = locations.find((l) => l.id !== delTarget.id && l.isActive) || locations.find((l) => l.id !== delTarget.id); if (next) setSelectedLocationId(next.id); }
+      setDelTarget(null);
+    } else setDelError(d?.error || 'Could not delete it.');
+  };
+
   const toggleActive = async (loc: Location) => {
     if (!tenantId) return;
     await updateDoc(doc(firestore, 'tenants', tenantId, 'locations', loc.id), {
@@ -419,6 +453,10 @@ export function LocationsSettingsTab() {
                 </span>
                 <Switch checked={loc.isActive} onCheckedChange={() => toggleActive(loc)} />
               </div>
+              <Button variant="ghost" size="sm" onClick={() => openDelete(loc)} className="text-muted-foreground hover:text-red-700">
+                <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                Delete
+              </Button>
             </div>
           </div>
         ))}
@@ -429,6 +467,36 @@ export function LocationsSettingsTab() {
         </Button>
       </CardContent>
 
+      <Dialog open={!!delTarget} onOpenChange={(o) => { if (!o) setDelTarget(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete {delTarget?.name || 'this location'}?</DialogTitle>
+            <DialogDescription>
+              {delBusy && !delCheck ? 'Checking what uses this location…'
+                : delCheck?.canDelete ? 'Nothing in the app points at this location, so it can be deleted cleanly. This can’t be undone.'
+                : delCheck ? (delCheck.reason || 'This location is still in use.') : ''}
+            </DialogDescription>
+          </DialogHeader>
+          {delCheck && !delCheck.canDelete && delCheck.refs.length > 0 && (
+            <ul className="space-y-1 rounded-xl border bg-muted/20 p-3 text-sm">
+              {delCheck.refs.map((r) => <li key={r.label}><span className="font-black">{r.count}</span> {r.label}</li>)}
+            </ul>
+          )}
+          {delCheck && !delCheck.canDelete && (
+            <p className="text-xs text-muted-foreground">Deleting would leave these pointing at nothing. Set it to <span className="font-bold">Inactive</span> instead — it stops taking bookings and staff can’t clock in there, and all its history stays intact. To delete it later, move its booths, renters and leases to another location first.</p>
+          )}
+          {delError && <p className="text-sm font-bold text-red-700">{delError}</p>}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDelTarget(null)}>Cancel</Button>
+            {delCheck && !delCheck.canDelete && delTarget?.isActive && (
+              <Button variant="secondary" onClick={async () => { if (delTarget) await toggleActive(delTarget); setDelTarget(null); }}>Set inactive</Button>
+            )}
+            {delCheck?.canDelete && (
+              <Button variant="destructive" disabled={delBusy} onClick={confirmDelete}>{delBusy ? 'Deleting…' : 'Delete location'}</Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto rounded-[2.5rem] border-2 p-6 md:p-8">
           <DialogHeader className="text-left">
