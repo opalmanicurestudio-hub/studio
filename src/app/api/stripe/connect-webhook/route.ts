@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
-import { renterVoice, tellClient, alertRenter, membershipWelcomeLines } from '@/lib/renter-comms';
+import { renterVoice, tellClient, notifyRenter, membershipWelcomeLines } from '@/lib/renter-comms';
 
 // ─── /api/stripe/connect-webhook/route.ts ─────────────────────────────────────
 // CONNECTED ACCOUNTS webhook — events on your tenants' Stripe accounts.
@@ -152,7 +152,7 @@ export async function POST(req: NextRequest) {
               const v = await renterVoice(db, tenant.id, renterId);
               const manage = await manageLink(typeof session.customer === 'string' ? session.customer : null, v.bookingUrl || `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL || ''}`);
               await tellClient(db, v, { email, clientId, name }, `Welcome to ${mem.name || 'the membership'}`, membershipWelcomeLines(v, { name: mem.name || 'Membership', includedVisits: Number(mem.includedVisits) || 0, discountPct: Number(mem.discountPct) || 0, perks: Array.isArray(mem.perks) ? mem.perks : [], priceCents: Number(mem.priceCents) || 0 }, manage), 'renter_member_welcome');
-              await alertRenter(db, tenant.id, renterId, 'member_joined', `${name} joined ${mem.name || 'your membership'} · $${((Number(mem.priceCents) || 0) / 100).toFixed(0)}/mo`, 'book', 'green');
+              await notifyRenter(db, tenant.id, renterId, 'money', `${name} joined ${mem.name || 'your membership'} · $${((Number(mem.priceCents) || 0) / 100).toFixed(0)}/mo`, { tone: 'green', subject: `${name} joined ${mem.name || 'your membership'} · $${((Number(mem.priceCents) || 0) / 100).toFixed(0)}/mo` });
             }
           }
           break;
@@ -197,7 +197,7 @@ export async function POST(req: NextRequest) {
               const { policyText } = await import('@/lib/package-credits');
               await tellClient(db, v, { email, clientId, name }, `Your ${pkg.name || 'package'} is ready`,
                 [`Thank you! ${credits} visit${credits === 1 ? '' : 's'} are on your account${pkg.serviceName ? ` for ${pkg.serviceName}` : ''}, valid ${validDays} days.`, `Each time we mark a visit done, one comes off. ${policyText(pkg)}`, v.bookingUrl ? `Book your next visit: ${v.bookingUrl}` : ''].filter(Boolean), 'renter_package_confirmed');
-              await alertRenter(db, tenant.id, renterId, 'package_sold', `${name} bought ${pkg.name || 'a package'} · $${((Number(session.amount_total) || 0) / 100).toFixed(0)}`, 'book', 'green');
+              await notifyRenter(db, tenant.id, renterId, 'money', `${name} bought ${pkg.name || 'a package'} · $${((Number(session.amount_total) || 0) / 100).toFixed(0)}`, { tone: 'green', subject: `${name} bought ${pkg.name || 'a package'} · $${((Number(session.amount_total) || 0) / 100).toFixed(0)}` });
             }
           }
           break;
@@ -673,7 +673,7 @@ export async function POST(req: NextRequest) {
             // First invoice is the checkout itself — don't double-reset a period that just opened.
             if (inv.billing_reason !== 'subscription_create') {
               await snap.docs[0].ref.set({ visitsUsedThisPeriod: 0, currentPeriodEnd: end, lastPaidAt: new Date().toISOString(), status: 'active', renewals: (Number(cur.renewals) || 0) + 1 }, { merge: true });
-              await alertRenter(db, meta.tenantId, String(cur.renterId), 'member_renewed', `${cur.clientName || 'A member'} renewed ${cur.membershipName || 'their membership'} · visits reset`, 'book', 'slate');
+              await notifyRenter(db, meta.tenantId, String(cur.renterId), 'money', `${cur.clientName || 'A member'} renewed ${cur.membershipName || 'their membership'} · visits reset`, { tone: 'slate', subject: `${cur.clientName || 'A member'} renewed ${cur.membershipName || 'their membership'} · visits reset` });
             } else {
               await snap.docs[0].ref.set({ currentPeriodEnd: end, lastPaidAt: new Date().toISOString() }, { merge: true });
             }
@@ -704,7 +704,7 @@ export async function POST(req: NextRequest) {
               await tellClient(db, v, { email: cur.clientEmail, clientId: cur.clientId, name: cur.clientName }, `Your ${cur.membershipName || 'membership'} payment didn't go through`,
                 [`The card on file for your ${cur.membershipName || 'membership'} ($${((Number(cur.priceCents) || 0) / 100).toFixed(2)}) was declined.`, manage ? `Update your card here and you're all set: ${manage}` : 'Reply to this message and I\'ll sort it out with you.', retry ? `We'll try again on ${retry}. Your included visits pause until it clears.` : 'Your included visits pause until it clears.'], 'renter_member_payment_failed');
             }
-            await alertRenter(db, meta.tenantId, String(cur.renterId), 'member_payment_failed', `${cur.clientName || 'A member'}'s card was declined for ${cur.membershipName || 'their membership'}${retry ? ` · Stripe retries ${retry}` : ''}`, 'book', 'red');
+            await notifyRenter(db, meta.tenantId, String(cur.renterId), 'money', `${cur.clientName || 'A member'}'s card was declined for ${cur.membershipName || 'their membership'}${retry ? ` · Stripe retries ${retry}` : ''}`, { tone: 'red', subject: 'A member\'s card was declined' });
           }
         }
         break;
@@ -725,9 +725,9 @@ export async function POST(req: NextRequest) {
               const why = sub.status === 'canceled' && (cur.status === 'past_due') ? 'after the card could not be charged' : '';
               await tellClient(db, v, { email: cur.clientEmail, clientId: cur.clientId, name: cur.clientName }, `Your ${cur.membershipName || 'membership'} has ended`,
                 [`Your ${cur.membershipName || 'membership'} is now closed${why ? ` ${why}` : ''}. Thank you for being a member.`, v.bookingUrl ? `You can still book any time: ${v.bookingUrl}` : ''].filter(Boolean), 'renter_member_ended');
-              await alertRenter(db, meta.tenantId, String(cur.renterId), 'member_ended', `${cur.clientName || 'A member'}'s ${cur.membershipName || 'membership'} ended${why ? ` ${why}` : ''}`, 'book', 'amber');
+              await notifyRenter(db, meta.tenantId, String(cur.renterId), 'money', `${cur.clientName || 'A member'}'s ${cur.membershipName || 'membership'} ended${why ? ` ${why}` : ''}`, { tone: 'amber', subject: 'A membership ended' });
             } else if (sub.cancel_at_period_end && !cur.cancelAtPeriodEnd) {
-              await alertRenter(db, meta.tenantId, String(cur.renterId), 'member_cancelling', `${cur.clientName || 'A member'} cancelled ${cur.membershipName || 'their membership'} — ends ${cur.currentPeriodEnd ? String(cur.currentPeriodEnd).slice(0, 10) : 'at period end'}`, 'book', 'amber');
+              await notifyRenter(db, meta.tenantId, String(cur.renterId), 'money', `${cur.clientName || 'A member'} cancelled ${cur.membershipName || 'their membership'} — ends ${cur.currentPeriodEnd ? String(cur.currentPeriodEnd).slice(0, 10) : 'at period end'}`, { tone: 'amber', subject: `${cur.clientName || 'A member'} cancelled ${cur.membershipName || 'their membership'} — ends ${cur.currentPeriodEnd ? String(cur.currentPeriodEnd).slice(0, 10) : 'at period end'}` });
             }
           }
         }
