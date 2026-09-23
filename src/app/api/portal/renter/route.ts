@@ -1019,6 +1019,7 @@ export async function POST(req: NextRequest) {
             .map((d: any) => { const v = d.data() as any; return {
               id: d.id, amountCents: v.amountCents || 0, lateFeeCents: v.lateFeeCents || 0,
               dueDate: String(v.dueDate || '').slice(0, 10), status: v.status || 'due',
+              grossCents: v.grossCents || null, creditAppliedCents: v.creditAppliedCents || 0, creditNote: v.creditNote || null, paidVia: v.paidVia || null,
             }; })
             .sort((a: any, b: any) => (b.dueDate || '').localeCompare(a.dueDate || ''));
         }
@@ -3759,4 +3760,4 @@ export async function POST(req: NextRequest) {
     const hint = /index/i.test(msg) ? ' This needs a Firestore index — the link to create it is in the Vercel function log for /api/portal/renter.' : '';
     return NextResponse.json({ ok: false, error: `Something went wrong: ${msg || 'unknown error'}.${hint}` }, { status: 500 });
   }
-} 
+}
