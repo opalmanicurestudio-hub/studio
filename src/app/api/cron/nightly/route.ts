@@ -312,6 +312,44 @@ export async function GET(req: NextRequest) {
           dueDate: today, source: 'nightly', nowIso,
         });
         if (leave) (inv as any).leaveId = leave.id, (inv as any).leaveNote = treat.label;
+
+        // ── CREDITS COME OFF THE BILL ────────────────────────────────────
+        // An abatement, a leave credit or sublet income was posted to the
+        // renter's ledger and then… sat there. The invoice was still for full
+        // rent, and the renter had to notice and ask. Now every unapplied
+        // credit is drawn down, oldest first, against this invoice — the
+        // invoice records what it was before and how much credit paid it.
+        let creditApplied = 0;
+        const creditLines: string[] = [];
+        try {
+          const credSnap = await db.collection(`tenants/${tDoc.id}/rentLedger`).where('renterId', '==', lease.renterId).get();
+          const creds = credSnap.docs.map((d) => ({ ref: d.ref, ...(d.data() as any) }))
+            .filter((c: any) => ['rent_abatement', 'leave_credit', 'sublet_credit'].includes(String(c.type || '')))
+            .map((c: any) => ({ ...c, remaining: Math.abs(Number(c.amountCents) || 0) - (Number(c.appliedCents) || 0) }))
+            .filter((c: any) => c.remaining > 0)
+            .sort((a: any, b: any) => String(a.date || a.createdAt || '').localeCompare(String(b.date || b.createdAt || '')));
+          let due = inv.amountCents;
+          for (const c of creds) {
+            if (due <= 0) break;
+            const take = Math.min(c.remaining, due);
+            due -= take; creditApplied += take;
+            batch.set(c.ref, { appliedCents: (Number(c.appliedCents) || 0) + take, lastAppliedInvoiceId: ref.id, lastAppliedAt: nowIso }, { merge: true });
+            creditLines.push(`${String(c.type).replace('_', ' ')} $${(take / 100).toFixed(2)}`);
+          }
+          if (creditApplied > 0) {
+            (inv as any).grossCents = inv.amountCents;
+            (inv as any).creditAppliedCents = creditApplied;
+            (inv as any).creditNote = creditLines.join(', ');
+            inv.amountCents = Math.max(0, inv.amountCents - creditApplied);
+            if (inv.amountCents === 0) { (inv as any).status = 'paid'; (inv as any).paidAt = nowIso; (inv as any).paidVia = 'credit'; }
+            try {
+              const aRef = db.collection(`tenants/${tDoc.id}/renterAlerts`).doc();
+              batch.set(aRef, { id: aRef.id, renterId: lease.renterId, kind: 'credit_applied', tab: 'rent', tone: 'green', at: nowIso,
+                text: inv.amountCents === 0 ? `Rent due ${today} fully covered by your credits ($${(creditApplied / 100).toFixed(2)}) — nothing to pay` : `$${(creditApplied / 100).toFixed(2)} of credit applied to rent due ${today} — $${(inv.amountCents / 100).toFixed(2)} left to pay` });
+            } catch { /* alert is best-effort */ }
+          }
+        } catch (e) { console.error('[cron/nightly] credit application', tDoc.id, lease.renterId, e); }
+
         batch.set(ref, inv);
         if (names.length < 3) names.push(inv.renterName);
         rentInvoiced++;
@@ -324,7 +362,9 @@ export async function GET(req: NextRequest) {
           try {
             const { sendNotification } = await import('@/lib/notify');
             const first = String(rd.firstName || '').trim() || 'there';
-            const amount = `$${(inv.amountCents / 100).toFixed(2)}`;
+            const amount = creditApplied > 0
+              ? (inv.amountCents === 0 ? `$0.00 (your $${(creditApplied / 100).toFixed(2)} credit covered it)` : `$${(inv.amountCents / 100).toFixed(2)} after $${(creditApplied / 100).toFixed(2)} credit`)
+              : `$${(inv.amountCents / 100).toFixed(2)}`;
             const payUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'https://studio-one-blue.vercel.app'}/rent/${tDoc.id}`;
             const studio = String(tenantData.name || tenantData.businessName || '').trim() || 'The studio';
             await sendNotification(db, {
