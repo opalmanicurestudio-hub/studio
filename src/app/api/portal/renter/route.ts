@@ -2435,6 +2435,7 @@ export async function POST(req: NextRequest) {
         paidByPackageId: a.paidByPackageId || null, paidByPackageName: a.paidByPackageName || null,
         paidByMembershipId: a.paidByMembershipId || null, paidByMembershipName: a.paidByMembershipName || null,
         checkedInAt: a.checkedInAt || a.checkInAt || null, renterStartedAt: a.renterStartedAt || null, renterFinishedAt: a.renterFinishedAt || null, renterActualMinutes: a.renterActualMinutes || null, renterLateMinutes: a.renterLateMinutes || null,
+        clientCheckInStatus: a.clientCheckInStatus || null, clientLateMinutes: a.clientLateMinutes || null,
       });
       const upcoming = rows.filter((a: any) => a.status !== 'cancelled' && a.startTime >= nowIso).sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime))).map(shape);
       const past = rows.filter((a: any) => a.startTime < nowIso).sort((a: any, b: any) => String(b.startTime).localeCompare(String(a.startTime))).slice(0, 60).map(shape);
@@ -2705,6 +2706,25 @@ export async function POST(req: NextRequest) {
           createdAt: c.createdAt || null,
         };
       }).sort((x, y) => String(y.lastVisit || y.nextVisit?.startTime || '').localeCompare(String(x.lastVisit || x.nextVisit?.startTime || '')));
+      // Chips: who holds credits, who's a member — readable from the list
+      // without opening anyone. Sensible to scan before a quiet week.
+      try {
+        const nowIso = new Date().toISOString();
+        const [pur, subs] = await Promise.all([
+          db.collection(`tenants/${tenantId}/renterPackagePurchases`).where('staffId', '==', st.id).get(),
+          db.collection(`tenants/${tenantId}/renterMemberSubscriptions`).where('staffId', '==', st.id).get(),
+        ]);
+        const credits = new Map<string, { n: number; soonest: string | null }>();
+        for (const d of pur.docs) { const p = d.data() as any; if (!p.clientId || p.status === 'refunded' || (p.expiresAt && p.expiresAt < nowIso)) continue; const left = (Number(p.creditsTotal) || 0) - (Number(p.creditsUsed) || 0); if (left <= 0) continue; const cur = credits.get(p.clientId) || { n: 0, soonest: null }; cur.n += left; if (p.expiresAt && (!cur.soonest || p.expiresAt < cur.soonest)) cur.soonest = p.expiresAt; credits.set(p.clientId, cur); }
+        const members = new Map<string, { name: string; status: string }>();
+        for (const d of subs.docs) { const m = d.data() as any; if (!m.clientId || !['active', 'past_due'].includes(String(m.status))) continue; members.set(m.clientId, { name: m.membershipName || 'Member', status: m.status }); }
+        for (const c of clients as any[]) {
+          const cr = credits.get(c.id); const mb = members.get(c.id);
+          c.credits = cr ? cr.n : 0;
+          c.creditsExpireSoon = !!(cr?.soonest && new Date(cr.soonest).getTime() - Date.now() < 30 * 86400000);
+          c.member = mb ? mb.name : null; c.memberStatus = mb ? mb.status : null;
+        }
+      } catch { /* chips are decoration; the list stands */ }
       return NextResponse.json({ ok: true, clients });
     }
     // ── client-get: everything the appointment sheet needs about one client ──
