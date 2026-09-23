@@ -2434,6 +2434,7 @@ export async function POST(req: NextRequest) {
         viaStudio: !a.isRenterBooking,
         paidByPackageId: a.paidByPackageId || null, paidByPackageName: a.paidByPackageName || null,
         paidByMembershipId: a.paidByMembershipId || null, paidByMembershipName: a.paidByMembershipName || null,
+        checkedInAt: a.checkedInAt || a.checkInAt || null, renterStartedAt: a.renterStartedAt || null, renterFinishedAt: a.renterFinishedAt || null, renterActualMinutes: a.renterActualMinutes || null, renterLateMinutes: a.renterLateMinutes || null,
       });
       const upcoming = rows.filter((a: any) => a.status !== 'cancelled' && a.startTime >= nowIso).sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime))).map(shape);
       const past = rows.filter((a: any) => a.startTime < nowIso).sort((a: any, b: any) => String(b.startTime).localeCompare(String(a.startTime))).slice(0, 60).map(shape);
@@ -2552,6 +2553,53 @@ export async function POST(req: NextRequest) {
       const times: string[] = Array.isArray((result as any).times) ? (result as any).times : (result.slots || []).map((x: any) => x.time || x);
       return NextResponse.json({ ok: true, date: dateStr, slots: times.map((t: string) => ({ time: t, startIso: toInstant(t) })), warnings: result.warnings || [] });
     }
+    // ── book-start: the chair clock starts ────────────────────────────────
+    // Start when the client sits down; Finish (= Done) when they leave. The
+    // pair gives an ACTUAL duration against the booked one — the number a
+    // renter needs to price and pad services honestly. Also the "In chair"
+    // status your planner and the kiosk already understand.
+    if (action === 'book-start') {
+      const { ref, a, error } = await myAppt(String(body.appointmentId || ''));
+      if (!ref || !a) return NextResponse.json({ ok: false, error }, { status: 403 });
+      if (a.status === 'cancelled' || a.status === 'completed') return NextResponse.json({ ok: false, error: 'That visit is already over.' }, { status: 400 });
+      const nowIso = new Date().toISOString();
+      const lateBy = Math.round((Date.now() - new Date(a.startTime).getTime()) / 60000);
+      await ref.set({ status: 'servicing', renterStartedAt: nowIso, renterStartLateMinutes: lateBy }, { merge: true });
+      return NextResponse.json({ ok: true, startedAt: nowIso, lateBy });
+    }
+    // ── book-late: "I'm running about N minutes behind" — to the client, as the renter ──
+    if (action === 'book-late') {
+      const { st, ref, a, error } = await myAppt(String(body.appointmentId || ''));
+      if (!ref || !a) return NextResponse.json({ ok: false, error }, { status: 403 });
+      const mins = Math.max(5, Math.min(120, Math.round(Number(body.minutes) || 0)));
+      const nowIso = new Date().toISOString();
+      await ref.set({ renterLateMinutes: mins, renterLateNotifiedAt: nowIso }, { merge: true });
+      await tellClient(a, st, `Running about ${mins} minutes behind`,
+        [`Heads up — I'm running about ${mins} minutes behind for your ${a.renterServiceName || 'appointment'} at ${fmtWhen(a.startTime)}. Sorry for the wait!`, 'No need to reply — see you soon.'], 'renter_client_running_late');
+      return NextResponse.json({ ok: true, minutes: mins });
+    }
+    // ── kpis: timing, by month — what the chair clock adds up to ────────────
+    if (action === 'kpis') {
+      const st = await myProvider();
+      const month = /^\d{4}-\d{2}$/.test(String(body.month || '')) ? String(body.month) : new Date().toISOString().slice(0, 7);
+      const from = `${month}-01T00:00:00.000Z`;
+      const toDate = new Date(`${month}-01T00:00:00Z`); toDate.setUTCMonth(toDate.getUTCMonth() + 1);
+      const ids = st ? await myStaffIds() : [];
+      const rows = ids.length ? (await apptsFor(ids, from, toDate.toISOString())).filter((a: any) => a.isRenterBooking) : [];
+      const done = rows.filter((a: any) => a.status === 'completed');
+      const noShows = rows.filter((a: any) => a.renterOutcome === 'no_show');
+      const timed = done.filter((a: any) => Number(a.renterActualMinutes) > 0);
+      const started = rows.filter((a: any) => a.renterStartedAt);
+      const bySvc = new Map<string, { booked: number; actual: number; n: number }>();
+      for (const a of timed) { const k = a.renterServiceName || a.serviceName || 'Service'; const v = bySvc.get(k) || { booked: 0, actual: 0, n: 0 }; v.booked += Number(a.duration) || 0; v.actual += Number(a.renterActualMinutes) || 0; v.n += 1; bySvc.set(k, v); }
+      const services = [...bySvc.entries()].map(([name, v]) => ({ name, n: v.n, bookedAvg: Math.round(v.booked / v.n), actualAvg: Math.round(v.actual / v.n), driftMin: Math.round((v.actual - v.booked) / v.n) })).sort((x, y) => Math.abs(y.driftMin) - Math.abs(x.driftMin));
+      const onTime = started.filter((a: any) => Number(a.renterStartLateMinutes) <= 5).length;
+      const lateSum = started.reduce((n: number, a: any) => n + Math.max(0, Number(a.renterStartLateMinutes) || 0), 0);
+      return NextResponse.json({ ok: true, month, visits: rows.length, completed: done.length, noShows: noShows.length,
+        noShowRate: rows.length ? Math.round((noShows.length / (done.length + noShows.length || 1)) * 100) : 0,
+        timed: timed.length, onTimeRate: started.length ? Math.round((onTime / started.length) * 100) : null, avgLateMin: started.length ? Math.round(lateSum / started.length) : null,
+        chairMinutes: timed.reduce((n: number, a: any) => n + (Number(a.renterActualMinutes) || 0), 0), services });
+    }
     if (action === 'book-status') {
       const { st, ref, a, error } = await myAppt(String(body.appointmentId || ''));
       if (!ref || !a) return NextResponse.json({ ok: false, error }, { status: 403 });
@@ -2560,6 +2608,7 @@ export async function POST(req: NextRequest) {
       const creditNote = outcome === 'no_show' ? await settleCredit(a, ref, { by: 'client', how: 'no_show' }) : null;
       const nowIso = new Date().toISOString();
       await ref.set({ status: outcome === 'completed' ? 'completed' : 'cancelled', renterOutcome: outcome, renterOutcomeAt: nowIso,
+        ...(outcome === 'completed' ? { renterFinishedAt: nowIso, ...(a.renterStartedAt ? { renterActualMinutes: Math.max(1, Math.round((Date.now() - new Date(a.renterStartedAt).getTime()) / 60000)) } : {}) } : {}),
         ...(outcome === 'no_show' ? { cancelledAt: nowIso, cancellationAudit: { actorType: 'no_show', reason: 'no-show', actorName: st.name || 'Provider', timestamp: nowIso, feeAmount: 0, feeWaived: true, paymentStatus: 'paid', via: 'renter_portal' } } : { completedAt: nowIso }),
       }, { merge: true });
       // The renter's client record keeps its own count — their book, their history.
