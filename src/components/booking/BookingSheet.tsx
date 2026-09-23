@@ -131,6 +131,7 @@ const bookingSchema = z.object({
   // validates named fields only and would never run a schema-level .refine(),
   // so the consent/phone pairing rule is enforced there instead.
   smsConsent:  z.boolean().optional(),
+  smsMarketing: z.boolean().optional(),
 });
 type BookingFormData = z.infer<typeof bookingSchema>;
 
@@ -139,6 +140,12 @@ type BookingFormData = z.infer<typeof bookingSchema>;
 // they actually read on screen.
 export const smsConsentWording = (studioName?: string | null) =>
   `I agree to receive appointment reminders and confirmations by text from ${studioName || 'this studio'} at the mobile number provided. Message frequency varies. Message and data rates may apply. Reply STOP to opt out, HELP for help. Consent is not required to book.`;
+
+// Marketing is a SEPARATE yes. The reminders consent above does not cover
+// offers or "we miss you" texts, and US carriers / the TCPA treat the two
+// differently — so it's its own box, unticked by default, with its own words.
+export const smsMarketingWording = (studioName?: string | null) =>
+  `Also text me occasional offers, openings and check-ins from ${studioName || 'this studio'}. Up to 4 a month. Message and data rates may apply. Reply STOP to opt out. Not required to book.`;
 
 // ─── onConfirm result type ─────────────────────────────────────────────────────
 type ConfirmResult =
@@ -551,6 +558,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         smsConsentAt:     formValues.smsConsent ? new Date().toISOString() : undefined,
         smsConsentSource: formValues.smsConsent ? 'public_booking_sheet' : undefined,
         smsConsentText:   formValues.smsConsent ? smsConsentWording(tenant?.name) : undefined,
+        smsMarketing:     !!formValues.smsMarketing,
+        smsMarketingText: formValues.smsMarketing ? smsMarketingWording(tenant?.name) : undefined,
       },
     };
   }, [service, selectedTime, dateKey, date, selectedStaffId, selectedTierId, qualifiedStaff, services, appointments, calendarEvents, scheduleProfiles, tenant, shifts, staffBlocks, dayOffBlocks, resources, tickets, maintenancePlans, methods, requiredForms, formAnswers, inspirationPhotoUrl, depositAmount]);
@@ -1196,6 +1205,18 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                 />
                                 <Label htmlFor="sms-consent" className="cursor-pointer text-[11px] font-medium leading-relaxed text-muted-foreground">
                                   {smsConsentWording(tenant?.name)}
+                                </Label>
+                              </div>
+                            )}
+                          />
+                          <Controller
+                            name="smsMarketing"
+                            control={methods.control}
+                            render={({ field }) => (
+                              <div style={{ borderRadius: r2 }} className="flex items-start gap-3 border-2 border-dashed bg-muted/5 p-3">
+                                <Checkbox id="sms-marketing" checked={!!field.value} onCheckedChange={v => field.onChange(v === true)} className="mt-0.5 shrink-0" />
+                                <Label htmlFor="sms-marketing" className="cursor-pointer text-[11px] font-medium leading-relaxed text-muted-foreground">
+                                  {smsMarketingWording(tenant?.name)}
                                 </Label>
                               </div>
                             )}
