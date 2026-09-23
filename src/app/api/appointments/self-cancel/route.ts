@@ -350,7 +350,12 @@ export async function POST(req: NextRequest) {
     stripePaymentMethodId,
     cancellationAudit,
     reason: cancellationAudit.reason,
-    status: 'pending',
+    // onCancellationEvent only acts on 'pending'. A RESCHEDULE is a move —
+    // the client already has the new confirmation, so no "your appointment
+    // has been cancelled" email. A RENTER's booking is announced by this
+    // route in the renter's own name (below), not the studio's. Both keep
+    // the event for the audit trail.
+    status: isReschedule ? 'skipped_reschedule' : appt.isRenterBooking ? 'handled_renter_voice' : 'pending',
     chargeStatus: chargeFee ? (hasCard ? 'pending' : 'balance') : 'waived',
     emailStatus: 'pending',
     smsStatus: 'pending',
@@ -361,13 +366,51 @@ export async function POST(req: NextRequest) {
     errorMessage: null,
   });
 
+  // A reschedule carries the DEPOSIT across with the visit — it was paid
+  // for the booking, not for that particular hour.
+  if (isReschedule && rescheduledToId) {
+    const depositFields: any = {};
+    for (const k of ['depositAmountCents', 'depositStatus', 'depositPaidAt', 'renterDepositCents', 'renterDepositPaidAt', 'renterDepositSessionId', 'renterDepositChargeId']) {
+      if (appt[k] !== undefined && appt[k] !== null) depositFields[k] = appt[k];
+    }
+    if (Object.keys(depositFields).length) {
+      batch.set(db.doc(`tenants/${tenantId}/appointments/${rescheduledToId}`), { ...depositFields, depositMovedFromAppointmentId: appointmentId }, { merge: true });
+    }
+  }
+
   await batch.commit();
+
+  // ── A renter's booking: the client hears it from the renter; the renter hears it too ──
+  if (appt.isRenterBooking) {
+    try {
+      const { renterVoice, tellClient, notifyRenter, renterPortalUrl } = await import('@/lib/renter-comms');
+      const st = appt.staffId ? ((await db.doc(`tenants/${tenantId}/staff/${String(appt.staffId)}`).get()).data() as any) : null;
+      if (st?.renterId) {
+        const tz = tenant.timezone || 'America/New_York';
+        const when = new Date(appt.startTime).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz });
+        const svcName = appt.renterServiceName || service.name || 'appointment';
+        const portal = await renterPortalUrl(db, tenantId);
+        if (isReschedule) {
+          let newWhen = '';
+          try { const n = ((await db.doc(`tenants/${tenantId}/appointments/${rescheduledToId}`).get()).data() as any); if (n?.startTime) newWhen = new Date(n.startTime).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz }); } catch { /* fine */ }
+          await notifyRenter(db, tenantId, String(st.renterId), 'rescheduled', `${appt.clientName || 'A client'} moved ${svcName} from ${when}${newWhen ? ` to ${newWhen}` : ''}.`, { tone: 'slate', subject: `${appt.clientName || 'A client'} moved their visit`, link: portal });
+        } else {
+          const v = await renterVoice(db, tenantId, String(st.renterId));
+          await tellClient(db, v, { email: client?.email || appt.clientEmail, phone: client?.phone || appt.clientPhone, clientId: appt.clientId || null, name: client?.name || appt.clientName || null },
+            `Cancelled — ${svcName}, ${when}`,
+            [`Your ${svcName} on ${when} is cancelled.`, packageNote ? packageNote : '', v.bookingUrl ? `Whenever you're ready, book again: ${v.bookingUrl}` : ''].filter(Boolean), 'renter_client_cancelled');
+          await notifyRenter(db, tenantId, String(st.renterId), 'cancelled', `${appt.clientName || 'A client'} cancelled ${svcName} on ${when}${isLate ? ' (late notice)' : ''}. That time is open again.`, { tone: isLate ? 'amber' : 'slate', subject: `${appt.clientName || 'A client'} cancelled`, link: portal });
+        }
+      }
+    } catch (e) { console.error('[self-cancel] renter voice', e); }
+  }
 
   // ── Deposit disposition — best-effort, non-blocking. The appointment is ──
   // already cancelled by this point; a deposit-credit lookup hiccup should
   // never prevent a client from completing a cancellation they're entitled to.
   try {
-    await resolveDepositForClientCancel({ db, FieldValue, tenantId, appt, appointmentId, client, isLate, now });
+    // A reschedule moved the deposit with the visit; there is nothing to refund.
+    if (!isReschedule) await resolveDepositForClientCancel({ db, FieldValue, tenantId, appt, appointmentId, client, isLate, now });
   } catch (e) {
     console.error('[self-cancel deposit resolution]', e);
   }
