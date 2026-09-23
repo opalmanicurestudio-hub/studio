@@ -491,10 +491,18 @@ export async function POST(req: NextRequest) {
           const hit = await tx.get(db.collection(`tenants/${tenantId}/clients`).where('email', '==', emailRaw).limit(5));
           reused = hit.docs.find(inThisBook) || null;
         }
+        // Consent, with the exact words the client agreed to. Only ever a YES
+        // from a booking: an unticked box on a later booking must not wipe a
+        // consent given before (opting out is STOP / the unsubscribe link).
+        const nowC = new Date().toISOString();
+        const consent: any = {};
+        if (body?.client?.smsConsent === true) consent.smsConsent = { agreed: true, at: nowC, source: source || 'booking', text: String(body.client.smsConsentText || '').slice(0, 600) || null };
+        if (body?.client?.smsMarketing === true) { consent.smsMarketingOptIn = true; consent.smsMarketingOptInAt = nowC; consent.smsMarketingOptInText = String(body.client.smsMarketingText || '').slice(0, 600) || null; consent.smsMarketingOptInSource = source || 'booking'; }
         if (reused) {
           clientId = reused.id;
           clientRecord = reused.data() as any;
           clientName = clientRecord.name || clientName;
+          if (Object.keys(consent).length) tx.set(reused.ref, consent, { merge: true });
         } else {
           const newRef = db.collection(`tenants/${tenantId}/clients`).doc();
           clientId = newRef.id;
@@ -508,6 +516,7 @@ export async function POST(req: NextRequest) {
             lastAppointment: new Date().toISOString(),
             createdVia: source,
             ...(bookOwner ? { ownerRenterId: bookOwner, ownerStaffId: renterSvc.staffId } : {}),
+            ...consent,
           });
         }
       }
@@ -804,6 +813,15 @@ export async function POST(req: NextRequest) {
             const ns = await db.collection(`tenants/${tenantId}/reconnectNudges`).where('clientId', '==', String(r.clientId)).get();
             const open = ns.docs.filter((d: any) => { const x = d.data() as any; return !x.converted && String(x.sentAt || '') >= since; });
             for (const d of open) await d.ref.set({ converted: true, convertedAt: new Date().toISOString(), convertedAppointmentId: r.aptId }, { merge: true });
+            // Campaigns: same rule — booked within 14 days of receiving one.
+            const cs = await db.collection(`tenants/${tenantId}/campaignSends`).where('clientId', '==', String(r.clientId)).get();
+            for (const d of cs.docs) {
+              const x = d.data() as any;
+              if (x.converted || String(x.at || '') < since) continue;
+              await d.ref.set({ converted: true, convertedAt: new Date().toISOString(), convertedAppointmentId: r.aptId }, { merge: true });
+              await db.doc(`tenants/${tenantId}/campaigns/${x.campaignId}/recipients/${r.clientId}`).set({ converted: true, convertedAppointmentId: r.aptId }, { merge: true });
+              await db.doc(`tenants/${tenantId}/campaigns/${x.campaignId}`).set({ convertedCount: (await import('firebase-admin/firestore')).FieldValue.increment(1) }, { merge: true });
+            }
           } catch { /* the tally is a bonus */ }
         }
 
