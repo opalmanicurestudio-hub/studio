@@ -624,6 +624,7 @@ export async function POST(req: NextRequest) {
     // and its delivery/opened/clicked journey via the provider webhooks —
     // lands in messageLog for the appointment timeline.
     const sendStatus = { smsSent: false, emailSent: false };
+    let renterConfirmed = false;
     {
       try {
         const clientDoc = r.clientId
@@ -662,8 +663,35 @@ export async function POST(req: NextRequest) {
         const checkInUrl = portalUrl;
         const svcLabel = svc.name || 'appointment';
 
+        // ── A RENTER'S booking is confirmed in the RENTER'S name ────────
+        // With the two links a client actually needs: cancel (their own
+        // link, package rules applied) and reschedule (opens the renter's
+        // page on this service with the old visit released once the new one
+        // is booked). The studio's confirmation below is for studio bookings.
+        if (renterSvc && !isRequest && !isHold) {
+          try {
+            const { renterVoice, tellClient } = await import('@/lib/renter-comms');
+            const providerDoc: any = roster.find((m: any) => m.id === renterSvc.staffId);
+            if (providerDoc?.renterId) {
+              const v = await renterVoice(db, tenantId, String(providerDoc.renterId));
+              const whenLabel = whenStr;
+              const cancelUrl = `${base}/cancel/${tenantId}/${r.aptId}`;
+              const rescheduleUrl = `${base}/book/${tenantId}?provider=${encodeURIComponent(String(renterSvc.staffId))}&reschedule=${encodeURIComponent(r.aptId)}`;
+              const depositLine = Number(r.plan?.depositCents) > 0 ? `A $${(Number(r.plan.depositCents) / 100).toFixed(2)} deposit holds it; the rest is due at your visit.` : '';
+              renterConfirmed = true;
+              await tellClient(db, v, { email, phone, clientId: r.clientId || null, name: r.clientName || null }, `You're booked — ${svcLabel}, ${whenLabel}`,
+                [`${firstName}, you're booked for ${svcLabel} on ${whenLabel}${renterSvc.price ? ` · $${Number(renterSvc.price).toFixed(0)}` : ''}.`,
+                 depositLine,
+                 `Need to change it? Reschedule: ${rescheduleUrl}`,
+                 `Can't make it? Cancel: ${cancelUrl}`,
+                 `Check in when you arrive: ${checkInUrl}`].filter(Boolean), 'renter_client_confirmed');
+              sendStatus.emailSent = email.includes('@'); sendStatus.smsSent = !!phone;
+            }
+          } catch (e) { console.error('[book] renter confirmation', e); /* fall through to the studio's */ }
+        }
+
         // Email — branded either way; the CONTENT matches the state.
-        if (email.includes('@')) {
+        if (!renterConfirmed && email.includes('@')) {
           const { brandedEmailHtml } = await import('@/lib/email-template');
           const html = isRequest
             ? brandedEmailHtml({
@@ -720,7 +748,7 @@ export async function POST(req: NextRequest) {
 
         // Text — short, matching the state. Routed through sendNotification
         // so it lands in messageLog with delivery tracking, same as email.
-        if (phone) {
+        if (!renterConfirmed && phone) {
           const sr = await sendNotification(db, {
             tenantId, channel: 'sms', to: phone,
             text: isRequest
