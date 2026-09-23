@@ -18,6 +18,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
+import { isBusinessLocation, looksAutoProvisioned, DEFAULT_LOCATION_DOC_ID } from '@/lib/location-kind';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,20 +57,59 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const tenantId = String(body.tenantId || '').trim();
   const locationId = String(body.locationId || '').trim();
-  const mode = body.mode === 'delete' ? 'delete' : 'check';
-  if (!tenantId || !locationId) return NextResponse.json({ ok: false, error: 'tenantId and locationId are required.' }, { status: 400 });
+  const mode = body.mode === 'delete' ? 'delete' : body.mode === 'duplicates' ? 'duplicates' : body.mode === 'cleanup' ? 'cleanup' : 'check';
+  if (!tenantId || (!locationId && mode !== 'duplicates' && mode !== 'cleanup')) return NextResponse.json({ ok: false, error: 'tenantId and locationId are required.' }, { status: 400 });
 
   const auth = await verifyStaffActor(req, tenantId);
   if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
   if (!auth.actor.isManager && !auth.actor.isTenantOwner) return NextResponse.json({ ok: false, error: 'Only an owner or manager can delete a location.' }, { status: 403 });
 
   const db = getAdminDb();
+
+  // ── Duplicates left by the old provisioner ──────────────────────────────
+  // Before the default location got a fixed id, every refresh, second tab or
+  // remount could mint another "<Studio> — Main Location" with a random id.
+  // The fix stopped new ones; the old ones stayed. This finds them and, on
+  // 'cleanup', removes only those that NOTHING references — keeping the one
+  // in use (or the fixed 'primary' one), and never the last location.
+  if (mode === 'duplicates' || mode === 'cleanup') {
+    const t = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+    const docs = (await db.collection(`tenants/${tenantId}/locations`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+      .filter(isBusinessLocation);
+    const auto = docs.filter((l: any) => looksAutoProvisioned(l, t.name));
+    const rows: any[] = [];
+    for (const l of auto) {
+      const refs = await countRefs(db, tenantId, l.id);
+      rows.push({ id: l.id, name: l.name, createdAt: l.createdAt || null, isPrimary: l.id === DEFAULT_LOCATION_DOC_ID, refs, used: refs.reduce((n: number, r: any) => n + r.count, 0) });
+    }
+    // Keep: 'primary' if it exists, else the most-used, else the oldest.
+    const keep = rows.find((r) => r.isPrimary) || [...rows].sort((a, b) => (b.used - a.used) || String(a.createdAt).localeCompare(String(b.createdAt)))[0] || null;
+    const nonAuto = docs.length - auto.length;
+    const removable = rows.filter((r) => r.used === 0 && r.id !== keep?.id && !r.isPrimary);
+    // Never leave zero business locations.
+    const safeRemovable = (nonAuto + rows.length - removable.length) >= 1 ? removable : removable.slice(0, Math.max(0, removable.length - 1));
+    if (mode === 'duplicates') {
+      return NextResponse.json({ ok: true, keepId: keep?.id || null, duplicates: rows, removableIds: safeRemovable.map((r) => r.id), inUseDuplicates: rows.filter((r) => r.used > 0 && r.id !== keep?.id).map((r) => ({ id: r.id, name: r.name, refs: r.refs })) });
+    }
+    const batch = db.batch();
+    for (const r of safeRemovable) batch.delete(db.doc(`tenants/${tenantId}/locations/${r.id}`));
+    await batch.commit();
+    try {
+      const aRef = db.collection(`tenants/${tenantId}/auditLogs`).doc();
+      await aRef.set({ id: aRef.id, at: new Date().toISOString(), action: 'location_duplicates_removed', summary: `${safeRemovable.length} unused auto-created duplicate location(s) removed by ${auth.actor.name || auth.actor.uid}`, actorUid: auth.actor.uid, ids: safeRemovable.map((r) => r.id) });
+    } catch { /* audit is best-effort */ }
+    return NextResponse.json({ ok: true, removed: safeRemovable.length });
+  }
+
   const ref = db.doc(`tenants/${tenantId}/locations/${locationId}`);
   const snap = await ref.get();
   if (!snap.exists) return NextResponse.json({ ok: false, error: 'That location no longer exists.' }, { status: 404 });
+  if (!isBusinessLocation({ id: snap.id, ...(snap.data() as any) })) {
+    return NextResponse.json({ ok: false, canDelete: false, error: 'That’s an inventory storage area, not a studio location — manage it on the Inventory page, where products that live there are accounted for.' }, { status: 409 });
+  }
 
-  const all = await db.collection(`tenants/${tenantId}/locations`).get();
-  const isLast = all.size <= 1;
+  const all = (await db.collection(`tenants/${tenantId}/locations`).get()).docs.filter((d: any) => isBusinessLocation({ id: d.id, ...(d.data() as any) }));
+  const isLast = all.length <= 1;
   const refs = await countRefs(db, tenantId, locationId);
   const blocked = isLast || refs.length > 0;
   const reason = isLast
