@@ -62,6 +62,7 @@ const schema = z.object({
   description: z.string().optional(),
   imageUrl: z.string().optional(),
   isPrivate: z.boolean().optional(),
+  membersOnly: z.boolean().optional(),
   products: z.array(z.any()).optional(),
   requiredResourceIds: z.array(z.string()).optional(),
   compatibleAddOnIds: z.array(z.string()).optional(),
@@ -313,7 +314,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
     if (mode === 'edit' && service) {
       reset({
         id: service.id, name: service.name, type: service.type,
-        isAddon: service.type === 'addon', isPrivate: service.isPrivate,
+        isAddon: service.type === 'addon', isPrivate: service.isPrivate, membersOnly: service.membersOnly === true,
         category: service.category, duration: service.duration,
         padBefore: service.padBefore || 0, padAfter: service.padAfter || 0,
         description: service.description || '', imageUrl: service.imageUrl || '',
@@ -939,6 +940,15 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                   <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Hide from public booking</p>
                 </div>
                 <Controller name="isPrivate" control={control} render={({ field }) => (
+                  <Switch checked={!!field.value} onCheckedChange={field.onChange} />
+                )} />
+              </div>
+              <div className="flex items-center justify-between p-4 rounded-2xl border-2 border-dashed border-violet-200 bg-violet-50/40">
+                <div>
+                  <p className="font-black uppercase text-sm tracking-tight">Members Only</p>
+                  <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Hidden from non-members on the booking page, and refused if they try</p>
+                </div>
+                <Controller name="membersOnly" control={control} render={({ field }) => (
                   <Switch checked={!!field.value} onCheckedChange={field.onChange} />
                 )} />
               </div>
