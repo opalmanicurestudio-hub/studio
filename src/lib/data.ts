@@ -443,6 +443,8 @@ export type Service = {
   products?: (InventoryItem & { quantityUsed: number })[];
   description?: string;
   isPrivate?: boolean;
+  /** Members only: hidden from non-members on the booking page, refused at booking. */
+  membersOnly?: boolean;
   confirmationMessage?: string;
   requiredFormIds?: string[];
   // v3 — service-level required documents (Photo ID, etc.), configured
@@ -1187,6 +1189,8 @@ export type Tenant = {
   // ── Cancellation & No-Show ─────────────────────────────────────────────
   cancellationFee?: number;
   cancellationWindowHours?: number;
+  /** Booking release (src/lib/booking-release.ts): how far ahead clients can book, and how much earlier members can. */
+  bookingRelease?: import('@/lib/booking-release').ReleaseSettings | null;
   noShowFee?: number;
   cancellationPolicy?: string;
   noShowPolicy?: string;
