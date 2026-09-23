@@ -3027,6 +3027,23 @@ export async function POST(req: NextRequest) {
       // switches them off. Mirrors the main app instead of asking for opt-in.
       return NextResponse.json({ ok: true, comms: { remindersEnabled: c.remindersEnabled !== false, thankYouEnabled: c.thankYouEnabled !== false, signoff: String(c.signoff || '') }, log });
     }
+    // ── Tell me when… — the renter's own alert preferences ─────────────────
+    if (action === 'notify-get') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const { RENTER_NOTIFY_DEFAULTS, RENTER_NOTIFY_LABELS, channelFor } = await import('@/lib/renter-comms');
+      const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      const prefs: any = {};
+      for (const k of Object.keys(RENTER_NOTIFY_DEFAULTS)) prefs[k] = channelFor(r.renterNotify, k as any);
+      return NextResponse.json({ ok: true, prefs, labels: RENTER_NOTIFY_LABELS, hasPhone: !!String(r.phone || '').trim(), hasEmail: String(r.email || '').includes('@') });
+    }
+    if (action === 'notify-save') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const { RENTER_NOTIFY_DEFAULTS } = await import('@/lib/renter-comms');
+      const clean: any = {};
+      for (const k of Object.keys(RENTER_NOTIFY_DEFAULTS)) { const v = body?.prefs?.[k]; if (['off', 'inbox', 'sms', 'email', 'both'].includes(v)) clean[k] = v; }
+      await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set({ renterNotify: { ...clean, updatedAt: new Date().toISOString() } }, { merge: true });
+      return NextResponse.json({ ok: true });
+    }
     if (action === 'comms-save') {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
       await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set({ clientComms: {
