@@ -180,6 +180,11 @@ export function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bo
             <p className="text-lg font-black text-slate-900">{a.clientName}</p>
             <p className="text-[12px] font-bold text-slate-600">{a.serviceName}{a.price ? ` · $${Number(a.price).toFixed(0)}` : ''}{a.duration ? ` · ${a.duration} min` : ''}</p>
             <p className="text-[12px] font-bold text-slate-900">{fmt(a.startTime)}</p>
+            {a.clientCheckInStatus && a.status !== 'completed' && a.status !== 'cancelled' && (
+              <p className={cn('mt-0.5 text-[10px] font-black uppercase tracking-widest', a.clientCheckInStatus === 'running_late' ? 'text-amber-700' : 'text-emerald-700')}>
+                {a.clientCheckInStatus === 'arrived' ? 'They say: I\'m here' : a.clientCheckInStatus === 'running_late' ? `They say: running ~${a.clientLateMinutes || 10} min late` : 'They say: on my way'}
+              </p>
+            )}
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="h-9 w-9 shrink-0 rounded-xl border-2 border-slate-200 text-slate-500">×</button>
         </div>
@@ -731,7 +736,7 @@ export const weeksAgo = (iso: string | null) => { if (!iso) return null; const w
 export function MyClients({ tenantId, token }: { tenantId: string; token: string }) {
   const [list, setList] = useState<any[] | null>(null);
   const [q, setQ] = useState('');
-  const [filter, setFilter] = useState<'all' | 'lapsed' | 'new' | 'archived'>('all');
+  const [filter, setFilter] = useState<'all' | 'lapsed' | 'holders' | 'new' | 'archived'>('all');
   const [openId, setOpenId] = useState('');
   const [edit, setEdit] = useState<{ id: string; name: string; phone: string; email: string; notes: string } | null>(null);
   const [adding, setAdding] = useState(false);
@@ -752,6 +757,7 @@ export function MyClients({ tenantId, token }: { tenantId: string; token: string
     if (filter === 'archived' ? !c.archived : c.archived) return false;
     if (filter === 'lapsed' && !(c.visits > 0 && (weeksAgo(c.lastVisit) ?? 0) >= 6 && !c.nextVisit)) return false;
     if (filter === 'new' && c.visits > 1) return false;
+    if (filter === 'holders' && !(c.member || c.credits > 0)) return false;
     if (q.trim()) { const t = q.trim().toLowerCase(); return [c.name, c.phone, c.email].some((v) => String(v || '').toLowerCase().includes(t)); }
     return true;
   });
@@ -765,7 +771,7 @@ export function MyClients({ tenantId, token }: { tenantId: string; token: string
           <button type="button" onClick={() => { setAdding(true); setEdit({ id: '', name: '', phone: '', email: '', notes: '' }); }} className="h-11 rounded-2xl bg-slate-900 px-4 text-[10px] font-black uppercase tracking-widest text-white">Add</button>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {([['all', `Everyone · ${(list || []).filter((c) => !c.archived).length}`], ['lapsed', `Haven't been in 6+ wks · ${lapsedCount}`], ['new', 'First-timers'], ['archived', 'Archived']] as const).map(([k, l]) => (
+          {([['all', `Everyone · ${(list || []).filter((c) => !c.archived).length}`], ['lapsed', `Haven't been in 6+ wks · ${lapsedCount}`], ['holders', `Members & credits · ${(list || []).filter((c: any) => !c.archived && (c.member || c.credits > 0)).length}`], ['new', 'First-timers'], ['archived', 'Archived']] as const).map(([k, l]) => (
             <button key={k} type="button" onClick={() => setFilter(k)} aria-pressed={filter === k} className={cn('h-9 rounded-full border-2 px-3 text-[10px] font-black uppercase tracking-widest', filter === k ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>{l}</button>
           ))}
         </div>
@@ -796,7 +802,11 @@ export function MyClients({ tenantId, token }: { tenantId: string; token: string
                 <button type="button" onClick={() => { setOpenId(isOpen ? '' : c.id); setEdit(null); setAdding(false); }} className="w-full text-left">
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-black text-slate-900">{c.name}</p>
+                      <p className="flex min-w-0 items-center gap-1.5">
+                        <span className="truncate text-[13px] font-black text-slate-900">{c.name}</span>
+                        {c.member && <span className={cn('shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest', c.memberStatus === 'past_due' ? 'bg-amber-100 text-amber-800' : 'bg-violet-100 text-violet-800')}>{c.memberStatus === 'past_due' ? 'Member · card issue' : 'Member'}</span>}
+                        {c.credits > 0 && <span className={cn('shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest', c.creditsExpireSoon ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}>{c.credits} credit{c.credits === 1 ? '' : 's'}{c.creditsExpireSoon ? ' · expiring' : ''}</span>}
+                      </p>
                       <p className="text-[10px] font-bold text-slate-500">
                         {c.nextVisit ? `Next ${when(c.nextVisit.startTime)}` : c.lastVisit ? `Last ${when(c.lastVisit)}${w !== null && w > 0 ? ` · ${w} wk${w === 1 ? '' : 's'} ago` : ''}` : 'No visits yet'}
                         {c.favourite ? ` · usually ${c.favourite}` : ''}
