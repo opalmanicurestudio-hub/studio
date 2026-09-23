@@ -828,9 +828,12 @@ export function MyMemberships({ data, tenantId, token }: { data: any; tenantId: 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const canCharge = data?.provider?.chargesEnabled === true;
-  const [win, setWin] = useState({ horizonDays: Number(data?.provider?.bookingWindow?.horizonDays) || 0, memberHorizonDays: Number(data?.provider?.bookingWindow?.memberHorizonDays) || 0 });
+  const bw = data?.provider?.bookingWindow || {};
+  const [win, setWin] = useState<any>({ mode: bw.mode || ((Number(bw.horizonDays) > 0) ? 'rolling' : 'off'), horizonDays: Number(bw.horizonDays) || 14, memberHorizonDays: Number(bw.memberHorizonDays) || 28, releaseDay: Number(bw.releaseDay) || 25, releaseHour: Number(bw.releaseHour) ?? 9, memberReleaseDay: Number(bw.memberReleaseDay) || 20, memberReleaseHour: Number(bw.memberReleaseHour) ?? 9 });
   const [winBusy, setWinBusy] = useState(false);
   const [winSaved, setWinSaved] = useState(false);
+  const [winSentence, setWinSentence] = useState<{ everyone: string; members: string | null } | null>(null);
+  const hourLabel = (h: number) => `${h % 12 === 0 ? 12 : h % 12}${h < 12 ? 'am' : 'pm'}`;
   const load = useCallback(async () => { const d = await api({ action: 'memberships-list', tenantId, token }); if (d?.ok) setSt({ memberships: d.memberships || [], members: d.members || [], mrrCents: d.mrrCents || 0 }); }, [tenantId, token]);
   useEffect(() => { void load(); }, [load]);
   const save = async () => {
@@ -844,13 +847,43 @@ export function MyMemberships({ data, tenantId, token }: { data: any; tenantId: 
     <div className="space-y-3">
       <p className="text-[10px] font-bold text-slate-500">A monthly plan: visits included, a discount on everything else, and the perks you promise. Billed by Stripe on your account every month.</p>
       <div className="rounded-2xl border-2 border-slate-200 p-3 space-y-2">
-        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Early booking — the perk that actually does something</p>
-        <div className="grid grid-cols-2 gap-2">
-          <label className="block"><span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Everyone books up to</span><div className="flex items-center gap-1"><input type="number" min={0} max={365} value={win.horizonDays} onChange={(e) => setWin({ ...win, horizonDays: Number(e.target.value) || 0 })} className="h-10 w-full rounded-xl border-2 border-slate-200 text-center text-sm font-black" /><span className="text-[10px] font-bold text-slate-500">days</span></div></label>
-          <label className="block"><span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Members up to</span><div className="flex items-center gap-1"><input type="number" min={0} max={365} value={win.memberHorizonDays} onChange={(e) => setWin({ ...win, memberHorizonDays: Number(e.target.value) || 0 })} className="h-10 w-full rounded-xl border-2 border-slate-200 text-center text-sm font-black" /><span className="text-[10px] font-bold text-slate-500">days</span></div></label>
+        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Booking release — how far ahead people can book you</p>
+        <div className="grid grid-cols-3 gap-1.5">
+          {([['off', 'No limit'], ['rolling', 'Rolling window'], ['monthly', 'Monthly release']] as const).map(([k, l]) => (
+            <button key={k} type="button" aria-pressed={win.mode === k} onClick={() => setWin({ ...win, mode: k })} className={cn('h-10 rounded-xl border-2 text-[10px] font-black uppercase tracking-widest', win.mode === k ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>{l}</button>
+          ))}
         </div>
-        <p className="text-[10px] font-bold text-slate-500">0 = no limit. Members identify by email on your page and get the longer window; the booking engine enforces it. Other perks you list are your promise to keep at the chair.</p>
-        <button type="button" disabled={winBusy} onClick={async () => { setWinBusy(true); const d = await api({ action: 'booking-window-save', tenantId, token, ...win }); setWinBusy(false); if (d?.ok) { setWin({ horizonDays: d.horizonDays, memberHorizonDays: d.memberHorizonDays }); setWinSaved(true); setTimeout(() => setWinSaved(false), 1800); } }} className="h-10 w-full rounded-xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{winSaved ? 'Saved' : winBusy ? 'Saving…' : 'Save booking window'}</button>
+        {win.mode === 'rolling' && (
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block"><span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Everyone, up to</span><div className="flex items-center gap-1"><input type="number" min={1} max={365} value={win.horizonDays} onChange={(e) => setWin({ ...win, horizonDays: Number(e.target.value) || 0 })} className="h-10 w-full rounded-xl border-2 border-slate-200 text-center text-sm font-black" /><span className="text-[10px] font-bold text-slate-500">days</span></div></label>
+            <label className="block"><span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Members, up to</span><div className="flex items-center gap-1"><input type="number" min={1} max={365} value={win.memberHorizonDays} onChange={(e) => setWin({ ...win, memberHorizonDays: Number(e.target.value) || 0 })} className="h-10 w-full rounded-xl border-2 border-slate-200 text-center text-sm font-black" /><span className="text-[10px] font-bold text-slate-500">days</span></div></label>
+          </div>
+        )}
+        {win.mode === 'monthly' && (
+          <div className="space-y-2">
+            <div className="rounded-xl border-2 border-slate-100 p-2">
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Next month opens to everyone on the</p>
+              <div className="mt-1 flex items-center gap-2">
+                <input type="number" min={1} max={28} value={win.releaseDay} onChange={(e) => setWin({ ...win, releaseDay: Number(e.target.value) || 1 })} className="h-10 w-16 rounded-xl border-2 border-slate-200 text-center text-sm font-black" />
+                <span className="text-[10px] font-bold text-slate-500">of the month, at</span>
+                <select value={win.releaseHour} onChange={(e) => setWin({ ...win, releaseHour: Number(e.target.value) })} className="h-10 rounded-xl border-2 border-slate-200 bg-white px-2 text-sm font-black">{Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{hourLabel(h)}</option>)}</select>
+              </div>
+            </div>
+            <div className="rounded-xl border-2 border-violet-200 bg-violet-50 p-2">
+              <p className="text-[9px] font-black uppercase tracking-widest text-violet-700">Members get it early — on the</p>
+              <div className="mt-1 flex items-center gap-2">
+                <input type="number" min={1} max={28} value={win.memberReleaseDay} onChange={(e) => setWin({ ...win, memberReleaseDay: Number(e.target.value) || 1 })} className="h-10 w-16 rounded-xl border-2 border-violet-200 bg-white text-center text-sm font-black" />
+                <span className="text-[10px] font-bold text-violet-800">at</span>
+                <select value={win.memberReleaseHour} onChange={(e) => setWin({ ...win, memberReleaseHour: Number(e.target.value) })} className="h-10 rounded-xl border-2 border-violet-200 bg-white px-2 text-sm font-black">{Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{hourLabel(h)}</option>)}</select>
+                <span className="text-[10px] font-bold text-violet-700">(same day = no head start)</span>
+              </div>
+            </div>
+            <p className="text-[10px] font-bold text-slate-500">Until the release moment, clients can book through the end of the current month; after it, through the end of next month. The page and the booking engine both follow this clock, in the studio&apos;s time zone.</p>
+          </div>
+        )}
+        {winSentence && <p className="rounded-xl bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-700">{winSentence.everyone}{winSentence.members ? ` ${winSentence.members}` : ''}</p>}
+        <p className="text-[10px] font-bold text-slate-500">Members identify by email on your page. Everything here is enforced at booking time, not just displayed. Other perks you list are your promise to keep at the chair.</p>
+        <button type="button" disabled={winBusy} onClick={async () => { setWinBusy(true); const d = await api({ action: 'booking-window-save', tenantId, token, ...win }); setWinBusy(false); if (d?.ok) { setWin({ ...win, ...d.release }); setWinSentence(d.sentence || null); setWinSaved(true); setTimeout(() => setWinSaved(false), 1800); } }} className="h-10 w-full rounded-xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{winSaved ? 'Saved' : winBusy ? 'Saving…' : 'Save booking release'}</button>
       </div>
       {!canCharge && <p className="rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-900">Memberships bill through Stripe — connect yours under Payouts to offer them.</p>}
       <div className="flex items-center justify-between">
@@ -1199,6 +1232,7 @@ export function MyServices({ data, tenantId, token, onChanged }: { data: any; te
       depositMode: draft.depositMode || (Number(draft.depositAmount) > 0 ? 'flat' : 'none'),
       depositAmount: Number(draft.depositAmount || 0), depositPercent: Number(draft.depositPercent || 0),
       description: draft.description || '', category: draft.category || '', videoUrl: draft.videoUrl || '',
+      membersOnly: draft.membersOnly === true,
       ...(draft.imageData === null ? { imageData: null } : {}),
       ...(typeof draft.imageUrl === 'string' && draft.imageUrl ? { imageUrl: draft.imageUrl } : {}),
     });
@@ -1271,7 +1305,7 @@ export function MyServices({ data, tenantId, token, onChanged }: { data: any; te
             <div key={sv.id} className="rounded-2xl border-2 p-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-black text-slate-900">{sv.name}</p>
+                  <p className="truncate text-[13px] font-black text-slate-900">{sv.name}{sv.membersOnly ? <span className="ml-1.5 rounded-full bg-violet-100 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-violet-800">Members only</span> : null}</p>
                   <p className="text-[11px] font-bold text-slate-500">${Number(sv.price).toFixed(2)} · {sv.duration} min</p>
                 </div>
                 <div className="flex shrink-0 gap-2">
@@ -1319,6 +1353,7 @@ export function MyServices({ data, tenantId, token, onChanged }: { data: any; te
             </label>
             <label className="block">
               <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Video (optional)</span>
+              <button type="button" aria-pressed={draft.membersOnly === true} onClick={() => setDraft((d: any) => ({ ...d, membersOnly: !d.membersOnly }))} className={cn('mb-2 h-10 w-full rounded-xl border-2 px-3 text-left text-[10px] font-bold', draft.membersOnly ? 'border-violet-500 bg-violet-50 text-violet-900' : 'border-slate-200 text-slate-500')}>{draft.membersOnly ? '✓ Members only — hidden from everyone else and refused if they try' : 'Members only? Tap to make this a member perk'}</button>
               <input value={draft.videoUrl || ''} onChange={e => setDraft((d: any) => ({ ...d, videoUrl: e.target.value.slice(0, 300) }))} inputMode="url"
                      placeholder="YouTube link, or a direct .mp4 — shows when a client opens this service"
                      className="h-10 w-full rounded-xl border-2 px-3 text-[13px] font-bold" />
