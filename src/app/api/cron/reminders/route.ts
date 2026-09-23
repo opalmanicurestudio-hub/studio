@@ -487,7 +487,53 @@ export async function GET(req: NextRequest) {
         } catch { /* brief is a bonus */ }
       }
 
-      results[tid] = { sent, skipped, targetDay, followUps, agendas, ownerBrief: brief, clock: zoneSource };
+      // ── RECONNECT: the studio's own nudges, then each renter's ─────────
+      // Same send hour as reminders, so nudges arrive mid-morning local time.
+      // Everything is off until the studio / each renter switches it on.
+      const reconnect: any = {};
+      try {
+        const { runReconnect, stopSig } = await import('@/lib/reconnect');
+        const studioName = String(tdata.name || 'the studio');
+        const stopUrl = async (cid: string) => `${base}/api/reconnect/stop?t=${encodeURIComponent(tid)}&c=${encodeURIComponent(cid)}&s=${await stopSig(tid, cid)}`;
+        const stopCache = new Map<string, string>();
+        const stopFor = (cid: string) => stopCache.get(cid) || '';
+        // Pre-sign lazily: runReconnect needs a sync function.
+        const studioSettings = tdata.reconnect || null;
+        if (studioSettings?.enabled) {
+          const clientsSnap = await db.collection(`tenants/${tid}/clients`).get();
+          for (const d of clientsSnap.docs) stopCache.set(d.id, await stopUrl(d.id));
+          reconnect.studio = await runReconnect(db, {
+            tenantId: tid, renterId: null, staffIds: null, settings: studioSettings,
+            bookingUrl: base ? `${base}/book/${tid}` : null, signer: studioName, stopUrl: stopFor,
+            send: async (to, text, subject, kind) => {
+              let ok = false;
+              if (to.phone && smsConfigured()) ok = (await sendNotification(db, { tenantId: tid, channel: 'sms', to: to.phone, text, kind, clientId: to.clientId, clientName: to.name, recipientType: 'client' } as any)).ok;
+              if (!ok && to.email) ok = (await sendNotification(db, { tenantId: tid, channel: 'email', to: to.email, subject, text, kind, clientId: to.clientId, clientName: to.name, recipientType: 'client' } as any)).ok;
+              return ok;
+            },
+          });
+        }
+        // Renters — each with their own settings, voice and booking link.
+        for (const [staffId, rp] of renterByStaff.entries()) {
+          const rSnap = await db.doc(`tenants/${tid}/renters/${rp.renterId}`).get();
+          const rSettings = (rSnap.data() as any)?.reconnect || null;
+          if (!rSettings?.enabled) continue;
+          const mine = await db.collection(`tenants/${tid}/clients`).where('ownerRenterId', '==', rp.renterId).get();
+          for (const d of mine.docs) if (!stopCache.has(d.id)) stopCache.set(d.id, await stopUrl(d.id));
+          reconnect[rp.renterId] = await runReconnect(db, {
+            tenantId: tid, renterId: rp.renterId, staffIds: [staffId], settings: rSettings,
+            bookingUrl: rp.bookingUrl, signer: rp.name, stopUrl: stopFor,
+            send: async (to, text, subject, kind) => {
+              let ok = false;
+              if (to.phone && smsConfigured()) ok = (await sendNotification(db, { tenantId: tid, channel: 'sms', to: to.phone, text, kind: `renter_${kind}`, clientId: to.clientId, clientName: to.name, recipientType: 'client' } as any)).ok;
+              if (!ok && to.email) ok = (await sendNotification(db, { tenantId: tid, channel: 'email', to: to.email, subject: `${subject} — ${rp.name}`, text, kind: `renter_${kind}`, clientId: to.clientId, clientName: to.name, recipientType: 'client' } as any)).ok;
+              return ok;
+            },
+          });
+        }
+      } catch (e: any) { reconnect.error = String(e?.message || e).slice(0, 120); }
+
+      results[tid] = { sent, skipped, targetDay, followUps, agendas, ownerBrief: brief, clock: zoneSource, reconnect };
     } catch (e: any) {
       results[tid] = { error: String(e?.message || e).slice(0, 120) };
     }
