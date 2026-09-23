@@ -1161,7 +1161,7 @@ export async function POST(req: NextRequest) {
               .filter((sv: any) => sv.isActive !== false)
               .map((sv: any) => ({ id: sv.id, name: sv.name || '', price: Number(sv.price) || 0, duration: Number(sv.duration) || 60, productCost: Number(sv.productCost) || 0, depositAmount: Number(sv.depositAmount) || 0,
                 depositPercent: Number(sv.depositPercent) || 0, depositMode: sv.depositMode || 'none', description: sv.description || '', category: sv.category || '', videoUrl: sv.videoUrl || '', imageUrl: sv.imageUrl || null,
-                membersOnly: sv.membersOnly === true }))
+                membersOnly: sv.membersOnly === true, rebookWeeks: Number(sv.rebookWeeks) || 0 }))
               .sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)));
 
             // Rent → cost per bookable hour. Weekly/biweekly leases are
@@ -1569,6 +1569,7 @@ export async function POST(req: NextRequest) {
         name, price: priceCents / 100, duration, productCost, depositAmount, depositPercent, depositMode: canCharge ? depositMode : 'none',
         description, category, videoUrl,
         membersOnly: body.membersOnly === true,
+        rebookWeeks: Math.max(0, Math.min(52, Math.round(Number(body.rebookWeeks) || 0))),
         ...(imageUrl !== undefined ? { imageUrl } : {}),
         isActive: true, collectsOwnPayment: true,
         updatedAt: new Date().toISOString(),
@@ -3026,6 +3027,22 @@ export async function POST(req: NextRequest) {
       // the studio's clients do, in the renter's name, unless the renter
       // switches them off. Mirrors the main app instead of asking for opt-in.
       return NextResponse.json({ ok: true, comms: { remindersEnabled: c.remindersEnabled !== false, thankYouEnabled: c.thankYouEnabled !== false, signoff: String(c.signoff || '') }, log });
+    }
+    // ── Reconnect: the renter's own nudges to their quiet clients ──────────
+    if (action === 'reconnect-get') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const { cleanReconnect, reconnectTally } = await import('@/lib/reconnect');
+      const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      let tally = { sent: 0, converted: 0, rate: 0, due: 0, miss: 0 };
+      try { tally = await reconnectTally(db, tenantId, String(session.renterId)); } catch { /* none yet */ }
+      return NextResponse.json({ ok: true, settings: cleanReconnect(r.reconnect || {}), tally });
+    }
+    if (action === 'reconnect-save') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const { cleanReconnect } = await import('@/lib/reconnect');
+      const clean = cleanReconnect(body.settings || {});
+      await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set({ reconnect: { ...clean, updatedAt: new Date().toISOString() } }, { merge: true });
+      return NextResponse.json({ ok: true, settings: clean });
     }
     // ── Tell me when… — the renter's own alert preferences ─────────────────
     if (action === 'notify-get') {
