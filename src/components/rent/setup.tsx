@@ -939,6 +939,52 @@ export function MyMemberships({ data, tenantId, token }: { data: any; tenantId: 
   );
 }
 
+// ─── Reconnect: little nudges to quiet clients, in their name ────────────────
+export function MyReconnect({ tenantId, token }: { tenantId: string; token: string }) {
+  const [st, setSt] = useState<{ settings: any; tally: any } | null>(null);
+  const [draft, setDraft] = useState<any | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => { api({ action: 'reconnect-get', tenantId, token }).then((d) => { if (d?.ok) { setSt(d); setDraft(d.settings); } }); }, [tenantId, token]);
+  if (!st || !draft) return <p className="py-2 text-center text-[11px] font-bold text-slate-400">Loading…</p>;
+  const set = (k: string, v: any) => setDraft({ ...draft, [k]: v });
+  const save = async () => { setBusy(true); const d = await api({ action: 'reconnect-save', tenantId, token, settings: draft }); setBusy(false); if (d?.ok) { setDraft(d.settings); setSaved(true); setTimeout(() => setSaved(false), 1800); } };
+  const Toggle = ({ k, on, off }: { k: string; on: string; off: string }) => (
+    <button type="button" aria-pressed={draft[k] !== false} onClick={() => set(k, draft[k] === false)} className={cn('h-10 w-full rounded-xl border-2 px-3 text-left text-[10px] font-bold', draft[k] !== false ? 'border-slate-900 bg-slate-50 text-slate-900' : 'border-slate-200 text-slate-500')}>{draft[k] !== false ? on : off}</button>
+  );
+  const Num = ({ k, min, max, suffix }: { k: string; min: number; max: number; suffix: string }) => (
+    <span className="inline-flex items-center gap-1"><input type="number" min={min} max={max} value={draft[k]} onChange={(e) => set(k, e.target.value)} className="h-9 w-16 rounded-lg border-2 border-slate-200 text-center text-sm font-black" /><span className="text-[10px] font-bold text-slate-500">{suffix}</span></span>
+  );
+  return (
+    <div className="space-y-3">
+      <p className="text-[10px] font-bold text-slate-500">A text in your name (or email if there's no phone), sent mid-morning. Never to someone with a visit already booked, who's opted out, or who heard from you recently. Every message has a stop link.</p>
+      <button type="button" aria-pressed={draft.enabled === true} onClick={() => set('enabled', !draft.enabled)} className={cn('h-11 w-full rounded-2xl border-2 text-[10px] font-black uppercase tracking-widest', draft.enabled ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>{draft.enabled ? 'On — nudging quiet clients' : 'Off — tap to turn on'}</button>
+      {draft.enabled && (
+        <>
+          <div className="rounded-2xl border-2 border-slate-100 p-3 space-y-2">
+            <Toggle k="dueEnabled" on="✓ “You're due” — when they pass a service's rebook interval" off="“You're due” is off" />
+            {draft.dueEnabled !== false && <p className="text-[10px] font-bold text-slate-500">Set <span className="font-black">Due again every</span> on each service in Services. Nudge <Num k="dueGraceDays" min={0} max={30} suffix="days" /> after that.</p>}
+            <Toggle k="missEnabled" on="✓ “We miss you” — once, after a long gap" off="“We miss you” is off" />
+            {draft.missEnabled !== false && <p className="text-[10px] font-bold text-slate-500">After <Num k="missWeeks" min={3} max={104} suffix="weeks" /> with no visit.</p>}
+          </div>
+          <div className="rounded-2xl border-2 border-slate-100 p-3 space-y-2">
+            <p className="text-[10px] font-bold text-slate-500">At most one nudge per client every <Num k="minDaysBetween" min={7} max={180} suffix="days" />, and no more than <Num k="dailyCap" min={1} max={200} suffix="a day" />.</p>
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">In your words (optional) — {'{first} {service} {weeks} {link}'}</p>
+            <textarea value={draft.dueMessage} onChange={(e) => set('dueMessage', e.target.value.slice(0, 320))} rows={2} placeholder="Hi {first}! It's been {weeks} weeks since your {service} — ready for a refresh? Grab a time here: {link}" className="w-full rounded-xl border-2 border-slate-200 px-3 py-2 text-[12px]" />
+            <textarea value={draft.missMessage} onChange={(e) => set('missMessage', e.target.value.slice(0, 320))} rows={2} placeholder="Hi {first}, it's been a little while and I'd love to see you again. Whenever you're ready: {link}" className="w-full rounded-xl border-2 border-slate-200 px-3 py-2 text-[12px]" />
+          </div>
+        </>
+      )}
+      <button type="button" onClick={save} disabled={busy} className="h-11 w-full rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{saved ? 'Saved' : busy ? 'Saving…' : 'Save'}</button>
+      <div className="rounded-2xl border-2 border-slate-100 p-3">
+        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Last 30 days</p>
+        <p className="text-[13px] font-black text-slate-900">{st.tally.sent} sent → {st.tally.converted} rebooked within 14 days{st.tally.sent ? ` · ${st.tally.rate}%` : ''}</p>
+        {st.tally.sent > 0 && <p className="text-[10px] font-bold text-slate-500">{st.tally.due} “you're due” · {st.tally.miss} “we miss you”</p>}
+      </div>
+    </div>
+  );
+}
+
 // ─── My Books: the month, in and out ─────────────────────────────────────────
 export function MyBooks({ tenantId, token }: { tenantId: string; token: string }) {
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
@@ -1233,6 +1279,7 @@ export function MyServices({ data, tenantId, token, onChanged }: { data: any; te
       depositAmount: Number(draft.depositAmount || 0), depositPercent: Number(draft.depositPercent || 0),
       description: draft.description || '', category: draft.category || '', videoUrl: draft.videoUrl || '',
       membersOnly: draft.membersOnly === true,
+      rebookWeeks: Number(draft.rebookWeeks) || 0,
       ...(draft.imageData === null ? { imageData: null } : {}),
       ...(typeof draft.imageUrl === 'string' && draft.imageUrl ? { imageUrl: draft.imageUrl } : {}),
     });
@@ -1353,6 +1400,10 @@ export function MyServices({ data, tenantId, token, onChanged }: { data: any; te
             </label>
             <label className="block">
               <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Video (optional)</span>
+              <label className="mb-2 flex items-center justify-between gap-2 rounded-xl border-2 border-slate-200 px-3 py-2">
+                <span className="text-[10px] font-bold text-slate-600">Due again every <span className="text-slate-400">(weeks — for “you're due” nudges; 0 = off)</span></span>
+                <input type="number" min={0} max={52} value={draft.rebookWeeks ?? 0} onChange={e => setDraft((d: any) => ({ ...d, rebookWeeks: e.target.value }))} aria-label="Rebook every weeks" className="h-9 w-16 rounded-lg border-2 border-slate-200 text-center text-sm font-black" />
+              </label>
               <button type="button" aria-pressed={draft.membersOnly === true} onClick={() => setDraft((d: any) => ({ ...d, membersOnly: !d.membersOnly }))} className={cn('mb-2 h-10 w-full rounded-xl border-2 px-3 text-left text-[10px] font-bold', draft.membersOnly ? 'border-violet-500 bg-violet-50 text-violet-900' : 'border-slate-200 text-slate-500')}>{draft.membersOnly ? '✓ Members only — hidden from everyone else and refused if they try' : 'Members only? Tap to make this a member perk'}</button>
               <input value={draft.videoUrl || ''} onChange={e => setDraft((d: any) => ({ ...d, videoUrl: e.target.value.slice(0, 300) }))} inputMode="url"
                      placeholder="YouTube link, or a direct .mp4 — shows when a client opens this service"
