@@ -104,6 +104,13 @@ export async function POST(req: NextRequest) {
     if (!renterSnap.exists) return NextResponse.json({ ok: false, reason: 'Renter not found' }, { status: 404 });
 
     const booth = boothSnap.data();
+    // Refuse a booking at a location that's been set inactive.
+    try {
+      const locSnap = await db.doc(`tenants/${tenantId}/locations/${String(locationId)}`).get();
+      if (locSnap.exists && (locSnap.data() as any)?.isActive === false) {
+        return NextResponse.json({ error: 'That location is closed and not taking bookings.' }, { status: 409 });
+      }
+    } catch { /* no location doc — the booth check below still applies */ }
     const renter = renterSnap.data();
     const stripeAccountId = tenantSnap.data()?.stripeAccountId;
 
