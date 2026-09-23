@@ -68,7 +68,8 @@ export default function TimeClockPage() {
   // configured. Failing that, a single pinned location is unambiguous enough
   // to use. Failing THAT, the studio-wide pin, which is what has always been
   // used and stays correct for a one-site studio.
-  const activeLocations = (locations || []).filter((l: any) => l?.isActive !== false);
+  // Business locations only — inventory storage areas share the collection.
+  const activeLocations = (locations || []).filter((l: any) => l?.isActive !== false && !l?.locationTypeId);
   const pinnedLocations = activeLocations.filter(
     (l: any) => Number.isFinite(Number(l?.coordinates?.lat)) && Number.isFinite(Number(l?.coordinates?.lng))
   );
