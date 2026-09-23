@@ -280,6 +280,12 @@ export type Client = {
     phone: string;
   };
   birthday?: string;
+  /** Said yes to MARKETING texts (offers, check-ins) — separate from reminder consent. Campaign and reconnect texts require it. */
+  smsMarketingOptIn?: boolean;
+  smsMarketingOptInAt?: string;
+  /** Unsubscribed from campaigns and reconnect nudges (email link or request). */
+  marketingOptOut?: boolean;
+  reconnectOptOut?: boolean;
   // v7 — marketing/photo consent: a permanent client preference (can we
   // share before/after photos, mention the visit in marketing), captured
   // once via the check-in link's completion flow, not re-asked per visit.
@@ -1545,10 +1551,12 @@ export type Campaign = {
   targetAudience: 'all' | 'new' | 'loyal' | 'inactive_90' | 'specific' | 'birthday';
   targetClientIds?: string[];
   discountId?: string;
-  status: 'draft' | 'sent';
+  status: 'draft' | 'sending' | 'sent';
   sentAt?: string;
   type: 'email' | 'sms';
   recipientCount?: number;
+  failedCount?: number;
+  convertedCount?: number;
   openRate?: number;
   clickRate?: number;
   generatedRevenue?: number;
