@@ -13,7 +13,7 @@ import { Activity, AlertTriangle, ArrowRight, Ban, Bell, Box, Building, Calendar
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
 import { useFirebase, updateDocumentNonBlocking, useMemoFirebase, useCollection } from '@/firebase';
-import { doc, writeBatch, deleteField } from 'firebase/firestore';
+import { doc, writeBatch, deleteField, getDocs, query, collection, where } from 'firebase/firestore';
 import { type Tenant, type ScheduleProfile, type DayHours, type Service, type PricingTier, type Staff, type RecoveryPreset, nanoid } from '@/lib/data';
 import { DEFAULT_DEPOSIT_POLICY } from '@/lib/deposit-policy';
 import { useTenant } from '@/context/TenantContext';
@@ -853,6 +853,40 @@ function SettingsPageImpl() {
                     <p className="text-[10px] font-bold text-muted-foreground ml-1">{rs.everyone}{rs.members ? ` ${rs.members}` : ''} Members are clients with an active membership; the booking page and the booking engine both enforce this. Services can also be marked Members Only in their editor.</p>
                     ); })()}
                   </div>
+                  {/* ── Reconnect: little nudges that bring quiet clients back ── */}
+                  <div className="pt-4 border-t border-dashed space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Reconnect With Quiet Clients</Label>
+                      <Switch checked={tenantData.reconnect?.enabled === true} disabled={!isEditing} onCheckedChange={(v) => setTenantData(prev => ({ ...prev, reconnect: { ...(prev.reconnect || {}), enabled: v } }))} />
+                    </div>
+                    <p className="text-[10px] font-bold text-muted-foreground ml-1">A text (or email, if there's no phone) at your reminder hour. Never to someone with a visit booked, who opted out, or who was nudged in the last few weeks — and at most {tenantData.reconnect?.dailyCap ?? 25} a day. Renters' clients are theirs to nudge.</p>
+                    {tenantData.reconnect?.enabled && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="rounded-2xl border-2 border-dashed p-3 space-y-2">
+                          <div className="flex items-center justify-between"><p className="text-[10px] font-black uppercase tracking-widest">“You're due”</p>
+                            <Switch checked={tenantData.reconnect?.dueEnabled !== false} disabled={!isEditing} onCheckedChange={(v) => setTenantData(prev => ({ ...prev, reconnect: { ...(prev.reconnect || {}), dueEnabled: v } }))} /></div>
+                          <p className="text-[10px] font-bold text-muted-foreground">When a client passes the service's <span className="font-black">Rebook Every</span> (set per service) by</p>
+                          <div className="flex items-center gap-2"><Input type="number" min={0} max={30} value={tenantData.reconnect?.dueGraceDays ?? 3} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, reconnect: { ...(prev.reconnect || {}), dueGraceDays: parseInt(e.target.value) || 0 } }))} className="h-10 w-20 rounded-xl border-2 text-center font-black" /><span className="text-[10px] font-bold text-muted-foreground">days</span></div>
+                        </div>
+                        <div className="rounded-2xl border-2 border-dashed p-3 space-y-2">
+                          <div className="flex items-center justify-between"><p className="text-[10px] font-black uppercase tracking-widest">“We miss you”</p>
+                            <Switch checked={tenantData.reconnect?.missEnabled !== false} disabled={!isEditing} onCheckedChange={(v) => setTenantData(prev => ({ ...prev, reconnect: { ...(prev.reconnect || {}), missEnabled: v } }))} /></div>
+                          <p className="text-[10px] font-bold text-muted-foreground">Once, after no visit for</p>
+                          <div className="flex items-center gap-2"><Input type="number" min={3} max={104} value={tenantData.reconnect?.missWeeks ?? 10} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, reconnect: { ...(prev.reconnect || {}), missWeeks: parseInt(e.target.value) || 10 } }))} className="h-10 w-20 rounded-xl border-2 text-center font-black" /><span className="text-[10px] font-bold text-muted-foreground">weeks</span></div>
+                        </div>
+                        <div className="rounded-2xl border-2 border-dashed p-3 space-y-2 md:col-span-2">
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Space nudges at least (days)</p><Input type="number" min={7} max={180} value={tenantData.reconnect?.minDaysBetween ?? 21} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, reconnect: { ...(prev.reconnect || {}), minDaysBetween: parseInt(e.target.value) || 21 } }))} className="h-10 rounded-xl border-2 text-center font-black" /></div>
+                            <div className="space-y-1"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Most per day</p><Input type="number" min={1} max={200} value={tenantData.reconnect?.dailyCap ?? 25} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, reconnect: { ...(prev.reconnect || {}), dailyCap: parseInt(e.target.value) || 25 } }))} className="h-10 rounded-xl border-2 text-center font-black" /></div>
+                          </div>
+                          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground pt-1">Your words (optional) — {'{first} {service} {weeks} {link}'}</p>
+                          <Input value={tenantData.reconnect?.dueMessage || ''} disabled={!isEditing} placeholder="“You're due” — leave blank for: Hi {first}! It's been {weeks} weeks since your {service} — ready for a refresh? Grab a time here: {link}" onChange={e => setTenantData(prev => ({ ...prev, reconnect: { ...(prev.reconnect || {}), dueMessage: e.target.value.slice(0, 320) } }))} className="h-11 rounded-xl border-2" />
+                          <Input value={tenantData.reconnect?.missMessage || ''} disabled={!isEditing} placeholder="“We miss you” — leave blank for: Hi {first}, it's been a little while and we'd love to see you again. Whenever you're ready: {link}" onChange={e => setTenantData(prev => ({ ...prev, reconnect: { ...(prev.reconnect || {}), missMessage: e.target.value.slice(0, 320) } }))} className="h-11 rounded-xl border-2" />
+                        </div>
+                        <ReconnectTally tenantId={tenantId} />
+                      </div>
+                    )}
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4 border-t border-dashed">
                     <div className="space-y-3">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Cancellation Window (Hours)</Label>
@@ -1454,5 +1488,28 @@ export default function SettingsPage() {
     }>
       <SettingsPageImpl />
     </Suspense>
+  );
+}
+
+// ── Reconnect tally: the last 30 days of the studio's own nudges ──────────
+function ReconnectTally({ tenantId }: { tenantId: string | null | undefined }) {
+  const { firestore } = useFirebase();
+  const [t, setT] = React.useState<{ sent: number; converted: number; due: number; miss: number } | null>(null);
+  React.useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const since = new Date(Date.now() - 30 * 86400000).toISOString();
+    getDocs(query(collection(firestore, `tenants/${tenantId}/reconnectNudges`), where('sender', '==', 'studio')))
+      .then((snap) => {
+        const rows = snap.docs.map((d) => d.data() as any).filter((x) => String(x.sentAt || '') >= since);
+        setT({ sent: rows.length, converted: rows.filter((x) => x.converted).length, due: rows.filter((x) => x.kind === 'due').length, miss: rows.filter((x) => x.kind === 'miss_you').length });
+      }).catch(() => setT({ sent: 0, converted: 0, due: 0, miss: 0 }));
+  }, [firestore, tenantId]);
+  if (!t) return null;
+  return (
+    <div className="rounded-2xl border-2 p-3 md:col-span-2">
+      <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Last 30 days</p>
+      <p className="mt-1 text-sm font-black">{t.sent} nudge{t.sent === 1 ? '' : 's'} sent ({t.due} due · {t.miss} miss-you) → {t.converted} rebooked within 14 days{t.sent ? ` · ${Math.round((t.converted / t.sent) * 100)}%` : ''}</p>
+      {t.sent === 0 && <p className="text-[10px] font-bold text-muted-foreground">Nothing yet — nudges go out at your reminder hour once someone qualifies. Set Rebook Every on your services for “you're due” to have anything to measure.</p>}
+    </div>
   );
 }
