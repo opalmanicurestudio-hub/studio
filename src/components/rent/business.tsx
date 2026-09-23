@@ -853,6 +853,38 @@ export function MyClients({ tenantId, token }: { tenantId: string; token: string
 // a reminder the day before, a thank-you the day after. Off until they say
 // so. Sent in their name; the studio's message settings never touch these.
 export const COMMS_KIND: Record<string, string> = { renter_client_reminder: 'Reminder', renter_client_thanks: 'Thank-you', renter_client_cancelled: 'Cancellation' };
+// ─── Tell me when… — the renter's own alerts ─────────────────────────────────
+export function TellMeWhen({ tenantId, token }: { tenantId: string; token: string }) {
+  const [st, setSt] = useState<{ prefs: Record<string, string>; labels: Record<string, string>; hasPhone: boolean; hasEmail: boolean } | null>(null);
+  const [saved, setSaved] = useState('');
+  useEffect(() => { api({ action: 'notify-get', tenantId, token }).then((d) => { if (d?.ok) setSt(d); }); }, [tenantId, token]);
+  if (!st) return <p className="py-2 text-center text-[11px] font-bold text-slate-400">Loading…</p>;
+  const setPref = async (k: string, v: string) => {
+    const prefs = { ...st.prefs, [k]: v };
+    setSt({ ...st, prefs });
+    const d = await api({ action: 'notify-save', tenantId, token, prefs });
+    if (d?.ok) { setSaved(k); setTimeout(() => setSaved(''), 1400); }
+  };
+  const opts: [string, string][] = [['off', 'Off'], ['inbox', 'Inbox'], ['sms', 'Text'], ['email', 'Email'], ['both', 'Both']];
+  return (
+    <div className="space-y-2">
+      <p className="text-[10px] font-bold text-slate-500">How you hear about your own book. <span className="font-black">Inbox</span> is the Today tab only; <span className="font-black">Text</span> and <span className="font-black">Email</span> go to the phone and email on your profile. Saves as you tap.</p>
+      {(!st.hasPhone || !st.hasEmail) && <p className="rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-900">{!st.hasPhone ? 'No phone on your profile — texts can\'t reach you. ' : ''}{!st.hasEmail ? 'No email on your profile — emails can\'t reach you.' : ''} Add them under Setup → Profile.</p>}
+      {Object.keys(st.labels).map((k) => (
+        <div key={k} className="rounded-xl border-2 border-slate-100 p-2">
+          <p className="text-[11px] font-black text-slate-800">{st.labels[k]}{saved === k ? <span className="ml-2 text-[9px] uppercase tracking-widest text-emerald-700">Saved</span> : null}</p>
+          <div className="mt-1.5 grid grid-cols-5 gap-1">
+            {opts.map(([v, l]) => (
+              <button key={v} type="button" aria-pressed={st.prefs[k] === v} onClick={() => setPref(k, v)}
+                className={cn('h-8 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest', st.prefs[k] === v ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-500')}>{l}</button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function MyClientMessages({ tenantId, token }: { tenantId: string; token: string }) {
   const [state, setState] = useState<{ comms: { remindersEnabled: boolean; thankYouEnabled: boolean; signoff: string }; log: any[] } | null>(null);
   const [draft, setDraft] = useState<{ remindersEnabled: boolean; thankYouEnabled: boolean; signoff: string } | null>(null);
