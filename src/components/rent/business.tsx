@@ -176,7 +176,7 @@ export function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bo
         <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-slate-200" />
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{a.viaStudio ? 'Studio booking on your chair' : req ? 'Request — needs your answer' : done ? (a.status === 'cancelled' ? 'Cancelled' : 'Completed') : 'Booked'}</p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{a.viaStudio ? 'Studio booking on your chair' : req ? 'Request — needs your answer' : done ? (a.status === 'cancelled' ? 'Cancelled' : `Completed${a.renterActualMinutes ? ` · ${a.renterActualMinutes} min in the chair` : ''}`) : a.status === 'servicing' ? `In the chair${a.renterStartedAt ? ` since ${new Date(a.renterStartedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ''}` : a.status === 'checked_in' ? 'Arrived — checked in' : 'Booked'}</p>
             <p className="text-lg font-black text-slate-900">{a.clientName}</p>
             <p className="text-[12px] font-bold text-slate-600">{a.serviceName}{a.price ? ` · $${Number(a.price).toFixed(0)}` : ''}{a.duration ? ` · ${a.duration} min` : ''}</p>
             <p className="text-[12px] font-bold text-slate-900">{fmt(a.startTime)}</p>
@@ -266,8 +266,23 @@ export function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bo
                     <Btn k="sr" label="Standing appointment" tone="flex-1" onClick={() => { setSvcId(svcMatch?.id || ''); setSeriesReport([]); setMode('series'); }} />
                   </div>
                 </div>
+                {!done && !req && (
+                  <div className="rounded-2xl border-2 border-slate-100 bg-slate-50 p-3 space-y-2">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">The chair clock — tap Start when they sit down, Finish when they leave</p>
+                    <div className="flex gap-1.5">
+                      {a.status !== 'servicing'
+                        ? <Btn k="start" label="Start" tone="bg-slate-900 text-white flex-1" onClick={() => run('start', () => api({ action: 'book-start', tenantId, token, appointmentId: a.id }), 'Clock started')} />
+                        : <Btn k="done" label="Finish ✓" tone="bg-emerald-600 text-white flex-1" onClick={() => run('done', () => api({ action: 'book-status', tenantId, token, appointmentId: a.id, outcome: 'completed' }), 'Finished — time recorded')} />}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-bold text-slate-500">Running late — tell them</span>
+                      {[10, 15, 30].map((m) => <Btn key={m} k={`late${m}`} label={`+${m}`} tone="border-2 border-amber-300 text-amber-800 bg-white" onClick={() => run(`late${m}`, () => api({ action: 'book-late', tenantId, token, appointmentId: a.id, minutes: m }), `Told them: about ${m} min behind`)} />)}
+                    </div>
+                    {a.renterLateMinutes ? <p className="text-[10px] font-bold text-amber-700">They were told you're about {a.renterLateMinutes} min behind.</p> : null}
+                  </div>
+                )}
                 <div className="flex flex-wrap gap-1.5">
-                  {!done && <Btn k="done" label="Done ✓" tone="bg-emerald-600 text-white" onClick={() => run('done', () => api({ action: 'book-status', tenantId, token, appointmentId: a.id, outcome: 'completed' }), 'Marked done')} />}
+                  {!done && a.status !== 'servicing' && <Btn k="done" label="Done ✓" tone="bg-emerald-600 text-white" onClick={() => run('done', () => api({ action: 'book-status', tenantId, token, appointmentId: a.id, outcome: 'completed' }), 'Marked done')} />}
                   {!done && <Btn k="ns" label="No-show" tone="border-2 border-amber-300 text-amber-800" onClick={() => run('ns', () => api({ action: 'book-status', tenantId, token, appointmentId: a.id, outcome: 'no_show' }), 'Marked no-show')} />}
                   {!done && <Btn k="mv" label="Reschedule" onClick={() => { setWhen(''); setPickDate(localDay(new Date(a.startTime))); setMode('move'); }} />}
                   {!done && <Btn k="cx" label="Cancel visit" tone="border-2 border-red-300 text-red-700" onClick={() => setMode('cancel')} />}
@@ -513,9 +528,9 @@ export function MyBook({ data, tenantId, token }: { data: any; tenantId: string;
                   const req = a.status === 'requested' || a.status === 'pending';
                   return (
                     <button key={a.id} type="button" onClick={() => setSheetId(a.id)}
-                            className={cn('absolute left-14 right-2 z-10 overflow-hidden rounded-lg border-2 px-2 py-1 text-left', a.viaStudio ? 'border-slate-400 bg-white' : req ? 'border-amber-300 bg-amber-50' : a.status === 'completed' ? 'border-slate-200 bg-slate-50' : 'border-slate-900 bg-slate-900')}
+                            className={cn('absolute left-14 right-2 z-10 overflow-hidden rounded-lg border-2 px-2 py-1 text-left', a.viaStudio ? 'border-slate-400 bg-white' : req ? 'border-amber-300 bg-amber-50' : a.status === 'completed' ? 'border-slate-200 bg-slate-50' : a.status === 'servicing' ? 'border-emerald-600 bg-emerald-600' : a.status === 'checked_in' ? 'border-emerald-500 bg-slate-900 ring-2 ring-emerald-300' : 'border-slate-900 bg-slate-900')}
                             style={{ top: top(a.startTime), height: h }}>
-                      <p className={cn('truncate text-[11px] font-black', a.viaStudio ? 'text-slate-700' : req ? 'text-amber-900' : a.status === 'completed' ? 'text-slate-600' : 'text-white')}>{a.clientName}{a.viaStudio ? ' · studio' : req ? ' · asked' : ''}</p>
+                      <p className={cn('truncate text-[11px] font-black', a.viaStudio ? 'text-slate-700' : req ? 'text-amber-900' : a.status === 'completed' ? 'text-slate-600' : 'text-white')}>{a.clientName}{a.viaStudio ? ' · studio' : req ? ' · asked' : a.status === 'servicing' ? ' · in chair' : a.status === 'checked_in' ? ' · arrived' : ''}</p>
                       {h > 34 && <p className={cn('truncate text-[10px] font-bold', req ? 'text-amber-800' : a.status === 'completed' ? 'text-slate-500' : 'text-slate-300')}>{a.serviceName}{a.price ? ` · $${Number(a.price).toFixed(0)}` : ''}</p>}
                     </button>
                   );
@@ -524,7 +539,7 @@ export function MyBook({ data, tenantId, token }: { data: any; tenantId: string;
                   <p className="absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-[11px] font-bold text-slate-400">Nothing on this day.</p>
                 )}
               </div>
-              <p className="text-[9px] font-bold text-slate-400">Tap a booking to open it. Solid is confirmed, amber is waiting on you, outlined is a studio booking on your chair, dashed is time you blocked.</p>
+              <p className="text-[9px] font-bold text-slate-400">Tap a booking to open it. Solid is confirmed, green ring is arrived, green is in the chair, amber is waiting on you, outlined is a studio booking, dashed is time you blocked.</p>
             </div>
           );
         })()}
@@ -646,7 +661,7 @@ export function MyBook({ data, tenantId, token }: { data: any; tenantId: string;
           : rows.map((a) => {
             const isOpen = openId === a.id;
             const done = a.status === 'completed' || a.status === 'cancelled';
-            const chip = a.viaStudio ? 'Studio booking' : a.status === 'cancelled' ? (a.outcome === 'no_show' ? 'No-show' : 'Cancelled') : a.status === 'completed' ? 'Done' : a.status === 'requested' ? 'Requested' : a.status === 'pending_payment' || a.status === 'deposit_pending' ? 'Awaiting deposit' : 'Booked';
+            const chip = a.viaStudio ? 'Studio booking' : a.status === 'cancelled' ? (a.outcome === 'no_show' ? 'No-show' : 'Cancelled') : a.status === 'completed' ? 'Done' : a.status === 'servicing' ? 'In chair' : a.status === 'checked_in' ? 'Arrived' : a.status === 'requested' ? 'Requested' : a.status === 'pending_payment' || a.status === 'deposit_pending' ? 'Awaiting deposit' : 'Booked';
             return (
               <div key={a.id} className={cn('rounded-2xl border-2 p-3 space-y-2', a.status === 'cancelled' && 'opacity-60')}>
                 <button type="button" onClick={() => setSheetId(a.id)} className="w-full text-left">
