@@ -302,6 +302,9 @@ export async function POST(req: NextRequest) {
       }
       const db = getAdminDb();
       const boothSnap = await db.collection(`tenants/${tid}/booths`).get();
+      // A booth at an INACTIVE location isn't offered — the booth's own
+      // switch was checked, but the location's never was.
+      const closedLocations = new Set((await db.collection(`tenants/${tid}/locations`).get()).docs.filter((d: any) => (d.data() as any)?.isActive === false).map((d: any) => d.id));
       const dow = new Date(`${date}T00:00:00Z`).getUTCDay();
       const now = Date.now();
 
@@ -309,6 +312,7 @@ export async function POST(req: NextRequest) {
       for (const bd of boothSnap.docs) {
         const b: any = { id: bd.id, ...(bd.data() as any) };
         if (b.isActive === false) continue;
+        if (b.locationId && closedLocations.has(String(b.locationId))) continue;
         const options: any[] = Array.isArray(b.pricingOptions) ? b.pricingOptions : [];
         const hourRate = options.find((o) => o.frequency === 'hourly' && o.amountCents > 0) || null;
         const dayRate = options.find((o) => o.frequency === 'daily' && o.amountCents > 0) || null;
@@ -399,6 +403,10 @@ export async function POST(req: NextRequest) {
       const bSnap = await db.doc(`tenants/${tid}/booths/${boothId}`).get();
       if (!bSnap.exists) return NextResponse.json({ ok: false, error: 'That space is gone.' }, { status: 404 });
       const booth: any = bSnap.data();
+      if (booth?.locationId) {
+        const locSnap = await db.doc(`tenants/${tid}/locations/${String(booth.locationId)}`).get();
+        if (locSnap.exists && (locSnap.data() as any)?.isActive === false) return NextResponse.json({ ok: false, error: 'That location is closed and not taking bookings.' }, { status: 409 });
+      }
       if (!booth.dayUseEnabled && !subletOpenOn(booth, date)) {
         return NextResponse.json({ ok: false, error: 'That space is not set up for day use.' }, { status: 400 });
       }
@@ -554,6 +562,10 @@ export async function POST(req: NextRequest) {
     const boothSnap = await db.doc(`tenants/${tenantId}/booths/${boothId}`).get();
     if (!boothSnap.exists) return NextResponse.json({ ok: false, error: 'Space not found.' }, { status: 404 });
     const booth = boothSnap.data() as any;
+    if (booth?.locationId) {
+      const locSnap = await db.doc(`tenants/${tenantId}/locations/${String(booth.locationId)}`).get();
+      if (locSnap.exists && (locSnap.data() as any)?.isActive === false) return NextResponse.json({ ok: false, error: 'That location is closed and not taking bookings.' }, { status: 409 });
+    }
     // v85 — 'partial' booths (shared leases) take guest bookings too, just
     // never inside the resident renters' scheduled windows (checked below).
     //
