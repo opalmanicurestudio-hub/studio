@@ -17,8 +17,9 @@ import { ArrowLeft, Save, Send, Loader, Eye, Mail, MessageSquare, Wand2, HandHea
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { useFirebase, addDocumentNonBlocking } from '@/firebase';
-import { collection } from 'firebase/firestore';
+import { useFirebase } from '@/firebase';
+import { doc, setDoc } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { nanoid } from 'nanoid';
@@ -257,7 +258,7 @@ export default function NewCampaignPage() {
         }
     });
     
-    const { control, handleSubmit, register, watch, setValue, formState: { errors } } = methods;
+    const { control, handleSubmit, register, watch, setValue, getValues, formState: { errors } } = methods;
     const campaignType = watch('type');
     const targetAudience = watch('targetAudience');
 
@@ -300,38 +301,67 @@ export default function NewCampaignPage() {
         }
     };
 
+    // One id for the whole life of this campaign — saved as a draft first,
+    // then the server sends it from that saved copy (never from the browser).
+    const [campaignId] = useState(() => nanoid());
+    const [sendProgress, setSendProgress] = useState('');
+    const authHeaders = async (): Promise<Record<string, string>> => {
+        const h: Record<string, string> = { 'Content-Type': 'application/json' };
+        try { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : null; if (tk) h.Authorization = `Bearer ${tk}`; } catch { /* the route answers 401 */ }
+        return h;
+    };
+    const callSend = async (mode: 'preview' | 'send' | 'test', extra: any = {}) => {
+        const res = await fetch('/api/campaigns/send', { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ tenantId: selectedTenant?.id, campaignId, mode, ...extra }) });
+        return res.json().catch(() => ({ ok: false, error: 'No response' }));
+    };
+
     const processSubmit = async (data: CampaignFormData, status: 'draft' | 'sent') => {
         if (!firestore || !selectedTenant) return;
-
-        if (status === 'draft') setIsSaving(true);
-        else setIsSending(true);
-
-        const finalCampaign = {
-            ...data,
-            id: nanoid(),
-            status,
-            sentAt: status === 'sent' ? new Date().toISOString() : undefined,
-            recipientCount: status === 'sent' ? (data.targetAudience === 'specific' ? data.targetClientIds?.length : 42) : undefined, // Simulated recipient count
-        }
-        
+        if (status === 'draft') setIsSaving(true); else setIsSending(true);
         try {
-            await addDocumentNonBlocking(collection(firestore, 'tenants', selectedTenant.id, 'campaigns'), finalCampaign);
-
-            toast({
-                title: status === 'draft' ? "Protocol Cached" : "Dispatch Initiated",
-                description: `${data.name} has been ${status === 'draft' ? 'saved as a draft' : 'successfully dispatched'}.`
-            });
-            router.push('/campaigns');
-        } catch (error) {
-            console.error("Error saving campaign: ", error);
-            toast({
-                variant: "destructive",
-                title: "Critical Error",
-                description: "There was a problem finalizing the campaign protocol."
-            });
+            // Always save first. Sending happens on the server, from the saved copy.
+            await setDoc(doc(firestore, 'tenants', selectedTenant.id, 'campaigns', campaignId),
+                { ...data, id: campaignId, status: 'draft', updatedAt: new Date().toISOString() }, { merge: true });
+            if (status === 'draft') {
+                toast({ title: 'Draft saved', description: `${data.name} is saved. Nothing has been sent.` });
+                router.push('/campaigns');
+                return;
+            }
+            // Who it will really reach — and who it won't, and why.
+            const pv = await callSend('preview');
+            if (!pv?.ok) { toast({ variant: 'destructive', title: 'Could not prepare the send', description: pv?.error || 'Try again.' }); return; }
+            const sm = pv.summary;
+            const skipped = [
+                sm.skippedNoConsent ? `${sm.skippedNoConsent} haven't said yes to marketing texts` : '',
+                sm.skippedNoContact ? `${sm.skippedNoContact} have no ${data.type === 'sms' ? 'mobile' : 'email'} on file` : '',
+                sm.skippedUnsubscribed ? `${sm.skippedUnsubscribed} unsubscribed` : '',
+            ].filter(Boolean).join('; ');
+            if (sm.willReceive === 0) {
+                toast({ variant: 'destructive', title: 'Nobody to send to', description: `${sm.matched} matched this audience${skipped ? `, but ${skipped}` : ''}. Saved as a draft.` });
+                router.push('/campaigns');
+                return;
+            }
+            const okToSend = window.confirm(`Send "${data.name}" as ${data.type === 'sms' ? 'a text' : 'an email'} to ${sm.willReceive} client${sm.willReceive === 1 ? '' : 's'}?${skipped ? `\n\nNot included: ${skipped}.` : ''}\n\nThis can't be undone.`);
+            if (!okToSend) { toast({ title: 'Not sent', description: 'Saved as a draft.' }); return; }
+            // Batches until done — each batch is recorded, so a stop half-way resumes without double-sending.
+            let totals = { sent: 0, failed: 0 };
+            for (let i = 0; i < 100; i++) {
+                const r = await callSend('send');
+                if (!r?.ok) { toast({ variant: 'destructive', title: 'Sending stopped', description: `${r?.error || 'Something went wrong'}. ${totals.sent} sent so far — open the campaign and send again to finish; nobody gets it twice.` }); break; }
+                totals = r.totals;
+                setSendProgress(`${totals.sent} of ${sm.willReceive} sent…`);
+                if (r.done) {
+                    toast({ title: 'Sent', description: `${totals.sent} delivered${totals.failed ? `, ${totals.failed} failed (see Messages log)` : ''}. Bookings in the next 14 days will show on the campaign.` });
+                    router.push('/campaigns');
+                    break;
+                }
+            }
+        } catch (error: any) {
+            console.error('Error sending campaign: ', error);
+            toast({ variant: 'destructive', title: 'Something went wrong', description: String(error?.message || 'Try again.') });
         } finally {
-            if (status === 'draft') setIsSaving(false);
-            else setIsSending(false);
+            if (status === 'draft') setIsSaving(false); else setIsSending(false);
+            setSendProgress('');
         }
     }
 
@@ -347,15 +377,15 @@ export default function NewCampaignPage() {
     
         setIsSendingTest(true);
         setIsTestSendDialogOpen(false);
-    
-        await new Promise(resolve => setTimeout(resolve, 1500));
-    
-        toast({
-            title: 'Test Dispatch "Sent"',
-            description: `A mock dispatch has been recorded for ${testEmail}.`,
-        });
-    
-        setIsSendingTest(false);
+        try {
+            // The server sends from the SAVED copy, so save what's on screen first.
+            const data = getValues() as any;
+            await setDoc(doc(firestore!, 'tenants', selectedTenant!.id, 'campaigns', campaignId), { ...data, id: campaignId, status: 'draft', updatedAt: new Date().toISOString() }, { merge: true });
+            const r = await callSend('test', { to: testEmail });
+            toast(r?.ok
+                ? { title: 'Test sent', description: `Check ${testEmail}. It's marked [TEST] and sent only to you.` }
+                : { variant: 'destructive', title: 'Test not sent', description: r?.error || 'Try again.' });
+        } finally { setIsSendingTest(false); }
     };
 
     const { ref: bodyRef, ...bodyRegister } = register('body');
@@ -376,7 +406,7 @@ export default function NewCampaignPage() {
                                 Cache Draft
                             </Button>
                             <Button type="button" onClick={handleSubmit((data) => processSubmit(data, 'sent'))} disabled={isSaving || isSending || isSendingTest} className="flex-1 md:flex-none h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20">
-                                {isSending ? <Loader className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                                {sendProgress ? <span className="mr-2">{sendProgress}</span> : null}{isSending ? <Loader className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
                                 Dispatch
                             </Button>
                         </div>
@@ -631,7 +661,7 @@ export default function NewCampaignPage() {
                             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Testing</span>
                         </div>
                         <DialogTitle className="text-2xl font-black uppercase tracking-tighter">Test Dispatch</DialogTitle>
-                        <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Authorize a mock dispatch to a verified address.</DialogDescription>
+                        <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">A real send, marked [TEST], to this address only. Use an email for email campaigns, a mobile number for texts.</DialogDescription>
                     </DialogHeader>
                     <div className="p-8 space-y-4">
                         <div className="space-y-2 text-left">
