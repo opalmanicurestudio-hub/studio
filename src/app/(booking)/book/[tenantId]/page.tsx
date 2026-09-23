@@ -476,7 +476,11 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
                 addOnIds: restDetails.addOnIds || [],
                 staffId: restDetails.staffId || 'any',
                 startTime: restDetails.startTime,
-                client: { name: formData.clientName, email: formData.clientEmail, phone: formData.clientPhone },
+                client: { name: formData.clientName, email: formData.clientEmail, phone: formData.clientPhone,
+                  // Consent was captured on the sheet and then dropped here —
+                  // the route never saw it. It now travels with the booking.
+                  smsConsent: ((restDetails as any).smsConsent ?? (formData as any).smsConsent) === true, smsConsentText: (restDetails as any).smsConsentText || null,
+                  smsMarketing: ((restDetails as any).smsMarketing ?? (formData as any).smsMarketing) === true, smsMarketingText: (restDetails as any).smsMarketingText || null },
                 notes: formData.notes,
               }),
             });
