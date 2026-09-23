@@ -63,6 +63,7 @@ const schema = z.object({
   imageUrl: z.string().optional(),
   isPrivate: z.boolean().optional(),
   membersOnly: z.boolean().optional(),
+  rebookWeeks: z.coerce.number().min(0).max(52).optional(),
   products: z.array(z.any()).optional(),
   requiredResourceIds: z.array(z.string()).optional(),
   compatibleAddOnIds: z.array(z.string()).optional(),
@@ -314,7 +315,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
     if (mode === 'edit' && service) {
       reset({
         id: service.id, name: service.name, type: service.type,
-        isAddon: service.type === 'addon', isPrivate: service.isPrivate, membersOnly: service.membersOnly === true,
+        isAddon: service.type === 'addon', isPrivate: service.isPrivate, membersOnly: service.membersOnly === true, rebookWeeks: Number(service.rebookWeeks) || 0,
         category: service.category, duration: service.duration,
         padBefore: service.padBefore || 0, padAfter: service.padAfter || 0,
         description: service.description || '', imageUrl: service.imageUrl || '',
@@ -950,6 +951,15 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 </div>
                 <Controller name="membersOnly" control={control} render={({ field }) => (
                   <Switch checked={!!field.value} onCheckedChange={field.onChange} />
+                )} />
+              </div>
+              <div className="flex items-center justify-between gap-4 p-4 rounded-2xl border-2 border-dashed">
+                <div>
+                  <p className="font-black uppercase text-sm tracking-tight">Rebook Every</p>
+                  <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Weeks until a client is due again — drives the “you're due” nudge. 0 = off</p>
+                </div>
+                <Controller name="rebookWeeks" control={control} render={({ field }) => (
+                  <Input type="number" min={0} max={52} value={field.value ?? 0} onChange={(e) => field.onChange(e.target.value)} className="h-11 w-20 rounded-xl border-2 text-center font-black" />
                 )} />
               </div>
             </section>
