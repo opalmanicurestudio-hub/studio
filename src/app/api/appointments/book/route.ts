@@ -795,6 +795,18 @@ export async function POST(req: NextRequest) {
          * open while the shop does not know they exist. This fires
          * immediately, to the owner, and is the one kind in the catalog whose
          * recipient is staff. Best-effort — the booking already succeeded. */
+        // ── RECONNECT: did a nudge bring them back? ──────────────────────
+        // A booking within 14 days of a nudge to the same client counts as a
+        // conversion — the one number that says whether nudges are worth it.
+        if (r.clientId) {
+          try {
+            const since = new Date(Date.now() - 14 * 86400000).toISOString();
+            const ns = await db.collection(`tenants/${tenantId}/reconnectNudges`).where('clientId', '==', String(r.clientId)).get();
+            const open = ns.docs.filter((d: any) => { const x = d.data() as any; return !x.converted && String(x.sentAt || '') >= since; });
+            for (const d of open) await d.ref.set({ converted: true, convertedAt: new Date().toISOString(), convertedAppointmentId: r.aptId }, { merge: true });
+          } catch { /* the tally is a bonus */ }
+        }
+
         // A RENTER's booking or request goes to the RENTER — their phone, their
         // inbox, by their own preferences. It used to go to the studio owner,
         // who can't accept a renter's request anyway.
