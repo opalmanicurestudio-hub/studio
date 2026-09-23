@@ -359,6 +359,31 @@ export async function POST(req: NextRequest) {
         }
         const h = horizonDaysFor(provider?.renterBooking || null, isMember, new Date(), tenant.timezone || 'America/New_York');
         if (h !== null) renterHorizonDays = h;
+      } else if (tenant.bookingRelease?.mode && tenant.bookingRelease.mode !== 'off' || svc?.membersOnly === true) {
+        // ── The STUDIO's own release settings + members-only services ──
+        // A member here is a client with an active studio membership
+        // (enroll-membership sets activeMembershipId + subscription.status),
+        // matched by the booking's email or phone.
+        const { horizonDaysFor } = await import('@/lib/booking-release');
+        let isMember = false;
+        const email = String(body?.client?.email || '').trim().toLowerCase();
+        const phoneDigits = String(body?.client?.phone || '').replace(/\D/g, '').slice(-10);
+        try {
+          const hits: any[] = [];
+          if (email) hits.push(...(await db.collection(`tenants/${tenantId}/clients`).where('email', '==', email).limit(5).get()).docs);
+          if (!hits.length && phoneDigits.length === 10) {
+            for (const f of [phoneDigits, `+1${phoneDigits}`, `(${phoneDigits.slice(0, 3)}) ${phoneDigits.slice(3, 6)}-${phoneDigits.slice(6)}`]) {
+              const q = await db.collection(`tenants/${tenantId}/clients`).where('phone', '==', f).limit(3).get();
+              hits.push(...q.docs); if (hits.length) break;
+            }
+          }
+          isMember = hits.some((d: any) => { const c = d.data() as any; return !c.ownerRenterId && !!c.activeMembershipId && c.subscription?.status === 'active'; });
+        } catch { /* treated as a non-member */ }
+        if (svc?.membersOnly === true && !isMember) {
+          return NextResponse.json({ ok: false, error: `${svc.name || 'That service'} is for members only. Use the email or phone on your membership, or ask us about joining.` }, { status: 403 });
+        }
+        const h = horizonDaysFor(tenant.bookingRelease || null, isMember, new Date(), tenant.timezone || 'America/New_York');
+        if (h !== null) renterHorizonDays = h;
       }
 
       const engineContext = {
