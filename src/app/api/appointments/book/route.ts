@@ -795,7 +795,24 @@ export async function POST(req: NextRequest) {
          * open while the shop does not know they exist. This fires
          * immediately, to the owner, and is the one kind in the catalog whose
          * recipient is staff. Best-effort — the booking already succeeded. */
-        if (isRequest) {
+        // A RENTER's booking or request goes to the RENTER — their phone, their
+        // inbox, by their own preferences. It used to go to the studio owner,
+        // who can't accept a renter's request anyway.
+        if (renterSvc) {
+          try {
+            const providerDoc: any = roster.find((m: any) => m.id === renterSvc.staffId);
+            if (providerDoc?.renterId) {
+              const { notifyRenter, renterPortalUrl } = await import('@/lib/renter-comms');
+              const portal = await renterPortalUrl(db, tenantId);
+              if (isRequest) {
+                await notifyRenter(db, tenantId, String(providerDoc.renterId), 'request', `${r.clientName || 'A client'} is asking for ${svcLabel} on ${whenStr}. Accept or decline in your portal.`, { tone: 'amber', subject: `Booking request — ${svcLabel}`, link: portal });
+              } else {
+                await notifyRenter(db, tenantId, String(providerDoc.renterId), 'new_booking', `New booking: ${r.clientName || 'A client'} — ${svcLabel}, ${whenStr}.${isHold ? ' Waiting on their deposit.' : ''}`, { tone: 'green', subject: `New booking — ${svcLabel}`, link: portal });
+              }
+            }
+          } catch (e) { console.error('[book] renter alert', e); }
+        }
+        if (isRequest && !renterSvc) {
           try {
             const { resolveMessage, tidyBody, internalOrigin } = await import('@/lib/message-policy');
             const { brandedEmailHtml } = await import('@/lib/email-template');
