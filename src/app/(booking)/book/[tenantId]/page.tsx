@@ -76,12 +76,35 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   // window.location for the same reason the applicants page does — useSearchParams
   // forces a Suspense boundary this page doesn't have.
   const [providerId,      setProviderId]      = useState('');
+  // ?reschedule=<appointmentId> — arrived from the "Reschedule" link in a
+  // confirmation. Loads the visit (the id is the bearer, same as /cancel),
+  // opens the booking sheet on that service with the client's details
+  // prefilled, and releases the OLD visit only after the NEW one is booked —
+  // never the other way round, so a client can't end up with nothing.
+  const [reschedule, setReschedule] = useState<{ id: string; clientName: string | null; clientEmail: string | null; clientPhone: string | null; serviceId: string | null; serviceName: string; startTime: string } | null>(null);
+  const [rescheduleNote, setRescheduleNote] = useState('');
+  const [rescheduleOpened, setRescheduleOpened] = useState(false);
+  useEffect(() => {
+    if (!reschedule || rescheduleOpened || services.length === 0) return;
+    const svc = services.find((x: any) => x.id === reschedule.serviceId) || services.find((x: any) => x.name === reschedule.serviceName);
+    if (!svc) { setRescheduleNote(`Rescheduling your ${reschedule.serviceName} — pick it from the menu below to choose a new time.`); setRescheduleOpened(true); return; }
+    setRescheduleNote(`Rescheduling your ${reschedule.serviceName} from ${new Date(reschedule.startTime).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} — pick a new time. The old time is released once the new one is booked.`);
+    setDialogService(svc); setDialogOpen(true); setRescheduleOpened(true);
+  }, [reschedule, rescheduleOpened, services]);
   const [awayProvider,    setAwayProvider]    = useState<any>(null);
   const [elsewhere,       setElsewhere]       = useState<any[]>([]);
   useEffect(() => {
     try {
       const p = new URLSearchParams(window.location.search).get('provider') || '';
       if (p) setProviderId(p);
+      const rs = new URLSearchParams(window.location.search).get('reschedule') || '';
+      if (rs) {
+        fetch(`/api/appointments/self-cancel?tenantId=${encodeURIComponent(tenantId)}&appointmentId=${encodeURIComponent(rs)}`)
+          .then((r) => r.json()).then((d) => {
+            if (d?.ok && d.appointment && d.appointment.status !== 'cancelled') setReschedule({ id: rs, ...d.appointment });
+            else setRescheduleNote('That visit can no longer be rescheduled online — just book a new time below.');
+          }).catch(() => setRescheduleNote('Could not load the visit to reschedule — book a new time below.'));
+      }
     } catch { /* no-op */ }
   }, []);
   const [events,          setEvents]          = useState<any[]>([]);
@@ -490,6 +513,14 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
                   }
                 }
 
+                // Rescheduling: the new visit is booked; now release the old one,
+                // quietly — the client already has the new confirmation.
+                if (reschedule?.id) {
+                  try {
+                    await fetch('/api/appointments/self-cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, appointmentId: reschedule.id, clientReason: 'Rescheduled online', rescheduledToId: out?.appointmentId || null }) });
+                  } catch { /* the new booking stands; the old one can still be cancelled from its own link */ }
+                  setReschedule(null);
+                }
                 setStep('confirmation');
                 return { requiresPayment: false };
               }
@@ -625,6 +656,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
            style={{ background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
         <BookingSheet
           lockedStaffId={providerId && staff.some((m: any) => m.id === providerId && m.isRenter) ? providerId : undefined}
+          prefillClient={reschedule ? { clientName: reschedule.clientName, clientEmail: reschedule.clientEmail, clientPhone: reschedule.clientPhone } : null}
           open
           onOpenChange={o => { if (!o) { setDialogOpen(false); setDialogService(null); } }}
           service={dialogService}
@@ -768,6 +800,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
 
         {providerTab === 'book' && (
           <div className={pane}>
+            {rescheduleNote && <p className="mb-4 rounded-2xl px-4 py-3 text-[13px]" style={{ background: card, color: ink, border: `1px solid ${accent}`, fontWeight: lightWeight }}>{rescheduleNote}</p>}
             {pkgThanks && <p className="mb-4 rounded-2xl px-4 py-3 text-[13px]" style={{ background: accent, color: onAcc, fontWeight: lightWeight }}>Thank you — your package is ready. Your credits come off each visit; just book as usual.</p>}
             {memberThanks && <p className="mb-4 rounded-2xl px-4 py-3 text-[13px]" style={{ background: accent, color: onAcc, fontWeight: lightWeight }}>Welcome — you&apos;re a member. Your included visits and perks apply from your next booking.</p>}
             {providerMemberships.length > 0 && (
