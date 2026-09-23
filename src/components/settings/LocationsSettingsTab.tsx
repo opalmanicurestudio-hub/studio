@@ -31,7 +31,7 @@
  * change, because it moves where two live geofences get their truth.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { useFirebase } from '@/firebase';
@@ -364,6 +364,28 @@ export function LocationsSettingsTab() {
     } else setDelError(d?.error || 'Could not delete it.');
   };
 
+  // ── Leftover duplicates from the old provisioner ──
+  const [dupes, setDupes] = useState<{ removableIds: string[]; inUseDuplicates: { id: string; name: string; refs: { label: string; count: number }[] }[]; keepId: string | null } | null>(null);
+  const [dupBusy, setDupBusy] = useState(false);
+  const [dupDone, setDupDone] = useState('');
+  const scanDupes = async () => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    try { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : null; if (tk) headers.Authorization = `Bearer ${tk}`; } catch { /* ignore */ }
+    const res = await fetch('/api/locations/delete', { method: 'POST', headers, body: JSON.stringify({ tenantId, mode: 'duplicates' }) });
+    const d = await res.json().catch(() => null);
+    if (d?.ok) setDupes({ removableIds: d.removableIds || [], inUseDuplicates: d.inUseDuplicates || [], keepId: d.keepId || null });
+  };
+  useEffect(() => { if (tenantId) void scanDupes(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tenantId, locations.length]);
+  const cleanupDupes = async () => {
+    setDupBusy(true);
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    try { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : null; if (tk) headers.Authorization = `Bearer ${tk}`; } catch { /* ignore */ }
+    const res = await fetch('/api/locations/delete', { method: 'POST', headers, body: JSON.stringify({ tenantId, mode: 'cleanup' }) });
+    const d = await res.json().catch(() => null);
+    setDupBusy(false);
+    if (d?.ok) { setDupDone(`Removed ${d.removed} unused duplicate${d.removed === 1 ? '' : 's'}.`); if (dupes?.removableIds.includes(selectedLocationId || '') && dupes.keepId) setSelectedLocationId(dupes.keepId); void scanDupes(); }
+  };
+
   const toggleActive = async (loc: Location) => {
     if (!tenantId) return;
     await updateDoc(doc(firestore, 'tenants', tenantId, 'locations', loc.id), {
@@ -386,6 +408,21 @@ export function LocationsSettingsTab() {
 
       <CardContent className="p-6 md:p-8 space-y-4 text-left">
         {isLoading && <p className="text-sm text-muted-foreground">Loading locations…</p>}
+        {dupDone && <p className="rounded-xl border-2 border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-900">{dupDone}</p>}
+        {dupes && dupes.removableIds.length > 0 && (
+          <div className="rounded-xl border-2 border-amber-200 bg-amber-50 px-4 py-3 space-y-2">
+            <p className="text-sm font-bold text-amber-900">
+              {dupes.removableIds.length} duplicate “Main Location” {dupes.removableIds.length === 1 ? 'entry was' : 'entries were'} created automatically by an older version of the app — you didn’t make {dupes.removableIds.length === 1 ? 'it' : 'them'}, and nothing uses {dupes.removableIds.length === 1 ? 'it' : 'them'}.
+            </p>
+            <Button size="sm" disabled={dupBusy} onClick={cleanupDupes}>{dupBusy ? 'Removing…' : `Remove ${dupes.removableIds.length} unused duplicate${dupes.removableIds.length === 1 ? '' : 's'}`}</Button>
+          </div>
+        )}
+        {dupes && dupes.inUseDuplicates.length > 0 && (
+          <div className="rounded-xl border-2 border-slate-200 bg-slate-50 px-4 py-3 space-y-1">
+            <p className="text-sm font-bold text-slate-800">Also auto-created, but in use — left alone:</p>
+            {dupes.inUseDuplicates.map((d) => <p key={d.id} className="text-xs text-slate-600"><span className="font-bold">{d.name}</span> · {d.refs.map((r) => `${r.count} ${r.label}`).join(', ')}. Move those to your main location, then delete it.</p>)}
+          </div>
+        )}
 
         {!isLoading && locations.length === 0 && (
           <div className="p-8 text-center space-y-3 rounded-[2rem] border-2 border-dashed border-slate-200">
