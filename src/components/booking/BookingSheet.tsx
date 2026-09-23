@@ -163,6 +163,8 @@ interface BookingSheetProps {
    * cannot change, and the header says who.
    */
   lockedStaffId?: string;
+  /** Client details to start the form with — a returning client rescheduling from their email. */
+  prefillClient?: { clientName?: string | null; clientEmail?: string | null; clientPhone?: string | null } | null;
   appointments:   Appointment[];
   /**
    * The studio's MARKETING events, rendered on the public page. This is NOT
@@ -222,7 +224,7 @@ const STEP_TITLES: Record<string, string> = {
 };
 
 export const BookingSheet: React.FC<BookingSheetProps> = ({
-  open, onOpenChange, service, staff, pricingTiers, initialStaffId, lockedStaffId,
+  open, onOpenChange, service, staff, pricingTiers, initialStaffId, lockedStaffId, prefillClient,
   appointments, events, scheduleProfiles, services, consentForms, tenant, onConfirm,
   shifts, staffBlocks, dayOffBlocks, resources, tickets, maintenancePlans, calendarEvents,
   bookingOutcome,
@@ -479,7 +481,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       else if (initialStaffId) { setSelectedStaffId(initialStaffId); setCurrentStepIndex(1); }
       else { setSelectedStaffId('any'); setCurrentStepIndex(0); }
       setSelectedTime(null); setSelectedTierId('any'); setDate(new Date());
-      methods.reset(); setFormAnswers({});
+      methods.reset(prefillClient ? { clientName: prefillClient.clientName || '', clientEmail: prefillClient.clientEmail || '', clientPhone: prefillClient.clientPhone || '' } as any : undefined); setFormAnswers({});
       setBookedStaffId(null); setInspirationPhotoUrl('');
       setDepositClientSecret(null); setDepositStripeAccountId(null);
       setDepositLoading(false); setDepositError(null);
