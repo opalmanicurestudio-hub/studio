@@ -1548,10 +1548,18 @@ export type Campaign = {
   subjectB?: string;
   body: string;
   imageUrl?: string;
-  targetAudience: 'all' | 'new' | 'loyal' | 'inactive_90' | 'specific' | 'birthday';
+  targetAudience: 'all' | 'new' | 'loyal' | 'inactive_90' | 'specific' | 'birthday'
+    | 'service' | 'provider' | 'spent_over' | 'one_and_done' | 'members' | 'cancelled_recent';
   targetClientIds?: string[];
+  targetServiceIds?: string[];
+  targetStaffIds?: string[];
+  targetMinSpend?: number;
   discountId?: string;
-  status: 'draft' | 'sending' | 'sent';
+  status: 'draft' | 'scheduled' | 'sending' | 'sent';
+  scheduledFor?: string | null;
+  convertedRevenueCents?: number;
+  convertedA?: number;
+  convertedB?: number;
   sentAt?: string;
   type: 'email' | 'sms';
   recipientCount?: number;
