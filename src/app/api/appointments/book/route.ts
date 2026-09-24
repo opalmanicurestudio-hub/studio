@@ -80,6 +80,7 @@
 // without looking at the published roster. That is the server being right and
 // the page being behind, and the fix is to pass that page the same data.
 
+import { offerProblem, walletStatus } from '@/lib/offers';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
@@ -177,7 +178,9 @@ export async function POST(req: NextRequest) {
         const code = body.promoCode.trim().toUpperCase().slice(0, 40);
         const hit = await db.collection(`tenants/${tenantId}/discounts`).where('code', '==', code).limit(1).get();
         const dz: any = hit.docs[0]?.data();
-        if (dz && dz.isActive !== false && !(Number(dz.usageLimit) > 0 && Number(dz.usageCount) >= Number(dz.usageLimit))) pendingCode = code;
+        // Same rules as checkout (dates, usage, services). "Once per client"
+        // is checked after the booking, when we know who the client is.
+        if (dz && !offerProblem(dz, { serviceIds: [String(serviceId || '')] })) pendingCode = code;
       } catch { /* no code */ }
     }
     // Independent-provider menus live in their own collection. Looked up only
@@ -818,6 +821,43 @@ export async function POST(req: NextRequest) {
          * open while the shop does not know they exist. This fires
          * immediately, to the owner, and is the one kind in the catalog whose
          * recipient is staff. Best-effort — the booking already succeeded. */
+        // ── OFFERS: a code that came with the booking, or one waiting in the
+        // client's wallet — attached so checkout applies it automatically,
+        // however they booked (link, website, phone, walk-in via this route).
+        if (r.clientId) {
+          try {
+            const aRef = db.doc(`tenants/${tenantId}/appointments/${r.aptId}`);
+            const findDiscount = async (code: string) => {
+              const h = await db.collection(`tenants/${tenantId}/discounts`).where('code', '==', code).limit(1).get();
+              return h.docs[0] ? { id: h.docs[0].id, ...(h.docs[0].data() as any) } : null;
+            };
+            if (pendingCode) {
+              const dz = await findDiscount(pendingCode);
+              if (offerProblem(dz, { clientId: String(r.clientId), serviceIds: [String(serviceId || '')] })) {
+                await aRef.set({ pendingDiscountCode: null }, { merge: true });   // e.g. already used by this client
+              }
+            } else {
+              const w = await db.collection(`tenants/${tenantId}/clientOffers`).where('clientId', '==', String(r.clientId)).get();
+              const waiting = w.docs.map((d: any) => ({ ref: d.ref, ...(d.data() as any) }))
+                .filter((x: any) => walletStatus(x) === 'available')
+                .sort((a: any, b: any) => String(b.sentAt || '').localeCompare(String(a.sentAt || '')));
+              for (const x of waiting) {
+                if (x.ownerRenterId) {
+                  // A renter's offer (their own words): shown to the renter on this visit.
+                  if (renterSvc && x.ownerRenterId === (String(renterProvider?.renterId || '') || null)) { await aRef.set({ renterOfferLine: x.line, clientOfferId: x.id }, { merge: true }); break; }
+                  continue;
+                }
+                if (renterSvc || !x.code) continue;
+                const dz = await findDiscount(String(x.code));
+                if (!offerProblem(dz, { clientId: String(r.clientId), serviceIds: [String(serviceId || '')] })) {
+                  await aRef.set({ pendingDiscountCode: String(x.code), clientOfferId: x.id }, { merge: true });
+                  break;
+                }
+              }
+            }
+          } catch { /* offers are a bonus; the booking stands */ }
+        }
+
         // ── RECONNECT: did a nudge bring them back? ──────────────────────
         // A booking within 14 days of a nudge to the same client counts as a
         // conversion — the one number that says whether nudges are worth it.
