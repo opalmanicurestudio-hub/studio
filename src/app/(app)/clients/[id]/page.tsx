@@ -81,6 +81,7 @@ import { formatPhoneNumber } from 'react-phone-number-input';
 import { nanoid } from 'nanoid';
 import { useFirebase, useDoc, useMemoFirebase, updateDocumentNonBlocking, useCollection, useUser } from '@/firebase';
 import { MessagingConsentCard } from '@/components/clients/MessagingConsentCard';
+import { PrivateImg, resolvePrivateUrl } from '@/components/shared/private-file';
 import { useInventory } from '@/context/InventoryContext';
 import { collection, doc, arrayUnion, increment, getDocs, query, where, setDoc } from 'firebase/firestore';
 import type { Client, Appointment, Service, CustomFormula, Membership, Redemption, RefreshmentRequest } from '@/lib/data';
@@ -851,10 +852,10 @@ export default function ClientDetailPage() {
                               {images.map((im: any, i: number) => (
                                 <button
                                   key={i}
-                                  onClick={() => openDocLightbox(images, i)}
+                                  onClick={async () => { const urls = await Promise.all(images.map((x: any) => resolvePrivateUrl(x.url).catch(() => x.url))); openDocLightbox(images.map((x: any, k: number) => ({ ...x, url: urls[k] })), i); }}
                                   className="group relative aspect-square rounded-xl overflow-hidden border-2 bg-muted/5 cursor-zoom-in"
                                 >
-                                  <img src={im.url} alt={im.name} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                                  <PrivateImg src={im.url} alt={im.name} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
                                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center">
                                     <Maximize2 className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                                   </div>
