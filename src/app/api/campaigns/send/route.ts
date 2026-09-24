@@ -13,7 +13,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { personalise } from '@/lib/campaigns';
-import { previewCampaign, sendCampaignBatch, senderFor } from '@/lib/campaign-engine';
+import { previewCampaign, sendCampaignBatch, senderFor, composeText, loadOffer } from '@/lib/campaign-engine';
+import { fillTokens } from '@/lib/campaign-templates';
 import { sendNotification, resolveFromAddress } from '@/lib/notify';
 import { brandedEmailHtml } from '@/lib/email-template';
 import { smsConfigured } from '@/lib/sms';
@@ -52,11 +53,14 @@ export async function POST(req: NextRequest) {
     const sandboxFrom = /resend\.dev/i.test(from);
     const studio = (await senderFor(db, tenantId, c, req.nextUrl.origin)).name;
     const sample = { id: 'test', name: 'Test Client', first: 'Jane', email: to, phone: to };
-    const text = personalise(c.body, sample);
+    const who = await senderFor(db, tenantId, c, req.nextUrl.origin);
+    const off = await loadOffer(db, tenantId, c);
+    const text = composeText(c, sample, studio, off?.line || null, who.bookBase);
     const r: any = isSms
       ? await sendNotification(db, { tenantId, channel: 'sms', to, text: `[TEST] ${studio}: ${text}\nReply STOP to opt out.`, kind: 'campaign_test', recipientType: 'staff' } as any)
-      : await sendNotification(db, { tenantId, channel: 'email', to, subject: `[TEST] ${personalise(c.subject || c.name || 'Campaign', sample)}`,
-          html: brandedEmailHtml({ studioName: studio, title: personalise(c.subject || c.name || 'Campaign', sample), bodyLines: text.split(/\n+/).filter(Boolean), footerNote: 'Test send — only you received this.' }), kind: 'campaign_test', recipientType: 'staff' } as any);
+      : await sendNotification(db, { tenantId, channel: 'email', to, subject: `[TEST] ${fillTokens(c.subject || c.name || 'Campaign', { first: sample.first, business: studio, offer: off?.line || null, link: null })}`,
+          html: brandedEmailHtml({ studioName: studio, title: fillTokens(c.subject || c.name || 'Campaign', { first: sample.first, business: studio, offer: off?.line || null, link: null }), bodyLines: text.split(/\n+/).filter(Boolean),
+            ...(off?.code ? { bigCode: off.code } : {}), cta: { label: 'Book now', url: who.bookBase }, footerNote: 'Test send — only you received this.' } as any), kind: 'campaign_test', recipientType: 'staff' } as any);
     const err = String(r.error || '');
     let why: string | null = null;
     if (!r.ok) {
@@ -110,7 +114,8 @@ export async function POST(req: NextRequest) {
 
   if (mode === 'preview') {
     return NextResponse.json({ ok: true, summary: pv.summary, sample: pv.aud.members.slice(0, 8).map((m) => m.first), offer: pv.offer?.line || null, abTest: !!c.subjectB, segments: pv.segments,
-      estCostCents: c.type === 'sms' ? Math.round(pv.segments * pv.summary.willReceive * costPerSegment) : 0 });
+      estCostCents: c.type === 'sms' ? Math.round(pv.segments * pv.summary.willReceive * costPerSegment) : 0,
+      sampleText: pv.sampleText, sampleSubject: pv.sampleSubject, senderName: pv.who.name });
   }
 
   const r = await sendCampaignBatch(db, tenantId, campaignId, { actorName: auth.actor.name || auth.actor.uid, fallbackOrigin: req.nextUrl.origin });
