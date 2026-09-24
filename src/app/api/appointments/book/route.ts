@@ -170,6 +170,16 @@ export async function POST(req: NextRequest) {
     const tenant = ((tenantSnap.data() as any) || {}) as any;
 
     let svc = services.find((s: any) => s.id === serviceId);
+    // A campaign offer code, if the client came from one — verified here.
+    let pendingCode: string | null = null;
+    if (typeof body.promoCode === 'string' && body.promoCode.trim()) {
+      try {
+        const code = body.promoCode.trim().toUpperCase().slice(0, 40);
+        const hit = await db.collection(`tenants/${tenantId}/discounts`).where('code', '==', code).limit(1).get();
+        const dz: any = hit.docs[0]?.data();
+        if (dz && dz.isActive !== false && !(Number(dz.usageLimit) > 0 && Number(dz.usageCount) >= Number(dz.usageLimit))) pendingCode = code;
+      } catch { /* no code */ }
+    }
     // Independent-provider menus live in their own collection. Looked up only
     // on a miss, so the house path costs nothing. The flag rides onto the
     // appointment below, which is what keeps their sale out of YOUR books.
@@ -551,6 +561,10 @@ export async function POST(req: NextRequest) {
       let plan = resolveBookingPlan({
         tenant, service: svc,
         price: Number(body.price ?? svc.price ?? 0),
+        // From a campaign's Book button. The code is only stored if it names
+        // a real, active discount; checkout applies it automatically.
+        ...(typeof body.campaignId === 'string' && body.campaignId ? { campaignId: String(body.campaignId).slice(0, 64) } : {}),
+        ...(pendingCode ? { pendingDiscountCode: pendingCode } : {}),
         client: clientRecord,
         byStaff: staffSide,
       });
@@ -820,7 +834,14 @@ export async function POST(req: NextRequest) {
               if (x.converted || String(x.at || '') < since) continue;
               await d.ref.set({ converted: true, convertedAt: new Date().toISOString(), convertedAppointmentId: r.aptId }, { merge: true });
               await db.doc(`tenants/${tenantId}/campaigns/${x.campaignId}/recipients/${r.clientId}`).set({ converted: true, convertedAppointmentId: r.aptId }, { merge: true });
-              await db.doc(`tenants/${tenantId}/campaigns/${x.campaignId}`).set({ convertedCount: (await import('firebase-admin/firestore')).FieldValue.increment(1) }, { merge: true });
+              // Count it, add the booking's value, and credit the subject line
+              // (A or B) that brought them — the campaign's real results.
+              const FV = (await import('firebase-admin/firestore')).FieldValue;
+              const valueCents = Math.round((Number(svc?.price) || 0) * 100);
+              await db.doc(`tenants/${tenantId}/campaigns/${x.campaignId}`).set({
+                convertedCount: FV.increment(1), convertedRevenueCents: FV.increment(valueCents),
+                ...(x.variant === 'A' ? { convertedA: FV.increment(1) } : x.variant === 'B' ? { convertedB: FV.increment(1) } : {}),
+              }, { merge: true });
             }
           } catch { /* the tally is a bonus */ }
         }
