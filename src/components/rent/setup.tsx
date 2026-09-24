@@ -1,4 +1,5 @@
 'use client';
+import { CAMPAIGN_TEMPLATES, TOKENS, fillTokens } from '@/lib/campaign-templates';
 import { downscaleImageToDataUrl } from '@/lib/client-image';
 import { getApps, initializeApp } from 'firebase/app';
 import { getStorage, ref as storageRef } from 'firebase/storage';
@@ -989,6 +990,7 @@ export function MyReconnect({ tenantId, token }: { tenantId: string; token: stri
 // Same engine and rules as the business's campaigns. The price of any texts
 // is shown before sending; emails are free.
 export function MyCampaigns({ data, tenantId, token }: { data: any; tenantId: string; token: string }) {
+  // Same template library and tokens as the business's campaign editor.
   const [st, setSt] = useState<any | null>(null);
   const [draft, setDraft] = useState<any | null>(null);
   const [quote, setQuote] = useState<any | null>(null);
@@ -1036,7 +1038,21 @@ export function MyCampaigns({ data, tenantId, token }: { data: any; tenantId: st
       <p className="text-[10px] font-bold text-slate-500">An email or text to your own clients, in your name. Emails are free. {allowance} Texts only go to clients who said yes to offers by text, 9am–8pm, up to 4 a month each.</p>
       {!st.cardOnFile && <p className="rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-900">No card on file — paid texts can’t be sent. Save one under Rent, or send emails.</p>}
       {msg && <p className="rounded-xl border-2 border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-bold text-emerald-900">{msg}</p>}
-      {!draft && <button type="button" onClick={() => { setMsg(''); setDraft({ name: '', type: 'email', subject: '', body: 'Hi {first}, ', targetAudience: 'inactive_90', targetServiceIds: [], targetMinSpend: 0 }); }} className="h-10 w-full rounded-xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white">New campaign</button>}
+      {!draft && (
+        <div className="space-y-1.5">
+          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Start from a template</p>
+          <div className="grid grid-cols-1 gap-1.5">
+            {CAMPAIGN_TEMPLATES.filter((t) => t.renterOk && !t.automation && AUD.some(([k]) => k === t.audience)).map((t) => (
+              <button key={t.id} type="button" onClick={() => { setMsg(''); setQuote(null); setDraft({ name: t.title, type: t.channel, subject: t.subject, body: t.body, targetAudience: t.audience, targetServiceIds: [], targetMinSpend: 0, offerText: '', templateId: t.id }); }}
+                className="rounded-xl border-2 border-slate-200 bg-white px-3 py-2 text-left hover:border-slate-900">
+                <span className="block text-[11px] font-black text-slate-900">{t.title} <span className="font-bold text-slate-400">· {t.channel === 'sms' ? 'text' : 'email'}</span></span>
+                <span className="block text-[10px] font-bold text-slate-500">{t.blurb}</span>
+              </button>
+            ))}
+            <button type="button" onClick={() => { setMsg(''); setQuote(null); setDraft({ name: '', type: 'email', subject: '', body: 'Hi {first}, ', targetAudience: 'inactive_90', targetServiceIds: [], targetMinSpend: 0, offerText: '', templateId: '' }); }} className="rounded-xl border-2 border-dashed border-slate-300 px-3 py-2 text-left text-[11px] font-black text-slate-700">Blank message</button>
+          </div>
+        </div>
+      )}
       {draft && (
         <div className="rounded-2xl border-2 border-slate-900 p-3 space-y-2">
           <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value.slice(0, 80) })} placeholder="Name (only you see it)" aria-label="Name" className="h-10 w-full rounded-xl border-2 border-slate-200 px-3 text-sm font-bold" />
@@ -1051,7 +1067,15 @@ export function MyCampaigns({ data, tenantId, token }: { data: any; tenantId: st
           )}
           {draft.targetAudience === 'spent_over' && <input type="number" min={1} value={draft.targetMinSpend || ''} onChange={(e) => setDraft({ ...draft, targetMinSpend: e.target.value })} placeholder="$ spent in 12 months" className="h-10 w-full rounded-xl border-2 border-slate-200 px-3 text-sm font-bold" />}
           {draft.type === 'email' && <input value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value.slice(0, 140) })} placeholder="Subject" aria-label="Subject" className="h-10 w-full rounded-xl border-2 border-slate-200 px-3 text-sm font-bold" />}
-          <textarea value={draft.body} onChange={(e) => { setDraft({ ...draft, body: e.target.value.slice(0, 1200) }); setQuote(null); }} rows={4} placeholder="Your message — {first} becomes their first name" aria-label="Message" className="w-full rounded-xl border-2 border-slate-200 px-3 py-2 text-[12px]" />
+          <div className="flex flex-wrap gap-1">{TOKENS.map((t) => <button key={t.token} type="button" onClick={() => { setDraft({ ...draft, body: `${draft.body || ''}${draft.body && !/\s$/.test(draft.body) ? ' ' : ''}${t.token}` }); setQuote(null); }} className="rounded-full border-2 border-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-600">+ {t.label}</button>)}</div>
+          <textarea value={draft.body} onChange={(e) => { setDraft({ ...draft, body: e.target.value.slice(0, 1200) }); setQuote(null); }} rows={5} placeholder="Your message — {first} becomes their first name" aria-label="Message" className="w-full rounded-xl border-2 border-slate-200 px-3 py-2 text-[12px]" />
+          {/\[[^\]]+\]/.test(draft.body || '') && <p className="text-[10px] font-bold text-amber-700">Replace the part in [square brackets] with your own words.</p>}
+          <input value={draft.offerText || ''} onChange={(e) => { setDraft({ ...draft, offerText: e.target.value.slice(0, 140) }); setQuote(null); }} placeholder="Offer (optional) — e.g. 15% off your next visit this month" aria-label="Offer" className="h-10 w-full rounded-xl border-2 border-slate-200 px-3 text-sm font-bold" />
+          <p className="text-[9px] font-bold text-slate-400">The offer goes where “The offer” sits in your message (or at the end). You honor it at checkout.</p>
+          <div className="rounded-xl bg-slate-50 p-2">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">Preview</p>
+            <p className="text-[11px] whitespace-pre-wrap text-slate-700">{fillTokens(draft.body || '', { first: 'Alexandra', business: data?.renter?.businessName || `${data?.renter?.firstName || ''} ${data?.renter?.lastName || ''}`.trim() || 'You', offer: draft.offerText || null, link: 'your booking link' })}{draft.offerText && !(draft.body || '').includes('{offer}') ? ` ${draft.offerText}.` : ''}</p>
+          </div>
           {draft.type === 'sms' && <p className="text-[9px] font-bold text-slate-400">{(draft.body || '').length} characters · your name and “Reply STOP to opt out” are added · about 150 characters per text</p>}
           {quote && (
             <div className="rounded-xl bg-slate-50 p-2 text-[11px] font-bold text-slate-700 space-y-0.5">
