@@ -10,7 +10,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
-import { sendCampaignBatch } from '@/lib/campaign-engine';
+import { sendCampaignBatch, runAutomation } from '@/lib/campaign-engine';
+import { localHour } from '@/lib/campaigns';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -24,6 +25,18 @@ export async function GET(req: NextRequest) {
   const results: any[] = [];
   const tenants = await db.collection('tenants').get();
   for (const t of tenants.docs) {
+    // Automations: once a day, at 10am in the business's own time zone.
+    try {
+      const tz = String((t.data() as any)?.timezone || 'America/New_York');
+      if (localHour(tz) === 10) {
+        const autos = (await db.collection(`tenants/${t.id}/campaigns`).where('status', '==', 'automation').get()).docs;
+        for (const a of autos) {
+          if (Date.now() - started >= 50000) break;
+          const r = await runAutomation(db, t.id, a.id);
+          results.push({ tenantId: t.id, campaignId: a.id, automation: true, ...r });
+        }
+      }
+    } catch (e: any) { results.push({ tenantId: t.id, automationError: String(e?.message || e).slice(0, 120) }); }
     let due: any[] = [];
     try {
       due = (await db.collection(`tenants/${t.id}/campaigns`).where('status', 'in', ['scheduled', 'sending']).get()).docs
@@ -33,7 +46,9 @@ export async function GET(req: NextRequest) {
     for (const c of due) {
       let last: any = null;
       while (Date.now() - started < 50000) {
-        last = await sendCampaignBatch(db, t.id, c.id, { actorName: 'Scheduler' });
+        // A renter's scheduled campaign stays within what was paid for / allowed
+        // when it was scheduled (reserved in segmentsBudget).
+        last = await sendCampaignBatch(db, t.id, c.id, { actorName: 'Scheduler', ...(c.ownerRenterId && Number.isFinite(Number(c.segmentsBudget)) ? { maxSegments: Math.max(0, Number(c.segmentsBudget) - (Number(c.segmentsUsed) || 0)) } : {}) });
         if (!last.ok || last.done) break;
       }
       results.push({ tenantId: t.id, campaignId: c.id, ok: last?.ok, done: last?.done ?? false, note: last?.error || null });
