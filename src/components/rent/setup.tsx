@@ -985,6 +985,104 @@ export function MyReconnect({ tenantId, token }: { tenantId: string; token: stri
   );
 }
 
+// ─── My Campaigns: an email or text to their own clients ─────────────────────
+// Same engine and rules as the business's campaigns. The price of any texts
+// is shown before sending; emails are free.
+export function MyCampaigns({ data, tenantId, token }: { data: any; tenantId: string; token: string }) {
+  const [st, setSt] = useState<any | null>(null);
+  const [draft, setDraft] = useState<any | null>(null);
+  const [quote, setQuote] = useState<any | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+  const services: any[] = data?.myServices || [];
+  const load = useCallback(async () => { const d = await api({ action: 'rc-list', tenantId, token }); if (d?.ok) setSt(d); }, [tenantId, token]);
+  useEffect(() => { void load(); }, [load]);
+  if (!st) return <p className="py-2 text-center text-[11px] font-bold text-slate-400">Loading…</p>;
+  if (st.policy.mode === 'off') return <p className="text-[11px] font-bold text-slate-500">{st.policy.tenantName} hasn’t turned on campaigns for renters yet. Reconnect (above) still nudges quiet clients for you.</p>;
+  const AUD: [string, string][] = [['all', 'All my clients'], ['inactive_90', 'Not in for 90+ days'], ['one_and_done', 'Came once, never returned'], ['new', 'First visit in the last 30 days'], ['loyal', '5+ visits this year'], ['birthday', 'Birthday this month'], ['service', 'Last had a service…'], ['spent_over', 'Spent over $…'], ['cancelled_recent', 'Cancelled or missed lately']];
+  const save = async () => {
+    setBusy(true); setErr(''); setQuote(null);
+    const d = await api({ action: 'rc-save', tenantId, token, campaignId: draft.id || undefined, ...draft });
+    setBusy(false);
+    if (!d?.ok) { setErr(d?.error || 'Could not save.'); return null; }
+    setDraft({ ...draft, id: d.id }); void load(); return d.id as string;
+  };
+  const getQuote = async () => {
+    const id = await save(); if (!id) return;
+    setBusy(true);
+    const d = await api({ action: 'rc-preview', tenantId, token, campaignId: id });
+    setBusy(false);
+    if (d?.ok) setQuote(d.quote); else setErr(d?.error || 'Could not prepare it.');
+  };
+  const send = async () => {
+    if (!draft?.id || !quote) return;
+    setBusy(true); setErr(''); setMsg('');
+    let first = true; let last: any = null;
+    for (let i = 0; i < 20; i++) {
+      last = await api({ action: 'rc-send', tenantId, token, campaignId: draft.id, confirmChargeCents: first ? quote.chargeCents : 0 });
+      first = false;
+      if (!last?.ok || last.done || !(last.batch?.sent || last.batch?.failed)) break;
+      setMsg(`${last.totals?.sent || 0} sent…`);
+    }
+    setBusy(false);
+    if (!last?.ok) { setErr(last?.error || 'Sending stopped.'); if (last?.quote) setQuote(last.quote); return; }
+    setMsg(last.done ? `Sent to ${last.totals?.sent || 0}.${quote.chargeCents ? ` $${(quote.chargeCents / 100).toFixed(2)} charged to your card.` : ''} Bookings in the next 14 days show here.` : `${last.totals?.sent || 0} sent — open it again to finish.`);
+    setDraft(null); setQuote(null); void load();
+  };
+  const allowance = st.policy.mode === 'business_covers' ? `${Math.max(0, st.policy.monthlyTexts - st.usedTexts)} of ${st.policy.monthlyTexts} free texts left this month, then ${st.policy.priceCents}¢ each.` : `Texts are ${st.policy.priceCents}¢ each, charged to your card on file.`;
+  return (
+    <div className="space-y-3">
+      <p className="text-[10px] font-bold text-slate-500">An email or text to your own clients, in your name. Emails are free. {allowance} Texts only go to clients who said yes to offers by text, 9am–8pm, up to 4 a month each.</p>
+      {!st.cardOnFile && <p className="rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-900">No card on file — paid texts can’t be sent. Save one under Rent, or send emails.</p>}
+      {msg && <p className="rounded-xl border-2 border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-bold text-emerald-900">{msg}</p>}
+      {!draft && <button type="button" onClick={() => { setMsg(''); setDraft({ name: '', type: 'email', subject: '', body: 'Hi {first}, ', targetAudience: 'inactive_90', targetServiceIds: [], targetMinSpend: 0 }); }} className="h-10 w-full rounded-xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white">New campaign</button>}
+      {draft && (
+        <div className="rounded-2xl border-2 border-slate-900 p-3 space-y-2">
+          <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value.slice(0, 80) })} placeholder="Name (only you see it)" aria-label="Name" className="h-10 w-full rounded-xl border-2 border-slate-200 px-3 text-sm font-bold" />
+          <div className="grid grid-cols-2 gap-1.5">
+            {(['email', 'sms'] as const).map((t) => <button key={t} type="button" aria-pressed={draft.type === t} onClick={() => { setDraft({ ...draft, type: t }); setQuote(null); }} className={cn('h-9 rounded-lg border-2 text-[10px] font-black uppercase tracking-widest', draft.type === t ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-500')}>{t === 'email' ? 'Email · free' : 'Text'}</button>)}
+          </div>
+          <select value={draft.targetAudience} onChange={(e) => { setDraft({ ...draft, targetAudience: e.target.value }); setQuote(null); }} aria-label="Who" className="h-10 w-full rounded-xl border-2 border-slate-200 bg-white px-3 text-sm font-bold">
+            {AUD.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+          {draft.targetAudience === 'service' && (
+            <div className="flex flex-wrap gap-1.5">{services.map((sv: any) => { const on = (draft.targetServiceIds || []).includes(sv.id); return <button key={sv.id} type="button" onClick={() => setDraft({ ...draft, targetServiceIds: on ? draft.targetServiceIds.filter((x: string) => x !== sv.id) : [...(draft.targetServiceIds || []), sv.id] })} className={cn('h-8 rounded-lg border-2 px-2 text-[10px] font-bold', on ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>{sv.name}</button>; })}</div>
+          )}
+          {draft.targetAudience === 'spent_over' && <input type="number" min={1} value={draft.targetMinSpend || ''} onChange={(e) => setDraft({ ...draft, targetMinSpend: e.target.value })} placeholder="$ spent in 12 months" className="h-10 w-full rounded-xl border-2 border-slate-200 px-3 text-sm font-bold" />}
+          {draft.type === 'email' && <input value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value.slice(0, 140) })} placeholder="Subject" aria-label="Subject" className="h-10 w-full rounded-xl border-2 border-slate-200 px-3 text-sm font-bold" />}
+          <textarea value={draft.body} onChange={(e) => { setDraft({ ...draft, body: e.target.value.slice(0, 1200) }); setQuote(null); }} rows={4} placeholder="Your message — {first} becomes their first name" aria-label="Message" className="w-full rounded-xl border-2 border-slate-200 px-3 py-2 text-[12px]" />
+          {draft.type === 'sms' && <p className="text-[9px] font-bold text-slate-400">{(draft.body || '').length} characters · your name and “Reply STOP to opt out” are added · about 150 characters per text</p>}
+          {quote && (
+            <div className="rounded-xl bg-slate-50 p-2 text-[11px] font-bold text-slate-700 space-y-0.5">
+              <p>Reaches <span className="font-black">{quote.summary.willReceive}</span> client{quote.summary.willReceive === 1 ? '' : 's'}{quote.summary.skippedNoConsent ? ` · ${quote.summary.skippedNoConsent} haven’t said yes to texts` : ''}{quote.summary.skippedMonthlyCap ? ` · ${quote.summary.skippedMonthlyCap} already had 4 this month` : ''}{quote.summary.skippedNoContact ? ` · ${quote.summary.skippedNoContact} no ${draft.type === 'sms' ? 'mobile' : 'email'}` : ''}.</p>
+              {draft.type === 'sms' && <p>{quote.neededSegments} text{quote.neededSegments === 1 ? '' : 's'} ({quote.segmentsEach} each) · {quote.freeSegments} free · <span className="font-black">{quote.chargeCents ? `$${(quote.chargeCents / 100).toFixed(2)} to your card` : 'nothing to pay'}</span></p>}
+            </div>
+          )}
+          {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+          <div className="flex gap-2">
+            {!quote
+              ? <button type="button" disabled={busy} onClick={getQuote} className="h-10 flex-1 rounded-xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? '…' : 'Check who it reaches'}</button>
+              : <button type="button" disabled={busy || quote.summary.willReceive === 0 || (quote.chargeCents > 0 && !quote.cardOnFile)} onClick={send} className="h-10 flex-1 rounded-xl bg-emerald-700 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Sending…' : quote.chargeCents ? `Send · pay $${(quote.chargeCents / 100).toFixed(2)}` : 'Send'}</button>}
+            <button type="button" onClick={() => { setDraft(null); setQuote(null); setErr(''); }} className="h-10 rounded-xl border-2 border-slate-200 px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Close</button>
+          </div>
+        </div>
+      )}
+      {st.campaigns.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Your campaigns</p>
+          {st.campaigns.map((c: any) => (
+            <div key={c.id} className="flex items-center justify-between gap-2 text-[11px] font-bold text-slate-600">
+              <span className="min-w-0 truncate"><span className="font-black text-slate-900">{c.name}</span> · {c.type === 'sms' ? 'text' : 'email'} · {c.status === 'draft' ? 'draft' : `${c.recipientCount} sent · ${c.convertedCount} booked · $${((c.convertedRevenueCents || 0) / 100).toFixed(0)}`}{c.chargedCents ? ` · paid $${(c.chargedCents / 100).toFixed(2)}` : ''}</span>
+              {c.status === 'draft' && <button type="button" onClick={() => { setMsg(''); setQuote(null); setDraft({ ...c }); }} className="shrink-0 text-[9px] font-black uppercase tracking-widest underline">Open</button>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── My Books: the month, in and out ─────────────────────────────────────────
 export function MyBooks({ tenantId, token }: { tenantId: string; token: string }) {
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
