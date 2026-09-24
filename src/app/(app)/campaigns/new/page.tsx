@@ -1,837 +1,509 @@
 'use client';
+// src/app/(app)/campaigns/new/page.tsx
+//
+// THE CAMPAIGN EDITOR — a guided flow anyone can follow:
+//
+//   1 Start    pick a template (or a blank message)
+//   2 Who      who it goes to, in plain words
+//   3 Message  email or text, with a live preview
+//   4 Offer    optional — one of your discounts; its code goes in the
+//              message and is applied at checkout automatically when the
+//              client books from it
+//   5 When     send now, schedule, or repeat automatically
+//   6 Review   everything in one place: the real message, how many it
+//              reaches (and who's left out and why), the cost of texts,
+//              a test send — and one button that does exactly what it says
+//
+// The draft saves itself between steps. Nothing is sent until the last step.
+// Saves strip empty values first: the old editor wrote `undefined` fields
+// (e.g. no offer picked), which the database rejects — that was the
+// "setDoc() called with invalid data" error.
 
-import React, { useState, useEffect, useRef, Suspense } from 'react';
-import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
+import React, { useEffect, useMemo, useRef, useState, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { doc, setDoc, getDoc, collection } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
+import { nanoid } from 'nanoid';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { ImageUpload } from '@/components/shared/ImageUpload';
-import { ArrowLeft, Save, Send, Loader, Eye, Mail, MessageSquare, Wand2, HandHeart, Sparkles, PartyPopper, Search, User as UserIcon, FlaskConical, Gift, ChevronDown, Activity, ListChecks, ShieldCheck, Zap, ArrowRight, X, Tag } from 'lucide-react';
-import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { useFirebase } from '@/firebase';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
-import { nanoid } from 'nanoid';
-import { type Campaign, type Client, type Service } from '@/lib/data';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Separator } from '@/components/ui/separator';
-import { motion, AnimatePresence } from 'framer-motion';
+import { CAMPAIGN_TEMPLATES, TOKENS, fillTokens, type CampaignTemplate } from '@/lib/campaign-templates';
 import { cn } from '@/lib/utils';
+import { ArrowLeft, ArrowRight, Check, Loader, Mail, MessageSquare, Send, Sparkles, Tag, Clock, Repeat, Users, Search } from 'lucide-react';
 
-const campaignSchema = z.object({
-  name: z.string().min(3, "Campaign name must be at least 3 characters."),
-  type: z.enum(['email', 'sms']),
-  subject: z.string().optional(),
-  subjectB: z.string().optional(),
-  body: z.string().min(10, "Message body is too short."),
-  targetAudience: z.enum(['all', 'new', 'loyal', 'inactive_90', 'specific', 'birthday', 'service', 'provider', 'spent_over', 'one_and_done', 'members', 'cancelled_recent']),
-  targetClientIds: z.array(z.string()).optional(),
-  targetServiceIds: z.array(z.string()).optional(),
-  targetStaffIds: z.array(z.string()).optional(),
-  targetMinSpend: z.coerce.number().optional(),
-  discountId: z.string().optional(),
-  imageUrl: z.string().optional(),
-}).refine(data => data.type !== 'email' || (data.subject && data.subject.length > 0), {
-    message: "Subject is required for email campaigns.",
-    path: ["subject"],
-});
-
-type CampaignFormData = z.infer<typeof campaignSchema>;
-
-const premadeCampaigns = [
-  {
-    name: "Welcome New Client",
-    icon: HandHeart,
-    targetAudience: 'new',
-    type: 'email',
-    subject: "Welcome to the family! A special gift inside 💖",
-    body: "Hi {{clientName}},\n\nIt was such a pleasure meeting you at the studio! We're so glad you chose us for your service.\n\nTo say thank you, we've added a special welcome gift to your profile: 15% OFF your next visit. Whether you're coming back for a fresh look or just a touch-up, we can't wait to see you again.\n\nWarmly,\nThe Team",
-  },
-  {
-    name: "Re-engage Inactive Client",
-    icon: Sparkles,
-    targetAudience: 'inactive_90',
-    type: 'sms',
-    subject: "",
-    body: "Hi {{clientName}}, we miss you! It's been a while since your last visit. Come back this week and enjoy $10 off your next service as a 'welcome back' gift. Book your spot here: [Link]",
-  },
-  {
-    name: "Birthday Special",
-    icon: PartyPopper,
-    targetAudience: 'birthday',
-    type: 'email',
-    subject: "Happy Birthday! Time for a celebratory treat 🎂",
-    body: "Hi {{clientName}},\n\nWishing you a fantastic birthday! We believe you deserve to be pampered on your special day.\n\nAs a birthday gift from us, please enjoy 20% OFF any service this month. Treat yourself to that look you've been eyeing—you've earned it!\n\nWarmly,\nThe Team",
-  },
-    {
-    name: "Promote New Service",
-    icon: Wand2,
-    targetAudience: 'all',
-    type: 'email',
-    subject: "✨ BIG NEWS: Our newest treatment is here! ✨",
-    body: "Hi {{clientName}},\n\nWe've been working on something special, and it's finally here! We are excited to introduce our new [Service Name] to the menu.\n\nThis treatment is perfect for achieving that healthy, radiant glow we know you love. Be among the first to experience it and get 10% off when you book in the next 7 days.\n\nSee you in the chair,\nThe Team",
-  },
+type Step = 'start' | 'who' | 'message' | 'offer' | 'when' | 'review';
+const STEPS: { id: Step; label: string }[] = [
+  { id: 'start', label: 'Start' }, { id: 'who', label: 'Who' }, { id: 'message', label: 'Message' },
+  { id: 'offer', label: 'Offer' }, { id: 'when', label: 'When' }, { id: 'review', label: 'Review' },
 ];
 
-const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number | string }) => (
-    <div className="flex items-center gap-4 mb-6">
-        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20">
-            <Icon className="w-5 h-5" />
-        </div>
-        <div className="space-y-0.5">
-            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
-            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
-        </div>
-    </div>
+// Who it can go to — plain words, any kind of business.
+const AUDIENCES: { id: string; label: string; hint: string; group: 'everyone' | 'visits' | 'pick' }[] = [
+  { id: 'all', label: 'Everyone', hint: 'All your clients', group: 'everyone' },
+  { id: 'new', label: 'New clients', hint: 'First visit in the last 30 days', group: 'visits' },
+  { id: 'loyal', label: 'Regulars', hint: '5 or more visits in the last 12 months', group: 'visits' },
+  { id: 'inactive_90', label: 'Haven’t been in a while', hint: 'No visit in 90+ days, nothing booked', group: 'visits' },
+  { id: 'one_and_done', label: 'Came once', hint: 'One visit, 30+ days ago, never returned', group: 'visits' },
+  { id: 'cancelled_recent', label: 'Cancelled or missed', hint: 'In the last 30 days, nothing booked since', group: 'visits' },
+  { id: 'birthday', label: 'Birthdays this month', hint: 'Clients with a birthday this month', group: 'visits' },
+  { id: 'members', label: 'Members', hint: 'Clients with an active membership', group: 'visits' },
+  { id: 'service', label: 'Had a certain service', hint: 'Their last visit included it', group: 'pick' },
+  { id: 'provider', label: 'Saw a certain team member', hint: 'Their last visit was with them', group: 'pick' },
+  { id: 'spent_over', label: 'Top spenders', hint: 'Spent over an amount in 12 months', group: 'pick' },
+  { id: 'specific', label: 'Hand-picked clients', hint: 'Choose them one by one', group: 'pick' },
+];
+
+type Draft = {
+  name: string; type: 'email' | 'sms'; subject: string; subjectB: string; body: string; imageUrl: string;
+  targetAudience: string; targetClientIds: string[]; targetServiceIds: string[]; targetStaffIds: string[]; targetMinSpend: number;
+  discountId: string; templateId: string;
+};
+const EMPTY: Draft = { name: '', type: 'email', subject: '', subjectB: '', body: '', imageUrl: '', targetAudience: 'all', targetClientIds: [], targetServiceIds: [], targetStaffIds: [], targetMinSpend: 0, discountId: '', templateId: '' };
+
+// The database rejects `undefined`; empty strings/arrays are fine. Strip the rest.
+const clean = (o: any) => JSON.parse(JSON.stringify(o, (_k, v) => (v === undefined ? null : v)));
+
+const segmentsOf = (t: string) => { const gsm = /^[\n\r\x20-\x7E]*$/.test(t); const per = gsm ? (t.length <= 160 ? 160 : 153) : (t.length <= 70 ? 70 : 67); return Math.max(1, Math.ceil(t.length / per)); };
+
+// Layout pieces live OUTSIDE the editor: defined inside, they'd be new
+// components on every keystroke and inputs would lose focus.
+const Card = ({ children, className }: any) => <div className={cn('rounded-3xl border-2 border-slate-200 bg-white p-5 space-y-4', className)}>{children}</div>;
+const H = ({ children, sub }: any) => <div><h2 className="text-lg font-black tracking-tight text-slate-900">{children}</h2>{sub && <p className="text-sm text-slate-500 mt-0.5">{sub}</p>}</div>;
+const Choice = ({ on, onClick, title, hint, icon: Icon }: any) => (
+  <button type="button" onClick={onClick} aria-pressed={on} className={cn('w-full rounded-2xl border-2 p-3.5 text-left transition-colors', on ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white hover:border-slate-400')}>
+    <span className="flex items-center gap-2 text-sm font-black">{Icon && <Icon className="h-4 w-4 shrink-0" />}{title}{on && <Check className="ml-auto h-4 w-4" />}</span>
+    {hint && <span className={cn('block text-xs mt-0.5', on ? 'text-white/70' : 'text-slate-500')}>{hint}</span>}
+  </button>
 );
 
-const CampaignPreviewDialog = ({
-  previewData,
-  onOpenChange,
-}: {
-  previewData: CampaignFormData | null;
-  onOpenChange: (open: boolean) => void;
-}) => {
-  if (!previewData) return null;
+function Editor() {
+  const { firestore, user } = useFirebase();
+  const { selectedTenant } = useTenant();
+  const { discounts, clients, services, staff } = useInventory() as any;
+  const router = useRouter();
+  const { toast } = useToast();
+  const search = useSearchParams();
+  const editId = search?.get('id') || '';
+  const [campaignId] = useState(() => editId || nanoid());
+  const tenantId = selectedTenant?.id || '';
+  const business = String(selectedTenant?.name || 'your business');
 
-  const sampleClientName = 'Alexander Smith';
-  const bodyWithPlaceholders = previewData.body.replace(/{{clientName}}/g, sampleClientName);
+  const [step, setStep] = useState<Step>(editId ? 'review' : 'start');
+  const [d, setD] = useState<Draft>(EMPTY);
+  const [status, setStatus] = useState<string>('new');
+  const [automation, setAutomation] = useState<any>(null);
+  const [whenMode, setWhenMode] = useState<'now' | 'schedule' | 'automate'>('now');
+  const [scheduleAt, setScheduleAt] = useState('');
+  const [autoTrigger, setAutoTrigger] = useState<'birthday' | 'first_visit_followup'>('birthday');
+  const [autoDays, setAutoDays] = useState(7);
+  const [abOn, setAbOn] = useState(false);
+  const [reach, setReach] = useState<any>(null);
+  const [reachBusy, setReachBusy] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState('');
+  const [testTo, setTestTo] = useState('');
+  const [testResult, setTestResult] = useState<{ ok: boolean; lines: string[] } | null>(null);
+  const [clientQuery, setClientQuery] = useState('');
+  const [newOffer, setNewOffer] = useState<{ open: boolean; kind: 'percentage' | 'fixed'; value: string; code: string; until: string; onePer: boolean }>({ open: false, kind: 'percentage', value: '15', code: '', until: '', onePer: true });
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const set = (p: Partial<Draft>) => setD((x) => ({ ...x, ...p }));
+
+  // Open a saved campaign.
+  useEffect(() => {
+    if (!editId || !firestore || !tenantId) return;
+    getDoc(doc(firestore, 'tenants', tenantId, 'campaigns', editId)).then((snap) => {
+      if (!snap.exists()) { setStep('start'); return; }
+      const x: any = snap.data();
+      setD({ ...EMPTY, ...Object.fromEntries(Object.entries(x).filter(([k]) => k in EMPTY)), discountId: x.discountId || '', imageUrl: x.imageUrl || '', subjectB: x.subjectB || '' } as Draft);
+      setStatus(x.status || 'draft');
+      if (x.subjectB) setAbOn(true);
+      if (x.status === 'scheduled' && x.scheduledFor) { setWhenMode('schedule'); setScheduleAt(String(x.scheduledFor).slice(0, 16)); }
+      if (x.status === 'automation' && x.automation) { setWhenMode('automate'); setAutomation(x.automation); setAutoTrigger(x.automation.trigger); setAutoDays(Number(x.automation.daysAfter) || 7); }
+    });
+  }, [editId, firestore, tenantId]);
+
+  useEffect(() => { if (user?.email && !testTo && d.type === 'email') setTestTo(user.email); }, [user?.email, d.type]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const offers = useMemo(() => (discounts || []).filter((x: any) => x.isActive !== false && x.code), [discounts]);
+  const chosenOffer: any = offers.find((x: any) => x.id === d.discountId) || null;
+  const offerLine = chosenOffer ? `${chosenOffer.type === 'percentage' ? `${chosenOffer.value}% off` : `$${Number(chosenOffer.value).toFixed(0)} off`} with code ${chosenOffer.code}${chosenOffer.validUntil ? ` — until ${new Date(chosenOffer.validUntil).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}` : null;
+  const audience = AUDIENCES.find((a) => a.id === d.targetAudience);
+  const locked = status === 'sent' || status === 'sending';
+
+  // ── Server calls ──
+  const call = async (mode: string, extra: any = {}) => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    try { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : null; if (tk) headers.Authorization = `Bearer ${tk}`; } catch { /* 401 explains */ }
+    const res = await fetch('/api/campaigns/send', { method: 'POST', headers, body: JSON.stringify({ tenantId, campaignId, mode, ...extra }) });
+    return res.json().catch(() => ({ ok: false, error: 'No response' }));
+  };
+  const save = async (extra: any = {}) => {
+    if (!firestore || !tenantId) return false;
+    const payload = clean({
+      ...d, id: campaignId, name: d.name.trim() || (CAMPAIGN_TEMPLATES.find((t) => t.id === d.templateId)?.title) || 'Untitled campaign',
+      subjectB: abOn && d.type === 'email' ? d.subjectB : '', discountId: d.discountId || null, imageUrl: d.type === 'email' ? d.imageUrl : '',
+      targetMinSpend: Number(d.targetMinSpend) || 0, updatedAt: new Date().toISOString(),
+      ...(status === 'new' ? { status: 'draft', createdAt: new Date().toISOString() } : {}), ...extra,
+    });
+    try { await setDoc(doc(firestore, 'tenants', tenantId, 'campaigns', campaignId), payload, { merge: true }); if (status === 'new') setStatus('draft'); return true; }
+    catch (e: any) { toast({ variant: 'destructive', title: 'Couldn’t save', description: String(e?.message || e) }); return false; }
+  };
+  const checkReach = async () => {
+    setReachBusy(true);
+    if (await save()) { const r = await call('preview'); setReach(r?.ok ? r : { error: r?.error || 'Couldn’t work it out.' }); }
+    setReachBusy(false);
+  };
+
+  // ── Step rules ──
+  const stepProblem = (s: Step): string | null => {
+    if (s === 'who') {
+      if (d.targetAudience === 'service' && !d.targetServiceIds.length) return 'Pick at least one service.';
+      if (d.targetAudience === 'provider' && !d.targetStaffIds.length) return 'Pick at least one team member.';
+      if (d.targetAudience === 'spent_over' && !(Number(d.targetMinSpend) > 0)) return 'Enter an amount.';
+      if (d.targetAudience === 'specific' && !d.targetClientIds.length) return 'Pick at least one client.';
+    }
+    if (s === 'message') {
+      if (d.type === 'email' && !d.subject.trim()) return 'Add a subject line.';
+      if (d.body.trim().length < 10) return 'Write a message (at least a sentence).';
+      if (/\[[^\]]+\]/.test(d.body)) return 'Replace the part in [square brackets] with your own words.';
+    }
+    if (s === 'when') {
+      if (whenMode === 'schedule' && !scheduleAt) return 'Pick a date and time.';
+    }
+    return null;
+  };
+  const idx = STEPS.findIndex((x) => x.id === step);
+  const go = async (to: Step) => {
+    const toIdx = STEPS.findIndex((x) => x.id === to);
+    if (toIdx > idx) { for (const s of STEPS.slice(0, toIdx)) { const p = stepProblem(s.id); if (p) { setStep(s.id); toast({ variant: 'destructive', title: 'One thing first', description: p }); return; } } }
+    if (step !== 'start') await save();
+    if (to === 'review') void checkReach();
+    setStep(to);
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const pickTemplate = (t: CampaignTemplate | null) => {
+    if (!t) { set({ ...EMPTY, templateId: '', name: '' }); setStep('who'); return; }
+    set({ ...EMPTY, templateId: t.id, name: t.title, type: t.channel, subject: t.subject, body: t.body, targetAudience: t.audience === 'first_visit_followup' ? 'new' : t.audience });
+    if (t.automation) { setWhenMode('automate'); setAutoTrigger(t.automation); } else setWhenMode('now');
+    setStep('who');
+  };
+  const insertToken = (tok: string) => {
+    const el = bodyRef.current; const v = d.body;
+    if (!el) { set({ body: v + tok }); return; }
+    const a = el.selectionStart ?? v.length, b = el.selectionEnd ?? v.length;
+    set({ body: v.slice(0, a) + tok + v.slice(b) });
+    setTimeout(() => { el.focus(); el.selectionStart = el.selectionEnd = a + tok.length; }, 0);
+  };
+
+  const createOffer = async () => {
+    if (!firestore || !tenantId) return;
+    const value = Number(newOffer.value);
+    const code = newOffer.code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!(value > 0) || (newOffer.kind === 'percentage' && value > 100)) { toast({ variant: 'destructive', title: 'Check the amount' }); return; }
+    if (code.length < 3) { toast({ variant: 'destructive', title: 'Pick a code', description: 'At least 3 letters or numbers.' }); return; }
+    if ((discounts || []).some((x: any) => String(x.code || '').toUpperCase() === code)) { toast({ variant: 'destructive', title: 'That code is taken', description: 'Choose another.' }); return; }
+    const ref = doc(collection(firestore, 'tenants', tenantId, 'discounts'));
+    await setDoc(ref, clean({ id: ref.id, code, description: `Campaign offer${d.name ? ` — ${d.name}` : ''}`, type: newOffer.kind, value, usageLimit: 0, usageCount: 0, isActive: true,
+      validFrom: new Date().toISOString(), ...(newOffer.until ? { validUntil: new Date(`${newOffer.until}T23:59:00`).toISOString() } : {}), limitOnePerCustomer: newOffer.onePer, createdAt: new Date().toISOString() }));
+    set({ discountId: ref.id });
+    setNewOffer((x) => ({ ...x, open: false }));
+    toast({ title: 'Offer created', description: `${code} is live and attached to this campaign.` });
+  };
+
+  const runTest = async () => {
+    setTestResult(null);
+    if (!(await save())) return;
+    const r = await call('test', { to: testTo });
+    setTestResult(r?.ok ? { ok: true, lines: [`Sent to ${r.to || testTo}.`, ...(r.notes || [])] } : { ok: false, lines: [r?.error || 'Not sent.'] });
+  };
+
+  const finish = async () => {
+    for (const s of STEPS) { const p = stepProblem(s.id); if (p) { setStep(s.id); toast({ variant: 'destructive', title: 'One thing first', description: p }); return; } }
+    setBusy(true);
+    try {
+      if (!(await save())) return;
+      if (whenMode === 'automate') {
+        const r = await call('automate', { trigger: autoTrigger, daysAfter: autoDays });
+        if (!r?.ok) { toast({ variant: 'destructive', title: 'Not started', description: r?.error || 'Try again.' }); return; }
+        toast({ title: 'Automation is on', description: 'Each morning it sends to whoever is due.' }); router.push('/campaigns'); return;
+      }
+      if (whenMode === 'schedule') {
+        const r = await call('schedule', { scheduledFor: new Date(scheduleAt).toISOString() });
+        if (!r?.ok) { toast({ variant: 'destructive', title: 'Not scheduled', description: r?.error || 'Try again.' }); return; }
+        toast({ title: 'Scheduled', description: 'It goes out with the first daily send after that time.' }); router.push('/campaigns'); return;
+      }
+      const pv = await call('preview');
+      if (!pv?.ok) { toast({ variant: 'destructive', title: 'Couldn’t prepare it', description: pv?.error || 'Try again.' }); return; }
+      if (!pv.summary.willReceive) { toast({ variant: 'destructive', title: 'Nobody to send to', description: 'See “Who it reaches” for why.' }); return; }
+      let totals = { sent: 0, failed: 0 };
+      for (let i = 0; i < 100; i++) {
+        const r = await call('send');
+        if (!r?.ok) { toast({ variant: 'destructive', title: r?.quietHours ? 'Outside texting hours' : 'Sending stopped', description: r?.quietHours ? r.error : `${r?.error || 'Something went wrong'} — ${totals.sent} sent so far. Open it again to finish; nobody gets it twice.` }); return; }
+        totals = r.totals; setProgress(`${totals.sent} of ${pv.summary.willReceive} sent…`);
+        if (r.done) { toast({ title: 'Sent', description: `${totals.sent} delivered${totals.failed ? `, ${totals.failed} failed` : ''}. Bookings in the next 14 days show on the campaign.` }); router.push('/campaigns'); return; }
+      }
+    } finally { setBusy(false); setProgress(''); }
+  };
+
+  // ── Preview text (client-side, instant) ──
+  const previewBody = fillTokens(d.body, { first: 'Alexandra', business, offer: offerLine, link: 'your booking link' });
+  const smsFull = `${business}: ${previewBody}${offerLine && !d.body.includes('{offer}') ? ` ${offerLine}.` : ''}\nReply STOP to opt out.`;
+  const actionLabel = whenMode === 'automate' ? 'Turn on automation' : whenMode === 'schedule' ? 'Schedule it' : reach?.summary ? `Send to ${reach.summary.willReceive} client${reach.summary.willReceive === 1 ? '' : 's'}` : 'Send';
+
+  const filteredClients = (clients || []).filter((c: any) => !c.ownerRenterId && (!clientQuery || String(c.name || '').toLowerCase().includes(clientQuery.toLowerCase()) || String(c.email || '').toLowerCase().includes(clientQuery.toLowerCase()))).slice(0, 60);
 
   return (
-    <Dialog open={!!previewData} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background">
-        <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left">
-          <div className="flex items-center gap-3 mb-2">
-            <Eye className="w-5 h-5 text-primary" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Visual Inspection</span>
-          </div>
-          <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900">Dispatch Preview</DialogTitle>
-        </DialogHeader>
-        <ScrollArea className="max-h-[70vh]">
-          <div className="p-8">
-            {previewData.type === 'email' ? (
-              <div className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-inner">
-                <div className="p-6 bg-muted/20 border-b text-[10px] font-bold uppercase tracking-tight space-y-1.5">
-                  <p><span className="opacity-40">Recipient:</span> {sampleClientName} &lt;alex@example.com&gt;</p>
-                  <p><span className="opacity-40">Subject (A):</span> {previewData.subject}</p>
-                  {previewData.subjectB && <p className="text-purple-600"><span className="opacity-40">Subject (B):</span> {previewData.subjectB}</p>}
-                </div>
-                <div className="p-8">
-                  {previewData.imageUrl && (
-                    <div className="relative aspect-video rounded-2xl overflow-hidden mb-8 border-2 shadow-lg">
-                        <img src={previewData.imageUrl} alt="Campaign visual" className="object-cover w-full h-full" />
-                    </div>
-                  )}
-                  <div className="prose prose-sm dark:prose-invert max-w-full font-medium text-slate-700 leading-relaxed" dangerouslySetInnerHTML={{ __html: bodyWithPlaceholders.replace(/\n/g, '<br />') }} />
+    <div className="min-h-screen bg-slate-50">
+      <AppHeader title={editId ? 'Campaign' : 'New campaign'} />
+      <main className="mx-auto max-w-2xl px-4 pb-40 pt-4 space-y-5">
+        {/* Steps */}
+        <nav className="flex gap-1 overflow-x-auto pb-1" aria-label="Steps">
+          {STEPS.map((s, i) => (
+            <button key={s.id} type="button" onClick={() => go(s.id)} disabled={locked && s.id !== 'review'}
+              className={cn('shrink-0 rounded-full px-3 py-1.5 text-[11px] font-black uppercase tracking-widest', s.id === step ? 'bg-slate-900 text-white' : i < idx ? 'bg-emerald-100 text-emerald-800' : 'bg-white text-slate-400 border')}>
+              {i < idx ? '✓ ' : `${i + 1} `}{s.label}
+            </button>
+          ))}
+        </nav>
+
+        {locked && <p className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-900">This campaign has been sent. You can review it here; to send something similar, start a new one.</p>}
+
+        {/* 1 · START */}
+        {step === 'start' && (
+          <Card>
+            <H sub="Pick one to start from — you can change every word.">What do you want to do?</H>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {CAMPAIGN_TEMPLATES.map((t) => (
+                <button key={t.id} type="button" onClick={() => pickTemplate(t)} className="rounded-2xl border-2 border-slate-200 bg-white p-3.5 text-left hover:border-slate-900">
+                  <span className="flex items-center gap-2 text-sm font-black text-slate-900">{t.channel === 'sms' ? <MessageSquare className="h-4 w-4" /> : <Mail className="h-4 w-4" />}{t.title}</span>
+                  <span className="block text-xs text-slate-500 mt-0.5">{t.blurb}{t.automation ? ' · repeats automatically' : ''}</span>
+                </button>
+              ))}
+              <button type="button" onClick={() => pickTemplate(null)} className="rounded-2xl border-2 border-dashed border-slate-300 p-3.5 text-left hover:border-slate-900">
+                <span className="text-sm font-black text-slate-900">Start from a blank message</span>
+                <span className="block text-xs text-slate-500 mt-0.5">Write your own.</span>
+              </button>
+            </div>
+          </Card>
+        )}
+
+        {/* 2 · WHO */}
+        {step === 'who' && (
+          <Card>
+            <H sub="Only clients who can receive it are counted — you’ll see the exact number on Review.">Who should get it?</H>
+            {(['everyone', 'visits', 'pick'] as const).map((g) => (
+              <div key={g} className="space-y-2">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{g === 'everyone' ? 'Everyone' : g === 'visits' ? 'Based on their visits' : 'You choose'}</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {AUDIENCES.filter((a) => a.group === g).map((a) => <Choice key={a.id} on={d.targetAudience === a.id} onClick={() => set({ targetAudience: a.id })} title={a.label} hint={a.hint} />)}
                 </div>
               </div>
-            ) : (
-              <div className="flex justify-center py-4">
-                <div className="w-[320px] h-[580px] bg-slate-900 rounded-[3rem] border-[8px] border-slate-800 p-4 flex flex-col shadow-2xl relative">
-                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-6 bg-slate-800 rounded-b-2xl z-20" />
-                  <div className="flex-1 bg-white rounded-[2rem] p-4 overflow-y-auto flex flex-col justify-end">
-                     <div className="bg-primary text-primary-foreground p-3 rounded-2xl rounded-br-none ml-auto max-w-[85%] shadow-lg">
-                      <p className="text-xs font-bold leading-relaxed whitespace-pre-wrap">{bodyWithPlaceholders}</p>
-                    </div>
-                  </div>
+            ))}
+            {d.targetAudience === 'service' && (
+              <div className="flex flex-wrap gap-2">{(services || []).map((s: any) => { const on = d.targetServiceIds.includes(s.id); return <button key={s.id} type="button" onClick={() => set({ targetServiceIds: on ? d.targetServiceIds.filter((x) => x !== s.id) : [...d.targetServiceIds, s.id] })} className={cn('h-9 rounded-xl border-2 px-3 text-xs font-bold', on ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200')}>{s.name}</button>; })}</div>
+            )}
+            {d.targetAudience === 'provider' && (
+              <div className="flex flex-wrap gap-2">{(staff || []).filter((s: any) => s.isActive !== false && !s.isRenter).map((s: any) => { const on = d.targetStaffIds.includes(s.id); return <button key={s.id} type="button" onClick={() => set({ targetStaffIds: on ? d.targetStaffIds.filter((x) => x !== s.id) : [...d.targetStaffIds, s.id] })} className={cn('h-9 rounded-xl border-2 px-3 text-xs font-bold', on ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200')}>{s.name || 'Team member'}</button>; })}</div>
+            )}
+            {d.targetAudience === 'spent_over' && (
+              <label className="flex items-center gap-2 text-sm font-bold">Spent at least $<Input type="number" min={1} value={d.targetMinSpend || ''} onChange={(e) => set({ targetMinSpend: Number(e.target.value) || 0 })} className="h-10 w-32" /> in the last 12 months</label>
+            )}
+            {d.targetAudience === 'specific' && (
+              <div className="space-y-2">
+                <div className="relative"><Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" /><Input value={clientQuery} onChange={(e) => setClientQuery(e.target.value)} placeholder="Search clients" className="h-10 pl-9" /></div>
+                <p className="text-xs font-bold text-slate-500">{d.targetClientIds.length} picked</p>
+                <div className="max-h-64 overflow-y-auto rounded-xl border divide-y">
+                  {filteredClients.map((c: any) => { const on = d.targetClientIds.includes(c.id); return (
+                    <label key={c.id} className="flex items-center gap-3 px-3 py-2 text-sm cursor-pointer">
+                      <input type="checkbox" checked={on} onChange={() => set({ targetClientIds: on ? d.targetClientIds.filter((x) => x !== c.id) : [...d.targetClientIds, c.id] })} className="h-4 w-4" />
+                      <span className="font-bold">{c.name || 'Client'}</span><span className="text-xs text-slate-400 truncate">{c.email || c.phone || ''}</span>
+                    </label>); })}
                 </div>
               </div>
             )}
-          </div>
-        </ScrollArea>
-        <DialogFooter className="p-8 pt-4 border-t bg-muted/5">
-            <Button className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl" onClick={() => onOpenChange(false)}>Close Review</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-};
+          </Card>
+        )}
 
-const ClientSelectorDialog = ({
-    open,
-    onOpenChange,
-    allClients,
-    initialSelectedIds,
-    onConfirm
-}: {
-    open: boolean;
-    onOpenChange: (open: boolean) => void;
-    allClients: Client[];
-    initialSelectedIds: string[];
-    onConfirm: (selectedIds: string[]) => void;
-}) => {
-    const [selectedIds, setSelectedIds] = useState(new Set(initialSelectedIds));
-    const [searchTerm, setSearchTerm] = useState('');
+        {/* 3 · MESSAGE */}
+        {step === 'message' && (
+          <Card>
+            <H sub="Emails are free. Texts only reach clients who said yes to offers by text.">Write your message</H>
+            <div className="grid grid-cols-2 gap-2">
+              <Choice on={d.type === 'email'} onClick={() => set({ type: 'email' })} title="Email" hint="Free · with a Book button" icon={Mail} />
+              <Choice on={d.type === 'sms'} onClick={() => set({ type: 'sms' })} title="Text" hint="About 1–3¢ each" icon={MessageSquare} />
+            </div>
+            {d.type === 'email' && (
+              <div className="space-y-2">
+                <label className="block text-xs font-black uppercase tracking-widest text-slate-500">Subject</label>
+                <Input value={d.subject} onChange={(e) => set({ subject: e.target.value.slice(0, 140) })} placeholder="What they see in their inbox" className="h-11" />
+                <label className="flex items-center gap-2 text-xs font-bold text-slate-600"><input type="checkbox" checked={abOn} onChange={(e) => setAbOn(e.target.checked)} className="h-4 w-4" />Try a second subject (half get each — you’ll see which brought more bookings)</label>
+                {abOn && <Input value={d.subjectB} onChange={(e) => set({ subjectB: e.target.value.slice(0, 140) })} placeholder="Second subject" className="h-11" />}
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="block text-xs font-black uppercase tracking-widest text-slate-500">Message</label>
+              <div className="flex flex-wrap gap-1.5">{TOKENS.map((t) => <button key={t.token} type="button" onClick={() => insertToken(t.token)} className="rounded-full border-2 border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-600 hover:border-slate-900">+ {t.label}</button>)}</div>
+              <Textarea ref={bodyRef} value={d.body} onChange={(e) => set({ body: e.target.value.slice(0, 2000) })} rows={d.type === 'sms' ? 4 : 9} placeholder="Hi {first}, …" />
+              {d.type === 'sms' && <p className="text-xs font-bold text-slate-500">{smsFull.length} characters · {segmentsOf(smsFull)} text{segmentsOf(smsFull) === 1 ? '' : 's'} each (your business name and “Reply STOP to opt out” are included){/[^\n\r\x20-\x7E]/.test(smsFull) ? ' · emoji make texts shorter and cost more' : ''}</p>}
+              {/\[[^\]]+\]/.test(d.body) && <p className="text-xs font-bold text-amber-700">Replace the part in [square brackets] with your own words.</p>}
+            </div>
+            {d.type === 'email' && (
+              <div className="space-y-1">
+                <label className="block text-xs font-black uppercase tracking-widest text-slate-500">Picture (optional)</label>
+                <Input value={d.imageUrl} onChange={(e) => set({ imageUrl: e.target.value.trim() })} placeholder="https://… link to an image" className="h-10" />
+              </div>
+            )}
+            <div className="rounded-2xl bg-slate-100 p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Preview · as Alexandra sees it</p>
+              {d.type === 'sms'
+                ? <div className="max-w-[85%] rounded-2xl rounded-bl-sm bg-white p-3 text-sm whitespace-pre-wrap shadow-sm">{smsFull}</div>
+                : <div className="rounded-2xl bg-white p-4 shadow-sm space-y-2"><p className="text-sm font-black">{fillTokens(d.subject || '(no subject)', { first: 'Alexandra', business, offer: offerLine, link: null })}</p><p className="text-sm whitespace-pre-wrap text-slate-700">{previewBody}{offerLine && !d.body.includes('{offer}') ? `\n\n${offerLine}` : ''}</p><span className="inline-block rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-black text-white">Book now</span></div>}
+            </div>
+          </Card>
+        )}
 
-    useEffect(() => {
-        if (open) {
-            setSelectedIds(new Set(initialSelectedIds));
-        }
-    }, [open, initialSelectedIds]);
-    
-    const filteredClients = allClients.filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase()));
-
-    const handleToggle = (clientId: string) => {
-        const newSet = new Set(selectedIds);
-        if (newSet.has(clientId)) {
-            newSet.delete(clientId);
-        } else {
-            newSet.add(clientId);
-        }
-        setSelectedIds(newSet);
-    }
-    
-    const handleConfirm = () => {
-        onConfirm(Array.from(selectedIds));
-        onOpenChange(false);
-    }
-    
-    return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-lg rounded-[3rem] border-4 p-0 overflow-hidden shadow-3xl">
-                <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left">
-                    <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">Client Selection</DialogTitle>
-                    <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Target specific individuals for this dispatch.</DialogDescription>
-                </DialogHeader>
-                <div className="p-8 space-y-6">
-                    <div className="relative">
-                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
-                        <Input placeholder="SEARCH ROSTER..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest shadow-inner bg-muted/5" />
-                    </div>
-                    <ScrollArea className="h-72 -mx-2 px-2">
-                        <div className="space-y-2 pr-4">
-                            {filteredClients.map(client => (
-                                <div key={client.id} className="flex items-center space-x-4 p-3 rounded-2xl border-2 border-transparent hover:border-primary/10 hover:bg-primary/[0.02] transition-all">
-                                    <Checkbox id={`client-${client.id}`} checked={selectedIds.has(client.id)} onCheckedChange={() => handleToggle(client.id)} className="h-6 w-6 rounded-lg border-2" />
-                                    <Avatar className="h-10 w-10 border-2 border-background shadow-sm rounded-xl shrink-0"><AvatarImage src={client.avatarUrl} className="object-cover" /><AvatarFallback className="font-black bg-primary/10 text-primary">{client.name.charAt(0)}</AvatarFallback></Avatar>
-                                    <label htmlFor={`client-${client.id}`} className="text-xs font-black uppercase tracking-tight text-slate-900 cursor-pointer flex-1 truncate">{client.name}</label>
-                                </div>
-                            ))}
-                        </div>
-                    </ScrollArea>
+        {/* 4 · OFFER */}
+        {step === 'offer' && (
+          <Card>
+            <H sub="An offer is one of your discounts. Its code goes into the message, and when a client books from it, the discount is applied at checkout automatically.">Add an offer? (optional)</H>
+            <div className="grid gap-2">
+              <Choice on={!d.discountId} onClick={() => set({ discountId: '' })} title="No offer" hint="Just the message." />
+              {offers.map((o: any) => (
+                <Choice key={o.id} on={d.discountId === o.id} onClick={() => set({ discountId: o.id })} icon={Tag}
+                  title={`${o.type === 'percentage' ? `${o.value}% off` : `$${Number(o.value).toFixed(0)} off`} · ${o.code}`}
+                  hint={[o.description, o.validUntil ? `until ${new Date(o.validUntil).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : 'no end date', o.limitOnePerCustomer ? 'once per client' : '', o.usageLimit > 0 ? `${o.usageCount || 0}/${o.usageLimit} used` : ''].filter(Boolean).join(' · ')} />
+              ))}
+            </div>
+            {!newOffer.open
+              ? <Button type="button" variant="outline" onClick={() => setNewOffer((x) => ({ ...x, open: true, code: x.code || (d.templateId ? `${d.templateId.replace(/_/g, '').toUpperCase().slice(0, 8)}${x.value}` : `OFFER${x.value}`) }))}>+ Create a new offer</Button>
+              : (
+                <div className="space-y-3 rounded-2xl border-2 border-dashed p-4">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Choice on={newOffer.kind === 'percentage'} onClick={() => setNewOffer((x) => ({ ...x, kind: 'percentage' }))} title="% off" />
+                    <Choice on={newOffer.kind === 'fixed'} onClick={() => setNewOffer((x) => ({ ...x, kind: 'fixed' }))} title="$ off" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="text-xs font-bold text-slate-600">Amount<Input type="number" min={1} value={newOffer.value} onChange={(e) => setNewOffer((x) => ({ ...x, value: e.target.value }))} className="h-10 mt-1" /></label>
+                    <label className="text-xs font-bold text-slate-600">Code<Input value={newOffer.code} onChange={(e) => setNewOffer((x) => ({ ...x, code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20) }))} className="h-10 mt-1" /></label>
+                  </div>
+                  <label className="block text-xs font-bold text-slate-600">Ends (optional)<Input type="date" value={newOffer.until} onChange={(e) => setNewOffer((x) => ({ ...x, until: e.target.value }))} className="h-10 mt-1" /></label>
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-600"><input type="checkbox" checked={newOffer.onePer} onChange={(e) => setNewOffer((x) => ({ ...x, onePer: e.target.checked }))} className="h-4 w-4" />Once per client</label>
+                  <div className="flex gap-2"><Button type="button" onClick={createOffer}>Create and attach</Button><Button type="button" variant="ghost" onClick={() => setNewOffer((x) => ({ ...x, open: false }))}>Cancel</Button></div>
+                  <p className="text-[11px] text-slate-500">It also appears on your Discounts page, where you can pause or edit it.</p>
                 </div>
-                <DialogFooter className="p-8 pt-4 border-t bg-muted/5">
-                    <div className="grid grid-cols-2 gap-3 w-full">
-                        <Button variant="outline" onClick={() => onOpenChange(false)} className="h-12 rounded-xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
-                        <Button onClick={handleConfirm} className="h-12 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl">Confirm ({selectedIds.size})</Button>
-                    </div>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    )
-}
+              )}
+            {chosenOffer && !d.body.includes('{offer}') && <p className="text-xs font-bold text-slate-500">Your message doesn’t mention the offer, so it’s added at the end. To place it yourself, add “The offer” in the message.</p>}
+          </Card>
+        )}
 
-function NewCampaignPageInner() {
-    const { firestore, user } = useFirebase();
-    const { selectedTenant } = useTenant();
-    const router = useRouter();
-    const { toast } = useToast();
-    const { discounts, clients, services, staff } = useInventory();
-    const [isSaving, setIsSaving] = useState(false);
-    const [isSending, setIsSending] = useState(false);
-    const [isSendingTest, setIsSendingTest] = useState(false);
-    const [previewData, setPreviewData] = useState<CampaignFormData | null>(null);
-    const [isClientSelectorOpen, setIsClientSelectorOpen] = useState(false);
-    const [isABTest, setIsABTest] = useState(false);
-    const bodyTextareaRef = useRef<HTMLTextAreaElement>(null);
-    const [isTestSendDialogOpen, setIsTestSendDialogOpen] = useState(false);
-    const [testEmail, setTestEmail] = useState('');
+        {/* 5 · WHEN */}
+        {step === 'when' && (
+          <Card>
+            <H sub="Texts only go out 9am–8pm.">When should it go out?</H>
+            <div className="grid gap-2">
+              <Choice on={whenMode === 'now'} onClick={() => setWhenMode('now')} title="Send now" hint="Right after you review it." icon={Send} />
+              <Choice on={whenMode === 'schedule'} onClick={() => setWhenMode('schedule')} title="Schedule it" hint="Goes out with the first daily send after the time you pick." icon={Clock} />
+              <Choice on={whenMode === 'automate'} onClick={() => setWhenMode('automate')} title="Repeat automatically" hint="Sends on its own to each client when they’re due." icon={Repeat} />
+            </div>
+            {whenMode === 'schedule' && <Input type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} className="h-11" />}
+            {whenMode === 'automate' && (
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <Choice on={autoTrigger === 'birthday'} onClick={() => setAutoTrigger('birthday')} title="Birthdays" hint="Once a year, in their birthday month" />
+                  <Choice on={autoTrigger === 'first_visit_followup'} onClick={() => setAutoTrigger('first_visit_followup')} title="After a first visit" hint="Once, a few days later" />
+                </div>
+                {autoTrigger === 'first_visit_followup' && <label className="flex items-center gap-2 text-sm font-bold">Send <Input type="number" min={1} max={90} value={autoDays} onChange={(e) => setAutoDays(Number(e.target.value) || 7)} className="h-10 w-20" /> days after their first visit</label>}
+                <p className="text-xs text-slate-500">With “Repeat automatically”, who gets it is decided by the choice above, not the Who step.</p>
+                {automation && <p className="text-xs font-bold text-violet-700">This automation is {automation.active ? 'on' : 'paused'}. <button type="button" className="underline" onClick={async () => { const r = await call('pause', { active: !automation.active }); if (r?.ok) setAutomation({ ...automation, active: r.active }); }}>{automation.active ? 'Pause it' : 'Resume it'}</button></p>}
+              </div>
+            )}
+          </Card>
+        )}
 
-    const methods = useForm<CampaignFormData>({
-        resolver: zodResolver(campaignSchema),
-        defaultValues: {
-            type: 'email',
-            targetAudience: 'all',
-            targetClientIds: [],
-        }
-    });
-    
-    const { control, handleSubmit, register, watch, setValue, getValues, formState: { errors } } = methods;
-    const campaignType = watch('type');
-    const targetAudience = watch('targetAudience');
+        {/* 6 · REVIEW */}
+        {step === 'review' && (
+          <div className="space-y-4">
+            <Card>
+              <H>Review</H>
+              <label className="block text-xs font-black uppercase tracking-widest text-slate-500">Name (only you see it)<Input value={d.name} onChange={(e) => set({ name: e.target.value.slice(0, 80) })} placeholder="e.g. September win-back" className="h-11 mt-1" disabled={locked} /></label>
+              {[
+                ['Who', whenMode === 'automate' ? (autoTrigger === 'birthday' ? 'Each client in their birthday month' : `Each new client, ${autoDays} days after their first visit`) : `${audience?.label || d.targetAudience}${d.targetAudience === 'specific' ? ` (${d.targetClientIds.length})` : ''}`, 'who'],
+                ['How', d.type === 'sms' ? 'Text' : `Email${abOn && d.subjectB ? ' · two subjects' : ''}`, 'message'],
+                ['Offer', offerLine || 'None', 'offer'],
+                ['When', whenMode === 'now' ? 'Now' : whenMode === 'schedule' ? (scheduleAt ? new Date(scheduleAt).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—') : 'Repeats automatically', 'when'],
+              ].map(([k, v, s]) => (
+                <div key={k} className="flex items-center justify-between gap-3 border-t pt-3 text-sm">
+                  <span className="text-slate-500 font-bold">{k}</span><span className="flex-1 text-right font-black text-slate-900">{v}</span>
+                  {!locked && <button type="button" onClick={() => go(s as Step)} className="text-xs font-bold text-slate-500 underline">Edit</button>}
+                </div>
+              ))}
+            </Card>
 
-    useEffect(() => {
-        if (isTestSendDialogOpen && user?.email && campaignType !== 'sms') {
-            testEmail || setTestEmail(user.email);
-        }
-        if (isTestSendDialogOpen && campaignType === 'sms' && /@/.test(testEmail)) setTestEmail('');
-    }, [isTestSendDialogOpen, user, testEmail, campaignType]);
+            <Card>
+              <p className="text-xs font-black uppercase tracking-widest text-slate-500">Who it reaches{whenMode === 'automate' ? ' today' : ''}</p>
+              {reachBusy ? <p className="text-sm text-slate-500 flex items-center gap-2"><Loader className="h-4 w-4 animate-spin" />Working it out…</p>
+                : reach?.error ? <p className="text-sm font-bold text-red-700">{reach.error}</p>
+                : reach?.summary ? (
+                  <div className="space-y-1 text-sm">
+                    <p className="flex items-center gap-2 font-black text-slate-900"><Users className="h-4 w-4" />{reach.summary.willReceive} client{reach.summary.willReceive === 1 ? '' : 's'}</p>
+                    {reach.summary.skippedNoConsent > 0 && <p className="text-slate-500">{reach.summary.skippedNoConsent} left out — haven’t said yes to offers by text</p>}
+                    {reach.summary.skippedMonthlyCap > 0 && <p className="text-slate-500">{reach.summary.skippedMonthlyCap} left out — already had 4 marketing texts this month</p>}
+                    {reach.summary.skippedNoContact > 0 && <p className="text-slate-500">{reach.summary.skippedNoContact} left out — no {d.type === 'sms' ? 'mobile number' : 'email'} on file</p>}
+                    {reach.summary.skippedUnsubscribed > 0 && <p className="text-slate-500">{reach.summary.skippedUnsubscribed} left out — unsubscribed</p>}
+                    {d.type === 'sms' && reach.estCostCents > 0 && <p className="font-bold text-slate-700">Estimated text cost: about ${(reach.estCostCents / 100).toFixed(2)}</p>}
+                    {reach.summary.willReceive === 0 && d.type === 'sms' && reach.summary.skippedNoConsent > 0 && <p className="text-xs font-bold text-amber-700">Tip: send it as an email instead — emails reach everyone with an address.</p>}
+                  </div>
+                ) : <Button type="button" variant="outline" onClick={checkReach}>Check</Button>}
+            </Card>
 
-    const handleInsertPlaceholder = (placeholder: string) => {
-        const textarea = bodyTextareaRef.current;
-        if (textarea) {
-            const start = textarea.selectionStart;
-            const end = textarea.selectionEnd;
-            const text = textarea.value;
-            const newText = text.substring(0, start) + placeholder + text.substring(end);
-            
-            setValue('body', newText, { shouldDirty: true, shouldValidate: true });
+            {reach?.sampleText && (
+              <Card>
+                <p className="text-xs font-black uppercase tracking-widest text-slate-500">The message, exactly as sent</p>
+                {reach.sampleSubject && <p className="text-sm font-black">{reach.sampleSubject}</p>}
+                <p className="text-sm whitespace-pre-wrap text-slate-700">{d.type === 'sms' ? `${reach.senderName}: ${reach.sampleText}\nReply STOP to opt out.` : reach.sampleText}</p>
+              </Card>
+            )}
 
-            setTimeout(() => {
-                textarea.selectionStart = textarea.selectionEnd = start + placeholder.length;
-                textarea.focus();
-            }, 0);
-        }
-    };
-    
-    const handleTemplateSelect = (templateName: string) => {
-        const template = premadeCampaigns.find(t => t.name === templateName);
-        if (template) {
-            setValue('name', template.name, { shouldDirty: true, shouldValidate: true });
-            setValue('type', template.type as 'email' | 'sms', { shouldDirty: true, shouldValidate: true });
-            setValue('subject', template.subject, { shouldDirty: true, shouldValidate: true });
-            setValue('body', template.body, { shouldDirty: true, shouldValidate: true });
-            setValue('targetAudience', template.targetAudience as any, { shouldDirty: true, shouldValidate: true });
-            
-            toast({
-                title: "Protocol Loaded",
-                description: `Script for "${template.name}" has been synchronized.`,
-            });
-        }
-    };
+            {!locked && (
+              <Card>
+                <p className="text-xs font-black uppercase tracking-widest text-slate-500">Send yourself a test</p>
+                <div className="flex gap-2">
+                  <Input value={testTo} onChange={(e) => { setTestTo(e.target.value); setTestResult(null); }} type={d.type === 'sms' ? 'tel' : 'email'} placeholder={d.type === 'sms' ? 'Your mobile number' : 'Your email'} className="h-11" />
+                  <Button type="button" variant="outline" onClick={runTest} className="h-11 shrink-0">Send test</Button>
+                </div>
+                {testResult && <div className={cn('rounded-2xl border-2 p-3 text-sm space-y-1', testResult.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-red-200 bg-red-50 text-red-900')}>{testResult.lines.map((l, i) => <p key={i} className={i === 0 ? 'font-black' : ''}>{l}</p>)}</div>}
+              </Card>
+            )}
+          </div>
+        )}
+      </main>
 
-    // One id for the whole life of this campaign — saved as a draft first,
-    // then the server sends it from that saved copy (never from the browser).
-    // ?id=… opens a saved draft; otherwise a new id. Drafts could never be
-    // reopened before — only sent as-is or deleted.
-    const searchParams = useSearchParams();
-    const editId = searchParams?.get('id') || '';
-    const [campaignId] = useState(() => editId || nanoid());
-    const [loadedDraft, setLoadedDraft] = useState<'idle' | 'loading' | 'loaded' | 'sent' | 'missing'>(editId ? 'loading' : 'idle');
-    useEffect(() => {
-        if (!editId || !firestore || !selectedTenant) return;
-        getDoc(doc(firestore, 'tenants', selectedTenant.id, 'campaigns', editId)).then((snap) => {
-            if (!snap.exists()) { setLoadedDraft('missing'); return; }
-            const d = snap.data() as any;
-            methods.reset({ ...methods.getValues(), ...d });
-            if (d.subjectB) setIsABTest(true);
-            if (d.status === 'scheduled' && d.scheduledFor) setScheduledFor(d.scheduledFor);
-            if (d.status === 'automation' && d.automation) { setAutomation(d.automation); setAutoTrigger(d.automation.trigger); setAutoDays(Number(d.automation.daysAfter) || 7); }
-            setLoadedDraft(d.status === 'draft' || !d.status ? 'loaded' : 'sent');
-        }).catch(() => setLoadedDraft('missing'));
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [editId, firestore, selectedTenant?.id]);
-    const [sendProgress, setSendProgress] = useState('');
-    const [scheduleAt, setScheduleAt] = useState('');
-    const [scheduledFor, setScheduledFor] = useState<string | null>(null);
-    const [autoTrigger, setAutoTrigger] = useState<'birthday' | 'first_visit_followup'>('birthday');
-    const [autoDays, setAutoDays] = useState(7);
-    const [automation, setAutomation] = useState<{ trigger: string; daysAfter?: number; active: boolean } | null>(null);
-    const authHeaders = async (): Promise<Record<string, string>> => {
-        const h: Record<string, string> = { 'Content-Type': 'application/json' };
-        try { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : null; if (tk) h.Authorization = `Bearer ${tk}`; } catch { /* the route answers 401 */ }
-        return h;
-    };
-    const callSend = async (mode: 'preview' | 'send' | 'test' | 'schedule' | 'unschedule' | 'automate' | 'pause', extra: any = {}) => {
-        const res = await fetch('/api/campaigns/send', { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ tenantId: selectedTenant?.id, campaignId, mode, ...extra }) });
-        return res.json().catch(() => ({ ok: false, error: 'No response' }));
-    };
-
-    // Schedule: save, preview (so they see who it will reach), confirm, then
-    // hand it to the hourly scheduler. Texts wait for quiet hours to end.
-    const processSchedule = async (data: CampaignFormData) => {
-        if (!firestore || !selectedTenant || !scheduleAt) return;
-        setIsSaving(true);
-        try {
-            await setDoc(doc(firestore, 'tenants', selectedTenant.id, 'campaigns', campaignId), { ...data, id: campaignId, status: 'draft', updatedAt: new Date().toISOString() }, { merge: true });
-            const pv = await callSend('preview');
-            if (!pv?.ok) { toast({ variant: 'destructive', title: 'Could not prepare it', description: pv?.error || 'Try again.' }); return; }
-            const when = new Date(scheduleAt);
-            if (!window.confirm(`Schedule "${data.name}" for ${when.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}?\n\nRight now it would reach ${pv.summary.willReceive} client${pv.summary.willReceive === 1 ? '' : 's'} — the list is worked out again at send time, so anyone who books, unsubscribes or changes in between is handled then.${data.type === 'sms' ? '\n\nTexts only go out 9am–8pm; if that time is outside, it waits for the window.' : ''}`)) return;
-            const r = await callSend('schedule', { scheduledFor: when.toISOString() });
-            if (!r?.ok) { toast({ variant: 'destructive', title: 'Not scheduled', description: r?.error || 'Try again.' }); return; }
-            setScheduledFor(r.scheduledFor);
-            toast({ title: 'Scheduled', description: 'It goes out at the first daily send after that time (around 10am Eastern).' });
-            router.push('/campaigns');
-        } finally { setIsSaving(false); }
-    };
-    // Automations: save, then switch it to repeat on its own. The audience
-    // comes from the trigger (birthday month / N days after a first visit),
-    // not the audience picker.
-    const processAutomate = async (data: CampaignFormData) => {
-        if (!firestore || !selectedTenant) return;
-        setIsSaving(true);
-        try {
-            await setDoc(doc(firestore, 'tenants', selectedTenant.id, 'campaigns', campaignId), { ...data, id: campaignId, updatedAt: new Date().toISOString() }, { merge: true });
-            const what = autoTrigger === 'birthday' ? 'each client once a year, in their birthday month' : `each new client once, ${autoDays} days after their first visit`;
-            if (!window.confirm(`Turn "${data.name}" into an automation?\n\nIt goes to ${what}, at 10am your time — with the same consent, monthly text limit and unsubscribe rules as any campaign. You can pause it any time.`)) return;
-            const r = await callSend('automate', { trigger: autoTrigger, daysAfter: autoDays });
-            if (!r?.ok) { toast({ variant: 'destructive', title: 'Not started', description: r?.error || 'Try again.' }); return; }
-            setAutomation({ trigger: autoTrigger, daysAfter: autoDays, active: true });
-            toast({ title: 'Automation on', description: 'Once a day, in the morning, it sends to whoever is due.' });
-        } finally { setIsSaving(false); }
-    };
-    const togglePause = async () => {
-        if (!automation) return;
-        const r = await callSend('pause', { active: !automation.active });
-        if (r?.ok) setAutomation({ ...automation, active: r.active });
-    };
-    const unschedule = async () => {
-        const r = await callSend('unschedule');
-        if (r?.ok) { setScheduledFor(null); toast({ title: 'Unscheduled', description: 'It’s a draft again.' }); }
-        else toast({ variant: 'destructive', title: 'Could not unschedule', description: r?.error || 'Try again.' });
-    };
-
-    const processSubmit = async (data: CampaignFormData, status: 'draft' | 'sent') => {
-        if (!firestore || !selectedTenant) return;
-        if (status === 'draft') setIsSaving(true); else setIsSending(true);
-        try {
-            // Always save first. Sending happens on the server, from the saved copy.
-            await setDoc(doc(firestore, 'tenants', selectedTenant.id, 'campaigns', campaignId),
-                { ...data, id: campaignId, status: 'draft', updatedAt: new Date().toISOString() }, { merge: true });
-            if (status === 'draft') {
-                toast({ title: 'Draft saved', description: `${data.name} is saved. Nothing has been sent.` });
-                router.push('/campaigns');
-                return;
-            }
-            // Who it will really reach — and who it won't, and why.
-            const pv = await callSend('preview');
-            if (!pv?.ok) { toast({ variant: 'destructive', title: 'Could not prepare the send', description: pv?.error || 'Try again.' }); return; }
-            const sm = pv.summary;
-            const skipped = [
-                sm.skippedNoConsent ? `${sm.skippedNoConsent} haven't said yes to marketing texts` : '',
-                sm.skippedMonthlyCap ? `${sm.skippedMonthlyCap} already had 4 marketing texts this month` : '',
-                sm.skippedNoContact ? `${sm.skippedNoContact} have no ${data.type === 'sms' ? 'mobile' : 'email'} on file` : '',
-                sm.skippedUnsubscribed ? `${sm.skippedUnsubscribed} unsubscribed` : '',
-            ].filter(Boolean).join('; ');
-            if (sm.willReceive === 0) {
-                toast({ variant: 'destructive', title: 'Nobody to send to', description: `${sm.matched} matched this audience${skipped ? `, but ${skipped}` : ''}. Saved as a draft.` });
-                router.push('/campaigns');
-                return;
-            }
-            const extras = [
-                pv.estCostCents ? `Estimated text cost: about $${(pv.estCostCents / 100).toFixed(2)}.` : '',
-                pv.offer ? `Includes the offer: ${pv.offer}.` : '',
-                pv.abTest && data.type !== 'sms' ? 'Half get subject A, half get subject B.' : '',
-                data.type === 'sms' && pv.segments ? `${pv.segments} text segment${pv.segments === 1 ? '' : 's'} each (≈${pv.segments * sm.willReceive} total).` : '',
-            ].filter(Boolean).join(' ');
-            const okToSend = window.confirm(`Send "${data.name}" as ${data.type === 'sms' ? 'a text' : 'an email'} to ${sm.willReceive} client${sm.willReceive === 1 ? '' : 's'}?${extras ? `\n\n${extras}` : ''}${skipped ? `\n\nNot included: ${skipped}.` : ''}\n\nThis can't be undone.`);
-            if (!okToSend) { toast({ title: 'Not sent', description: 'Saved as a draft.' }); return; }
-            // Batches until done — each batch is recorded, so a stop half-way resumes without double-sending.
-            let totals = { sent: 0, failed: 0 };
-            for (let i = 0; i < 100; i++) {
-                const r = await callSend('send');
-                if (!r?.ok) { toast({ variant: 'destructive', title: r?.quietHours ? 'Outside texting hours' : 'Sending stopped', description: r?.quietHours ? r.error : `${r?.error || 'Something went wrong'}. ${totals.sent} sent so far — open the campaign and send again to finish; nobody gets it twice.` }); break; }
-                totals = r.totals;
-                setSendProgress(`${totals.sent} of ${sm.willReceive} sent…`);
-                if (r.done) {
-                    toast({ title: 'Sent', description: `${totals.sent} delivered${totals.failed ? `, ${totals.failed} failed (see Messages log)` : ''}. Bookings in the next 14 days will show on the campaign.` });
-                    router.push('/campaigns');
-                    break;
-                }
-            }
-        } catch (error: any) {
-            console.error('Error sending campaign: ', error);
-            toast({ variant: 'destructive', title: 'Something went wrong', description: String(error?.message || 'Try again.') });
-        } finally {
-            if (status === 'draft') setIsSaving(false); else setIsSending(false);
-            setSendProgress('');
-        }
-    }
-
-    const [testResult, setTestResult] = useState<{ ok: boolean; lines: string[] } | null>(null);
-    const handleConfirmSendTest = async () => {
-        const isSms = campaignType === 'sms';
-        if (isSms ? String(testEmail).replace(/\D/g, '').length < 10 : !/\S+@\S+\.\S+/.test(testEmail)) {
-            setTestResult({ ok: false, lines: [isSms ? 'Enter a mobile number (10 digits) for a text test.' : 'Enter an email address for an email test.'] });
-            return;
-        }
-        setIsSendingTest(true);
-        setTestResult(null);
-        try {
-            // The server sends from the SAVED copy, so save what's on screen first.
-            const data = getValues() as any;
-            await setDoc(doc(firestore!, 'tenants', selectedTenant!.id, 'campaigns', campaignId), { ...data, id: campaignId, status: 'draft', updatedAt: new Date().toISOString() }, { merge: true });
-            const r = await callSend('test', { to: testEmail });
-            // The answer stays in the dialog, in full — a toast was too easy to miss.
-            setTestResult(r?.ok
-                ? { ok: true, lines: [`Sent to ${r.to || testEmail}.`, ...(r.notes || [])] }
-                : { ok: false, lines: [r?.error || 'Not sent — try again.'] });
-        } finally { setIsSendingTest(false); }
-    };
-
-    const { ref: bodyRef, ...bodyRegister } = register('body');
-
-    return (
-        <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
-            <AppHeader title="New Dispatch" />
-            <main className="flex-1 p-4 md:p-10 w-full max-w-5xl mx-auto min-w-0">
-                <form className="space-y-10">
-                     <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-                        <div className="space-y-1">
-                            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Draft Protocol</h1>
-                            <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Strategic dispatch configuration</p>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-                             <Button type="button" variant="outline" onClick={handleSubmit((data) => processSubmit(data, 'draft'))} disabled={isSaving || isSending || isSendingTest} className="flex-1 md:flex-none h-14 px-6 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] shadow-sm bg-white/50 backdrop-blur-sm">
-                                {isSaving ? <Loader className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4 opacity-40" />}
-                                Cache Draft
-                            </Button>
-                            <div className="flex items-center gap-2 rounded-2xl border-2 bg-white/60 px-2 h-14">
-                                <input type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} aria-label="Schedule for" className="h-10 rounded-xl border-2 px-2 text-xs font-bold bg-white" />
-                                <Button type="button" variant="outline" disabled={!scheduleAt || isSaving || isSending} onClick={handleSubmit((data) => processSchedule(data))} className="h-10 rounded-xl border-2 font-black uppercase tracking-widest text-[10px]">Schedule</Button>
-                            </div>
-                            <div className="flex items-center gap-2 rounded-2xl border-2 border-violet-200 bg-violet-50/60 px-2 h-14">
-                                <select value={autoTrigger} onChange={(e) => setAutoTrigger(e.target.value as any)} aria-label="Repeat when" className="h-10 rounded-xl border-2 px-2 text-[11px] font-bold bg-white">
-                                    <option value="birthday">Every birthday month</option>
-                                    <option value="first_visit_followup">After a first visit</option>
-                                </select>
-                                {autoTrigger === 'first_visit_followup' && <input type="number" min={1} max={90} value={autoDays} onChange={(e) => setAutoDays(Number(e.target.value) || 7)} aria-label="Days after" className="h-10 w-16 rounded-xl border-2 px-2 text-xs font-black bg-white" />}
-                                {automation
-                                    ? <Button type="button" variant="outline" onClick={togglePause} className="h-10 rounded-xl border-2 font-black uppercase tracking-widest text-[10px]">{automation.active ? 'Pause' : 'Resume'}</Button>
-                                    : <Button type="button" variant="outline" disabled={isSaving || isSending} onClick={handleSubmit((data) => processAutomate(data))} className="h-10 rounded-xl border-2 font-black uppercase tracking-widest text-[10px]">Automate</Button>}
-                            </div>
-                            {automation && (
-                                <div className="flex items-center rounded-2xl border-2 border-violet-200 bg-violet-50 px-3 h-14 text-[10px] font-black uppercase tracking-widest text-violet-800">
-                                    {automation.active ? 'Automation on' : 'Automation paused'} · {automation.trigger === 'birthday' ? 'birthdays' : `${automation.daysAfter || 7} days after a first visit`}
-                                </div>
-                            )}
-                            {scheduledFor && (
-                                <div className="flex items-center gap-2 rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-3 h-14 text-[10px] font-black uppercase tracking-widest text-emerald-800">
-                                    Scheduled · {new Date(scheduledFor).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                                    <Button type="button" variant="ghost" size="sm" onClick={unschedule} className="h-8 text-[10px]">Cancel</Button>
-                                </div>
-                            )}
-                            <Button type="button" onClick={handleSubmit((data) => processSubmit(data, 'sent'))} disabled={isSaving || isSending || isSendingTest} className="flex-1 md:flex-none h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20">
-                                {sendProgress ? <span className="mr-2">{sendProgress}</span> : null}{isSending ? <Loader className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-                                Dispatch
-                            </Button>
-                        </div>
-                    </div>
-
-                     <div className="grid grid-cols-1 gap-10">
-                        <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
-                            <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                                    <div>
-                                        <CardTitle className="text-base md:text-lg font-black uppercase tracking-tight text-slate-900">Configuration Matrix</CardTitle>
-                                        <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Select a verified script or draft a custom message.</CardDescription>
-                                    </div>
-                                    <Select onValueChange={handleTemplateSelect}>
-                                        <SelectTrigger className="h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest w-full sm:w-64 bg-white/50 backdrop-blur-sm shadow-sm ring-primary/20 border-primary/20 text-primary">
-                                            <Sparkles className="w-3.5 h-3.5 mr-2" />
-                                            <SelectValue placeholder="LOAD TEMPLATE SCRIPT..." />
-                                        </SelectTrigger>
-                                        <SelectContent className="rounded-2xl border-2 shadow-2xl">
-                                            {premadeCampaigns.map(template => (
-                                                <SelectItem key={template.name} value={template.name} className="font-bold uppercase text-[10px] tracking-widest">
-                                                    <div className="flex items-center gap-2">
-                                                        <template.icon className="h-3.5 w-3.5 text-primary" />
-                                                        <span>{template.name}</span>
-                                                    </div>
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            </CardHeader>
-                            <CardContent className="p-6 md:p-8 space-y-10 text-left">
-                                <div className="space-y-8">
-                                    <SectionHeader icon={Tag} title="Internal Identity" step={1} />
-                                    <div className="space-y-2">
-                                        <Label htmlFor="name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Dispatch Label (Internal)</Label>
-                                        <Input id="name" placeholder="e.g., JULY SUMMER SPECIAL" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-base tracking-tight shadow-inner bg-muted/5" />
-                                        {errors.name && <p className="text-[9px] font-black text-destructive uppercase ml-1">{errors.name.message}</p>}
-                                    </div>
-                                    
-                                    <div className="space-y-3">
-                                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Dispatch Mode</Label>
-                                        <Controller
-                                            name="type"
-                                            control={control}
-                                            render={({ field }) => (
-                                                <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-4">
-                                                    <label htmlFor="email-mode" className="cursor-pointer">
-                                                        <div className={cn(
-                                                            "flex flex-col items-center justify-center p-6 rounded-[2rem] border-2 transition-all",
-                                                            field.value === 'email' ? "border-primary bg-primary/5 shadow-lg" : "border-border/50 bg-white hover:border-primary/20"
-                                                        )}>
-                                                            <Mail className={cn("mb-2 h-8 w-8", field.value === 'email' ? "text-primary" : "text-muted-foreground opacity-40")} />
-                                                            <span className="text-xs font-black uppercase tracking-widest text-slate-900">Email</span>
-                                                            <RadioGroupItem value="email" id="email-mode" className="sr-only" />
-                                                        </div>
-                                                    </label>
-                                                    <label htmlFor="sms-mode" className="cursor-pointer">
-                                                        <div className={cn(
-                                                            "flex flex-col items-center justify-center p-6 rounded-[2rem] border-2 transition-all",
-                                                            field.value === 'sms' ? "border-primary bg-primary/5 shadow-lg" : "border-border/50 bg-white hover:border-primary/20"
-                                                        )}>
-                                                            <MessageSquare className={cn("mb-2 h-8 w-8", field.value === 'sms' ? "text-primary" : "text-muted-foreground opacity-40")} />
-                                                            <span className="text-xs font-black uppercase tracking-widest text-slate-900">SMS</span>
-                                                            <RadioGroupItem value="sms" id="sms-mode" className="sr-only" />
-                                                        </div>
-                                                    </label>
-                                                </RadioGroup>
-                                            )}
-                                        />
-                                    </div>
-                                </div>
-
-                                <Separator className="border-dashed" />
-
-                                <div className="space-y-8">
-                                    <SectionHeader icon={Activity} title="Message Composition" step={2} />
-                                    {campaignType === 'email' && (
-                                        <div className="space-y-6">
-                                            <div className="space-y-2">
-                                                <Label htmlFor="subject" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Subject Line (Primary)</Label>
-                                                <Input id="subject" placeholder="Draft a compelling subject..." {...register('subject')} className="h-12 rounded-xl border-2 font-bold shadow-inner" />
-                                                {errors.subject && <p className="text-[9px] font-black text-destructive uppercase ml-1">{errors.subject.message}</p>}
-                                            </div>
-
-                                            {isABTest ? (
-                                                <div className="space-y-2 p-6 border-4 rounded-[2rem] border-purple-500/20 bg-purple-500/[0.03] animate-in slide-in-from-top-2">
-                                                    <div className="flex items-center justify-between mb-2">
-                                                        <Label htmlFor="subjectB" className="text-[10px] font-black uppercase tracking-widest text-purple-600 ml-1">A/B Subject Variant</Label>
-                                                        <Button variant="ghost" size="xs" onClick={() => { setIsABTest(false); setValue('subjectB', ''); }} className="h-6 px-2 text-[8px] font-black uppercase text-destructive hover:bg-destructive/5"><X className="w-3 h-3 mr-1"/> Terminate Test</Button>
-                                                    </div>
-                                                    <Input id="subjectB" placeholder="Draft a secondary variant..." {...register('subjectB')} className="h-12 rounded-xl border-2 border-purple-500/20 font-bold shadow-inner bg-white" />
-                                                </div>
-                                            ) : (
-                                                <Button type="button" variant="outline" size="sm" onClick={() => setIsABTest(true)} className="h-10 rounded-xl border-2 border-purple-500/20 text-purple-600 font-black uppercase tracking-widest text-[9px] hover:bg-purple-50">
-                                                    <FlaskConical className="mr-2 h-3.5 w-3.5" /> Initialize A/B Performance Test
-                                                </Button>
-                                            )}
-
-                                            <div className="space-y-2">
-                                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Header Visual</Label>
-                                                <Controller
-                                                    name="imageUrl"
-                                                    control={control}
-                                                    render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} /> )}
-                                                />
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    <div className="space-y-3">
-                                        <div className="flex items-center justify-between px-1">
-                                            <Label htmlFor="body" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Message Narrative</Label>
-                                            <div className="flex items-center gap-2">
-                                                <DropdownMenu>
-                                                    <DropdownMenuTrigger asChild>
-                                                        <Button variant="ghost" size="sm" className="h-7 text-[9px] font-black uppercase tracking-widest text-primary hover:bg-primary/5 border border-primary/20 rounded-lg">
-                                                            Insert Service <ChevronDown className="ml-1 h-3 w-3" />
-                                                        </Button>
-                                                    </DropdownMenuTrigger>
-                                                    <DropdownMenuContent align="end" className="w-56 max-h-64 rounded-xl border-2 shadow-2xl overflow-y-auto">
-                                                        {services.map(s => (
-                                                            <DropdownMenuItem key={s.id} onClick={() => handleInsertPlaceholder(s.name)} className="font-bold uppercase text-[9px] tracking-widest">
-                                                                {s.name}
-                                                            </DropdownMenuItem>
-                                                        ))}
-                                                    </DropdownMenuContent>
-                                                </DropdownMenu>
-                                                <Button
-                                                    type="button"
-                                                    variant="ghost"
-                                                    className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary hover:bg-primary/5 border border-primary/20 rounded-lg"
-                                                    onClick={() => handleInsertPlaceholder('{{clientName}}')}
-                                                >
-                                                    Inject Client Name
-                                                </Button>
-                                            </div>
-                                        </div>
-                                        <Textarea
-                                            id="body"
-                                            placeholder="Draft your dispatch narrative here..."
-                                            {...bodyRegister}
-                                            ref={(e) => {
-                                                bodyRef(e);
-                                                bodyTextareaRef.current = e;
-                                            }}
-                                            rows={10}
-                                            className="rounded-2xl border-2 bg-muted/5 font-medium leading-relaxed focus-visible:ring-primary/20 p-6 text-slate-900"
-                                        />
-                                        <div className="flex justify-between items-center px-1">
-                                            <p className="text-[9px] text-muted-foreground font-black uppercase tracking-tight opacity-40">Variable injection enabled</p>
-                                            {errors.body && <p className="text-[10px] font-black text-destructive uppercase">{errors.body.message}</p>}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <Separator className="border-dashed" />
-
-                                <div className="space-y-8">
-                                    <SectionHeader icon={ListChecks} title="Audience & Strategy" step={3} />
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                        <div className="space-y-2">
-                                            <Label htmlFor="targetAudience" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Target Persona</Label>
-                                            <Controller
-                                                name="targetAudience"
-                                                control={control}
-                                                render={({ field }) => (
-                                                    <Select onValueChange={field.onChange} value={field.value}>
-                                                        <SelectTrigger id="targetAudience" className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest shadow-inner bg-muted/5">
-                                                            <SelectValue />
-                                                        </SelectTrigger>
-                                                        <SelectContent className="rounded-2xl border-2 shadow-2xl">
-                                                            <SelectItem value="all" className="font-bold uppercase text-[10px] tracking-widest">ALL REGISTERED GUESTS</SelectItem>
-                                                            <SelectItem value="new" className="font-bold uppercase text-[10px] tracking-widest">NEW GUESTS (1ST VISIT)</SelectItem>
-                                                            <SelectItem value="loyal" className="font-bold uppercase text-[10px] tracking-widest">LOYAL MATURED (5+ VISITS)</SelectItem>
-                                                            <SelectItem value="inactive_90" className="font-bold uppercase text-[10px] tracking-widest">INACTIVE (90+ DAYS)</SelectItem>
-                                                            <SelectItem value="birthday" className="font-bold uppercase text-[10px] tracking-widest">CURRENT BIRTHDAY MONTH</SelectItem>
-                                                            <SelectItem value="service" className="font-bold uppercase text-[10px] tracking-widest">LAST HAD A SERVICE…</SelectItem>
-                                                            <SelectItem value="provider" className="font-bold uppercase text-[10px] tracking-widest">LAST SAW A TEAM MEMBER…</SelectItem>
-                                                            <SelectItem value="spent_over" className="font-bold uppercase text-[10px] tracking-widest">SPENT OVER $… (12 MONTHS)</SelectItem>
-                                                            <SelectItem value="one_and_done" className="font-bold uppercase text-[10px] tracking-widest">CAME ONCE, NEVER RETURNED</SelectItem>
-                                                            <SelectItem value="members" className="font-bold uppercase text-[10px] tracking-widest">ACTIVE MEMBERS</SelectItem>
-                                                            <SelectItem value="cancelled_recent" className="font-bold uppercase text-[10px] tracking-widest">CANCELLED OR MISSED (30 DAYS)</SelectItem>
-                                                            <SelectItem value="specific" className="font-bold uppercase text-[10px] tracking-widest">SPECIFIC MANUAL GROUP</SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
-                                                )}
-                                            />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label htmlFor="discountId" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Incentive Attachment</Label>
-                                            <Controller
-                                                name="discountId"
-                                                control={control}
-                                                render={({ field }) => (
-                                                    <Select 
-                                                        onValueChange={(value) => field.onChange(value === 'none' ? undefined : value)} 
-                                                        value={field.value || 'none'}
-                                                    >
-                                                        <SelectTrigger id="discountId" className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest shadow-inner bg-muted/5">
-                                                            <SelectValue placeholder="Select a discount code" />
-                                                        </SelectTrigger>
-                                                        <SelectContent className="rounded-2xl border-2 shadow-2xl">
-                                                            <SelectItem value="none" className="font-bold uppercase text-[10px] tracking-widest">NO INCENTIVE ATTACHED</SelectItem>
-                                                            {discounts.map(d => <SelectItem key={d.id} value={d.id} className="font-bold uppercase text-[10px] tracking-widest">{d.code} &middot; {d.description}</SelectItem>)}
-                                                        </SelectContent>
-                                                    </Select>
-                                                )}
-                                            />
-                                        </div>
-                                    </div>
-                                    
-                                    {(targetAudience === 'service' || targetAudience === 'provider') && (
-                                        <div className="space-y-2 rounded-2xl border-2 border-dashed p-4">
-                                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">{targetAudience === 'service' ? 'Which services? (their most recent visit)' : 'Which team members? (their most recent visit)'}</Label>
-                                            <Controller name={targetAudience === 'service' ? 'targetServiceIds' : 'targetStaffIds'} control={control} render={({ field }) => {
-                                                const opts: { id: string; name: string }[] = targetAudience === 'service'
-                                                    ? (services || []).map((x: any) => ({ id: x.id, name: x.name }))
-                                                    : (staff || []).filter((x: any) => x.isActive !== false && !x.isRenter).map((x: any) => ({ id: x.id, name: x.name || x.displayName || 'Team member' }));
-                                                const val: string[] = Array.isArray(field.value) ? field.value : [];
-                                                return (
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {opts.map((o) => (
-                                                            <button key={o.id} type="button" aria-pressed={val.includes(o.id)} onClick={() => field.onChange(val.includes(o.id) ? val.filter((v) => v !== o.id) : [...val, o.id])}
-                                                                className={`h-9 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest ${val.includes(o.id) ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600'}`}>{o.name}</button>
-                                                        ))}
-                                                        {opts.length === 0 && <p className="text-xs text-muted-foreground">Nothing to pick yet.</p>}
-                                                    </div>
-                                                );
-                                            }} />
-                                        </div>
-                                    )}
-                                    {targetAudience === 'spent_over' && (
-                                        <div className="space-y-2 rounded-2xl border-2 border-dashed p-4">
-                                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Spent at least ($, booked value, last 12 months)</Label>
-                                            <Input type="number" min={1} {...register('targetMinSpend')} className="h-12 w-40 rounded-xl border-2 font-black" />
-                                        </div>
-                                    )}
-                                    {targetAudience === 'specific' && (
-                                        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
-                                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Target Group</Label>
-                                            <Button type="button" variant="outline" className="w-full h-14 rounded-2xl border-2 font-black uppercase tracking-widest text-xs justify-start px-6 bg-primary/[0.02] border-primary/20 text-primary shadow-sm" onClick={() => setIsClientSelectorOpen(true)}>
-                                                <UserIcon className="mr-3 h-5 w-5 opacity-40" />
-                                                Selected Group ({watch('targetClientIds')?.length || 0} Targets)
-                                            </Button>
-                                        </motion.div>
-                                    )}
-                                </div>
-                            </CardContent>
-                            <CardFooter className="bg-muted/5 border-t p-6 md:p-8 flex flex-col sm:flex-row gap-4">
-                                <Button type="button" variant="outline" className="h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-white flex-1" onClick={handleSubmit((data) => setPreviewData(data))} disabled={isSaving || isSending || isSendingTest}>
-                                    <Eye className="mr-2 h-4 w-4 opacity-40" /> Tactical Preview
-                                </Button>
-                                <Button type="button" variant="outline" className="h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-white flex-1" onClick={() => setIsTestSendDialogOpen(true)} disabled={isSaving || isSending || isSendingTest}>
-                                    {isSendingTest ? <Loader className="mr-2 h-4 w-4 animate-spin" /> : <FlaskConical className="mr-2 h-4 w-4 opacity-40" />}
-                                    Dispatch Test
-                                </Button>
-                            </CardFooter>
-                        </Card>
-                    </div>
-                </form>
-            </main>
-
-            <CampaignPreviewDialog 
-                previewData={previewData}
-                onOpenChange={(open) => !open && setPreviewData(null)}
-            />
-            
-            <ClientSelectorDialog
-                open={isClientSelectorOpen}
-                onOpenChange={setIsClientSelectorOpen}
-                allClients={clients || []}
-                initialSelectedIds={watch('targetClientIds') || []}
-                onConfirm={(selectedIds) => {
-                    setValue('targetClientIds', selectedIds, { shouldDirty: true });
-                }}
-            />
-
-            <Dialog open={isTestSendDialogOpen} onOpenChange={setIsTestSendDialogOpen}>
-                <DialogContent className="sm:max-w-md rounded-[3rem] border-4 p-0 overflow-hidden shadow-3xl">
-                    <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left">
-                        <div className="flex items-center gap-3 mb-2">
-                            <FlaskConical className="w-5 h-5 text-primary" />
-                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Testing</span>
-                        </div>
-                        <DialogTitle className="text-2xl font-black uppercase tracking-tighter">Test Dispatch</DialogTitle>
-                        <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">A real send, marked [TEST], to this address only. Use an email for email campaigns, a mobile number for texts.</DialogDescription>
-                    </DialogHeader>
-                    <div className="p-8 space-y-4">
-                        <div className="space-y-2 text-left">
-                            <Label htmlFor="test-email" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">{campaignType === 'sms' ? 'Your mobile number' : 'Your email address'}</Label>
-                            <Input
-                                id="test-email"
-                                type={campaignType === 'sms' ? 'tel' : 'email'}
-                                inputMode={campaignType === 'sms' ? 'tel' : 'email'}
-                                value={testEmail}
-                                onChange={(e) => { setTestEmail(e.target.value); setTestResult(null); }}
-                                placeholder={campaignType === 'sms' ? '(555) 123-4567' : 'you@example.com'}
-                                className="h-14 rounded-2xl border-2 font-bold shadow-inner"
-                            />
-                        </div>
-                        {testResult && (
-                            <div className={`rounded-2xl border-2 p-4 space-y-1 text-left ${testResult.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-red-200 bg-red-50 text-red-900'}`}>
-                                {testResult.lines.map((l, i) => <p key={i} className={`text-sm ${i === 0 ? 'font-black' : 'font-medium'}`}>{l}</p>)}
-                            </div>
-                        )}
-                    </div>
-                    <DialogFooter className="p-8 pt-0 flex flex-col gap-3">
-                        <Button onClick={handleConfirmSendTest} className="w-full h-16 rounded-2xl text-lg font-black uppercase tracking-tight shadow-2xl shadow-primary/20">Authorize Dispatch</Button>
-                        <Button variant="ghost" onClick={() => setIsTestSendDialogOpen(false)} className="w-full font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+      {/* Bottom bar */}
+      {step !== 'start' && !locked && (
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-white/95 backdrop-blur px-4 pt-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}>
+          <div className="mx-auto flex max-w-2xl gap-2">
+            <Button type="button" variant="outline" className="h-12" onClick={() => go(STEPS[Math.max(0, idx - 1)].id)}><ArrowLeft className="h-4 w-4 mr-1" />Back</Button>
+            {step !== 'review'
+              ? <Button type="button" className="h-12 flex-1" onClick={() => go(STEPS[idx + 1].id)}>Next: {STEPS[idx + 1].label}<ArrowRight className="h-4 w-4 ml-1" /></Button>
+              : <Button type="button" className="h-12 flex-1" disabled={busy} onClick={finish}>{busy ? <><Loader className="h-4 w-4 mr-2 animate-spin" />{progress || 'Working…'}</> : <><Sparkles className="h-4 w-4 mr-2" />{actionLabel}</>}</Button>}
+          </div>
+          <p className="mx-auto max-w-2xl pt-1 text-center text-[10px] font-bold text-slate-400">Saved automatically · nothing is sent until you press the last button</p>
         </div>
-    );
+      )}
+    </div>
+  );
 }
 
-// useSearchParams (for ?id= draft editing) needs a Suspense boundary so the
-// page can still be prerendered.
 export default function NewCampaignPage() {
-    return (
-        <Suspense fallback={<div className="p-10 text-sm text-muted-foreground">Loading…</div>}>
-            <NewCampaignPageInner />
-        </Suspense>
-    );
+  return (
+    <Suspense fallback={<div className="p-10 text-sm text-slate-500">Loading…</div>}>
+      <Editor />
+    </Suspense>
+  );
 }
