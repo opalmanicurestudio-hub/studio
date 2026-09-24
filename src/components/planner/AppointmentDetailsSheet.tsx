@@ -1,5 +1,6 @@
 'use client';
 
+import { PrivateImg, resolvePrivateUrl, openPrivateFile } from '@/components/shared/private-file';
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { format, differenceInMinutes, parseISO, differenceInSeconds, formatDistanceToNow } from 'date-fns';
 import {
@@ -2614,10 +2615,10 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                       {imageFiles.map((f: any, i: number) => (
                         <button
                           key={i}
-                          onClick={() => openLightbox(imageFiles.map((im: any) => ({ url: im.url, name: im.name })), i)}
+                          onClick={async () => { const urls = await Promise.all(imageFiles.map((im: any) => resolvePrivateUrl(im.url).catch(() => im.url))); openLightbox(imageFiles.map((im: any, k: number) => ({ url: urls[k], name: im.name })), i); }}
                           className="group relative aspect-square rounded-xl overflow-hidden border-2 bg-muted/5 cursor-zoom-in"
                         >
-                          <img src={f.url} alt={f.name} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                          <PrivateImg src={f.url} alt={f.name} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center">
                             <Maximize2 className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                           </div>
@@ -2631,7 +2632,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   {otherFiles.length > 0 && (
                     <div className="grid grid-cols-3 gap-2.5">
                       {otherFiles.map((f: any, i: number) => (
-                        <a key={i} href={f.url} target="_blank" rel="noreferrer" className="flex flex-col items-center justify-center gap-1 aspect-square rounded-xl border-2 bg-muted/5 hover:border-primary/30 transition-colors p-2 text-center">
+                        <a key={i} href={f.url} onClick={(e) => { e.preventDefault(); void openPrivateFile(f.url); }} target="_blank" rel="noreferrer" className="flex flex-col items-center justify-center gap-1 aspect-square rounded-xl border-2 bg-muted/5 hover:border-primary/30 transition-colors p-2 text-center">
                           <FileText className="w-5 h-5 text-muted-foreground opacity-40" />
                           <p className="text-[8px] text-muted-foreground break-all line-clamp-2">{f.name}</p>
                         </a>
