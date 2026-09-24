@@ -127,6 +127,7 @@ const CampaignCard = ({ campaign, onSend, onDelete }: { campaign: Campaign, onSe
                     <p className="font-black font-mono text-sm text-primary">{campaign.status === 'draft' || campaign.status === 'scheduled' ? '—' : `${safeNumber(campaign.convertedCount)} · $${(safeNumber((campaign as any).convertedRevenueCents) / 100).toFixed(0)}`}</p>
                     {campaign.status === 'scheduled' && (campaign as any).scheduledFor && <p className="text-[9px] font-bold text-emerald-700 mt-1">Scheduled {new Date((campaign as any).scheduledFor).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</p>}
                     {(campaign as any).subjectB && campaign.status === 'sent' && <p className="text-[9px] font-bold text-purple-700 mt-1">A: {safeNumber((campaign as any).convertedA)} · B: {safeNumber((campaign as any).convertedB)} booked</p>}
+                    {(campaign as any).discountId && campaign.status !== 'draft' && <p className="text-[9px] font-bold text-emerald-700 mt-1">🎁 {safeNumber((campaign as any).offersRedeemed)} offer{safeNumber((campaign as any).offersRedeemed) === 1 ? '' : 's'} used{safeNumber((campaign as any).offerRevenueCents) ? ` · $${(safeNumber((campaign as any).offerRevenueCents) / 100).toFixed(0)} in those visits` : ''}</p>}
                 </div>
             </div>
 
