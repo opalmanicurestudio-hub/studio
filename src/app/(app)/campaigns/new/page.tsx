@@ -356,7 +356,7 @@ function NewCampaignPageInner() {
             const r = await callSend('schedule', { scheduledFor: when.toISOString() });
             if (!r?.ok) { toast({ variant: 'destructive', title: 'Not scheduled', description: r?.error || 'Try again.' }); return; }
             setScheduledFor(r.scheduledFor);
-            toast({ title: 'Scheduled', description: 'It goes out at that time (checked every hour).' });
+            toast({ title: 'Scheduled', description: 'It goes out at the first daily send after that time (around 10am Eastern).' });
             router.push('/campaigns');
         } finally { setIsSaving(false); }
     };
@@ -373,7 +373,7 @@ function NewCampaignPageInner() {
             const r = await callSend('automate', { trigger: autoTrigger, daysAfter: autoDays });
             if (!r?.ok) { toast({ variant: 'destructive', title: 'Not started', description: r?.error || 'Try again.' }); return; }
             setAutomation({ trigger: autoTrigger, daysAfter: autoDays, active: true });
-            toast({ title: 'Automation on', description: 'It checks every morning and sends to whoever is due.' });
+            toast({ title: 'Automation on', description: 'Once a day, in the morning, it sends to whoever is due.' });
         } finally { setIsSaving(false); }
     };
     const togglePause = async () => {
