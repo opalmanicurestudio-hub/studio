@@ -1898,7 +1898,7 @@ const CompletionGateView = ({
                 const res = await fetch('/api/completion/upload-file', { method: 'POST', body: fd });
                 const out = await res.json().catch(() => null);
                 if (out?.url) {
-                    setUploads(prev => ({ ...prev, [reqId]: [...(prev[reqId] || []), { name: file.name, url: out.url, uploadedAt: new Date().toISOString() }] }));
+                    setUploads(prev => ({ ...prev, [reqId]: [...(prev[reqId] || []), { name: file.name, url: out.url, previewUrl: out.previewUrl || null, uploadedAt: new Date().toISOString() }] }));
                 } else {
                     setError(out?.error || `Couldn't upload ${file.name}.`);
                 }
@@ -2274,7 +2274,7 @@ const CompletionGateView = ({
                                     {got.map((f: any, i: number) => (
                                         <div key={i} className="relative rounded-xl border-2 overflow-hidden bg-slate-50 aspect-square">
                                             {/\.(png|jpe?g|gif|webp)$/i.test(f.name)
-                                                ? <img src={f.url} alt={f.name} className="w-full h-full object-cover" />
+                                                ? <img src={(f as any).previewUrl || f.url} alt={f.name} className="w-full h-full object-cover" />
                                                 : <div className="flex items-center justify-center h-full text-[10px] p-2 text-center text-slate-500 break-all">{f.name}</div>}
                                             <button onClick={() => removeUpload(fr.id, i)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white text-sm leading-none flex items-center justify-center">×</button>
                                         </div>
