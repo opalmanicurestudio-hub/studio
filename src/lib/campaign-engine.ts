@@ -16,6 +16,7 @@ import { resolveAudience, personalise, unsubSig, inTextWindow, TEXT_WINDOW, type
 import { sendNotification } from '@/lib/notify';
 import { brandedEmailHtml } from '@/lib/email-template';
 import { fillTokens } from '@/lib/campaign-templates';
+import { offerProblem, offerLine } from '@/lib/offers';
 
 /**
  * The message for one person. Tokens ({first} {business} {offer} {link}) are
@@ -49,16 +50,15 @@ export function audienceParams(c: any, owner: { renterId: string; staffIds: stri
   };
 }
 
-export async function loadOffer(db: any, tenantId: string, c: any): Promise<{ code: string; line: string } | null> {
+export async function loadOffer(db: any, tenantId: string, c: any): Promise<{ code: string; line: string; discountId: string | null; expiresAt: string | null } | null> {
   // A renter's campaign carries its offer as their own words (no code).
-  if (!c.discountId && typeof c.offerText === 'string' && c.offerText.trim()) return { code: '', line: c.offerText.trim().slice(0, 140) };
+  if (!c.discountId && typeof c.offerText === 'string' && c.offerText.trim()) return { code: '', line: c.offerText.trim().slice(0, 140), discountId: null, expiresAt: null };
   if (!c.discountId) return null;
   try {
     const dz = ((await db.doc(`tenants/${tenantId}/discounts/${String(c.discountId)}`).get()).data() as any) || null;
-    if (!dz || dz.isActive === false || !dz.code) return null;
-    const amt = dz.type === 'percentage' ? `${Number(dz.value) || 0}% off` : `$${(Number(dz.value) || 0).toFixed(0)} off`;
-    const until = dz.validUntil ? ` — until ${new Date(dz.validUntil).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : '';
-    return { code: String(dz.code), line: `${amt} with code ${dz.code}${until}` };
+    // Never send an offer that couldn't be used (switched off, ended, used up).
+    if (!dz || !dz.code || offerProblem({ ...dz, usedByClientIds: [] })) return null;
+    return { code: String(dz.code), line: offerLine(dz), discountId: String(c.discountId), expiresAt: dz.validUntil || null };
   } catch { return null; }
 }
 
@@ -133,6 +133,14 @@ async function sendOne(db: any, tenantId: string, campaignId: string, c: any, m:
   const at = new Date().toISOString();
   await cRef.collection('recipients').doc(key).set({ clientId: m.id, name: m.name, channel, variant: channel === 'email' ? variant : null, status: ok ? 'sent' : 'failed', error: err, at, converted: false, segments });
   if (ok) await db.doc(`tenants/${tenantId}/campaignSends/${campaignId}_${key}`).set({ campaignId, clientId: m.id, channel, variant: channel === 'email' ? variant : null, at, converted: false, segments, renterId: c.ownerRenterId || null });
+  // The client's offer wallet: they were offered this. Booking and checkout
+  // look here, so the offer works however they end up booking.
+  if (ok && offer) {
+    const wRef = db.doc(`tenants/${tenantId}/clientOffers/${campaignId}__${m.id}`);
+    const had = await wRef.get();
+    if (!had.exists) await wRef.set({ id: wRef.id, clientId: m.id, clientName: m.name, discountId: offer.discountId, code: offer.code || null, line: offer.line,
+      campaignId, campaignName: c.name || null, sentAt: at, expiresAt: offer.expiresAt || null, status: 'available', ownerRenterId: c.ownerRenterId || null });
+  }
   return { ok, segments };
 }
 
