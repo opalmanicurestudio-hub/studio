@@ -51,7 +51,7 @@ const AudienceIcon = ({ audience }: { audience: Campaign['targetAudience'] }) =>
         case 'inactive_90': return <Clock className="w-3.5 h-3.5" />;
         case 'specific': return <Users className="w-3.5 h-3.5" />;
         case 'birthday': return <Gift className="w-3.5 h-3.5" />;
-        default: return null;
+        default: return <Users className="w-3.5 h-3.5" />;
     }
 }
 
@@ -62,6 +62,12 @@ const audienceText: Record<Campaign['targetAudience'], string> = {
     inactive_90: 'INACTIVE (90D)',
     specific: 'SPECIFIC GROUP',
     birthday: 'BIRTHDAY MONTH',
+    service: 'BY SERVICE',
+    provider: 'BY TEAM MEMBER',
+    spent_over: 'TOP SPENDERS',
+    one_and_done: 'CAME ONCE',
+    members: 'MEMBERS',
+    cancelled_recent: 'RECENT CANCELS',
 };
 
 const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title: string, value: string, icon: any, description: string, colorClass?: string }) => (
@@ -117,7 +123,9 @@ const CampaignCard = ({ campaign, onSend, onDelete }: { campaign: Campaign, onSe
                 </div>
                 <div className="p-3 rounded-xl bg-primary/[0.03] border border-primary/5 shadow-inner">
                     <p className="text-[8px] font-black uppercase text-primary/40 mb-0.5">Rebooked in 14 days</p>
-                    <p className="font-black font-mono text-sm text-primary">{campaign.status === 'draft' ? '—' : safeNumber(campaign.convertedCount)}</p>
+                    <p className="font-black font-mono text-sm text-primary">{campaign.status === 'draft' || campaign.status === 'scheduled' ? '—' : `${safeNumber(campaign.convertedCount)} · $${(safeNumber((campaign as any).convertedRevenueCents) / 100).toFixed(0)}`}</p>
+                    {campaign.status === 'scheduled' && (campaign as any).scheduledFor && <p className="text-[9px] font-bold text-emerald-700 mt-1">Scheduled {new Date((campaign as any).scheduledFor).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</p>}
+                    {(campaign as any).subjectB && campaign.status === 'sent' && <p className="text-[9px] font-bold text-purple-700 mt-1">A: {safeNumber((campaign as any).convertedA)} · B: {safeNumber((campaign as any).convertedB)} booked</p>}
                 </div>
             </div>
 
@@ -268,7 +276,7 @@ export default function CampaignsPage() {
                                         </div>
                                     </TableCell>
                                     <TableCell className="font-black font-mono text-sm text-slate-700">{campaign.status === 'draft' ? '—' : `${safeNumber(campaign.recipientCount)}${campaign.status === 'sending' ? ' · sending' : ''}`}</TableCell>
-                                    <TableCell className="font-black font-mono text-sm text-primary">{campaign.status === 'draft' ? '—' : safeNumber(campaign.convertedCount)}</TableCell>
+                                    <TableCell className="font-black font-mono text-sm text-primary">{campaign.status === 'draft' || campaign.status === 'scheduled' ? '—' : `${safeNumber(campaign.convertedCount)} · $${(safeNumber((campaign as any).convertedRevenueCents) / 100).toFixed(0)}`}</TableCell>
                                     <TableCell>
                                         <Badge variant={campaign.status === 'sent' ? 'default' : 'secondary'} className="h-5 px-2 font-black text-[8px] uppercase border-none shadow-sm">{campaign.status}</Badge>
                                     </TableCell>
