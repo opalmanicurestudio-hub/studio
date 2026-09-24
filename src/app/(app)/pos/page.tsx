@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, increment, arrayUnion, getDocs, query, where, deleteField, limit } from 'firebase/firestore';
+import { offerProblem, offerLine, offerAmount, walletStatus } from '@/lib/offers';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
@@ -487,6 +488,38 @@ function POSPage() {
     const adjustmentSub = Array.from(appliedAdjustments).reduce((acc, id) => { const fee = clients.flatMap(c => c.unpaidFees || []).find(f => f.feeId === id); return acc + safeNumber(fee?.feeAmount); }, 0);
     return safeNumber(servicesSub + retailSub + adjustmentSub);
   }, [readyForCheckoutAppointments, selectedAppointmentIds, retailItems, appliedAdjustments, clients, waivedAppointmentFees, staff, redeemedOffer]);
+
+  // ── OFFERS at checkout ────────────────────────────────────────────────
+  // (1) A booking that came with an offer (pendingDiscountCode) gets it
+  //     applied as soon as the appointment is in the cart.
+  // (2) The client's WALLET — offers they were sent and haven't used — is
+  //     shown with an Apply button, however they booked.
+  // Every code goes through the same rules as online booking (dates, usage,
+  // once per client, services) — src/lib/offers.ts.
+  const offerClientId = selectedClientId ?? readyForCheckoutAppointments.find((a: any) => selectedAppointmentIds.has(a.id))?.appointment?.clientId ?? null;
+  const offerServiceIds = useMemo(() => readyForCheckoutAppointments.filter((a: any) => selectedAppointmentIds.has(a.id)).map((a: any) => String(a.appointment?.serviceId || '')).filter(Boolean), [readyForCheckoutAppointments, selectedAppointmentIds]);
+  const [walletOffers, setWalletOffers] = useState<any[]>([]);
+  useEffect(() => {
+    let alive = true;
+    if (!firestore || !tenantId || !offerClientId) { setWalletOffers([]); return; }
+    getDocs(query(collection(firestore, `tenants/${tenantId}/clientOffers`), where('clientId', '==', String(offerClientId))))
+      .then((snap) => { if (!alive) return; setWalletOffers(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((w: any) => !w.ownerRenterId && w.code && walletStatus(w) === 'available')); })
+      .catch(() => { if (alive) setWalletOffers([]); });
+    return () => { alive = false; };
+  }, [firestore, tenantId, offerClientId]);
+  const autoAppliedOfferRef = useRef<string>('');
+  useEffect(() => {
+    const appts = readyForCheckoutAppointments.filter((a: any) => selectedAppointmentIds.has(a.id)).map((a: any) => a.appointment);
+    const code = appts.map((a: any) => a?.pendingDiscountCode).find(Boolean);
+    const key = `${[...selectedAppointmentIds].sort().join(',')}|${code || ''}`;
+    if (!code || autoAppliedOfferRef.current === key) return;
+    autoAppliedOfferRef.current = key;
+    const d: any = (discounts || []).find((x: any) => String(x.code || '').toUpperCase() === String(code).toUpperCase());
+    const problem = offerProblem(d, { clientId: offerClientId, serviceIds: offerServiceIds });
+    if (problem) { toast({ variant: 'destructive', title: 'Booked with an offer that can’t be used', description: `${String(code)}: ${problem}` }); return; }
+    setAppliedDiscountCodes((prev) => (prev.map((c) => c.toUpperCase()).includes(String(code).toUpperCase()) ? prev : [...prev, d.code]));
+    toast({ title: 'Offer applied', description: `${offerLine(d)} — they booked with it.` });
+  }, [selectedAppointmentIds, readyForCheckoutAppointments, discounts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const discountValue = useMemo(() => safeNumber(appliedDiscountCodes.reduce((acc, code) => { const d = (discounts || []).find((dis: any) => dis.code.toUpperCase() === code.toUpperCase()); if (!d) return acc; return acc + (d.type === 'percentage' ? subtotalCalc * (d.value / 100) : d.value); }, 0)), [appliedDiscountCodes, discounts, subtotalCalc]);
 
@@ -1152,6 +1185,26 @@ function POSPage() {
         const receiptData = { id: receiptRef.id, checkoutSessionId, clientId: effectiveClientId, clientName: clientObj?.name || 'Guest', tenantId, date: now, paymentMethod: paymentData.paymentMethod, amountTendered: safeNumber(paymentData.amountTendered), change: Math.max(0, safeNumber(paymentData.amountTendered) - totalCalc), subtotal: subtotalCalc, tax: taxCalc, tip: tipAmount, discount: discountValue + membershipDiscountValue, total: totalCalc, cashierName: (staff || []).find((s: any) => s.id === currentUser?.uid)?.name || '', stripePaymentIntentId: paymentData.stripePaymentIntentId || null, lineItems: [...readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).flatMap(a => { const overrides = a.appointment.checkoutState?.serviceStaffOverrides || {}; const mainStaffMember = staff.find((s: any) => s.id === (overrides[a.service?.id] || a.appointment.staffId)); const lines: any[] = [{ label: a.service?.name || 'Service', amount: getServicePrice(a.service, a.staff), type: 'service', staff: mainStaffMember?.name?.split(' ')[0] }]; (a.addOnServices || []).forEach((addon: any) => { const addonStaff = staff.find((s: any) => s.id === (overrides[addon.id] || a.appointment.staffId)); lines.push({ label: `+ ${addon.name}`, amount: getServicePrice(addon, addonStaff), type: 'addon', staff: addonStaff?.name?.split(' ')[0] }); }); return lines; }), ...retailItems.map((item: any) => ({ label: item.name, amount: item.price * item.quantity, type: item.type || 'retail' }))] };
         setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/receipts`, receiptRef.id), receiptData, {});
       } catch (e) { console.warn('[receipt save]', e); }
+      // Record every offer used: the discount's usage (limits and "once per
+      // client" depend on it), the client's wallet, and the campaign's results.
+      // Before this, the POS never recorded a code as used at all.
+      try {
+        const usedAppts = readyForCheckoutAppointments.filter((a: any) => selectedAppointmentIds.has(a.id)).map((a: any) => a.appointment);
+        const saleTotal = safeNumber(totalCalc);
+        for (const code of appliedDiscountCodes) {
+          const d: any = (discounts || []).find((x: any) => String(x.code || '').toUpperCase() === String(code).toUpperCase());
+          if (!d?.id) continue;
+          const ob = writeBatch(firestore);
+          ob.update(doc(firestore, `tenants/${tenantId}/discounts`, d.id), { usageCount: increment(1), usedByClientIds: arrayUnion(String(effectiveClientId)) });
+          const w = walletOffers.find((x: any) => String(x.code || '').toUpperCase() === String(code).toUpperCase());
+          if (w) {
+            ob.update(doc(firestore, `tenants/${tenantId}/clientOffers`, w.id), { status: 'redeemed', redeemedAt: now, appointmentId: usedAppts[0]?.id || null, saleTotal });
+            if (w.campaignId) ob.set(doc(firestore, `tenants/${tenantId}/campaigns`, w.campaignId), { offersRedeemed: increment(1), offerRevenueCents: increment(Math.round(saleTotal * 100)) }, { merge: true });
+          }
+          for (const a of usedAppts) if (a?.pendingDiscountCode) ob.update(doc(firestore, `tenants/${tenantId}/appointments`, a.id), { pendingDiscountCode: deleteField(), discountCodeUsed: String(code) });
+          await ob.commit();
+        }
+      } catch (e) { console.warn('[offer redemption]', e); }
       setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setStoreCreditApplied(0);
     } catch (e: any) { console.error('[handleCheckout] batch.commit failed:', e?.message, e?.code, e); toast({ variant: 'destructive', title: 'Checkout Failed', description: e?.message || 'Firestore batch error' }); }
     finally { setIsSubmitting(false); }
@@ -1431,6 +1484,7 @@ function POSPage() {
     onScanClick: () => { setScanMode('checkout'); setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsCameraScanOpen(true); },
     subtotal: subtotalCalc, tax: taxCalc, total: totalCalc, tipAmount, setTipAmount, onCheckout: handleCheckout,
     appliedDiscountCodes, setAppliedDiscountCodes, discount: discountValue, membershipDiscount: membershipDiscountValue,
+    walletOffers, offerClientId, offerServiceIds,
     isSubmitting, paymentTab, setPaymentTab, discounts: discounts || [], amountTendered, setAmountTendered,
     appliedAdjustments, onApplyAdjustmentToggle: (id: string, apply: boolean) => { const next = new Set(appliedAdjustments); if (apply) next.add(id); else next.delete(id); setAppliedAdjustments(next); },
     redeemedOffer, setRedeemedOffer, memberships: memberships || [], packages: packages || [],
