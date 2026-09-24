@@ -1,5 +1,6 @@
 'use client';
 
+import { offerProblem } from '@/lib/offers';
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -526,6 +527,9 @@ export const CheckoutHub = ({
   cashierName,
   storeCreditApplied,
   onStoreCreditApplied,
+  walletOffers = [],
+  offerClientId = null,
+  offerServiceIds = [],
  }: any) => {
 
   const [promoCodeInput,        setPromoCodeInput]        = useState('');
@@ -656,9 +660,11 @@ export const CheckoutHub = ({
     const codeUpper = code.trim().toUpperCase();
     if (!codeUpper) return;
     const d = discounts.find((d: any) => d.code.toUpperCase() === codeUpper);
-    if (d && d.isActive) {
-      const isCompatible = !d.applicableServiceIds || d.applicableServiceIds.length === 0 || d.applicableServiceIds.some((id: string) => cartServiceIds.includes(id));
-      if (!isCompatible) return toast({ variant: 'destructive', title: 'Incompatible Code' });
+    if (d) {
+      // Same rules as online booking: switched on, within its dates, under its
+      // usage limit, not already used by this client, covers these services.
+      const problem = offerProblem(d, { clientId: offerClientId, serviceIds: cartServiceIds?.length ? cartServiceIds : offerServiceIds });
+      if (problem) return toast({ variant: 'destructive', title: 'Can’t use that code', description: problem });
       if (appliedDiscountCodes.includes(d.code)) return;
       if (!allowStacking) setAppliedDiscountCodes([d.code]);
       else setAppliedDiscountCodes([...appliedDiscountCodes, d.code]);
@@ -1153,6 +1159,17 @@ export const CheckoutHub = ({
       </div>
 
       <div className="space-y-3">
+        {walletOffers.filter((w: any) => !appliedDiscountCodes.map((c: string) => c.toUpperCase()).includes(String(w.code).toUpperCase())).length > 0 && (
+          <div className="space-y-2 rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-3">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-800">Offer waiting for this client</p>
+            {walletOffers.filter((w: any) => !appliedDiscountCodes.map((c: string) => c.toUpperCase()).includes(String(w.code).toUpperCase())).map((w: any) => (
+              <div key={w.id} className="flex items-center justify-between gap-2">
+                <p className="min-w-0 text-xs font-bold text-emerald-900">{w.line}{w.campaignName ? <span className="font-medium opacity-70"> · from “{w.campaignName}”</span> : null}</p>
+                <Button size="sm" onClick={() => handleApplyDiscount(String(w.code))} className="h-8 shrink-0 rounded-xl text-[10px] font-black uppercase tracking-widest">Apply</Button>
+              </div>
+            ))}
+          </div>
+        )}
         <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-1">Promo Code</Label>
         <div className="flex gap-2">
           <div className="relative flex-1">
