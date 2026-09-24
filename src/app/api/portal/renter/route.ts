@@ -40,6 +40,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createHash, randomBytes } from 'crypto';
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 import { logAuditAdmin } from '@/lib/audit';
 import { smsConfigured, sendTenantSms } from '@/lib/sms';
 
@@ -2349,6 +2350,15 @@ export async function POST(req: NextRequest) {
       } catch (e) { console.error('[portal/renter] settleCredit', e); return null; }
     };
 
+    // What the renter needs to know about a client's text consent, in one shape.
+    const consentOf = (c: any) => ({
+      reminders: c?.smsConsent?.agreed === true,
+      offers: c?.smsMarketingOptIn === true,
+      unsubscribed: c?.marketingOptOut === true,
+      offersBy: c?.smsMarketingOptIn === true ? (c.smsMarketingOptInSource === 'booking' || c.smsMarketingOptInSource === 'booking-page' ? 'Ticked when booking' : `Recorded by ${c.smsMarketingOptInBy || 'you'}`) : null,
+      offersAt: c?.smsMarketingOptInAt || null,
+    });
+
     const apptsFor = async (ids: string[], fromIso: string, toIso?: string): Promise<any[]> => {
       if (ids.length === 0) return [];
       const col = db.collection(`tenants/${tenantId}/appointments`);
@@ -2701,7 +2711,7 @@ export async function POST(req: NextRequest) {
         const noShows = ap.filter((a) => a.renterOutcome === 'no_show').length;
         const spent = done.reduce((n, a) => n + (Number(a.renterServicePrice) || 0), 0);
         return {
-          id: d.id, name: c.name || 'Client', phone: c.phone || null, email: c.email || null,
+          id: d.id, name: c.name || 'Client', phone: c.phone || null, email: c.email || null, consent: consentOf(c),
           notes: typeof c.renterNotes === 'string' ? c.renterNotes : '', archived: c.status === 'archived',
           visits: done.length, noShows, spentCents: Math.round(spent * 100),
           lastVisit: done[0]?.startTime || null, nextVisit: next ? { id: next.id, startTime: next.startTime, serviceName: next.renterServiceName || next.serviceName || '' } : null,
@@ -2758,7 +2768,7 @@ export async function POST(req: NextRequest) {
         id: clientId, name: c?.name || ap[0]?.clientName || 'Client', phone: c?.phone || ap[0]?.clientPhone || null, email: c?.email || ap[0]?.clientEmail || null,
         credits,
         membership: membership ? { id: membership.id, name: membership.membershipName, status: membership.status, left: Math.max(0, (Number(membership.includedVisits) || 0) - (Number(membership.visitsUsedThisPeriod) || 0)), includedVisits: Number(membership.includedVisits) || 0, discountPct: Number(membership.discountPct) || 0, perks: membership.perks || [], periodEnd: membership.currentPeriodEnd } : null,
-        mine, notes: mine && typeof c?.renterNotes === 'string' ? c.renterNotes : '',
+        mine, notes: mine && typeof c?.renterNotes === 'string' ? c.renterNotes : '', consent: mine ? consentOf(c) : null,
         visits: done.length, noShows: ap.filter((a: any) => a.renterOutcome === 'no_show').length,
         lastVisit: done[0]?.startTime || null, favourite: [...m.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] || null,
         history: ap.slice(0, 12).map((a: any) => ({ id: a.id, startTime: a.startTime, serviceName: a.renterServiceName || a.serviceName || '', price: Number(a.renterServicePrice ?? a.price) || 0, status: a.status, outcome: a.renterOutcome || null, note: a.renterNote || '', viaStudio: !a.isRenterBooking })),
@@ -2973,6 +2983,32 @@ export async function POST(req: NextRequest) {
       await ref.set({ paidByMembershipId: mRef.id, paidByMembershipName: m.membershipName || 'Membership', membershipRedeemedAt: new Date().toISOString() }, { merge: true });
       return NextResponse.json({ ok: true, left: left - 1 });
     }
+    // ── client-consent: the renter records a client's yes (or stop) to offers by text ──
+    if (action === 'client-consent') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const ref = db.doc(`tenants/${tenantId}/clients/${String(body.clientId || '')}`);
+      const c = ((await ref.get()).data() as any) || null;
+      if (!c || c.ownerRenterId !== session.renterId) return NextResponse.json({ ok: false, error: 'That client is not in your book.' }, { status: 403 });
+      const nowIso = new Date().toISOString();
+      const METHODS: Record<string, string> = { in_person: 'Told me in person', phone_call: 'Told me on a phone call', written_form: 'Signed a paper form', text_reply: 'Replied YES to a text' };
+      const who = session.name || 'Renter';
+      if (body.value === true) {
+        const phone = String(c.phone || '').trim();
+        if (!phone) return NextResponse.json({ ok: false, error: 'Add their mobile number first — consent applies to a specific number.' }, { status: 400 });
+        if (body.confirmed !== true) return NextResponse.json({ ok: false, error: 'Tick the confirmation — it’s what makes this a record of consent.' }, { status: 400 });
+        if (c.marketingOptOut === true && body.resubscribe !== true) return NextResponse.json({ ok: false, error: 'They unsubscribed before. Only record a yes if they asked to hear from you again.' }, { status: 400 });
+        const method = METHODS[String(body.method)] ? String(body.method) : 'in_person';
+        const note = String(body.note || '').trim().slice(0, 300) || null;
+        await ref.set({ smsMarketingOptIn: true, smsMarketingOptInAt: nowIso, smsMarketingOptInSource: 'renter', smsMarketingOptInBy: who, smsMarketingOptInMethod: method,
+          smsMarketingOptInText: `Recorded by ${who}: ${METHODS[method]}${note ? ` — ${note}` : ''}`,
+          ...(c.marketingOptOut === true ? { marketingOptOut: false, reconnectOptOut: false, resubscribedAt: nowIso } : {}),
+          consentLog: FieldValue.arrayUnion({ at: nowIso, kind: 'sms_marketing', value: true, source: 'renter', method, by: who, phone, note, ...(c.marketingOptOut ? { resubscribed: true } : {}) }) }, { merge: true });
+        return NextResponse.json({ ok: true });
+      }
+      await ref.set({ smsMarketingOptIn: false, smsMarketingOptOutAt: nowIso, smsMarketingOptOutBy: who,
+        consentLog: FieldValue.arrayUnion({ at: nowIso, kind: 'sms_marketing', value: false, source: 'renter', method: 'renter_recorded_withdrawal', by: who, phone: c.phone || null }) }, { merge: true });
+      return NextResponse.json({ ok: true });
+    }
     if (action === 'client-save') {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
       const st = await myProvider();
@@ -2988,8 +3024,13 @@ export async function POST(req: NextRequest) {
         const ref = db.doc(`tenants/${tenantId}/clients/${id}`);
         const c = ((await ref.get()).data() as any) || null;
         if (!c || c.ownerRenterId !== session.renterId) return NextResponse.json({ ok: false, error: 'That client is not in your book.' }, { status: 403 });
-        await ref.set({ name, phone, email, renterNotes, updatedAt: nowIso }, { merge: true });
-        return NextResponse.json({ ok: true, id });
+        // Consent was given for a NUMBER. A new number starts without it.
+        const phoneChanged = String(c.phone || '').replace(/\D/g, '') !== String(phone || '').replace(/\D/g, '');
+        const reset = phoneChanged && c.smsMarketingOptIn === true
+          ? { smsMarketingOptIn: false, smsMarketingOptOutAt: nowIso, consentLog: FieldValue.arrayUnion({ at: nowIso, kind: 'sms_marketing', value: false, source: 'renter', method: 'number_changed', by: session.name || 'Renter', phone: c.phone || null, note: `Number changed to ${phone || '(none)'} — ask again` }) }
+          : {};
+        await ref.set({ name, phone, email, renterNotes, updatedAt: nowIso, ...reset }, { merge: true });
+        return NextResponse.json({ ok: true, id, consentReset: !!Object.keys(reset).length });
       }
       // New client, in THIS book. Same phone/email as a studio client is fine —
       // two businesses, two records.
