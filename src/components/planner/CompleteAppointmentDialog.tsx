@@ -321,6 +321,20 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     
     return servicesTotal + retailTotal;
   }, [appointmentsData, services, retailItems, redeemedOffer, inventory]);
+
+    // A booking that came from a campaign carries its offer code. Apply it once,
+    // when checkout opens — staff can still remove it like any discount.
+    const autoAppliedRef = React.useRef<string | null>(null);
+    const campaignAppt: any = (appointmentsData || []).map((d: any) => d?.appointment).find((a: any) => a?.pendingDiscountCode) || null;
+    useEffect(() => {
+      const code = campaignAppt?.pendingDiscountCode;
+      if (!open || !code || appliedDiscountCode || autoAppliedRef.current === campaignAppt?.id) return;
+      if (!(subtotal > 0) || !discounts?.length) return;
+      autoAppliedRef.current = campaignAppt?.id || 'x';
+      handleApplyPromo(String(code));
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, campaignAppt?.pendingDiscountCode, subtotal, discounts?.length]);
+
   
     const client = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
 
