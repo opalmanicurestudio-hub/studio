@@ -57,8 +57,11 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const tenantId = String(body.tenantId || '').trim();
   const locationId = String(body.locationId || '').trim();
-  const mode = body.mode === 'delete' ? 'delete' : body.mode === 'duplicates' ? 'duplicates' : body.mode === 'cleanup' ? 'cleanup' : 'check';
-  if (!tenantId || (!locationId && mode !== 'duplicates' && mode !== 'cleanup')) return NextResponse.json({ ok: false, error: 'tenantId and locationId are required.' }, { status: 400 });
+  const mode = body.mode === 'delete' ? 'delete' : body.mode === 'duplicates' ? 'duplicates' : body.mode === 'cleanup' ? 'cleanup'
+    : body.mode === 'bulk-check' ? 'bulk-check' : body.mode === 'bulk-delete' ? 'bulk-delete' : 'check';
+  const bulkIds: string[] = Array.isArray(body.locationIds) ? [...new Set<string>(body.locationIds.map((x: any) => String(x || '').trim()).filter(Boolean))].slice(0, 100) : [];
+  const isBulk = mode === 'bulk-check' || mode === 'bulk-delete';
+  if (!tenantId || (isBulk ? bulkIds.length === 0 : (!locationId && mode !== 'duplicates' && mode !== 'cleanup'))) return NextResponse.json({ ok: false, error: isBulk ? 'Select at least one location.' : 'tenantId and locationId are required.' }, { status: 400 });
 
   const auth = await verifyStaffActor(req, tenantId);
   if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
@@ -99,6 +102,43 @@ export async function POST(req: NextRequest) {
       await aRef.set({ id: aRef.id, at: new Date().toISOString(), action: 'location_duplicates_removed', summary: `${safeRemovable.length} unused auto-created duplicate location(s) removed by ${auth.actor.name || auth.actor.uid}`, actorUid: auth.actor.uid, ids: safeRemovable.map((r) => r.id) });
     } catch { /* audit is best-effort */ }
     return NextResponse.json({ ok: true, removed: safeRemovable.length });
+  }
+
+  // ── Several at once ─────────────────────────────────────────────────────
+  // Same rules as one: each is checked on its own, only the ones nothing
+  // points at are deleted, storage areas are refused, and the batch can never
+  // remove your last location — if it would, one is kept back and says why.
+  if (isBulk) {
+    const allDocs = (await db.collection(`tenants/${tenantId}/locations`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+    const business = allDocs.filter(isBusinessLocation);
+    const byId = new Map(allDocs.map((d: any) => [d.id, d]));
+    const results: any[] = [];
+    for (const id of bulkIds) {
+      const d: any = byId.get(id);
+      if (!d) { results.push({ id, name: id, canDelete: false, reason: 'Already gone.' }); continue; }
+      if (!isBusinessLocation(d)) { results.push({ id, name: d.name || id, canDelete: false, reason: 'Inventory storage area — manage it on the Inventory page.' }); continue; }
+      const refs = await countRefs(db, tenantId, id);
+      results.push({ id, name: d.name || id, isActive: d.isActive !== false, isPrimary: id === DEFAULT_LOCATION_DOC_ID, canDelete: refs.length === 0, refs,
+        reason: refs.length ? `In use: ${refs.map((r) => `${r.count} ${r.label}`).join(', ')}.` : null });
+    }
+    // Never leave zero business locations: keep back one (prefer the fixed 'primary', else the first).
+    const deletable = results.filter((r) => r.canDelete);
+    const remaining = business.length - deletable.length;
+    if (remaining < 1 && deletable.length) {
+      const keep = deletable.find((r) => r.isPrimary) || deletable[0];
+      keep.canDelete = false; keep.reason = 'Kept — it’s the last location left, and the app needs at least one. Rename it instead.';
+    }
+    const toDelete = results.filter((r) => r.canDelete);
+    if (mode === 'bulk-check') return NextResponse.json({ ok: true, results, deletable: toDelete.length, blocked: results.length - toDelete.length });
+    const batch = db.batch();
+    for (const r of toDelete) batch.delete(db.doc(`tenants/${tenantId}/locations/${r.id}`));
+    if (toDelete.length) await batch.commit();
+    try {
+      const aRef = db.collection(`tenants/${tenantId}/auditLogs`).doc();
+      await aRef.set({ id: aRef.id, at: new Date().toISOString(), action: 'locations_deleted_bulk', ids: toDelete.map((r) => r.id),
+        summary: `${toDelete.length} location(s) deleted by ${auth.actor.name || auth.actor.uid}: ${toDelete.map((r) => r.name).join(', ')}`, actorUid: auth.actor.uid });
+    } catch { /* audit is best-effort */ }
+    return NextResponse.json({ ok: true, deleted: toDelete.map((r) => r.id), results });
   }
 
   const ref = db.doc(`tenants/${tenantId}/locations/${locationId}`);
