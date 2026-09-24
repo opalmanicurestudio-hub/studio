@@ -35,7 +35,31 @@ export const AUDIENCE_RULES: Record<Audience, string> = {
 };
 
 export interface AudienceMember { id: string; name: string; first: string; email: string | null; phone: string | null }
-export interface AudienceResult { members: AudienceMember[]; matched: number; skippedNoConsent: number; skippedNoContact: number; skippedUnsubscribed: number }
+export interface AudienceResult { members: AudienceMember[]; matched: number; skippedNoConsent: number; skippedNoContact: number; skippedUnsubscribed: number; skippedMonthlyCap: number }
+
+/** The consent wording promises "up to 4 a month" — enforced across campaigns AND reconnect. */
+export const MARKETING_TEXTS_PER_30_DAYS = 4;
+
+/**
+ * Marketing texts each client received in the last 30 days, counting both
+ * campaigns (campaignSends) and reconnect nudges (reconnectNudges), texts only.
+ */
+export async function recentMarketingTexts(db: any, tenantId: string, now = Date.now()): Promise<Map<string, number>> {
+  const since = new Date(now - 30 * DAY).toISOString();
+  const out = new Map<string, number>();
+  const bump = (id: string) => out.set(id, (out.get(id) || 0) + 1);
+  try {
+    for (const d of (await db.collection(`tenants/${tenantId}/campaignSends`).where('at', '>=', since).get()).docs) {
+      const x = d.data() as any; if (x.clientId && x.channel === 'sms') bump(x.clientId);
+    }
+  } catch { /* none yet */ }
+  try {
+    for (const d of (await db.collection(`tenants/${tenantId}/reconnectNudges`).where('sentAt', '>=', since).get()).docs) {
+      const x = d.data() as any; if (x.clientId && x.channel === 'sms') bump(x.clientId);
+    }
+  } catch { /* none yet */ }
+  return out;
+}
 
 export async function resolveAudience(db: any, tenantId: string, audience: Audience, channel: 'email' | 'sms', specificIds: string[] = [], now = Date.now()): Promise<AudienceResult> {
   const col = (n: string) => db.collection(`tenants/${tenantId}/${n}`);
@@ -73,7 +97,8 @@ export async function resolveAudience(db: any, tenantId: string, audience: Audie
     }
   };
 
-  const out: AudienceResult = { members: [], matched: 0, skippedNoConsent: 0, skippedNoContact: 0, skippedUnsubscribed: 0 };
+  const out: AudienceResult = { members: [], matched: 0, skippedNoConsent: 0, skippedNoContact: 0, skippedUnsubscribed: 0, skippedMonthlyCap: 0 };
+  const recent = channel === 'sms' ? await recentMarketingTexts(db, tenantId, now) : new Map<string, number>();
   for (const c of clients) {
     if (!inAudience(c)) continue;
     out.matched++;
@@ -84,6 +109,7 @@ export async function resolveAudience(db: any, tenantId: string, audience: Audie
     if (channel === 'sms') {
       if (!phone) { out.skippedNoContact++; continue; }
       if (c.smsMarketingOptIn !== true) { out.skippedNoConsent++; continue; }
+      if ((recent.get(c.id) || 0) >= MARKETING_TEXTS_PER_30_DAYS) { out.skippedMonthlyCap++; continue; }
     }
     const name = String(c.name || '').trim();
     out.members.push({ id: c.id, name, first: name.split(/\s+/)[0] || 'there', email, phone });
