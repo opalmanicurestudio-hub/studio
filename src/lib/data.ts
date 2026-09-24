@@ -1199,6 +1199,10 @@ export type Tenant = {
   cancellationWindowHours?: number;
   /** Booking release (src/lib/booking-release.ts): how far ahead clients can book, and how much earlier members can. */
   bookingRelease?: import('@/lib/booking-release').ReleaseSettings | null;
+  /** Renter campaigns: whether renters can send them, and who pays for texts. */
+  renterCampaigns?: { mode: 'off' | 'business_covers' | 'renter_pays'; monthlyTexts?: number; priceCentsPerText?: number } | null;
+  /** What one text segment costs the business, for the send preview's estimate (cents). */
+  smsCostCentsPerSegment?: number;
   /** Reconnect nudges for the studio's own clients (src/lib/reconnect.ts). */
   reconnect?: import('@/lib/reconnect').ReconnectSettings | null;
   noShowFee?: number;
@@ -1549,13 +1553,17 @@ export type Campaign = {
   body: string;
   imageUrl?: string;
   targetAudience: 'all' | 'new' | 'loyal' | 'inactive_90' | 'specific' | 'birthday'
-    | 'service' | 'provider' | 'spent_over' | 'one_and_done' | 'members' | 'cancelled_recent';
+    | 'service' | 'provider' | 'spent_over' | 'one_and_done' | 'members' | 'cancelled_recent' | 'first_visit_followup';
   targetClientIds?: string[];
   targetServiceIds?: string[];
   targetStaffIds?: string[];
   targetMinSpend?: number;
   discountId?: string;
-  status: 'draft' | 'scheduled' | 'sending' | 'sent';
+  status: 'draft' | 'scheduled' | 'sending' | 'sent' | 'automation';
+  /** Repeats on its own: birthday (once a year) or N days after a first visit (once ever). */
+  automation?: { trigger: 'birthday' | 'first_visit_followup'; daysAfter?: number; active: boolean; lastRunAt?: string } | null;
+  /** A renter's own campaign (managed in their portal). */
+  ownerRenterId?: string | null;
   scheduledFor?: string | null;
   convertedRevenueCents?: number;
   convertedA?: number;
