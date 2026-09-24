@@ -2452,7 +2452,7 @@ export async function POST(req: NextRequest) {
         viaStudio: !a.isRenterBooking,
         paidByPackageId: a.paidByPackageId || null, paidByPackageName: a.paidByPackageName || null,
         paidByMembershipId: a.paidByMembershipId || null, paidByMembershipName: a.paidByMembershipName || null,
-        checkedInAt: a.checkedInAt || a.checkInAt || null, renterStartedAt: a.renterStartedAt || null, renterFinishedAt: a.renterFinishedAt || null, renterActualMinutes: a.renterActualMinutes || null, renterLateMinutes: a.renterLateMinutes || null,
+        checkedInAt: a.checkedInAt || a.checkInAt || null, renterOfferLine: a.renterOfferLine || null, renterOfferUsed: a.renterOfferUsed === true, renterStartedAt: a.renterStartedAt || null, renterFinishedAt: a.renterFinishedAt || null, renterActualMinutes: a.renterActualMinutes || null, renterLateMinutes: a.renterLateMinutes || null,
         clientCheckInStatus: a.clientCheckInStatus || null, clientLateMinutes: a.clientLateMinutes || null,
       });
       const upcoming = rows.filter((a: any) => a.status !== 'cancelled' && a.startTime >= nowIso).sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime))).map(shape);
@@ -2987,6 +2987,25 @@ export async function POST(req: NextRequest) {
       await ref.set({ paidByMembershipId: mRef.id, paidByMembershipName: m.membershipName || 'Membership', membershipRedeemedAt: new Date().toISOString() }, { merge: true });
       return NextResponse.json({ ok: true, left: left - 1 });
     }
+    // ── offer-used: the renter honored the offer on this visit ──
+    if (action === 'offer-used') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const aRef = db.doc(`tenants/${tenantId}/appointments/${String(body.appointmentId || '')}`);
+      const a = ((await aRef.get()).data() as any) || null;
+      if (!a || !a.renterOfferLine) return NextResponse.json({ ok: false, error: 'No offer on that visit.' }, { status: 404 });
+      const nowIso = new Date().toISOString();
+      await aRef.set({ renterOfferUsed: true, renterOfferUsedAt: nowIso }, { merge: true });
+      if (a.clientOfferId) {
+        const wRef = db.doc(`tenants/${tenantId}/clientOffers/${String(a.clientOfferId)}`);
+        const w = ((await wRef.get()).data() as any) || null;
+        if (w && w.ownerRenterId === session.renterId && w.status !== 'redeemed') {
+          await wRef.set({ status: 'redeemed', redeemedAt: nowIso, appointmentId: aRef.id }, { merge: true });
+          if (w.campaignId) await db.doc(`tenants/${tenantId}/campaigns/${w.campaignId}`).set({ offersRedeemed: FieldValue.increment(1) }, { merge: true });
+        }
+      }
+      return NextResponse.json({ ok: true });
+    }
+
     // ── client-consent: the renter records a client's yes (or stop) to offers by text ──
     if (action === 'client-consent') {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
