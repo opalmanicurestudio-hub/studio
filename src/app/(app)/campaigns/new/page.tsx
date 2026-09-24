@@ -320,6 +320,7 @@ function NewCampaignPageInner() {
             methods.reset({ ...methods.getValues(), ...d });
             if (d.subjectB) setIsABTest(true);
             if (d.status === 'scheduled' && d.scheduledFor) setScheduledFor(d.scheduledFor);
+            if (d.status === 'automation' && d.automation) { setAutomation(d.automation); setAutoTrigger(d.automation.trigger); setAutoDays(Number(d.automation.daysAfter) || 7); }
             setLoadedDraft(d.status === 'draft' || !d.status ? 'loaded' : 'sent');
         }).catch(() => setLoadedDraft('missing'));
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -327,12 +328,15 @@ function NewCampaignPageInner() {
     const [sendProgress, setSendProgress] = useState('');
     const [scheduleAt, setScheduleAt] = useState('');
     const [scheduledFor, setScheduledFor] = useState<string | null>(null);
+    const [autoTrigger, setAutoTrigger] = useState<'birthday' | 'first_visit_followup'>('birthday');
+    const [autoDays, setAutoDays] = useState(7);
+    const [automation, setAutomation] = useState<{ trigger: string; daysAfter?: number; active: boolean } | null>(null);
     const authHeaders = async (): Promise<Record<string, string>> => {
         const h: Record<string, string> = { 'Content-Type': 'application/json' };
         try { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : null; if (tk) h.Authorization = `Bearer ${tk}`; } catch { /* the route answers 401 */ }
         return h;
     };
-    const callSend = async (mode: 'preview' | 'send' | 'test' | 'schedule' | 'unschedule', extra: any = {}) => {
+    const callSend = async (mode: 'preview' | 'send' | 'test' | 'schedule' | 'unschedule' | 'automate' | 'pause', extra: any = {}) => {
         const res = await fetch('/api/campaigns/send', { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ tenantId: selectedTenant?.id, campaignId, mode, ...extra }) });
         return res.json().catch(() => ({ ok: false, error: 'No response' }));
     };
@@ -354,6 +358,27 @@ function NewCampaignPageInner() {
             toast({ title: 'Scheduled', description: 'It goes out at that time (checked every hour).' });
             router.push('/campaigns');
         } finally { setIsSaving(false); }
+    };
+    // Automations: save, then switch it to repeat on its own. The audience
+    // comes from the trigger (birthday month / N days after a first visit),
+    // not the audience picker.
+    const processAutomate = async (data: CampaignFormData) => {
+        if (!firestore || !selectedTenant) return;
+        setIsSaving(true);
+        try {
+            await setDoc(doc(firestore, 'tenants', selectedTenant.id, 'campaigns', campaignId), { ...data, id: campaignId, updatedAt: new Date().toISOString() }, { merge: true });
+            const what = autoTrigger === 'birthday' ? 'each client once a year, in their birthday month' : `each new client once, ${autoDays} days after their first visit`;
+            if (!window.confirm(`Turn "${data.name}" into an automation?\n\nIt goes to ${what}, at 10am your time — with the same consent, monthly text limit and unsubscribe rules as any campaign. You can pause it any time.`)) return;
+            const r = await callSend('automate', { trigger: autoTrigger, daysAfter: autoDays });
+            if (!r?.ok) { toast({ variant: 'destructive', title: 'Not started', description: r?.error || 'Try again.' }); return; }
+            setAutomation({ trigger: autoTrigger, daysAfter: autoDays, active: true });
+            toast({ title: 'Automation on', description: 'It checks every morning and sends to whoever is due.' });
+        } finally { setIsSaving(false); }
+    };
+    const togglePause = async () => {
+        if (!automation) return;
+        const r = await callSend('pause', { active: !automation.active });
+        if (r?.ok) setAutomation({ ...automation, active: r.active });
     };
     const unschedule = async () => {
         const r = await callSend('unschedule');
@@ -389,6 +414,7 @@ function NewCampaignPageInner() {
                 return;
             }
             const extras = [
+                pv.estCostCents ? `Estimated text cost: about $${(pv.estCostCents / 100).toFixed(2)}.` : '',
                 pv.offer ? `Includes the offer: ${pv.offer}.` : '',
                 pv.abTest && data.type !== 'sms' ? 'Half get subject A, half get subject B.' : '',
                 data.type === 'sms' && pv.segments ? `${pv.segments} text segment${pv.segments === 1 ? '' : 's'} each (≈${pv.segments * sm.willReceive} total).` : '',
@@ -461,6 +487,21 @@ function NewCampaignPageInner() {
                                 <input type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} aria-label="Schedule for" className="h-10 rounded-xl border-2 px-2 text-xs font-bold bg-white" />
                                 <Button type="button" variant="outline" disabled={!scheduleAt || isSaving || isSending} onClick={handleSubmit((data) => processSchedule(data))} className="h-10 rounded-xl border-2 font-black uppercase tracking-widest text-[10px]">Schedule</Button>
                             </div>
+                            <div className="flex items-center gap-2 rounded-2xl border-2 border-violet-200 bg-violet-50/60 px-2 h-14">
+                                <select value={autoTrigger} onChange={(e) => setAutoTrigger(e.target.value as any)} aria-label="Repeat when" className="h-10 rounded-xl border-2 px-2 text-[11px] font-bold bg-white">
+                                    <option value="birthday">Every birthday month</option>
+                                    <option value="first_visit_followup">After a first visit</option>
+                                </select>
+                                {autoTrigger === 'first_visit_followup' && <input type="number" min={1} max={90} value={autoDays} onChange={(e) => setAutoDays(Number(e.target.value) || 7)} aria-label="Days after" className="h-10 w-16 rounded-xl border-2 px-2 text-xs font-black bg-white" />}
+                                {automation
+                                    ? <Button type="button" variant="outline" onClick={togglePause} className="h-10 rounded-xl border-2 font-black uppercase tracking-widest text-[10px]">{automation.active ? 'Pause' : 'Resume'}</Button>
+                                    : <Button type="button" variant="outline" disabled={isSaving || isSending} onClick={handleSubmit((data) => processAutomate(data))} className="h-10 rounded-xl border-2 font-black uppercase tracking-widest text-[10px]">Automate</Button>}
+                            </div>
+                            {automation && (
+                                <div className="flex items-center rounded-2xl border-2 border-violet-200 bg-violet-50 px-3 h-14 text-[10px] font-black uppercase tracking-widest text-violet-800">
+                                    {automation.active ? 'Automation on' : 'Automation paused'} · {automation.trigger === 'birthday' ? 'birthdays' : `${automation.daysAfter || 7} days after a first visit`}
+                                </div>
+                            )}
                             {scheduledFor && (
                                 <div className="flex items-center gap-2 rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-3 h-14 text-[10px] font-black uppercase tracking-widest text-emerald-800">
                                     Scheduled · {new Date(scheduledFor).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
