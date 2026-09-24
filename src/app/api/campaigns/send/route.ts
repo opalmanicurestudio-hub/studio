@@ -38,7 +38,29 @@ export async function POST(req: NextRequest) {
   if (channel === 'sms' && !smsConfigured()) return NextResponse.json({ ok: false, error: 'Texting is not set up for this studio yet — send it as an email, or add the SMS provider keys.' }, { status: 409 });
 
   const aud = await resolveAudience(db, tenantId, c.targetAudience as Audience, channel, Array.isArray(c.targetClientIds) ? c.targetClientIds : []);
-  const summary = { matched: aud.matched, willReceive: aud.members.length, skippedNoConsent: aud.skippedNoConsent, skippedNoContact: aud.skippedNoContact, skippedUnsubscribed: aud.skippedUnsubscribed };
+  const summary = { matched: aud.matched, willReceive: aud.members.length, skippedNoConsent: aud.skippedNoConsent, skippedNoContact: aud.skippedNoContact, skippedUnsubscribed: aud.skippedUnsubscribed, skippedMonthlyCap: aud.skippedMonthlyCap };
+
+  // ── What goes IN the message, beyond the text ─────────────────────────
+  // Every field on the form now does something: the incentive is written
+  // into the message (code in big type in emails), the image heads the
+  // email, subject B goes to half the list, and every email has a Book
+  // button that says which campaign it came from.
+  let offer: { code: string; line: string } | null = null;
+  if (c.discountId) {
+    try {
+      const dz = ((await db.doc(`tenants/${tenantId}/discounts/${String(c.discountId)}`).get()).data() as any) || null;
+      if (dz && dz.isActive !== false && dz.code) {
+        const amt = dz.type === 'percentage' ? `${Number(dz.value) || 0}% off` : `$${(Number(dz.value) || 0).toFixed(0)} off`;
+        const until = dz.validUntil ? ` — until ${new Date(dz.validUntil).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : '';
+        offer = { code: String(dz.code), line: `${amt} with code ${dz.code}${until}` };
+      }
+    } catch { /* no offer */ }
+  }
+  const variantOf = (clientId: string): 'A' | 'B' => {
+    if (!c.subjectB) return 'A';
+    let h = 0; for (const ch of clientId) h = (h * 31 + ch.charCodeAt(0)) >>>0;
+    return h % 2 === 0 ? 'A' : 'B';
+  };
 
   if (mode === 'test') {
     // A real send, to the address given — marked [TEST], recorded nowhere.
@@ -55,7 +77,9 @@ export async function POST(req: NextRequest) {
   }
 
   if (mode === 'preview') {
-    return NextResponse.json({ ok: true, summary, sample: aud.members.slice(0, 8).map((m) => m.first) });
+    const smsChars = channel === 'sms' ? (`${c.body || ''}${offer ? ` ${offer.line}` : ''}`.length + 40) : 0; // + studio prefix & STOP line
+    const segments = channel === 'sms' ? Math.max(1, Math.ceil(smsChars / 153)) : 0;
+    return NextResponse.json({ ok: true, summary, sample: aud.members.slice(0, 8).map((m) => m.first), offer: offer?.line || null, abTest: !!c.subjectB, segments });
   }
 
   // Who already has it (resume-safe).
@@ -72,7 +96,8 @@ export async function POST(req: NextRequest) {
 
   let sent = 0, failed = 0;
   for (const m of batch) {
-    const text = personalise(c.body, m);
+    const text = personalise(c.body, m) + (offer && channel === 'sms' ? ` ${offer.line}.` : '');
+    const variant = variantOf(m.id);
     let ok = false; let err: string | null = null;
     try {
       if (channel === 'sms') {
@@ -80,15 +105,21 @@ export async function POST(req: NextRequest) {
         ok = !!r.ok; if (!ok) err = String((r as any).error || (r as any).status || 'not sent');
       } else {
         const unsub = `${origin}/api/campaigns/unsubscribe?t=${encodeURIComponent(tenantId)}&c=${encodeURIComponent(m.id)}&s=${await unsubSig(tenantId, m.id)}`;
-        const subject = personalise(c.subject || c.name || `News from ${studio}`, m);
+        const subject = personalise((variant === 'B' ? c.subjectB : c.subject) || c.name || `News from ${studio}`, m);
+        const bookUrl = `${origin}/book/${encodeURIComponent(tenantId)}?c=${encodeURIComponent(campaignId)}`;
+        const esc = (x: string) => String(x).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as any)[ch]);
+        const imgHtml = c.imageUrl && /^https:\/\//.test(String(c.imageUrl)) ? `<img src="${esc(c.imageUrl)}" alt="" style="display:block;width:100%;max-width:560px;border-radius:12px;margin:0 0 16px" />` : '';
         const r = await sendNotification(db, { tenantId, channel: 'email', to: m.email!, subject,
-          html: brandedEmailHtml({ studioName: studio, title: subject, bodyLines: text.split(/\n+/).filter(Boolean), footerNote: `You're receiving this as a client of ${studio}. Unsubscribe: ${unsub}` }),
+          html: brandedEmailHtml({ studioName: studio, title: subject, bodyLines: [...text.split(/\n+/).filter(Boolean), ...(offer ? [offer.line] : [])],
+            ...(imgHtml ? { bodyHtml: imgHtml } : {}), ...(offer ? { bigCode: offer.code } : {}),
+            cta: { label: 'Book now', url: bookUrl },
+            footerNote: `You're receiving this as a client of ${studio}. Unsubscribe: ${unsub}` } as any),
           kind: 'campaign', clientId: m.id, clientName: m.name, recipientType: 'client' } as any);
         ok = !!r.ok; if (!ok) err = String((r as any).error || (r as any).status || 'not sent');
       }
     } catch (e: any) { err = String(e?.message || e).slice(0, 160); }
-    await cRef.collection('recipients').doc(m.id).set({ clientId: m.id, name: m.name, channel, status: ok ? 'sent' : 'failed', error: err, at: new Date().toISOString(), converted: false });
-    if (ok) await db.doc(`tenants/${tenantId}/campaignSends/${campaignId}_${m.id}`).set({ campaignId, clientId: m.id, at: new Date().toISOString(), converted: false });
+    await cRef.collection('recipients').doc(m.id).set({ clientId: m.id, name: m.name, channel, variant: channel === 'email' ? variant : null, status: ok ? 'sent' : 'failed', error: err, at: new Date().toISOString(), converted: false });
+    if (ok) await db.doc(`tenants/${tenantId}/campaignSends/${campaignId}_${m.id}`).set({ campaignId, clientId: m.id, channel, variant: channel === 'email' ? variant : null, at: new Date().toISOString(), converted: false });
     if (ok) sent++; else failed++;
   }
 
