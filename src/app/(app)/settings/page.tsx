@@ -853,6 +853,34 @@ function SettingsPageImpl() {
                     <p className="text-[10px] font-bold text-muted-foreground ml-1">{rs.everyone}{rs.members ? ` ${rs.members}` : ''} Members are clients with an active membership; the booking page and the booking engine both enforce this. Services can also be marked Members Only in their editor.</p>
                     ); })()}
                   </div>
+                  {/* ── Renter campaigns: can renters send their own, and who pays for texts ── */}
+                  <div className="pt-4 border-t border-dashed space-y-3">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Renter Campaigns</Label>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                      {([['off', 'Off', 'Renters can’t send campaigns'], ['business_covers', 'We cover some', 'A monthly allowance of texts per renter; they pay beyond it'], ['renter_pays', 'Renters pay', 'Every text is charged to the renter’s card on file']] as const).map(([k, l, d]) => (
+                        <button key={k} type="button" disabled={!isEditing} aria-pressed={(tenantData.renterCampaigns?.mode || 'off') === k}
+                          onClick={() => setTenantData(prev => ({ ...prev, renterCampaigns: { ...(prev.renterCampaigns || {}), mode: k } as any }))}
+                          className={cn('rounded-2xl border-2 p-3 text-left disabled:opacity-60', (tenantData.renterCampaigns?.mode || 'off') === k ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200')}>
+                          <p className="text-[10px] font-black uppercase tracking-widest">{l}</p><p className="text-[10px] font-bold opacity-70 mt-1">{d}</p>
+                        </button>
+                      ))}
+                    </div>
+                    {tenantData.renterCampaigns?.mode && tenantData.renterCampaigns.mode !== 'off' && (
+                      <div className="grid grid-cols-2 gap-4">
+                        {tenantData.renterCampaigns.mode === 'business_covers' && (
+                          <div className="space-y-1"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Free texts per renter, per month</p>
+                            <Input type="number" min={0} max={5000} value={tenantData.renterCampaigns?.monthlyTexts ?? 100} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, renterCampaigns: { ...(prev.renterCampaigns as any), monthlyTexts: parseInt(e.target.value) || 0 } }))} className="h-11 rounded-xl border-2 text-center font-black" /></div>
+                        )}
+                        <div className="space-y-1"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Price per paid text (cents)</p>
+                          <Input type="number" min={1} max={50} value={tenantData.renterCampaigns?.priceCentsPerText ?? 2} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, renterCampaigns: { ...(prev.renterCampaigns as any), priceCentsPerText: parseInt(e.target.value) || 2 } }))} className="h-11 rounded-xl border-2 text-center font-black" /></div>
+                      </div>
+                    )}
+                    <p className="text-[10px] font-bold text-muted-foreground ml-1">Renters send to their own clients only, in their own name, with the same consent, monthly text limit and quiet-hour rules as yours. Emails are always free. Paid texts are shown to the renter before sending and charged to the card they use for rent; the charge appears in your transactions as “Renter Text Messages”. A text counts per segment (about 150 characters).</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">What a text costs you (cents, for estimates)</p>
+                        <Input type="number" step="0.1" min={0.5} max={10} value={tenantData.smsCostCentsPerSegment ?? 1.3} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, smsCostCentsPerSegment: parseFloat(e.target.value) || 1.3 }))} className="h-11 rounded-xl border-2 text-center font-black" /></div>
+                    </div>
+                  </div>
                   {/* ── Reconnect: little nudges that bring quiet clients back ── */}
                   <div className="pt-4 border-t border-dashed space-y-3">
                     <div className="flex items-center justify-between gap-3">
