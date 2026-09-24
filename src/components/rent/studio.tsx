@@ -838,14 +838,25 @@ export async function uploadRenterPhoto(tenantId: string, token: string, renterI
   }
 }
 
+// Every portal request has a time limit and always comes back with an
+// answer — before, a request that never returned (or a server error) left
+// the portal spinning forever with no clue why.
 export const api = async (payload: any) => {
   const bucket = resolvedStorageBucket();
-  const res = await fetch('/api/portal/renter', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...payload, ...(bucket ? { storageBucket: bucket } : {}) }),
-  });
-  const d = await res.json().catch(() => ({}));
-  return { status: res.status, ...d };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30000);
+  try {
+    const res = await fetch('/api/portal/renter', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, ...(bucket ? { storageBucket: bucket } : {}) }),
+      signal: ctrl.signal,
+    });
+    const d = await res.json().catch(() => ({ error: `The server answered with an error (${res.status}).` }));
+    return { status: res.status, ...(res.ok ? {} : { ok: false }), ...d, ...(!res.ok && !d?.error ? { error: `The server answered with an error (${res.status}).` } : {}) };
+  } catch (e: any) {
+    const timedOut = e?.name === 'AbortError';
+    return { ok: false, status: 0, error: timedOut ? 'The server took more than 30 seconds to answer.' : 'Couldn’t reach the server — check your connection.' };
+  } finally { clearTimeout(timer); }
 };
 
 export const STORE = (tenantId: string) => `opal_renter_${tenantId}`;
