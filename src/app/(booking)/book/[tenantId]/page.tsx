@@ -86,6 +86,21 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   const [rescheduleNote, setRescheduleNote] = useState('');
   const [rescheduleOpened, setRescheduleOpened] = useState(false);
   const [campaignRef, setCampaignRef] = useState<{ campaignId: string | null; code: string | null } | null>(null);
+  // The offer the client is booking with — shown to them, checked on the server.
+  const [offerShown, setOfferShown] = useState<{ code: string; line: string } | null>(null);
+  const [offerInput, setOfferInput] = useState('');
+  const [offerErr, setOfferErr] = useState('');
+  const [offerOpen, setOfferOpen] = useState(false);
+  const checkOffer = async (code: string, quiet = false) => {
+    setOfferErr('');
+    try {
+      const r = await fetch('/api/offers/check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, code }) });
+      const d = await r.json().catch(() => null);
+      if (d?.ok) { setOfferShown({ code: d.code, line: d.line }); setCampaignRef((x) => ({ campaignId: x?.campaignId || null, code: d.code })); setOfferOpen(false); }
+      else { if (!quiet) setOfferErr(d?.error || 'That code didn’t work.'); if (quiet) setCampaignRef((x) => (x ? { ...x, code: null } : x)); }
+    } catch { if (!quiet) setOfferErr('Couldn’t check that code right now.'); }
+  };
+  useEffect(() => { if (campaignRef?.code && !offerShown) void checkOffer(campaignRef.code, true); }, [campaignRef?.code]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!reschedule || rescheduleOpened || services.length === 0) return;
     const svc = services.find((x: any) => x.id === reschedule.serviceId) || services.find((x: any) => x.name === reschedule.serviceName);
@@ -1184,6 +1199,25 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           </div>
         );
       })()}
+      {/* The client's offer: shown when they arrive from a campaign, or typed in. */}
+      <div className="mx-auto w-full max-w-3xl px-4 pt-4">
+        {offerShown ? (
+          <div className="rounded-2xl border-2 px-4 py-3" style={{ borderColor: 'currentColor' }}>
+            <p className="text-[13px] font-semibold">🎁 Your offer: {offerShown.line}</p>
+            <p className="text-[11px] opacity-70 mt-0.5">It’s saved with your booking and taken off at your visit — nothing to enter later.</p>
+          </div>
+        ) : offerOpen ? (
+          <div className="rounded-2xl border px-4 py-3 space-y-2" style={{ borderColor: 'rgba(120,113,108,0.3)' }}>
+            <div className="flex gap-2">
+              <input value={offerInput} onChange={(e) => { setOfferInput(e.target.value.toUpperCase()); setOfferErr(''); }} placeholder="Offer code" aria-label="Offer code" className="h-10 min-w-0 flex-1 rounded-xl border px-3 text-sm bg-transparent" style={{ borderColor: 'rgba(120,113,108,0.3)' }} />
+              <button type="button" onClick={() => checkOffer(offerInput)} className="h-10 shrink-0 rounded-xl bg-slate-900 px-4 text-[10px] font-black uppercase tracking-widest text-white">Apply</button>
+            </div>
+            {offerErr && <p className="text-[11px] opacity-80">{offerErr}</p>}
+          </div>
+        ) : (
+          <button type="button" onClick={() => setOfferOpen(true)} className="text-[12px] underline opacity-70">Have an offer code?</button>
+        )}
+      </div>
       {activeSections.map(section => (
         <SectionWrapper key={section.id} section={section} isPreview={false}
           onEdit={() => {}} onFieldTap={() => {}}>
