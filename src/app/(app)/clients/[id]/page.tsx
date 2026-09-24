@@ -1214,7 +1214,21 @@ export default function ClientDetailPage() {
         </div>
       </main>
 
-      <EditClientDialog open={isEditClientOpen} onOpenChange={setIsEditClientOpen} client={client} onSave={(data) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, client.id), data); toast({ title: "Profile Updated" }); }} />
+      <EditClientDialog open={isEditClientOpen} onOpenChange={setIsEditClientOpen} client={client} onSave={(data) => {
+        if (!firestore || !tenantId) return;
+        // Consent to marketing texts was given for a NUMBER. If the number
+        // changes, the yes doesn't carry over — cleared, logged, and said.
+        const oldDigits = String((client as any).phone || '').replace(/\D/g, '');
+        const newDigits = String((data as any)?.phone ?? (client as any).phone ?? '').replace(/\D/g, '');
+        const reset = oldDigits !== newDigits && (client as any).smsMarketingOptIn === true;
+        const nowIso = new Date().toISOString();
+        updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, client.id), {
+          ...data,
+          ...(reset ? { smsMarketingOptIn: false, smsMarketingOptOutAt: nowIso,
+            consentLog: arrayUnion({ at: nowIso, kind: 'sms_marketing', value: false, source: 'staff', method: 'number_changed', by: String(currentUser?.displayName || currentUser?.email || 'Staff'), byUid: currentUser?.uid || null, phone: (client as any).phone || null, note: `Number changed to ${(data as any)?.phone || '(none)'} — ask again` }) } : {}),
+        });
+        toast(reset ? { title: 'Profile updated', description: 'New number, so their yes to offers by text was cleared — ask again and record it if they agree.' } : { title: 'Profile Updated' });
+      }} />
       <AddFormulaDialog open={isAddFormulaOpen} onOpenChange={(val) => { setIsAddFormulaOpen(val); if(!val) setEditingFormula(null); }} clientName={client.name} onSave={handleSaveFormula} formulaToEdit={editingFormula} />
       <IssueRecoveryDialog open={isRecoveryDialogOpen} onOpenChange={setIsRecoveryDialogOpen} client={client} />
 
