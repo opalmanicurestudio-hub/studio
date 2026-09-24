@@ -285,6 +285,12 @@ export function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bo
                 {a.paidByPackageId && <p className="text-[10px] font-bold text-emerald-800">This visit is covered by {a.paidByPackageName || 'a package'}.</p>}
               </div>
             )}
+            {a.renterOfferLine && (
+              <div className={cn('rounded-xl border-2 p-2 text-[11px] font-bold', a.renterOfferUsed ? 'border-slate-200 bg-slate-50 text-slate-500' : 'border-emerald-200 bg-emerald-50 text-emerald-900')}>
+                🎁 {a.renterOfferUsed ? 'Offer honored: ' : 'Offer to honor: '}{a.renterOfferLine}
+                {!a.renterOfferUsed && <button type="button" onClick={async () => { const d = await api({ action: 'offer-used', tenantId, token, appointmentId: a.id }); if (d?.ok) { (a as any).renterOfferUsed = true; setClient({ ...client }); } }} className="ml-2 text-[9px] font-black uppercase tracking-widest underline">Mark used</button>}
+              </div>
+            )}
             {client.mine && client.consent && (
               <ConsentRow tenantId={tenantId} token={token} client={client} onChanged={() => api({ action: 'client-get', tenantId, token, clientId: a.clientId }).then((d) => { if (d?.ok) setClient(d.client); })} />
             )}
