@@ -39,8 +39,11 @@ const campaignSchema = z.object({
   subject: z.string().optional(),
   subjectB: z.string().optional(),
   body: z.string().min(10, "Message body is too short."),
-  targetAudience: z.enum(['all', 'new', 'loyal', 'inactive_90', 'specific', 'birthday']),
+  targetAudience: z.enum(['all', 'new', 'loyal', 'inactive_90', 'specific', 'birthday', 'service', 'provider', 'spent_over', 'one_and_done', 'members', 'cancelled_recent']),
   targetClientIds: z.array(z.string()).optional(),
+  targetServiceIds: z.array(z.string()).optional(),
+  targetStaffIds: z.array(z.string()).optional(),
+  targetMinSpend: z.coerce.number().optional(),
   discountId: z.string().optional(),
   imageUrl: z.string().optional(),
 }).refine(data => data.type !== 'email' || (data.subject && data.subject.length > 0), {
@@ -238,7 +241,7 @@ function NewCampaignPageInner() {
     const { selectedTenant } = useTenant();
     const router = useRouter();
     const { toast } = useToast();
-    const { discounts, clients, services } = useInventory();
+    const { discounts, clients, services, staff } = useInventory();
     const [isSaving, setIsSaving] = useState(false);
     const [isSending, setIsSending] = useState(false);
     const [isSendingTest, setIsSendingTest] = useState(false);
@@ -316,19 +319,46 @@ function NewCampaignPageInner() {
             const d = snap.data() as any;
             methods.reset({ ...methods.getValues(), ...d });
             if (d.subjectB) setIsABTest(true);
+            if (d.status === 'scheduled' && d.scheduledFor) setScheduledFor(d.scheduledFor);
             setLoadedDraft(d.status === 'draft' || !d.status ? 'loaded' : 'sent');
         }).catch(() => setLoadedDraft('missing'));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [editId, firestore, selectedTenant?.id]);
     const [sendProgress, setSendProgress] = useState('');
+    const [scheduleAt, setScheduleAt] = useState('');
+    const [scheduledFor, setScheduledFor] = useState<string | null>(null);
     const authHeaders = async (): Promise<Record<string, string>> => {
         const h: Record<string, string> = { 'Content-Type': 'application/json' };
         try { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : null; if (tk) h.Authorization = `Bearer ${tk}`; } catch { /* the route answers 401 */ }
         return h;
     };
-    const callSend = async (mode: 'preview' | 'send' | 'test', extra: any = {}) => {
+    const callSend = async (mode: 'preview' | 'send' | 'test' | 'schedule' | 'unschedule', extra: any = {}) => {
         const res = await fetch('/api/campaigns/send', { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ tenantId: selectedTenant?.id, campaignId, mode, ...extra }) });
         return res.json().catch(() => ({ ok: false, error: 'No response' }));
+    };
+
+    // Schedule: save, preview (so they see who it will reach), confirm, then
+    // hand it to the hourly scheduler. Texts wait for quiet hours to end.
+    const processSchedule = async (data: CampaignFormData) => {
+        if (!firestore || !selectedTenant || !scheduleAt) return;
+        setIsSaving(true);
+        try {
+            await setDoc(doc(firestore, 'tenants', selectedTenant.id, 'campaigns', campaignId), { ...data, id: campaignId, status: 'draft', updatedAt: new Date().toISOString() }, { merge: true });
+            const pv = await callSend('preview');
+            if (!pv?.ok) { toast({ variant: 'destructive', title: 'Could not prepare it', description: pv?.error || 'Try again.' }); return; }
+            const when = new Date(scheduleAt);
+            if (!window.confirm(`Schedule "${data.name}" for ${when.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}?\n\nRight now it would reach ${pv.summary.willReceive} client${pv.summary.willReceive === 1 ? '' : 's'} — the list is worked out again at send time, so anyone who books, unsubscribes or changes in between is handled then.${data.type === 'sms' ? '\n\nTexts only go out 9am–8pm; if that time is outside, it waits for the window.' : ''}`)) return;
+            const r = await callSend('schedule', { scheduledFor: when.toISOString() });
+            if (!r?.ok) { toast({ variant: 'destructive', title: 'Not scheduled', description: r?.error || 'Try again.' }); return; }
+            setScheduledFor(r.scheduledFor);
+            toast({ title: 'Scheduled', description: 'It goes out at that time (checked every hour).' });
+            router.push('/campaigns');
+        } finally { setIsSaving(false); }
+    };
+    const unschedule = async () => {
+        const r = await callSend('unschedule');
+        if (r?.ok) { setScheduledFor(null); toast({ title: 'Unscheduled', description: 'It’s a draft again.' }); }
+        else toast({ variant: 'destructive', title: 'Could not unschedule', description: r?.error || 'Try again.' });
     };
 
     const processSubmit = async (data: CampaignFormData, status: 'draft' | 'sent') => {
@@ -369,7 +399,7 @@ function NewCampaignPageInner() {
             let totals = { sent: 0, failed: 0 };
             for (let i = 0; i < 100; i++) {
                 const r = await callSend('send');
-                if (!r?.ok) { toast({ variant: 'destructive', title: 'Sending stopped', description: `${r?.error || 'Something went wrong'}. ${totals.sent} sent so far — open the campaign and send again to finish; nobody gets it twice.` }); break; }
+                if (!r?.ok) { toast({ variant: 'destructive', title: r?.quietHours ? 'Outside texting hours' : 'Sending stopped', description: r?.quietHours ? r.error : `${r?.error || 'Something went wrong'}. ${totals.sent} sent so far — open the campaign and send again to finish; nobody gets it twice.` }); break; }
                 totals = r.totals;
                 setSendProgress(`${totals.sent} of ${sm.willReceive} sent…`);
                 if (r.done) {
@@ -427,6 +457,16 @@ function NewCampaignPageInner() {
                                 {isSaving ? <Loader className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4 opacity-40" />}
                                 Cache Draft
                             </Button>
+                            <div className="flex items-center gap-2 rounded-2xl border-2 bg-white/60 px-2 h-14">
+                                <input type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} aria-label="Schedule for" className="h-10 rounded-xl border-2 px-2 text-xs font-bold bg-white" />
+                                <Button type="button" variant="outline" disabled={!scheduleAt || isSaving || isSending} onClick={handleSubmit((data) => processSchedule(data))} className="h-10 rounded-xl border-2 font-black uppercase tracking-widest text-[10px]">Schedule</Button>
+                            </div>
+                            {scheduledFor && (
+                                <div className="flex items-center gap-2 rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-3 h-14 text-[10px] font-black uppercase tracking-widest text-emerald-800">
+                                    Scheduled · {new Date(scheduledFor).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                                    <Button type="button" variant="ghost" size="sm" onClick={unschedule} className="h-8 text-[10px]">Cancel</Button>
+                                </div>
+                            )}
                             <Button type="button" onClick={handleSubmit((data) => processSubmit(data, 'sent'))} disabled={isSaving || isSending || isSendingTest} className="flex-1 md:flex-none h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20">
                                 {sendProgress ? <span className="mr-2">{sendProgress}</span> : null}{isSending ? <Loader className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
                                 Dispatch
@@ -606,6 +646,12 @@ function NewCampaignPageInner() {
                                                             <SelectItem value="loyal" className="font-bold uppercase text-[10px] tracking-widest">LOYAL MATURED (5+ VISITS)</SelectItem>
                                                             <SelectItem value="inactive_90" className="font-bold uppercase text-[10px] tracking-widest">INACTIVE (90+ DAYS)</SelectItem>
                                                             <SelectItem value="birthday" className="font-bold uppercase text-[10px] tracking-widest">CURRENT BIRTHDAY MONTH</SelectItem>
+                                                            <SelectItem value="service" className="font-bold uppercase text-[10px] tracking-widest">LAST HAD A SERVICE…</SelectItem>
+                                                            <SelectItem value="provider" className="font-bold uppercase text-[10px] tracking-widest">LAST SAW A TEAM MEMBER…</SelectItem>
+                                                            <SelectItem value="spent_over" className="font-bold uppercase text-[10px] tracking-widest">SPENT OVER $… (12 MONTHS)</SelectItem>
+                                                            <SelectItem value="one_and_done" className="font-bold uppercase text-[10px] tracking-widest">CAME ONCE, NEVER RETURNED</SelectItem>
+                                                            <SelectItem value="members" className="font-bold uppercase text-[10px] tracking-widest">ACTIVE MEMBERS</SelectItem>
+                                                            <SelectItem value="cancelled_recent" className="font-bold uppercase text-[10px] tracking-widest">CANCELLED OR MISSED (30 DAYS)</SelectItem>
                                                             <SelectItem value="specific" className="font-bold uppercase text-[10px] tracking-widest">SPECIFIC MANUAL GROUP</SelectItem>
                                                         </SelectContent>
                                                     </Select>
@@ -635,6 +681,32 @@ function NewCampaignPageInner() {
                                         </div>
                                     </div>
                                     
+                                    {(targetAudience === 'service' || targetAudience === 'provider') && (
+                                        <div className="space-y-2 rounded-2xl border-2 border-dashed p-4">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">{targetAudience === 'service' ? 'Which services? (their most recent visit)' : 'Which team members? (their most recent visit)'}</Label>
+                                            <Controller name={targetAudience === 'service' ? 'targetServiceIds' : 'targetStaffIds'} control={control} render={({ field }) => {
+                                                const opts: { id: string; name: string }[] = targetAudience === 'service'
+                                                    ? (services || []).map((x: any) => ({ id: x.id, name: x.name }))
+                                                    : (staff || []).filter((x: any) => x.isActive !== false && !x.isRenter).map((x: any) => ({ id: x.id, name: x.name || x.displayName || 'Team member' }));
+                                                const val: string[] = Array.isArray(field.value) ? field.value : [];
+                                                return (
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {opts.map((o) => (
+                                                            <button key={o.id} type="button" aria-pressed={val.includes(o.id)} onClick={() => field.onChange(val.includes(o.id) ? val.filter((v) => v !== o.id) : [...val, o.id])}
+                                                                className={`h-9 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest ${val.includes(o.id) ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600'}`}>{o.name}</button>
+                                                        ))}
+                                                        {opts.length === 0 && <p className="text-xs text-muted-foreground">Nothing to pick yet.</p>}
+                                                    </div>
+                                                );
+                                            }} />
+                                        </div>
+                                    )}
+                                    {targetAudience === 'spent_over' && (
+                                        <div className="space-y-2 rounded-2xl border-2 border-dashed p-4">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Spent at least ($, booked value, last 12 months)</Label>
+                                            <Input type="number" min={1} {...register('targetMinSpend')} className="h-12 w-40 rounded-xl border-2 font-black" />
+                                        </div>
+                                    )}
                                     {targetAudience === 'specific' && (
                                         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
                                             <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Target Group</Label>
