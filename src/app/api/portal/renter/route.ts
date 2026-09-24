@@ -3069,6 +3069,110 @@ export async function POST(req: NextRequest) {
       // switches them off. Mirrors the main app instead of asking for opt-in.
       return NextResponse.json({ ok: true, comms: { remindersEnabled: c.remindersEnabled !== false, thankYouEnabled: c.thankYouEnabled !== false, signoff: String(c.signoff || '') }, log });
     }
+    // ── Campaigns: a renter's own, to their own clients ─────────────────────
+    // The business decides how texts are paid for (Settings → Renter campaigns):
+    //   off               — renters can't send campaigns
+    //   business_covers   — N texts a month free per renter; beyond that the
+    //                       renter pays per text, if they have a card on file
+    //   renter_pays       — every text is charged to the renter's card on file
+    // Emails are free in every mode. A charge is shown BEFORE sending and
+    // taken from the same card on file used for rent.
+    const rcPolicy = async () => {
+      const t = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      const p = t.renterCampaigns || {};
+      return { mode: (['off', 'business_covers', 'renter_pays'].includes(p.mode) ? p.mode : 'off') as 'off' | 'business_covers' | 'renter_pays',
+        monthlyTexts: Math.max(0, Math.round(Number(p.monthlyTexts ?? 100))), priceCents: Math.max(1, Math.round(Number(p.priceCentsPerText ?? 2))), tenantName: t.name || 'the business' };
+    };
+    const rcUsedThisMonth = async () => {
+      const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+      const snap = await db.collection(`tenants/${tenantId}/campaignSends`).where('renterId', '==', session.renterId).get().catch(() => ({ docs: [] } as any));
+      return snap.docs.map((d: any) => d.data() as any).filter((x: any) => x.channel === 'sms' && String(x.at || '') >= monthStart.toISOString()).reduce((n: number, x: any) => n + (Number(x.segments) || 1), 0);
+    };
+    if (action === 'rc-list') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const policy = await rcPolicy();
+      const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      const list = (await db.collection(`tenants/${tenantId}/campaigns`).where('ownerRenterId', '==', session.renterId).get()).docs
+        .map((d: any) => ({ id: d.id, ...(d.data() as any) })).sort((a: any, b: any) => String(b.updatedAt || b.sentAt || '').localeCompare(String(a.updatedAt || a.sentAt || '')));
+      return NextResponse.json({ ok: true, policy, usedTexts: await rcUsedThisMonth(), cardOnFile: !!(r.stripeCustomerId && (r.stripePaymentMethodId || r.defaultPaymentMethodId)),
+        campaigns: list.map((c: any) => ({ id: c.id, name: c.name, type: c.type, subject: c.subject || '', body: c.body || '', targetAudience: c.targetAudience, targetServiceIds: c.targetServiceIds || [], status: c.status, recipientCount: c.recipientCount || 0, convertedCount: c.convertedCount || 0, convertedRevenueCents: c.convertedRevenueCents || 0, chargedCents: c.chargedCents || 0, sentAt: c.sentAt || null })) });
+    }
+    if (action === 'rc-save') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const policy = await rcPolicy();
+      if (policy.mode === 'off') return NextResponse.json({ ok: false, error: `${policy.tenantName} hasn’t turned on campaigns for renters.` }, { status: 403 });
+      const allowed = ['all', 'new', 'loyal', 'inactive_90', 'birthday', 'service', 'spent_over', 'one_and_done', 'cancelled_recent'];
+      const name = String(body.name || '').trim().slice(0, 80);
+      const text = String(body.body || '').trim().slice(0, 1200);
+      const type = body.type === 'sms' ? 'sms' : 'email';
+      if (name.length < 3 || text.length < 10) return NextResponse.json({ ok: false, error: 'A name and a message are needed.' }, { status: 400 });
+      if (type === 'email' && !String(body.subject || '').trim()) return NextResponse.json({ ok: false, error: 'Emails need a subject.' }, { status: 400 });
+      const id = String(body.campaignId || '');
+      const ref = id ? db.doc(`tenants/${tenantId}/campaigns/${id}`) : db.collection(`tenants/${tenantId}/campaigns`).doc();
+      if (id) { const cur = ((await ref.get()).data() as any) || null; if (!cur || cur.ownerRenterId !== session.renterId) return NextResponse.json({ ok: false, error: 'Not your campaign.' }, { status: 403 }); if (cur.status !== 'draft') return NextResponse.json({ ok: false, error: 'It’s already been sent.' }, { status: 400 }); }
+      await ref.set({ id: ref.id, ownerRenterId: session.renterId, name, type, subject: String(body.subject || '').trim().slice(0, 140), body: text,
+        targetAudience: allowed.includes(body.targetAudience) ? body.targetAudience : 'all', targetServiceIds: Array.isArray(body.targetServiceIds) ? body.targetServiceIds.slice(0, 30).map(String) : [],
+        targetMinSpend: Math.max(0, Number(body.targetMinSpend) || 0), status: 'draft', updatedAt: new Date().toISOString() }, { merge: true });
+      return NextResponse.json({ ok: true, id: ref.id });
+    }
+    if (action === 'rc-preview' || action === 'rc-send') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const policy = await rcPolicy();
+      if (policy.mode === 'off') return NextResponse.json({ ok: false, error: `${policy.tenantName} hasn’t turned on campaigns for renters.` }, { status: 403 });
+      const cRef = db.doc(`tenants/${tenantId}/campaigns/${String(body.campaignId || '')}`);
+      const c = ((await cRef.get()).data() as any) || null;
+      if (!c || c.ownerRenterId !== session.renterId) return NextResponse.json({ ok: false, error: 'Not your campaign.' }, { status: 403 });
+      const { previewCampaign, sendCampaignBatch } = await import('@/lib/campaign-engine');
+      const { smsConfigured } = await import('@/lib/sms');
+      if (c.type === 'sms' && !smsConfigured()) return NextResponse.json({ ok: false, error: 'Texting isn’t set up for this business yet — send it as an email.' }, { status: 409 });
+      const pv = await previewCampaign(db, tenantId, c, req.nextUrl.origin);
+      const doneSnap = await cRef.collection('recipients').get();
+      const left = pv.aud.members.filter((m) => !doneSnap.docs.some((d: any) => d.id === m.id)).length;
+      // What this send needs, what's free, what's paid.
+      const neededSegs = c.type === 'sms' ? pv.segments * left : 0;
+      const used = c.type === 'sms' ? await rcUsedThisMonth() : 0;
+      const freeLeft = policy.mode === 'business_covers' ? Math.max(0, policy.monthlyTexts - used) : 0;
+      const budgetLeft = Math.max(0, (Number(c.segmentsBudget) || 0) - (Number(c.segmentsUsed) || 0));  // already paid for / reserved
+      const toBuy = c.type === 'sms' ? Math.max(0, neededSegs - budgetLeft - freeLeft) : 0;
+      const chargeCents = toBuy * policy.priceCents;
+      const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      const pm = r.stripePaymentMethodId || r.defaultPaymentMethodId || null;
+      const cardOnFile = !!(r.stripeCustomerId && pm);
+      const quote = { summary: pv.summary, segmentsEach: pv.segments, neededSegments: neededSegs, freeSegments: Math.min(neededSegs, freeLeft + budgetLeft), chargeCents, priceCents: policy.priceCents, cardOnFile, mode: policy.mode };
+      if (action === 'rc-preview') return NextResponse.json({ ok: true, quote });
+
+      if (chargeCents > 0) {
+        if (!cardOnFile) return NextResponse.json({ ok: false, error: `This send needs ${toBuy} paid text${toBuy === 1 ? '' : 's'} ($${(chargeCents / 100).toFixed(2)}), and there’s no card on file. Save a card in Rent, or send it as an email — emails are free.`, quote }, { status: 402 });
+        if (Number(body.confirmChargeCents) !== chargeCents) return NextResponse.json({ ok: false, error: 'The price changed — check it and confirm again.', quote }, { status: 409 });
+        const Stripe = (await import('stripe')).default;
+        const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
+        try {
+          const intent = await stripe.paymentIntents.create({ amount: chargeCents, currency: 'usd', customer: r.stripeCustomerId, payment_method: pm, off_session: true, confirm: true,
+            description: `Text messages — ${toBuy} × ${policy.priceCents}¢ — campaign "${c.name}"`, metadata: { tenantId, renterId: String(session.renterId), campaignId: cRef.id, kind: 'renter_campaign_texts' } });
+          const nowIso = new Date().toISOString();
+          const tRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+          await tRef.set({ id: tRef.id, type: 'income', context: 'Business', taxBucket: 'revenue', source: 'renter_campaign_texts', amount: chargeCents / 100, category: 'Renter Text Messages',
+            description: `Text messages for ${session.name || 'a renter'}’s campaign "${c.name}" (${toBuy} × ${policy.priceCents}¢)`, clientOrVendor: session.name || 'Renter', date: nowIso,
+            paymentMethod: 'Card on file (Stripe)', hasReceipt: false, stripePaymentIntentId: intent.id, sourceId: cRef.id, tenantId, createdAt: nowIso });
+          await cRef.set({ chargedCents: (Number(c.chargedCents) || 0) + chargeCents, segmentsBudget: (Number(c.segmentsUsed) || 0) + budgetLeft + toBuy + Math.min(neededSegs, freeLeft) }, { merge: true });
+        } catch (err: any) {
+          return NextResponse.json({ ok: false, error: `Card charge failed: ${err?.raw?.message || err?.message || 'declined'}. Nothing was sent.`, quote }, { status: 402 });
+        }
+      } else if (c.type === 'sms') {
+        await cRef.set({ segmentsBudget: (Number(c.segmentsUsed) || 0) + budgetLeft + Math.min(neededSegs, freeLeft) }, { merge: true });
+      }
+      // Send, within the budget, for up to ~45 seconds; the page calls again to finish.
+      const started = Date.now();
+      let last: any = null;
+      while (Date.now() - started < 45000) {
+        const fresh = ((await cRef.get()).data() as any) || {};
+        const maxSeg = c.type === 'sms' ? Math.max(0, (Number(fresh.segmentsBudget) || 0) - (Number(fresh.segmentsUsed) || 0)) : undefined;
+        last = await sendCampaignBatch(db, tenantId, cRef.id, { actorName: session.name || 'Renter', fallbackOrigin: req.nextUrl.origin, ...(maxSeg !== undefined ? { maxSegments: maxSeg } : {}) });
+        if (!last.ok || last.done || (last.batch?.sent || 0) + (last.batch?.failed || 0) === 0) break;
+      }
+      return NextResponse.json({ ...last, quote });
+    }
+
     // ── Reconnect: the renter's own nudges to their quiet clients ──────────
     if (action === 'reconnect-get') {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
