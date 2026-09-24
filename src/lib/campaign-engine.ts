@@ -165,6 +165,11 @@ export async function runAutomation(db: any, tenantId: string, campaignId: strin
   const cRef = db.doc(`tenants/${tenantId}/campaigns/${campaignId}`);
   const c = ((await cRef.get()).data() as any) || null;
   if (!c || c.status !== 'automation' || c.automation?.active !== true) return { ok: false, skipped: 'inactive' };
+  // At most once per day in the business's own time zone, however often the
+  // scheduler fires.
+  const tRow = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: String(tRow.timezone || 'America/New_York') }).format(new Date());
+  if (c.automation?.lastRunDay === today) return { ok: true, skipped: 'already_ran_today', sent: 0 };
   const trigger = c.automation?.trigger;
   const withAud = { ...c, targetAudience: trigger === 'birthday' ? 'birthday' : 'first_visit_followup' };
   const pv = await previewCampaign(db, tenantId, withAud);
@@ -179,6 +184,6 @@ export async function runAutomation(db: any, tenantId: string, campaignId: strin
     if (r.ok) sent++;
   }
   const nowIso = new Date().toISOString();
-  await cRef.set({ automation: { ...c.automation, lastRunAt: nowIso }, recipientCount: (Number(c.recipientCount) || 0) + sent }, { merge: true });
+  await cRef.set({ automation: { ...c.automation, lastRunAt: nowIso, lastRunDay: today }, recipientCount: (Number(c.recipientCount) || 0) + sent }, { merge: true });
   return { ok: true, sent };
 }
