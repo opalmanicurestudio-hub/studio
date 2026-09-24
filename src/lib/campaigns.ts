@@ -24,7 +24,7 @@
 
 const DAY = 86400000;
 export type Audience = 'all' | 'new' | 'loyal' | 'inactive_90' | 'specific' | 'birthday'
-  | 'service' | 'provider' | 'spent_over' | 'one_and_done' | 'members' | 'cancelled_recent';
+  | 'service' | 'provider' | 'spent_over' | 'one_and_done' | 'members' | 'cancelled_recent' | 'first_visit_followup';
 
 // Plain words, for any kind of business — clients, services, team members.
 export const AUDIENCE_RULES: Record<Audience, string> = {
@@ -40,9 +40,15 @@ export const AUDIENCE_RULES: Record<Audience, string> = {
   one_and_done: 'Came once, 30+ days ago, never returned',
   members: 'Active members',
   cancelled_recent: 'Cancelled or missed a visit in the last 30 days, nothing booked since',
+  first_visit_followup: 'First visit was a set number of days ago',
 };
 
-export interface AudienceParams { specificIds?: string[]; serviceIds?: string[]; staffIds?: string[]; minSpend?: number }
+export interface AudienceParams {
+  specificIds?: string[]; serviceIds?: string[]; staffIds?: string[]; minSpend?: number;
+  daysAfter?: number;
+  /** A RENTER's campaign: only their clients and their own visit history. */
+  owner?: { renterId: string; staffIds: string[] } | null;
+}
 
 export interface AudienceMember { id: string; name: string; first: string; email: string | null; phone: string | null }
 export interface AudienceResult { members: AudienceMember[]; matched: number; skippedNoConsent: number; skippedNoContact: number; skippedUnsubscribed: number; skippedMonthlyCap: number }
@@ -75,8 +81,12 @@ export async function resolveAudience(db: any, tenantId: string, audience: Audie
   const params: AudienceParams = Array.isArray(paramsIn) ? { specificIds: paramsIn } : (paramsIn || {});
   const specificIds = params.specificIds || [];
   const col = (n: string) => db.collection(`tenants/${tenantId}/${n}`);
-  const clients = (await col('clients').get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
-    .filter((c: any) => !c.ownerRenterId && !c.archived && c.status !== 'archived');
+  const owner = params.owner || null;
+  const clients = (owner
+      ? (await col('clients').where('ownerRenterId', '==', owner.renterId).get())
+      : (await col('clients').get())).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+    .filter((c: any) => (owner ? c.ownerRenterId === owner.renterId : !c.ownerRenterId) && !c.archived && c.status !== 'archived');
+  const ownerStaff = new Set(owner?.staffIds || []);
 
   const need = !['all', 'specific', 'birthday', 'members'].includes(audience);
   type V = { done: string[]; upcoming: boolean; last: any | null; spent12: number; missed30: string[] };
@@ -88,7 +98,8 @@ export async function resolveAudience(db: any, tenantId: string, audience: Audie
     const monthAgo = new Date(now - 30 * DAY).toISOString();
     for (const d of (await col('appointments').where('startTime', '>=', since).get()).docs) {
       const a = d.data() as any;
-      if (!a.clientId || a.isRenterBooking) continue;
+      if (!a.clientId) continue;
+      if (owner ? !(a.isRenterBooking && ownerStaff.has(String(a.staffId || ''))) : a.isRenterBooking) continue;
       const v = visits.get(a.clientId) || { done: [], upcoming: false, last: null, spent12: 0, missed30: [] };
       const st = String(a.status || '');
       if (st === 'completed') {
@@ -125,6 +136,15 @@ export async function resolveAudience(db: any, tenantId: string, audience: Audie
       case 'spent_over': return minSpend > 0 && v.spent12 >= minSpend;
       case 'one_and_done': return sorted.length === 1 && now - new Date(sorted[0]).getTime() >= 30 * DAY && !v.upcoming;
       case 'members': return !!c.activeMembershipId && c.subscription?.status === 'active';
+      case 'first_visit_followup': {
+        // First-ever visit landed N days ago (a 3-day window, so a missed
+        // hourly run never skips anyone). Once per client — enforced by the
+        // automation's recipient record, not here.
+        const n = Math.max(1, Number(params.daysAfter) || 7);
+        if (!sorted.length) return false;
+        const age = (now - new Date(sorted[0]).getTime()) / DAY;
+        return age >= n && age < n + 3;
+      }
       case 'cancelled_recent': {
         if (!v.missed30.length || v.upcoming) return false;
         const lastMiss = v.missed30.sort().slice(-1)[0];
