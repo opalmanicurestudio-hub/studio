@@ -392,6 +392,23 @@ export function LocationsSettingsTab() {
   const [bulkCheck, setBulkCheck] = useState<{ results: any[]; deletable: number; blocked: number } | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkMsg, setBulkMsg] = useState('');
+  const [mergeTarget, setMergeTarget] = useState('');
+  const runMerge = async () => {
+    if (!mergeTarget) { setBulkMsg('Pick the location to keep.'); return; }
+    const keep = locations.find((l) => l.id === mergeTarget);
+    if (!window.confirm(`Merge ${picked.size} location${picked.size === 1 ? '' : 's'} into "${keep?.name || 'the one you picked'}"?\n\nEverything recorded against them — appointments, booths, renters, leases, staff access — moves to "${keep?.name}", then they're deleted. This can't be undone.`)) return;
+    setBulkBusy(true); setBulkMsg('');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    try { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : null; if (tk) headers.Authorization = `Bearer ${tk}`; } catch { /* 401 explains */ }
+    const res = await fetch('/api/locations/delete', { method: 'POST', headers, body: JSON.stringify({ tenantId, mode: 'merge', locationIds: [...picked], targetId: mergeTarget }) });
+    const d = await res.json().catch(() => null);
+    setBulkBusy(false);
+    if (!d?.ok) { setBulkMsg(d?.error || 'Could not merge.'); return; }
+    if (selectedLocationId && picked.has(selectedLocationId)) setSelectedLocationId(mergeTarget);
+    const movedTotal = Object.values(d.moved || {}).reduce((n: number, x: any) => n + Number(x || 0), 0);
+    setPicked(new Set()); setBulkOpen(false); setMergeTarget('');
+    setDupDone(`Merged ${d.merged} location${d.merged === 1 ? '' : 's'} into ${keep?.name || 'your location'} — ${movedTotal} record${movedTotal === 1 ? '' : 's'} moved across.`);
+  };
   const togglePick = (id: string) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const allPicked = locations.length > 0 && locations.every((l) => picked.has(l.id));
   const callBulk = async (mode: 'bulk-check' | 'bulk-delete') => {
@@ -498,6 +515,7 @@ export function LocationsSettingsTab() {
                 {locations.length > 1 && <input type="checkbox" aria-label={`Select ${loc.name}`} className="h-4 w-4" checked={picked.has(loc.id)} onChange={() => togglePick(loc.id)} />}
                 <p className="text-sm font-black uppercase tracking-tight text-slate-900">{loc.name}</p>
                 {!loc.isActive && <Badge variant="secondary" className="text-[10px]">Inactive</Badge>}
+                {(loc as any).createdAt && <span className="text-[10px] font-bold text-slate-400">added {new Date((loc as any).createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>}
                 {loc.id === selectedLocationId && <Badge className="text-[10px]">Currently viewing</Badge>}
               </div>
 
@@ -578,11 +596,24 @@ export function LocationsSettingsTab() {
               ))}
             </div>
           )}
+          {bulkCheck && bulkCheck.results.some((r) => !r.canDelete && r.refs?.length) && (
+            <div className="space-y-2 rounded-xl border-2 border-sky-200 bg-sky-50 p-3">
+              <p className="text-sm font-bold text-sky-900">Duplicates that are in use can be merged instead: everything recorded against them moves to the location you keep, then they’re deleted.</p>
+              <select value={mergeTarget} onChange={(e) => setMergeTarget(e.target.value)} aria-label="Location to keep" className="h-10 w-full rounded-lg border-2 bg-white px-2 text-sm font-bold">
+                <option value="">Keep which location?</option>
+                {locations.filter((l) => !picked.has(l.id)).map((l) => <option key={l.id} value={l.id}>{l.name}{l.isActive ? '' : ' (inactive)'}</option>)}
+              </select>
+              {locations.filter((l) => !picked.has(l.id)).length === 0 && <p className="text-xs font-bold text-sky-900">Untick the one you want to keep first — you’ve selected every location.</p>}
+            </div>
+          )}
           {bulkMsg && <p className="text-sm font-bold text-red-700">{bulkMsg}</p>}
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setBulkOpen(false)}>Cancel</Button>
             {bulkCheck && bulkCheck.results.some((r) => !r.canDelete && r.isActive && r.refs?.length) && (
               <Button variant="secondary" disabled={bulkBusy} onClick={deactivateBlocked}>Set the in-use ones inactive</Button>
+            )}
+            {bulkCheck && bulkCheck.results.some((r) => !r.canDelete && r.refs?.length) && (
+              <Button disabled={bulkBusy || !mergeTarget} onClick={runMerge}>{bulkBusy ? 'Merging…' : `Merge ${picked.size} & delete`}</Button>
             )}
             {bulkCheck && bulkCheck.deletable > 0 && (
               <Button variant="destructive" disabled={bulkBusy} onClick={runBulk}>{bulkBusy ? 'Deleting…' : `Delete ${bulkCheck.deletable}`}</Button>
