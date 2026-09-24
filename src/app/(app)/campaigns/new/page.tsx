@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -15,10 +15,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { ArrowLeft, Save, Send, Loader, Eye, Mail, MessageSquare, Wand2, HandHeart, Sparkles, PartyPopper, Search, User as UserIcon, FlaskConical, Gift, ChevronDown, Activity, ListChecks, ShieldCheck, Zap, ArrowRight, X, Tag } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { useFirebase } from '@/firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
@@ -233,7 +233,7 @@ const ClientSelectorDialog = ({
     )
 }
 
-export default function NewCampaignPage() {
+function NewCampaignPageInner() {
     const { firestore, user } = useFirebase();
     const { selectedTenant } = useTenant();
     const router = useRouter();
@@ -303,7 +303,23 @@ export default function NewCampaignPage() {
 
     // One id for the whole life of this campaign — saved as a draft first,
     // then the server sends it from that saved copy (never from the browser).
-    const [campaignId] = useState(() => nanoid());
+    // ?id=… opens a saved draft; otherwise a new id. Drafts could never be
+    // reopened before — only sent as-is or deleted.
+    const searchParams = useSearchParams();
+    const editId = searchParams?.get('id') || '';
+    const [campaignId] = useState(() => editId || nanoid());
+    const [loadedDraft, setLoadedDraft] = useState<'idle' | 'loading' | 'loaded' | 'sent' | 'missing'>(editId ? 'loading' : 'idle');
+    useEffect(() => {
+        if (!editId || !firestore || !selectedTenant) return;
+        getDoc(doc(firestore, 'tenants', selectedTenant.id, 'campaigns', editId)).then((snap) => {
+            if (!snap.exists()) { setLoadedDraft('missing'); return; }
+            const d = snap.data() as any;
+            methods.reset({ ...methods.getValues(), ...d });
+            if (d.subjectB) setIsABTest(true);
+            setLoadedDraft(d.status === 'draft' || !d.status ? 'loaded' : 'sent');
+        }).catch(() => setLoadedDraft('missing'));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [editId, firestore, selectedTenant?.id]);
     const [sendProgress, setSendProgress] = useState('');
     const authHeaders = async (): Promise<Record<string, string>> => {
         const h: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -333,6 +349,7 @@ export default function NewCampaignPage() {
             const sm = pv.summary;
             const skipped = [
                 sm.skippedNoConsent ? `${sm.skippedNoConsent} haven't said yes to marketing texts` : '',
+                sm.skippedMonthlyCap ? `${sm.skippedMonthlyCap} already had 4 marketing texts this month` : '',
                 sm.skippedNoContact ? `${sm.skippedNoContact} have no ${data.type === 'sms' ? 'mobile' : 'email'} on file` : '',
                 sm.skippedUnsubscribed ? `${sm.skippedUnsubscribed} unsubscribed` : '',
             ].filter(Boolean).join('; ');
@@ -341,7 +358,12 @@ export default function NewCampaignPage() {
                 router.push('/campaigns');
                 return;
             }
-            const okToSend = window.confirm(`Send "${data.name}" as ${data.type === 'sms' ? 'a text' : 'an email'} to ${sm.willReceive} client${sm.willReceive === 1 ? '' : 's'}?${skipped ? `\n\nNot included: ${skipped}.` : ''}\n\nThis can't be undone.`);
+            const extras = [
+                pv.offer ? `Includes the offer: ${pv.offer}.` : '',
+                pv.abTest && data.type !== 'sms' ? 'Half get subject A, half get subject B.' : '',
+                data.type === 'sms' && pv.segments ? `${pv.segments} text segment${pv.segments === 1 ? '' : 's'} each (≈${pv.segments * sm.willReceive} total).` : '',
+            ].filter(Boolean).join(' ');
+            const okToSend = window.confirm(`Send "${data.name}" as ${data.type === 'sms' ? 'a text' : 'an email'} to ${sm.willReceive} client${sm.willReceive === 1 ? '' : 's'}?${extras ? `\n\n${extras}` : ''}${skipped ? `\n\nNot included: ${skipped}.` : ''}\n\nThis can't be undone.`);
             if (!okToSend) { toast({ title: 'Not sent', description: 'Saved as a draft.' }); return; }
             // Batches until done — each batch is recorded, so a stop half-way resumes without double-sending.
             let totals = { sent: 0, failed: 0 };
@@ -683,5 +705,15 @@ export default function NewCampaignPage() {
                 </DialogContent>
             </Dialog>
         </div>
+    );
+}
+
+// useSearchParams (for ?id= draft editing) needs a Suspense boundary so the
+// page can still be prerendered.
+export default function NewCampaignPage() {
+    return (
+        <Suspense fallback={<div className="p-10 text-sm text-muted-foreground">Loading…</div>}>
+            <NewCampaignPageInner />
+        </Suspense>
     );
 }
