@@ -80,6 +80,7 @@ import { IssueRecoveryDialog } from '@/components/clients/IssueRecoveryDialog';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { nanoid } from 'nanoid';
 import { useFirebase, useDoc, useMemoFirebase, updateDocumentNonBlocking, useCollection, useUser } from '@/firebase';
+import { MessagingConsentCard } from '@/components/clients/MessagingConsentCard';
 import { useInventory } from '@/context/InventoryContext';
 import { collection, doc, arrayUnion, increment, getDocs, query, where, setDoc } from 'firebase/firestore';
 import type { Client, Appointment, Service, CustomFormula, Membership, Redemption, RefreshmentRequest } from '@/lib/data';
@@ -823,6 +824,12 @@ export default function ClientDetailPage() {
                     </div>
                   )}
                 </div>
+
+                {firestore && tenantId && (
+                  <MessagingConsentCard firestore={firestore} tenantId={tenantId} client={client}
+                    staffName={String(currentUser?.displayName || currentUser?.email || 'Staff')} staffUid={currentUser?.uid || null}
+                    studioName={selectedTenant?.name || null} />
+                )}
 
                 <div className="space-y-4 pt-6 border-t border-dashed text-left">
                   <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3 text-left px-1">
