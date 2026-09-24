@@ -47,6 +47,7 @@ export default function RenterPortalPage() {
   });
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [credBusy, setCredBusy] = useState<'license' | 'insurance' | null>(null);
   const [credDone, setCredDone] = useState<'license' | 'insurance' | null>(null);
@@ -80,12 +81,12 @@ export default function RenterPortalPage() {
   const refresh = useCallback(async (tok?: string) => {
     const token = tok || session?.token;
     if (!token) return;
-    setLoading(true);
+    setLoading(true); setLoadError(null);
     const d = await api({ action: 'me', tenantId, token, today: localISO() });
     setLoading(false);
     if (d.ok) setData(d);
     else if (d.status === 401) saveSession(null);
-    else toast({ variant: 'destructive', title: 'Couldn’t load your info', description: d.error || 'Pull to refresh or try again.' });
+    else { setLoadError(d.error || 'Something went wrong loading your portal.'); toast({ variant: 'destructive', title: 'Couldn’t load your info', description: d.error || 'Try again.' }); }
   }, [session?.token, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (session?.token && !data) refresh(); }, [session?.token]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -216,6 +217,21 @@ export default function RenterPortalPage() {
         </header>
 
         {loading && !data ? (
+          <div className="flex flex-col items-center py-24 gap-3 text-slate-400">
+            <Loader className="w-8 h-8 animate-spin" />
+            <p className="text-[10px] font-black uppercase tracking-widest">Loading your studio life…</p>
+          </div>
+        ) : !data && loadError ? (
+          // A failed load says so — with the real reason — instead of spinning.
+          <div className="mx-auto max-w-sm space-y-3 rounded-3xl border-2 border-red-200 bg-red-50 p-5 text-center">
+            <p className="text-sm font-black text-red-900">Your portal didn’t load</p>
+            <p className="text-xs font-bold text-red-800 break-words">{loadError}</p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => refresh()} className="h-11 flex-1 rounded-xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white">Try again</button>
+              <button type="button" onClick={() => saveSession(null)} className="h-11 flex-1 rounded-xl border-2 border-slate-200 bg-white text-[10px] font-black uppercase tracking-widest text-slate-600">Sign in again</button>
+            </div>
+          </div>
+        ) : !data ? (
           <div className="flex flex-col items-center py-24 gap-3 text-slate-400">
             <Loader className="w-8 h-8 animate-spin" />
             <p className="text-[10px] font-black uppercase tracking-widest">Loading your studio life…</p>
