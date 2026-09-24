@@ -506,10 +506,9 @@ export async function GET(req: NextRequest) {
             tenantId: tid, renterId: null, staffIds: null, settings: studioSettings,
             bookingUrl: base ? `${base}/book/${tid}` : null, signer: studioName, stopUrl: stopFor,
             send: async (to, text, subject, kind) => {
-              let ok = false;
-              if (to.phone && to.smsOk && smsConfigured()) ok = (await sendNotification(db, { tenantId: tid, channel: 'sms', to: to.phone, text, kind, clientId: to.clientId, clientName: to.name, recipientType: 'client' } as any)).ok;
-              if (!ok && to.email) ok = (await sendNotification(db, { tenantId: tid, channel: 'email', to: to.email, subject, text, kind, clientId: to.clientId, clientName: to.name, recipientType: 'client' } as any)).ok;
-              return ok;
+              if (to.phone && to.smsOk && smsConfigured() && (await sendNotification(db, { tenantId: tid, channel: 'sms', to: to.phone, text, kind, clientId: to.clientId, clientName: to.name, recipientType: 'client' } as any)).ok) return 'sms';
+              if (to.email && (await sendNotification(db, { tenantId: tid, channel: 'email', to: to.email, subject, text, kind, clientId: to.clientId, clientName: to.name, recipientType: 'client' } as any)).ok) return 'email';
+              return false;
             },
           });
         }
@@ -524,10 +523,9 @@ export async function GET(req: NextRequest) {
             tenantId: tid, renterId: rp.renterId, staffIds: [staffId], settings: rSettings,
             bookingUrl: rp.bookingUrl, signer: rp.name, stopUrl: stopFor,
             send: async (to, text, subject, kind) => {
-              let ok = false;
-              if (to.phone && to.smsOk && smsConfigured()) ok = (await sendNotification(db, { tenantId: tid, channel: 'sms', to: to.phone, text, kind: `renter_${kind}`, clientId: to.clientId, clientName: to.name, recipientType: 'client' } as any)).ok;
-              if (!ok && to.email) ok = (await sendNotification(db, { tenantId: tid, channel: 'email', to: to.email, subject: `${subject} — ${rp.name}`, text, kind: `renter_${kind}`, clientId: to.clientId, clientName: to.name, recipientType: 'client' } as any)).ok;
-              return ok;
+              if (to.phone && to.smsOk && smsConfigured() && (await sendNotification(db, { tenantId: tid, channel: 'sms', to: to.phone, text, kind: `renter_${kind}`, clientId: to.clientId, clientName: to.name, recipientType: 'client' } as any)).ok) return 'sms';
+              if (to.email && (await sendNotification(db, { tenantId: tid, channel: 'email', to: to.email, subject: `${subject} — ${rp.name}`, text, kind: `renter_${kind}`, clientId: to.clientId, clientName: to.name, recipientType: 'client' } as any)).ok) return 'email';
+              return false;
             },
           });
         }
