@@ -58,9 +58,9 @@ export async function POST(req: NextRequest) {
   const tenantId = String(body.tenantId || '').trim();
   const locationId = String(body.locationId || '').trim();
   const mode = body.mode === 'delete' ? 'delete' : body.mode === 'duplicates' ? 'duplicates' : body.mode === 'cleanup' ? 'cleanup'
-    : body.mode === 'bulk-check' ? 'bulk-check' : body.mode === 'bulk-delete' ? 'bulk-delete' : 'check';
+    : body.mode === 'bulk-check' ? 'bulk-check' : body.mode === 'bulk-delete' ? 'bulk-delete' : body.mode === 'merge' ? 'merge' : 'check';
   const bulkIds: string[] = Array.isArray(body.locationIds) ? [...new Set<string>(body.locationIds.map((x: any) => String(x || '').trim()).filter(Boolean))].slice(0, 100) : [];
-  const isBulk = mode === 'bulk-check' || mode === 'bulk-delete';
+  const isBulk = mode === 'bulk-check' || mode === 'bulk-delete' || mode === 'merge';
   if (!tenantId || (isBulk ? bulkIds.length === 0 : (!locationId && mode !== 'duplicates' && mode !== 'cleanup'))) return NextResponse.json({ ok: false, error: isBulk ? 'Select at least one location.' : 'tenantId and locationId are required.' }, { status: 400 });
 
   const auth = await verifyStaffActor(req, tenantId);
@@ -108,6 +108,52 @@ export async function POST(req: NextRequest) {
   // Same rules as one: each is checked on its own, only the ones nothing
   // points at are deleted, storage areas are refused, and the batch can never
   // remove your last location — if it would, one is kept back and says why.
+  // ── MERGE: move everything that points at the selected locations onto one
+  // location you keep, then delete them. This is how duplicates that are
+  // already IN USE (appointments, staff access, booths…) get cleaned up —
+  // Delete alone rightly refuses those. Every move is counted and logged.
+  if (mode === 'merge') {
+    const targetId = String(body.targetId || '').trim();
+    if (!targetId || bulkIds.includes(targetId)) return NextResponse.json({ ok: false, error: 'Pick a location to keep that isn’t one of the ones being merged.' }, { status: 400 });
+    const tSnap = await db.doc(`tenants/${tenantId}/locations/${targetId}`).get();
+    if (!tSnap.exists || !isBusinessLocation({ id: tSnap.id, ...(tSnap.data() as any) })) return NextResponse.json({ ok: false, error: 'The location to keep wasn’t found.' }, { status: 404 });
+    const moved: Record<string, number> = {};
+    const mergedNames: string[] = [];
+    for (const id of bulkIds) {
+      const lSnap = await db.doc(`tenants/${tenantId}/locations/${id}`).get();
+      if (!lSnap.exists) continue;
+      if (!isBusinessLocation({ id, ...(lSnap.data() as any) })) continue;   // never touch inventory storage areas
+      for (const [col] of REFS) {
+        let snap: any;
+        try { snap = await db.collection(`tenants/${tenantId}/${col}`).where('locationId', '==', id).get(); } catch { continue; }
+        let batch = db.batch(); let n = 0;
+        for (const d of snap.docs) {
+          batch.update(d.ref, { locationId: targetId, locationMergedFrom: id });
+          n++; moved[col] = (moved[col] || 0) + 1;
+          if (n % 400 === 0) { await batch.commit(); batch = db.batch(); }
+        }
+        if (n % 400 !== 0) await batch.commit();
+      }
+      try {
+        const st = await db.collection(`tenants/${tenantId}/staff`).where('locationIds', 'array-contains', id).get();
+        const { FieldValue } = await import('firebase-admin/firestore');
+        for (const d of st.docs) {
+          await d.ref.update({ locationIds: FieldValue.arrayUnion(targetId) });
+          await d.ref.update({ locationIds: FieldValue.arrayRemove(id) });
+          moved.staff = (moved.staff || 0) + 1;
+        }
+      } catch { /* no staff access lists */ }
+      mergedNames.push(String((lSnap.data() as any)?.name || id));
+      await db.doc(`tenants/${tenantId}/locations/${id}`).delete();
+    }
+    try {
+      const aRef = db.collection(`tenants/${tenantId}/auditLogs`).doc();
+      await aRef.set({ id: aRef.id, at: new Date().toISOString(), action: 'locations_merged', ids: bulkIds, targetId, moved,
+        summary: `${mergedNames.length} location(s) merged into "${(tSnap.data() as any)?.name || targetId}" by ${auth.actor.name || auth.actor.uid}: ${mergedNames.join(', ')}`, actorUid: auth.actor.uid });
+    } catch { /* audit is best-effort */ }
+    return NextResponse.json({ ok: true, merged: mergedNames.length, moved });
+  }
+
   if (isBulk) {
     const allDocs = (await db.collection(`tenants/${tenantId}/locations`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
     const business = allDocs.filter(isBusinessLocation);
