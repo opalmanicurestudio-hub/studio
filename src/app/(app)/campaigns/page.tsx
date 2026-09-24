@@ -36,6 +36,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
@@ -100,7 +101,7 @@ const CampaignCard = ({ campaign, onSend, onDelete }: { campaign: Campaign, onSe
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2 p-1">
                         <DropdownMenuItem onClick={() => onSend(campaign.id)} disabled={campaign.status === 'sent'} className="font-bold text-[10px] uppercase tracking-widest">
-                            <Send className="mr-2 h-3.5 w-3.5" /> Dispatch Now
+                            <Send className="mr-2 h-3.5 w-3.5" /> Open & send
                         </DropdownMenuItem>
                         <DropdownMenuItem className="text-destructive font-bold text-[10px] uppercase tracking-widest" onClick={() => onDelete(campaign)}>
                             <Trash2 className="mr-2 h-3.5 w-3.5" /> Terminate
@@ -133,6 +134,7 @@ export default function CampaignsPage() {
   const { selectedTenant } = useTenant();
   const { toast } = useToast();
   const [campaignToDelete, setCampaignToDelete] = useState<Campaign | null>(null);
+  const router = useRouter();
 
   const campaignsQuery = useMemoFirebase(() => 
     firestore && selectedTenant
@@ -142,14 +144,11 @@ export default function CampaignsPage() {
 
   const { data: campaigns, isLoading } = useCollection<Campaign>(campaignsQuery);
 
+  // Send used to mark the campaign "sent" and show "Dispatch successful"
+  // without sending anything. It now opens the draft in the editor, where
+  // Send previews the real audience, asks, and sends through the server.
   const handleSendCampaign = (campaignId: string) => {
-    if (!firestore || !selectedTenant) return;
-    const campaignRef = doc(firestore, 'tenants', selectedTenant.id, 'campaigns', campaignId);
-    updateDocumentNonBlocking(campaignRef, {
-        status: 'sent',
-        sentAt: new Date().toISOString(),
-    });
-    toast({ title: "Campaign Dispatched!", description: "Dispatch successful. Data tracking initiated." });
+    router.push(`/campaigns/new?id=${encodeURIComponent(campaignId)}`);
   };
 
   const handleDeleteClick = (campaign: Campaign) => {
@@ -280,7 +279,7 @@ export default function CampaignsPage() {
                                             </DropdownMenuTrigger>
                                             <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2 p-1">
                                                 <DropdownMenuItem onClick={() => handleSendCampaign(campaign.id)} disabled={campaign.status === 'sent'} className="font-bold text-[10px] uppercase tracking-widest">
-                                                    <Send className="mr-2 h-3.5 w-3.5" /> Dispatch Now
+                                                    <Send className="mr-2 h-3.5 w-3.5" /> Open & send
                                                 </DropdownMenuItem>
                                                 <DropdownMenuItem className="text-destructive font-bold text-[10px] uppercase tracking-widest" onClick={() => handleDeleteClick(campaign)}>
                                                     <Trash2 className="mr-2 h-3.5 w-3.5" /> Terminate
