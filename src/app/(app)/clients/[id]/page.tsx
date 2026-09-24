@@ -81,6 +81,7 @@ import { formatPhoneNumber } from 'react-phone-number-input';
 import { nanoid } from 'nanoid';
 import { useFirebase, useDoc, useMemoFirebase, updateDocumentNonBlocking, useCollection, useUser } from '@/firebase';
 import { MessagingConsentCard } from '@/components/clients/MessagingConsentCard';
+import { ClientOffersCard } from '@/components/clients/ClientOffersCard';
 import { PrivateImg, resolvePrivateUrl } from '@/components/shared/private-file';
 import { useInventory } from '@/context/InventoryContext';
 import { collection, doc, arrayUnion, increment, getDocs, query, where, setDoc } from 'firebase/firestore';
@@ -826,6 +827,7 @@ export default function ClientDetailPage() {
                   )}
                 </div>
 
+                {firestore && tenantId && <ClientOffersCard firestore={firestore} tenantId={tenantId} clientId={client.id} />}
                 {firestore && tenantId && (
                   <MessagingConsentCard firestore={firestore} tenantId={tenantId} client={client}
                     staffName={String(currentUser?.displayName || currentUser?.email || 'Staff')} staffUid={currentUser?.uid || null}
