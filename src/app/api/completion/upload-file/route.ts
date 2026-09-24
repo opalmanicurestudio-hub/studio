@@ -100,10 +100,17 @@ export async function POST(req: NextRequest) {
             },
         });
 
-        await fileRef.makePublic();
-
-        const publicUrl = `https://storage.googleapis.com/${bucket.name}/${path}`;
-        return NextResponse.json({ url: publicUrl, name: file.name }, { status: 200 });
+        // PRIVATE by default. These uploads include photo IDs, intake forms and
+        // client photos; they used to be made public, so anyone holding the
+        // link could open them forever. Now:
+        //   url        — a private reference. Staff open it from the app, which
+        //                asks /api/files/view for a 5-minute link after checking
+        //                who they are.
+        //   previewUrl — a 15-minute link so the client sees their own upload
+        //                straight away.
+        const [previewUrl] = await fileRef.getSignedUrl({ action: 'read', expires: Date.now() + 15 * 60 * 1000 });
+        const privateRef = `/api/files/view?t=${encodeURIComponent(tenantId)}&p=${encodeURIComponent(path)}`;
+        return NextResponse.json({ url: privateRef, previewUrl, name: file.name, private: true }, { status: 200 });
 
     } catch (e: any) {
         console.error('Completion upload error:', e);
