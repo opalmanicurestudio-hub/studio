@@ -386,6 +386,45 @@ export function LocationsSettingsTab() {
     if (d?.ok) { setDupDone(`Removed ${d.removed} unused duplicate${d.removed === 1 ? '' : 's'}.`); if (dupes?.removableIds.includes(selectedLocationId || '') && dupes.keepId) setSelectedLocationId(dupes.keepId); void scanDupes(); }
   };
 
+  // ── Multi-select ──
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkCheck, setBulkCheck] = useState<{ results: any[]; deletable: number; blocked: number } | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkMsg, setBulkMsg] = useState('');
+  const togglePick = (id: string) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const allPicked = locations.length > 0 && locations.every((l) => picked.has(l.id));
+  const callBulk = async (mode: 'bulk-check' | 'bulk-delete') => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    try { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : null; if (tk) headers.Authorization = `Bearer ${tk}`; } catch { /* 401 explains */ }
+    const res = await fetch('/api/locations/delete', { method: 'POST', headers, body: JSON.stringify({ tenantId, mode, locationIds: [...picked] }) });
+    return res.json().catch(() => ({ ok: false, error: 'No response' }));
+  };
+  const openBulk = async () => {
+    setBulkOpen(true); setBulkCheck(null); setBulkMsg(''); setBulkBusy(true);
+    const d = await callBulk('bulk-check');
+    setBulkBusy(false);
+    if (d?.ok) setBulkCheck({ results: d.results || [], deletable: d.deletable || 0, blocked: d.blocked || 0 });
+    else setBulkMsg(d?.error || 'Could not check those locations.');
+  };
+  const runBulk = async () => {
+    setBulkBusy(true); setBulkMsg('');
+    const d = await callBulk('bulk-delete');
+    setBulkBusy(false);
+    if (!d?.ok) { setBulkMsg(d?.error || 'Could not delete.'); return; }
+    const gone = new Set<string>(d.deleted || []);
+    if (selectedLocationId && gone.has(selectedLocationId)) { const next = locations.find((l) => !gone.has(l.id) && l.isActive) || locations.find((l) => !gone.has(l.id)); if (next) setSelectedLocationId(next.id); }
+    setPicked(new Set()); setBulkOpen(false);
+    setDupDone(`Deleted ${gone.size} location${gone.size === 1 ? '' : 's'}.`);
+  };
+  const deactivateBlocked = async () => {
+    if (!bulkCheck) return;
+    setBulkBusy(true);
+    for (const r of bulkCheck.results) if (!r.canDelete && r.isActive && r.refs?.length) { const loc = locations.find((l) => l.id === r.id); if (loc && loc.isActive) await toggleActive(loc); }
+    setBulkBusy(false); setBulkOpen(false); setPicked(new Set());
+    setDupDone('The locations still in use were set to Inactive — they stop taking bookings and keep their history.');
+  };
+
   const toggleActive = async (loc: Location) => {
     if (!tenantId) return;
     await updateDoc(doc(firestore, 'tenants', tenantId, 'locations', loc.id), {
@@ -435,13 +474,28 @@ export function LocationsSettingsTab() {
           </div>
         )}
 
+        {locations.length > 1 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border-2 bg-white px-4 py-2.5">
+            <label className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-600 cursor-pointer">
+              <input type="checkbox" className="h-4 w-4" checked={allPicked} onChange={() => setPicked(allPicked ? new Set() : new Set(locations.map((l) => l.id)))} />
+              {picked.size ? `${picked.size} selected` : 'Select'}
+            </label>
+            {picked.size > 0 && (
+              <div className="flex gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setPicked(new Set())}>Clear</Button>
+                <Button variant="destructive" size="sm" onClick={openBulk}><Trash2 className="h-3.5 w-3.5 mr-1.5" />Delete selected ({picked.size})</Button>
+              </div>
+            )}
+          </div>
+        )}
         {locations.map((loc) => (
           <div
             key={loc.id}
-            className="p-5 rounded-[2rem] border-2 bg-slate-50 border-slate-200 flex flex-col sm:flex-row items-start justify-between gap-4"
+            className={`p-5 rounded-[2rem] border-2 flex flex-col sm:flex-row items-start justify-between gap-4 ${picked.has(loc.id) ? 'bg-red-50/40 border-red-200' : 'bg-slate-50 border-slate-200'}`}
           >
             <div className="min-w-0 space-y-1.5">
               <div className="flex items-center gap-2 flex-wrap">
+                {locations.length > 1 && <input type="checkbox" aria-label={`Select ${loc.name}`} className="h-4 w-4" checked={picked.has(loc.id)} onChange={() => togglePick(loc.id)} />}
                 <p className="text-sm font-black uppercase tracking-tight text-slate-900">{loc.name}</p>
                 {!loc.isActive && <Badge variant="secondary" className="text-[10px]">Inactive</Badge>}
                 {loc.id === selectedLocationId && <Badge className="text-[10px]">Currently viewing</Badge>}
@@ -504,6 +558,38 @@ export function LocationsSettingsTab() {
         </Button>
       </CardContent>
 
+      <Dialog open={bulkOpen} onOpenChange={(o) => { if (!o) setBulkOpen(false); }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Delete {picked.size} location{picked.size === 1 ? '' : 's'}?</DialogTitle>
+            <DialogDescription>
+              {bulkBusy && !bulkCheck ? 'Checking what uses each one…'
+                : bulkCheck ? (bulkCheck.deletable === 0 ? 'None of these can be deleted — see why below.'
+                  : `${bulkCheck.deletable} can be deleted cleanly${bulkCheck.blocked ? `; ${bulkCheck.blocked} can’t and will be left alone` : ''}. This can’t be undone.`) : ''}
+            </DialogDescription>
+          </DialogHeader>
+          {bulkCheck && (
+            <div className="max-h-[50vh] space-y-1.5 overflow-y-auto">
+              {bulkCheck.results.map((r) => (
+                <div key={r.id} className={`rounded-xl border px-3 py-2 text-sm ${r.canDelete ? 'border-red-200 bg-red-50/50' : 'border-slate-200 bg-slate-50'}`}>
+                  <p className="font-bold">{r.canDelete ? '✕ ' : '— '}{r.name}</p>
+                  <p className="text-xs text-muted-foreground">{r.canDelete ? 'Nothing uses it — will be deleted.' : r.reason}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          {bulkMsg && <p className="text-sm font-bold text-red-700">{bulkMsg}</p>}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setBulkOpen(false)}>Cancel</Button>
+            {bulkCheck && bulkCheck.results.some((r) => !r.canDelete && r.isActive && r.refs?.length) && (
+              <Button variant="secondary" disabled={bulkBusy} onClick={deactivateBlocked}>Set the in-use ones inactive</Button>
+            )}
+            {bulkCheck && bulkCheck.deletable > 0 && (
+              <Button variant="destructive" disabled={bulkBusy} onClick={runBulk}>{bulkBusy ? 'Deleting…' : `Delete ${bulkCheck.deletable}`}</Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={!!delTarget} onOpenChange={(o) => { if (!o) setDelTarget(null); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
