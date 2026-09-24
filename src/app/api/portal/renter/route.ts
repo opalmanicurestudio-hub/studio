@@ -3099,7 +3099,7 @@ export async function POST(req: NextRequest) {
       const list = (await db.collection(`tenants/${tenantId}/campaigns`).where('ownerRenterId', '==', session.renterId).get()).docs
         .map((d: any) => ({ id: d.id, ...(d.data() as any) })).sort((a: any, b: any) => String(b.updatedAt || b.sentAt || '').localeCompare(String(a.updatedAt || a.sentAt || '')));
       return NextResponse.json({ ok: true, policy, usedTexts: await rcUsedThisMonth(), cardOnFile: !!(r.stripeCustomerId && (r.stripePaymentMethodId || r.defaultPaymentMethodId)),
-        campaigns: list.map((c: any) => ({ id: c.id, name: c.name, type: c.type, subject: c.subject || '', body: c.body || '', targetAudience: c.targetAudience, targetServiceIds: c.targetServiceIds || [], status: c.status, recipientCount: c.recipientCount || 0, convertedCount: c.convertedCount || 0, convertedRevenueCents: c.convertedRevenueCents || 0, chargedCents: c.chargedCents || 0, sentAt: c.sentAt || null })) });
+        campaigns: list.map((c: any) => ({ id: c.id, name: c.name, type: c.type, subject: c.subject || '', body: c.body || '', offerText: c.offerText || '', templateId: c.templateId || '', targetAudience: c.targetAudience, targetServiceIds: c.targetServiceIds || [], targetMinSpend: c.targetMinSpend || 0, status: c.status, recipientCount: c.recipientCount || 0, convertedCount: c.convertedCount || 0, convertedRevenueCents: c.convertedRevenueCents || 0, chargedCents: c.chargedCents || 0, sentAt: c.sentAt || null })) });
     }
     if (action === 'rc-save') {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
@@ -3116,7 +3116,11 @@ export async function POST(req: NextRequest) {
       if (id) { const cur = ((await ref.get()).data() as any) || null; if (!cur || cur.ownerRenterId !== session.renterId) return NextResponse.json({ ok: false, error: 'Not your campaign.' }, { status: 403 }); if (cur.status !== 'draft') return NextResponse.json({ ok: false, error: 'It’s already been sent.' }, { status: 400 }); }
       await ref.set({ id: ref.id, ownerRenterId: session.renterId, name, type, subject: String(body.subject || '').trim().slice(0, 140), body: text,
         targetAudience: allowed.includes(body.targetAudience) ? body.targetAudience : 'all', targetServiceIds: Array.isArray(body.targetServiceIds) ? body.targetServiceIds.slice(0, 30).map(String) : [],
-        targetMinSpend: Math.max(0, Number(body.targetMinSpend) || 0), status: 'draft', updatedAt: new Date().toISOString() }, { merge: true });
+        targetMinSpend: Math.max(0, Number(body.targetMinSpend) || 0),
+        // A renter's offer is their own words ("15% off your next visit") — added
+        // to the message where {offer} sits; they honor it at checkout.
+        offerText: String(body.offerText || '').trim().slice(0, 140), templateId: String(body.templateId || '').slice(0, 40),
+        status: 'draft', updatedAt: new Date().toISOString() }, { merge: true });
       return NextResponse.json({ ok: true, id: ref.id });
     }
     if (action === 'rc-preview' || action === 'rc-send') {
