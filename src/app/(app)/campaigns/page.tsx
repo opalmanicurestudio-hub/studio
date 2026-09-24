@@ -68,6 +68,7 @@ const audienceText: Record<Campaign['targetAudience'], string> = {
     one_and_done: 'CAME ONCE',
     members: 'MEMBERS',
     cancelled_recent: 'RECENT CANCELS',
+    first_visit_followup: 'AFTER FIRST VISIT',
 };
 
 const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title: string, value: string, icon: any, description: string, colorClass?: string }) => (
@@ -130,7 +131,7 @@ const CampaignCard = ({ campaign, onSend, onDelete }: { campaign: Campaign, onSe
             </div>
 
             <div className="flex items-center justify-between pt-3 border-t border-dashed mt-2">
-                <Badge variant={campaign.status === 'sent' ? 'default' : 'secondary'} className="h-5 px-2 font-black text-[8px] uppercase border-none shadow-sm">{campaign.status}</Badge>
+                <Badge variant={campaign.status === 'sent' ? 'default' : 'secondary'} className="h-5 px-2 font-black text-[8px] uppercase border-none shadow-sm">{campaign.status === 'automation' ? ((campaign as any).automation?.active ? 'automation · on' : 'automation · paused') : campaign.status}</Badge>
                 <span className="text-[9px] font-black uppercase text-muted-foreground opacity-40">{campaign.sentAt ? format(new Date(campaign.sentAt), 'MMM d, yy') : 'NOT DISPATCHED'}</span>
             </div>
         </CardContent>
@@ -150,7 +151,9 @@ export default function CampaignsPage() {
       : null
   , [firestore, selectedTenant]);
 
-  const { data: campaigns, isLoading } = useCollection<Campaign>(campaignsQuery);
+  const { data: allCampaigns, isLoading } = useCollection<Campaign>(campaignsQuery);
+  // Renters' own campaigns live in the same collection; they're theirs, not yours.
+  const campaigns = React.useMemo(() => (allCampaigns || []).filter((c: any) => !c.ownerRenterId), [allCampaigns]);
 
   // Send used to mark the campaign "sent" and show "Dispatch successful"
   // without sending anything. It now opens the draft in the editor, where
@@ -278,7 +281,7 @@ export default function CampaignsPage() {
                                     <TableCell className="font-black font-mono text-sm text-slate-700">{campaign.status === 'draft' ? '—' : `${safeNumber(campaign.recipientCount)}${campaign.status === 'sending' ? ' · sending' : ''}`}</TableCell>
                                     <TableCell className="font-black font-mono text-sm text-primary">{campaign.status === 'draft' || campaign.status === 'scheduled' ? '—' : `${safeNumber(campaign.convertedCount)} · $${(safeNumber((campaign as any).convertedRevenueCents) / 100).toFixed(0)}`}</TableCell>
                                     <TableCell>
-                                        <Badge variant={campaign.status === 'sent' ? 'default' : 'secondary'} className="h-5 px-2 font-black text-[8px] uppercase border-none shadow-sm">{campaign.status}</Badge>
+                                        <Badge variant={campaign.status === 'sent' ? 'default' : 'secondary'} className="h-5 px-2 font-black text-[8px] uppercase border-none shadow-sm">{campaign.status === 'automation' ? ((campaign as any).automation?.active ? 'automation · on' : 'automation · paused') : campaign.status}</Badge>
                                     </TableCell>
                                     <TableCell className="text-right pr-10">
                                         <DropdownMenu>
