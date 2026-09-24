@@ -706,6 +706,10 @@ async function swapTellOwner(db: any, tenantId: string, message: string) {
   } catch { /* visibility is a bonus, never a blocker */ }
 }
 
+// The portal's heaviest call (the renter's whole day) must finish or fail
+// inside this, never hang. 60s is the most Vercel Hobby allows.
+export const maxDuration = 60;
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
