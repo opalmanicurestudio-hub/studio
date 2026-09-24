@@ -1,6 +1,11 @@
 // src/app/api/cron/campaigns/route.ts
 //
-// HOURLY: send campaigns whose scheduled time has come.
+// Sends campaigns whose scheduled time has come, and runs automations.
+// On Vercel Hobby this is triggered ONCE A DAY (vercel.json, 14:00 UTC ≈
+// 10am Eastern) — Hobby rejects any cron that runs more often, and a
+// rejected cron blocks the whole deployment. It is safe to also trigger it
+// hourly from an external scheduler (or after upgrading to Pro): scheduled
+// sends are resume-safe and automations run at most once per local day.
 //
 // For each tenant, every campaign with status 'scheduled' and scheduledFor
 // in the past is sent through the same engine as the Send button. A text
@@ -28,7 +33,7 @@ export async function GET(req: NextRequest) {
     // Automations: once a day, at 10am in the business's own time zone.
     try {
       const tz = String((t.data() as any)?.timezone || 'America/New_York');
-      if (localHour(tz) === 10) {
+      if (localHour(tz) >= 10) {
         const autos = (await db.collection(`tenants/${t.id}/campaigns`).where('status', '==', 'automation').get()).docs;
         for (const a of autos) {
           if (Date.now() - started >= 50000) break;
