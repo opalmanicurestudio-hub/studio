@@ -108,7 +108,7 @@ export function nudgeText(settings: ReturnType<typeof cleanReconnect>, d: Exclud
 export async function runReconnect(db: any, opts: {
   tenantId: string; renterId: string | null; staffIds: string[] | null; settings: any;
   bookingUrl: string | null; signer: string; stopUrl: (clientId: string) => string;
-  send: (to: { email: string | null; phone: string | null; smsOk: boolean; clientId: string; name: string }, text: string, subject: string, kind: string) => Promise<boolean>;
+  send: (to: { email: string | null; phone: string | null; smsOk: boolean; clientId: string; name: string }, text: string, subject: string, kind: string) => Promise<'sms' | 'email' | false>;
 }): Promise<{ checked: number; sent: number; due: number; miss: number; skippedCap: number }> {
   const s = cleanReconnect(opts.settings);
   const out = { checked: 0, sent: 0, due: 0, miss: 0, skippedCap: 0 };
@@ -144,6 +144,10 @@ export async function runReconnect(db: any, opts: {
   const rebook = new Map<string, number>();
   for (const d of svcSnap.docs) { const x = d.data() as any; const w = Number(x.rebookWeeks) || 0; if (w > 0) rebook.set(d.id, w); }
 
+  // Marketing texts in the last 30 days (campaigns + nudges): over the cap → email only.
+  const { recentMarketingTexts, MARKETING_TEXTS_PER_30_DAYS } = await import('./campaigns');
+  const recentTexts = await recentMarketingTexts(db, opts.tenantId, now);
+
   // Past nudges, per client.
   const nSnap = await col('reconnectNudges').where('sender', '==', opts.renterId || 'studio').get();
   const lastNudge = new Map<string, string>(); const lastMiss = new Map<string, string>();
@@ -174,10 +178,13 @@ export async function runReconnect(db: any, opts: {
     const text = nudgeText(s, d, hist.first, opts.bookingUrl, opts.signer);
     const withStop = `${text}${c.email ? `\n\nPrefer not to get these? ${opts.stopUrl(c.id)}` : ''}`;
     const subject = d.kind === 'due' ? `Time for your ${d.serviceName}?` : `We'd love to see you again`;
-    const ok = await opts.send({ email: c.email || null, phone: c.phone || null, smsOk: c.smsMarketingOptIn === true, clientId: c.id, name: c.name || '' }, withStop, subject, d.kind === 'due' ? 'reconnect_due' : 'reconnect_miss');
-    if (!ok) continue;
+    const smsOk = c.smsMarketingOptIn === true && (recentTexts.get(c.id) || 0) < MARKETING_TEXTS_PER_30_DAYS;
+    if (!smsOk && !(c.email && String(c.email).includes('@'))) continue;
+    const ch = await opts.send({ email: c.email || null, phone: c.phone || null, smsOk, clientId: c.id, name: c.name || '' }, withStop, subject, d.kind === 'due' ? 'reconnect_due' : 'reconnect_miss');
+    if (!ch) continue;
+    if (ch === 'sms') recentTexts.set(c.id, (recentTexts.get(c.id) || 0) + 1);
     const ref = col('reconnectNudges').doc();
-    await ref.set({ id: ref.id, sender: opts.renterId || 'studio', renterId: opts.renterId || null, clientId: c.id, clientName: c.name || null, kind: d.kind, weeks: d.weeks, serviceName: (d as any).serviceName || null, sentAt: nowIso, converted: false });
+    await ref.set({ id: ref.id, sender: opts.renterId || 'studio', renterId: opts.renterId || null, clientId: c.id, clientName: c.name || null, kind: d.kind, weeks: d.weeks, serviceName: (d as any).serviceName || null, sentAt: nowIso, converted: false, channel: ch });
     out.sent++; if (d.kind === 'due') out.due++; else out.miss++;
   }
   return out;
