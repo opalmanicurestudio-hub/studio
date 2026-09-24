@@ -70,6 +70,63 @@ export function SlotPicker({ tenantId, token, serviceId, date, onDate, value, on
   );
 }
 
+// ─── Consent, in the renter's hands ──────────────────────────────────────────
+// The same two yeses the studio sees: reminders (from the client, when they
+// booked) and offers by text (what Reconnect texts need). A renter can record
+// a yes a client gave them in person — with how, and a confirmation tick —
+// or a stop. A new phone number clears the offers yes on its own.
+function ConsentRow({ tenantId, token, client, onChanged }: { tenantId: string; token: string; client: any; onChanged: () => void }) {
+  const c = client.consent || {};
+  const [open, setOpen] = useState<'yes' | 'no' | null>(null);
+  const [method, setMethod] = useState('in_person');
+  const [confirmed, setConfirmed] = useState(false);
+  const [resub, setResub] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const save = async () => {
+    setBusy(true); setErr('');
+    const d = await api({ action: 'client-consent', tenantId, token, clientId: client.id, value: open === 'yes', method, confirmed, resubscribe: resub });
+    setBusy(false);
+    if (!d?.ok) { setErr(d?.error || 'Could not save.'); return; }
+    setOpen(null); onChanged();
+  };
+  return (
+    <div className="rounded-xl border-2 border-slate-100 bg-white p-2 space-y-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className={cn('rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest', c.reminders ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500')}>Reminder texts {c.reminders ? '✓' : '—'}</span>
+        <span className={cn('rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest', c.offers ? 'bg-sky-100 text-sky-800' : c.unsubscribed ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500')}>Offers by text {c.offers ? '✓' : c.unsubscribed ? '· unsubscribed' : '—'}</span>
+        {!c.offers && <button type="button" onClick={() => { setOpen('yes'); setConfirmed(false); setResub(false); setErr(''); }} className="text-[9px] font-black uppercase tracking-widest text-slate-500 underline">Record their yes</button>}
+        {c.offers && <button type="button" onClick={() => { setOpen('no'); setErr(''); }} className="text-[9px] font-black uppercase tracking-widest text-slate-400 underline">They asked to stop</button>}
+      </div>
+      {c.offers && c.offersBy && <p className="text-[9px] font-bold text-slate-400">{c.offersBy}{c.offersAt ? ` · ${fmtDate(String(c.offersAt).slice(0, 10))}` : ''}</p>}
+      {open === 'yes' && (
+        <div className="space-y-1.5 rounded-lg bg-slate-50 p-2">
+          {!client.phone && <p className="text-[10px] font-bold text-amber-800">Add their mobile number first — consent applies to a number.</p>}
+          <div className="grid grid-cols-2 gap-1">
+            {[['in_person', 'In person'], ['phone_call', 'Phone call'], ['written_form', 'Paper form'], ['text_reply', 'Replied YES']].map(([k, l]) => (
+              <button key={k} type="button" aria-pressed={method === k} onClick={() => setMethod(k)} className={cn('h-8 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest', method === k ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-500')}>{l}</button>
+            ))}
+          </div>
+          {c.unsubscribed && <label className="flex items-start gap-1.5 text-[10px] font-bold text-amber-900"><input type="checkbox" className="mt-0.5" checked={resub} onChange={(e) => setResub(e.target.checked)} />They unsubscribed before and asked to hear from me again.</label>}
+          <label className="flex items-start gap-1.5 text-[10px] font-bold text-slate-700"><input type="checkbox" className="mt-0.5" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />{client.name || 'They'} agreed to offers and check-ins by text at {client.phone || 'this number'}, and know they can reply STOP.</label>
+          <div className="flex gap-1.5">
+            <button type="button" disabled={busy || !client.phone || !confirmed} onClick={save} className="h-8 flex-1 rounded-lg bg-slate-900 text-[9px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? '…' : 'Record yes'}</button>
+            <button type="button" onClick={() => setOpen(null)} className="h-8 rounded-lg border-2 border-slate-200 px-3 text-[9px] font-black uppercase tracking-widest text-slate-500">Cancel</button>
+          </div>
+        </div>
+      )}
+      {open === 'no' && (
+        <div className="flex items-center gap-1.5 rounded-lg bg-slate-50 p-2">
+          <p className="flex-1 text-[10px] font-bold text-slate-600">Offers and check-ins by text stop now. Reminders are separate.</p>
+          <button type="button" disabled={busy} onClick={save} className="h-8 rounded-lg bg-red-700 px-3 text-[9px] font-black uppercase tracking-widest text-white">{busy ? '…' : 'Record stop'}</button>
+          <button type="button" onClick={() => setOpen(null)} className="h-8 rounded-lg border-2 border-slate-200 px-3 text-[9px] font-black uppercase tracking-widest text-slate-500">Cancel</button>
+        </div>
+      )}
+      {err && <p className="text-[10px] font-bold text-red-700">{err}</p>}
+    </div>
+  );
+}
+
 // ─── Appointment sheet: the whole appointment in one place ───────────────────
 // What the main app's appointment sheet gives the studio, for the renter:
 // the client (contact, notes, history, no-shows, favourite), the visit
@@ -228,6 +285,9 @@ export function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bo
                 {a.paidByPackageId && <p className="text-[10px] font-bold text-emerald-800">This visit is covered by {a.paidByPackageName || 'a package'}.</p>}
               </div>
             )}
+            {client.mine && client.consent && (
+              <ConsentRow tenantId={tenantId} token={token} client={client} onChanged={() => api({ action: 'client-get', tenantId, token, clientId: a.clientId }).then((d) => { if (d?.ok) setClient(d.client); })} />
+            )}
             {client.mine ? (
               <>
                 <textarea value={cnote} onChange={(e) => setCnote(e.target.value.slice(0, 2000))} rows={2} aria-label="Client notes" placeholder="Formulas, allergies, how they like it. Only you see this." className="w-full rounded-xl border-2 border-slate-200 bg-white px-3 py-2 text-[12px]" />
@@ -376,7 +436,7 @@ export function MyBook({ data, tenantId, token }: { data: any; tenantId: string;
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
   const [walkIn, setWalkIn] = useState(false);
-  const [wi, setWi] = useState({ name: '', phone: '', serviceId: '', when: '', day: localDay(new Date()) });
+  const [wi, setWi] = useState({ name: '', phone: '', serviceId: '', when: '', day: localDay(new Date()), reminders: false, offers: false });
   const [resched, setResched] = useState<{ id: string; when: string } | null>(null);
   const [blockOpen, setBlockOpen] = useState(false);
   const [blk, setBlk] = useState({ when: '', hours: '1', reason: '', showStudio: true });
@@ -407,8 +467,13 @@ export function MyBook({ data, tenantId, token }: { data: any; tenantId: string;
   };
   const submitWalkIn = () => run('walkin', async () => {
     if (!wi.name.trim() || !wi.serviceId || !wi.when) return { ok: false, error: 'Name, service and time are needed.' };
-    const r = await bookViaEngine({ name: wi.name.trim(), phone: wi.phone.trim() || undefined }, wi.serviceId, wi.when);
-    if (r?.ok) { setWalkIn(false); setWi({ name: '', phone: '', serviceId: '', when: '', day: localDay(new Date()) }); }
+    const phone = wi.phone.trim();
+    const r = await bookViaEngine({ name: wi.name.trim(), phone: phone || undefined,
+      // Only a yes, only with a number, in words that say who recorded it.
+      ...(phone && wi.reminders ? { smsConsent: true, smsConsentText: 'Agreed in person to appointment reminders and confirmations by text; recorded by their provider in the renter portal.' } : {}),
+      ...(phone && wi.offers ? { smsMarketing: true, smsMarketingText: 'Agreed in person to occasional offers and check-ins by text (up to 4 a month, reply STOP to opt out); recorded by their provider in the renter portal.' } : {}),
+    } as any, wi.serviceId, wi.when);
+    if (r?.ok) { setWalkIn(false); setWi({ name: '', phone: '', serviceId: '', when: '', day: localDay(new Date()), reminders: false, offers: false }); }
     return r;
   });
   const submitResched = (a: any) => run(`re-${a.id}`, async () => {
@@ -441,6 +506,13 @@ export function MyBook({ data, tenantId, token }: { data: any; tenantId: string;
           <div className="rounded-2xl border-2 border-slate-200 bg-slate-50 p-3 space-y-2">
             <input value={wi.name} onChange={(ev) => setWi((f) => ({ ...f, name: ev.target.value.slice(0, 120) }))} aria-label="Client name" placeholder="Client name" className="h-11 w-full rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
             <input value={wi.phone} onChange={(ev) => setWi((f) => ({ ...f, phone: ev.target.value.slice(0, 40) }))} inputMode="tel" aria-label="Client phone" placeholder="Phone (optional — for their confirmation)" className="h-11 w-full rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
+            {wi.phone.trim() && (
+              <div className="space-y-1.5 rounded-2xl border-2 border-slate-200 bg-white p-3">
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Ask them — tick only if they said yes</p>
+                <label className="flex items-start gap-2 text-[11px] font-bold text-slate-700"><input type="checkbox" className="mt-0.5 h-4 w-4" checked={wi.reminders} onChange={(ev) => setWi((f) => ({ ...f, reminders: ev.target.checked }))} />Reminders and confirmations by text</label>
+                <label className="flex items-start gap-2 text-[11px] font-bold text-slate-700"><input type="checkbox" className="mt-0.5 h-4 w-4" checked={wi.offers} onChange={(ev) => setWi((f) => ({ ...f, offers: ev.target.checked }))} />Offers and check-ins by text (up to 4 a month, reply STOP to opt out)</label>
+              </div>
+            )}
             <select value={wi.serviceId} onChange={(ev) => setWi((f) => ({ ...f, serviceId: ev.target.value }))} aria-label="Service" className="h-11 w-full rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold">
               <option value="">Service…</option>
               {(book?.services || []).map((sv) => <option key={sv.id} value={sv.id}>{sv.name} · ${sv.price.toFixed(0)} · {sv.duration}m</option>)}
@@ -805,6 +877,8 @@ export function MyClients({ tenantId, token }: { tenantId: string; token: string
                       <p className="flex min-w-0 items-center gap-1.5">
                         <span className="truncate text-[13px] font-black text-slate-900">{c.name}</span>
                         {c.member && <span className={cn('shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest', c.memberStatus === 'past_due' ? 'bg-amber-100 text-amber-800' : 'bg-violet-100 text-violet-800')}>{c.memberStatus === 'past_due' ? 'Member · card issue' : 'Member'}</span>}
+                        {c.consent?.offers && <span className="shrink-0 rounded-full bg-sky-100 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-sky-800">Texts OK</span>}
+                        {c.consent?.unsubscribed && <span className="shrink-0 rounded-full bg-slate-200 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-slate-600">Unsubscribed</span>}
                         {c.credits > 0 && <span className={cn('shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest', c.creditsExpireSoon ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}>{c.credits} credit{c.credits === 1 ? '' : 's'}{c.creditsExpireSoon ? ' · expiring' : ''}</span>}
                       </p>
                       <p className="text-[10px] font-bold text-slate-500">
