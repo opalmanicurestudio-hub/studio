@@ -266,10 +266,11 @@ function NewCampaignPageInner() {
     const targetAudience = watch('targetAudience');
 
     useEffect(() => {
-        if (isTestSendDialogOpen && user?.email) {
+        if (isTestSendDialogOpen && user?.email && campaignType !== 'sms') {
             testEmail || setTestEmail(user.email);
         }
-    }, [isTestSendDialogOpen, user, testEmail]);
+        if (isTestSendDialogOpen && campaignType === 'sms' && /@/.test(testEmail)) setTestEmail('');
+    }, [isTestSendDialogOpen, user, testEmail, campaignType]);
 
     const handleInsertPlaceholder = (placeholder: string) => {
         const textarea = bodyTextareaRef.current;
@@ -443,26 +444,24 @@ function NewCampaignPageInner() {
         }
     }
 
+    const [testResult, setTestResult] = useState<{ ok: boolean; lines: string[] } | null>(null);
     const handleConfirmSendTest = async () => {
-        if (!testEmail || !/\S+@\S+\.\S+/.test(testEmail)) {
-            toast({
-                variant: 'destructive',
-                title: 'Invalid Target',
-                description: 'A valid email address is required for test dispatch.',
-            });
+        const isSms = campaignType === 'sms';
+        if (isSms ? String(testEmail).replace(/\D/g, '').length < 10 : !/\S+@\S+\.\S+/.test(testEmail)) {
+            setTestResult({ ok: false, lines: [isSms ? 'Enter a mobile number (10 digits) for a text test.' : 'Enter an email address for an email test.'] });
             return;
         }
-    
         setIsSendingTest(true);
-        setIsTestSendDialogOpen(false);
+        setTestResult(null);
         try {
             // The server sends from the SAVED copy, so save what's on screen first.
             const data = getValues() as any;
             await setDoc(doc(firestore!, 'tenants', selectedTenant!.id, 'campaigns', campaignId), { ...data, id: campaignId, status: 'draft', updatedAt: new Date().toISOString() }, { merge: true });
             const r = await callSend('test', { to: testEmail });
-            toast(r?.ok
-                ? { title: 'Test sent', description: `Check ${testEmail}. It's marked [TEST] and sent only to you.` }
-                : { variant: 'destructive', title: 'Test not sent', description: r?.error || 'Try again.' });
+            // The answer stays in the dialog, in full — a toast was too easy to miss.
+            setTestResult(r?.ok
+                ? { ok: true, lines: [`Sent to ${r.to || testEmail}.`, ...(r.notes || [])] }
+                : { ok: false, lines: [r?.error || 'Not sent — try again.'] });
         } finally { setIsSendingTest(false); }
     };
 
@@ -800,16 +799,22 @@ function NewCampaignPageInner() {
                     </DialogHeader>
                     <div className="p-8 space-y-4">
                         <div className="space-y-2 text-left">
-                            <Label htmlFor="test-email" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Target Address</Label>
+                            <Label htmlFor="test-email" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">{campaignType === 'sms' ? 'Your mobile number' : 'Your email address'}</Label>
                             <Input
                                 id="test-email"
-                                type="email"
+                                type={campaignType === 'sms' ? 'tel' : 'email'}
+                                inputMode={campaignType === 'sms' ? 'tel' : 'email'}
                                 value={testEmail}
-                                onChange={(e) => setTestEmail(e.target.value)}
-                                placeholder="test@example.com"
+                                onChange={(e) => { setTestEmail(e.target.value); setTestResult(null); }}
+                                placeholder={campaignType === 'sms' ? '(555) 123-4567' : 'you@example.com'}
                                 className="h-14 rounded-2xl border-2 font-bold shadow-inner"
                             />
                         </div>
+                        {testResult && (
+                            <div className={`rounded-2xl border-2 p-4 space-y-1 text-left ${testResult.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-red-200 bg-red-50 text-red-900'}`}>
+                                {testResult.lines.map((l, i) => <p key={i} className={`text-sm ${i === 0 ? 'font-black' : 'font-medium'}`}>{l}</p>)}
+                            </div>
+                        )}
                     </div>
                     <DialogFooter className="p-8 pt-0 flex flex-col gap-3">
                         <Button onClick={handleConfirmSendTest} className="w-full h-16 rounded-2xl text-lg font-black uppercase tracking-tight shadow-2xl shadow-primary/20">Authorize Dispatch</Button>
