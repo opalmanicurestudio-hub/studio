@@ -85,6 +85,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   const [reschedule, setReschedule] = useState<{ id: string; clientName: string | null; clientEmail: string | null; clientPhone: string | null; serviceId: string | null; serviceName: string; startTime: string } | null>(null);
   const [rescheduleNote, setRescheduleNote] = useState('');
   const [rescheduleOpened, setRescheduleOpened] = useState(false);
+  const [campaignRef, setCampaignRef] = useState<{ campaignId: string | null; code: string | null } | null>(null);
   useEffect(() => {
     if (!reschedule || rescheduleOpened || services.length === 0) return;
     const svc = services.find((x: any) => x.id === reschedule.serviceId) || services.find((x: any) => x.name === reschedule.serviceName);
@@ -98,6 +99,13 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     try {
       const p = new URLSearchParams(window.location.search).get('provider') || '';
       if (p) setProviderId(p);
+      // From a campaign's Book button: which campaign, and its offer code —
+      // carried with the booking so checkout applies it without anyone typing.
+      try {
+        const q = new URLSearchParams(window.location.search);
+        const cid = (q.get('c') || '').slice(0, 64); const code = (q.get('code') || '').slice(0, 40);
+        if (cid || code) setCampaignRef({ campaignId: cid || null, code: code || null });
+      } catch { /* no-op */ }
       const rs = new URLSearchParams(window.location.search).get('reschedule') || '';
       if (rs) {
         fetch(`/api/appointments/self-cancel?tenantId=${encodeURIComponent(tenantId)}&appointmentId=${encodeURIComponent(rs)}`)
@@ -472,6 +480,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
               body: JSON.stringify({
                 tenantId,
                 source: 'booking-page',
+                ...(campaignRef ? { campaignId: campaignRef.campaignId, promoCode: campaignRef.code } : {}),
                 serviceId: restDetails.serviceId,
                 addOnIds: restDetails.addOnIds || [],
                 staffId: restDetails.staffId || 'any',
