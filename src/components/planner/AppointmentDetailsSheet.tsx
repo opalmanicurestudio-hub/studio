@@ -3242,6 +3242,14 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             <SheetDescription className="sr-only">Appointment {ticketId}</SheetDescription>
             {IdentityHeader}
           </SheetHeader>
+          {/* An offer is waiting: booked with a campaign code, or a renter's offer. */}
+          {((appointment as any)?.pendingDiscountCode || (appointment as any)?.renterOfferLine) && (
+            <div className="mx-4 mt-2 rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-bold text-emerald-900">
+              🎁 {(appointment as any).pendingDiscountCode
+                ? <>Offer at checkout: code <span className="font-black">{(appointment as any).pendingDiscountCode}</span> — applied automatically when you check them out.</>
+                : <>Offer to honor: {(appointment as any).renterOfferLine}</>}
+            </div>
+          )}
           {SheetBody}
           {ActionBar}
         </SheetContent>
