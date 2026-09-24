@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 import { Chip, SectionTitle, fmtDate, fmtMoney, localISO } from '@/components/rent/shared';
 import { MyBook, MyClientMessages, MyClients, TellMeWhen } from '@/components/rent/business';
-import { GettingSetUp, MyBooks, MyBrand, MyHours, MyMemberships, MyNumber, MyPackages, MyPage, MyPayments, MyProfile, MyReconnect, MyReviews, MyServices } from '@/components/rent/setup';
+import { GettingSetUp, MyBooks, MyBrand, MyHours, MyMemberships, MyNumber, MyPackages, MyPage, MyCampaigns, MyPayments, MyProfile, MyReconnect, MyReviews, MyServices } from '@/components/rent/setup';
 import { LoginFlow, MySwaps, RenterConcerns, RenterDocuments, RenterInterruptions, RenterLeave, RenterMaintenance, RenterThread, ResCard, STORE, TodayQuick, api } from '@/components/rent/studio';
 
 // ─── Main page ────────────────────────────────────────────────────────────────
@@ -415,6 +415,20 @@ export default function RenterPortalPage() {
                       {setupOpen === 'messages' && (
                         <div className="px-3 pb-4">
             {booksHere && session?.token && <MyClientMessages tenantId={tenantId} token={session.token} />}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {booksHere && (
+                    <div>
+                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'campaigns' ? '' : 'campaigns')} aria-expanded={setupOpen === 'campaigns'}
+                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
+                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Campaigns</span><span className="block text-[10px] font-bold text-slate-500">An email or text to your clients</span></span>
+                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'campaigns' && 'rotate-90')} />
+                      </button>
+                      {setupOpen === 'campaigns' && session?.token && (
+                        <div className="px-3 pb-4">
+                          <MyCampaigns data={data} tenantId={tenantId} token={session.token} />
                         </div>
                       )}
                     </div>
