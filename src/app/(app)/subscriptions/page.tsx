@@ -1,248 +1,104 @@
 'use client';
+// src/app/(app)/subscriptions/page.tsx
+//
+// YOUR CLARITYFLOW — the step after sign-up (the app sends new owners here
+// until they're active), and the place to change tools later.
+//
+// It replaces the old three-plan page, which recorded a "tier" without taking
+// any payment. Now: the tools they chose, editable; an honest early-access
+// note (everything included; when plans launch, you pay only for what you
+// keep on); and one button that saves the tools to tenant.modules — which
+// the sidebar reads — and opens the app.
 
-import React, { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { Check, Loader, Award, Sparkles, Zap, ShieldCheck, XCircle } from 'lucide-react';
-import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, query, where, doc } from 'firebase/firestore';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useToast } from '@/hooks/use-toast';
-import { updateDocumentNonBlocking } from '@/firebase';
 import Link from 'next/link';
-import { cn } from '@/lib/utils';
+import { collection, doc, query, updateDoc, where } from 'firebase/firestore';
+import { Loader } from 'lucide-react';
+import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
+import { AuthBackdrop, Wordmark } from '@/components/auth/AuthBackdrop';
+import { ToolPicker } from '@/components/modules/ToolPicker';
+import { fromTenantModules, hoursFor, toTenantModules, RECOMMENDED, TOOL_BY_ID, type ToolId } from '@/lib/module-catalog';
 
-type SubscriptionTier = 'solo' | 'studio' | 'enterprise';
+export default function YourClarityFlowPage() {
+  const { user, firestore } = useFirebase();
+  const router = useRouter();
+  const q = useMemoFirebase(() => (user && firestore ? query(collection(firestore, 'tenants'), where('userId', '==', user.uid)) : null), [user, firestore]);
+  const { data: tenants, isLoading } = useCollection<any>(q);
+  const tenant = tenants?.[0];
+  const [tools, setTools] = useState<ToolId[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const isNew = tenant && tenant.subscriptionStatus !== 'active';
 
-interface Tier {
-    id: SubscriptionTier;
-    name: string;
-    price: number;
-    description: string;
-    icon: any;
-    color: string;
-    features: string[];
-}
+  useEffect(() => {
+    if (!tenant || tools) return;
+    const chosen = Array.isArray(tenant.signupTools) && tenant.subscriptionStatus !== 'active'
+      ? (tenant.signupTools as string[]).filter((x) => TOOL_BY_ID[x as ToolId]) as ToolId[]
+      : tenant.modules ? fromTenantModules(tenant.modules) : (RECOMMENDED[tenant.businessType || 'other'] as ToolId[]);
+    setTools(chosen.length ? chosen : (RECOMMENDED.other as ToolId[]));
+  }, [tenant, tools]);
 
-const tiers: Tier[] = [
-    {
-        id: 'solo',
-        name: 'Solo Practitioner',
-        price: 29,
-        description: 'Perfect for independent masters managing their own chair.',
-        icon: User,
-        color: 'border-slate-200',
-        features: [
-            '1 Master Account',
-            'Full Client Dossier',
-            'Strategic Planner',
-            'Base POS Terminal',
-            'Booking Microsite',
-            'Unlimited SMS Alerts'
-        ]
-    },
-    {
-        id: 'studio',
-        name: 'High-Performance Studio',
-        price: 79,
-        description: 'Complete orchestration for growing teams and studios.',
-        icon: Sparkles,
-        color: 'border-primary ring-4 ring-primary/10 shadow-2xl',
-        features: [
-            'Everything in Solo',
-            'Unlimited Staff Sync',
-            'Automated Turn-Orders',
-            'Team Yield Analysis',
-            'Unified Payroll Ledger',
-            'Marketing Outreach Suite'
-        ]
-    },
-    {
-        id: 'enterprise',
-        name: 'Enterprise Network',
-        price: 199,
-        description: 'Scale excellence across multiple locations and brands.',
-        icon: ShieldCheck,
-        color: 'border-slate-900 bg-slate-900 text-white',
-        features: [
-            'Everything in Studio',
-            'Multi-Location Central',
-            'Custom White-Labeling',
-            'API Distribution Access',
-            'Priority Architecture Support',
-            'Quarterly Growth Strategy'
-        ]
+  const save = async () => {
+    if (!firestore || !tenant || !tools) return;
+    setBusy(true); setErr('');
+    try {
+      await updateDoc(doc(firestore, 'tenants', tenant.id), {
+        modules: toTenantModules(tools),
+        ...(isNew ? { subscriptionStatus: 'active', subscriptionTier: 'early_access', activatedAt: new Date().toISOString() } : {}),
+      });
+      router.push('/dashboard');
+    } catch (e: any) {
+      setErr('Couldn’t save your tools — check your connection and try again.');
+      setBusy(false);
     }
-];
+  };
 
-export default function SubscriptionsPage() {
-    const { user, firestore, isUserLoading } = useFirebase();
-    const router = useRouter();
-    const { toast } = useToast();
-    const [submittingTier, setSubmittingTier] = useState<SubscriptionTier | null>(null);
-    const [isCancelling, setIsCancelling] = useState(false);
-
-    const tenantQuery = useMemoFirebase(() => {
-        if (!user || !firestore) return null;
-        return query(collection(firestore, 'tenants'), where('userId', '==', user.uid));
-    }, [user, firestore]);
-
-    const { data: tenants, isLoading: isTenantLoading } = useCollection(tenantQuery);
-    const tenant = tenants?.[0];
-
-    const handleSubscribe = async (tierId: SubscriptionTier) => {
-        if (!tenant || !firestore) return;
-
-        setSubmittingTier(tierId);
-        try {
-            const tenantRef = doc(firestore, 'tenants', tenant.id);
-            updateDocumentNonBlocking(tenantRef, {
-                subscriptionStatus: 'active',
-                subscriptionTier: tierId
-            });
-
-            toast({
-                title: 'Activation Successful!',
-                description: `Welcome to the ${tierId.toUpperCase()} tier of ClarityFlow.`,
-            });
-
-            router.push('/dashboard');
-        } catch (error) {
-            console.error(error);
-            toast({
-                variant: 'destructive',
-                title: 'Process Failed',
-                description: 'Could not finalize your subscription choice.',
-            });
-        } finally {
-            setSubmittingTier(null);
-        }
-    };
-    
-    const handleCancelSubscription = async () => {
-        if (!tenant || !firestore) return;
-
-        setIsCancelling(true);
-        try {
-            const tenantRef = doc(firestore, 'tenants', tenant.id);
-            await updateDocumentNonBlocking(tenantRef, {
-                subscriptionStatus: 'inactive',
-                subscriptionTier: 'none'
-            });
-
-            toast({
-                title: 'Access Revoked',
-                description: "Your pro features have been disabled.",
-            });
-            
-        } catch (error) {
-             console.error(error);
-            toast({
-                variant: 'destructive',
-                title: 'Cancellation Failed',
-                description: 'Could not process the revocation request.',
-            });
-        } finally {
-            setIsCancelling(false);
-        }
-    };
-    
-    const isLoading = isUserLoading || isTenantLoading;
-
-    if (isLoading) {
-        return (
-            <div className="flex h-screen w-full items-center justify-center bg-background">
-                <Loader className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        );
-    }
-
-    const TierCard = ({ tier }: { tier: Tier }) => {
-        const isCurrent = tenant?.subscriptionTier === tier.id;
-        const isProcessing = submittingTier === tier.id;
-        const isEnterprise = tier.id === 'enterprise';
-
-        return (
-            <Card className={cn("relative flex flex-col h-full rounded-[2.5rem] border-2 transition-all duration-500", tier.color)}>
-                <CardHeader className="p-8 text-center">
-                    <div className={cn("mx-auto p-4 rounded-2xl mb-4 shadow-inner", isEnterprise ? "bg-white/10" : "bg-primary/10")}>
-                        <tier.icon className={cn("w-8 h-8", isEnterprise ? "text-white" : "text-primary")} />
-                    </div>
-                    <CardTitle className="text-2xl font-black uppercase tracking-tighter">{tier.name}</CardTitle>
-                    <CardDescription className={cn("mt-2", isEnterprise ? "text-slate-400" : "text-slate-500")}>{tier.description}</CardDescription>
-                    <div className="flex items-baseline justify-center gap-2 pt-8">
-                        <span className="text-6xl font-black tracking-tighter font-mono">${tier.price}</span>
-                        <span className={cn("text-[10px] font-black uppercase tracking-widest", isEnterprise ? "text-slate-400" : "text-muted-foreground")}>/ month</span>
-                    </div>
-                </CardHeader>
-                <CardContent className="flex-1 px-8 py-4 space-y-6">
-                    <ul className="space-y-4">
-                        {tier.features.map((feature, i) => (
-                            <li key={i} className="flex items-start gap-3">
-                                <Check className={cn("w-4 h-4 mt-0.5 flex-shrink-0", isEnterprise ? "text-primary" : "text-primary")} />
-                                <span className={cn("text-xs font-bold uppercase tracking-tight", isEnterprise ? "text-slate-300" : "text-slate-700")}>{feature}</span>
-                            </li>
-                        ))}
-                    </ul>
-                </CardContent>
-                <CardFooter className="p-8">
-                    <Button 
-                        className={cn("w-full h-14 rounded-2xl text-sm font-black uppercase tracking-widest shadow-xl", isEnterprise ? "bg-primary text-white hover:bg-primary/90" : "")} 
-                        onClick={() => handleSubscribe(tier.id)} 
-                        disabled={isProcessing || isCurrent || !!submittingTier}
-                        variant={isEnterprise ? 'default' : (tier.id === 'studio' ? 'default' : 'outline')}
-                    >
-                        {isProcessing ? <Loader className="animate-spin h-5 w-5" /> : (isCurrent ? 'Current Plan' : 'Activate Tier')}
-                    </Button>
-                </CardFooter>
-            </Card>
-        );
-    };
-
-    return (
-        <div className="min-h-screen w-full flex flex-col items-center p-4 md:p-10 space-y-12">
-             <div className="max-w-2xl text-center space-y-4">
-                <div className="inline-flex items-center gap-2 bg-primary/5 px-4 py-1.5 rounded-full border border-primary/10 mb-4">
-                    <span className="text-[10px] font-black uppercase tracking-[0.25em] text-primary">Strategic Selection</span>
-                </div>
-                <h1 className="text-4xl md:text-6xl font-black uppercase tracking-tighter text-slate-900 leading-none">Choose Your Architecture</h1>
-                <p className="text-lg text-slate-500 font-medium leading-relaxed max-w-xl mx-auto">
-                    Select the foundational tier that matches your current studio requirements. Transition between tiers as you scale.
-                </p>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 w-full max-w-7xl">
-                {tiers.map(tier => <TierCard key={tier.id} tier={tier} />)}
-            </div>
-
-            {tenant?.subscriptionStatus === 'active' && (
-                <div className="pt-10">
-                    <Button variant="ghost" onClick={handleCancelSubscription} disabled={isCancelling} className="text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-destructive">
-                         {isCancelling ? <Loader className="animate-spin mr-2 h-4 w-4" /> : <XCircle className="mr-2 h-4 w-4" />}
-                         Deactivate Current Subscription
-                    </Button>
-                </div>
-            )}
-        </div>
-    );
-}
-
-function User(props: any) {
   return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-      <circle cx="12" cy="7" r="4" />
-    </svg>
-  )
+    <div className="relative min-h-dvh overflow-x-hidden text-stone-900">
+      <AuthBackdrop />
+      <div className="relative z-10 px-5 py-6">
+        <header className="mx-auto flex max-w-6xl items-center justify-between">
+          <Wordmark className="text-lg" />
+          {!isNew && tenant && <Link href="/dashboard" className="text-sm text-stone-600">Back to the app</Link>}
+        </header>
+
+        {isLoading || !tools ? (
+          <div className="flex min-h-[60dvh] items-center justify-center"><Loader className="h-6 w-6 animate-spin text-stone-400" /></div>
+        ) : (
+          <main className="mx-auto max-w-6xl pb-32 pt-10">
+            <p className="text-center text-xs uppercase tracking-[0.3em] text-stone-400">{isNew ? 'You’re in' : 'Your tools'}</p>
+            <h1 className="mt-3 text-center text-balance text-4xl font-light tracking-tight sm:text-6xl">
+              {isNew ? <>Welcome to <span className="font-semibold">{tenant?.name || 'ClarityFlow'}.</span></> : <>Your <span className="font-semibold">ClarityFlow.</span></>}
+            </h1>
+            <p className="mx-auto mt-4 max-w-xl text-center text-lg text-stone-600">
+              {isNew ? 'Here’s what we’ve switched on for you. Change anything — your app will show only what you use.' : 'Turn tools on or off. Your sidebar updates to match.'}
+            </p>
+
+            <div className="glass mx-auto mt-8 max-w-2xl rounded-[2rem] p-5 text-center sm:p-6">
+              <p className="text-xs uppercase tracking-[0.25em] text-stone-400">Early access</p>
+              <p className="mt-2 text-2xl font-light tracking-tight">Every tool included — <span className="font-semibold">on us, for now.</span></p>
+              <p className="mt-2 text-stone-600">When plans launch, you’ll pay only for the tools you keep on — and you’ll hear first, with pricing before anything changes.</p>
+            </div>
+
+            <div className="mt-10">
+              <ToolPicker value={tools} onChange={setTools} niche={tenant?.businessType || null} nicheLabel={null} />
+            </div>
+          </main>
+        )}
+      </div>
+
+      {tools && (
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/70 bg-white/80 px-5 pt-3 backdrop-blur-xl" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}>
+          <div className="mx-auto flex max-w-3xl items-center gap-3">
+            <p className="hidden min-w-0 flex-1 text-sm text-stone-600 sm:block"><span className="font-semibold text-stone-900">{tools.length} tools</span> · gives back about {hoursFor(tools)} hrs a week</p>
+            {err && <p className="text-[12px] text-red-700">{err}</p>}
+            <button type="button" disabled={busy || !tenant} onClick={save} className="flex h-12 flex-1 items-center justify-center rounded-full bg-stone-900 px-6 text-sm font-medium text-white shadow-[0_12px_30px_-12px_rgba(28,25,23,0.6)] disabled:opacity-50 sm:flex-none">
+              {busy ? <Loader className="h-4 w-4 animate-spin" /> : isNew ? 'Enter ClarityFlow' : 'Save my tools'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
