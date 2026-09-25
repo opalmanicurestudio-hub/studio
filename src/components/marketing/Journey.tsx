@@ -23,6 +23,18 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { NICHES, NICHE_ORDER, type NicheKey, type Screen } from './niches';
+import { ToolPicker } from '@/components/modules/ToolPicker';
+import { RECOMMENDED, type ToolId } from '@/lib/module-catalog';
+
+// What most platforms don't do — the short list that sells ClarityFlow.
+const ONLY_HERE: [string, string, string][] = [
+  ['✨', 'Live guest updates', 'Running late, arrived, forms done — clients update you, not the other way round.'],
+  ['📲', 'A kiosk front desk', 'Walk-ins, waitlists and check-in on a tablet. No receptionist needed.'],
+  ['📒', 'Books that keep themselves', 'Every sale, tip, fee and bill lands in your ledger — true profit per service.'],
+  ['🔑', 'Renters with their own portal', 'Their clients, their books, rent collected on schedule.'],
+  ['👥', 'Hiring & onboarding built in', 'Job posts to first shift — checklists, handbooks, time clock and pay.'],
+  ['💌', 'Marketing that shows the money', 'Campaigns counted in bookings and dollars, not opens.'],
+];
 
 const FAQS = [
   ['How do I get it?', 'ClarityFlow is in early access, by request. Try the live demo, then request access — we set each business up personally, and share pricing before you commit.'],
@@ -134,6 +146,11 @@ export function Journey({ initialNiche }: { initialNiche?: NicheKey }) {
   const [progress, setProgress] = useState(0);
   const journeyRef = useRef<HTMLDivElement>(null);
   const n = NICHES[niche || 'salon'];
+  // À la carte: starts on the recommended set for their business, follows the
+  // business type until they change a tool themselves.
+  const [tools, setTools] = useState<ToolId[]>(RECOMMENDED[initialNiche || 'other'] as ToolId[]);
+  const [toolsTouched, setToolsTouched] = useState(false);
+  useEffect(() => { if (niche && !toolsTouched) setTools(RECOMMENDED[niche] as ToolId[]); }, [niche, toolsTouched]);
 
   // Remember the pick for the visit.
   useEffect(() => {
@@ -224,6 +241,7 @@ export function Journey({ initialNiche }: { initialNiche?: NicheKey }) {
         <Link href="/" className="text-lg font-light tracking-tight">Clarity<span className="font-semibold">Flow</span></Link>
         <nav className="flex items-center gap-1 text-sm">
           <a href="#day" className="hidden rounded-full px-3 py-2 text-stone-600 hover:text-stone-900 sm:inline">How it works</a>
+          <a href="#tools" className="hidden rounded-full px-3 py-2 text-stone-600 hover:text-stone-900 sm:inline">Tools</a>
           <a href="#pricing" className="hidden rounded-full px-3 py-2 text-stone-600 hover:text-stone-900 sm:inline">Pricing</a>
           <Link href="/login" className="rounded-full px-3 py-2 text-stone-600 hover:text-stone-900">Log in</Link>
           <Link href={`/demo${niche ? `?type=${niche}` : ''}`} className="rounded-full bg-stone-900 px-4 py-2 font-medium text-white">Try the demo</Link>
@@ -277,6 +295,35 @@ export function Journey({ initialNiche }: { initialNiche?: NicheKey }) {
                 </article>
               ))}
             </div>
+          </div>
+        </section>
+
+        {/* ── Only in ClarityFlow ── */}
+        <section className="mx-auto max-w-5xl px-5 pt-24">
+          <p data-rise className="text-center text-xs uppercase tracking-[0.3em] text-stone-400">What others don’t do</p>
+          <h2 data-rise className="mt-3 text-center text-balance text-4xl font-light leading-tight tracking-tight sm:text-5xl">Built to protect your profit — <span className="font-semibold">and give you your evenings back.</span></h2>
+          <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {ONLY_HERE.map(([e, t, d], k) => (
+              <div key={t} data-rise className="glass rounded-3xl p-5" style={{ transitionDelay: `${(k % 3) * 80}ms` }}>
+                <span className="text-2xl" aria-hidden>{e}</span>
+                <p className="mt-2 text-lg font-semibold">{t}</p>
+                <p className="mt-1 text-stone-600">{d}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ── À la carte ── */}
+        <section id="tools" className="mx-auto max-w-6xl px-5 py-24">
+          <p data-rise className="text-center text-xs uppercase tracking-[0.3em] text-stone-400">À la carte</p>
+          <h2 data-rise className="mt-3 text-center text-balance text-4xl font-light leading-tight tracking-tight sm:text-5xl">Unlock what your business needs. <span className="font-semibold">Nothing it doesn’t.</span></h2>
+          <p data-rise className="mx-auto mt-4 max-w-xl text-center text-lg text-stone-600">Turn tools on and off like switches. Your app shows only what you use — and grows when you do.</p>
+          <div data-rise className="mt-10">
+            <ToolPicker value={tools} onChange={(v) => { setTools(v); setToolsTouched(true); }} niche={niche || 'other'} nicheLabel={niche ? NICHES[niche].label : null} />
+          </div>
+          <div data-rise className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <Link href={`/request-access?${niche ? `type=${niche}&` : ''}tools=${tools.join(',')}`} className="rounded-full bg-stone-900 px-7 py-3.5 text-sm font-medium text-white">Request access with these tools</Link>
+            <Link href={`/demo${niche ? `?type=${niche}` : ''}`} className="rounded-full px-5 py-3 text-sm text-stone-600">Try the live demo</Link>
           </div>
         </section>
 
