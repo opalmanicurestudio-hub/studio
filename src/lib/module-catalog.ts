@@ -18,7 +18,7 @@ import type { ModuleId as GateId } from './modules';
 
 export type ToolId =
   | 'booking' | 'guest' | 'kiosk' | 'marketing' | 'memberships' | 'books'
-  | 'inventory' | 'team' | 'renters' | 'classes' | 'voice' | 'lounge';
+  | 'inventory' | 'team' | 'renters' | 'classes' | 'voice' | 'lounge' | 'academy';
 
 export interface Tool {
   id: ToolId; emoji: string; name: string; line: string; includes: string[];
@@ -64,6 +64,9 @@ export const TOOLS: Tool[] = [
   { id: 'lounge', emoji: '☕', name: 'Lounge & hospitality', gates: ['hospitality'], early: true, line: 'A guest lounge, café or bar — menu, orders, host stand and a kitchen screen.',
     includes: ['Guest lounge menu & orders', 'Host stand & seating', 'Floor service for your team', 'Kitchen & bar display'],
     gives: 'Drinks and extras that add to every visit', hours: 1, profit: 'Turns waiting time into sales', others: 'Appointment platforms don’t run a lounge or café' },
+  { id: 'academy', emoji: '🎓', name: 'Online academy', gates: ['academy'], early: true, line: 'Sell courses online — video lessons, a student portal, progress and pay-later.',
+    includes: ['Courses, modules & video lessons', 'Free preview lessons', 'A student portal that remembers their place', 'Card or pay-later checkout'],
+    gives: 'Income that isn’t tied to the chair', hours: 1, profit: 'Sell what you know, again and again', others: 'Booking platforms don’t teach — you’d pay for a separate course platform' },
 ];
 
 export const TOOL_BY_ID = Object.fromEntries(TOOLS.map((t) => [t.id, t])) as Record<ToolId, Tool>;
