@@ -64,6 +64,9 @@ export async function POST(req: NextRequest) {
         requirements, rubric, courseIds: (p.courseIds || []).map(String).slice(0, 30),
         // Admissions & tuition (all optional): what applicants upload, what they sign, what it costs.
         description: String(p.description || '').slice(0, 2000) || null,
+        scheduledHoursPerWeek: Math.max(0, Math.min(80, Number(p.scheduledHoursPerWeek) || 0)) || null,
+        sap: p.sap ? { checkpoints: String(p.sap.checkpoints ?? '').split(/[ ,]+/).map(Number).filter((n: number) => n > 0).sort((a: number, c: number) => a - c).slice(0, 20),
+          minAttendancePct: Math.max(0, Math.min(100, Number(p.sap.minAttendancePct) || 0)), minQuizAvg: Math.max(0, Math.min(100, Number(p.sap.minQuizAvg) || 0)), minPracticalAvg: Math.max(0, Math.min(5, Number(p.sap.minPracticalAvg) || 0)) } : (cur.sap || null),
         requiredDocs: (Array.isArray(p.requiredDocs) ? p.requiredDocs : []).map((x: any) => String(x).trim().slice(0, 80)).filter(Boolean).slice(0, 12),
         agreementTemplate: String(p.agreementTemplate || '').slice(0, 20000) || null,
         tuition: p.tuition ? { tuitionCents: Math.max(0, Math.round(Number(p.tuition.tuitionCents) || 0)), registrationFeeCents: Math.max(0, Math.round(Number(p.tuition.registrationFeeCents) || 0)), kitCents: Math.max(0, Math.round(Number(p.tuition.kitCents) || 0)),
