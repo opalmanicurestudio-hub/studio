@@ -26,6 +26,8 @@ import { aiDraftReply, CATEGORY_LABEL, SLA_HOURS, type Priority } from '@/lib/su
 import { computeMetrics } from '@/lib/hq-metrics';
 import { askClaude, aiConfigured } from '@/lib/ai';
 import { syncStripeMonth, profitLadder, planner, monthKey, DEFAULT_SETTINGS, type FinanceSettings } from '@/lib/hq-finance';
+import { billingSettings, ensurePrices, ensureFoundingCoupon } from '@/lib/billing';
+import { ALL_PRICES } from '@/lib/billing-plans';
 
 // Which permission each action needs (see src/lib/platform-admin.ts).
 const NEEDS: Record<string, HqPerm> = {
@@ -33,6 +35,7 @@ const NEEDS: Record<string, HqPerm> = {
   'ticket-update': 'tickets', 'ticket-note': 'tickets', 'ticket-draft': 'tickets', macros: 'tickets', 'macro-save': 'tickets', 'macro-delete': 'tickets',
   insights: 'insights', 'insights-refresh': 'insights', 'insights-brief': 'insights', team: 'team', 'team-save': 'team', 'team-remove': 'team',
   finance: 'finance', 'finance-sync': 'finance', 'finance-settings': 'finance', 'expense-save': 'finance', 'expense-delete': 'finance',
+  'billing-settings': 'finance', 'billing-setup-prices': 'finance',
 };
 import { smsConfigured } from '@/lib/sms';
 
@@ -344,6 +347,30 @@ ${JSON.stringify(days[days.length - 1]).slice(0, 3000)}` });
     await ref.set({ id: ref.id, name, monthly: Math.round(monthly * 100) / 100, category, note: String(b.note || '').slice(0, 200) || null, updatedAt: new Date().toISOString() }, { merge: true });
     return NextResponse.json({ ok: true });
   }
+  // ── Billing: ClarityFlow's own subscriptions ──
+  if (b.action === 'billing-setup-prices') {
+    if (!process.env.STRIPE_SECRET_KEY) return NextResponse.json({ ok: false, error: 'STRIPE_SECRET_KEY isn’t set.' }, { status: 400 });
+    try {
+      const r = await ensurePrices();
+      await db.doc('platformSettings/billing').set({ pricesReadyAt: new Date().toISOString() }, { merge: true });
+      await audit(db, admin.email, null, 'billing-setup-prices', `Set up prices in Stripe (${r.created} new of ${r.total})`);
+      return NextResponse.json({ ok: true, ...r });
+    } catch (e: any) { return NextResponse.json({ ok: false, error: `Stripe: ${String(e?.message || e).slice(0, 200)}` }, { status: 500 }); }
+  }
+  if (b.action === 'billing-settings') {
+    const cur = await billingSettings();
+    const next: any = { ...cur };
+    if ('enabled' in b) {
+      if (b.enabled && !cur.pricesReadyAt) return NextResponse.json({ ok: false, error: 'Set up prices in Stripe first.' }, { status: 400 });
+      if (b.enabled && !process.env.STRIPE_BILLING_WEBHOOK_SECRET) return NextResponse.json({ ok: false, error: 'Add the billing webhook first (STRIPE_BILLING_WEBHOOK_SECRET) — otherwise payments won’t activate accounts.' }, { status: 400 });
+      next.enabled = !!b.enabled;
+    }
+    if ('freeUntil' in b) next.freeUntil = b.freeUntil ? new Date(String(b.freeUntil)).toISOString() : null;
+    if ('foundingPct' in b) { next.foundingPct = Math.max(0, Math.min(90, Math.round(Number(b.foundingPct) || 0))); if (next.foundingPct && process.env.STRIPE_SECRET_KEY) next.foundingCouponId = await ensureFoundingCoupon(next.foundingPct); }
+    await db.doc('platformSettings/billing').set(next);
+    await audit(db, admin.email, null, 'billing-settings', `Billing ${next.enabled ? 'ON' : 'off'} · founding ${next.foundingPct}% · free until ${next.freeUntil ? next.freeUntil.slice(0, 10) : '—'}`);
+    return NextResponse.json({ ok: true, billing: next });
+  }
   if (b.action === 'expense-delete') { await db.doc(`platformExpenses/${String(b.id || '')}`).delete(); return NextResponse.json({ ok: true }); }
   if (b.action === 'finance') {
     const now = new Date();
@@ -363,8 +390,13 @@ ${JSON.stringify(days[days.length - 1]).slice(0, 3000)}` });
     const serviceCosts = m ? (m.cost30.texts + m.cost30.emails + m.cost30.ai + m.cost30.infra) : 0;
     const stripeCosts = f ? f.stripeCostsCents / 100 : 0;
     const feeIncome = f ? f.netFeesCents / 100 : 0;
-    const subscriptions = 0;   // subscription billing is the next build
+    // Subscription payments this month (recorded by the billing webhook).
+    const billSnap = await db.collection('platformBilling').where('month', '==', month).limit(2000).get();
+    const subscriptions = billSnap.docs.reduce((n: number, x: any) => n + ((x.data() as any).amountPaidCents || 0), 0) / 100;
+    const subscribers = (await db.collection('tenants').where('billing.status', 'in', ['active', 'trialing', 'past_due']).select('billing').limit(1000).get()).size;
+    const billing = await billingSettings();
     const revenue = feeIncome + subscriptions;
+
     const costToServe = serviceCosts + stripeCosts;
     const ladder = profitLadder({ revenue, costToServe, opex, settings });
     const costPerBusiness = costToServe / active;
@@ -374,6 +406,7 @@ ${JSON.stringify(days[days.length - 1]).slice(0, 3000)}` });
     return NextResponse.json({ ok: true, month, lastMonth: lastM, finance: f, lastFinance: (last.data() as any) || null, settings, expenses, opex,
       costs: { service: serviceCosts, stripe: stripeCosts, perBusiness: costPerBusiness, activeBusinesses: m?.activeBusinesses || 0 },
       income: { fees: feeIncome, feesPerBusiness, subscriptions }, ladder, plan,
+      billing: { ...billing, subscribers, prices: ALL_PRICES, webhookReady: !!process.env.STRIPE_BILLING_WEBHOOK_SECRET },
       runwayMonths: monthlyBurn > 0 && settings.cashOnHand > 0 ? Math.floor(settings.cashOnHand / monthlyBurn) : null,
       stripeReady: !!process.env.STRIPE_SECRET_KEY });
   }
