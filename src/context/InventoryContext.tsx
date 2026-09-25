@@ -267,6 +267,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     return [...existing, ...generated].sort((a,b) => safeDate(b.dueDate).getTime() - safeDate(a.dueDate).getTime());
   }, [rawSubInstances, clients, memberships]);
 
+  const DAY_OF_PROGRESS = useMemo(() => new Set(['arrived', 'checked_in', 'servicing', 'ready_for_checkout', 'completed']), []);
   const appointments = useMemo(() => {
     if (!appointmentsFromDB) return [];
     const checkInMap = new Map((checkIns || []).map(ci => [ci.checkInToken, ci]));
@@ -280,10 +281,17 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
         actualEndTime: apt.actualEndTime ? safeDate(apt.actualEndTime) : undefined,
         checkInStatus: ci?.checkInStatus || apt.checkInStatus || 'pending',
         lateTimeMinutes: ci?.lateTimeMinutes ?? apt.lateTimeMinutes ?? 0,
-        status: (ci?.status && apt.status === 'confirmed') ? ci.status : apt.status
+        // The check-in record carries a COPY of the booking made when it was
+        // created — including status "requested" for a request. That copy was
+        // allowed to override a confirmed booking, so an accepted request kept
+        // showing as "requested" (and counted as "awaiting you") everywhere.
+        // Now the check-in record may only add DAY-OF PROGRESS (in the chair,
+        // ready for checkout, finished) on top of a confirmed booking — never
+        // an old booking-stage status.
+        status: (apt.status === 'confirmed' && DAY_OF_PROGRESS.has(String(ci?.status || ''))) ? (ci as any).status : apt.status
       };
     });
-  }, [appointmentsFromDB, checkIns]);
+  }, [appointmentsFromDB, checkIns, DAY_OF_PROGRESS]);
 
   const activityLogs = useMemo(() => {
     if (!rawActivityLogs) return [];
