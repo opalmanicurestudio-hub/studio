@@ -18,6 +18,7 @@ import { PrivateImg } from '@/components/shared/private-file';
 import { SchoolPrograms } from '@/components/academy/SchoolPrograms';
 import { StudentSalon } from '@/components/academy/StudentSalon';
 import { AdmissionsBoard } from '@/components/academy/AdmissionsBoard';
+import { StudentJourney } from '@/components/academy/StudentJourney';
 import { useTenant } from '@/context/TenantContext';
 
 async function api(body: any) {
@@ -53,7 +54,7 @@ export default function AcademyBuilderPage() {
   const poll = useRef<number | null>(null);
   // Online courses only, or a licensed school (programs + student salon too).
   const [mode, setMode] = useState<'courses' | 'school' | null>(null);
-  const [section, setSection] = useState<'courses' | 'programs' | 'admissions' | 'salon'>('courses');
+  const [section, setSection] = useState<'courses' | 'programs' | 'admissions' | 'students' | 'salon'>('courses');
   useEffect(() => { if (!tenantId) return; (async () => { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : ''; const r = await fetch('/api/academy/school', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify({ action: 'overview', tenantId }) }).then((x) => x.json()).catch(() => null); setMode(r?.mode || 'courses'); })(); }, [tenantId]);
   const changeMode = async (m: 'courses' | 'school') => { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : ''; const r = await fetch('/api/academy/school', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify({ action: 'mode', tenantId, mode: m }) }).then((x) => x.json()).catch(() => null); if (r?.ok) { setMode(m); if (m === 'courses') setSection('courses'); } else setMsg(r?.error || 'Couldn’t change the mode.'); };
 
@@ -138,7 +139,7 @@ export default function AcademyBuilderPage() {
         {mode && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-muted/40 p-2">
             <div className="flex gap-1">
-              {([['courses', 'Courses'], ...(mode === 'school' ? [['programs', 'Programs'], ['admissions', 'Admissions'], ['salon', 'Student salon']] : [])] as [string, string][]).map(([k, l]) => <button key={k} type="button" onClick={() => setSection(k as any)} className={`h-9 rounded-full px-4 text-sm font-bold ${section === k ? 'bg-foreground text-background' : ''}`}>{l}</button>)}
+              {([['courses', 'Courses'], ...(mode === 'school' ? [['programs', 'Programs'], ['admissions', 'Admissions'], ['students', 'Students'], ['salon', 'Student salon']] : [])] as [string, string][]).map(([k, l]) => <button key={k} type="button" onClick={() => setSection(k as any)} className={`h-9 rounded-full px-4 text-sm font-bold ${section === k ? 'bg-foreground text-background' : ''}`}>{l}</button>)}
             </div>
             <div className="flex items-center gap-1 text-[12px]">
               <span className="font-bold text-muted-foreground">Academy type:</span>
@@ -151,6 +152,7 @@ export default function AcademyBuilderPage() {
         {section === 'programs' && mode === 'school' && <SchoolPrograms tenantId={tenantId} courses={courses || []} />}
         {section === 'salon' && mode === 'school' && <StudentSalon tenantId={tenantId} />}
         {section === 'admissions' && mode === 'school' && <AdmissionsBoard tenantId={tenantId} />}
+        {section === 'students' && mode === 'school' && <StudentJourney tenantId={tenantId} />}
         {d && !d.mux && <p className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Video hosting isn’t connected yet — you can paste a private Vimeo or unlisted YouTube link for now. Add MUX_TOKEN_ID, MUX_TOKEN_SECRET, MUX_SIGNING_KEY_ID and MUX_SIGNING_KEY_PRIVATE in Vercel to upload protected videos.</p>}
 
         {section === 'courses' && <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
