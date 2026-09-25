@@ -47,7 +47,8 @@ export function SchoolPrograms({ tenantId, courses }: { tenantId: string; course
   const DEFAULT_TIERS = [{ upToPct: 10, keepPct: 10 }, { upToPct: 25, keepPct: 25 }, { upToPct: 50, keepPct: 50 }, { upToPct: 100, keepPct: 100 }];
   const withMoney = (p: any) => ({ ...p, requiredDocsText: (p.requiredDocs?.length ? p.requiredDocs : ['Photo ID', 'High school diploma or GED', 'Proof of age']).join('\n'),
     tuitionD: { tuition: (p.tuition?.tuitionCents || 0) / 100, registration: (p.tuition?.registrationFeeCents || 0) / 100, kit: (p.tuition?.kitCents || 0) / 100, down: (p.tuition?.downPaymentCents || 0) / 100, installments: p.tuition?.installments || 0, interval: p.tuition?.interval || 'month' },
-    refundPolicy: p.refundPolicy || { cancelDays: 3, registrationNonRefundable: true, kitNonRefundable: true, tiers: DEFAULT_TIERS }, agreementTemplate: p.agreementTemplate || '' });
+    refundPolicy: p.refundPolicy || { cancelDays: 3, registrationNonRefundable: true, kitNonRefundable: true, tiers: DEFAULT_TIERS }, agreementTemplate: p.agreementTemplate || '',
+    scheduledHoursPerWeek: p.scheduledHoursPerWeek || '', sap: { checkpoints: (p.sap?.checkpoints || [150, 300, 450]).join(', '), minAttendancePct: p.sap?.minAttendancePct ?? 67, minQuizAvg: p.sap?.minQuizAvg ?? 70, minPracticalAvg: p.sap?.minPracticalAvg ?? 3 } });
   const newProgram = () => setEdit(withMoney({ name: '', totalHours: '', requiredOnlineHours: '', requiredInPersonHours: '', requirements: [{ label: '', count: 0, serviceIds: [] }], rubric: d.defaultRubric, courseIds: [], tipPolicy: 'school' }));
 
   return (
@@ -102,6 +103,17 @@ export function SchoolPrograms({ tenantId, courses }: { tenantId: string; course
               <label className="text-[12px] font-bold">Every<select className={field} value={edit.tuitionD.interval} onChange={(e) => setEdit({ ...edit, tuitionD: { ...edit.tuitionD, interval: e.target.value } })}><option value="month">month</option><option value="biweekly">2 weeks</option></select></label>
             </div>
             {(() => { const td = edit.tuitionD; const total = (Number(td.tuition) || 0) + (Number(td.registration) || 0) + (Number(td.kit) || 0); const n = Number(td.installments) || 0; return <p className="text-[12px] text-muted-foreground">Total ${total.toLocaleString()} · {n ? `$${Number(td.down || 0).toLocaleString()} down, then ${n} × about $${Math.round((total - (Number(td.down) || 0)) / n).toLocaleString()} on autopay` : 'paid in full at enrolment'}</p>; })()}
+          </div>
+          <div className="space-y-2 rounded-2xl bg-muted/40 p-3">
+            <p className="text-sm font-black">Schedule & progress checks <span className="font-normal text-muted-foreground">— satisfactory academic progress, set to your state / accreditor rules</span></p>
+            <div className="grid gap-2 sm:grid-cols-5">
+              <label className="text-[12px] font-bold">Scheduled hours / week<input className={field} type="number" value={edit.scheduledHoursPerWeek} onChange={(e) => setEdit({ ...edit, scheduledHoursPerWeek: e.target.value })} /></label>
+              <label className="text-[12px] font-bold sm:col-span-2">Check at hours (comma-separated)<input className={field} value={edit.sap.checkpoints} onChange={(e) => setEdit({ ...edit, sap: { ...edit.sap, checkpoints: e.target.value } })} /></label>
+              <label className="text-[12px] font-bold">Min attendance %<input className={field} type="number" value={edit.sap.minAttendancePct} onChange={(e) => setEdit({ ...edit, sap: { ...edit.sap, minAttendancePct: e.target.value } })} /></label>
+              <label className="text-[12px] font-bold">Min quiz avg %<input className={field} type="number" value={edit.sap.minQuizAvg} onChange={(e) => setEdit({ ...edit, sap: { ...edit.sap, minQuizAvg: e.target.value } })} /></label>
+              <label className="text-[12px] font-bold">Min practical avg (1–5)<input className={field} type="number" step={0.5} value={edit.sap.minPracticalAvg} onChange={(e) => setEdit({ ...edit, sap: { ...edit.sap, minPracticalAvg: e.target.value } })} /></label>
+            </div>
+            <p className="text-[11px] text-muted-foreground">Attendance % = hours completed ÷ hours scheduled so far. Below the minimums at a checkpoint → warning, then probation.</p>
           </div>
           <div className="space-y-2 rounded-2xl bg-muted/40 p-3">
             <p className="text-sm font-black">Refund policy <span className="font-normal text-muted-foreground">— set this to your state’s required refund schedule</span></p>
