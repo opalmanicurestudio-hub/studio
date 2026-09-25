@@ -41,8 +41,16 @@ service cloud.firestore {
     match /tenants/{tenantId} {
       allow get: if true;
       allow list: if false;
-      allow create: if isSignedIn();
-      allow update: if isOwner(tenantId);
+      // Businesses are created ONLY by the server (/api/signup, Admin SDK),
+      // after the invite is checked. No browser can create one.
+      allow create: if false;
+      // Owners edit their business — except the account-status fields, which
+      // only the server may change (activation now; billing later).
+      allow update: if isOwner(tenantId)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+             'userId', 'subscriptionStatus', 'subscriptionTier', 'accessLocked',
+             'inviteCode', 'activatedAt', 'suspended', 'platformNotes', 'plan', 'billing'
+           ]);
     }
     match /tenants/{tenantId}/services/{serviceId} {
       allow get, list: if true;
