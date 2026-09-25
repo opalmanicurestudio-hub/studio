@@ -1,3 +1,4 @@
+import { isFrozenHost } from '@/lib/app-origin';
 // ─── message-policy.ts ────────────────────────────────────────────────────────
 // Which messages go out, and what they say.
 //
@@ -1035,9 +1036,10 @@ export function internalOrigin(tenant?: any, requestOrigin?: string | null): str
   ];
   for (const c of candidates) {
     const v = String(c || '').trim().replace(/\/+$/, '');
-    if (/^https?:\/\/.+/.test(v)) return v;
+    // Never a frozen deployment address when the real one is known.
+    if (/^https?:\/\/.+/.test(v) && !isFrozenHost(v)) return v;
   }
-  return '';
+  return String(requestOrigin || '').trim().replace(/\/+$/, '');
 }
 
 /** POST to one of our own routes with a bounded wait and one retry on a
