@@ -7,7 +7,8 @@ export const metadata: Metadata = {
   description: 'ClarityFlow is in early access. Tell us about your business and we’ll set you up personally.',
 };
 
-export default async function RequestAccessPage({ searchParams }: { searchParams: Promise<{ type?: string }> }) {
-  const t = String((await searchParams)?.type || '');
-  return <RequestAccess initialType={['salon', 'spa', 'fitness', 'shop'].includes(t) ? t : ''} />;
+export default async function RequestAccessPage({ searchParams }: { searchParams: Promise<{ type?: string; tools?: string }> }) {
+  const sp = (await searchParams) || {};
+  const t = String(sp.type || '');
+  return <RequestAccess initialType={['salon', 'spa', 'fitness', 'shop'].includes(t) ? t : ''} initialTools={String(sp.tools || '').slice(0, 200)} />;
 }
