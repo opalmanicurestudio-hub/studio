@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { enrollFromCheckout } from '@/lib/academy';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
-import { renterVoice, tellClient, notifyRenter, membershipWelcomeLines } from '@/lib/renter-comms';
 
 // ─── /api/stripe/connect-webhook/route.ts ─────────────────────────────────────
 // CONNECTED ACCOUNTS webhook — events on your tenants' Stripe accounts.
@@ -73,28 +73,8 @@ export async function POST(req: NextRequest) {
   const db      = getAdminDb();
   const stripe2 = new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2025-04-30.basil' as any });
 
-  // A self-service link for a member: update the card, see invoices, cancel.
-  // Stripe's own Billing Portal on the RENTER'S account — nothing for us to
-  // build, and the card never touches this app.
-  const manageLink = async (customerId: string | null, returnUrl: string): Promise<string | null> => {
-    if (!customerId) return null;
-    try {
-      const ps = await stripe.billingPortal.sessions.create({ customer: customerId, return_url: returnUrl }, { stripeAccount: connAcct });
-      return ps.url || null;
-    } catch { return null; }
-  };
-
   // Helper: find tenant by connected Stripe account ID
-  // A RENTER'S connected account is stored on the renter doc, not the
-  // tenant — so events from a renter's Stripe never matched a tenant here
-  // and were dropped. Every session this app creates carries tenantId in
-  // its metadata; that is the reliable key, with the account lookup as the
-  // legacy path.
-  const getTenant = async (accountId: string, metaTenantId?: string | null) => {
-    if (metaTenantId) {
-      const ref = db.doc(`tenants/${metaTenantId}`);
-      if ((await ref.get()).exists) return { id: metaTenantId, ref };
-    }
+  const getTenant = async (accountId: string) => {
     const snap = await db.collection('tenants')
       .where('stripeAccountId', '==', accountId)
       .limit(1).get();
@@ -108,98 +88,15 @@ export async function POST(req: NextRequest) {
       // ── checkout.session.completed: deposit / completion / card vaulting ──
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
-        const tenant  = await getTenant(connAcct, session.metadata?.tenantId || null);
+        const tenant  = await getTenant(connAcct);
         if (!tenant) break;
 
         const sessionType = session.metadata?.type;
 
-        // ── A renter's membership: the first payment just cleared ──
-        // Records the membership under the renter, attaches it to the
-        // client's record in the RENTER'S book (matched by email, created if
-        // new), and opens the first period. Renewals and cancellations arrive
-        // as invoice.paid / customer.subscription.deleted below.
-        if (sessionType === 'renter_membership') {
-          const membershipId = String(session.metadata?.membershipId || '');
-          const renterId = String(session.metadata?.renterId || '');
-          const staffId = String(session.metadata?.staffId || '');
-          const subId = typeof session.subscription === 'string' ? session.subscription : (session.subscription as any)?.id || null;
-          if (membershipId && renterId && subId) {
-            const mem = ((await db.doc(`tenants/${tenant.id}/renterMemberships/${membershipId}`).get()).data() as any) || {};
-            const email = String(session.customer_details?.email || session.metadata?.clientEmail || '').toLowerCase();
-            const name = String(session.customer_details?.name || session.metadata?.clientName || 'Client');
-            const phone = String(session.metadata?.clientPhone || '');
-            let clientId: string | null = null;
-            if (email) {
-              const hits = await db.collection(`tenants/${tenant.id}/clients`).where('email', '==', email).limit(5).get();
-              const own = hits.docs.find((d: any) => (d.data() as any)?.ownerRenterId === renterId);
-              if (own) clientId = own.id;
-              else { const nRef = db.collection(`tenants/${tenant.id}/clients`).doc(); clientId = nRef.id; await nRef.set({ id: clientId, name, email, phone, status: 'active', lifetimeValue: 0, createdAt: new Date().toISOString(), ownerRenterId: renterId, ownerStaffId: staffId, createdVia: 'renter_membership' }); }
-            }
-            const dup = await db.collection(`tenants/${tenant.id}/renterMemberSubscriptions`).where('stripeSubscriptionId', '==', subId).limit(1).get();
-            if (dup.empty) {
-              const ref = db.collection(`tenants/${tenant.id}/renterMemberSubscriptions`).doc();
-              const periodEnd = new Date(); periodEnd.setMonth(periodEnd.getMonth() + 1);
-              await ref.set({
-                id: ref.id, membershipId, membershipName: mem.name || 'Membership', renterId, staffId,
-                clientId, clientName: name, clientEmail: email || null,
-                includedVisits: Number(mem.includedVisits) || 0, visitsUsedThisPeriod: 0, discountPct: Number(mem.discountPct) || 0, perks: Array.isArray(mem.perks) ? mem.perks : [],
-                priceCents: Number(mem.priceCents) || 0, status: 'active', startedAt: new Date().toISOString(), currentPeriodEnd: periodEnd.toISOString(),
-                stripeSubscriptionId: subId, stripeCustomerId: typeof session.customer === 'string' ? session.customer : null, stripeAccountId: connAcct,
-              });
-              const nRef = db.collection(`tenants/${tenant.id}/notifications`).doc();
-              await nRef.set({ id: nRef.id, type: 'renter_member_joined', read: false, createdAt: new Date().toISOString(), link: '/renters', message: `${name} joined "${mem.name || 'a membership'}" with a renter — billed to the renter's Stripe.` }).catch(() => null);
-              // The client hears from the RENTER, with their perks and a manage link; the renter hears in their inbox.
-              const v = await renterVoice(db, tenant.id, renterId);
-              const manage = await manageLink(typeof session.customer === 'string' ? session.customer : null, v.bookingUrl || `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL || ''}`);
-              await tellClient(db, v, { email, clientId, name }, `Welcome to ${mem.name || 'the membership'}`, membershipWelcomeLines(v, { name: mem.name || 'Membership', includedVisits: Number(mem.includedVisits) || 0, discountPct: Number(mem.discountPct) || 0, perks: Array.isArray(mem.perks) ? mem.perks : [], priceCents: Number(mem.priceCents) || 0 }, manage), 'renter_member_welcome');
-              await notifyRenter(db, tenant.id, renterId, 'money', `${name} joined ${mem.name || 'your membership'} · $${((Number(mem.priceCents) || 0) / 100).toFixed(0)}/mo`, { tone: 'green', subject: `${name} joined ${mem.name || 'your membership'} · $${((Number(mem.priceCents) || 0) / 100).toFixed(0)}/mo` });
-            }
-          }
-          break;
-        }
-
-        // ── A renter's package, bought by a client on the renter's page ──
-        // Money landed in the renter's Stripe. This records the credits on
-        // the renter's side only: nothing in the studio's ledger, ever.
-        if (sessionType === 'renter_package') {
-          const pkgId = String(session.metadata?.packageId || '');
-          const renterId = String(session.metadata?.renterId || '');
-          const staffId = String(session.metadata?.staffId || '');
-          if (pkgId && renterId) {
-            const pRef = db.doc(`tenants/${tenant.id}/renterPackages/${pkgId}`);
-            const pkg = ((await pRef.get()).data() as any) || {};
-            const email = String(session.customer_details?.email || session.metadata?.clientEmail || '').toLowerCase();
-            const name = String(session.customer_details?.name || session.metadata?.clientName || 'Client');
-            // Their client, in THEIR book.
-            let clientId: string | null = null;
-            if (email) {
-              const hits = await db.collection(`tenants/${tenant.id}/clients`).where('email', '==', email).limit(5).get();
-              const own = hits.docs.find((d: any) => (d.data() as any)?.ownerRenterId === renterId);
-              if (own) clientId = own.id;
-              else { const nRef = db.collection(`tenants/${tenant.id}/clients`).doc(); clientId = nRef.id; await nRef.set({ id: clientId, name, email, phone: '', status: 'active', lifetimeValue: 0, createdAt: new Date().toISOString(), ownerRenterId: renterId, ownerStaffId: staffId, createdVia: 'renter_package' }); }
-            }
-            const dup = await db.collection(`tenants/${tenant.id}/renterPackagePurchases`).where('stripeSessionId', '==', session.id).limit(1).get();
-            if (dup.empty) {
-              const credits = Number(pkg.credits) || Number(session.metadata?.credits) || 1;
-              const validDays = Number(pkg.validDays) || 365;
-              const ref = db.collection(`tenants/${tenant.id}/renterPackagePurchases`).doc();
-              await ref.set({
-                id: ref.id, packageId: pkgId, packageName: pkg.name || 'Package', renterId, staffId,
-                serviceId: pkg.serviceId || null, clientId, clientName: name, clientEmail: email || null,
-                creditsTotal: credits, creditsUsed: 0, amountCents: Number(session.amount_total) || 0,
-                purchasedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + validDays * 86400000).toISOString(),
-                status: 'active', source: 'stripe', stripeSessionId: session.id, stripeAccountId: connAcct,
-              });
-              const nRef = db.collection(`tenants/${tenant.id}/notifications`).doc();
-              await nRef.set({ id: nRef.id, type: 'renter_package_sold', read: false, createdAt: new Date().toISOString(), link: '/renters',
-                message: `${name} bought "${pkg.name || 'a package'}" (${credits} visits) from a renter — paid to the renter's Stripe.` }).catch(() => null);
-              const v = await renterVoice(db, tenant.id, renterId);
-              const { policyText } = await import('@/lib/package-credits');
-              await tellClient(db, v, { email, clientId, name }, `Your ${pkg.name || 'package'} is ready`,
-                [`Thank you! ${credits} visit${credits === 1 ? '' : 's'} are on your account${pkg.serviceName ? ` for ${pkg.serviceName}` : ''}, valid ${validDays} days.`, `Each time we mark a visit done, one comes off. ${policyText(pkg)}`, v.bookingUrl ? `Book your next visit: ${v.bookingUrl}` : ''].filter(Boolean), 'renter_package_confirmed');
-              await notifyRenter(db, tenant.id, renterId, 'money', `${name} bought ${pkg.name || 'a package'} · $${((Number(session.amount_total) || 0) / 100).toFixed(0)}`, { tone: 'green', subject: `${name} bought ${pkg.name || 'a package'} · $${((Number(session.amount_total) || 0) / 100).toFixed(0)}` });
-            }
-          }
+        // Academy course purchases: enrol the student (the success page
+        // does this too — whichever arrives first; it's safe to run twice).
+        if (sessionType === 'academy_course') {
+          try { await enrollFromCheckout(tenant.id, session); } catch (e: any) { console.error('[connect-webhook] academy enrol failed', e?.message); }
           break;
         }
 
@@ -245,29 +142,14 @@ export async function POST(req: NextRequest) {
           const depositAmountCents = session.amount_total ?? Math.round((br.depositAmount || 0) * 100);
 
           // Resolve or create the client by email
-          // Whose booking is this? A renter's deposit came through the
-          // renter's Stripe; everything this branch creates belongs to them.
-          const renterProviderId = String(session.metadata?.renterProviderId || br.renterProviderId || '') || null;
-          let renterOwnerId: string | null = null;
-          if (renterProviderId) {
-            const stSnap = await db.doc(`tenants/${tenant.id}/staff/${renterProviderId}`).get();
-            const st = (stSnap.data() as any) || {};
-            if (st.isRenter && st.renterId) renterOwnerId = String(st.renterId);
-          }
-
-          // The client, in the right book. Same rule as the booking route: a
-          // renter's client is looked up and created under ownerRenterId; a
-          // studio booking looks only at the studio's own. The same person can
-          // exist once in each — two businesses, two records.
           const email = String(br.clientEmail || '').toLowerCase().trim();
           let clientId: string;
-          const clientHits = email
-            ? (await db.collection(`tenants/${tenant.id}/clients`).where('email', '==', email).limit(5).get()).docs
-            : [];
-          const inBook = clientHits.find((d: any) => (String((d.data() as any)?.ownerRenterId || '') || null) === renterOwnerId);
+          const clientMatch = email
+            ? await db.collection(`tenants/${tenant.id}/clients`).where('email', '==', email).limit(1).get()
+            : { empty: true, docs: [] as any[] };
 
-          if (inBook) {
-            clientId = inBook.id;
+          if (!clientMatch.empty) {
+            clientId = clientMatch.docs[0].id;
           } else {
             const newClientRef = db.collection(`tenants/${tenant.id}/clients`).doc();
             clientId = newClientRef.id;
@@ -280,7 +162,6 @@ export async function POST(req: NextRequest) {
               lifetimeValue: 0,
               status: 'active',
               createdAt: new Date().toISOString(),
-              ...(renterOwnerId ? { ownerRenterId: renterOwnerId, ownerStaffId: renterProviderId } : {}),
             });
           }
 
@@ -311,22 +192,6 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          /* Resolve the shop's booking mode before writing. resolveBookingPlan
-           * is pure, so the webhook reaches the same verdict the booking route
-           * would have. */
-          const svcSnap = br.serviceId
-            ? await db.doc(`tenants/${tenant.id}/services/${br.serviceId}`).get()
-            : null;
-          const { resolveBookingPlan } = await import('@/lib/deposit-policy');
-          const planTenant = ((await tenant.ref.get()).data() as any) || {};
-          const bookingPlan = resolveBookingPlan({
-            tenant: planTenant,
-            service: (svcSnap && svcSnap.exists ? svcSnap.data() : {}) || {},
-            price: Number(br.price ?? 0),
-            client: null,
-            byStaff: false,
-          });
-
           const appointmentPayload = {
             id: appointmentId,
             tenantId: tenant.id,
@@ -336,42 +201,9 @@ export async function POST(req: NextRequest) {
             clientPhone: br.clientPhone || '',
             serviceId: br.serviceId,
             staffId:   br.staffId,
-            // Without these stamps a renter's deposit-paid booking became a
-            // STUDIO appointment in the data: counted in studio reports,
-            // invisible in the renter's own book. Same stamps the booking
-            // route writes on the no-deposit path.
-            ...(renterProviderId ? {
-              isRenterBooking: true,
-              renterProviderId,
-              renterServiceName: br.serviceName || '',
-              renterServicePrice: Number(br.price ?? 0),
-              collectsOwnPayment: true,
-              revenue: 0,
-            } : {}),
             startTime: br.startTime,
             endTime:   br.endTime,
-            /* ── THE BOOKING MODE APPLIES HERE TOO ─────────────────────────
-             * This path was hardcoded to 'confirmed'. It is the path every
-             * booking WITH A DEPOSIT takes: the guest pays first, Stripe calls
-             * this webhook, and the appointment is written here rather than by
-             * /api/appointments/book. So a studio running approval mode saw
-             * deposit bookings land straight on the calendar, while the
-             * setting worked for deposit-free ones — which is exactly the
-             * "requests are set up but appointments still get booked"
-             * symptom.
-             *
-             * The deposit is already paid at this point, so an accepted
-             * request needs nothing further; the studio simply still gets to
-             * say yes first. */
-            status: bookingPlan.status === 'requested' ? 'requested' : 'confirmed',
-            bookingMode: bookingPlan.mode,
-            bookingReason: bookingPlan.reason,
-            ...(bookingPlan.status === 'requested' ? {
-              requestedAt: new Date().toISOString(),
-              requestExpiresAt: bookingPlan.approvalExpiryHours > 0
-                ? new Date(Date.now() + bookingPlan.approvalExpiryHours * 3600000).toISOString()
-                : null,
-            } : {}),
+            status: 'confirmed',
             source: 'online',
             isWalkIn: false,
             checkInToken,
@@ -387,25 +219,6 @@ export async function POST(req: NextRequest) {
           batch.set(aptRef, appointmentPayload);
           batch.set(db.collection('appointmentCheckIns').doc(checkInToken), appointmentPayload);
 
-          // ── WHOSE MONEY IS THIS? ──────────────────────────────────────
-          // A booth renter's client pays into the RENTER'S Stripe account —
-          // the session was created there, no platform fee, the studio never
-          // held a cent. Until now this branch posted every deposit into the
-          // studio's ledger as revenue anyway, so a renter's deposits inflated
-          // the studio's Money page, reports and tax buckets with dollars it
-          // never received. Renter money is separate money: it gets a record
-          // on the appointment for the renter's own books, and nothing in the
-          // studio's transactions. The appointment itself is still created —
-          // the booking is real, only the accounting was wrong.
-          const isRenterMoney = !!session.metadata?.renterProviderId;
-          if (isRenterMoney) {
-            batch.set(aptRef, {
-              renterDepositCents: depositAmountCents,
-              renterDepositPaidAt: new Date().toISOString(),
-              renterDepositSessionId: session.id,
-              renterDepositChargeId: chargeId,
-            }, { merge: true });
-          } else {
           // Post the deposit to the ledger — taxBucket 'revenue' + checkoutSessionId
           // so the charge.succeeded handler below can backfill the exact fee later.
           const txnRef = db.collection(`tenants/${tenant.id}/transactions`).doc();
@@ -428,7 +241,6 @@ export async function POST(req: NextRequest) {
             stripeChargeId: chargeId,
             tenantId: tenant.id,
           });
-          }
 
           batch.set(brRef, {
             status: 'completed',
@@ -460,70 +272,6 @@ export async function POST(req: NextRequest) {
 
           await batch.commit();
           console.log(`[connect-webhook] Deposit paid — appointment ${appointmentId} created for tenant ${tenant.id}`);
-
-          /* ── CONFIRM IT TO THE CLIENT ──────────────────────────────────────
-           * This webhook never told anybody anything. Deposit-free bookings
-           * are confirmed by /api/appointments/book, which emails and texts —
-           * but a booking WITH a deposit is created here instead, so the guest
-           * paid money and heard nothing back. That is the worst silence in
-           * the whole product.
-           *
-           * Wording comes from the message catalog like every other message,
-           * so the studio can rewrite it, and it says the right thing whether
-           * the booking was confirmed outright or is now awaiting approval.
-           * Best-effort: the appointment is already safely written. */
-          try {
-            const { resolveMessage, tidyBody, internalOrigin } = await import('@/lib/message-policy');
-            const { sendNotification } = await import('@/lib/notify');
-            const { brandedEmailHtml } = await import('@/lib/email-template');
-
-            const isRequest = bookingPlan.status === 'requested';
-            // `tenant` here is a slim {id, ref} handle, so read the doc for
-            // branding and message policy rather than assuming fields exist.
-            const tDoc = ((await tenant.ref.get()).data() as any) || {};
-            const studioName = tDoc.name || tDoc.businessName || 'Your studio';
-            const origin = internalOrigin(tDoc, req.nextUrl.origin);
-            const portalUrl = `${origin}/check-in/${checkInToken}`;
-            const when = br.startTime
-              ? new Date(br.startTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })
-              : 'your appointment';
-
-            const tokens = {
-              client_first: String(br.clientName || '').split(' ')[0],
-              service: br.serviceName || 'your appointment',
-              when,
-              amount: `$${(depositAmountCents / 100).toFixed(2)}`,
-              link: portalUrl,
-              code: String(checkInToken).slice(0, 6).toUpperCase(),
-              studio: studioName,
-            };
-            const kind = isRequest ? 'booking_request' : 'booking_confirmation';
-            const msg = resolveMessage(tDoc, kind, tokens, 'email');
-            if (msg.send && String(br.clientEmail || '').includes('@')) {
-              await sendNotification(db, {
-                tenantId: tenant.id, channel: 'email', to: br.clientEmail,
-                subject: msg.subject,
-                html: brandedEmailHtml({
-                  studioName, title: msg.subject,
-                  bodyLines: tidyBody(msg.body).split('\n\n'),
-                  cta: { label: isRequest ? 'View my request' : 'Manage my visit', url: portalUrl },
-                }),
-                kind, appointmentId, clientId,
-                clientName: br.clientName || null,
-              });
-            }
-            const sms = resolveMessage(tDoc, kind, tokens, 'sms');
-            if (sms.send && String(br.clientPhone || '').trim()) {
-              await sendNotification(db, {
-                tenantId: tenant.id, channel: 'sms', to: br.clientPhone,
-                text: tidyBody(sms.body),
-                kind, appointmentId, clientId,
-                clientName: br.clientName || null,
-              });
-            }
-          } catch (e) {
-            console.error('[connect-webhook] confirmation send failed (appointment is safe)', e);
-          }
           break;
         }
 
@@ -659,86 +407,7 @@ export async function POST(req: NextRequest) {
       }
 
       // ── charge.succeeded: record exact Stripe processing fee ─────────────
-      // ── invoice.paid: a renter membership renewed — new period, visits reset ──
-      case 'invoice.paid': {
-        const inv = event.data.object as Stripe.Invoice;
-        const subId = typeof inv.subscription === 'string' ? inv.subscription : (inv.subscription as any)?.id || null;
-        const meta: any = (inv as any).subscription_details?.metadata || {};
-        if (subId && meta.type === 'renter_membership' && meta.tenantId) {
-          const snap = await db.collection(`tenants/${meta.tenantId}/renterMemberSubscriptions`).where('stripeSubscriptionId', '==', subId).limit(1).get();
-          if (!snap.empty) {
-            const cur = snap.docs[0].data() as any;
-            const line = inv.lines?.data?.[0] as any;
-            const end = line?.period?.end ? new Date(line.period.end * 1000).toISOString() : (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d.toISOString(); })();
-            // First invoice is the checkout itself — don't double-reset a period that just opened.
-            if (inv.billing_reason !== 'subscription_create') {
-              await snap.docs[0].ref.set({ visitsUsedThisPeriod: 0, currentPeriodEnd: end, lastPaidAt: new Date().toISOString(), status: 'active', renewals: (Number(cur.renewals) || 0) + 1 }, { merge: true });
-              await notifyRenter(db, meta.tenantId, String(cur.renterId), 'money', `${cur.clientName || 'A member'} renewed ${cur.membershipName || 'their membership'} · visits reset`, { tone: 'slate', subject: `${cur.clientName || 'A member'} renewed ${cur.membershipName || 'their membership'} · visits reset` });
-            } else {
-              await snap.docs[0].ref.set({ currentPeriodEnd: end, lastPaidAt: new Date().toISOString() }, { merge: true });
-            }
-          }
-        }
-        break;
-      }
-      // ── invoice.payment_failed: a member's card declined ──
-      // Stripe retries on its own schedule (Smart Retries). This side marks
-      // the membership past-due, tells the MEMBER in the renter's voice with
-      // a one-tap link to update the card, and tells the RENTER. If retries
-      // exhaust, Stripe cancels and the deleted handler below closes it out.
-      case 'invoice.payment_failed': {
-        const inv = event.data.object as Stripe.Invoice;
-        const subId = typeof inv.subscription === 'string' ? inv.subscription : (inv.subscription as any)?.id || null;
-        const meta: any = (inv as any).subscription_details?.metadata || {};
-        if (subId && meta.type === 'renter_membership' && meta.tenantId) {
-          const snap = await db.collection(`tenants/${meta.tenantId}/renterMemberSubscriptions`).where('stripeSubscriptionId', '==', subId).limit(1).get();
-          if (!snap.empty) {
-            const cur = snap.docs[0].data() as any;
-            const attempt = Number(inv.attempt_count) || 1;
-            await snap.docs[0].ref.set({ status: 'past_due', lastFailedAt: new Date().toISOString(), failedAttempts: attempt, nextRetryAt: inv.next_payment_attempt ? new Date(inv.next_payment_attempt * 1000).toISOString() : null }, { merge: true });
-            const v = await renterVoice(db, meta.tenantId, String(cur.renterId));
-            const manage = await manageLink(cur.stripeCustomerId || (typeof inv.customer === 'string' ? inv.customer : null), v.bookingUrl || `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL || ''}`);
-            const retry = inv.next_payment_attempt ? new Date(inv.next_payment_attempt * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
-            // Say it once per attempt, not once per retry-hour.
-            if (attempt === 1 || attempt === 3) {
-              await tellClient(db, v, { email: cur.clientEmail, clientId: cur.clientId, name: cur.clientName }, `Your ${cur.membershipName || 'membership'} payment didn't go through`,
-                [`The card on file for your ${cur.membershipName || 'membership'} ($${((Number(cur.priceCents) || 0) / 100).toFixed(2)}) was declined.`, manage ? `Update your card here and you're all set: ${manage}` : 'Reply to this message and I\'ll sort it out with you.', retry ? `We'll try again on ${retry}. Your included visits pause until it clears.` : 'Your included visits pause until it clears.'], 'renter_member_payment_failed');
-            }
-            await notifyRenter(db, meta.tenantId, String(cur.renterId), 'money', `${cur.clientName || 'A member'}'s card was declined for ${cur.membershipName || 'their membership'}${retry ? ` · Stripe retries ${retry}` : ''}`, { tone: 'red', subject: 'A member\'s card was declined' });
-          }
-        }
-        break;
-      }
-      // ── customer.subscription.deleted / updated: the membership ended or lapsed ──
-      case 'customer.subscription.deleted':
-      case 'customer.subscription.updated': {
-        const sub = event.data.object as Stripe.Subscription;
-        const meta: any = sub.metadata || {};
-        if (meta.type === 'renter_membership' && meta.tenantId) {
-          const snap = await db.collection(`tenants/${meta.tenantId}/renterMemberSubscriptions`).where('stripeSubscriptionId', '==', sub.id).limit(1).get();
-          if (!snap.empty) {
-            const status = sub.status === 'active' || sub.status === 'trialing' ? 'active' : sub.status === 'past_due' || sub.status === 'unpaid' ? 'past_due' : 'cancelled';
-            const cur = snap.docs[0].data() as any;
-            await snap.docs[0].ref.set({ status, stripeStatus: sub.status, cancelAtPeriodEnd: !!sub.cancel_at_period_end, ...(status === 'cancelled' ? { endedAt: new Date().toISOString() } : {}) }, { merge: true });
-            if (status === 'cancelled' && cur.status !== 'cancelled') {
-              const v = await renterVoice(db, meta.tenantId, String(cur.renterId));
-              const why = sub.status === 'canceled' && (cur.status === 'past_due') ? 'after the card could not be charged' : '';
-              await tellClient(db, v, { email: cur.clientEmail, clientId: cur.clientId, name: cur.clientName }, `Your ${cur.membershipName || 'membership'} has ended`,
-                [`Your ${cur.membershipName || 'membership'} is now closed${why ? ` ${why}` : ''}. Thank you for being a member.`, v.bookingUrl ? `You can still book any time: ${v.bookingUrl}` : ''].filter(Boolean), 'renter_member_ended');
-              await notifyRenter(db, meta.tenantId, String(cur.renterId), 'money', `${cur.clientName || 'A member'}'s ${cur.membershipName || 'membership'} ended${why ? ` ${why}` : ''}`, { tone: 'amber', subject: 'A membership ended' });
-            } else if (sub.cancel_at_period_end && !cur.cancelAtPeriodEnd) {
-              await notifyRenter(db, meta.tenantId, String(cur.renterId), 'money', `${cur.clientName || 'A member'} cancelled ${cur.membershipName || 'their membership'} — ends ${cur.currentPeriodEnd ? String(cur.currentPeriodEnd).slice(0, 10) : 'at period end'}`, { tone: 'amber', subject: `${cur.clientName || 'A member'} cancelled ${cur.membershipName || 'their membership'} — ends ${cur.currentPeriodEnd ? String(cur.currentPeriodEnd).slice(0, 10) : 'at period end'}` });
-            }
-          }
-        }
-        break;
-      }
-
       case 'charge.succeeded': {
-        // A renter's charge carries renterProviderId in its metadata (set on
-        // the session). Its Stripe fee came out of THEIR balance; posting it
-        // as a studio expense would book a cost the studio never paid.
-        if ((event.data.object as any)?.metadata?.renterProviderId) break;
         const charge = event.data.object as Stripe.Charge;
         const tenant = await getTenant(connAcct);
         if (!tenant) break;
