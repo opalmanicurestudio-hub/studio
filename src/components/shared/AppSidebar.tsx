@@ -16,6 +16,7 @@ import { useTenant } from '@/context/TenantContext';
 import { cn } from '@/lib/utils';
 import { useAuth, useFirebase, useUser } from '@/firebase';
 import { pageVisible } from '@/lib/modules';
+import { openHelp, useIsHqAdmin } from '@/components/support/HelpDesk';
 import { resolveActiveStaffId } from '@/lib/staff-identity';
 import { signOut } from 'firebase/auth';
 import {
@@ -266,6 +267,7 @@ function CollapseToggle() {
 
 export function AppSidebar() {
   const { selectedTenant, role } = useTenant();
+  const isHqAdmin = useIsHqAdmin();
   const tenantId = selectedTenant?.id;
   const auth     = useAuth();
   const { firestore } = useFirebase();
@@ -496,6 +498,13 @@ export function AppSidebar() {
             {isOwner && (
               <NavItem href="/settings" icon={Settings} label="Studio Settings" />
             )}
+            {isHqAdmin && <NavItem href="/admin/tenants" icon={Shield} label="ClarityFlow HQ" />}
+            <SidebarMenuItem>
+              <SidebarMenuButton onClick={openHelp} className="rounded-xl h-10 text-muted-foreground hover:bg-primary/10 hover:text-primary transition-all">
+                <LifeBuoy className="w-[17px] h-[17px] shrink-0" />
+                <span>Help</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
 
             <SidebarMenuItem>
               <Tooltip>
