@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getAuth } from 'firebase/auth';
 import { Loader } from 'lucide-react';
-import { AppHeader } from '@/components/shared/AppHeader';
+import { HqNav } from '@/components/hq/hq';
 import { TOOL_BY_ID, type ToolId } from '@/lib/module-catalog';
 
 const STATUSES = ['new', 'contacted', 'invited', 'onboarded', 'declined'] as const;
@@ -41,13 +41,13 @@ export default function EarlyAccessPage() {
     void load();
   };
 
-  if (err) return (<div><AppHeader title="Early access" /><p className="m-6 rounded-2xl bg-red-50 p-4 text-sm text-red-800">{err}</p></div>);
-  if (!data) return (<div><AppHeader title="Early access" /><div className="flex justify-center p-16"><Loader className="h-6 w-6 animate-spin text-stone-400" /></div></div>);
+  if (err) return (<div><HqNav /><p className="m-6 rounded-2xl bg-red-50 p-4 text-sm text-red-800">{err}</p></div>);
+  if (!data) return (<div><HqNav /><div className="flex justify-center p-16"><Loader className="h-6 w-6 animate-spin text-stone-400" /></div></div>);
 
   const counts = STATUSES.map((s) => [s, data.leads.filter((l: any) => (l.status || 'new') === s).length] as const);
   return (
     <div className="min-h-screen bg-slate-50">
-      <AppHeader title="Early access" />
+      <HqNav />
       <main className="mx-auto max-w-4xl space-y-5 px-4 pb-24 pt-4">
         <div>
           <h1 className="text-2xl font-black tracking-tight">Early access</h1>
