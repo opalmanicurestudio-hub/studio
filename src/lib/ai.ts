@@ -1,0 +1,58 @@
+// src/lib/ai.ts
+//
+// CLAUDE, FOR HQ — one small helper for every AI feature, with its cost.
+//
+// Server only (ANTHROPIC_API_KEY never reaches a browser). Every call is
+// logged to platformAiUsage with tokens and an estimated cost, tagged with
+// the business it was for — which is how HQ shows AI cost per business.
+//
+//   Fast & cheap (sorting tickets):   claude-haiku-4-5-20251001
+//   Careful (drafts, insights):       claude-sonnet-5
+// Both can be changed with AI_MODEL_FAST / AI_MODEL_SMART. Prices are per
+// million tokens and adjustable (AI_PRICE_*), since list prices change.
+
+import { getAdminDb } from '@/lib/firebase-admin';
+
+export const aiConfigured = () => !!process.env.ANTHROPIC_API_KEY;
+export const MODELS = {
+  fast: process.env.AI_MODEL_FAST || 'claude-haiku-4-5-20251001',
+  smart: process.env.AI_MODEL_SMART || 'claude-sonnet-5',
+};
+// USD per million tokens [input, output]. Sonnet defaults to the higher
+// published rate so estimates never under-count.
+function price(model: string): [number, number] {
+  const n = (k: string, d: number) => Number(process.env[k]) || d;
+  if (/haiku/i.test(model)) return [n('AI_PRICE_FAST_IN', 1), n('AI_PRICE_FAST_OUT', 5)];
+  return [n('AI_PRICE_SMART_IN', 3), n('AI_PRICE_SMART_OUT', 15)];
+}
+
+export interface AiResult { ok: boolean; text: string; costUsd: number; error?: string }
+
+export async function askClaude(opts: { system: string; prompt: string; tier?: 'fast' | 'smart'; maxTokens?: number; purpose: string; tenantId?: string | null }): Promise<AiResult> {
+  if (!aiConfigured()) return { ok: false, text: '', costUsd: 0, error: 'AI isn’t connected — add ANTHROPIC_API_KEY in Vercel.' };
+  const model = MODELS[opts.tier || 'fast'];
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': String(process.env.ANTHROPIC_API_KEY), 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model, max_tokens: opts.maxTokens || 800, system: opts.system, messages: [{ role: 'user', content: opts.prompt }] }),
+    });
+    const d: any = await r.json().catch(() => ({}));
+    if (!r.ok) return { ok: false, text: '', costUsd: 0, error: String(d?.error?.message || `AI error ${r.status}`) };
+    const text = (d.content || []).filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n').trim();
+    const [pin, pout] = price(model);
+    const inT = Number(d.usage?.input_tokens) || 0, outT = Number(d.usage?.output_tokens) || 0;
+    const costUsd = (inT * pin + outT * pout) / 1_000_000;
+    try { await getAdminDb().collection('platformAiUsage').add({ at: new Date().toISOString(), model, purpose: opts.purpose, tenantId: opts.tenantId || null, inputTokens: inT, outputTokens: outT, costUsd }); } catch { /* never block */ }
+    return { ok: true, text, costUsd };
+  } catch (e: any) {
+    return { ok: false, text: '', costUsd: 0, error: String(e?.message || e) };
+  }
+}
+
+/** Pull the first {...} JSON object out of a model reply. */
+export function parseJson<T = any>(text: string): T | null {
+  const m = text.match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  try { return JSON.parse(m[0]) as T; } catch { return null; }
+}
