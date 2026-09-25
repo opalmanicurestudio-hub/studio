@@ -25,7 +25,9 @@ export function useIsHqAdmin() {
   const [yes, setYes] = useState(false);
   useEffect(() => {
     let alive = true;
-    try { const c = sessionStorage.getItem('cf_hq'); if (c) { setYes(c === '1'); return; } } catch { /* ignore */ }
+    // Only a YES is remembered for the session — so setting
+    // PLATFORM_ADMIN_EMAILS takes effect without opening a new tab.
+    try { if (sessionStorage.getItem('cf_hq') === '1') { setYes(true); return; } } catch { /* ignore */ }
     const unsub = getAuth().onAuthStateChanged(async (u) => {
       if (!u) return;
       try {
@@ -33,7 +35,7 @@ export function useIsHqAdmin() {
         const r = await fetch('/api/hq', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify({ action: 'whoami' }) });
         const d = await r.json().catch(() => null);
         if (alive) setYes(!!d?.admin);
-        try { sessionStorage.setItem('cf_hq', d?.admin ? '1' : '0'); } catch { /* ignore */ }
+        try { if (d?.admin) sessionStorage.setItem('cf_hq', '1'); } catch { /* ignore */ }
       } catch { /* not an admin */ }
     });
     return () => { alive = false; unsub(); };
@@ -76,6 +78,14 @@ export function HelpDesk() {
     window.addEventListener('cf:help', onHelp);
     return () => { window.removeEventListener('error', onErr); window.removeEventListener('unhandledrejection', onRej); window.removeEventListener('cf:help', onHelp); };
   }, []);
+
+  // Once per session: tell HQ this business is here, and on which version.
+  useEffect(() => {
+    if (!tenantId) return;
+    try { if (sessionStorage.getItem(`cf_ping_${tenantId}`)) return; sessionStorage.setItem(`cf_ping_${tenantId}`, '1'); } catch { /* ignore */ }
+    const t = window.setTimeout(() => { void api({ action: 'ping', tenantId, version: String(process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || 'dev').slice(0, 12), host: window.location.host }); }, 4000);
+    return () => window.clearTimeout(t);
+  }, [tenantId]);
 
   const loadMine = useCallback(async () => { if (!tenantId) return; const d = await api({ action: 'mine', tenantId }); if (d.ok) setMine(d.tickets); }, [tenantId]);
   useEffect(() => { if (open) { setSent(false); setErr(''); void loadMine(); } }, [open, loadMine]);
