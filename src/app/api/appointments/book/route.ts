@@ -80,7 +80,7 @@
 // without looking at the published roster. That is the server being right and
 // the page being behind, and the fix is to pass that page the same data.
 
-import { offerProblem, walletStatus } from '@/lib/offers';
+import { offerProblem, walletStatus, offerLine } from '@/lib/offers';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
@@ -822,37 +822,58 @@ export async function POST(req: NextRequest) {
          * immediately, to the owner, and is the one kind in the catalog whose
          * recipient is staff. Best-effort — the booking already succeeded. */
         // ── OFFERS: a code that came with the booking, or one waiting in the
-        // client's wallet — attached so checkout applies it automatically,
-        // however they booked (link, website, phone, walk-in via this route).
+        // client's wallet — attached so it's applied automatically, however
+        // they booked. Studio bookings use the studio's discounts (applied at
+        // the POS); a renter's bookings use that renter's own offers
+        // (applied when the renter taps Done).
         if (r.clientId) {
           try {
             const aRef = db.doc(`tenants/${tenantId}/appointments/${r.aptId}`);
+            const ctx = { clientId: String(r.clientId), serviceIds: [String(serviceId || '')] };
+            const renterId = renterSvc ? (String(renterProvider?.renterId || '') || null) : null;
             const findDiscount = async (code: string) => {
               const h = await db.collection(`tenants/${tenantId}/discounts`).where('code', '==', code).limit(1).get();
               return h.docs[0] ? { id: h.docs[0].id, ...(h.docs[0].data() as any) } : null;
             };
-            if (pendingCode) {
-              const dz = await findDiscount(pendingCode);
-              if (offerProblem(dz, { clientId: String(r.clientId), serviceIds: [String(serviceId || '')] })) {
-                await aRef.set({ pendingDiscountCode: null }, { merge: true });   // e.g. already used by this client
+            const renterOffers = async () => renterId
+              ? (await db.collection(`tenants/${tenantId}/renterOffers`).where('ownerRenterId', '==', renterId).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+              : [];
+            const stampRenter = async (o: any, walletId?: string | null) => aRef.set({ renterOfferId: o.id, renterOfferCode: o.code, renterOfferLine: offerLine(o), ...(walletId ? { clientOfferId: walletId } : {}) }, { merge: true });
+            const typed = typeof body.promoCode === 'string' ? body.promoCode.trim().toUpperCase().slice(0, 40) : '';
+            let attached = false;
+
+            if (renterSvc) {
+              if (pendingCode) await aRef.set({ pendingDiscountCode: null }, { merge: true });   // studio codes don't apply to a renter's visit
+              if (typed) {
+                const o = (await renterOffers()).find((x: any) => String(x.code || '').toUpperCase() === typed);
+                if (o && !offerProblem(o, ctx)) { await stampRenter(o); attached = true; }
               }
-            } else {
+            } else if (pendingCode) {
+              const dz = await findDiscount(pendingCode);
+              if (offerProblem(dz, ctx)) await aRef.set({ pendingDiscountCode: null }, { merge: true });   // e.g. already used by this client
+              else attached = true;
+            }
+
+            if (!attached) {
               const w = await db.collection(`tenants/${tenantId}/clientOffers`).where('clientId', '==', String(r.clientId)).get();
               const waiting = w.docs.map((d: any) => ({ ref: d.ref, ...(d.data() as any) }))
                 .filter((x: any) => walletStatus(x) === 'available')
                 .sort((a: any, b: any) => String(b.sentAt || '').localeCompare(String(a.sentAt || '')));
+              const mine = renterSvc ? await renterOffers() : [];
               for (const x of waiting) {
-                if (x.ownerRenterId) {
-                  // A renter's offer (their own words): shown to the renter on this visit.
-                  if (renterSvc && x.ownerRenterId === (String(renterProvider?.renterId || '') || null)) { await aRef.set({ renterOfferLine: x.line, clientOfferId: x.id }, { merge: true }); break; }
-                  continue;
+                if (renterSvc) {
+                  if (x.ownerRenterId !== renterId) continue;
+                  if (x.renterOfferId) {
+                    const o = mine.find((y: any) => y.id === x.renterOfferId);
+                    if (o && !offerProblem(o, ctx)) { await stampRenter(o, x.id); break; }
+                    continue;
+                  }
+                  // An older offer in the renter's own words.
+                  await aRef.set({ renterOfferLine: x.line, clientOfferId: x.id }, { merge: true }); break;
                 }
-                if (renterSvc || !x.code) continue;
+                if (x.ownerRenterId || !x.code) continue;
                 const dz = await findDiscount(String(x.code));
-                if (!offerProblem(dz, { clientId: String(r.clientId), serviceIds: [String(serviceId || '')] })) {
-                  await aRef.set({ pendingDiscountCode: String(x.code), clientOfferId: x.id }, { merge: true });
-                  break;
-                }
+                if (!offerProblem(dz, ctx)) { await aRef.set({ pendingDiscountCode: String(x.code), clientOfferId: x.id }, { merge: true }); break; }
               }
             }
           } catch { /* offers are a bonus; the booking stands */ }
