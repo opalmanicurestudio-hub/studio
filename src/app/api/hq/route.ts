@@ -25,12 +25,14 @@ import { platformAdminEmails, signupIsOpen, can, permsFor, type HqPerm } from '@
 import { aiDraftReply, CATEGORY_LABEL, SLA_HOURS, type Priority } from '@/lib/support-triage';
 import { computeMetrics } from '@/lib/hq-metrics';
 import { askClaude, aiConfigured } from '@/lib/ai';
+import { syncStripeMonth, profitLadder, planner, monthKey, DEFAULT_SETTINGS, type FinanceSettings } from '@/lib/hq-finance';
 
 // Which permission each action needs (see src/lib/platform-admin.ts).
 const NEEDS: Record<string, HqPerm> = {
   tenants: 'tenants', tenant: 'tenants', fix: 'fix', system: 'system', tickets: 'tickets', 'ticket-reply': 'tickets', 'ticket-status': 'tickets',
   'ticket-update': 'tickets', 'ticket-note': 'tickets', 'ticket-draft': 'tickets', macros: 'tickets', 'macro-save': 'tickets', 'macro-delete': 'tickets',
   insights: 'insights', 'insights-refresh': 'insights', 'insights-brief': 'insights', team: 'team', 'team-save': 'team', 'team-remove': 'team',
+  finance: 'finance', 'finance-sync': 'finance', 'finance-settings': 'finance', 'expense-save': 'finance', 'expense-delete': 'finance',
 };
 import { smsConfigured } from '@/lib/sms';
 
@@ -316,6 +318,64 @@ ${JSON.stringify(days[0]).slice(0, 6000)}
 A week earlier:
 ${JSON.stringify(days[days.length - 1]).slice(0, 3000)}` });
     return NextResponse.json({ ok: r.ok, brief: r.text, error: r.error });
+  }
+
+  // ── Finance (owners only): ClarityFlow the company ──
+  if (b.action === 'finance-sync') {
+    if (!process.env.STRIPE_SECRET_KEY) return NextResponse.json({ ok: false, error: 'STRIPE_SECRET_KEY isn’t set.' }, { status: 400 });
+    const month = /^\d{4}-\d{2}$/.test(String(b.month || '')) ? String(b.month) : monthKey(new Date());
+    try { const doc = await syncStripeMonth(month); return NextResponse.json({ ok: true, month, feesCents: doc.feesCents }); }
+    catch (e: any) { return NextResponse.json({ ok: false, error: `Stripe: ${String(e?.message || e).slice(0, 200)}` }, { status: 500 }); }
+  }
+  if (b.action === 'finance-settings') {
+    const cur = { ...DEFAULT_SETTINGS, ...(((await db.doc('platformSettings/finance').get()).data() as any) || {}) };
+    const num = (k: keyof FinanceSettings, lo: number, hi: number) => (b[k] == null || b[k] === '' ? cur[k] : Math.min(hi, Math.max(lo, Number(b[k]) || 0)));
+    const next: FinanceSettings = { taxRatePct: num('taxRatePct', 0, 60), ownerPayMonthly: num('ownerPayMonthly', 0, 1e6), cashOnHand: num('cashOnHand', -1e8, 1e9), reinvestPct: num('reinvestPct', 0, 100), profitGoalMonthly: num('profitGoalMonthly', 0, 1e7), arpa: num('arpa', 0, 100000) };
+    await db.doc('platformSettings/finance').set(next);
+    await audit(db, admin.email, null, 'finance-settings', 'Updated finance settings');
+    return NextResponse.json({ ok: true, settings: next });
+  }
+  if (b.action === 'expense-save') {
+    const name = String(b.name || '').trim().slice(0, 80);
+    const monthly = Number(b.monthly);
+    const category = ['staff', 'software', 'marketing', 'contractors', 'office', 'insurance', 'other'].includes(b.category) ? b.category : 'other';
+    if (!name || !Number.isFinite(monthly) || monthly < 0) return NextResponse.json({ ok: false, error: 'A name and a monthly amount are needed.' }, { status: 400 });
+    const ref = b.id ? db.doc(`platformExpenses/${String(b.id)}`) : db.collection('platformExpenses').doc();
+    await ref.set({ id: ref.id, name, monthly: Math.round(monthly * 100) / 100, category, note: String(b.note || '').slice(0, 200) || null, updatedAt: new Date().toISOString() }, { merge: true });
+    return NextResponse.json({ ok: true });
+  }
+  if (b.action === 'expense-delete') { await db.doc(`platformExpenses/${String(b.id || '')}`).delete(); return NextResponse.json({ ok: true }); }
+  if (b.action === 'finance') {
+    const now = new Date();
+    const thisM = monthKey(now), lastM = monthKey(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)));
+    const month = /^\d{4}-\d{2}$/.test(String(b.month || '')) ? String(b.month) : thisM;
+    const [fin, last, settingsSnap, expSnap, metricsSnap] = await Promise.all([
+      db.doc(`platformFinance/${month}`).get(), db.doc(`platformFinance/${lastM}`).get(), db.doc('platformSettings/finance').get(),
+      db.collection('platformExpenses').limit(200).get(), db.collection('platformMetrics').orderBy('date', 'desc').limit(1).get(),
+    ]);
+    const settings: FinanceSettings = { ...DEFAULT_SETTINGS, ...((settingsSnap.data() as any) || {}) };
+    const expenses = expSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).sort((a: any, c: any) => c.monthly - a.monthly);
+    const opex = expenses.reduce((n: number, e: any) => n + (Number(e.monthly) || 0), 0);
+    const m = metricsSnap.docs[0]?.data() as any || null;
+    const f = (fin.data() as any) || null;
+    const active = Math.max(1, m?.activeBusinesses || 1);
+    // Cost to serve: what Stripe actually charged + texts/emails/AI/hosting (measured daily in Insights).
+    const serviceCosts = m ? (m.cost30.texts + m.cost30.emails + m.cost30.ai + m.cost30.infra) : 0;
+    const stripeCosts = f ? f.stripeCostsCents / 100 : 0;
+    const feeIncome = f ? f.netFeesCents / 100 : 0;
+    const subscriptions = 0;   // subscription billing is the next build
+    const revenue = feeIncome + subscriptions;
+    const costToServe = serviceCosts + stripeCosts;
+    const ladder = profitLadder({ revenue, costToServe, opex, settings });
+    const costPerBusiness = costToServe / active;
+    const feesPerBusiness = feeIncome / active;
+    const plan = planner({ arpa: settings.arpa + feesPerBusiness, costPerBusiness, opex, settings });
+    const monthlyBurn = Math.max(0, -ladder.afterTax);
+    return NextResponse.json({ ok: true, month, lastMonth: lastM, finance: f, lastFinance: (last.data() as any) || null, settings, expenses, opex,
+      costs: { service: serviceCosts, stripe: stripeCosts, perBusiness: costPerBusiness, activeBusinesses: m?.activeBusinesses || 0 },
+      income: { fees: feeIncome, feesPerBusiness, subscriptions }, ladder, plan,
+      runwayMonths: monthlyBurn > 0 && settings.cashOnHand > 0 ? Math.floor(settings.cashOnHand / monthlyBurn) : null,
+      stripeReady: !!process.env.STRIPE_SECRET_KEY });
   }
 
   // ── Team (owners only) ──
