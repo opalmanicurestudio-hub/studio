@@ -25,7 +25,7 @@ import Link from 'next/link';
 import { NICHES, NICHE_ORDER, type NicheKey, type Screen } from './niches';
 
 const FAQS = [
-  ['What does it cost?', 'Nothing during early access — no card, no contract. You’ll hear first when paid plans arrive, and you can export everything at any time.'],
+  ['How do I get it?', 'ClarityFlow is in early access, by request. Try the live demo, then request access — we set each business up personally, and share pricing before you commit.'],
   ['Do my clients need an app?', 'No. They book, check in and pay from a link on their phone.'],
   ['Can I bring my clients over?', 'Yes — clients, services and team. Start with your booking page and move the rest when you’re ready. We’ll help.'],
   ['Do I need new equipment?', 'No. It runs on the phone, tablet or laptop you already have. A card reader is optional.'],
@@ -226,14 +226,14 @@ export function Journey({ initialNiche }: { initialNiche?: NicheKey }) {
           <a href="#day" className="hidden rounded-full px-3 py-2 text-stone-600 hover:text-stone-900 sm:inline">How it works</a>
           <a href="#pricing" className="hidden rounded-full px-3 py-2 text-stone-600 hover:text-stone-900 sm:inline">Pricing</a>
           <Link href="/login" className="rounded-full px-3 py-2 text-stone-600 hover:text-stone-900">Log in</Link>
-          <Link href="/signup" className="rounded-full bg-stone-900 px-4 py-2 font-medium text-white">Start free</Link>
+          <Link href={`/demo${niche ? `?type=${niche}` : ''}`} className="rounded-full bg-stone-900 px-4 py-2 font-medium text-white">Try the demo</Link>
         </nav>
       </header>
 
       <main className="relative z-10">
         {/* ── Hero ── */}
         <section className="mx-auto flex min-h-[88dvh] max-w-4xl flex-col items-center justify-center px-5 pb-12 text-center">
-          <span data-rise className="glass rounded-full px-4 py-1.5 text-xs text-stone-600">Free during early access</span>
+          <span data-rise className="glass rounded-full px-4 py-1.5 text-xs text-stone-600">Now in early access</span>
           <h1 data-rise className="mt-6 text-balance text-5xl font-light leading-[1.02] tracking-tight sm:text-7xl">Run your business. <span className="font-semibold">Not five apps.</span></h1>
           <p data-rise className="mt-6 max-w-xl text-balance text-lg text-stone-600">{niche ? n.sub : 'Bookings, payments, clients and your team — in one calm place.'}</p>
 
@@ -250,8 +250,8 @@ export function Journey({ initialNiche }: { initialNiche?: NicheKey }) {
           </div>
 
           <div data-rise className="mt-8 flex flex-col items-center gap-3 sm:flex-row">
-            <Link href={`/signup${niche ? `?type=${niche}` : ''}`} className="rounded-full bg-stone-900 px-7 py-3.5 text-sm font-medium text-white shadow-[0_12px_30px_-12px_rgba(28,25,23,0.6)]">Start free</Link>
-            <a href="#day" className="rounded-full px-5 py-3 text-sm text-stone-600">See a day at {niche ? n.biz : 'your business'} ↓</a>
+            <Link href={`/demo${niche ? `?type=${niche}` : ''}`} className="rounded-full bg-stone-900 px-7 py-3.5 text-sm font-medium text-white shadow-[0_12px_30px_-12px_rgba(28,25,23,0.6)]">Try the live demo</Link>
+            <Link href={`/request-access${niche ? `?type=${niche}` : ''}`} className="glass rounded-full px-6 py-3.5 text-sm text-stone-700">Request access</Link>
           </div>
         </section>
 
@@ -313,9 +313,12 @@ export function Journey({ initialNiche }: { initialNiche?: NicheKey }) {
           <div data-rise className="glass relative overflow-hidden rounded-[2rem] p-8 sm:p-10">
             <div aria-hidden className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-gradient-to-br from-amber-200/70 to-rose-200/50 blur-2xl" />
             <p className="relative text-xs uppercase tracking-[0.25em] text-stone-400">Early access</p>
-            <p className="relative mt-3 text-6xl font-light tracking-tight">Free</p>
-            <p className="relative mt-3 text-stone-600">Everything included while we’re in early access. No card, no contract, and your data exports whenever you like.</p>
-            <Link href={`/signup${niche ? `?type=${niche}` : ''}`} className="relative mt-7 inline-block rounded-full bg-stone-900 px-7 py-3.5 text-sm font-medium text-white">Start free</Link>
+            <p className="relative mt-3 text-5xl font-light tracking-tight">By request</p>
+            <p className="relative mt-3 text-stone-600">We’re opening a few businesses at a time and setting each one up personally — your services, your team, your clients moved over. Pricing is shared before you commit.</p>
+            <div className="relative mt-7 flex flex-col items-center justify-center gap-2 sm:flex-row">
+              <Link href={`/request-access${niche ? `?type=${niche}` : ''}`} className="rounded-full bg-stone-900 px-7 py-3.5 text-sm font-medium text-white">Request access</Link>
+              <Link href={`/demo${niche ? `?type=${niche}` : ''}`} className="rounded-full px-5 py-3 text-sm text-stone-600">Try the demo first</Link>
+            </div>
             <p className="relative mt-4 text-xs text-stone-500">Payments run through your own Stripe account at Stripe’s rates.</p>
           </div>
         </section>
@@ -335,9 +338,12 @@ export function Journey({ initialNiche }: { initialNiche?: NicheKey }) {
 
         {/* ── Start ── */}
         <section className="mx-auto flex max-w-3xl flex-col items-center px-5 pb-28 pt-16 text-center">
-          <h2 data-rise className="text-balance text-4xl font-light leading-tight tracking-tight sm:text-6xl">{n.startLine.replace(' today.', '')} <span className="font-semibold">today.</span></h2>
-          <p data-rise className="mt-5 text-stone-600">A few minutes to set up. Bring the rest over when you’re ready.</p>
-          <Link data-rise href={`/signup${niche ? `?type=${niche}` : ''}`} className="mt-8 rounded-full bg-stone-900 px-8 py-4 text-sm font-medium text-white shadow-[0_12px_30px_-12px_rgba(28,25,23,0.6)]">Start free</Link>
+          <h2 data-rise className="text-balance text-4xl font-light leading-tight tracking-tight sm:text-6xl">See it for yourself. <span className="font-semibold">Two minutes.</span></h2>
+          <p data-rise className="mt-5 text-stone-600">Book as a {niche === 'fitness' ? 'member' : niche === 'shop' ? 'customer' : 'client'}, accept as the owner, check them out and bring them back — in a live demo. No sign-up.</p>
+          <div data-rise className="mt-8 flex flex-col items-center gap-3 sm:flex-row">
+            <Link href={`/demo${niche ? `?type=${niche}` : ''}`} className="rounded-full bg-stone-900 px-8 py-4 text-sm font-medium text-white shadow-[0_12px_30px_-12px_rgba(28,25,23,0.6)]">Try the live demo</Link>
+            <Link href={`/request-access${niche ? `?type=${niche}` : ''}`} className="rounded-full px-5 py-3 text-sm text-stone-600">Request access</Link>
+          </div>
         </section>
       </main>
 
