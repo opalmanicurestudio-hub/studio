@@ -34,12 +34,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isSubscriptionPage = pathname.startsWith('/subscriptions');
   const isBookingPage = pathname.startsWith('/book');
+  // ClarityFlow HQ is running the PLATFORM, not a studio — its own full
+  // screen (HqShell), without the studio sidebar.
+  const isHq = pathname.startsWith('/admin');
 
   // If on a public-facing page, render a simple layout without the app shell.
   // Neither TenantProvider nor LocationProvider are mounted here: public
   // pages (booking, subscriptions) are guest-facing and never call
   // useTenant() or useLocation() — adding either provider here would run
   // Firestore queries for every guest visit with no consumer to use them.
+  if (isHq) {
+    return (
+      <AuthGuard>
+        <a href="#main" className="skip-link">Skip to content</a>
+        <div id="main"><StaleCopyBanner />{children}</div>
+      </AuthGuard>
+    );
+  }
+
   if (isSubscriptionPage || isBookingPage) {
     return (
       <AuthGuard>
