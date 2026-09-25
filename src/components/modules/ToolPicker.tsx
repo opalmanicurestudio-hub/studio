@@ -15,29 +15,31 @@ export function ToolPicker({ value, onChange, niche, nicheLabel, compact = false
 }) {
   const [open, setOpen] = useState<ToolId | null>(null);
   const toggle = (id: ToolId) => {
-    if (id === 'booking') return;
+    if (id === 'booking' || id === 'guest') return;
     onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
   };
   const rec = niche ? RECOMMENDED[niche] || RECOMMENDED.other : null;
-  const hours = hoursFor(value);
+  // Booking and guest experience come with every ClarityFlow.
+  const effective = Array.from(new Set<ToolId>(['booking', 'guest', ...value]));
+  const hours = hoursFor(effective);
 
   return (
     <div>
       <div className="sticky top-2 z-20 mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-white/80 bg-white/70 px-4 py-3 shadow-[0_10px_30px_-18px_rgba(28,25,23,0.45)] backdrop-blur-xl">
-        <p className="text-sm"><span className="font-semibold">{value.length} tools on</span><span className="text-stone-500"> · gives back about <span className="font-semibold text-stone-900">{hours} hrs a week</span></span></p>
-        {rec && <button type="button" onClick={() => onChange(Array.from(new Set(['booking', ...rec])) as ToolId[])} className="rounded-full bg-stone-900 px-3 py-1.5 text-[12px] font-medium text-white">Recommended{nicheLabel ? ` for a ${nicheLabel.toLowerCase()}` : ''}</button>}
+        <p className="text-sm"><span className="font-semibold">{effective.length} tools on</span><span className="text-stone-500"> · gives back about <span className="font-semibold text-stone-900">{hours} hrs a week</span></span></p>
+        {rec && <button type="button" onClick={() => onChange(Array.from(new Set(['booking', 'guest', ...rec])) as ToolId[])} className="rounded-full bg-stone-900 px-3 py-1.5 text-[12px] font-medium text-white">Recommended{nicheLabel ? ` for a ${nicheLabel.toLowerCase()}` : ''}</button>}
       </div>
       <div className={`grid gap-2.5 ${compact ? 'sm:grid-cols-2' : 'sm:grid-cols-2 lg:grid-cols-3'}`}>
         {TOOLS.map((t) => {
-          const on = value.includes(t.id);
-          const always = t.id === 'booking';
+          const always = t.id === 'booking' || t.id === 'guest';
+          const on = always || value.includes(t.id);
           const isRec = rec?.includes(t.id);
           return (
             <div key={t.id} className={`rounded-3xl border p-4 transition-all duration-300 ${on ? 'border-stone-900/80 bg-white/85 shadow-[0_14px_34px_-20px_rgba(28,25,23,0.5)]' : 'border-white/70 bg-white/45'}`}>
               <div className="flex items-start gap-3">
                 <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-xl transition-transform ${on ? 'scale-105 bg-stone-900/5' : 'bg-white/70 grayscale-[40%]'}`} aria-hidden>{t.emoji}</span>
                 <div className="min-w-0 flex-1">
-                  <p className="flex flex-wrap items-center gap-1.5 text-[15px] font-semibold text-stone-900">{t.name}{isRec && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">recommended</span>}</p>
+                  <p className="flex flex-wrap items-center gap-1.5 text-[15px] font-semibold text-stone-900">{t.name}{isRec && !always && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">recommended</span>}{t.early && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-800">early</span>}</p>
                   <p className="mt-0.5 text-[13px] leading-snug text-stone-600">{t.line}</p>
                 </div>
                 <button type="button" role="switch" aria-checked={on} aria-label={`${t.name} ${on ? 'on' : 'off'}`} disabled={always} onClick={() => toggle(t.id)}
