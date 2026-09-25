@@ -193,6 +193,17 @@ export async function POST(req: NextRequest) {
 
   const apt = outcome.apt || {};
   const accepted = outcome.status !== 'declined';
+  // Keep the check-in copy in step. It was written with status "requested"
+  // when the request came in; left alone it said "requested" forever.
+  const syncCheckIn = async (patch: Record<string, any>) => {
+    if (!apt.checkInToken) return;
+    const token = String(apt.checkInToken);
+    await Promise.all([
+      db.doc(`tenants/${tenantId}/appointmentCheckIns/${token}`).set({ ...patch, updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {}),
+      db.doc(`appointmentCheckIns/${token}`).set({ ...patch, updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {}),
+    ]);
+  };
+  await syncCheckIn({ status: outcome.status, voiceApproval: accepted ? 'approved' : 'denied' });
   // Human-readable deadline for the hold, used in both the client copy and
   // the studio's own confirmation toast.
   const holdUntil = outcome.dueAt
@@ -260,6 +271,7 @@ export async function POST(req: NextRequest) {
             depositFailureCode: null,
           });
           outcome.status = 'confirmed';
+          await syncCheckIn({ status: 'confirmed', depositStatus: 'paid' });
         } else {
           chargeResult.reason = String(cd.reason || 'Card declined');
           chargeResult.code = String(cd.declineCode || cd.code || 'charge_failed');
