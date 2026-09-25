@@ -12,6 +12,7 @@
 //   lesson    { tenantId, courseId, lessonId, token? }  content; video token if allowed
 //   progress  { tenantId, token, courseId, lessonId, done }
 
+import { askClaude, aiConfigured } from '@/lib/ai';
 import { postMessage, sendEmail as sendJourneyEmail } from '@/lib/academy-journey';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
@@ -170,7 +171,8 @@ export async function POST(req: NextRequest) {
       const enr = enrolled && student ? ((await db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`).get()).data() as any) || {} : {};
       const stat = enr.stats?.[lessonId] || {};
       const quiz = l.quiz?.questions?.length ? { passPct: l.quiz.passPct || 80, questions: l.quiz.questions.map((q: any) => ({ q: q.q, options: q.options })), attempts: (enr.quiz?.[lessonId]?.attempts || []).slice(-5), passed: !!enr.quiz?.[lessonId]?.passed } : null;
-      return NextResponse.json({ ok: true, enrolled, lesson: { id: lessonId, title: l.title, moduleTitle: l.moduleTitle, kind: l.kind, body: l.body || '', downloadUrl: l.downloadUrl || null, downloadName: l.downloadName || null, preview: !!l.preview, video, durationSec: l.durationSec || null, minMinutes: l.minMinutes || 0, quiz },
+      return NextResponse.json({ ok: true, enrolled, aiTutor: enrolled && c.aiTutor !== false && aiConfigured(), lesson: { id: lessonId, title: l.title, moduleTitle: l.moduleTitle, kind: l.kind, body: l.body || '', downloadUrl: l.downloadUrl || null, downloadName: l.downloadName || null, preview: !!l.preview, video, durationSec: l.durationSec || null, minMinutes: l.minMinutes || 0, quiz,
+        flashcards: l.flashcards || [], activity: l.activity || null },
         tracking: { compliance: !!c.compliance, checkEveryMin: c.compliance ? (c.attentionCheckMinutes ?? DEFAULT_RULES.attentionCheckMinutes) : 0, minEngagementPct: c.minEngagementPct ?? DEFAULT_RULES.minEngagementPct, minWatchPct: c.minWatchPct ?? DEFAULT_RULES.minWatchPct,
           engagedSec: stat.engagedSec || 0, watchedSec: stat.watchedSec || 0 } });
     }
@@ -301,6 +303,31 @@ Keep this link private.
         const r = await completeDownPayment(tenantId, s);
         return NextResponse.json({ ok: !!r, pending: !r });
       }
+    }
+
+    // ── AI tutor: answers only from this course's lessons ──
+    if (b.action === 'tutor') {
+      if (!student) return NextResponse.json({ ok: false, error: 'Sign in to ask the tutor.' }, { status: 401 });
+      const courseId = String(b.courseId || ''); const question = String(b.question || '').trim().slice(0, 600);
+      if (!question) return NextResponse.json({ ok: false, error: 'Ask a question.' }, { status: 400 });
+      if (!(await db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`).get()).exists) return NextResponse.json({ ok: false, error: 'Enrol to use the tutor.' }, { status: 403 });
+      const c = ((await db.doc(`tenants/${tenantId}/courses/${courseId}`).get()).data() as any) || {};
+      if (c.aiTutor === false || !aiConfigured()) return NextResponse.json({ ok: false, error: 'The tutor isn’t available for this course.' }, { status: 400 });
+      const day = new Date().toISOString().slice(0, 10);
+      const uRef = db.doc(`tenants/${tenantId}/tutorUsage/${student.id}_${day}`);
+      const used = (((await uRef.get()).data() as any)?.n) || 0;
+      if (used >= 30) return NextResponse.json({ ok: false, error: 'You’ve asked 30 questions today — ask your instructor, or try again tomorrow.' }, { status: 429 });
+      const lessons = await loadLessons(tenantId, courseId);
+      const cur = lessons.find((l: any) => l.id === b.lessonId);
+      const ordered = cur ? [cur, ...lessons.filter((l: any) => l.id !== cur.id)] : lessons;
+      let material = ''; for (const l of ordered) { const chunk = `\n### Lesson: ${l.title}\n${String(l.body || '').trim() || '(video lesson — no written notes)'}\n`; if (material.length + chunk.length > 24000) break; material += chunk; }
+      const r = await askClaude({ tier: 'fast', maxTokens: 700, purpose: 'academy-tutor', tenantId,
+        system: `You are the study tutor for the course "${c.title}" at ${brand.name}. Answer ONLY from the course material below. If the material doesn't cover the question, say so plainly and suggest asking their instructor (they can message the school from "My courses") — do not answer from general knowledge. Never diagnose or give medical advice; for anything about a client's health, infection or contraindications, tell them to follow the course's rules and check with their instructor. Keep answers short and clear for a student, and end with the lesson(s) you used, like: (From: Lesson title).\n\nCOURSE MATERIAL:${material}`,
+        prompt: question });
+      if (!r.ok) return NextResponse.json({ ok: false, error: 'The tutor is busy — try again in a moment.' }, { status: 502 });
+      await uRef.set({ n: used + 1, at: new Date().toISOString() }, { merge: true });
+      await db.collection(`tenants/${tenantId}/tutorLogs`).add({ courseId, lessonId: b.lessonId || null, studentId: student.id, email: student.email, question, answer: r.text.slice(0, 4000), at: new Date().toISOString() });
+      return NextResponse.json({ ok: true, answer: r.text, left: 29 - used });
     }
 
     // ── Messages & announcements (students) ──
