@@ -543,9 +543,15 @@ function POSPage() {
   const handleSelectAppointment = useCallback((id: string) => {
     const nextIds = new Set(selectedAppointmentIds);
     if (nextIds.has(id)) { nextIds.delete(id); if (nextIds.size === 0) setSelectedClientId(null); }
-    else { nextIds.add(id); const aptData = readyForCheckoutAppointments.find(a => a.id === id); if (aptData?.client?.id) setSelectedClientId(aptData.client.id); }
+    else {
+      const aptData = readyForCheckoutAppointments.find(a => a.id === id);
+      // Student salon: an instructor must sign the service off before it can be paid for.
+      const provider = (staff || []).find((s: any) => s.id === (aptData as any)?.appointment?.staffId) as any;
+      if (provider?.isStudent && !(aptData as any)?.appointment?.clinicCheckoff?.signedOff) { toast({ variant: 'destructive', title: 'Instructor check-off needed', description: `An instructor must sign off ${provider.name}’s service (Academy → Student salon) before checkout.` }); return; }
+      nextIds.add(id); if (aptData?.client?.id) setSelectedClientId(aptData.client.id);
+    }
     setSelectedAppointmentIds(nextIds);
-  }, [readyForCheckoutAppointments, selectedAppointmentIds]);
+  }, [readyForCheckoutAppointments, selectedAppointmentIds, staff, toast]);
 
   const handleAddToCart = useCallback((item: any) => {
     setRetailItems(prev => {
