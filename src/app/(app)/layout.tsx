@@ -1,4 +1,5 @@
 'use client';
+import { HelpDesk } from '@/components/support/HelpDesk';
 import { StaleCopyBanner } from '@/components/shared/StaleCopyBanner';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/shared/AppSidebar';
@@ -66,6 +67,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <SidebarInset>
               <main id="main"><StaleCopyBanner />{children}</main>
             </SidebarInset>
+            <HelpDesk />
           </SidebarProvider>
         </LocationProvider>
       </TenantProvider>
