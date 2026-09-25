@@ -1,4 +1,5 @@
 'use client';
+import { StaleCopyBanner } from '@/components/shared/StaleCopyBanner';
 import { downscaleImageToDataUrl } from '@/lib/client-image';
 import { getApps, initializeApp } from 'firebase/app';
 import { getStorage, ref as storageRef } from 'firebase/storage';
@@ -216,6 +217,7 @@ export default function RenterPortalPage() {
           </div>
         </header>
 
+        <StaleCopyBanner />
         {loading && !data ? (
           <div className="flex flex-col items-center py-24 gap-3 text-slate-400">
             <Loader className="w-8 h-8 animate-spin" />
