@@ -21,6 +21,7 @@ import { payLaterCheckoutParams } from '@/lib/pay-later';
 import { loadCourseBySlug, loadLessons, studentFromToken, enroll, enrollFromCheckout, createStudentSession, createLoginLink, studentIdFor, sha, muxPlaybackToken, embedUrl } from '@/lib/academy';
 import { applyBeat, appendAudit, jitterMin, lessonMet, qrValid, metersBetween, mergeRanges, watchedSeconds, DEFAULT_RULES, type Range } from '@/lib/academy-compliance';
 import { randomBytes } from 'crypto';
+import { savePrivateImage } from '@/lib/private-storage';
 
 export const dynamic = 'force-dynamic';
 const hits = new Map<string, { n: number; at: number }>();
@@ -252,7 +253,7 @@ export async function POST(req: NextRequest) {
     if (b.action === 'attend-status' || b.action === 'attend') {
       if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.', needsSignIn: true }, { status: 401 });
       const open = await db.collection(`tenants/${tenantId}/attendance`).where('studentId', '==', student.id).where('status', '==', 'open').limit(1).get();
-      if (b.action === 'attend-status') return NextResponse.json({ ok: true, student: { email: student.email, name: student.name }, open: open.empty ? null : { id: open.docs[0].id, clockInAt: (open.docs[0].data() as any).clockInAt } });
+      if (b.action === 'attend-status') return NextResponse.json({ ok: true, student: { email: student.email, name: student.name }, requirePhoto: !!t.academy?.requirePhoto, requireGeo: !!t.academy?.requireGeo, open: open.empty ? null : { id: open.docs[0].id, clockInAt: (open.docs[0].data() as any).clockInAt } });
       if (!qrValid(tenantId, String(b.code || ''), Number(b.w))) return NextResponse.json({ ok: false, error: 'That code has expired — scan the screen again.' }, { status: 400 });
       const cfg = t.academy || {};
       const geo = b.geo && Number.isFinite(Number(b.geo.lat)) ? { lat: Number(b.geo.lat), lng: Number(b.geo.lng), accuracy: Number(b.geo.accuracy) || null } : null;
@@ -262,20 +263,29 @@ export async function POST(req: NextRequest) {
         if (!geo) return NextResponse.json({ ok: false, error: 'Allow location to clock in — the academy requires it.', needsGeo: true }, { status: 400 });
         if (distance != null && distance > (cfg.geo?.radiusM || 150) + Math.min(100, geo.accuracy || 0)) return NextResponse.json({ ok: false, error: `You appear to be ${distance} m from the academy. Clock in on site.` }, { status: 400 });
       }
+      if (cfg.requirePhoto && !b.photo) return NextResponse.json({ ok: false, error: 'Take a photo to clock in — the academy requires it.', needsPhoto: true }, { status: 400 });
       const at = new Date().toISOString();
-      const meta = { ip: (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || null, userAgent: String(req.headers.get('user-agent') || '').slice(0, 240), geo, distanceM: distance };
+      const meta: any = { ip: (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || null, userAgent: String(req.headers.get('user-agent') || '').slice(0, 240), geo, distanceM: distance, photo: null };
+      const attRef = b.direction === 'in' ? db.collection(`tenants/${tenantId}/attendance`).doc() : (open.empty ? null : open.docs[0].ref);
+      if (b.photo && attRef) {
+        try { meta.photo = { ...(await savePrivateImage(tenantId, `tenants/${tenantId}/academy/attendance/${attRef.id}-${b.direction === 'in' ? 'in' : 'out'}.jpg`, String(b.photo))), live: !!b.photoLive, at }; }
+        catch (e: any) { return NextResponse.json({ ok: false, error: String(e?.message || 'Photo upload failed — try again.') }, { status: 400 }); }
+        // The first photo on file becomes the student's reference photo.
+        const sRef = db.doc(`tenants/${tenantId}/students/${student.id}`);
+        if (!(((await sRef.get()).data() as any) || {}).referencePhoto) await sRef.set({ referencePhoto: { ref: meta.photo.ref, sha256: meta.photo.sha256, at } }, { merge: true });
+      }
       if (b.direction === 'in') {
         if (!open.empty) return NextResponse.json({ ok: false, error: `You’re already clocked in since ${new Date((open.docs[0].data() as any).clockInAt).toLocaleTimeString()}.` }, { status: 400 });
-        const ref = db.collection(`tenants/${tenantId}/attendance`).doc();
+        const ref = attRef!;
         await ref.set({ id: ref.id, studentId: student.id, email: student.email, name: student.name || null, courseId: b.courseId || null, clockInAt: at, clockOutAt: null, minutes: 0, status: 'open', in: meta, out: null, corrections: [] });
-        await appendAudit(tenantId, { type: 'attendance.in', studentId: student.id, by: student.email, summary: `Clocked in${distance != null ? ` (${distance} m from academy)` : ''}`, data: { attendanceId: ref.id, at } });
+        await appendAudit(tenantId, { type: 'attendance.in', studentId: student.id, by: student.email, summary: `Clocked in${distance != null ? ` (${distance} m from academy)` : ''}${meta.photo ? ' with photo' : ''}`, data: { attendanceId: ref.id, at, photoSha256: meta.photo?.sha256 || null } });
         return NextResponse.json({ ok: true, direction: 'in', at });
       }
       if (open.empty) return NextResponse.json({ ok: false, error: 'You’re not clocked in.' }, { status: 400 });
       const p = open.docs[0].data() as any;
       const minutes = Math.max(0, Math.floor((Date.now() - new Date(p.clockInAt).getTime()) / 60000));
       await open.docs[0].ref.set({ clockOutAt: at, minutes, status: cfg.requireApproval ? 'pending' : 'closed', out: meta }, { merge: true });
-      await appendAudit(tenantId, { type: 'attendance.out', studentId: student.id, by: student.email, summary: `Clocked out — ${Math.floor(minutes / 60)}h ${minutes % 60}m${cfg.requireApproval ? ' (awaiting instructor approval)' : ''}`, data: { attendanceId: open.docs[0].id, at, minutes } });
+      await appendAudit(tenantId, { type: 'attendance.out', studentId: student.id, by: student.email, summary: `Clocked out — ${Math.floor(minutes / 60)}h ${minutes % 60}m${cfg.requireApproval ? ' (awaiting instructor approval)' : ''}${meta.photo ? ' with photo' : ''}`, data: { attendanceId: open.docs[0].id, at, minutes, photoSha256: meta.photo?.sha256 || null } });
       return NextResponse.json({ ok: true, direction: 'out', at, minutes, pending: !!cfg.requireApproval });
     }
 
