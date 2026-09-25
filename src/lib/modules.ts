@@ -22,7 +22,15 @@ export type ModuleId =
   | 'maintenance'
   | 'retail'
   | 'classes_events'
-  | 'money';         // financial suite
+  | 'money'          // financial suite
+  // Added with ClarityFlow à la carte (src/lib/module-catalog.ts). Same
+  // contract: absent = ON, so every existing business keeps every page.
+  | 'guest_experience'
+  | 'kiosk'
+  | 'marketing'
+  | 'memberships'
+  | 'team'
+  | 'voice';
 
 export const MODULES: Record<ModuleId, {
   label: string;
@@ -43,7 +51,10 @@ export const MODULES: Record<ModuleId, {
   },
   retail: {
     label: 'Retail',
-    pages: ['/retail', '/retail-orders', '/inventory/distribution', '/inventory/formulas'],
+    pages: ['/retail', '/retail-orders', '/inventory/distribution', '/inventory/formulas', '/shop',
+      '/retail-orders/bench', '/retail-orders/claims', '/retail-orders/customers', '/retail-orders/designer',
+      '/retail-orders/history', '/retail-orders/kpis', '/retail-orders/returns', '/retail-orders/reviews',
+      '/retail-orders/settings', '/retail-orders/support', '/retail-orders/waves', '/retail-orders/wholesale'],
     messageKinds: [],
   },
   classes_events: {
@@ -56,6 +67,12 @@ export const MODULES: Record<ModuleId, {
     pages: ['/financials', '/ledger', '/payday', '/bills', '/ai-cfo', '/money'],
     messageKinds: [],
   },
+  guest_experience: { label: 'Guest experience', pages: ['/concierge', '/lobby'], messageKinds: [] },
+  kiosk: { label: 'Kiosk & walk-ins', pages: ['/kiosk', '/walk-in', '/floor'], messageKinds: [] },
+  marketing: { label: 'Marketing automations', pages: ['/campaigns', '/discounts'], messageKinds: [] },
+  memberships: { label: 'Memberships & packages', pages: ['/memberships'], messageKinds: [] },
+  team: { label: 'Team & onboarding', pages: ['/applicants', '/timesheets', '/documents'], messageKinds: [] },
+  voice: { label: 'AI receptionist', pages: ['/voice'], messageKinds: [] },
 };
 
 const PAGE_TO_MODULE: Record<string, ModuleId> = Object.fromEntries(
