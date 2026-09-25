@@ -28,7 +28,7 @@ export interface FinanceSettings {
   profitGoalMonthly: number;    // after-tax profit you want to keep each month, on top of everyone's pay
   arpa: number;                 // expected monthly subscription per business (until billing is live)
 }
-export const DEFAULT_SETTINGS: FinanceSettings = { taxRatePct: 30, ownerPayMonthly: 6000, cashOnHand: 0, reinvestPct: 20, profitGoalMonthly: 2000, arpa: 99 };
+export const DEFAULT_SETTINGS: FinanceSettings = { taxRatePct: 30, ownerPayMonthly: 6000, cashOnHand: 0, reinvestPct: 20, profitGoalMonthly: 2000, arpa: 199 };
 
 /** Who owns each connected Stripe account — businesses and renters. */
 async function accountOwners(db: any): Promise<Record<string, { tenantId: string; tenantName: string; renterId?: string; renterName?: string }>> {
