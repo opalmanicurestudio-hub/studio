@@ -51,7 +51,10 @@ export interface AudienceParams {
 }
 
 export interface AudienceMember { id: string; name: string; first: string; email: string | null; phone: string | null }
-export interface AudienceResult { members: AudienceMember[]; matched: number; skippedNoConsent: number; skippedNoContact: number; skippedUnsubscribed: number; skippedMonthlyCap: number }
+export type SkipReason = 'no_consent' | 'no_contact' | 'unsubscribed' | 'monthly_cap';
+export interface AudienceResult { members: AudienceMember[]; matched: number; skippedNoConsent: number; skippedNoContact: number; skippedUnsubscribed: number; skippedMonthlyCap: number;
+  /** WHO was left out and why — so the owner sees names, not just a number. */
+  skipped: { id: string; name: string; reason: SkipReason }[] }
 
 /** The consent wording promises "up to 4 a month" — enforced across campaigns AND reconnect. */
 export const MARKETING_TEXTS_PER_30_DAYS = 4;
@@ -153,19 +156,20 @@ export async function resolveAudience(db: any, tenantId: string, audience: Audie
     }
   };
 
-  const out: AudienceResult = { members: [], matched: 0, skippedNoConsent: 0, skippedNoContact: 0, skippedUnsubscribed: 0, skippedMonthlyCap: 0 };
+  const out: AudienceResult = { members: [], matched: 0, skippedNoConsent: 0, skippedNoContact: 0, skippedUnsubscribed: 0, skippedMonthlyCap: 0, skipped: [] };
+  const skip = (c: any, reason: SkipReason) => out.skipped.push({ id: c.id, name: String(c.name || 'Client').trim(), reason });
   const recent = channel === 'sms' ? await recentMarketingTexts(db, tenantId, now) : new Map<string, number>();
   for (const c of clients) {
     if (!inAudience(c)) continue;
     out.matched++;
-    if (c.marketingOptOut === true) { out.skippedUnsubscribed++; continue; }
+    if (c.marketingOptOut === true) { out.skippedUnsubscribed++; skip(c, 'unsubscribed'); continue; }
     const email = c.email && String(c.email).includes('@') ? String(c.email).trim() : null;
     const phone = c.phone ? String(c.phone).trim() : null;
-    if (channel === 'email' && !email) { out.skippedNoContact++; continue; }
+    if (channel === 'email' && !email) { out.skippedNoContact++; skip(c, 'no_contact'); continue; }
     if (channel === 'sms') {
-      if (!phone) { out.skippedNoContact++; continue; }
-      if (c.smsMarketingOptIn !== true) { out.skippedNoConsent++; continue; }
-      if ((recent.get(c.id) || 0) >= MARKETING_TEXTS_PER_30_DAYS) { out.skippedMonthlyCap++; continue; }
+      if (!phone) { out.skippedNoContact++; skip(c, 'no_contact'); continue; }
+      if (c.smsMarketingOptIn !== true) { out.skippedNoConsent++; skip(c, 'no_consent'); continue; }
+      if ((recent.get(c.id) || 0) >= MARKETING_TEXTS_PER_30_DAYS) { out.skippedMonthlyCap++; skip(c, 'monthly_cap'); continue; }
     }
     const name = String(c.name || '').trim();
     out.members.push({ id: c.id, name, first: name.split(/\s+/)[0] || 'there', email, phone });
