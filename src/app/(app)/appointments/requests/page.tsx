@@ -11,6 +11,7 @@
 // auto-expire (the client's day is on hold), and how soon the appointment
 // itself starts (a request for tomorrow morning cannot wait until tomorrow).
 
+import { approveBooking, denyBooking } from '@/lib/booking-approval';
 import { collection, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
 import { ArrowLeft, CalendarClock, Check, Loader, MessageSquare, TriangleAlert, X } from 'lucide-react';
 import Link from 'next/link';
@@ -65,6 +66,7 @@ export default function BookingRequestsPage() {
   const [declineFor, setDeclineFor] = useState<string | null>(null);
   const [declineReason, setDeclineReason] = useState('');
   const staffName = String((selectedTenant as any)?.staffMember?.name || 'The studio');
+  const currentUserId = (() => { try { return getAuth().currentUser?.uid || null; } catch { return null; } })();
 
   useEffect(() => {
     if (!firestore || !tenantId) return;
@@ -95,28 +97,19 @@ export default function BookingRequestsPage() {
     if (busy) return;
     setBusy(`${r.id}-${decision}`);
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      try {
-        const user = getAuth().currentUser;
-        const token = user ? await user.getIdToken() : null;
-        if (token) headers.Authorization = `Bearer ${token}`;
-      } catch {
-        /* the route will answer 401 and the toast below says so */
-      }
-      const res = await fetch('/api/appointments/decide', {
-        method: 'POST', headers,
-        body: JSON.stringify({ tenantId, appointmentId: r.id, decision, reason: reason || '', declineOutcome: declineOutcome || 'alternative' }),
-      });
-      const data = await res.json().catch(() => ({}));
+      // ONE path for every Accept/Decline in the app (src/lib/booking-approval):
+      // the same server decision, then the completion link to the client and a
+      // heads-up to the assigned team member — the planner, the appointment
+      // sheet and this page all behave identically.
+      const res = decision === 'accept'
+        ? await approveBooking(firestore, tenantId, r as any, currentUserId, selectedTenant?.name, staffName)
+        : await denyBooking(firestore, tenantId, r as any, currentUserId, staffName, declineOutcome || 'alternative', reason || '');
       if (!res.ok) {
-        toast({ variant: 'destructive', title: 'Not recorded', description: data.error || 'Try again.' });
+        toast({ variant: 'destructive', title: res.alreadyStatus ? 'Already answered' : 'Not recorded', description: res.reason || 'Try again.' });
       } else {
-        // A declined card is not a failure of the DECISION — the acceptance
-        // stands and the client keeps their time — but the studio has to
-        // actually see it, so it gets the loud toast rather than the quiet one.
-        toast(data.chargeFailed
-          ? { variant: 'destructive', title: 'Accepted — card declined', description: data.message }
-          : { title: decision === 'accept' ? 'Accepted' : 'Declined', description: data.message });
+        toast(res.chargeFailed
+          ? { variant: 'destructive', title: 'Accepted — card declined', description: res.message }
+          : { title: decision === 'accept' ? 'Accepted' : 'Declined', description: res.message });
         setDeclineFor(null);
         setDeclineReason('');
       }
