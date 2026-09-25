@@ -16,6 +16,7 @@ import { resolveAudience, personalise, unsubSig, inTextWindow, TEXT_WINDOW, type
 import { sendNotification } from '@/lib/notify';
 import { brandedEmailHtml } from '@/lib/email-template';
 import { fillTokens } from '@/lib/campaign-templates';
+import { linkOrigin } from '@/lib/app-origin';
 import { offerProblem, offerLine } from '@/lib/offers';
 
 /**
@@ -79,7 +80,7 @@ export function variantOf(c: any, clientId: string): 'A' | 'B' {
 /** Who the campaign speaks as, where it links, and whose clients it reaches. */
 export async function senderFor(db: any, tenantId: string, c: any, fallbackOrigin?: string) {
   const t = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
-  const origin = String(t.publicOrigin || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : fallbackOrigin || '')).replace(/\/+$/, '');
+  const origin = linkOrigin(t, fallbackOrigin || '');
   const timeZone = String(t.timezone || 'America/New_York');
   if (c?.ownerRenterId) {
     const r = ((await db.doc(`tenants/${tenantId}/renters/${c.ownerRenterId}`).get()).data() as any) || {};
