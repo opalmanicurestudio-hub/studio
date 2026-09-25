@@ -19,9 +19,12 @@ export async function POST(req: NextRequest) {
   const path = String(body.p || '').trim();
   if (!tenantId || !path) return NextResponse.json({ ok: false, error: 'Missing file.' }, { status: 400 });
   // Only this business's private client files — nothing else in the bucket.
-  if (!path.startsWith(`tenants/${tenantId}/completions/`) || path.includes('..')) return NextResponse.json({ ok: false, error: 'Not a file you can open here.' }, { status: 403 });
+  const isAcademyPhoto = path.startsWith(`tenants/${tenantId}/academy/attendance/`);
+  if ((!path.startsWith(`tenants/${tenantId}/completions/`) && !isAcademyPhoto) || path.includes('..')) return NextResponse.json({ ok: false, error: 'Not a file you can open here.' }, { status: 403 });
   const auth = await verifyStaffActor(req, tenantId);
   if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+  // Clock-in photos: owners, managers and instructors only.
+  if (isAcademyPhoto && !auth.actor.isManager && !auth.actor.isTenantOwner && String(auth.actor.role || '').toLowerCase() !== 'instructor') return NextResponse.json({ ok: false, error: 'Only instructors and managers can see clock-in photos.' }, { status: 403 });
   try {
     // Same admin app and bucket as the upload route that stored the file.
     const { initializeApp, getApps, cert } = await import('firebase-admin/app');
