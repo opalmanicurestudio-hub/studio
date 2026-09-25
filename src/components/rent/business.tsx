@@ -138,6 +138,7 @@ export function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bo
   bookViaEngine: (client: any, serviceId: string, startIso: string) => Promise<any>;
 }) {
   const [client, setClient] = useState<any | null>(null);
+  const [offerCode, setOfferCode] = useState('');
   const [note, setNote] = useState(a.note || '');
   const [cnote, setCnote] = useState('');
   const [mode, setMode] = useState<'view' | 'move' | 'rebook' | 'series' | 'cancel'>('view');
@@ -285,12 +286,38 @@ export function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bo
                 {a.paidByPackageId && <p className="text-[10px] font-bold text-emerald-800">This visit is covered by {a.paidByPackageName || 'a package'}.</p>}
               </div>
             )}
-            {a.renterOfferLine && (
-              <div className={cn('rounded-xl border-2 p-2 text-[11px] font-bold', a.renterOfferUsed ? 'border-slate-200 bg-slate-50 text-slate-500' : 'border-emerald-200 bg-emerald-50 text-emerald-900')}>
-                🎁 {a.renterOfferUsed ? 'Offer honored: ' : 'Offer to honor: '}{a.renterOfferLine}
-                {!a.renterOfferUsed && <button type="button" onClick={async () => { const d = await api({ action: 'offer-used', tenantId, token, appointmentId: a.id }); if (d?.ok) { (a as any).renterOfferUsed = true; setClient({ ...client }); } }} className="ml-2 text-[9px] font-black uppercase tracking-widest underline">Mark used</button>}
-              </div>
-            )}
+            {/* The offer on this visit: a real one comes off when they tap Done. */}
+            {(() => {
+              const done = a.status === 'completed' || a.status === 'cancelled';
+              const price = Number(a.renterServicePrice) || 0;
+              if (a.renterOfferUsed) return (
+                <div className="glass rounded-2xl px-3 py-2 text-[11px] font-bold text-slate-600">🎁 Offer applied{a.renterOfferCode ? ` (${a.renterOfferCode})` : ''}{a.renterDiscountCents ? ` · −$${(a.renterDiscountCents / 100).toFixed(2)}` : ''}</div>
+              );
+              if (a.renterOfferId) {
+                const m = /^(\d+)% off/.exec(String(a.renterOfferLine || '')); const f = /^\$(\d+) off/.exec(String(a.renterOfferLine || ''));
+                const off = m ? price * Number(m[1]) / 100 : f ? Math.min(price, Number(f[1])) : 0;
+                return (
+                  <div className="glass relative overflow-hidden rounded-2xl px-3 py-2.5 text-[11px] font-bold text-emerald-900 shadow-[0_8px_24px_-12px_rgba(16,185,129,0.35)]">
+                    <p>🎁 {a.renterOfferLine}</p>
+                    {!done && <p className="mt-0.5 font-medium text-emerald-800/80">Comes off when you tap Done{price > 0 && off > 0 ? `: $${price.toFixed(2)} → $${(price - off).toFixed(2)}` : ''}.</p>}
+                    {!done && <button type="button" onClick={() => run('offrm', () => api({ action: 'offer-remove', tenantId, token, appointmentId: a.id }), 'Offer removed')} className="mt-1 text-[9px] font-black uppercase tracking-widest underline">Remove offer</button>}
+                  </div>
+                );
+              }
+              if (a.renterOfferLine) return (
+                <div className={cn('rounded-xl border-2 p-2 text-[11px] font-bold', 'border-emerald-200 bg-emerald-50 text-emerald-900')}>
+                  🎁 Offer to honor: {a.renterOfferLine}
+                  <button type="button" onClick={() => run('offused', () => api({ action: 'offer-used', tenantId, token, appointmentId: a.id }), 'Offer marked used')} className="ml-2 text-[9px] font-black uppercase tracking-widest underline">Mark used</button>
+                </div>
+              );
+              if (done || a.viaStudio) return null;
+              return (
+                <div className="flex gap-1.5">
+                  <input value={offerCode} onChange={(e) => setOfferCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20))} placeholder="Offer code (optional)" aria-label="Offer code" className="h-9 min-w-0 flex-1 rounded-xl border-2 border-slate-200 px-3 font-mono text-[12px] tracking-widest" />
+                  <button type="button" disabled={offerCode.length < 3 || !!busy} onClick={() => run('offadd', () => api({ action: 'offer-attach', tenantId, token, appointmentId: a.id, code: offerCode }), 'Offer added').then(() => setOfferCode(''))} className="h-9 shrink-0 rounded-xl bg-slate-900 px-3 text-[9px] font-black uppercase tracking-widest text-white disabled:opacity-40">Add</button>
+                </div>
+              );
+            })()}
             {client.mine && client.consent && (
               <ConsentRow tenantId={tenantId} token={token} client={client} onChanged={() => api({ action: 'client-get', tenantId, token, clientId: a.clientId }).then((d) => { if (d?.ok) setClient(d.client); })} />
             )}
