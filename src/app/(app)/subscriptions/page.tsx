@@ -91,7 +91,7 @@ export default function YourClarityFlowPage() {
       {tools && (
         <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/70 bg-white/80 px-5 pt-3 backdrop-blur-xl" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}>
           <div className="mx-auto flex max-w-3xl items-center gap-3">
-            <p className="hidden min-w-0 flex-1 text-sm text-stone-600 sm:block"><span className="font-semibold text-stone-900">{tools.length} tools</span> · gives back about {hoursFor(tools)} hrs a week</p>
+            <p className="hidden min-w-0 flex-1 text-sm text-stone-600 sm:block"><span className="font-semibold text-stone-900">{new Set(['booking', 'guest', ...tools]).size} tools</span> · gives back about {hoursFor(Array.from(new Set(['booking', 'guest', ...tools])) as ToolId[])} hrs a week</p>
             {err && <p className="text-[12px] text-red-700">{err}</p>}
             <button type="button" disabled={busy || !tenant} onClick={save} className="flex h-12 flex-1 items-center justify-center rounded-full bg-stone-900 px-6 text-sm font-medium text-white shadow-[0_12px_30px_-12px_rgba(28,25,23,0.6)] disabled:opacity-50 sm:flex-none">
               {busy ? <Loader className="h-4 w-4 animate-spin" /> : isNew ? 'Enter ClarityFlow' : 'Save my tools'}
