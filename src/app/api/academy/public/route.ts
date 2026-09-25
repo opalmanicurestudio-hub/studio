@@ -19,6 +19,8 @@ import { resolveFromAddress } from '@/lib/notify';
 import { linkOrigin } from '@/lib/app-origin';
 import { payLaterCheckoutParams } from '@/lib/pay-later';
 import { loadCourseBySlug, loadLessons, studentFromToken, enroll, enrollFromCheckout, createStudentSession, createLoginLink, studentIdFor, sha, muxPlaybackToken, embedUrl } from '@/lib/academy';
+import { applyBeat, appendAudit, jitterMin, lessonMet, qrValid, metersBetween, mergeRanges, watchedSeconds, DEFAULT_RULES, type Range } from '@/lib/academy-compliance';
+import { randomBytes } from 'crypto';
 
 export const dynamic = 'force-dynamic';
 const hits = new Map<string, { n: number; at: number }>();
@@ -132,7 +134,8 @@ export async function POST(req: NextRequest) {
         const c = ((await db.doc(`tenants/${tenantId}/courses/${en.courseId}`).get()).data() as any) || null;
         if (!c) continue;
         const done = Object.keys(en.progress || {}).length;
-        courses.push({ ...publicCourse({ id: en.courseId, ...c }), done, pct: Math.round((done / Math.max(1, c.lessonCount || 1)) * 100), lastLessonId: en.lastLessonId || null, since: en.createdAt });
+        courses.push({ ...publicCourse({ id: en.courseId, ...c }), done, pct: Math.round((done / Math.max(1, c.lessonCount || 1)) * 100), lastLessonId: en.lastLessonId || null, since: en.createdAt,
+          onlineHours: Math.round(((en.onlineSec || 0) / 3600) * 10) / 10, requiredOnlineHours: c.requiredOnlineHours || null, requiredInPersonHours: c.requiredInPersonHours || null, certificateCode: en.certificateCode || null });
       }
       return NextResponse.json({ ok: true, brand, student: { email: student.email, name: student.name }, courses });
     }
@@ -148,7 +151,12 @@ export async function POST(req: NextRequest) {
         ? (l.muxPlaybackId && l.muxStatus === 'ready' ? { type: 'mux', playbackId: l.muxPlaybackId, token: muxPlaybackToken(l.muxPlaybackId) } : l.videoUrl ? { type: 'embed', url: embedUrl(l.videoUrl) } : null)
         : null;
       if (enrolled && student) await db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`).set({ lastLessonId: lessonId, lastSeenAt: new Date().toISOString() }, { merge: true });
-      return NextResponse.json({ ok: true, enrolled, lesson: { id: lessonId, title: l.title, moduleTitle: l.moduleTitle, kind: l.kind, body: l.body || '', downloadUrl: l.downloadUrl || null, downloadName: l.downloadName || null, preview: !!l.preview, video } });
+      const enr = enrolled && student ? ((await db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`).get()).data() as any) || {} : {};
+      const stat = enr.stats?.[lessonId] || {};
+      const quiz = l.quiz?.questions?.length ? { passPct: l.quiz.passPct || 80, questions: l.quiz.questions.map((q: any) => ({ q: q.q, options: q.options })), attempts: (enr.quiz?.[lessonId]?.attempts || []).slice(-5), passed: !!enr.quiz?.[lessonId]?.passed } : null;
+      return NextResponse.json({ ok: true, enrolled, lesson: { id: lessonId, title: l.title, moduleTitle: l.moduleTitle, kind: l.kind, body: l.body || '', downloadUrl: l.downloadUrl || null, downloadName: l.downloadName || null, preview: !!l.preview, video, durationSec: l.durationSec || null, minMinutes: l.minMinutes || 0, quiz },
+        tracking: { compliance: !!c.compliance, checkEveryMin: c.compliance ? (c.attentionCheckMinutes ?? DEFAULT_RULES.attentionCheckMinutes) : 0, minEngagementPct: c.minEngagementPct ?? DEFAULT_RULES.minEngagementPct, minWatchPct: c.minWatchPct ?? DEFAULT_RULES.minWatchPct,
+          engagedSec: stat.engagedSec || 0, watchedSec: stat.watchedSec || 0 } });
     }
 
     if (b.action === 'progress') {
@@ -157,9 +165,146 @@ export async function POST(req: NextRequest) {
       const e = ((await ref.get()).data() as any) || null;
       if (!e) return NextResponse.json({ ok: false, error: 'Not enrolled.' }, { status: 403 });
       const progress = { ...(e.progress || {}) };
-      if (b.done) progress[String(b.lessonId)] = new Date().toISOString(); else delete progress[String(b.lessonId)];
-      await ref.set({ progress, lastLessonId: String(b.lessonId) }, { merge: true });
+      const courseId = String(b.courseId || ''), lessonId = String(b.lessonId || '');
+      if (b.done) {
+        const c = ((await db.doc(`tenants/${tenantId}/courses/${courseId}`).get()).data() as any) || {};
+        const l = ((await db.doc(`tenants/${tenantId}/courses/${courseId}/lessons/${lessonId}`).get()).data() as any) || {};
+        const st = e.stats?.[lessonId] || {};
+        const m = lessonMet(c, l, { engagedSec: st.engagedSec || 0, watchedSec: st.watchedSec || 0, quizPassed: !!e.quiz?.[lessonId]?.passed });
+        if (!m.met) return NextResponse.json({ ok: false, error: m.why, notMet: true }, { status: 400 });
+        progress[lessonId] = new Date().toISOString();
+        await appendAudit(tenantId, { type: 'lesson.completed', studentId: student.id, courseId, by: student.email, summary: `Completed “${l.title || lessonId}” — ${Math.round((st.engagedSec || 0) / 60)} active min, ${l.durationSec ? Math.round(((st.watchedSec || 0) / l.durationSec) * 100) + '% watched' : 'no video'}`, data: { lessonId, engagedSec: st.engagedSec || 0, watchedSec: st.watchedSec || 0 } });
+      } else {
+        const c = ((await db.doc(`tenants/${tenantId}/courses/${courseId}`).get()).data() as any) || {};
+        if (c.compliance) return NextResponse.json({ ok: false, error: 'Completed lessons stay on your record.' }, { status: 400 });
+        delete progress[lessonId];
+      }
+      await ref.set({ progress, lastLessonId: lessonId }, { merge: true });
       return NextResponse.json({ ok: true, progress });
+    }
+
+    // ── Verified online time ──
+    if (b.action === 'session-start') {
+      if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+      const courseId = String(b.courseId || ''), lessonId = String(b.lessonId || '');
+      if (!(await db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`).get()).exists) return NextResponse.json({ ok: false, error: 'Not enrolled.' }, { status: 403 });
+      const c = ((await db.doc(`tenants/${tenantId}/courses/${courseId}`).get()).data() as any) || {};
+      const every = c.compliance ? (c.attentionCheckMinutes ?? DEFAULT_RULES.attentionCheckMinutes) : 0;
+      const ref = db.collection(`tenants/${tenantId}/learningSessions`).doc();
+      const at = new Date().toISOString();
+      await ref.set({ id: ref.id, studentId: student.id, email: student.email, courseId, lessonId, startedAt: at, lastBeatAt: at, status: 'active', engagedSec: 0, idleSec: 0, beats: 0,
+        checksIssued: 0, checksPassed: 0, checksMissed: 0, check: null, nextCheckAt: every ? new Date(Date.now() + jitterMin(every) * 60000).toISOString() : null, ranges: [], watchedSec: 0,
+        ip: (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || null, userAgent: String(req.headers.get('user-agent') || '').slice(0, 240) });
+      return NextResponse.json({ ok: true, sessionId: ref.id });
+    }
+    if (b.action === 'heartbeat') {
+      if (!student) return NextResponse.json({ ok: false, error: 'Sign in again.' }, { status: 401 });
+      const sRef = db.doc(`tenants/${tenantId}/learningSessions/${String(b.sessionId || '')}`);
+      const sess = ((await sRef.get()).data() as any) || null;
+      if (!sess || sess.studentId !== student.id || sess.status !== 'active') return NextResponse.json({ ok: false, restart: true });
+      const c = ((await db.doc(`tenants/${tenantId}/courses/${sess.courseId}`).get()).data() as any) || {};
+      const l = ((await db.doc(`tenants/${tenantId}/courses/${sess.courseId}/lessons/${sess.lessonId}`).get()).data() as any) || {};
+      const ranges: Range[] = (Array.isArray(b.ranges) ? b.ranges : []).slice(0, 50).map((r: any) => [Number(r?.[0]) || 0, Number(r?.[1]) || 0] as Range);
+      const r = applyBeat(sess, { visible: !!b.visible, playing: !!b.playing, interacted: !!b.interacted, ranges, checkAnswer: b.checkAnswer ? String(b.checkAnswer) : null },
+        { checkEveryMin: c.compliance ? (c.attentionCheckMinutes ?? DEFAULT_RULES.attentionCheckMinutes) : 0, videoDurationSec: l.durationSec || null });
+      await sRef.set(r.patch, { merge: true });
+      // Roll this session's gains into the student's record for the lesson.
+      const eRef = db.doc(`tenants/${tenantId}/enrollments/${sess.courseId}_${student.id}`);
+      const e = ((await eRef.get()).data() as any) || {};
+      const st = e.stats?.[sess.lessonId] || {};
+      const lessonRanges = r.patch.ranges ? mergeRanges(st.ranges || [], r.patch.ranges) : (st.ranges || []);
+      const next = { engagedSec: (st.engagedSec || 0) + r.credit, ranges: lessonRanges, watchedSec: watchedSeconds(lessonRanges) };
+      await eRef.set({ stats: { [sess.lessonId]: next }, onlineSec: (e.onlineSec || 0) + r.credit, lastActiveAt: new Date().toISOString() }, { merge: true });
+      return NextResponse.json({ ok: true, credited: r.credit, check: r.showCheck, paused: r.blocked, lessonEngagedSec: next.engagedSec, lessonWatchedSec: next.watchedSec });
+    }
+    if (b.action === 'session-end') {
+      const sRef = db.doc(`tenants/${tenantId}/learningSessions/${String(b.sessionId || '')}`);
+      const sess = ((await sRef.get()).data() as any) || null;
+      if (sess && student && sess.studentId === student.id && sess.status === 'active') {
+        await sRef.set({ status: 'closed', endedAt: new Date().toISOString() }, { merge: true });
+        await appendAudit(tenantId, { type: 'online.session', studentId: student.id, courseId: sess.courseId, by: student.email, summary: `Online session: ${Math.round((sess.engagedSec || 0) / 60)} active min (${Math.round((sess.idleSec || 0) / 60)} idle), checks ${sess.checksPassed || 0}/${sess.checksIssued || 0} answered`, data: { sessionId: sess.id, lessonId: sess.lessonId, engagedSec: sess.engagedSec || 0, idleSec: sess.idleSec || 0, checksMissed: sess.checksMissed || 0 } });
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    // ── Quizzes (graded here; answers never leave the server) ──
+    if (b.action === 'quiz-submit') {
+      if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+      const courseId = String(b.courseId || ''), lessonId = String(b.lessonId || '');
+      const eRef = db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`);
+      const e = ((await eRef.get()).data() as any) || null;
+      if (!e) return NextResponse.json({ ok: false, error: 'Not enrolled.' }, { status: 403 });
+      const l = ((await db.doc(`tenants/${tenantId}/courses/${courseId}/lessons/${lessonId}`).get()).data() as any) || {};
+      const qs = l.quiz?.questions || [];
+      if (!qs.length) return NextResponse.json({ ok: false, error: 'No quiz here.' }, { status: 400 });
+      const answers: number[] = Array.isArray(b.answers) ? b.answers.map((x: any) => Number(x)) : [];
+      const correct = qs.reduce((n: number, q: any, i: number) => n + (answers[i] === Number(q.answer) ? 1 : 0), 0);
+      const score = Math.round((correct / qs.length) * 100);
+      const passed = score >= (l.quiz.passPct || 80);
+      const prev = e.quiz?.[lessonId] || { attempts: [] };
+      const attempt = { at: new Date().toISOString(), score, correct, total: qs.length, passed };
+      await eRef.set({ quiz: { [lessonId]: { attempts: [...(prev.attempts || []), attempt].slice(-50), passed: prev.passed || passed, best: Math.max(prev.best || 0, score) } } }, { merge: true });
+      await appendAudit(tenantId, { type: 'quiz.attempt', studentId: student.id, courseId, by: student.email, summary: `Quiz “${l.title || lessonId}”: ${score}% (${correct}/${qs.length}) — ${passed ? 'passed' : 'not passed'}`, data: { lessonId, score, passed } });
+      return NextResponse.json({ ok: true, score, correct, total: qs.length, passed, wrong: qs.map((q: any, i: number) => answers[i] !== Number(q.answer) ? i : -1).filter((i: number) => i >= 0) });
+    }
+
+    // ── Clock in / out at the academy (rotating QR) ──
+    if (b.action === 'attend-status' || b.action === 'attend') {
+      if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.', needsSignIn: true }, { status: 401 });
+      const open = await db.collection(`tenants/${tenantId}/attendance`).where('studentId', '==', student.id).where('status', '==', 'open').limit(1).get();
+      if (b.action === 'attend-status') return NextResponse.json({ ok: true, student: { email: student.email, name: student.name }, open: open.empty ? null : { id: open.docs[0].id, clockInAt: (open.docs[0].data() as any).clockInAt } });
+      if (!qrValid(tenantId, String(b.code || ''), Number(b.w))) return NextResponse.json({ ok: false, error: 'That code has expired — scan the screen again.' }, { status: 400 });
+      const cfg = t.academy || {};
+      const geo = b.geo && Number.isFinite(Number(b.geo.lat)) ? { lat: Number(b.geo.lat), lng: Number(b.geo.lng), accuracy: Number(b.geo.accuracy) || null } : null;
+      let distance: number | null = null;
+      if (cfg.geo?.lat != null && geo) distance = Math.round(metersBetween(cfg.geo, geo));
+      if (cfg.requireGeo) {
+        if (!geo) return NextResponse.json({ ok: false, error: 'Allow location to clock in — the academy requires it.', needsGeo: true }, { status: 400 });
+        if (distance != null && distance > (cfg.geo?.radiusM || 150) + Math.min(100, geo.accuracy || 0)) return NextResponse.json({ ok: false, error: `You appear to be ${distance} m from the academy. Clock in on site.` }, { status: 400 });
+      }
+      const at = new Date().toISOString();
+      const meta = { ip: (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || null, userAgent: String(req.headers.get('user-agent') || '').slice(0, 240), geo, distanceM: distance };
+      if (b.direction === 'in') {
+        if (!open.empty) return NextResponse.json({ ok: false, error: `You’re already clocked in since ${new Date((open.docs[0].data() as any).clockInAt).toLocaleTimeString()}.` }, { status: 400 });
+        const ref = db.collection(`tenants/${tenantId}/attendance`).doc();
+        await ref.set({ id: ref.id, studentId: student.id, email: student.email, name: student.name || null, courseId: b.courseId || null, clockInAt: at, clockOutAt: null, minutes: 0, status: 'open', in: meta, out: null, corrections: [] });
+        await appendAudit(tenantId, { type: 'attendance.in', studentId: student.id, by: student.email, summary: `Clocked in${distance != null ? ` (${distance} m from academy)` : ''}`, data: { attendanceId: ref.id, at } });
+        return NextResponse.json({ ok: true, direction: 'in', at });
+      }
+      if (open.empty) return NextResponse.json({ ok: false, error: 'You’re not clocked in.' }, { status: 400 });
+      const p = open.docs[0].data() as any;
+      const minutes = Math.max(0, Math.floor((Date.now() - new Date(p.clockInAt).getTime()) / 60000));
+      await open.docs[0].ref.set({ clockOutAt: at, minutes, status: cfg.requireApproval ? 'pending' : 'closed', out: meta }, { merge: true });
+      await appendAudit(tenantId, { type: 'attendance.out', studentId: student.id, by: student.email, summary: `Clocked out — ${Math.floor(minutes / 60)}h ${minutes % 60}m${cfg.requireApproval ? ' (awaiting instructor approval)' : ''}`, data: { attendanceId: open.docs[0].id, at, minutes } });
+      return NextResponse.json({ ok: true, direction: 'out', at, minutes, pending: !!cfg.requireApproval });
+    }
+
+    // ── Certificates ──
+    if (b.action === 'certificate') {
+      if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+      const courseId = String(b.courseId || '');
+      const e = ((await db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`).get()).data() as any) || null;
+      const c = ((await db.doc(`tenants/${tenantId}/courses/${courseId}`).get()).data() as any) || null;
+      if (!e || !c) return NextResponse.json({ ok: false, error: 'Not enrolled.' }, { status: 403 });
+      if (e.certificateCode) return NextResponse.json({ ok: true, code: e.certificateCode });
+      const lessons = await loadLessons(tenantId, courseId);
+      const missing = lessons.filter((l: any) => !e.progress?.[l.id]);
+      if (missing.length) return NextResponse.json({ ok: false, error: `${missing.length} lesson${missing.length === 1 ? '' : 's'} still to complete.` }, { status: 400 });
+      const onlineH = (e.onlineSec || 0) / 3600;
+      if (c.requiredOnlineHours && onlineH < c.requiredOnlineHours) return NextResponse.json({ ok: false, error: `${(c.requiredOnlineHours - onlineH).toFixed(1)} more online hours needed.` }, { status: 400 });
+      if (c.requiredInPersonHours) {
+        const att = await db.collection(`tenants/${tenantId}/attendance`).where('studentId', '==', student.id).limit(5000).get();
+        const h = att.docs.map((d: any) => d.data() as any).filter((p: any) => ['closed', 'approved'].includes(p.status) && (!p.courseId || p.courseId === courseId)).reduce((n: number, p: any) => n + (p.minutes || 0), 0) / 60;
+        if (h < c.requiredInPersonHours) return NextResponse.json({ ok: false, error: `${(c.requiredInPersonHours - h).toFixed(1)} more in-person hours needed.` }, { status: 400 });
+      }
+      const code = randomBytes(5).toString('hex').toUpperCase();
+      const issuedAt = new Date().toISOString();
+      const cert = { code, tenantId, tenantName: t.name || null, courseId, courseTitle: c.title, studentId: student.id, studentName: student.name || student.email, email: student.email, issuedAt,
+        onlineHours: Math.round(onlineH * 10) / 10, requiredOnlineHours: c.requiredOnlineHours || null, requiredInPersonHours: c.requiredInPersonHours || null, status: 'valid' };
+      await db.doc(`platformCertificates/${code}`).set(cert);
+      await db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`).set({ certificateCode: code, completedAt: issuedAt }, { merge: true });
+      await appendAudit(tenantId, { type: 'certificate.issued', studentId: student.id, courseId, by: 'system', summary: `Certificate ${code} issued for “${c.title}”`, data: { code } });
+      return NextResponse.json({ ok: true, code });
     }
 
     return NextResponse.json({ ok: false, error: 'Unknown action' }, { status: 400 });
