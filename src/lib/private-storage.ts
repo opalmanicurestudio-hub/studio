@@ -30,3 +30,17 @@ export async function savePrivateImage(tenantId: string, path: string, dataUrl: 
   await bucket.file(path).save(buf, { contentType: m[1], resumable: false, metadata: { cacheControl: 'private, max-age=0' } });
   return { ref: `/api/files/view?t=${encodeURIComponent(tenantId)}&p=${encodeURIComponent(path)}`, path, sha256: createHash('sha256').update(buf).digest('hex'), bytes: buf.length };
 }
+
+/** Save an uploaded document (image or PDF) privately — e.g. an applicant's ID. */
+export async function savePrivateDocument(tenantId: string, path: string, dataUrl: string, maxBytes = 3_000_000) {
+  const m = String(dataUrl || '').match(/^data:(image\/(?:jpeg|png|webp)|application\/pdf);base64,([A-Za-z0-9+/=]+)$/);
+  if (!m) throw new Error('Upload a photo or a PDF.');
+  const buf = Buffer.from(m[2], 'base64');
+  if (buf.length < 1_000) throw new Error('That file looks empty.');
+  if (buf.length > maxBytes) throw new Error('That file is too large (3 MB max) — try a photo instead.');
+  const bucket = await privateBucket();
+  const ext = m[1] === 'application/pdf' ? 'pdf' : 'jpg';
+  const full = `${path}.${ext}`;
+  await bucket.file(full).save(buf, { contentType: m[1], resumable: false, metadata: { cacheControl: 'private, max-age=0' } });
+  return { ref: `/api/files/view?t=${encodeURIComponent(tenantId)}&p=${encodeURIComponent(full)}`, path: full, sha256: createHash('sha256').update(buf).digest('hex'), bytes: buf.length, type: m[1] };
+}
