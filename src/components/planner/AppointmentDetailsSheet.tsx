@@ -3244,7 +3244,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </SheetHeader>
           {/* An offer is waiting: booked with a campaign code, or a renter's offer. */}
           {((appointment as any)?.pendingDiscountCode || (appointment as any)?.renterOfferLine) && (
-            <div className="mx-4 mt-2 rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-bold text-emerald-900">
+            <div className="glass relative mx-4 mt-2 overflow-hidden rounded-2xl px-4 py-3 text-xs font-bold text-emerald-900 shadow-[0_8px_24px_-12px_rgba(16,185,129,0.35)]">
               🎁 {(appointment as any).pendingDiscountCode
                 ? <>Offer at checkout: code <span className="font-black">{(appointment as any).pendingDiscountCode}</span> — applied automatically when you check them out.</>
                 : <>Offer to honor: {(appointment as any).renterOfferLine}</>}
