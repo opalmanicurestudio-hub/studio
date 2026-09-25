@@ -13,6 +13,7 @@
 //      Requests without it are rejected, so nobody can trigger a sync
 //      storm from outside.
 
+import { recordCronRun } from '@/lib/cron-heartbeat';
 import { linkOrigin } from '@/lib/app-origin';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -125,6 +126,7 @@ export async function GET(req: NextRequest) {
   if (secret && req.headers.get('authorization') !== `Bearer ${secret}`) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
   }
+  void recordCronRun('nightly');   // HQ → System: "did it run?"
   // v70 — Plaid being unconfigured no longer aborts the whole run: bank
   // sync is skipped, but bill scheduling below still runs for everyone.
   const plaidConfigured = !!(process.env.PLAID_CLIENT_ID && process.env.PLAID_SECRET);
