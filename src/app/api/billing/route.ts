@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
-import { billingSettings, quoteFor, checkoutFor, portalFor, syncSubscription } from '@/lib/billing';
+import { billingSettings, quoteFor, checkoutFor, portalFor, syncSubscription, textsUsed, monthRange } from '@/lib/billing';
 import { toTenantModules, TOOL_BY_ID, type ToolId } from '@/lib/module-catalog';
 import { linkOrigin } from '@/lib/app-origin';
 
@@ -30,7 +30,9 @@ export async function POST(req: NextRequest) {
     if (b.action === 'status') {
       const [settings, q] = await Promise.all([billingSettings(), quoteFor(tenantId, tools)]);
       const t = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
-      return NextResponse.json({ ok: true, enabled: settings.enabled, freeUntil: settings.freeUntil, foundingPct: t.foundingMember === false ? 0 : settings.foundingPct, quote: q,
+      const now = new Date(); const { from, to } = monthRange(`${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`);
+      const textsThisMonth = await textsUsed(tenantId, from, to).catch(() => 0);
+      return NextResponse.json({ ok: true, enabled: settings.enabled, textsThisMonth, freeUntil: settings.freeUntil, foundingPct: t.foundingMember === false ? 0 : settings.foundingPct, quote: q,
         subscription: t.billing?.subscriptionId ? { status: t.billing.status || null, currentPeriodEnd: t.billing.currentPeriodEnd || null, cancelAtPeriodEnd: !!t.billing.cancelAtPeriodEnd } : null });
     }
     if (b.action === 'checkout') {
