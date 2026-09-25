@@ -2452,7 +2452,7 @@ export async function POST(req: NextRequest) {
         viaStudio: !a.isRenterBooking,
         paidByPackageId: a.paidByPackageId || null, paidByPackageName: a.paidByPackageName || null,
         paidByMembershipId: a.paidByMembershipId || null, paidByMembershipName: a.paidByMembershipName || null,
-        checkedInAt: a.checkedInAt || a.checkInAt || null, renterOfferLine: a.renterOfferLine || null, renterOfferUsed: a.renterOfferUsed === true, renterStartedAt: a.renterStartedAt || null, renterFinishedAt: a.renterFinishedAt || null, renterActualMinutes: a.renterActualMinutes || null, renterLateMinutes: a.renterLateMinutes || null,
+        checkedInAt: a.checkedInAt || a.checkInAt || null, renterOfferLine: a.renterOfferLine || null, renterOfferUsed: a.renterOfferUsed === true, renterOfferCode: a.renterOfferCode || null, renterOfferId: a.renterOfferId || null, renterDiscountCents: Number(a.renterDiscountCents) || 0, renterServicePrice: Number(a.renterServicePrice) || 0, renterStartedAt: a.renterStartedAt || null, renterFinishedAt: a.renterFinishedAt || null, renterActualMinutes: a.renterActualMinutes || null, renterLateMinutes: a.renterLateMinutes || null,
         clientCheckInStatus: a.clientCheckInStatus || null, clientLateMinutes: a.clientLateMinutes || null,
       });
       const upcoming = rows.filter((a: any) => a.status !== 'cancelled' && a.startTime >= nowIso).sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime))).map(shape);
@@ -2626,6 +2626,31 @@ export async function POST(req: NextRequest) {
       if (!outcome) return NextResponse.json({ ok: false, error: 'Outcome must be completed or no_show.' }, { status: 400 });
       const creditNote = outcome === 'no_show' ? await settleCredit(a, ref, { by: 'client', how: 'no_show' }) : null;
       const nowIso = new Date().toISOString();
+      // A real offer on the visit comes off the price now — once, and recorded
+      // everywhere the business's offers are (usage, wallet, campaign).
+      let offerNote: string | null = null;
+      let discountCents = 0;
+      if (outcome === 'completed' && a.renterOfferId && !a.renterOfferUsed) {
+        const oRef = db.doc(`tenants/${tenantId}/renterOffers/${String(a.renterOfferId)}`);
+        const o = ((await oRef.get()).data() as any) || null;
+        const { offerProblem: op } = await import('@/lib/offers');
+        const problem = o && o.ownerRenterId === session.renterId ? op(o, { clientId: a.clientId || null }) : 'That offer isn’t yours.';
+        if (!problem && !a.paidByPackageId) {
+          const priceCents = Math.round((Number(a.renterServicePrice) || 0) * 100);
+          discountCents = Math.min(priceCents, o.type === 'percentage' ? Math.round(priceCents * (Number(o.value) || 0) / 100) : Math.round((Number(o.value) || 0) * 100));
+          await oRef.set({ usageCount: FieldValue.increment(1), ...(a.clientId ? { usedByClientIds: FieldValue.arrayUnion(String(a.clientId)) } : {}) }, { merge: true });
+          await ref.set({ renterOfferUsed: true, renterOfferUsedAt: nowIso, renterDiscountCents: discountCents }, { merge: true });
+          if (a.clientOfferId) {
+            const wRef = db.doc(`tenants/${tenantId}/clientOffers/${String(a.clientOfferId)}`);
+            const w = ((await wRef.get()).data() as any) || null;
+            if (w && w.status !== 'redeemed') {
+              await wRef.set({ status: 'redeemed', redeemedAt: nowIso, appointmentId: ref.id, saleTotal: Math.max(0, priceCents - discountCents) / 100 }, { merge: true });
+              if (w.campaignId) await db.doc(`tenants/${tenantId}/campaigns/${w.campaignId}`).set({ offersRedeemed: FieldValue.increment(1), offerRevenueCents: FieldValue.increment(Math.max(0, priceCents - discountCents)) }, { merge: true });
+            }
+          }
+          offerNote = `Offer ${o.code} applied: −$${(discountCents / 100).toFixed(2)}`;
+        } else if (problem) offerNote = `Offer not applied — ${problem}`;
+      }
       await ref.set({ status: outcome === 'completed' ? 'completed' : 'cancelled', renterOutcome: outcome, renterOutcomeAt: nowIso,
         ...(outcome === 'completed' ? { renterFinishedAt: nowIso, ...(a.renterStartedAt ? { renterActualMinutes: Math.max(1, Math.round((Date.now() - new Date(a.renterStartedAt).getTime()) / 60000)) } : {}) } : {}),
         ...(outcome === 'no_show' ? { cancelledAt: nowIso, cancellationAudit: { actorType: 'no_show', reason: 'no-show', actorName: st.name || 'Provider', timestamp: nowIso, feeAmount: 0, feeWaived: true, paymentStatus: 'paid', via: 'renter_portal' } } : { completedAt: nowIso }),
@@ -2637,10 +2662,10 @@ export async function POST(req: NextRequest) {
         if (c && c.ownerRenterId === session.renterId) {
           await cRef.set(outcome === 'no_show'
             ? { noShowCount: (Number(c.noShowCount) || 0) + 1, lastNoShowAt: nowIso }
-            : { visitCount: (Number(c.visitCount) || 0) + 1, lastAppointment: a.startTime, lifetimeValue: (Number(c.lifetimeValue) || 0) + (Number(a.renterServicePrice) || 0) }, { merge: true });
+            : { visitCount: (Number(c.visitCount) || 0) + 1, lastAppointment: a.startTime, lifetimeValue: (Number(c.lifetimeValue) || 0) + Math.max(0, (Number(a.renterServicePrice) || 0) - discountCents / 100) }, { merge: true });
         }
       }
-      return NextResponse.json({ ok: true, creditNote });
+      return NextResponse.json({ ok: true, creditNote: [creditNote, offerNote].filter(Boolean).join(' · ') || null });
     }
 
     if (action === 'book-note') {
@@ -2864,7 +2889,7 @@ export async function POST(req: NextRequest) {
       const to = toDate.toISOString();
       const ids = st ? await myStaffIds() : [];
       const appts = ids.length ? (await apptsFor(ids, from, to)).filter((a: any) => a.isRenterBooking && (a.status === 'completed' || a.renterOutcome === 'completed')) : [];
-      const visits = appts.map((a: any) => ({ id: a.id, date: String(a.startTime).slice(0, 10), clientName: a.clientName || 'Client', serviceName: a.renterServiceName || a.serviceName || '', cents: a.paidByPackageId ? 0 : Math.round((Number(a.renterServicePrice) || 0) * 100), covered: !!a.paidByPackageId, packageName: a.paidByPackageName || null }))
+      const visits = appts.map((a: any) => ({ id: a.id, date: String(a.startTime).slice(0, 10), clientName: a.clientName || 'Client', serviceName: a.renterServiceName || a.serviceName || '', cents: a.paidByPackageId ? 0 : Math.max(0, Math.round((Number(a.renterServicePrice) || 0) * 100) - (Number(a.renterDiscountCents) || 0)), discountCents: Number(a.renterDiscountCents) || 0, covered: !!a.paidByPackageId, packageName: a.paidByPackageName || null }))
         .sort((x: any, y: any) => x.date.localeCompare(y.date));
       const pur = st ? (await db.collection(`tenants/${tenantId}/renterPackagePurchases`).where('staffId', '==', st.id).get()).docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((p: any) => String(p.purchasedAt || '') >= from && String(p.purchasedAt || '') < to && p.status !== 'refunded') : [];
       const packages = pur.map((p: any) => ({ id: p.id, date: String(p.purchasedAt).slice(0, 10), clientName: p.clientName || 'Client', packageName: p.packageName || 'Package', cents: Number(p.amountCents) || 0, source: p.source || 'stripe' }));
@@ -2987,6 +3012,63 @@ export async function POST(req: NextRequest) {
       await ref.set({ paidByMembershipId: mRef.id, paidByMembershipName: m.membershipName || 'Membership', membershipRedeemedAt: new Date().toISOString() }, { merge: true });
       return NextResponse.json({ ok: true, left: left - 1 });
     }
+    // ── RENTER OFFERS: real offers, like the business's discounts ────────
+    // tenants/{t}/renterOffers/{id} — { ownerRenterId, code, type, value,
+    // validFrom?, validUntil?, usageLimit, usageCount, limitOnePerCustomer,
+    // usedByClientIds, isActive, description }. Same rules (src/lib/offers.ts),
+    // same client wallet; applied when the renter taps Done on the visit.
+    if (action === 'offers-list' || action === 'offer-save' || action === 'offer-toggle') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const col = db.collection(`tenants/${tenantId}/renterOffers`);
+      const mine = async () => (await col.where('ownerRenterId', '==', session.renterId).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+      if (action === 'offer-toggle') {
+        const ref = col.doc(String(body.offerId || ''));
+        const o = ((await ref.get()).data() as any) || null;
+        if (!o || o.ownerRenterId !== session.renterId) return NextResponse.json({ ok: false, error: 'Not your offer.' }, { status: 403 });
+        await ref.set({ isActive: body.active === true, updatedAt: new Date().toISOString() }, { merge: true });
+        return NextResponse.json({ ok: true });
+      }
+      if (action === 'offer-save') {
+        const code = String(body.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20);
+        const type = body.type === 'fixed' ? 'fixed' : 'percentage';
+        const value = Number(body.value);
+        if (code.length < 3) return NextResponse.json({ ok: false, error: 'Pick a code — at least 3 letters or numbers.' }, { status: 400 });
+        if (!(value > 0) || (type === 'percentage' && value > 100)) return NextResponse.json({ ok: false, error: 'Check the amount.' }, { status: 400 });
+        const all = await mine();
+        if (all.some((o: any) => String(o.code).toUpperCase() === code && o.id !== body.offerId)) return NextResponse.json({ ok: false, error: 'You already have an offer with that code.' }, { status: 400 });
+        const ref = body.offerId ? col.doc(String(body.offerId)) : col.doc();
+        if (body.offerId) { const cur = ((await ref.get()).data() as any) || null; if (!cur || cur.ownerRenterId !== session.renterId) return NextResponse.json({ ok: false, error: 'Not your offer.' }, { status: 403 }); }
+        const nowIso = new Date().toISOString();
+        const until = String(body.validUntil || '').slice(0, 10);
+        await ref.set({ id: ref.id, ownerRenterId: session.renterId, code, type, value, description: String(body.description || '').trim().slice(0, 120) || null,
+          validUntil: /^\d{4}-\d{2}-\d{2}$/.test(until) ? new Date(`${until}T23:59:00`).toISOString() : null,
+          usageLimit: Math.max(0, Math.round(Number(body.usageLimit) || 0)), limitOnePerCustomer: body.limitOnePerCustomer !== false,
+          isActive: true, updatedAt: nowIso, ...(body.offerId ? {} : { createdAt: nowIso, usageCount: 0, usedByClientIds: [] }) }, { merge: true });
+        return NextResponse.json({ ok: true, id: ref.id });
+      }
+      const { offerLine: ol, offerProblem: op } = await import('@/lib/offers');
+      const list = (await mine()).sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+        .map((o: any) => ({ id: o.id, code: o.code, type: o.type, value: o.value, validUntil: o.validUntil || null, usageLimit: o.usageLimit || 0, usageCount: o.usageCount || 0,
+          limitOnePerCustomer: o.limitOnePerCustomer === true, isActive: o.isActive !== false, description: o.description || '', line: ol(o), problem: op({ ...o, usedByClientIds: [] }) }));
+      return NextResponse.json({ ok: true, offers: list });
+    }
+
+    // ── offer-attach / offer-remove: put an offer on a visit by code, or take it off ──
+    if (action === 'offer-attach' || action === 'offer-remove') {
+      const { ref, a, error } = await myAppt(String(body.appointmentId || ''));
+      if (!ref || !a) return NextResponse.json({ ok: false, error }, { status: 403 });
+      if (a.renterOfferUsed) return NextResponse.json({ ok: false, error: 'The offer on this visit has already been used.' }, { status: 400 });
+      if (action === 'offer-remove') { await ref.set({ renterOfferId: null, renterOfferCode: null, renterOfferLine: null, clientOfferId: null }, { merge: true }); return NextResponse.json({ ok: true }); }
+      const code = String(body.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const hit = (await db.collection(`tenants/${tenantId}/renterOffers`).where('ownerRenterId', '==', session.renterId).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+        .find((o: any) => String(o.code || '').toUpperCase() === code);
+      const { offerProblem: op, offerLine: ol } = await import('@/lib/offers');
+      const problem = op(hit, { clientId: a.clientId || null });
+      if (problem) return NextResponse.json({ ok: false, error: problem }, { status: 400 });
+      await ref.set({ renterOfferId: hit.id, renterOfferCode: hit.code, renterOfferLine: ol(hit) }, { merge: true });
+      return NextResponse.json({ ok: true, line: ol(hit) });
+    }
+
     // ── offer-used: the renter honored the offer on this visit ──
     if (action === 'offer-used') {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
@@ -3118,7 +3200,7 @@ export async function POST(req: NextRequest) {
       const list = (await db.collection(`tenants/${tenantId}/campaigns`).where('ownerRenterId', '==', session.renterId).get()).docs
         .map((d: any) => ({ id: d.id, ...(d.data() as any) })).sort((a: any, b: any) => String(b.updatedAt || b.sentAt || '').localeCompare(String(a.updatedAt || a.sentAt || '')));
       return NextResponse.json({ ok: true, policy, usedTexts: await rcUsedThisMonth(), cardOnFile: !!(r.stripeCustomerId && (r.stripePaymentMethodId || r.defaultPaymentMethodId)),
-        campaigns: list.map((c: any) => ({ id: c.id, name: c.name, type: c.type, subject: c.subject || '', body: c.body || '', offerText: c.offerText || '', templateId: c.templateId || '', targetAudience: c.targetAudience, targetServiceIds: c.targetServiceIds || [], targetMinSpend: c.targetMinSpend || 0, status: c.status, recipientCount: c.recipientCount || 0, convertedCount: c.convertedCount || 0, convertedRevenueCents: c.convertedRevenueCents || 0, chargedCents: c.chargedCents || 0, sentAt: c.sentAt || null })) });
+        campaigns: list.map((c: any) => ({ id: c.id, name: c.name, type: c.type, subject: c.subject || '', body: c.body || '', offerText: c.offerText || '', renterOfferId: c.renterOfferId || '', offersRedeemed: c.offersRedeemed || 0, templateId: c.templateId || '', targetAudience: c.targetAudience, targetServiceIds: c.targetServiceIds || [], targetMinSpend: c.targetMinSpend || 0, status: c.status, recipientCount: c.recipientCount || 0, convertedCount: c.convertedCount || 0, convertedRevenueCents: c.convertedRevenueCents || 0, chargedCents: c.chargedCents || 0, sentAt: c.sentAt || null })) });
     }
     if (action === 'rc-save') {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
@@ -3138,7 +3220,8 @@ export async function POST(req: NextRequest) {
         targetMinSpend: Math.max(0, Number(body.targetMinSpend) || 0),
         // A renter's offer is their own words ("15% off your next visit") — added
         // to the message where {offer} sits; they honor it at checkout.
-        offerText: String(body.offerText || '').trim().slice(0, 140), templateId: String(body.templateId || '').slice(0, 40),
+        offerText: body.renterOfferId ? '' : String(body.offerText || '').trim().slice(0, 140), templateId: String(body.templateId || '').slice(0, 40),
+        renterOfferId: body.renterOfferId ? String(body.renterOfferId).slice(0, 64) : null,
         status: 'draft', updatedAt: new Date().toISOString() }, { merge: true });
       return NextResponse.json({ ok: true, id: ref.id });
     }
