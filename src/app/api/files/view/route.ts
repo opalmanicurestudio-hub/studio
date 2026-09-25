@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   const path = String(body.p || '').trim();
   if (!tenantId || !path) return NextResponse.json({ ok: false, error: 'Missing file.' }, { status: 400 });
   // Only this business's private client files — nothing else in the bucket.
-  const isAcademyPhoto = path.startsWith(`tenants/${tenantId}/academy/attendance/`);
+  const isAcademyPhoto = path.startsWith(`tenants/${tenantId}/academy/attendance/`) || path.startsWith(`tenants/${tenantId}/academy/clinic/`);
   if ((!path.startsWith(`tenants/${tenantId}/completions/`) && !isAcademyPhoto) || path.includes('..')) return NextResponse.json({ ok: false, error: 'Not a file you can open here.' }, { status: 403 });
   const auth = await verifyStaffActor(req, tenantId);
   if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
