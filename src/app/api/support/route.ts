@@ -10,7 +10,8 @@
 //
 // Any signed-in owner or team member of the business can use it.
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
+import { ruleTriage, aiTriage, SLA_HOURS } from '@/lib/support-triage';
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { platformAdminEmails } from '@/lib/platform-admin';
@@ -64,14 +65,29 @@ export async function POST(req: NextRequest) {
   };
   const t = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
   const ref = db.collection('platformTickets').doc();
-  await ref.set({ id: ref.id, tenantId, tenantName: t.name || null, subject: subject || (kind === 'broken' ? 'Something isn’t working' : kind === 'idea' ? 'An idea' : 'A question'),
-    message, kind, status: 'open', createdAt: at, updatedAt: at, contactEmail: actorEmail || null, contactName: auth.actor.name || null, contactUid: auth.actor.uid, context, thread: [] });
+  // Sorted instantly by plain rules; AI refines it just after (below).
+  const tri = ruleTriage({ message, kind, errors: context.errors });
+  const due = new Date(Date.now() + SLA_HOURS[tri.priority] * 3600000).toISOString();
+  await ref.set({ id: ref.id, tenantId, tenantName: t.name || null, businessType: t.businessType || null, subject: subject || (kind === 'broken' ? 'Something isn’t working' : kind === 'idea' ? 'An idea' : 'A question'),
+    message, kind, status: 'open', createdAt: at, updatedAt: at, contactEmail: actorEmail || null, contactName: auth.actor.name || null, contactUid: auth.actor.uid, context, thread: [],
+    category: tri.category, priority: tri.priority, firstResponseDueAt: due, firstRespondedAt: null, assignee: null, internalNotes: [], triagedBy: 'rules' });
+
+  // AI triage after the response — the owner isn't kept waiting.
+  after(async () => {
+    try {
+      const fails = await db.collection(`tenants/${tenantId}/messageLog`).where('sentAt', '>=', new Date(Date.now() - 7 * 86400000).toISOString()).select('status', 'channel', 'kind', 'error').limit(200).get();
+      const recentFailures = fails.docs.map((d: any) => d.data() as any).filter((m: any) => m.status === 'failed').slice(0, 6).map((m: any) => `${m.channel} ${m.kind} failed: ${String(m.error || '').slice(0, 120)}`);
+      const ai = await aiTriage({ message, kind, subject, page: context.page, errors: context.errors, tenantName: t.name, recentFailures, tenantId });
+      if (ai) await ref.set({ category: ai.category, priority: ai.priority, firstResponseDueAt: new Date(new Date(at).getTime() + SLA_HOURS[ai.priority] * 3600000).toISOString(), triagedBy: 'ai',
+        ai: { summary: ai.summary, likelyCause: ai.likelyCause, needsDeveloper: ai.needsDeveloper, suggestedReply: ai.suggestedReply, at: new Date().toISOString() } }, { merge: true });
+    } catch { /* rules triage already stands */ }
+  });
 
   const to = process.env.LEADS_NOTIFY_EMAIL || platformAdminEmails()[0];
   if (to && process.env.RESEND_API_KEY) {
     try {
       await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: resolveFromAddress(), to, ...(actorEmail ? { reply_to: actorEmail } : {}), subject: `Help · ${t.name || tenantId} · ${kind}`,
+        body: JSON.stringify({ from: resolveFromAddress(), to, ...(actorEmail ? { reply_to: actorEmail } : {}), subject: `${tri.priority === 'urgent' ? 'URGENT · ' : ''}Help · ${t.name || tenantId} · ${tri.category}`,
           text: `${message}\n\nFrom: ${auth.actor.name || ''} ${actorEmail || ''}\nPage: ${context.page}\nVersion: ${context.appVersion} on ${context.host}\n${context.errors.length ? `Recent errors:\n${context.errors.map((e: any) => `- ${e.message}`).join('\n')}` : 'No recent errors'}` }) });
     } catch { /* ticket is saved */ }
   }
