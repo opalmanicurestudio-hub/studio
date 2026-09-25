@@ -17,6 +17,7 @@ import { linkOrigin } from '@/lib/app-origin';
 import { resolveFromAddress } from '@/lib/notify';
 import { platformAdminEmails } from '@/lib/platform-admin';
 import { computeMetrics } from '@/lib/hq-metrics';
+import { syncStripeMonth, monthKey } from '@/lib/hq-finance';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -81,5 +82,10 @@ export async function GET(req: NextRequest) {
   // Today's numbers for HQ → Insights (every figure gets a trend).
   let metrics = false;
   try { await computeMetrics(); metrics = true; } catch { /* Insights can refresh by hand */ }
+  // Today's money from Stripe for HQ → Finance (and last month, for its first days).
+  if (process.env.STRIPE_SECRET_KEY) {
+    const d = new Date();
+    try { await syncStripeMonth(monthKey(d)); if (d.getUTCDate() <= 3) await syncStripeMonth(monthKey(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1)))); } catch { /* Finance can sync by hand */ }
+  }
   return NextResponse.json({ ok: true, nudged: sent, stuck: stuck.length, openTickets: open, metrics });
 }
