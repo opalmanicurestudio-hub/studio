@@ -13,6 +13,7 @@
  * the facts as tokens and the sentence is theirs.
  */
 
+import { linkOrigin } from '@/lib/app-origin';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
@@ -63,11 +64,7 @@ export async function POST(req: NextRequest) {
   const phone = String(client.phone || apt.clientPhone || '').trim();
   const firstName = String(apt.clientName || '').split(' ')[0] || 'there';
   const studioName = tenant.name || tenant.businessName || 'Your studio';
-  const base = String(
-    tenant.publicOrigin
-    || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')
-    || req.nextUrl.origin,
-  ).replace(/\/$/, '');
+  const base = linkOrigin(tenant, req.nextUrl.origin);
   const when = apt.startTime
     ? new Date(apt.startTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })
     : 'your appointment';
