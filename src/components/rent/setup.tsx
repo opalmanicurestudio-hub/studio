@@ -1,5 +1,6 @@
 'use client';
 import { CAMPAIGN_TEMPLATES, TOKENS, fillTokens } from '@/lib/campaign-templates';
+import { AudienceList } from '@/components/campaigns/AudienceList';
 import { downscaleImageToDataUrl } from '@/lib/client-image';
 import { getApps, initializeApp } from 'firebase/app';
 import { getStorage, ref as storageRef } from 'firebase/storage';
@@ -1035,6 +1036,19 @@ export function MyCampaigns({ data, tenantId, token }: { data: any; tenantId: st
   const allowance = st.policy.mode === 'business_covers' ? `${Math.max(0, st.policy.monthlyTexts - st.usedTexts)} of ${st.policy.monthlyTexts} free texts left this month, then ${st.policy.priceCents}¢ each.` : `Texts are ${st.policy.priceCents}¢ each, charged to your card on file.`;
   return (
     <div className="space-y-3">
+      {st.campaigns.some((c: any) => c.status !== 'draft') && (() => {
+        const sent = st.campaigns.filter((c: any) => c.status !== 'draft');
+        const reached = sent.reduce((a: number, c: any) => a + (Number(c.recipientCount) || 0), 0);
+        const booked = sent.reduce((a: number, c: any) => a + (Number(c.convertedCount) || 0), 0);
+        const rev = sent.reduce((a: number, c: any) => a + (Number(c.convertedRevenueCents) || 0), 0);
+        return (
+          <div className="grid grid-cols-3 gap-1.5">
+            {[['Reached', String(reached)], ['Booked', `${booked}${reached ? ` · ${Math.round((booked / reached) * 100)}%` : ''}`], ['Revenue', `$${(rev / 100).toFixed(0)}`]].map(([l, v]) => (
+              <div key={l} className="rounded-xl border-2 border-slate-100 bg-white p-2 text-center"><p className="text-sm font-black text-slate-900">{v}</p><p className="text-[8px] font-black uppercase tracking-widest text-slate-400">{l}</p></div>
+            ))}
+          </div>
+        );
+      })()}
       <p className="text-[10px] font-bold text-slate-500">An email or text to your own clients, in your name. Emails are free. {allowance} Texts only go to clients who said yes to offers by text, 9am–8pm, up to 4 a month each.</p>
       {!st.cardOnFile && <p className="rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-900">No card on file — paid texts can’t be sent. Save one under Rent, or send emails.</p>}
       {msg && <p className="rounded-xl border-2 border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-bold text-emerald-900">{msg}</p>}
@@ -1083,6 +1097,7 @@ export function MyCampaigns({ data, tenantId, token }: { data: any; tenantId: st
               {draft.type === 'sms' && <p>{quote.neededSegments} text{quote.neededSegments === 1 ? '' : 's'} ({quote.segmentsEach} each) · {quote.freeSegments} free · <span className="font-black">{quote.chargeCents ? `$${(quote.chargeCents / 100).toFixed(2)} to your card` : 'nothing to pay'}</span></p>}
             </div>
           )}
+          {quote?.recipients && <AudienceList recipients={quote.recipients} skipped={quote.skipped} channel={draft.type} total={quote.summary.willReceive} compact />}
           {err && <p className="text-xs font-bold text-red-600">{err}</p>}
           <div className="flex gap-2">
             {!quote
