@@ -455,6 +455,19 @@ export function MyCourses({ tenantId }: { tenantId: string }) {
             <h1 className="text-4xl font-light tracking-tight">My <span className="font-semibold">courses</span></h1>
             <button type="button" onClick={() => { setToken(tenantId, null); void load(); }} className="text-sm text-stone-500 underline">Sign out ({d.student.email})</button>
           </div>
+          {(d.programs || []).map((pr: any) => (
+            <Glass key={pr.id} className="mt-6 space-y-3">
+              <div className="flex flex-wrap items-baseline justify-between gap-2"><p className="text-xl font-semibold">{pr.name}</p><span className="text-[12px] uppercase tracking-widest text-stone-500">{pr.status === 'loa' ? 'leave of absence' : pr.status}</span></div>
+              {pr.totalHours && <div><div className="flex justify-between text-sm"><span>Hours</span><span className="font-semibold">{pr.hours.total} of {pr.totalHours} h</span></div><div className="mt-1 h-2 rounded-full bg-white/70"><div className="h-2 rounded-full" style={{ width: `${pr.hours.pct || 0}%`, background: color }} /></div><p className="mt-1 text-[12px] text-stone-500">{pr.hours.online} h online · {pr.hours.inPerson} h in person</p></div>}
+              {pr.requirements.length > 0 && (
+                <div className="grid gap-2 sm:grid-cols-2">{pr.requirements.map((r: any) => (
+                  <div key={r.key} className="rounded-2xl bg-white/60 p-3"><div className="flex justify-between text-sm"><span>{r.label}</span><span className="font-semibold">{r.done} / {r.required}</span></div>
+                    <div className="mt-1 h-1.5 rounded-full bg-white"><div className="h-1.5 rounded-full" style={{ width: `${Math.min(100, (r.done / Math.max(1, r.required)) * 100)}%`, background: color }} /></div></div>
+                ))}</div>
+              )}
+              <p className="text-[12px] text-stone-500">Services count once an instructor signs them off as passed. <Link href={`/learn/${tenantId}/attend`} className="underline">Clock in / out</Link></p>
+            </Glass>
+          ))}
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
             {d.courses.length === 0 && <Glass><p>No courses yet. <Link href={`/learn/${tenantId}`} className="underline">Browse courses</Link></p></Glass>}
             {d.courses.map((c: any) => (
