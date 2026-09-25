@@ -11,6 +11,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { slugify, RESERVED_SLUGS, loadLessons, muxConfigured, muxSigningReady, muxCreateUpload, muxUploadStatus } from '@/lib/academy';
+import { appendAudit, verifyAudit, transcript, qrWindow, qrCode, QR_WINDOW_SEC } from '@/lib/academy-compliance';
+import { linkOrigin } from '@/lib/app-origin';
 
 export const dynamic = 'force-dynamic';
 const KINDS = ['video', 'text', 'download'];
@@ -20,7 +22,12 @@ export async function POST(req: NextRequest) {
   const tenantId = String(b.tenantId || '');
   const auth = await verifyStaffActor(req, tenantId);
   if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
-  if (!auth.actor.isManager && !auth.actor.isTenantOwner) return NextResponse.json({ ok: false, error: 'Only owners and managers can edit courses.' }, { status: 403 });
+  // Owners, managers and instructors. Only owners/managers change courses and settings.
+  const isInstructor = String(auth.actor.role || '').toLowerCase() === 'instructor';
+  if (!auth.actor.isManager && !auth.actor.isTenantOwner && !isInstructor) return NextResponse.json({ ok: false, error: 'Only owners, managers and instructors can use the academy tools.' }, { status: 403 });
+  const INSTRUCTOR_OK = ['list', 'course-get', 'students', 'attendance', 'attendance-approve', 'attendance-resolve', 'attendance-code', 'transcript', 'audit-verify'];
+  if (isInstructor && !auth.actor.isManager && !INSTRUCTOR_OK.includes(String(b.action))) return NextResponse.json({ ok: false, error: 'Instructors can review attendance and students, not change courses.' }, { status: 403 });
+  const who = auth.actor.name || auth.actor.uid;
   const db = getAdminDb();
   const base = `tenants/${tenantId}/courses`;
   const now = new Date().toISOString();
@@ -56,6 +63,10 @@ export async function POST(req: NextRequest) {
         priceCents: Math.max(0, Math.round(Number(c.priceDollars ?? (cur.priceCents || 0) / 100) * 100)),
         level: String(c.level || '').slice(0, 40) || null, instructorName: String(c.instructorName || '').slice(0, 80) || null,
         coverUrl: /^https:\/\//.test(String(c.coverUrl || '')) ? String(c.coverUrl) : null,
+        // Hours tracking for state-licensed schools (all optional).
+        compliance: !!c.compliance, requiredOnlineHours: Math.max(0, Number(c.requiredOnlineHours) || 0) || null, requiredInPersonHours: Math.max(0, Number(c.requiredInPersonHours) || 0) || null,
+        minEngagementPct: Math.min(100, Math.max(0, Number(c.minEngagementPct ?? 80))), minWatchPct: Math.min(100, Math.max(0, Number(c.minWatchPct ?? 90))),
+        attentionCheckMinutes: Math.min(60, Math.max(0, Number(c.attentionCheckMinutes ?? 10))),
         whatYouLearn: Array.isArray(c.whatYouLearn) ? c.whatYouLearn.map((x: any) => String(x).slice(0, 160)).filter(Boolean).slice(0, 12) : (cur.whatYouLearn || []),
         status, publishedAt: status === 'published' ? (cur.publishedAt || now) : cur.publishedAt || null,
         createdAt: cur.createdAt || now, updatedAt: now, enrolledCount: cur.enrolledCount || 0, revenueCents: cur.revenueCents || 0,
@@ -85,6 +96,9 @@ export async function POST(req: NextRequest) {
         kind: KINDS.includes(l.kind) ? l.kind : 'video', body: String(l.body || '').slice(0, 30000),
         videoUrl: String(l.videoUrl || '').slice(0, 500) || null, downloadUrl: /^https:\/\//.test(String(l.downloadUrl || '')) ? String(l.downloadUrl) : null,
         downloadName: String(l.downloadName || '').slice(0, 120) || null, preview: !!l.preview, updatedAt: now,
+        minMinutes: Math.max(0, Math.min(600, Number(l.minMinutes) || 0)),
+        quiz: Array.isArray(l.quiz?.questions) && l.quiz.questions.length ? { passPct: Math.min(100, Math.max(1, Number(l.quiz.passPct) || 80)),
+          questions: l.quiz.questions.slice(0, 50).map((q: any) => ({ q: String(q.q || '').slice(0, 400), options: (q.options || []).map((o: any) => String(o).slice(0, 200)).filter(Boolean).slice(0, 6), answer: Math.max(0, Number(q.answer) || 0) })).filter((q: any) => q.q && q.options.length >= 2) } : null,
       }, { merge: true });
       const count = (await col.count().get()).data().count;
       await db.doc(`${base}/${courseId}`).set({ lessonCount: count, updatedAt: now }, { merge: true });
@@ -130,7 +144,65 @@ export async function POST(req: NextRequest) {
       const s = await q.limit(1000).get();
       const lessons = courseId ? await loadLessons(tenantId, courseId) : [];
       const total = Math.max(1, lessons.length);
-      return NextResponse.json({ ok: true, students: s.docs.map((d: any) => { const e = d.data() as any; const done = Object.keys(e.progress || {}).length; return { email: e.email, courseId: e.courseId, since: e.createdAt, paidCents: e.paidCents || 0, done, pct: courseId ? Math.round((done / total) * 100) : null }; }).sort((a: any, c: any) => String(c.since).localeCompare(String(a.since))) });
+      return NextResponse.json({ ok: true, students: s.docs.map((d: any) => { const e = d.data() as any; const done = Object.keys(e.progress || {}).length; return { studentId: e.studentId, email: e.email, courseId: e.courseId, since: e.createdAt, paidCents: e.paidCents || 0, done, pct: courseId ? Math.round((done / total) * 100) : null, onlineHours: Math.round(((e.onlineSec || 0) / 3600) * 10) / 10, certificateCode: e.certificateCode || null, lastActiveAt: e.lastActiveAt || null }; }).sort((a: any, c: any) => String(c.since).localeCompare(String(a.since))) });
+    }
+
+    // ── Attendance: live list, approvals, corrections (never overwritten) ──
+    if (b.action === 'attendance') {
+      const col = db.collection(`tenants/${tenantId}/attendance`);
+      const since = new Date(Date.now() - Math.max(1, Math.min(90, Number(b.days) || 14)) * 86400000).toISOString();
+      const [recent, open, flagged, pending] = await Promise.all([col.where('clockInAt', '>=', since).limit(2000).get(), col.where('status', '==', 'open').limit(500).get(), col.where('status', '==', 'flagged').limit(500).get(), col.where('status', '==', 'pending').limit(500).get()]);
+      const map = new Map<string, any>();
+      for (const s of [recent, open, flagged, pending]) for (const d of s.docs) map.set(d.id, { id: d.id, ...(d.data() as any) });
+      const t = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      return NextResponse.json({ ok: true, punches: [...map.values()].sort((a, c) => String(c.clockInAt).localeCompare(String(a.clockInAt))), settings: t.academy || {} });
+    }
+    if (b.action === 'attendance-approve' || b.action === 'attendance-resolve') {
+      const ref = db.doc(`tenants/${tenantId}/attendance/${String(b.id || '')}`);
+      const p = ((await ref.get()).data() as any) || null;
+      if (!p) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
+      const reason = String(b.reason || '').trim().slice(0, 300);
+      if (b.action === 'attendance-approve') {
+        if (!p.clockOutAt) return NextResponse.json({ ok: false, error: 'Add a clock-out time first (Correct).' }, { status: 400 });
+        await ref.set({ status: 'approved', approvedBy: who, approvedAt: now }, { merge: true });
+        await appendAudit(tenantId, { type: 'attendance.approved', studentId: p.studentId, by: who, summary: `Approved ${Math.floor((p.minutes || 0) / 60)}h ${(p.minutes || 0) % 60}m for ${p.email}`, data: { attendanceId: ref.id } });
+        return NextResponse.json({ ok: true });
+      }
+      if (!reason) return NextResponse.json({ ok: false, error: 'A reason is required for every correction.' }, { status: 400 });
+      const inAt = b.clockInAt ? new Date(b.clockInAt).toISOString() : p.clockInAt;
+      const outAt = b.clockOutAt ? new Date(b.clockOutAt).toISOString() : p.clockOutAt;
+      if (!outAt || new Date(outAt) <= new Date(inAt)) return NextResponse.json({ ok: false, error: 'Clock-out must be after clock-in.' }, { status: 400 });
+      if (new Date(outAt).getTime() > Date.now() + 60000) return NextResponse.json({ ok: false, error: 'Clock-out can’t be in the future.' }, { status: 400 });
+      const minutes = Math.floor((new Date(outAt).getTime() - new Date(inAt).getTime()) / 60000);
+      const correction = { at: now, by: who, reason, before: { clockInAt: p.clockInAt, clockOutAt: p.clockOutAt, minutes: p.minutes || 0, status: p.status }, after: { clockInAt: inAt, clockOutAt: outAt, minutes } };
+      await ref.set({ clockInAt: inAt, clockOutAt: outAt, minutes, status: 'approved', approvedBy: who, approvedAt: now, corrections: [...(p.corrections || []), correction] }, { merge: true });
+      await appendAudit(tenantId, { type: 'attendance.corrected', studentId: p.studentId, by: who, summary: `Corrected ${p.email}: ${new Date(inAt).toLocaleString()} → ${new Date(outAt).toLocaleTimeString()} (${Math.floor(minutes / 60)}h ${minutes % 60}m). Reason: ${reason}`, data: { attendanceId: ref.id, ...correction } });
+      return NextResponse.json({ ok: true });
+    }
+    if (b.action === 'attendance-code') {
+      const t = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      const w = qrWindow();
+      return NextResponse.json({ ok: true, url: `${linkOrigin(t, req.nextUrl.origin)}/learn/${tenantId}/attend?c=${qrCode(tenantId, w)}&w=${w}`, refreshInSec: QR_WINDOW_SEC - (Math.floor(Date.now() / 1000) % QR_WINDOW_SEC), name: t.name || '' });
+    }
+    if (b.action === 'academy-settings') {
+      if (!auth.actor.isTenantOwner && !auth.actor.isManager) return NextResponse.json({ ok: false, error: 'Owners and managers only.' }, { status: 403 });
+      const cur = ((((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {}).academy) || {};
+      const next = { ...cur,
+        ...('requireGeo' in b ? { requireGeo: !!b.requireGeo } : {}), ...('requireApproval' in b ? { requireApproval: !!b.requireApproval } : {}),
+        ...(b.geo && Number.isFinite(Number(b.geo.lat)) ? { geo: { lat: Number(b.geo.lat), lng: Number(b.geo.lng), radiusM: Math.max(30, Math.min(2000, Number(b.geo.radiusM) || 150)) } } : {}) };
+      await db.doc(`tenants/${tenantId}`).set({ academy: next }, { merge: true });
+      await appendAudit(tenantId, { type: 'settings.changed', by: who, summary: `Attendance settings: location ${next.requireGeo ? 'required' : 'optional'}${next.geo ? ` (${next.geo.radiusM} m)` : ''}, approval ${next.requireApproval ? 'required' : 'automatic'}`, data: next });
+      return NextResponse.json({ ok: true, settings: next });
+    }
+    if (b.action === 'transcript') {
+      const tr = await transcript(tenantId, String(b.studentId || ''), b.courseId ? String(b.courseId) : null);
+      const c = b.courseId ? ((await db.doc(`${base}/${String(b.courseId)}`).get()).data() as any) || null : null;
+      return NextResponse.json({ ok: true, transcript: tr, course: c ? { title: c.title, requiredOnlineHours: c.requiredOnlineHours || null, requiredInPersonHours: c.requiredInPersonHours || null } : null });
+    }
+    if (b.action === 'audit-verify') {
+      const v = await verifyAudit(tenantId);
+      const recent = await db.collection(`tenants/${tenantId}/academyAudit`).orderBy('seq', 'desc').limit(40).get();
+      return NextResponse.json({ ...v, verified: v.ok, ok: true, recent: recent.docs.map((d: any) => { const e = d.data() as any; return { seq: e.seq, at: e.at, type: e.type, by: e.by, summary: e.summary }; }) });
     }
 
     return NextResponse.json({ ok: false, error: 'Unknown action' }, { status: 400 });
