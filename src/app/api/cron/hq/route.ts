@@ -18,6 +18,7 @@ import { resolveFromAddress } from '@/lib/notify';
 import { platformAdminEmails } from '@/lib/platform-admin';
 import { computeMetrics } from '@/lib/hq-metrics';
 import { syncStripeMonth, monthKey } from '@/lib/hq-finance';
+import { billTextOverage } from '@/lib/billing';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -86,6 +87,8 @@ export async function GET(req: NextRequest) {
   if (process.env.STRIPE_SECRET_KEY) {
     const d = new Date();
     try { await syncStripeMonth(monthKey(d)); if (d.getUTCDate() <= 3) await syncStripeMonth(monthKey(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1)))); } catch { /* Finance can sync by hand */ }
+    // Early each month: texts over the allowance go on each paying business's next invoice (once).
+    if (d.getUTCDate() <= 3) { try { await billTextOverage(monthKey(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1)))); } catch { /* retried tomorrow */ } }
   }
   return NextResponse.json({ ok: true, nudged: sent, stuck: stuck.length, openTickets: open, metrics });
 }
