@@ -394,7 +394,7 @@ service cloud.firestore {
           'learningSessions', 'attendance', 'academyAudit', 'academyAuditMeta',
           'programs', 'programEnrollments', 'clinicCheckoffs',
           'admissions', 'cohorts', 'tuitionPlans', 'tuitionEntries',
-          'academyThreads', 'academyAnnouncements',
+          'academyThreads', 'academyAnnouncements', 'tutorLogs', 'tutorUsage',
           'depositCredits',
           'inventoryExceptions',
           'assetUnits',
