@@ -87,7 +87,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   const [rescheduleOpened, setRescheduleOpened] = useState(false);
   const [campaignRef, setCampaignRef] = useState<{ campaignId: string | null; code: string | null } | null>(null);
   // The offer the client is booking with — shown to them, checked on the server.
-  const [offerShown, setOfferShown] = useState<{ code: string; line: string } | null>(null);
+  const [offerShown, setOfferShown] = useState<{ code: string; line: string; amount?: string; until?: string | null; oncePer?: boolean } | null>(null);
   const [offerInput, setOfferInput] = useState('');
   const [offerErr, setOfferErr] = useState('');
   const [offerOpen, setOfferOpen] = useState(false);
@@ -96,7 +96,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     try {
       const r = await fetch('/api/offers/check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, code }) });
       const d = await r.json().catch(() => null);
-      if (d?.ok) { setOfferShown({ code: d.code, line: d.line }); setCampaignRef((x) => ({ campaignId: x?.campaignId || null, code: d.code })); setOfferOpen(false); }
+      if (d?.ok) { setOfferShown({ code: d.code, line: d.line, amount: d.amount, until: d.until, oncePer: d.oncePer }); setCampaignRef((x) => ({ campaignId: x?.campaignId || null, code: d.code })); setOfferOpen(false); }
       else { if (!quiet) setOfferErr(d?.error || 'That code didn’t work.'); if (quiet) setCampaignRef((x) => (x ? { ...x, code: null } : x)); }
     } catch { if (!quiet) setOfferErr('Couldn’t check that code right now.'); }
   };
@@ -1199,23 +1199,42 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           </div>
         );
       })()}
-      {/* The client's offer: shown when they arrive from a campaign, or typed in. */}
+      {/* The client's offer: shown when they arrive from a campaign, or typed in.
+          Glass, like the rest of the app — the amount is the headline, the
+          code a tag, and one line says what happens next. */}
       <div className="mx-auto w-full max-w-3xl px-4 pt-4">
         {offerShown ? (
-          <div className="rounded-2xl border-2 px-4 py-3" style={{ borderColor: 'currentColor' }}>
-            <p className="text-[13px] font-semibold">🎁 Your offer: {offerShown.line}</p>
-            <p className="text-[11px] opacity-70 mt-0.5">It’s saved with your booking and taken off at your visit — nothing to enter later.</p>
+          <div className="glass relative overflow-hidden rounded-[1.75rem] p-4 sm:p-5 shadow-[0_10px_40px_-12px_rgba(15,23,42,0.18)]" role="status" aria-live="polite">
+            <div aria-hidden className="pointer-events-none absolute -right-10 -top-12 h-36 w-36 rounded-full bg-gradient-to-br from-amber-200/70 via-rose-200/60 to-violet-300/50 blur-2xl" />
+            <div aria-hidden className="pointer-events-none absolute -bottom-14 -left-10 h-32 w-32 rounded-full bg-gradient-to-tr from-sky-200/50 to-emerald-200/40 blur-2xl" />
+            <div className="relative flex items-center gap-4">
+              <div className="glass flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-2xl shadow-sm" aria-hidden>🎁</div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] opacity-60">Your offer</p>
+                <p className="text-2xl font-semibold leading-tight tracking-tight sm:text-3xl">{offerShown.amount || offerShown.line}</p>
+                <p className="mt-0.5 text-[12px] opacity-70">{offerShown.until ? `Until ${offerShown.until}` : 'Applied at your visit'}{offerShown.oncePer ? ' · one per client' : ''}</p>
+              </div>
+              <span className="hidden shrink-0 rounded-xl border border-dashed border-slate-400/60 px-3 py-1.5 font-mono text-[12px] font-semibold tracking-[0.18em] opacity-80 sm:inline-block">{offerShown.code}</span>
+            </div>
+            <div className="relative mt-3 flex items-center justify-between gap-3 border-t border-white/50 pt-3">
+              <p className="text-[12px] opacity-75">Saved with your booking and taken off at your visit — nothing to enter later.</p>
+              <span className="shrink-0 rounded-lg border border-dashed border-slate-400/60 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-[0.15em] opacity-80 sm:hidden">{offerShown.code}</span>
+            </div>
           </div>
         ) : offerOpen ? (
-          <div className="rounded-2xl border px-4 py-3 space-y-2" style={{ borderColor: 'rgba(120,113,108,0.3)' }}>
+          <div className="glass rounded-[1.5rem] p-3 shadow-[0_8px_30px_-12px_rgba(15,23,42,0.15)]">
             <div className="flex gap-2">
-              <input value={offerInput} onChange={(e) => { setOfferInput(e.target.value.toUpperCase()); setOfferErr(''); }} placeholder="Offer code" aria-label="Offer code" className="h-10 min-w-0 flex-1 rounded-xl border px-3 text-sm bg-transparent" style={{ borderColor: 'rgba(120,113,108,0.3)' }} />
-              <button type="button" onClick={() => checkOffer(offerInput)} className="h-10 shrink-0 rounded-xl bg-slate-900 px-4 text-[10px] font-black uppercase tracking-widest text-white">Apply</button>
+              <input value={offerInput} onChange={(e) => { setOfferInput(e.target.value.toUpperCase()); setOfferErr(''); }} onKeyDown={(e) => { if (e.key === 'Enter') void checkOffer(offerInput); }}
+                placeholder="Enter your offer code" aria-label="Offer code" autoFocus
+                className="h-11 min-w-0 flex-1 rounded-2xl border border-white/60 bg-white/50 px-4 font-mono text-sm tracking-[0.12em] outline-none focus:ring-2 focus:ring-slate-400/40" />
+              <button type="button" onClick={() => checkOffer(offerInput)} className="h-11 shrink-0 rounded-2xl bg-slate-900 px-5 text-[11px] font-semibold uppercase tracking-[0.18em] text-white shadow-sm active:scale-[0.98]">Apply</button>
             </div>
-            {offerErr && <p className="text-[11px] opacity-80">{offerErr}</p>}
+            {offerErr && <p className="px-1 pt-2 text-[12px] opacity-80">{offerErr}</p>}
           </div>
         ) : (
-          <button type="button" onClick={() => setOfferOpen(true)} className="text-[12px] underline opacity-70">Have an offer code?</button>
+          <button type="button" onClick={() => setOfferOpen(true)} className="glass inline-flex items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium shadow-sm active:scale-[0.98]">
+            <span aria-hidden>🎁</span> Have an offer code?
+          </button>
         )}
       </div>
       {activeSections.map(section => (
