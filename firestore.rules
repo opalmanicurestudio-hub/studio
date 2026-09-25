@@ -377,6 +377,10 @@ service cloud.firestore {
     match /tenants/{tenantId}/{allSubcollections=**} {
       allow read, write: if isStaff(tenantId) &&
         !(allSubcollections.size() > 0 && allSubcollections[0] in [
+          // Academy records — server only, so hours, attendance and the
+          // audit log can't be changed from a browser, even by staff.
+          'courses', 'enrollments', 'students', 'studentSessions', 'studentLogins',
+          'learningSessions', 'attendance', 'academyAudit', 'academyAuditMeta',
           'depositCredits',
           'inventoryExceptions',
           'assetUnits',
