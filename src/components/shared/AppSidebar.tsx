@@ -123,6 +123,8 @@ const BOOTH_RENTAL = [
 ];
 
 const EVENTS = [
+  // Classes had a page but no sidebar link — nobody could find it.
+  { href: '/classes', icon: CalendarDays, label: 'Classes' },
   { href: '/events', icon: PartyPopper, label: 'Events' },
 ];
 
