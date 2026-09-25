@@ -24,6 +24,7 @@
 // human-readable slot label (already localized when booked), never reformatted
 // from an ISO instant — so we never show the wrong timezone.
 
+import { linkOrigin } from '@/lib/app-origin';
 import { logAuditAdmin } from './audit';
 import { brandedEmailHtml } from './email-template';
 
@@ -278,7 +279,7 @@ export async function runReminderSweep(db: Db, tenantId: string, now: Date = new
         try {
           const r: any = lease?.renterId ? renterById.get(lease.renterId) : null;
           if (rentComms.remindRenterBeforeDue !== false && r?.email && !r?.autopayEnabled) {
-            const base = String(tenantData.publicOrigin || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 'https://studio-one-blue.vercel.app')).replace(/\/+$/, '');
+            const base = linkOrigin(tenantData, 'https://studio-one-blue.vercel.app');
             const payLink = r?.portalToken ? `${base}/rent/${tenantId}?rt=${r.portalToken}` : '';
             const businessName = String(tenantData.name || 'ClarityFlow');
             await sendRentEmail({
