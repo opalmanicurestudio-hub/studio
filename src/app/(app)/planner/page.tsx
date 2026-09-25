@@ -1165,6 +1165,8 @@ function PlannerPageContent() {
     [appointments, currentDate],
   );
 
+  const liveSelectedAppointment = useMemo(() => (selectedAppointment ? ((appointments || []).find((a: any) => a.id === selectedAppointment.id) || selectedAppointment) : null), [selectedAppointment, appointments]);
+
   const awaitingUpcoming = useMemo(() => {
     const floor = startOfDay(new Date()).getTime();
     return (appointments || [])
@@ -1551,9 +1553,11 @@ function PlannerPageContent() {
 
       <DebugErrorBoundary>
         <AppointmentDetailsSheet
-          open={isDetailsOpen} onOpenChange={setIsDetailsOpen} appointment={selectedAppointment}
-          client={clients?.find(c => c.id === selectedAppointment?.clientId) || null}
-          service={services?.find(s => s.id === selectedAppointment?.serviceId) || null}
+          // The LIVE row, not the snapshot taken when the sheet opened — after
+          // Accept/Decline/any change the sheet shows the new state at once.
+          open={isDetailsOpen} onOpenChange={setIsDetailsOpen} appointment={liveSelectedAppointment}
+          client={clients?.find(c => c.id === liveSelectedAppointment?.clientId) || null}
+          service={services?.find(s => s.id === liveSelectedAppointment?.serviceId) || null}
           tmhr={tmhr} transactions={transactions || []}
           onStartService={handleStartService} onFinishService={handleFinishService}
           onEdit={a => { setSelectedAppointment(a); setIsEditAppointmentOpen(true); }}
