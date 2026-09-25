@@ -81,7 +81,18 @@ service cloud.firestore {
       allow write: if isStaff(tenantId);
     }
     match /tenants/{tenantId}/appointments/{appointmentId} {
-      allow read, write: if isStaff(tenantId);
+      allow read, create, delete: if isStaff(tenantId);
+      // Student-salon services: an instructor's sign-off (written only by the
+      // server) must exist before the appointment can be completed, and no
+      // one can write or change that sign-off from a browser.
+      allow update: if isStaff(tenantId)
+        && request.resource.data.get('clinicCheckoff', null) == resource.data.get('clinicCheckoff', null)
+        && !(request.resource.data.get('status', '') == 'completed'
+             && resource.data.get('status', '') != 'completed'
+             && request.resource.data.get('staffId', '') != ''
+             && exists(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.resource.data.staffId))
+             && get(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.resource.data.staffId)).data.get('isStudent', false) == true
+             && resource.data.get('clinicCheckoff', {}).get('signedOff', false) != true);
     }
 
     // The decision ledger. Any staff surface may add a row (the voice queue
@@ -381,6 +392,7 @@ service cloud.firestore {
           // audit log can't be changed from a browser, even by staff.
           'courses', 'enrollments', 'students', 'studentSessions', 'studentLogins',
           'learningSessions', 'attendance', 'academyAudit', 'academyAuditMeta',
+          'programs', 'programEnrollments', 'clinicCheckoffs',
           'depositCredits',
           'inventoryExceptions',
           'assetUnits',
