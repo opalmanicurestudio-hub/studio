@@ -63,10 +63,11 @@ async function priceIds(keys: string[]): Promise<Record<string, string>> {
 export async function businessSize(tenantId: string) {
   const db = getAdminDb();
   const [staffSnap, leases] = await Promise.all([
-    db.collection(`tenants/${tenantId}/staff`).select('status').limit(500).get(),
+    db.collection(`tenants/${tenantId}/staff`).select('status', 'isStudent').limit(1000).get(),
     db.collection(`tenants/${tenantId}/leases`).where('status', '==', 'active').select('renterId').limit(1000).get(),
   ]);
-  const staff = staffSnap.docs.filter((d: any) => !['archived', 'terminated', 'inactive'].includes(String((d.data() as any).status || ''))).length;
+  // Students in a school's student salon are providers, not the school's team — never billed.
+  const staff = staffSnap.docs.filter((d: any) => !(d.data() as any).isStudent && !['archived', 'terminated', 'inactive'].includes(String((d.data() as any).status || ''))).length;
   const renters = new Set(leases.docs.map((d: any) => (d.data() as any).renterId).filter(Boolean)).size;
   return { staff: Math.max(1, staff), renters };
 }
