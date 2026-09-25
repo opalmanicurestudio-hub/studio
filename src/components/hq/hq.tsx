@@ -21,7 +21,7 @@ export const ago = (iso?: string | null) => {
 
 export function HqNav() {
   const path = usePathname() || '';
-  const tabs: [string, string][] = [['/admin/tenants', 'Businesses'], ['/admin/support', 'Help inbox'], ['/admin/early-access', 'Early access']];
+  const tabs: [string, string][] = [['/admin/tenants', 'Businesses'], ['/admin/support', 'Help inbox'], ['/admin/early-access', 'Early access'], ['/admin/system', 'System']];
   return (
     <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/85 backdrop-blur-xl">
       <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
