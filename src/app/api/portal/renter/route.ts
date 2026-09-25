@@ -3165,7 +3165,9 @@ export async function POST(req: NextRequest) {
       const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
       const pm = r.stripePaymentMethodId || r.defaultPaymentMethodId || null;
       const cardOnFile = !!(r.stripeCustomerId && pm);
-      const quote = { summary: pv.summary, segmentsEach: pv.segments, neededSegments: neededSegs, freeSegments: Math.min(neededSegs, freeLeft + budgetLeft), chargeCents, priceCents: policy.priceCents, cardOnFile, mode: policy.mode };
+      const { peopleOf } = await import('@/lib/campaign-engine');
+      const quote = { summary: pv.summary, segmentsEach: pv.segments, neededSegments: neededSegs, freeSegments: Math.min(neededSegs, freeLeft + budgetLeft), chargeCents, priceCents: policy.priceCents, cardOnFile, mode: policy.mode,
+        sampleText: pv.sampleText, ...peopleOf(pv.aud, pv.channel, 500) };
       if (action === 'rc-preview') return NextResponse.json({ ok: true, quote });
 
       if (chargeCents > 0) {
