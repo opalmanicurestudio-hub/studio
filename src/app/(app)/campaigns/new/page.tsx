@@ -33,6 +33,7 @@ import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { CAMPAIGN_TEMPLATES, TOKENS, fillTokens, type CampaignTemplate } from '@/lib/campaign-templates';
+import { AudienceList } from '@/components/campaigns/AudienceList';
 import { cn } from '@/lib/utils';
 import { ArrowLeft, ArrowRight, Check, Loader, Mail, MessageSquare, Send, Sparkles, Tag, Clock, Repeat, Users, Search } from 'lucide-react';
 
@@ -111,7 +112,7 @@ function Editor() {
   const [clientQuery, setClientQuery] = useState('');
   const [newOffer, setNewOffer] = useState<{ open: boolean; kind: 'percentage' | 'fixed'; value: string; code: string; until: string; onePer: boolean }>({ open: false, kind: 'percentage', value: '15', code: '', until: '', onePer: true });
   const bodyRef = useRef<HTMLTextAreaElement>(null);
-  const set = (p: Partial<Draft>) => setD((x) => ({ ...x, ...p }));
+  const set = (p: Partial<Draft>) => { setD((x) => ({ ...x, ...p })); if ('targetAudience' in p || 'type' in p || 'targetServiceIds' in p || 'targetStaffIds' in p || 'targetMinSpend' in p || 'targetClientIds' in p) setReach(null); };
 
   // Open a saved campaign.
   useEffect(() => {
@@ -314,6 +315,14 @@ function Editor() {
             {d.targetAudience === 'spent_over' && (
               <label className="flex items-center gap-2 text-sm font-bold">Spent at least $<Input type="number" min={1} value={d.targetMinSpend || ''} onChange={(e) => set({ targetMinSpend: Number(e.target.value) || 0 })} className="h-10 w-32" /> in the last 12 months</label>
             )}
+            <div className="rounded-2xl border-2 border-dashed border-slate-200 p-3 space-y-2">
+              {!reach?.recipients || reachBusy
+                ? <Button type="button" variant="outline" disabled={reachBusy || !!stepProblem('who')} onClick={checkReach} className="w-full">{reachBusy ? <><Loader className="h-4 w-4 mr-2 animate-spin" />Finding them…</> : <><Users className="h-4 w-4 mr-2" />See who’s in it</>}</Button>
+                : <>
+                    <div className="flex items-center justify-between"><p className="text-xs font-black uppercase tracking-widest text-slate-500">{audience?.label}</p><button type="button" onClick={checkReach} className="text-[11px] font-bold text-slate-500 underline">Refresh</button></div>
+                    <AudienceList recipients={reach.recipients} skipped={reach.skipped} channel={d.type} total={reach.summary?.willReceive} compact />
+                  </>}
+            </div>
             {d.targetAudience === 'specific' && (
               <div className="space-y-2">
                 <div className="relative"><Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" /><Input value={clientQuery} onChange={(e) => setClientQuery(e.target.value)} placeholder="Search clients" className="h-10 pl-9" /></div>
@@ -458,6 +467,7 @@ function Editor() {
                     {reach.summary.skippedUnsubscribed > 0 && <p className="text-slate-500">{reach.summary.skippedUnsubscribed} left out — unsubscribed</p>}
                     {d.type === 'sms' && reach.estCostCents > 0 && <p className="font-bold text-slate-700">Estimated text cost: about ${(reach.estCostCents / 100).toFixed(2)}</p>}
                     {reach.summary.willReceive === 0 && d.type === 'sms' && reach.summary.skippedNoConsent > 0 && <p className="text-xs font-bold text-amber-700">Tip: send it as an email instead — emails reach everyone with an address.</p>}
+                    {reach.recipients && <div className="pt-2"><AudienceList recipients={reach.recipients} skipped={reach.skipped} channel={d.type} total={reach.summary.willReceive} /></div>}
                   </div>
                 ) : <Button type="button" variant="outline" onClick={checkReach}>Check</Button>}
             </Card>
