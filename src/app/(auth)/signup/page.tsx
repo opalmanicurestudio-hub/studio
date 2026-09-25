@@ -27,7 +27,8 @@ import { ToolPicker } from '@/components/modules/ToolPicker';
 import { RECOMMENDED, CATEGORY_FOR, toTenantModules, hoursFor, TOOL_BY_ID, type ToolId } from '@/lib/module-catalog';
 
 const TYPES: [string, string, string][] = [
-  ['salon', '✂️', 'Salon or suites'], ['spa', '🌿', 'Spa or wellness'], ['fitness', '🧘', 'Fitness studio'], ['shop', '🏺', 'Shop or maker'], ['other', '✦', 'Something else'],
+  ['salon', '✂️', 'Salon or suites'], ['spa', '🌿', 'Spa or wellness'], ['fitness', '🧘', 'Fitness studio'], ['tattoo', '🖋️', 'Tattoo or piercing'],
+  ['shop', '🏺', 'Shop or maker'], ['events', '🎉', 'Events or venue'], ['hospitality', '☕', 'Café or lounge'], ['other', '✦', 'Something else'],
 ];
 const field = 'h-12 w-full rounded-2xl border border-white/80 bg-white/70 px-4 text-[15px] outline-none transition focus:bg-white focus:ring-2 focus:ring-stone-300';
 
@@ -47,12 +48,36 @@ function Signup() {
   const [show, setShow] = useState(false);
   const [err, setErr] = useState('');
   const [building, setBuilding] = useState<number>(-1);
+  // Early access is by invite unless NEXT_PUBLIC_SIGNUP_OPEN=true.
+  const inviteOnly = String(process.env.NEXT_PUBLIC_SIGNUP_OPEN || '').toLowerCase() !== 'true';
+  const [invite, setInvite] = useState(() => String(sp?.get('invite') || '').toUpperCase());
+  const [inviteOk, setInviteOk] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const checkInvite = async (quiet = false) => {
+    if (!inviteOnly) return true;
+    setChecking(true); if (!quiet) setErr('');
+    try {
+      const r = await fetch('/api/invites', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'check', code: invite }) });
+      const d = await r.json().catch(() => null);
+      if (d?.ok) {
+        setInviteOk(true);
+        if (d.business && !businessName) setBusinessName(d.business);
+        if (d.type && !type && TYPES.some(([k]) => k === d.type)) setType(d.type);
+        if (d.email && !me.email) setMe((m) => ({ ...m, email: d.email }));
+        return true;
+      }
+      if (!quiet) setErr(d?.error || 'That invite code didn’t work.');
+      return false;
+    } catch { if (!quiet) setErr('Couldn’t check your invite — check your connection.'); return false; }
+    finally { setChecking(false); }
+  };
+  useEffect(() => { if (inviteOnly && invite.length >= 4) void checkInvite(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (type && !toolsTouched && !sp?.get('tools')) setTools(RECOMMENDED[type] as ToolId[]); }, [type, toolsTouched, sp]);
 
   const label = TYPES.find(([k]) => k === type)?.[2] || '';
   const pwOk = me.password.length >= 6;
-  const canNext = step === 0 ? !!type && businessName.trim().length >= 2 : step === 1 ? tools.length > 0 : me.name.trim().length >= 2 && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(me.email) && me.phone.replace(/\D/g, '').length >= 7 && pwOk;
+  const canNext = step === 0 ? !!type && businessName.trim().length >= 2 && (!inviteOnly || invite.trim().length >= 4) : step === 1 ? tools.length > 0 : me.name.trim().length >= 2 && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(me.email) && me.phone.replace(/\D/g, '').length >= 7 && pwOk;
   const steps = useMemo(() => ['Creating your account', `Setting up ${businessName.trim() || 'your business'}`, `Turning on ${tools.length} tools`, 'Opening your booking page'], [businessName, tools.length]);
 
   const create = async () => {
@@ -152,6 +177,12 @@ function Signup() {
       batch.set(doc(db, 'tenants', tenantId), { businessType: type, teamSize, modules: toTenantModules(tools), signupTools: tools }, { merge: true });
       setBuilding(2);
       await batch.commit();
+      if (inviteOnly && invite) {
+        try {
+          const tk = await userCredential.user.getIdToken();
+          await fetch('/api/invites', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify({ action: 'redeem', code: invite, tenantId }) });
+        } catch { /* the account exists either way */ }
+      }
       setBuilding(3);
       await new Promise((r) => setTimeout(r, 700));
       setBuilding(4);
@@ -207,6 +238,13 @@ function Signup() {
 
           {step === 0 && (
             <div className="mt-8 space-y-4">
+              {inviteOnly && (
+                <div className={`rounded-3xl p-4 ${inviteOk ? 'bg-emerald-50' : 'glass'}`}>
+                  <p className="text-[13px] text-stone-600">{inviteOk ? '✓ Invite accepted — welcome.' : 'ClarityFlow is in early access. Enter the invite code from your email.'}</p>
+                  {!inviteOk && <input value={invite} onChange={(e) => { setInvite(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '')); setErr(''); }} placeholder="Invite code" autoComplete="off" className={field + ' mt-2 font-mono tracking-[0.15em]'} />}
+                  {!inviteOk && <p className="mt-2 text-[12px] text-stone-500">No code yet? <Link href="/request-access" className="font-medium text-stone-900 underline-offset-2 hover:underline">Request access</Link></p>}
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-2">
                 {TYPES.map(([k, e, l]) => (
                   <button key={k} type="button" onClick={() => setType(k)} aria-pressed={type === k}
@@ -242,7 +280,7 @@ function Signup() {
               </div>
               <p className={`px-1 text-[12px] ${pwOk ? 'text-emerald-700' : 'text-stone-500'}`}>{pwOk ? '✓ Good to go' : 'At least 6 characters'}</p>
               <div className="rounded-2xl bg-white/60 p-3 text-[13px] text-stone-600">
-                <span className="font-medium text-stone-900">{businessName || 'Your business'}</span> · {tools.length} tools · gives back about {hoursFor(tools)} hrs a week
+                <span className="font-medium text-stone-900">{businessName || 'Your business'}</span> · {new Set(['booking', 'guest', ...tools]).size} tools · gives back about {hoursFor(Array.from(new Set(['booking', 'guest', ...tools])) as ToolId[])} hrs a week
               </div>
             </div>
           )}
@@ -251,7 +289,7 @@ function Signup() {
 
           <div className="mx-auto mt-8 flex max-w-md items-center gap-3">
             {step > 0 && <button type="button" onClick={() => { setStep(step - 1); setErr(''); }} className="glass flex h-12 w-12 shrink-0 items-center justify-center rounded-full" aria-label="Back"><ArrowLeft className="h-4 w-4" /></button>}
-            <button type="button" disabled={!canNext} onClick={() => (step < 2 ? setStep(step + 1) : create())}
+            <button type="button" disabled={!canNext || checking} onClick={async () => { if (step === 0 && inviteOnly && !inviteOk && !(await checkInvite())) return; step < 2 ? setStep(step + 1) : create(); }}
               className="h-12 flex-1 rounded-full bg-stone-900 text-sm font-medium text-white shadow-[0_12px_30px_-12px_rgba(28,25,23,0.6)] disabled:opacity-40">
               {step < 2 ? 'Continue' : 'Build my ClarityFlow'}
             </button>
