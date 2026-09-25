@@ -31,7 +31,8 @@ export type ModuleId =
   | 'memberships'
   | 'team'
   | 'voice'
-  | 'hospitality';   // host stand, floor service, guest lounge, kitchen display
+  | 'hospitality'    // host stand, floor service, guest lounge, kitchen display
+  | 'academy';       // online courses (/academy builder; students use /learn)
 
 export const MODULES: Record<ModuleId, {
   label: string;
@@ -77,6 +78,7 @@ export const MODULES: Record<ModuleId, {
   team: { label: 'Team & onboarding', pages: ['/applicants', '/timesheets', '/documents', '/schedule', '/schedule/requests', '/timeclock', '/staff-portal'], messageKinds: [] },
   voice: { label: 'AI receptionist', pages: ['/voice'], messageKinds: [] },
   hospitality: { label: 'Lounge & hospitality', pages: ['/host', '/floor', '/concierge', '/kds', '/settings/hosting'], messageKinds: [] },
+  academy: { label: 'Online academy', pages: ['/academy'], messageKinds: [] },
 };
 
 const PAGE_TO_MODULE: Record<string, ModuleId> = Object.fromEntries(
