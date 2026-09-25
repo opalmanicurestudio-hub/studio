@@ -1,5 +1,6 @@
 'use client';
 
+import { PayLaterCard } from '@/components/settings/PayLaterCard';
 import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -539,6 +540,7 @@ function SettingsPageImpl() {
                       if (!res.ok) throw new Error('Failed to disconnect');
                     }}
                   />
+                  <PayLaterCard tenantId={tenantId || ''} />
                 </CardContent>
               </Card>
             </TabsContent>
