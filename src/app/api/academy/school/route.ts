@@ -61,7 +61,15 @@ export async function POST(req: NextRequest) {
       const requirements = (Array.isArray(p.requirements) ? p.requirements : []).slice(0, 60).map((r: any) => ({ key: keyOf(r.key || r.label), label: String(r.label || '').slice(0, 80), count: Math.max(0, Math.min(10000, Number(r.count) || 0)), serviceIds: (r.serviceIds || []).map(String).slice(0, 30) })).filter((r: any) => r.label);
       const rubric = p.rubric?.criteria?.length ? { criteria: p.rubric.criteria.map((c: any) => ({ label: String(c.label || '').slice(0, 80) })).filter((c: any) => c.label).slice(0, 12), passAvg: Math.max(1, Math.min(5, Number(p.rubric.passAvg) || 3)) } : (cur.rubric || DEFAULT_RUBRIC);
       const next = { id: ref.id, name, totalHours: Math.max(0, Number(p.totalHours) || 0) || null, requiredOnlineHours: Math.max(0, Number(p.requiredOnlineHours) || 0) || null, requiredInPersonHours: Math.max(0, Number(p.requiredInPersonHours) || 0) || null,
-        requirements, rubric, courseIds: (p.courseIds || []).map(String).slice(0, 30), tipPolicy: ['student', 'school', 'none'].includes(p.tipPolicy) ? p.tipPolicy : 'school',
+        requirements, rubric, courseIds: (p.courseIds || []).map(String).slice(0, 30),
+        // Admissions & tuition (all optional): what applicants upload, what they sign, what it costs.
+        description: String(p.description || '').slice(0, 2000) || null,
+        requiredDocs: (Array.isArray(p.requiredDocs) ? p.requiredDocs : []).map((x: any) => String(x).trim().slice(0, 80)).filter(Boolean).slice(0, 12),
+        agreementTemplate: String(p.agreementTemplate || '').slice(0, 20000) || null,
+        tuition: p.tuition ? { tuitionCents: Math.max(0, Math.round(Number(p.tuition.tuitionCents) || 0)), registrationFeeCents: Math.max(0, Math.round(Number(p.tuition.registrationFeeCents) || 0)), kitCents: Math.max(0, Math.round(Number(p.tuition.kitCents) || 0)),
+          downPaymentCents: Math.max(0, Math.round(Number(p.tuition.downPaymentCents) || 0)), installments: Math.max(0, Math.min(60, Math.round(Number(p.tuition.installments) || 0))), interval: p.tuition.interval === 'biweekly' ? 'biweekly' : 'month' } : (cur.tuition || null),
+        refundPolicy: p.refundPolicy?.tiers?.length ? { cancelDays: Math.max(0, Number(p.refundPolicy.cancelDays) || 0), registrationNonRefundable: !!p.refundPolicy.registrationNonRefundable, kitNonRefundable: !!p.refundPolicy.kitNonRefundable,
+          tiers: p.refundPolicy.tiers.map((x: any) => ({ upToPct: Math.max(0, Math.min(100, Number(x.upToPct) || 0)), keepPct: Math.max(0, Math.min(100, Number(x.keepPct) || 0)) })).sort((a: any, c: any) => a.upToPct - c.upToPct) } : (cur.refundPolicy || null), tipPolicy: ['student', 'school', 'none'].includes(p.tipPolicy) ? p.tipPolicy : 'school',
         status: p.status === 'archived' ? 'archived' : 'active', createdAt: cur.createdAt || now, updatedAt: now };
       await ref.set(next, { merge: true });
       // Keep active students on the clinic services this program now uses.
