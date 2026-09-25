@@ -19,6 +19,7 @@ import { platformAdminEmails } from '@/lib/platform-admin';
 import { computeMetrics } from '@/lib/hq-metrics';
 import { syncStripeMonth, monthKey } from '@/lib/hq-finance';
 import { billTextOverage } from '@/lib/billing';
+import { sweepAcademy } from '@/lib/academy-compliance';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -80,6 +81,9 @@ export async function GET(req: NextRequest) {
     await email(to, `HQ today: ${stuck.length} stuck · ${open} help request${open === 1 ? '' : 's'} waiting`,
       `${stuck.length ? `Still stuck after two nudges:\n${stuck.map((x) => `• ${x}`).join('\n')}\n\n` : ''}${open ? `${open} help request${open === 1 ? '' : 's'} waiting on you: ${base}/admin/support\n\n` : ''}Nudges sent today: ${sent.length}\n\nHQ: ${base}/admin/tenants`);
   }
+  // Academy records: close abandoned online sessions, flag missing clock-outs.
+  try { await sweepAcademy(); } catch { /* retried tomorrow */ }
+
   // Today's numbers for HQ → Insights (every figure gets a trend).
   let metrics = false;
   try { await computeMetrics(); metrics = true; } catch { /* Insights can refresh by hand */ }
