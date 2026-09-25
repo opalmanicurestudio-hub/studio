@@ -1,24 +1,48 @@
 // src/lib/platform-admin.ts
 //
-// WHO RUNS CLARITYFLOW ITSELF (not a business on it). Platform admins can see
-// early-access requests and send invites. Set PLATFORM_ADMIN_EMAILS in Vercel
-// to a comma-separated list, e.g. "you@yourdomain.com".
+// WHO RUNS CLARITYFLOW ITSELF — the HQ team, and what each role may do.
+//
+//   owner      everything (the emails in PLATFORM_ADMIN_EMAILS are owners)
+//   support    help desk, businesses (fixes, notes, resets), early access
+//   developer  help desk (bugs), businesses (read + fixes), system
+//   analyst    insights and businesses, read-only
+//
+// Team members beyond the owners live in platformTeam/{email}, added from
+// HQ → Team. Everyone signs in with a normal ClarityFlow account.
 
-import { getAdminAuth } from '@/lib/firebase-admin';
+import { getAdminAuth, getAdminDb } from '@/lib/firebase-admin';
+
+export type HqRole = 'owner' | 'support' | 'developer' | 'analyst';
+export type HqPerm = 'tickets' | 'tenants' | 'fix' | 'suspend' | 'invites' | 'system' | 'insights' | 'team';
+
+const PERMS: Record<HqRole, HqPerm[]> = {
+  owner: ['tickets', 'tenants', 'fix', 'suspend', 'invites', 'system', 'insights', 'team'],
+  support: ['tickets', 'tenants', 'fix', 'invites'],
+  developer: ['tickets', 'tenants', 'fix', 'system'],
+  analyst: ['tenants', 'insights'],
+};
+export const can = (role: HqRole | null | undefined, perm: HqPerm) => !!role && PERMS[role].includes(perm);
+export const permsFor = (role: HqRole) => PERMS[role];
 
 export function platformAdminEmails(): string[] {
   return String(process.env.PLATFORM_ADMIN_EMAILS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
 }
 
-/** The signed-in platform admin behind this request, or null. */
-export async function verifyPlatformAdmin(req: Request): Promise<{ uid: string; email: string } | null> {
+export interface HqMember { uid: string; email: string; role: HqRole; name: string }
+
+/** The signed-in HQ team member behind this request, or null. */
+export async function verifyPlatformAdmin(req: Request): Promise<HqMember | null> {
   const h = req.headers.get('authorization') || '';
   const token = h.startsWith('Bearer ') ? h.slice(7) : '';
   if (!token) return null;
   try {
     const d = await getAdminAuth().verifyIdToken(token);
     const email = String(d.email || '').toLowerCase();
-    return email && platformAdminEmails().includes(email) ? { uid: d.uid, email } : null;
+    if (!email) return null;
+    if (platformAdminEmails().includes(email)) return { uid: d.uid, email, role: 'owner', name: String(d.name || email.split('@')[0]) };
+    const m = ((await getAdminDb().doc(`platformTeam/${email}`).get()).data() as any) || null;
+    if (!m || m.active === false || !PERMS[m.role as HqRole]) return null;
+    return { uid: d.uid, email, role: m.role, name: m.name || email.split('@')[0] };
   } catch { return null; }
 }
 
