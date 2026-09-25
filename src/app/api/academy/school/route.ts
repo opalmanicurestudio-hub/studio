@@ -45,6 +45,46 @@ export async function POST(req: NextRequest) {
         services: svcs.docs.map((d: any) => { const s = d.data() as any; return { id: d.id, name: s.name, price: s.price ?? null, duration: s.duration ?? s.durationMinutes ?? null, isActive: s.isActive !== false }; }).filter((s: any) => s.isActive).sort((a: any, c: any) => String(a.name).localeCompare(String(c.name))) });
     }
 
+    // ── Home: what needs attention, in one call ──
+    if (b.action === 'home') {
+      const T = `tenants/${tenantId}`;
+      const month = new Date(); month.setDate(1); month.setHours(0, 0, 0, 0);
+      const today = new Date().toISOString().slice(0, 10);
+      const tdoc = ((await db.doc(T).get()).data() as any) || {};
+      const mode = tdoc.academy?.mode || 'courses';
+      const [courses, enr] = await Promise.all([db.collection(`${T}/courses`).limit(300).get(), db.collection(`${T}/enrollments`).where('createdAt', '>=', month.toISOString()).limit(5000).get()]);
+      const out: any = { mode, name: tdoc.name || '', courses: { total: courses.size, published: courses.docs.filter((d: any) => (d.data() as any).status === 'published').length },
+        month: { enrolments: enr.size, revenueCents: enr.docs.reduce((n: number, d: any) => n + ((d.data() as any).paidCents || 0), 0) } };
+      if (mode === 'school') {
+        const [adm, att, risk, threads, plans, progs, students, appts] = await Promise.all([
+          isLead ? db.collection(`${T}/admissions`).limit(3000).get() : Promise.resolve(null),
+          db.collection(`${T}/attendance`).where('status', 'in', ['open', 'flagged', 'pending']).limit(1000).get(),
+          db.collection(`${T}/programEnrollments`).where('status', '==', 'active').limit(3000).get(),
+          db.collection(`${T}/academyThreads`).limit(1000).get(),
+          isLead ? db.collection(`${T}/tuitionPlans`).where('status', '==', 'past_due').limit(1000).get() : Promise.resolve(null),
+          db.collection(`${T}/programs`).limit(100).get(),
+          db.collection(`${T}/staff`).where('isStudent', '==', true).limit(2000).get(),
+          db.collection(`${T}/appointments`).where('startTime', '>=', new Date(`${today}T00:00:00`).toISOString()).where('startTime', '<', new Date(new Date(`${today}T00:00:00`).getTime() + 86400000).toISOString()).limit(2000).get(),
+        ]);
+        const A = adm ? adm.docs.map((d: any) => d.data() as any) : [];
+        const studentIds = new Set(students.docs.map((d: any) => d.id));
+        const P = att.docs.map((d: any) => d.data() as any);
+        const R = risk.docs.map((d: any) => d.data() as any);
+        out.school = {
+          programs: progs.size, activeStudents: R.length,
+          newInquiries: A.filter((a: any) => a.stage === 'inquiry').length,
+          docsToCheck: A.reduce((n: number, a: any) => n + Object.values(a.documents || {}).filter((x: any) => x.status === 'submitted').length, 0),
+          toCountersign: A.filter((a: any) => a.agreement?.signedAt && !a.agreement?.countersignedBy).length,
+          checkoffsToday: appts.docs.map((d: any) => d.data() as any).filter((a: any) => studentIds.has(a.staffId) && !a.clinicCheckoff?.signedOff && !['cancelled', 'declined', 'no_show'].includes(a.status)).length,
+          onFloor: P.filter((p: any) => p.status === 'open').length, attendanceToFix: P.filter((p: any) => p.status === 'flagged' || p.status === 'pending').length,
+          atRisk: R.filter((e: any) => e.risk?.level === 'high').length, watch: R.filter((e: any) => e.risk?.level === 'watch').length,
+          unread: threads.docs.reduce((n: number, d: any) => n + ((d.data() as any).unreadSchool || 0), 0),
+          tuitionLate: plans ? plans.size : null, isLead,
+        };
+      }
+      return NextResponse.json({ ok: true, ...out });
+    }
+
     if (b.action === 'mode') {
       const mode = b.mode === 'school' ? 'school' : 'courses';
       await db.doc(`tenants/${tenantId}`).set({ academy: { mode } }, { merge: true });
