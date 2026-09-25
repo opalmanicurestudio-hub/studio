@@ -12,7 +12,7 @@
 //
 // A student's sign-in is a token kept in this browser (30 days).
 
-import { useCallback, useEffect, useMemo, useState, createElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, createElement } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AuthBackdrop } from '@/components/auth/AuthBackdrop';
@@ -56,12 +56,12 @@ function Prose({ text }: { text: string }) {
   return <div className="space-y-3 text-[15px] leading-relaxed text-stone-800">{text.split(/\n{2,}/).map((p, i) => p.startsWith('#') ? <h3 key={i} className="pt-2 text-lg font-semibold">{p.replace(/^#+\s*/, '')}</h3> : <p key={i} className="whitespace-pre-wrap">{p}</p>)}</div>;
 }
 
-function MuxPlayer({ playbackId, token, color, title }: { playbackId: string; token: string | null; color: string; title: string }) {
+function MuxPlayer({ playbackId, token, color, title, bind }: { playbackId: string; token: string | null; color: string; title: string; bind?: (el: any) => void }) {
   useEffect(() => {
     if (document.querySelector('script[data-mux-player]')) return;
     const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/@mux/mux-player@3/dist/mux-player.js'; s.async = true; s.dataset.muxPlayer = '1'; document.head.appendChild(s);
   }, []);
-  return createElement('mux-player', { 'playback-id': playbackId, ...(token ? { 'playback-token': token } : {}), 'stream-type': 'on-demand', 'accent-color': color, 'metadata-video-title': title, style: { width: '100%', aspectRatio: '16 / 9', borderRadius: '1.25rem', overflow: 'hidden', display: 'block' } });
+  return createElement('mux-player', { ref: bind, 'playback-id': playbackId, ...(token ? { 'playback-token': token } : {}), 'stream-type': 'on-demand', 'accent-color': color, 'metadata-video-title': title, style: { width: '100%', aspectRatio: '16 / 9', borderRadius: '1.25rem', overflow: 'hidden', display: 'block' } });
 }
 
 // ── Catalog ──────────────────────────────────────────────────────────────
@@ -168,17 +168,75 @@ export function Course({ tenantId, slug }: { tenantId: string; slug: string }) {
   );
 }
 
-// ── Lesson ───────────────────────────────────────────────────────────────
+// ── Lesson (with verified engagement) ────────────────────────────────────
+function useEngagement(opts: { tenantId: string; token: string | null; courseId?: string; lessonId: string; on: boolean; mode: 'mux' | 'embed' | 'page' }) {
+  const [state, setState] = useState<{ engagedSec: number; watchedSec: number; check: string | null; paused: boolean }>({ engagedSec: 0, watchedSec: 0, check: null, paused: false });
+  const sid = useRef<string | null>(null);
+  const lastAct = useRef(Date.now());
+  const playing = useRef(false);
+  const ranges = useRef<[number, number][]>([]);
+  const lastT = useRef<number | null>(null);
+  const pendingAnswer = useRef<string | null>(null);
+
+  const beat = useCallback(async () => {
+    if (!sid.current) return;
+    const window = opts.mode === 'embed' ? 180000 : 40000;   // an embedded video can't report play — recent activity counts
+    const body = { action: 'heartbeat', tenantId: opts.tenantId, token: opts.token, sessionId: sid.current, visible: document.visibilityState === 'visible',
+      playing: playing.current, interacted: Date.now() - lastAct.current <= window, ranges: ranges.current.splice(0), checkAnswer: pendingAnswer.current };
+    pendingAnswer.current = null;
+    const r = await api(body);
+    if (r.restart) { sid.current = null; return; }
+    if (r.ok) setState({ engagedSec: r.lessonEngagedSec, watchedSec: r.lessonWatchedSec, check: r.check || null, paused: !!r.paused });
+  }, [opts.tenantId, opts.token, opts.mode]);
+
+  useEffect(() => {
+    if (!opts.on || !opts.courseId || !opts.token) return;
+    let alive = true;
+    api({ action: 'session-start', tenantId: opts.tenantId, token: opts.token, courseId: opts.courseId, lessonId: opts.lessonId }).then((r) => { if (alive && r.ok) sid.current = r.sessionId; });
+    const mark = () => { lastAct.current = Date.now(); };
+    const evs = ['pointermove', 'pointerdown', 'keydown', 'scroll', 'touchstart', 'wheel'];
+    evs.forEach((e) => window.addEventListener(e, mark, { passive: true }));
+    const iv = window.setInterval(() => void beat(), 30000);
+    const end = () => { if (sid.current) navigator.sendBeacon('/api/academy/public', new Blob([JSON.stringify({ action: 'session-end', tenantId: opts.tenantId, token: opts.token, sessionId: sid.current })], { type: 'application/json' })); };
+    window.addEventListener('pagehide', end);
+    return () => { alive = false; evs.forEach((e) => window.removeEventListener(e, mark)); window.clearInterval(iv); window.removeEventListener('pagehide', end); end(); sid.current = null; };
+  }, [opts.on, opts.courseId, opts.lessonId, opts.tenantId, opts.token, beat]);
+
+  /** Hook the Mux player: play/pause and which seconds were actually watched. */
+  const bindPlayer = useCallback((el: any) => {
+    if (!el || el.__cfBound) return; el.__cfBound = true;
+    el.addEventListener('playing', () => { playing.current = true; lastT.current = el.currentTime; });
+    ['pause', 'ended', 'waiting'].forEach((e) => el.addEventListener(e, () => { playing.current = false; }));
+    el.addEventListener('seeking', () => { lastT.current = null; });
+    el.addEventListener('timeupdate', () => {
+      const t = Number(el.currentTime) || 0; const prev = lastT.current;
+      if (playing.current && prev != null && t > prev && t - prev <= 2.5) {
+        const last = ranges.current[ranges.current.length - 1];
+        if (last && Math.abs(last[1] - prev) < 0.6) last[1] = t; else ranges.current.push([prev, t]);
+      }
+      lastT.current = t;
+    });
+  }, []);
+  const answer = useCallback((id: string) => { pendingAnswer.current = id; lastAct.current = Date.now(); setState((s) => ({ ...s, check: null, paused: false })); void beat(); }, [beat]);
+  return { ...state, bindPlayer, answer };
+}
+
 export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: string; lessonId: string }) {
   const [course, setCourse] = useState<any>(null);
   const [lesson, setLesson] = useState<any>(null);
   const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
+  const [answers, setAnswers] = useState<Record<number, number>>({});
+  const [quizResult, setQuizResult] = useState<any>(null);
   const token = typeof window !== 'undefined' ? getToken(tenantId) : null;
   const load = useCallback(async () => {
     const c = await api({ action: 'course', tenantId, slug, token }); setCourse(c);
     if (c.ok) setLesson(await api({ action: 'lesson', tenantId, courseId: c.course.id, lessonId, token }));
   }, [tenantId, slug, lessonId, token]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { setQuizResult(null); setAnswers({}); setNote(''); void load(); }, [load]);
+  const L = lesson?.ok ? lesson.lesson : null;
+  const mode = L?.video?.type === 'mux' ? 'mux' : L?.video?.type === 'embed' ? 'embed' : 'page';
+  const eng = useEngagement({ tenantId, token, courseId: course?.course?.id, lessonId, on: !!lesson?.enrolled, mode });
   if (!course || !lesson) return <Shell tenantId={tenantId}><Loading /></Shell>;
   if (!course.ok) return <Shell tenantId={tenantId}><Glass><p className="text-center">{course.error}</p></Glass></Shell>;
   const color = course.brand.color;
@@ -187,11 +245,20 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
   const next = list[i + 1], prev = list[i - 1];
   const done = !!course.progress?.[lessonId];
   const pct = Math.round((Object.keys(course.progress || {}).length / Math.max(1, list.length)) * 100);
+  const tr = lesson.tracking || {};
+  const engaged = Math.max(eng.engagedSec, tr.engagedSec || 0), watched = Math.max(eng.watchedSec, tr.watchedSec || 0);
+  const dur = L?.durationSec || 0;
   const complete = async () => {
-    setBusy(true);
-    await api({ action: 'progress', tenantId, token, courseId: course.course.id, lessonId, done: !done });
+    setBusy(true); setNote('');
+    const r = await api({ action: 'progress', tenantId, token, courseId: course.course.id, lessonId, done: !done });
     setBusy(false);
+    if (!r.ok) { setNote(r.error || 'Not yet.'); return; }
     if (!done && next) window.location.href = `/learn/${tenantId}/${slug}/${next.id}`; else void load();
+  };
+  const submitQuiz = async () => {
+    const qs = L.quiz.questions; const arr = qs.map((_: any, k: number) => (answers[k] ?? -1));
+    setBusy(true); const r = await api({ action: 'quiz-submit', tenantId, token, courseId: course.course.id, lessonId, answers: arr }); setBusy(false);
+    setQuizResult(r); if (r.ok) void load();
   };
   return (
     <Shell brand={course.brand} tenantId={tenantId}>
@@ -202,17 +269,42 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
             <Glass className="text-center"><p className="text-lg font-semibold">🔒 {lesson.error}</p><Link href={`/learn/${tenantId}/${slug}`} className="mt-3 inline-block rounded-full px-5 py-2.5 text-sm text-white" style={{ background: color }}>See the course</Link></Glass>
           ) : (
             <>
-              <p className="text-[11px] uppercase tracking-[0.25em] text-stone-400">{lesson.lesson.moduleTitle}</p>
-              <h1 className="text-3xl font-light tracking-tight">{lesson.lesson.title}</h1>
-              {lesson.lesson.video?.type === 'mux' && <MuxPlayer playbackId={lesson.lesson.video.playbackId} token={lesson.lesson.video.token} color={color} title={lesson.lesson.title} />}
-              {lesson.lesson.video?.type === 'embed' && lesson.lesson.video.url && <iframe src={lesson.lesson.video.url} title={lesson.lesson.title} className="aspect-video w-full rounded-[1.25rem]" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen />}
-              {lesson.lesson.kind === 'video' && !lesson.lesson.video && <Glass><p className="text-stone-600">This video is being prepared — check back shortly.</p></Glass>}
-              {lesson.lesson.body && <Glass><Prose text={lesson.lesson.body} /></Glass>}
-              {lesson.lesson.downloadUrl && <a href={lesson.lesson.downloadUrl} target="_blank" rel="noreferrer" className="glass flex items-center justify-between rounded-2xl border border-white/70 px-4 py-3 text-sm"><span>↓ {lesson.lesson.downloadName || 'Download'}</span><span className="text-stone-500">Open</span></a>}
+              <p className="text-[11px] uppercase tracking-[0.25em] text-stone-400">{L.moduleTitle}</p>
+              <h1 className="text-3xl font-light tracking-tight">{L.title}</h1>
+              {mode === 'mux' && <MuxPlayer playbackId={L.video.playbackId} token={L.video.token} color={color} title={L.title} bind={eng.bindPlayer} />}
+              {mode === 'embed' && L.video.url && <iframe src={L.video.url} title={L.title} className="aspect-video w-full rounded-[1.25rem]" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen />}
+              {L.kind === 'video' && !L.video && <Glass><p className="text-stone-600">This video is being prepared — check back shortly.</p></Glass>}
+              {lesson.enrolled && (
+                <div className="glass flex flex-wrap items-center gap-x-4 gap-y-1 rounded-2xl border border-white/70 px-4 py-2.5 text-[13px] text-stone-600">
+                  <span>⏱ Active time: <span className="font-semibold text-stone-900">{Math.floor(engaged / 60)} min</span>{tr.compliance && dur ? ` of ${Math.ceil((dur * (tr.minEngagementPct || 80)) / 100 / 60)} needed` : ''}{tr.compliance && L.minMinutes ? ` of ${L.minMinutes} needed` : ''}</span>
+                  {mode === 'mux' && dur > 0 && <span>▶ Watched: <span className="font-semibold text-stone-900">{Math.min(100, Math.round((watched / dur) * 100))}%</span>{tr.compliance ? ` of ${tr.minWatchPct || 90}% needed` : ''}</span>}
+                  {eng.paused && <span className="font-semibold text-amber-700">Paused — answer the check to keep your time counting</span>}
+                  {tr.compliance && <span className="w-full text-[11px] text-stone-400">This course records verified learning time for your school. Time counts while this page is open and you’re actively learning.</span>}
+                </div>
+              )}
+              {L.body && <Glass><Prose text={L.body} /></Glass>}
+              {L.downloadUrl && <a href={L.downloadUrl} target="_blank" rel="noreferrer" className="glass flex items-center justify-between rounded-2xl border border-white/70 px-4 py-3 text-sm"><span>↓ {L.downloadName || 'Download'}</span><span className="text-stone-500">Open</span></a>}
+              {L.quiz && lesson.enrolled && (
+                <Glass className="space-y-4">
+                  <div className="flex items-baseline justify-between"><p className="text-lg font-semibold">Quiz</p><p className="text-[12px] text-stone-500">Pass mark {L.quiz.passPct}%{L.quiz.passed ? ' · ✓ passed' : ''}</p></div>
+                  {L.quiz.questions.map((q: any, k: number) => (
+                    <div key={k} className={`rounded-2xl p-3 ${quizResult?.wrong?.includes(k) ? 'bg-red-50' : 'bg-white/60'}`}>
+                      <p className="font-medium">{k + 1}. {q.q}</p>
+                      <div className="mt-2 space-y-1">{q.options.map((o: string, j: number) => (
+                        <label key={j} className="flex cursor-pointer items-center gap-2 text-[15px]"><input type="radio" name={`q${k}`} checked={answers[k] === j} onChange={() => setAnswers({ ...answers, [k]: j })} />{o}</label>
+                      ))}</div>
+                    </div>
+                  ))}
+                  <button type="button" disabled={busy || Object.keys(answers).length < L.quiz.questions.length} onClick={submitQuiz} className="h-11 rounded-full px-6 text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>Submit answers</button>
+                  {quizResult?.ok && <p className={`font-semibold ${quizResult.passed ? 'text-emerald-700' : 'text-red-700'}`}>{quizResult.score}% — {quizResult.passed ? 'passed ✓' : `not passed yet (${quizResult.correct}/${quizResult.total}). Review and try again.`}</p>}
+                  {(L.quiz.attempts || []).length > 0 && <p className="text-[12px] text-stone-500">Attempts: {L.quiz.attempts.map((a: any) => `${a.score}%`).join(' · ')}</p>}
+                </Glass>
+              )}
+              {note && <p className="rounded-2xl bg-amber-50 p-3 text-sm text-amber-900">{note}</p>}
               <div className="flex flex-wrap items-center gap-2">
                 {prev && <Link href={`/learn/${tenantId}/${slug}/${prev.id}`} className="rounded-full bg-white/70 px-4 py-2.5 text-sm">← Previous</Link>}
                 {lesson.enrolled ? (
-                  <button type="button" disabled={busy} onClick={complete} className="ml-auto rounded-full px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50" style={{ background: color }}>{done ? '✓ Completed' : next ? 'Mark complete → next' : 'Mark complete'}</button>
+                  <button type="button" disabled={busy || (done && tr.compliance)} onClick={complete} className="ml-auto rounded-full px-5 py-2.5 text-sm font-medium text-white disabled:opacity-60" style={{ background: color }}>{done ? '✓ Completed' : next ? 'Mark complete → next' : 'Mark complete'}</button>
                 ) : (
                   <Link href={`/learn/${tenantId}/${slug}`} className="ml-auto rounded-full px-5 py-2.5 text-sm font-medium text-white" style={{ background: color }}>Enrol to continue</Link>
                 )}
@@ -230,6 +322,57 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
           </Glass>
         </aside>
       </div>
+
+      {eng.check && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-5 backdrop-blur-sm" role="alertdialog" aria-label="Attention check">
+          <div className="w-full max-w-sm rounded-[1.75rem] bg-[#f7f5f2] p-6 text-center shadow-2xl">
+            <p className="text-3xl">👋</p>
+            <p className="mt-2 text-xl font-semibold">Still with us?</p>
+            <p className="mt-1 text-sm text-stone-600">Your school records active learning time. Tap below to keep it counting.</p>
+            <button type="button" onClick={() => eng.answer(eng.check!)} className="mt-4 h-12 w-full rounded-full text-sm font-medium text-white" style={{ background: color }}>I’m here — continue</button>
+          </div>
+        </div>
+      )}
+    </Shell>
+  );
+}
+
+// ── Clock in / out at the academy ────────────────────────────────────────
+export function Attend({ tenantId }: { tenantId: string }) {
+  const sp = useSearchParams();
+  const [st, setSt] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<any>(null);
+  const token = typeof window !== 'undefined' ? getToken(tenantId) : null;
+  const code = sp?.get('c') || '', w = Number(sp?.get('w') || 0);
+  useEffect(() => { api({ action: 'attend-status', tenantId, token }).then(setSt); }, [tenantId, token]);
+  const go = async (direction: 'in' | 'out') => {
+    setBusy(true); setRes(null);
+    const geo = await new Promise<any>((resolve) => { if (!navigator.geolocation) return resolve(null); navigator.geolocation.getCurrentPosition((p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }), () => resolve(null), { enableHighAccuracy: true, timeout: 8000 }); });
+    const r = await api({ action: 'attend', tenantId, token, code, w, direction, geo });
+    setBusy(false); setRes(r); if (r.ok) api({ action: 'attend-status', tenantId, token }).then(setSt);
+  };
+  if (!st) return <Shell tenantId={tenantId}><Loading /></Shell>;
+  if (st.needsSignIn || !st.ok) return (
+    <Shell tenantId={tenantId}><Glass className="mx-auto max-w-sm text-center"><p className="text-xl font-semibold">Sign in to clock in</p><p className="mt-1 text-sm text-stone-600">Use the email you enrolled with. Then scan the screen again.</p><Link href={`/learn/${tenantId}/my`} className="mt-4 inline-block rounded-full bg-stone-900 px-6 py-3 text-sm text-white">Sign in</Link></Glass></Shell>
+  );
+  return (
+    <Shell tenantId={tenantId}>
+      <Glass className="mx-auto max-w-sm space-y-4 text-center">
+        <p className="text-[11px] uppercase tracking-[0.25em] text-stone-400">Attendance</p>
+        <p className="text-2xl font-light">{st.student.name || st.student.email}</p>
+        {res?.ok ? (
+          <div className="rounded-2xl bg-emerald-50 p-4 text-emerald-900"><p className="text-3xl">✓</p><p className="font-semibold">{res.direction === 'in' ? 'Clocked in' : 'Clocked out'} at {new Date(res.at).toLocaleTimeString()}</p>{res.direction === 'out' && <p className="text-sm">{Math.floor(res.minutes / 60)}h {res.minutes % 60}m{res.pending ? ' — awaiting instructor approval' : ''}</p>}</div>
+        ) : (
+          <>
+            <p className="text-stone-600">{st.open ? `Clocked in since ${new Date(st.open.clockInAt).toLocaleTimeString()}` : 'Not clocked in'}</p>
+            {!code && <p className="text-sm text-amber-700">Scan the code on the academy screen to clock {st.open ? 'out' : 'in'}.</p>}
+            {code && <button type="button" disabled={busy} onClick={() => go(st.open ? 'out' : 'in')} className="h-14 w-full rounded-full bg-stone-900 text-base font-medium text-white disabled:opacity-50">{busy ? 'Checking…' : st.open ? 'Clock out' : 'Clock in'}</button>}
+            {res && !res.ok && <p className="rounded-2xl bg-red-50 p-3 text-sm text-red-800">{res.error}</p>}
+            <p className="text-[11px] text-stone-500">Your time, device and (if the school requires it) location are recorded. Only you can clock yourself in.</p>
+          </>
+        )}
+      </Glass>
     </Shell>
   );
 }
@@ -277,7 +420,12 @@ export function MyCourses({ tenantId }: { tenantId: string }) {
               <Glass key={c.id} className="space-y-3">
                 <p className="text-xl font-semibold">{c.title}</p>
                 <div><div className="h-2 rounded-full bg-white/70"><div className="h-2 rounded-full" style={{ width: `${c.pct}%`, background: color }} /></div><p className="mt-1 text-[12px] text-stone-500">{c.done} of {c.lessonCount} lessons · {c.pct}%</p></div>
-                <Link href={c.lastLessonId ? `/learn/${tenantId}/${c.slug}/${c.lastLessonId}` : `/learn/${tenantId}/${c.slug}`} className="inline-block rounded-full px-5 py-2.5 text-sm font-medium text-white" style={{ background: color }}>{c.done ? 'Continue' : 'Start'}</Link>
+                {(c.requiredOnlineHours || c.onlineHours > 0) && <p className="text-[13px] text-stone-600">Online learning: <span className="font-semibold text-stone-900">{c.onlineHours} h</span>{c.requiredOnlineHours ? ` of ${c.requiredOnlineHours} h` : ''}{c.requiredInPersonHours ? ` · in-person required: ${c.requiredInPersonHours} h` : ''}</p>}
+                <div className="flex flex-wrap gap-2">
+                  <Link href={c.lastLessonId ? `/learn/${tenantId}/${c.slug}/${c.lastLessonId}` : `/learn/${tenantId}/${c.slug}`} className="inline-block rounded-full px-5 py-2.5 text-sm font-medium text-white" style={{ background: color }}>{c.done ? 'Continue' : 'Start'}</Link>
+                  {c.certificateCode ? <Link href={`/verify/${c.certificateCode}`} className="inline-block rounded-full bg-white/80 px-5 py-2.5 text-sm">🎓 Certificate</Link>
+                    : c.pct === 100 && <button type="button" onClick={async () => { const r = await api({ action: 'certificate', tenantId, token: getToken(tenantId), courseId: c.id }); if (r.ok) window.location.href = `/verify/${r.code}`; else alert(r.error); }} className="rounded-full bg-white/80 px-5 py-2.5 text-sm">Get my certificate</button>}
+                </div>
               </Glass>
             ))}
           </div>
