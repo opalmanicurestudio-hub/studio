@@ -7,6 +7,7 @@
 //   video-status   (is Mux done processing? saves the playback id)
 //   students       (who's enrolled, and how far they've got)
 
+import { askClaude, aiConfigured, parseJson } from '@/lib/ai';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
@@ -16,6 +17,15 @@ import { linkOrigin } from '@/lib/app-origin';
 
 export const dynamic = 'force-dynamic';
 const KINDS = ['video', 'text', 'download'];
+const str = (v: any, n: number) => String(v ?? '').slice(0, n);
+/** Interactive activities: match pairs, put steps in order, or a client scenario. */
+function cleanActivity(a: any) {
+  if (!a || !['match', 'order', 'scenario'].includes(a.type)) return null;
+  if (a.type === 'match') { const pairs = (a.pairs || []).map((p: any) => ({ left: str(p.left, 160), right: str(p.right, 160) })).filter((p: any) => p.left && p.right).slice(0, 10); return pairs.length >= 2 ? { type: 'match', prompt: str(a.prompt, 200) || 'Match the pairs', pairs } : null; }
+  if (a.type === 'order') { const steps = (a.steps || []).map((x: any) => str(x, 200)).filter(Boolean).slice(0, 12); return steps.length >= 2 ? { type: 'order', prompt: str(a.prompt, 200) || 'Put these in order', steps } : null; }
+  const options = (a.options || []).map((o: any) => ({ text: str(o.text, 300), correct: !!o.correct, feedback: str(o.feedback, 500) })).filter((o: any) => o.text).slice(0, 6);
+  return options.length >= 2 && options.some((o: any) => o.correct) ? { type: 'scenario', prompt: str(a.prompt, 800), options } : null;
+}
 
 export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
@@ -25,7 +35,7 @@ export async function POST(req: NextRequest) {
   // Owners, managers and instructors. Only owners/managers change courses and settings.
   const isInstructor = String(auth.actor.role || '').toLowerCase() === 'instructor';
   if (!auth.actor.isManager && !auth.actor.isTenantOwner && !isInstructor) return NextResponse.json({ ok: false, error: 'Only owners, managers and instructors can use the academy tools.' }, { status: 403 });
-  const INSTRUCTOR_OK = ['list', 'course-get', 'students', 'attendance', 'attendance-approve', 'attendance-resolve', 'attendance-code', 'attendance-photo-check', 'transcript', 'audit-verify'];
+  const INSTRUCTOR_OK = ['tutor-log', 'list', 'course-get', 'students', 'attendance', 'attendance-approve', 'attendance-resolve', 'attendance-code', 'attendance-photo-check', 'transcript', 'audit-verify'];
   if (isInstructor && !auth.actor.isManager && !INSTRUCTOR_OK.includes(String(b.action))) return NextResponse.json({ ok: false, error: 'Instructors can review attendance and students, not change courses.' }, { status: 403 });
   const who = auth.actor.name || auth.actor.uid;
   const db = getAdminDb();
@@ -64,6 +74,7 @@ export async function POST(req: NextRequest) {
         level: String(c.level || '').slice(0, 40) || null, instructorName: String(c.instructorName || '').slice(0, 80) || null,
         coverUrl: /^https:\/\//.test(String(c.coverUrl || '')) ? String(c.coverUrl) : null,
         // Hours tracking for state-licensed schools (all optional).
+        aiTutor: c.aiTutor !== false,
         compliance: !!c.compliance, requiredOnlineHours: Math.max(0, Number(c.requiredOnlineHours) || 0) || null, requiredInPersonHours: Math.max(0, Number(c.requiredInPersonHours) || 0) || null,
         minEngagementPct: Math.min(100, Math.max(0, Number(c.minEngagementPct ?? 80))), minWatchPct: Math.min(100, Math.max(0, Number(c.minWatchPct ?? 90))),
         attentionCheckMinutes: Math.min(60, Math.max(0, Number(c.attentionCheckMinutes ?? 10))),
@@ -98,6 +109,8 @@ export async function POST(req: NextRequest) {
         downloadName: String(l.downloadName || '').slice(0, 120) || null, preview: !!l.preview, updatedAt: now,
         minMinutes: Math.max(0, Math.min(600, Number(l.minMinutes) || 0)),
         releaseAfterDays: Math.max(0, Math.min(3650, Number(l.releaseAfterDays) || 0)),
+        flashcards: (Array.isArray(l.flashcards) ? l.flashcards : []).map((f: any) => ({ front: String(f.front || '').slice(0, 300), back: String(f.back || '').slice(0, 600) })).filter((f: any) => f.front && f.back).slice(0, 60),
+        activity: cleanActivity(l.activity),
         quiz: Array.isArray(l.quiz?.questions) && l.quiz.questions.length ? { passPct: Math.min(100, Math.max(1, Number(l.quiz.passPct) || 80)),
           questions: l.quiz.questions.slice(0, 50).map((q: any) => ({ q: String(q.q || '').slice(0, 400), options: (q.options || []).map((o: any) => String(o).slice(0, 200)).filter(Boolean).slice(0, 6), answer: Math.max(0, Number(q.answer) || 0) })).filter((q: any) => q.q && q.options.length >= 2) } : null,
       }, { merge: true });
@@ -146,6 +159,32 @@ export async function POST(req: NextRequest) {
       const lessons = courseId ? await loadLessons(tenantId, courseId) : [];
       const total = Math.max(1, lessons.length);
       return NextResponse.json({ ok: true, students: s.docs.map((d: any) => { const e = d.data() as any; const done = Object.keys(e.progress || {}).length; return { studentId: e.studentId, email: e.email, courseId: e.courseId, since: e.createdAt, paidCents: e.paidCents || 0, done, pct: courseId ? Math.round((done / total) * 100) : null, onlineHours: Math.round(((e.onlineSec || 0) / 3600) * 10) / 10, certificateCode: e.certificateCode || null, lastActiveAt: e.lastActiveAt || null }; }).sort((a: any, c: any) => String(c.since).localeCompare(String(a.since))) });
+    }
+
+    // ── AI drafts for instructors (they review and save — nothing goes to students unapproved) ──
+    if (b.action === 'ai-draft') {
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on for ClarityFlow yet (ANTHROPIC_API_KEY).' }, { status: 400 });
+      const src = String(b.text || '').trim().slice(0, 12000);
+      if (src.length < 120) return NextResponse.json({ ok: false, error: 'Write the lesson text first (a few paragraphs) — drafts are made from it.' }, { status: 400 });
+      const kind = String(b.kind || 'quiz');
+      const shape: Record<string, string> = {
+        quiz: '{"questions":[{"q":"question","options":["a","b","c","d"],"answer":0}]} — 5 multiple-choice questions, one correct option each (answer = index), plausible wrong options, no "all of the above".',
+        flashcards: '{"flashcards":[{"front":"term or question","back":"short answer"}]} — 8 to 12 cards covering the key facts.',
+        match: '{"activity":{"type":"match","prompt":"Match each … to …","pairs":[{"left":"…","right":"…"}]}} — 5 to 7 pairs.',
+        order: '{"activity":{"type":"order","prompt":"Put these steps in order","steps":["first","second","…"]}} — 4 to 8 steps in the CORRECT order.',
+        scenario: '{"activity":{"type":"scenario","prompt":"A client … What do you do?","options":[{"text":"…","correct":true,"feedback":"why"},{"text":"…","correct":false,"feedback":"why not"}]}} — a realistic client situation, 3 or 4 options, exactly one correct, feedback for each.',
+      };
+      if (!shape[kind]) return NextResponse.json({ ok: false, error: 'Unknown draft type.' }, { status: 400 });
+      const r = await askClaude({ tier: 'smart', maxTokens: 1800, purpose: `academy-draft-${kind}`, tenantId,
+        system: 'You write study material for a licensed beauty / wellness school. Use ONLY facts stated in the lesson text you are given — never add facts, products, regulations or medical claims that are not in it. Plain, friendly language for adult learners. Reply with JSON only, no commentary.',
+        prompt: `Lesson title: ${String(b.title || '').slice(0, 200)}\n\nLesson text:\n${src}\n\nReturn JSON exactly in this shape: ${shape[kind]}` });
+      const j: any = r.ok ? parseJson(r.text) : null;
+      if (!j) return NextResponse.json({ ok: false, error: 'The draft didn’t come back usable — try again.' }, { status: 502 });
+      return NextResponse.json({ ok: true, draft: j });
+    }
+    if (b.action === 'tutor-log') {
+      const s = await db.collection(`tenants/${tenantId}/tutorLogs`).where('courseId', '==', courseId).limit(300).get();
+      return NextResponse.json({ ok: true, log: s.docs.map((d: any) => d.data()).sort((a: any, c: any) => String(c.at).localeCompare(String(a.at))).slice(0, 100) });
     }
 
     // ── Attendance: live list, approvals, corrections (never overwritten) ──
