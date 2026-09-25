@@ -22,6 +22,7 @@
 // reminder goes out — reruns and overlapping windows can't double-text.
 // Delivery: SMS first, branded-email fallback, per the messaging layer.
 
+import { recordCronRun } from '@/lib/cron-heartbeat';
 import { linkOrigin } from '@/lib/app-origin';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -42,6 +43,7 @@ export async function GET(req: NextRequest) {
   if (process.env.CRON_SECRET && auth !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
   }
+  void recordCronRun('reminders');   // HQ → System: "did it run?"
   const db = getAdminDb();
   const results: Record<string, any> = {};
   const tenants = await db.collection('tenants').get();
