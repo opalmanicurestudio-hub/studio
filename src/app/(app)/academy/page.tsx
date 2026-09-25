@@ -15,6 +15,8 @@ import { getAuth } from 'firebase/auth';
 import { Loader, ArrowUp, ArrowDown, Pencil, Trash2, ExternalLink, Video, FileText, Download, Plus } from 'lucide-react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { PrivateImg } from '@/components/shared/private-file';
+import { SchoolPrograms } from '@/components/academy/SchoolPrograms';
+import { StudentSalon } from '@/components/academy/StudentSalon';
 import { useTenant } from '@/context/TenantContext';
 
 async function api(body: any) {
@@ -48,6 +50,11 @@ export default function AcademyBuilderPage() {
   const [busy, setBusy] = useState('');
   const [upload, setUpload] = useState<{ lessonId: string; pct: number; status: string } | null>(null);
   const poll = useRef<number | null>(null);
+  // Online courses only, or a licensed school (programs + student salon too).
+  const [mode, setMode] = useState<'courses' | 'school' | null>(null);
+  const [section, setSection] = useState<'courses' | 'programs' | 'salon'>('courses');
+  useEffect(() => { if (!tenantId) return; (async () => { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : ''; const r = await fetch('/api/academy/school', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify({ action: 'overview', tenantId }) }).then((x) => x.json()).catch(() => null); setMode(r?.mode || 'courses'); })(); }, [tenantId]);
+  const changeMode = async (m: 'courses' | 'school') => { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : ''; const r = await fetch('/api/academy/school', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify({ action: 'mode', tenantId, mode: m }) }).then((x) => x.json()).catch(() => null); if (r?.ok) { setMode(m); if (m === 'courses') setSection('courses'); } else setMsg(r?.error || 'Couldn’t change the mode.'); };
 
   const loadList = useCallback(async () => { if (!tenantId) return; const r = await api({ action: 'list', tenantId }); if (r.ok) setCourses(r.courses); else setMsg(r.error); }, [tenantId]);
   const loadCourse = useCallback(async (id: string) => {
@@ -127,10 +134,24 @@ export default function AcademyBuilderPage() {
             <button type="button" onClick={newCourse} className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-foreground px-4 text-sm font-bold text-background"><Plus className="h-4 w-4" />New course</button>
           </div>
         </div>
+        {mode && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-muted/40 p-2">
+            <div className="flex gap-1">
+              {([['courses', 'Courses'], ...(mode === 'school' ? [['programs', 'Programs'], ['salon', 'Student salon']] : [])] as [string, string][]).map(([k, l]) => <button key={k} type="button" onClick={() => setSection(k as any)} className={`h-9 rounded-full px-4 text-sm font-bold ${section === k ? 'bg-foreground text-background' : ''}`}>{l}</button>)}
+            </div>
+            <div className="flex items-center gap-1 text-[12px]">
+              <span className="font-bold text-muted-foreground">Academy type:</span>
+              <button type="button" onClick={() => changeMode('courses')} className={`rounded-full px-3 py-1.5 font-bold ${mode === 'courses' ? 'bg-foreground text-background' : 'bg-background'}`}>Online courses</button>
+              <button type="button" onClick={() => { if (mode !== 'school' && !window.confirm('Switch on licensed-school tools? Programs, hours requirements, the student salon and check-offs become available. Your online courses keep working as they are.')) return; void changeMode('school'); }} className={`rounded-full px-3 py-1.5 font-bold ${mode === 'school' ? 'bg-foreground text-background' : 'bg-background'}`}>Licensed school</button>
+            </div>
+          </div>
+        )}
         {msg && <p className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{msg}</p>}
+        {section === 'programs' && mode === 'school' && <SchoolPrograms tenantId={tenantId} courses={courses || []} />}
+        {section === 'salon' && mode === 'school' && <StudentSalon tenantId={tenantId} />}
         {d && !d.mux && <p className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Video hosting isn’t connected yet — you can paste a private Vimeo or unlisted YouTube link for now. Add MUX_TOKEN_ID, MUX_TOKEN_SECRET, MUX_SIGNING_KEY_ID and MUX_SIGNING_KEY_PRIVATE in Vercel to upload protected videos.</p>}
 
-        <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
+        {section === 'courses' && <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
           <div className="space-y-2">
             {!courses && <Loader className="h-5 w-5 animate-spin" />}
             {courses?.length === 0 && <p className="rounded-2xl border-2 border-dashed p-6 text-center text-sm text-muted-foreground">No courses yet. Start with the one you teach most.</p>}
@@ -349,7 +370,7 @@ export default function AcademyBuilderPage() {
               )}
             </div>
           )}
-        </div>
+        </div>}
       </main>
     </div>
   );
