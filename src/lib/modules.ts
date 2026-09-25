@@ -30,7 +30,8 @@ export type ModuleId =
   | 'marketing'
   | 'memberships'
   | 'team'
-  | 'voice';
+  | 'voice'
+  | 'hospitality';   // host stand, floor service, guest lounge, kitchen display
 
 export const MODULES: Record<ModuleId, {
   label: string;
@@ -39,7 +40,7 @@ export const MODULES: Record<ModuleId, {
 }> = {
   booth_rental: {
     label: 'Booth rental',
-    pages: ['/booths', '/pipeline', '/renters', '/rent'],
+    pages: ['/booths', '/pipeline', '/renters', '/rent', '/kiosk'],   // /kiosk = the renters' check-in kiosk
     messageKinds: ['booth_tour', 'tour_reminder', 'tour_followup', 'tour_confirmation',
       'booth_reservation', 'rent_late', 'rent_paid', 'balance_due', 'lease',
       'lease_renewal', 'license_expiry', 'credential', 'booth_no_show', 'booth_review'],
@@ -59,7 +60,7 @@ export const MODULES: Record<ModuleId, {
   },
   classes_events: {
     label: 'Classes & events',
-    pages: ['/classes', '/events', '/quotes'],
+    pages: ['/classes', '/events', '/quotes', '/quotes/new'],
     messageKinds: [],
   },
   money: {
@@ -67,12 +68,15 @@ export const MODULES: Record<ModuleId, {
     pages: ['/financials', '/ledger', '/payday', '/bills', '/ai-cfo', '/money'],
     messageKinds: [],
   },
-  guest_experience: { label: 'Guest experience', pages: ['/concierge', '/lobby'], messageKinds: [] },
-  kiosk: { label: 'Kiosk & walk-ins', pages: ['/kiosk', '/walk-in', '/floor'], messageKinds: [] },
-  marketing: { label: 'Marketing automations', pages: ['/campaigns', '/discounts'], messageKinds: [] },
-  memberships: { label: 'Memberships & packages', pages: ['/memberships'], messageKinds: [] },
-  team: { label: 'Team & onboarding', pages: ['/applicants', '/timesheets', '/documents'], messageKinds: [] },
+  // Guest experience (live updates, self check-in, forms) is part of every
+  // booking now — no pages of its own to hide. Kept so saved choices still read.
+  guest_experience: { label: 'Guest experience', pages: [], messageKinds: [] },
+  kiosk: { label: 'Front desk & walk-ins', pages: ['/walk-in', '/lobby'], messageKinds: [] },
+  marketing: { label: 'Marketing & reputation', pages: ['/campaigns', '/discounts', '/reviews'], messageKinds: [] },
+  memberships: { label: 'Memberships & packages', pages: ['/memberships', '/memberships/ledger'], messageKinds: [] },
+  team: { label: 'Team & onboarding', pages: ['/applicants', '/timesheets', '/documents', '/schedule', '/schedule/requests', '/timeclock', '/staff-portal'], messageKinds: [] },
   voice: { label: 'AI receptionist', pages: ['/voice'], messageKinds: [] },
+  hospitality: { label: 'Lounge & hospitality', pages: ['/host', '/floor', '/concierge', '/kds', '/settings/hosting'], messageKinds: [] },
 };
 
 const PAGE_TO_MODULE: Record<string, ModuleId> = Object.fromEntries(
