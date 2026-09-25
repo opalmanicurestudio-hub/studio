@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { payLaterCheckoutParams } from '@/lib/pay-later';
 import {
   addressMessage, addressPolicy, policySnapshot, shouldBlock,
   stripeCustomText, validateAddress,
@@ -582,6 +583,8 @@ async function handleCheckout(req: NextRequest) {
   const sessionParams = (items: any[], withAutoTax: boolean): any => ({
     mode: 'payment',
     line_items: items,
+    // Pay-later only if this business switched it on and the order is big enough.
+    ...payLaterCheckoutParams(tenant.payLater, totalCents),
     // Stripe Tax needs an address to pick a jurisdiction; enabling it makes
     // Stripe's own page require a billing address, which is what the rate is
     // computed against. On a direct charge the CONNECTED account's tax
