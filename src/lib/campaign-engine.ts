@@ -50,8 +50,16 @@ export function audienceParams(c: any, owner: { renterId: string; staffIds: stri
   };
 }
 
-export async function loadOffer(db: any, tenantId: string, c: any): Promise<{ code: string; line: string; discountId: string | null; expiresAt: string | null } | null> {
-  // A renter's campaign carries its offer as their own words (no code).
+export async function loadOffer(db: any, tenantId: string, c: any): Promise<{ code: string; line: string; discountId: string | null; expiresAt: string | null; renterOfferId?: string | null } | null> {
+  // A renter's REAL offer — same rules and same wallet as the business's.
+  if (c.renterOfferId) {
+    try {
+      const o = ((await db.doc(`tenants/${tenantId}/renterOffers/${String(c.renterOfferId)}`).get()).data() as any) || null;
+      if (!o || o.ownerRenterId !== c.ownerRenterId || !o.code || offerProblem({ ...o, usedByClientIds: [] })) return null;
+      return { code: String(o.code), line: offerLine(o), discountId: null, expiresAt: o.validUntil || null, renterOfferId: String(c.renterOfferId) };
+    } catch { return null; }
+  }
+  // Older renter campaigns: an offer in their own words (no code).
   if (!c.discountId && typeof c.offerText === 'string' && c.offerText.trim()) return { code: '', line: c.offerText.trim().slice(0, 140), discountId: null, expiresAt: null };
   if (!c.discountId) return null;
   try {
@@ -152,7 +160,7 @@ async function sendOne(db: any, tenantId: string, campaignId: string, c: any, m:
   if (ok && offer) {
     const wRef = db.doc(`tenants/${tenantId}/clientOffers/${campaignId}__${m.id}`);
     const had = await wRef.get();
-    if (!had.exists) await wRef.set({ id: wRef.id, clientId: m.id, clientName: m.name, discountId: offer.discountId, code: offer.code || null, line: offer.line,
+    if (!had.exists) await wRef.set({ id: wRef.id, clientId: m.id, clientName: m.name, discountId: offer.discountId, renterOfferId: (offer as any).renterOfferId || null, code: offer.code || null, line: offer.line,
       campaignId, campaignName: c.name || null, sentAt: at, expiresAt: offer.expiresAt || null, status: 'available', ownerRenterId: c.ownerRenterId || null });
   }
   return { ok, segments };
