@@ -22,6 +22,7 @@ import { loadCourseBySlug, loadLessons, studentFromToken, enroll, enrollFromChec
 import { applyBeat, appendAudit, jitterMin, lessonMet, qrValid, metersBetween, mergeRanges, watchedSeconds, DEFAULT_RULES, type Range } from '@/lib/academy-compliance';
 import { randomBytes } from 'crypto';
 import { savePrivateImage } from '@/lib/private-storage';
+import { programProgress } from '@/lib/academy-school';
 
 export const dynamic = 'force-dynamic';
 const hits = new Map<string, { n: number; at: number }>();
@@ -138,7 +139,11 @@ export async function POST(req: NextRequest) {
         courses.push({ ...publicCourse({ id: en.courseId, ...c }), done, pct: Math.round((done / Math.max(1, c.lessonCount || 1)) * 100), lastLessonId: en.lastLessonId || null, since: en.createdAt,
           onlineHours: Math.round(((en.onlineSec || 0) / 3600) * 10) / 10, requiredOnlineHours: c.requiredOnlineHours || null, requiredInPersonHours: c.requiredInPersonHours || null, certificateCode: en.certificateCode || null });
       }
-      return NextResponse.json({ ok: true, brand, student: { email: student.email, name: student.name }, courses });
+      // Licensed-school students: their program's hours and service requirements.
+      const pe = await db.collection(`tenants/${tenantId}/programEnrollments`).where('studentId', '==', student.id).limit(10).get();
+      const programs = [];
+      for (const d of pe.docs) { const pr = await programProgress(tenantId, d.id); if (pr) programs.push({ id: d.id, name: pr.program.name, status: pr.enrollment.status, hours: pr.hours, totalHours: pr.program.totalHours, requirements: pr.requirements, requirementsPct: pr.requirementsPct }); }
+      return NextResponse.json({ ok: true, brand, student: { email: student.email, name: student.name }, courses, programs });
     }
 
     if (b.action === 'lesson') {
