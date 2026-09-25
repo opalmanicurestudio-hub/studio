@@ -1,4 +1,5 @@
 'use client';
+import { StaleCopyBanner } from '@/components/shared/StaleCopyBanner';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/shared/AppSidebar';
 import { AuthGuard } from '@/components/auth/AuthGuard';
@@ -43,7 +44,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <AuthGuard>
         <a href="#main" className="skip-link">Skip to content</a>
         <div className="bg-muted/40">
-          <main id="main">{children}</main>
+          <main id="main"><StaleCopyBanner />{children}</main>
         </div>
       </AuthGuard>
     );
@@ -63,7 +64,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <SidebarProvider>
             <AppSidebar />
             <SidebarInset>
-              <main id="main">{children}</main>
+              <main id="main"><StaleCopyBanner />{children}</main>
             </SidebarInset>
           </SidebarProvider>
         </LocationProvider>
