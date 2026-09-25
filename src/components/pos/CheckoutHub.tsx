@@ -1160,10 +1160,11 @@ export const CheckoutHub = ({
 
       <div className="space-y-3">
         {walletOffers.filter((w: any) => !appliedDiscountCodes.map((c: string) => c.toUpperCase()).includes(String(w.code).toUpperCase())).length > 0 && (
-          <div className="space-y-2 rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-3">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-800">Offer waiting for this client</p>
+          <div className="glass relative space-y-2 overflow-hidden rounded-3xl p-4 shadow-[0_8px_30px_-12px_rgba(16,185,129,0.35)]">
+            <div aria-hidden className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-gradient-to-br from-emerald-200/70 to-amber-200/50 blur-2xl" />
+            <p className="relative text-[10px] font-black uppercase tracking-[0.2em] text-emerald-800">🎁 Offer waiting for this client</p>
             {walletOffers.filter((w: any) => !appliedDiscountCodes.map((c: string) => c.toUpperCase()).includes(String(w.code).toUpperCase())).map((w: any) => (
-              <div key={w.id} className="flex items-center justify-between gap-2">
+              <div key={w.id} className="relative flex items-center justify-between gap-2">
                 <p className="min-w-0 text-xs font-bold text-emerald-900">{w.line}{w.campaignName ? <span className="font-medium opacity-70"> · from “{w.campaignName}”</span> : null}</p>
                 <Button size="sm" onClick={() => handleApplyDiscount(String(w.code))} className="h-8 shrink-0 rounded-xl text-[10px] font-black uppercase tracking-widest">Apply</Button>
               </div>
