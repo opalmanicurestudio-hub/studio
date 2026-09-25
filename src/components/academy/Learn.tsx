@@ -337,19 +337,59 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
   );
 }
 
+// ── A live selfie for clock-in (camera only — not a photo from the gallery) ─
+function SelfieCamera({ onPhoto }: { onPhoto: (dataUrl: string | null, live: boolean) => void }) {
+  const video = useRef<HTMLVideoElement | null>(null);
+  const [shot, setShot] = useState<string | null>(null);
+  const [live, setLive] = useState(true);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    let stream: MediaStream | null = null;
+    if (shot) return;
+    navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'user', width: { ideal: 720 } }, audio: false })
+      .then((s) => { stream = s; if (video.current) { video.current.srcObject = s; void video.current.play(); } })
+      .catch(() => { setLive(false); setErr('Camera not available — use the button below to take a photo.'); });
+    return () => { stream?.getTracks().forEach((t) => t.stop()); };
+  }, [shot]);
+  const snap = () => {
+    const v = video.current; if (!v || !v.videoWidth) return;
+    const w = 480, h = Math.round((v.videoHeight / v.videoWidth) * w);
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    c.getContext('2d')!.drawImage(v, 0, 0, w, h);
+    const url = c.toDataURL('image/jpeg', 0.72); setShot(url); onPhoto(url, true);
+  };
+  const fromFile = (f: File) => {
+    const img = new Image(); const r = new FileReader();
+    r.onload = () => { img.onload = () => { const w = 480, h = Math.round((img.height / img.width) * w); const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d')!.drawImage(img, 0, 0, w, h); const url = c.toDataURL('image/jpeg', 0.72); setShot(url); onPhoto(url, false); }; img.src = String(r.result); };
+    r.readAsDataURL(f);
+  };
+  return (
+    <div className="space-y-2">
+      <div className="mx-auto aspect-square w-56 overflow-hidden rounded-full bg-stone-200">
+        {shot ? <img src={shot} alt="Your photo" className="h-full w-full object-cover" /> : live ? <video ref={video} playsInline muted className="h-full w-full -scale-x-100 object-cover" /> : <div className="flex h-full items-center justify-center text-4xl">📷</div>}
+      </div>
+      {shot ? <button type="button" onClick={() => { setShot(null); onPhoto(null, true); }} className="text-sm text-stone-500 underline">Retake</button>
+        : live ? <button type="button" onClick={snap} className="rounded-full bg-white px-5 py-2.5 text-sm shadow-sm">Take photo</button>
+        : <label className="inline-block cursor-pointer rounded-full bg-white px-5 py-2.5 text-sm shadow-sm">Take photo<input type="file" accept="image/*" capture="user" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) fromFile(f); }} /></label>}
+      {err && <p className="text-[12px] text-stone-500">{err}</p>}
+    </div>
+  );
+}
+
 // ── Clock in / out at the academy ────────────────────────────────────────
 export function Attend({ tenantId }: { tenantId: string }) {
   const sp = useSearchParams();
   const [st, setSt] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<any>(null);
+  const [photo, setPhoto] = useState<{ url: string | null; live: boolean }>({ url: null, live: true });
   const token = typeof window !== 'undefined' ? getToken(tenantId) : null;
   const code = sp?.get('c') || '', w = Number(sp?.get('w') || 0);
   useEffect(() => { api({ action: 'attend-status', tenantId, token }).then(setSt); }, [tenantId, token]);
   const go = async (direction: 'in' | 'out') => {
     setBusy(true); setRes(null);
     const geo = await new Promise<any>((resolve) => { if (!navigator.geolocation) return resolve(null); navigator.geolocation.getCurrentPosition((p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }), () => resolve(null), { enableHighAccuracy: true, timeout: 8000 }); });
-    const r = await api({ action: 'attend', tenantId, token, code, w, direction, geo });
+    const r = await api({ action: 'attend', tenantId, token, code, w, direction, geo, photo: photo.url, photoLive: photo.live });
     setBusy(false); setRes(r); if (r.ok) api({ action: 'attend-status', tenantId, token }).then(setSt);
   };
   if (!st) return <Shell tenantId={tenantId}><Loading /></Shell>;
@@ -367,9 +407,10 @@ export function Attend({ tenantId }: { tenantId: string }) {
           <>
             <p className="text-stone-600">{st.open ? `Clocked in since ${new Date(st.open.clockInAt).toLocaleTimeString()}` : 'Not clocked in'}</p>
             {!code && <p className="text-sm text-amber-700">Scan the code on the academy screen to clock {st.open ? 'out' : 'in'}.</p>}
-            {code && <button type="button" disabled={busy} onClick={() => go(st.open ? 'out' : 'in')} className="h-14 w-full rounded-full bg-stone-900 text-base font-medium text-white disabled:opacity-50">{busy ? 'Checking…' : st.open ? 'Clock out' : 'Clock in'}</button>}
+            {code && st.requirePhoto && <SelfieCamera onPhoto={(url, live) => setPhoto({ url, live })} />}
+            {code && <button type="button" disabled={busy || (st.requirePhoto && !photo.url)} onClick={() => go(st.open ? 'out' : 'in')} className="h-14 w-full rounded-full bg-stone-900 text-base font-medium text-white disabled:opacity-50">{busy ? 'Checking…' : st.open ? 'Clock out' : 'Clock in'}</button>}
             {res && !res.ok && <p className="rounded-2xl bg-red-50 p-3 text-sm text-red-800">{res.error}</p>}
-            <p className="text-[11px] text-stone-500">Your time, device and (if the school requires it) location are recorded. Only you can clock yourself in.</p>
+            <p className="text-[11px] text-stone-500">Your time, device{st.requirePhoto ? ', photo' : ''}{st.requireGeo ? ' and location' : ''} are recorded for your school’s attendance records. Photos are private — only your instructors and school managers can see them.</p>
           </>
         )}
       </Glass>
