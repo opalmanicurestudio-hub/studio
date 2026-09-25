@@ -23,6 +23,8 @@ import { applyBeat, appendAudit, jitterMin, lessonMet, qrValid, metersBetween, m
 import { randomBytes } from 'crypto';
 import { savePrivateImage } from '@/lib/private-storage';
 import { programProgress } from '@/lib/academy-school';
+import { DEFAULT_DOCS, DEFAULT_REFUND, admissionByToken, issueApplicationLink, setStage, renderAgreement, createTuitionPlan, completeDownPayment, planBalance, sha as sha256hex } from '@/lib/academy-admissions';
+import { savePrivateDocument } from '@/lib/private-storage';
 
 export const dynamic = 'force-dynamic';
 const hits = new Map<string, { n: number; at: number }>();
@@ -64,7 +66,8 @@ export async function POST(req: NextRequest) {
       const lessons = await loadLessons(tenantId, c.id);
       const enr = student ? ((await db.doc(`tenants/${tenantId}/enrollments/${c.id}_${student.id}`).get()).data() as any) || null : null;
       return NextResponse.json({ ok: true, brand, course: publicCourse(c), enrolled: !!enr, progress: enr?.progress || {}, lastLessonId: enr?.lastLessonId || null, student: student ? { email: student.email, name: student.name } : null,
-        lessons: lessons.map((l: any) => ({ id: l.id, title: l.title, moduleTitle: l.moduleTitle, kind: l.kind, preview: !!l.preview, durationSec: l.durationSec || null })),
+        lessons: lessons.map((l: any) => ({ id: l.id, title: l.title, moduleTitle: l.moduleTitle, kind: l.kind, preview: !!l.preview, durationSec: l.durationSec || null,
+          unlockAt: enr && Number(l.releaseAfterDays) > 0 ? new Date(new Date(enr.startDate || enr.createdAt).getTime() + Number(l.releaseAfterDays) * 86400000).toISOString() : null })),
         payLater: !!t.payLater?.enabled && (c.priceCents || 0) >= (Number(t.payLater?.minAmount ?? 150) * 100) });
     }
 
@@ -153,6 +156,12 @@ export async function POST(req: NextRequest) {
       if (!c || !l || c.status !== 'published') return NextResponse.json({ ok: false, error: 'Lesson not found.' }, { status: 404 });
       const enrolled = student ? (await db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`).get()).exists : false;
       if (!enrolled && !l.preview) return NextResponse.json({ ok: false, locked: true, error: 'Enrol to watch this lesson.' }, { status: 403 });
+      // Scheduled release: unlocks N days after the student starts.
+      if (enrolled && student && Number(l.releaseAfterDays) > 0) {
+        const en = ((await db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`).get()).data() as any) || {};
+        const unlock = new Date(new Date(en.startDate || en.createdAt || Date.now()).getTime() + Number(l.releaseAfterDays) * 86400000);
+        if (unlock.getTime() > Date.now()) return NextResponse.json({ ok: false, locked: true, error: `This lesson unlocks on ${unlock.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}.` }, { status: 403 });
+      }
       const video = l.kind === 'video'
         ? (l.muxPlaybackId && l.muxStatus === 'ready' ? { type: 'mux', playbackId: l.muxPlaybackId, token: muxPlaybackToken(l.muxPlaybackId) } : l.videoUrl ? { type: 'embed', url: embedUrl(l.videoUrl) } : null)
         : null;
@@ -187,6 +196,110 @@ export async function POST(req: NextRequest) {
       }
       await ref.set({ progress, lastLessonId: lessonId }, { merge: true });
       return NextResponse.json({ ok: true, progress });
+    }
+
+    // ── Admissions: apply, then a private application page ──
+    if (b.action === 'programs') {
+      const s = await db.collection(`tenants/${tenantId}/programs`).where('status', '==', 'active').limit(50).get();
+      return NextResponse.json({ ok: true, brand, programs: s.docs.map((d: any) => { const p = d.data() as any; return { id: d.id, name: p.name, totalHours: p.totalHours || null, description: p.description || null,
+        tuitionCents: p.tuition ? p.tuition.tuitionCents + p.tuition.registrationFeeCents + p.tuition.kitCents : null, installments: p.tuition?.installments || 0 }; }) });
+    }
+    if (b.action === 'apply') {
+      const name = String(b.name || '').trim().slice(0, 80), mail = String(b.email || '').trim().toLowerCase();
+      if (!name || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) return NextResponse.json({ ok: false, error: 'Add your name and email.' }, { status: 400 });
+      const p = ((await db.doc(`tenants/${tenantId}/programs/${String(b.programId || '')}`).get()).data() as any) || null;
+      if (!p || p.status === 'archived') return NextResponse.json({ ok: false, error: 'Choose a program.' }, { status: 400 });
+      const dupe = await db.collection(`tenants/${tenantId}/admissions`).where('email', '==', mail).limit(20).get();
+      const open = dupe.docs.find((d: any) => (d.data() as any).programId === b.programId && !['declined', 'withdrawn'].includes((d.data() as any).stage));
+      const at = new Date().toISOString();
+      const wantsToApply = b.intent !== 'info';
+      let id = open?.id;
+      if (!id) {
+        const ref = db.collection(`tenants/${tenantId}/admissions`).doc(); id = ref.id;
+        await ref.set({ id, name, email: mail, phone: String(b.phone || '').slice(0, 30) || null, programId: b.programId, stage: wantsToApply ? 'applied' : 'inquiry', source: String(b.source || 'website').slice(0, 80),
+          message: String(b.message || '').slice(0, 1000) || null, requiredDocs: p.requiredDocs?.length ? p.requiredDocs : DEFAULT_DOCS, documents: {}, notes: [], createdAt: at, updatedAt: at, history: [{ stage: wantsToApply ? 'applied' : 'inquiry', at, by: 'applicant' }] });
+        await appendAudit(tenantId, { type: 'admissions.created', by: mail, summary: `${wantsToApply ? 'Application' : 'Inquiry'} from ${name} for ${p.name}`, data: { admissionId: id } });
+      }
+      if (wantsToApply) {
+        const token = await issueApplicationLink(tenantId, id!);
+        const link = `${origin}/learn/${tenantId}/application/${token}`;
+        await sendEmail(mail, `Your application — ${brand.name}`, `Hi ${name.split(' ')[0]},
+
+Thanks for applying to ${p.name}! Your private application page is here — upload your documents, read and sign your enrolment agreement, and make your down payment:
+
+${link}
+
+Keep this link private.
+
+— ${brand.name}`);
+        return NextResponse.json({ ok: true, applied: true, link });
+      }
+      return NextResponse.json({ ok: true, applied: false });
+    }
+    if (b.action?.startsWith?.('app-') || b.action === 'application') {
+      const a = await admissionByToken(tenantId, String(b.appToken || ''));
+      if (!a) return NextResponse.json({ ok: false, error: 'This application link isn’t valid — ask the school for a new one.' }, { status: 404 });
+      const p = ((await db.doc(`tenants/${tenantId}/programs/${a.programId}`).get()).data() as any) || {};
+      const tuition = p.tuition || { tuitionCents: 0, registrationFeeCents: 0, kitCents: 0, downPaymentCents: 0, installments: 0, interval: 'month' };
+      const studentId = studentIdFor(a.email); const planId = `${a.programId}_${studentId}`;
+      const agreementText = () => renderAgreement(p.agreementTemplate || '', { student: a.name, program: p.name || 'Program', school: brand.name, start: a.startDate ? new Date(a.startDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'to be confirmed', tuition, refund: p.refundPolicy || DEFAULT_REFUND, totalHours: p.totalHours || null });
+
+      if (b.action === 'application') {
+        const plan = ((await db.doc(`tenants/${tenantId}/tuitionPlans/${planId}`).get()).data() as any) || null;
+        const bal = plan ? await planBalance(tenantId, planId) : null;
+        const docs = (a.requiredDocs || DEFAULT_DOCS).map((k: string) => ({ key: k, status: a.documents?.[k]?.status || 'missing', reason: a.documents?.[k]?.reason || null }));
+        return NextResponse.json({ ok: true, brand, applicant: { name: a.name, email: a.email, stage: a.stage, startDate: a.startDate || null, waitlisted: !!a.waitlisted },
+          program: { name: p.name, totalHours: p.totalHours || null, tuition }, docs,
+          agreement: a.agreement?.signedAt ? { signed: true, signedAt: a.agreement.signedAt, signedName: a.agreement.signedName, text: a.agreement.text } : { signed: false, text: agreementText() },
+          payment: plan ? { downPaymentCents: plan.downPaymentCents, paid: !!plan.downPaidAt, balanceCents: bal?.balanceCents ?? null, installmentCents: plan.installmentCents, installmentsTotal: plan.installmentsTotal, nextDueAt: plan.nextDueAt, autopay: !!plan.autopay } : null });
+      }
+      if (b.action === 'app-upload') {
+        const key = String(b.docKey || ''); if (!(a.requiredDocs || DEFAULT_DOCS).includes(key)) return NextResponse.json({ ok: false, error: 'Unknown document.' }, { status: 400 });
+        if (a.documents?.[key]?.status === 'verified') return NextResponse.json({ ok: false, error: 'That document is already verified.' }, { status: 400 });
+        const safe = key.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
+        const f = await savePrivateDocument(tenantId, `tenants/${tenantId}/academy/admissions/${a.id}/${safe}-${Date.now()}`, String(b.file || ''));
+        const docs = { ...(a.documents || {}), [key]: { ref: f.ref, sha256: f.sha256, type: f.type, at: new Date().toISOString(), status: 'submitted', reason: null } };
+        const allIn = (a.requiredDocs || DEFAULT_DOCS).every((k: string) => docs[k]);
+        await a.ref.set({ documents: docs, updatedAt: new Date().toISOString() }, { merge: true });
+        await appendAudit(tenantId, { type: 'admissions.doc_uploaded', by: a.email, summary: `${a.name} uploaded ${key}`, data: { admissionId: a.id, sha256: f.sha256 } });
+        if (allIn && ['inquiry', 'tour', 'applied'].includes(a.stage)) await setStage(tenantId, a.id, 'documents', 'applicant', 'All documents uploaded');
+        return NextResponse.json({ ok: true });
+      }
+      if (b.action === 'app-sign') {
+        if (a.agreement?.signedAt) return NextResponse.json({ ok: true, already: true });
+        const missing = (a.requiredDocs || DEFAULT_DOCS).filter((k: string) => !a.documents?.[k]);
+        if (missing.length) return NextResponse.json({ ok: false, error: `Upload ${missing.join(', ')} first.` }, { status: 400 });
+        const typed = String(b.typedName || '').trim().replace(/\s+/g, ' ');
+        if (!b.agree || typed.toLowerCase() !== String(a.name).trim().replace(/\s+/g, ' ').toLowerCase()) return NextResponse.json({ ok: false, error: `Type your full name exactly as “${a.name}” and tick the box to sign.` }, { status: 400 });
+        const text = agreementText(); const signedAt = new Date().toISOString();
+        const agreement = { text, sha256: sha256hex(text), signedName: typed, signedAt, ip: (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || null, userAgent: String(req.headers.get('user-agent') || '').slice(0, 240) };
+        await a.ref.set({ agreement, updatedAt: signedAt }, { merge: true });
+        await appendAudit(tenantId, { type: 'admissions.signed', by: a.email, summary: `${a.name} signed the enrolment agreement for ${p.name}`, data: { admissionId: a.id, sha256: agreement.sha256 } });
+        await setStage(tenantId, a.id, 'agreement', 'applicant', 'Agreement signed');
+        await createTuitionPlan({ tenantId, programId: a.programId, studentId, email: a.email, name: a.name, admissionId: a.id, tuition, by: 'applicant' });
+        return NextResponse.json({ ok: true });
+      }
+      if (b.action === 'app-pay') {
+        const plan = ((await db.doc(`tenants/${tenantId}/tuitionPlans/${planId}`).get()).data() as any) || null;
+        if (!plan) return NextResponse.json({ ok: false, error: 'Sign your agreement first.' }, { status: 400 });
+        if (plan.downPaidAt) return NextResponse.json({ ok: false, error: 'Already paid — thank you!' }, { status: 400 });
+        if (!t.stripeAccountId) return NextResponse.json({ ok: false, error: 'The school can’t take payments online yet — contact them.' }, { status: 400 });
+        const session = await stripe().checkout.sessions.create({
+          mode: 'payment', customer_email: a.email, customer_creation: 'always', payment_method_types: ['card'],
+          line_items: [{ quantity: 1, price_data: { currency: 'usd', unit_amount: plan.downPaymentCents, product_data: { name: `${p.name} — ${plan.installmentsTotal ? 'down payment' : 'tuition'}`, description: plan.installmentsTotal ? `Your card is saved for ${plan.installmentsTotal} automatic instalments.` : undefined } } }],
+          payment_intent_data: { ...(plan.installmentsTotal ? { setup_future_usage: 'off_session' } : {}), metadata: { type: 'academy_tuition', planId, admissionId: a.id } },
+          metadata: { type: 'academy_tuition', planId, admissionId: a.id },
+          success_url: `${origin}/learn/${tenantId}/application/${String(b.appToken)}?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${origin}/learn/${tenantId}/application/${String(b.appToken)}`,
+        } as any, { stripeAccount: t.stripeAccountId });
+        return NextResponse.json({ ok: true, url: session.url });
+      }
+      if (b.action === 'app-confirm') {
+        const s = await stripe().checkout.sessions.retrieve(String(b.sessionId || ''), {}, { stripeAccount: t.stripeAccountId });
+        if (s.metadata?.planId !== planId) return NextResponse.json({ ok: false, error: 'That payment isn’t for this application.' }, { status: 400 });
+        const r = await completeDownPayment(tenantId, s);
+        return NextResponse.json({ ok: !!r, pending: !r });
+      }
     }
 
     // ── Verified online time ──
