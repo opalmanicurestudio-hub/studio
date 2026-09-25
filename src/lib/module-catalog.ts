@@ -18,26 +18,27 @@ import type { ModuleId as GateId } from './modules';
 
 export type ToolId =
   | 'booking' | 'guest' | 'kiosk' | 'marketing' | 'memberships' | 'books'
-  | 'inventory' | 'team' | 'renters' | 'classes' | 'voice';
+  | 'inventory' | 'team' | 'renters' | 'classes' | 'voice' | 'lounge';
 
 export interface Tool {
   id: ToolId; emoji: string; name: string; line: string; includes: string[];
   gives: string; hours: number; profit?: string; others: string;
   gates: GateId[];   // registry switches this tool controls; [] = always included
+  early?: boolean;   // works today, still being finished — labelled "early" in the picker
 }
 
 export const TOOLS: Tool[] = [
   { id: 'booking', emoji: '📅', name: 'Booking & payments', gates: [], line: 'Online booking that can’t double-book, with deposits and card on file.',
     includes: ['Your own booking page', 'Deposits & no-show protection', 'Approve requests — or instant', 'Reminders on autopilot'],
     gives: 'About 4 hrs a week of back-and-forth', hours: 4, profit: 'Deposits turn no-shows into paid time', others: 'Most charge extra for deposits or approvals' },
-  { id: 'guest', emoji: '✨', name: 'Guest experience', gates: ['guest_experience'], line: 'Live updates from booking to goodbye — they always know, so you don’t field the calls.',
-    includes: ['Running-late & arrived, live', 'Self check-in from their phone', 'Forms & consent before they arrive', 'Lobby & concierge requests'],
+  { id: 'guest', emoji: '✨', name: 'Guest experience', gates: [], line: 'Live updates from booking to goodbye — they always know, so you don’t field the calls.',
+    includes: ['Running-late & arrived, live', 'Self check-in from their phone', 'Forms, consent & photo ID before they arrive', 'Service recovery when something goes wrong'],
     gives: 'About 3 hrs a week of calls and texts', hours: 3, others: 'Most stop at a reminder text' },
-  { id: 'kiosk', emoji: '📲', name: 'Kiosk & walk-ins', gates: ['kiosk'], line: 'A front-desk tablet for walk-ins, waitlists and check-in.',
-    includes: ['Walk-in kiosk & live waitlist', 'Text-when-ready', 'Check-in by code', 'Floor & station view'],
+  { id: 'kiosk', emoji: '📲', name: 'Front desk & walk-ins', gates: ['kiosk'], line: 'A tablet front desk for walk-ins and a lobby screen that shows who’s next.',
+    includes: ['Walk-in kiosk & live waitlist', 'Text-when-ready', 'Lobby board for the waiting room', 'Waitlist that fills cancellations'],
     gives: 'A front desk that runs itself', hours: 3, others: 'Usually a separate app or add-on' },
-  { id: 'marketing', emoji: '💌', name: 'Marketing automations', gates: ['marketing'], line: 'Clients come back on their own — and you see who, and what it earned.',
-    includes: ['Win-back & “you’re due” nudges', 'Campaigns with real results', 'Birthday & first-visit automations', 'Offers applied at checkout'],
+  { id: 'marketing', emoji: '💌', name: 'Marketing & reputation', gates: ['marketing'], line: 'Clients come back on their own — and you see who, and what it earned.',
+    includes: ['Win-back & “you’re due” nudges', 'Campaigns with real results', 'Offers applied at checkout', 'Reviews collected & shown off'],
     gives: 'About 2 hrs a week of chasing', hours: 2, profit: 'Rebookings you’d have lost, counted in dollars', others: 'Often a paid add-on, measured in opens instead of bookings' },
   { id: 'memberships', emoji: '🔁', name: 'Memberships & packages', gates: ['memberships'], line: 'Recurring revenue that renews itself, with credits that apply themselves.',
     includes: ['Monthly memberships on autopay', 'Packages & credits', 'Member perks & early booking', 'Failed-payment follow-up'],
@@ -48,18 +49,21 @@ export const TOOLS: Tool[] = [
   { id: 'inventory', emoji: '📦', name: 'Inventory & retail', gates: ['retail'], line: 'One stock count for the backbar, the shelf and your online shop.',
     includes: ['Stock that counts itself', 'Online shop & fulfilment', 'Low-stock alerts & reorders', 'Returns handled'],
     gives: 'About 2 hrs a week of counting', hours: 2, profit: 'Know product cost per service', others: 'Usually a second system to keep in sync' },
-  { id: 'team', emoji: '👥', name: 'Team & onboarding', gates: ['team'], line: 'Hire, onboard and run your team — schedules, hours and pay in one place.',
-    includes: ['Job posts & applicants', 'Onboarding checklists & handbooks', 'Time clock & timesheets', 'Commission & payroll'],
+  { id: 'team', emoji: '👥', name: 'Team & onboarding', gates: ['team', 'maintenance'], line: 'Hire, onboard and run your team — schedules, hours and pay in one place.',
+    includes: ['Job posts, applicants & interviews', 'Onboarding checklists & handbooks', 'Shifts, time clock & timesheets', 'Commission & payroll', 'A staff portal on their phone'],
     gives: 'About 3 hrs a week of admin', hours: 3, others: 'Hiring and onboarding are rarely included' },
   { id: 'renters', emoji: '🔑', name: 'Booth & suite rental', gates: ['booth_rental', 'maintenance'], line: 'Renters get their own portal and clients — rent collects itself.',
-    includes: ['Leases & rent on autopay', 'A portal for every renter', 'Their own booking & books', 'Maintenance requests'],
+    includes: ['Leases & rent on autopay', 'A portal for every renter', 'Their own booking, offers & books', 'Tours, day rentals & a check-in kiosk', 'Maintenance requests'],
     gives: 'No more chasing rent', hours: 2, profit: 'Rent in on time, every time', others: 'Built for owners with renters — most platforms aren’t' },
   { id: 'classes', emoji: '🎟️', name: 'Classes & events', gates: ['classes_events'], line: 'Classes, workshops and events — spots, waitlists and quotes.',
-    includes: ['Class schedules & capacity', 'Workshops & group bookings', 'Event quotes & deposits', 'Waitlists that fill themselves'],
+    includes: ['Class schedules & capacity', 'Workshops & group bookings', 'Inquiries, event quotes & deposits', 'Waitlists that fill themselves'],
     gives: 'Full rooms without the spreadsheet', hours: 2, others: 'Usually a different platform from appointments' },
   { id: 'voice', emoji: '🎙️', name: 'AI receptionist', gates: ['voice'], line: 'Answers the phone, books, moves and cancels — while you work.',
     includes: ['Answers calls 24/7', 'Books into your real calendar', 'Reschedules & cancels by policy', 'Hands off to you when needed'],
     gives: 'Every call answered', hours: 3, others: 'Rare — and usually a separate subscription' },
+  { id: 'lounge', emoji: '☕', name: 'Lounge & hospitality', gates: ['hospitality'], early: true, line: 'A guest lounge, café or bar — menu, orders, host stand and a kitchen screen.',
+    includes: ['Guest lounge menu & orders', 'Host stand & seating', 'Floor service for your team', 'Kitchen & bar display'],
+    gives: 'Drinks and extras that add to every visit', hours: 1, profit: 'Turns waiting time into sales', others: 'Appointment platforms don’t run a lounge or café' },
 ];
 
 export const TOOL_BY_ID = Object.fromEntries(TOOLS.map((t) => [t.id, t])) as Record<ToolId, Tool>;
@@ -69,6 +73,9 @@ export const RECOMMENDED: Record<string, ToolId[]> = {
   spa: ['booking', 'guest', 'memberships', 'marketing', 'books'],
   fitness: ['booking', 'classes', 'memberships', 'kiosk', 'marketing'],
   shop: ['booking', 'inventory', 'classes', 'marketing', 'books'],
+  tattoo: ['booking', 'guest', 'marketing', 'books', 'renters'],
+  events: ['booking', 'classes', 'marketing', 'books'],
+  hospitality: ['booking', 'lounge', 'kiosk', 'inventory', 'books', 'team'],
   other: ['booking', 'guest', 'marketing', 'books'],
 };
 
@@ -87,4 +94,4 @@ export function fromTenantModules(modules: Record<string, boolean> | null | unde
 }
 
 /** What sign-up used to call "category" — kept for the parts of the app that read it. */
-export const CATEGORY_FOR: Record<string, string> = { salon: 'hair', spa: 'skin', fitness: 'fitness', shop: 'other', other: 'other' };
+export const CATEGORY_FOR: Record<string, string> = { salon: 'hair', spa: 'skin', fitness: 'fitness', shop: 'other', tattoo: 'tattoo', events: 'other', hospitality: 'other', other: 'other' };
