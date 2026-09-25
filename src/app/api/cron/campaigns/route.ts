@@ -13,6 +13,7 @@
 // list is sent in batches for up to ~50s; anything left is picked up next
 // hour — the recipient record makes that resume-safe.
 
+import { recordCronRun } from '@/lib/cron-heartbeat';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { sendCampaignBatch, runAutomation } from '@/lib/campaign-engine';
@@ -24,6 +25,7 @@ export const maxDuration = 60;
 export async function GET(req: NextRequest) {
   const auth = req.headers.get('authorization');
   if (process.env.CRON_SECRET && auth !== `Bearer ${process.env.CRON_SECRET}`) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+  void recordCronRun('campaigns');   // HQ → System: "did it run?"
   const db = getAdminDb();
   const started = Date.now();
   const nowIso = new Date().toISOString();
