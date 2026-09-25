@@ -18,7 +18,7 @@
 
 import Stripe from 'stripe';
 import { getAdminDb } from '@/lib/firebase-admin';
-import { ALL_PRICES, quote, type QuoteLine } from '@/lib/billing-plans';
+import { ALL_PRICES, quote, TEXTS, type QuoteLine } from '@/lib/billing-plans';
 import { fromTenantModules, type ToolId } from '@/lib/module-catalog';
 
 export const stripe = () => new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2025-04-30.basil' as any });
@@ -118,6 +118,47 @@ export async function portalFor(tenantId: string, origin: string) {
   if (!t.billing?.customerId) throw new Error('No billing account yet.');
   const s = await stripe().billingPortal.sessions.create({ customer: t.billing.customerId, return_url: `${origin}/subscriptions` });
   return s.url;
+}
+
+/** Texts a business sent in a period (segments where recorded, else 1 each). */
+export async function textsUsed(tenantId: string, fromIso: string, toIso: string): Promise<number> {
+  const snap = await getAdminDb().collection(`tenants/${tenantId}/messageLog`).where('sentAt', '>=', fromIso).where('sentAt', '<', toIso).select('channel', 'status', 'segments').limit(20000).get();
+  return snap.docs.reduce((n: number, d: any) => { const v = d.data() as any; return v.channel === 'sms' && v.status === 'sent' ? n + (Number(v.segments) || 1) : n; }, 0);
+}
+
+export function monthRange(month: string) {
+  const [y, m] = month.split('-').map(Number);
+  return { from: new Date(Date.UTC(y, m - 1, 1)).toISOString(), to: new Date(Date.UTC(y, m, 1)).toISOString() };
+}
+
+/**
+ * Bill texts over the allowance for a finished month — added to each paying
+ * business's next invoice. Runs once per business per month (platformUsage);
+ * nothing is charged during a free period.
+ */
+export async function billTextOverage(month: string) {
+  const db = getAdminDb();
+  const { from, to } = monthRange(month);
+  const subs = await db.collection('tenants').where('billing.status', '==', 'active').select('billing', 'teamSize', 'name').limit(1000).get();
+  const billed: any[] = [];
+  for (const d of subs.docs) {
+    const t = d.data() as any;
+    const ref = db.doc(`platformUsage/${d.id}_${month}`);
+    if ((await ref.get()).exists) continue;
+    const used = await textsUsed(d.id, from, to);
+    const size = await businessSize(d.id);
+    const included = (t.teamSize === 'team' || size.staff > 1) ? TEXTS.teamIncluded : TEXTS.soloIncluded;
+    const over = Math.max(0, used - included);
+    let invoiceItem: string | null = null;
+    if (over > 0 && t.billing?.customerId && t.billing?.subscriptionId) {
+      const item = await stripe().invoiceItems.create({ customer: t.billing.customerId, subscription: t.billing.subscriptionId, currency: 'usd', amount: over * TEXTS.overageCents,
+        description: `Texts over your ${included.toLocaleString()} included — ${month}: ${over.toLocaleString()} × ${TEXTS.overageCents}¢` });
+      invoiceItem = item.id;
+    }
+    await ref.set({ tenantId: d.id, month, used, included, over, amountCents: over * TEXTS.overageCents, invoiceItem, at: new Date().toISOString() });
+    if (over > 0) billed.push({ tenantId: d.id, name: t.name, over });
+  }
+  return billed;
 }
 
 /** Bring a live subscription in line with the business's tools and size. */
