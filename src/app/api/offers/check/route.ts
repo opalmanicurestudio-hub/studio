@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
-import { offerProblem, offerLine } from '@/lib/offers';
+import { offerProblem, offerLine, offerAmount } from '@/lib/offers';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,7 +29,8 @@ export async function POST(req: NextRequest) {
     const d: any = snap.docs[0]?.data() || null;
     const problem = offerProblem(d);
     if (problem) return NextResponse.json({ ok: false, error: problem });
-    return NextResponse.json({ ok: true, code, line: offerLine(d) });
+    const until = d.validUntil ? new Date(d.validUntil).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
+    return NextResponse.json({ ok: true, code, line: offerLine(d), amount: offerAmount(d), until, oncePer: d.limitOnePerCustomer === true });
   } catch {
     return NextResponse.json({ ok: false, error: 'Couldn’t check that code right now.' }, { status: 500 });
   }
