@@ -393,6 +393,7 @@ service cloud.firestore {
           'courses', 'enrollments', 'students', 'studentSessions', 'studentLogins',
           'learningSessions', 'attendance', 'academyAudit', 'academyAuditMeta',
           'programs', 'programEnrollments', 'clinicCheckoffs',
+          'admissions', 'cohorts', 'tuitionPlans', 'tuitionEntries',
           'depositCredits',
           'inventoryExceptions',
           'assetUnits',
