@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { enrollFromCheckout } from '@/lib/academy';
+import { completeDownPayment } from '@/lib/academy-admissions';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
 
@@ -91,6 +93,18 @@ export async function POST(req: NextRequest) {
         if (!tenant) break;
 
         const sessionType = session.metadata?.type;
+
+        // Academy: course purchases enrol the student; tuition down payments
+        // complete admission (the return page does the same — whichever comes
+        // first; both are safe to run twice).
+        if (sessionType === 'academy_course') {
+          try { await enrollFromCheckout(tenant.id, session); } catch (e: any) { console.error('[connect-webhook] academy enrol failed', e?.message); }
+          break;
+        }
+        if (sessionType === 'academy_tuition') {
+          try { await completeDownPayment(tenant.id, session); } catch (e: any) { console.error('[connect-webhook] tuition failed', e?.message); }
+          break;
+        }
 
         // Resolve the resulting charge (if any) so fee tracking can link to it
         let chargeId: string | null = null;
