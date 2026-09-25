@@ -1,158 +1,211 @@
-// src/app/api/signup/route.ts
+'use client';
+// src/app/(auth)/signup/page.tsx
 //
-// ACCOUNTS ARE CREATED HERE — AND ONLY HERE.
+// SET UP YOUR BUSINESS — sign-up as a short journey, in the landing page's world:
 //
-// Before, the browser created the Firebase account and wrote the business
-// records itself, so an invite check on the page could be skipped by anyone
-// calling Firebase directly. Now this route does all of it with the Admin SDK:
+//   1 What do you run?     business type, name, just me / a team
+//   2 What do you need?    the à la carte tools (recommended pre-selected)
+//   3 And you?             name, email, phone, password
+//   4 Building…            each step ticks off as it really happens, then
+//                          → Your ClarityFlow (/subscriptions)
 //
-//   1. checks the details and — unless sign-up is open — RESERVES the invite
-//      in a transaction (one use per invite; two people can't race it)
-//   2. creates the Firebase account
-//   3. writes the user + business records (same defaults as before, plus the
-//      business type and chosen tools)
-//   4. marks the invite used / the request onboarded
-//   5. returns a one-time sign-in token; the page signs in with it
-//
-// If anything fails after the account exists, the account is removed and the
-// invite released, so a retry starts clean.
-//
-// Closing the other doors (see the Vercel/Firebase checklist):
-//   • Firebase Console → Authentication → Settings → User actions →
-//     turn OFF "Enable create (sign-up)" — browsers can no longer create
-//     accounts; this route (Admin SDK) still can.
-//   • firestore.rules — tenants can't be created from the browser, and the
-//     account-status fields can only be changed by the server.
+// The account and business are created ON THE SERVER (/api/signup), with the
+// same defaults as always plus the business type and chosen tools. The page
+// only collects the answers and signs in with the token it gets back.
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
-import { signupIsOpen } from '@/lib/platform-admin';
-import { CATEGORY_FOR, toTenantModules, TOOL_BY_ID, type ToolId } from '@/lib/module-catalog';
-import { randomBytes } from 'crypto';
+import { useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
+import { Suspense } from 'react';
+import { getAuth, signInWithCustomToken } from 'firebase/auth';
+import { Eye, EyeOff, Loader, ArrowLeft } from 'lucide-react';
+import { Wordmark } from '@/components/auth/AuthBackdrop';
+import { ToolPicker } from '@/components/modules/ToolPicker';
+import { RECOMMENDED, hoursFor, TOOL_BY_ID, type ToolId } from '@/lib/module-catalog';
 
-export const dynamic = 'force-dynamic';
+const TYPES: [string, string, string][] = [
+  ['salon', '✂️', 'Salon or suites'], ['spa', '🌿', 'Spa or wellness'], ['fitness', '🧘', 'Fitness studio'], ['tattoo', '🖋️', 'Tattoo or piercing'],
+  ['shop', '🏺', 'Shop or maker'], ['events', '🎉', 'Events or venue'], ['hospitality', '☕', 'Café or lounge'], ['other', '✦', 'Something else'],
+];
+const field = 'h-12 w-full rounded-2xl border border-white/80 bg-white/70 px-4 text-[15px] outline-none transition focus:bg-white focus:ring-2 focus:ring-stone-300';
 
-const TYPES = ['salon', 'spa', 'fitness', 'tattoo', 'shop', 'events', 'hospitality', 'other'];
-const hits = new Map<string, { n: number; at: number }>();
-const id = (n = 21) => randomBytes(n).toString('base64url').slice(0, n);
-const cleanCode = (c: any) => String(c || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24);
-
-export async function POST(req: NextRequest) {
-  const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'x';
-  const h = hits.get(ip); const now = Date.now();
-  if (h && now - h.at < 3600000 && h.n >= 8) return NextResponse.json({ ok: false, error: 'Too many attempts — try again in a while.' }, { status: 429 });
-  hits.set(ip, h && now - h.at < 3600000 ? { n: h.n + 1, at: h.at } : { n: 1, at: now });
-
-  const b = await req.json().catch(() => ({}));
-  const name = String(b.name || '').trim().slice(0, 80);
-  const email = String(b.email || '').trim().toLowerCase().slice(0, 120);
-  const phone = String(b.phone || '').trim().slice(0, 30);
-  const password = String(b.password || '');
-  const businessName = String(b.businessName || '').trim().slice(0, 80);
-  const type = TYPES.includes(b.type) ? b.type : 'other';
-  const teamSize = b.teamSize === 'team' ? 'team' : 'solo';
-  const tools = (Array.isArray(b.tools) ? b.tools : []).map(String).filter((t: string) => TOOL_BY_ID[t as ToolId]) as ToolId[];
-  const code = cleanCode(b.invite);
-
-  if (name.length < 2) return NextResponse.json({ ok: false, error: 'Add your name.' }, { status: 400 });
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return NextResponse.json({ ok: false, error: 'That email address doesn’t look right.' }, { status: 400 });
-  if (phone.replace(/\D/g, '').length < 7) return NextResponse.json({ ok: false, error: 'Add a mobile number.' }, { status: 400 });
-  if (password.length < 6) return NextResponse.json({ ok: false, error: 'Choose a password of at least 6 characters.' }, { status: 400 });
-  if (businessName.length < 2) return NextResponse.json({ ok: false, error: 'Add your business name.' }, { status: 400 });
-
-  const db = getAdminDb();
-  const auth = getAdminAuth();
-  const inviteOnly = !signupIsOpen();
-  const inviteRef = code ? db.doc(`platformInvites/${code}`) : null;
-
-  // 1. Reserve the invite — atomically, so it can't be used twice at once.
-  let invite: any = null;
-  if (inviteOnly) {
-    if (!inviteRef) return NextResponse.json({ ok: false, error: 'ClarityFlow is invite-only right now — enter the code from your invite email.' }, { status: 403 });
+function Signup() {
+  const router = useRouter();
+  const sp = useSearchParams();
+  const [step, setStep] = useState(0);
+  const [type, setType] = useState<string>(() => { const t = sp?.get('type') || ''; return TYPES.some(([k]) => k === t) ? t : ''; });
+  const [businessName, setBusinessName] = useState('');
+  const [teamSize, setTeamSize] = useState<'solo' | 'team'>('solo');
+  const [tools, setTools] = useState<ToolId[]>(() => {
+    const fromUrl = String(sp?.get('tools') || '').split(',').filter((x) => TOOL_BY_ID[x as ToolId]) as ToolId[];
+    return fromUrl.length ? Array.from(new Set(['booking', ...fromUrl])) as ToolId[] : (RECOMMENDED.other as ToolId[]);
+  });
+  const [toolsTouched, setToolsTouched] = useState(false);
+  const [me, setMe] = useState({ name: '', email: '', phone: '', password: '' });
+  const [show, setShow] = useState(false);
+  const [err, setErr] = useState('');
+  const [building, setBuilding] = useState<number>(-1);
+  // Early access is by invite unless NEXT_PUBLIC_SIGNUP_OPEN=true.
+  const inviteOnly = String(process.env.NEXT_PUBLIC_SIGNUP_OPEN || '').toLowerCase() !== 'true';
+  const [invite, setInvite] = useState(() => String(sp?.get('invite') || '').toUpperCase());
+  const [inviteOk, setInviteOk] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const checkInvite = async (quiet = false) => {
+    if (!inviteOnly) return true;
+    setChecking(true); if (!quiet) setErr('');
     try {
-      invite = await db.runTransaction(async (tx: any) => {
-        const snap = await tx.get(inviteRef);
-        const inv = snap.exists ? (snap.data() as any) : null;
-        if (!inv || inv.status === 'revoked') throw new Error('That invite code isn’t recognised.');
-        const uses = Number(inv.uses) || 0; const max = Number(inv.maxUses) || 1;
-        if (uses >= max) throw new Error('That invite has already been used.');
-        if (inv.email && max === 1 && inv.email !== email) throw new Error(`This invite is for ${inv.email.replace(/(.{2}).*(@.*)/, '$1…$2')} — sign up with that email, or ask for a new invite.`);
-        tx.update(inviteRef, { uses: uses + 1, status: uses + 1 >= max ? 'used' : 'active' });
-        return inv;
-      });
+      const r = await fetch('/api/invites', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'check', code: invite }) });
+      const d = await r.json().catch(() => null);
+      if (d?.ok) {
+        setInviteOk(true);
+        if (d.business && !businessName) setBusinessName(d.business);
+        if (d.type && !type && TYPES.some(([k]) => k === d.type)) setType(d.type);
+        if (d.email && !me.email) setMe((m) => ({ ...m, email: d.email }));
+        return true;
+      }
+      if (!quiet) setErr(d?.error || 'That invite code didn’t work.');
+      return false;
+    } catch { if (!quiet) setErr('Couldn’t check your invite — check your connection.'); return false; }
+    finally { setChecking(false); }
+  };
+  useEffect(() => { if (inviteOnly && invite.length >= 4) void checkInvite(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { if (type && !toolsTouched && !sp?.get('tools')) setTools(RECOMMENDED[type] as ToolId[]); }, [type, toolsTouched, sp]);
+
+  const label = TYPES.find(([k]) => k === type)?.[2] || '';
+  const pwOk = me.password.length >= 6;
+  const canNext = step === 0 ? !!type && businessName.trim().length >= 2 && (!inviteOnly || invite.trim().length >= 4) : step === 1 ? tools.length > 0 : me.name.trim().length >= 2 && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(me.email) && me.phone.replace(/\D/g, '').length >= 7 && pwOk;
+  const steps = useMemo(() => ['Creating your account', `Setting up ${businessName.trim() || 'your business'}`, `Turning on ${tools.length} tools`, 'Opening your booking page'], [businessName, tools.length]);
+
+  // Everything happens on the server (/api/signup): the invite is checked and
+  // reserved, the account and business are created, and we get back a
+  // one-time token to sign in with. The browser can't create accounts itself.
+  const create = async () => {
+    setErr(''); setBuilding(0);
+    const tick = window.setInterval(() => setBuilding((x) => (x >= 0 && x < 2 ? x + 1 : x)), 900);
+    try {
+      const r = await fetch('/api/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invite, type, businessName: businessName.trim(), teamSize, tools, name: me.name.trim(), email: me.email.trim(), phone: me.phone.trim(), password: me.password }) });
+      const d = await r.json().catch(() => null);
+      window.clearInterval(tick);
+      if (!d?.ok || !d.token) throw new Error(d?.error || 'Something went wrong creating your account. Try again.');
+      setBuilding(2);
+      await signInWithCustomToken(getAuth(), d.token);
+      setBuilding(3);
+      await new Promise((res) => setTimeout(res, 600));
+      setBuilding(4);
+      await new Promise((res) => setTimeout(res, 400));
+      router.push('/subscriptions');
     } catch (e: any) {
-      return NextResponse.json({ ok: false, error: e?.message || 'That invite didn’t work.' }, { status: 403 });
+      window.clearInterval(tick);
+      setBuilding(-1);
+      setErr(String(e?.message || 'Something went wrong creating your account. Try again.'));
+      setStep(/invite/i.test(String(e?.message || '')) ? 0 : 2);
     }
-  }
-  const release = async () => {
-    if (!inviteRef || !invite) return;
-    try { await db.runTransaction(async (tx: any) => { const s = await tx.get(inviteRef); const u = Math.max(0, (Number((s.data() as any)?.uses) || 1) - 1); tx.update(inviteRef, { uses: u, status: 'active' }); }); } catch { /* best effort */ }
   };
 
-  // 2. The account.
-  let userId = '';
-  try {
-    const u = await auth.createUser({ email, password, displayName: name, emailVerified: false });
-    userId = u.uid;
-  } catch (e: any) {
-    await release();
-    const c = String(e?.code || e?.errorInfo?.code || '');
-    const msg = c.includes('email-already-exists') ? 'There’s already an account with that email — sign in instead.'
-      : c.includes('invalid-password') ? 'Choose a password of at least 6 characters.'
-      : c.includes('invalid-email') ? 'That email address doesn’t look right.'
-      : 'We couldn’t create your account. Try again.';
-    return NextResponse.json({ ok: false, error: msg, code: c.includes('email-already-exists') ? 'exists' : undefined }, { status: 400 });
-  }
+  // ── Building ──
+  if (building >= 0) return (
+    <div className="flex min-h-dvh items-center justify-center px-5">
+      <div className="w-full max-w-sm text-center">
+        <p className="text-3xl font-light tracking-tight">Building <span className="font-semibold">your ClarityFlow</span></p>
+        <div className="glass mt-8 space-y-3 rounded-[2rem] p-6 text-left">
+          {steps.map((s, i) => (
+            <div key={s} className={`flex items-center gap-3 transition-opacity duration-500 ${i <= building ? 'opacity-100' : 'opacity-35'}`}>
+              <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[12px] ${i < building ? 'bg-emerald-600 text-white' : i === building ? 'bg-stone-900 text-white' : 'bg-white/70 text-stone-400'}`}>
+                {i < building ? '✓' : i === building ? <Loader className="h-3.5 w-3.5 animate-spin" /> : i + 1}
+              </span>
+              <span className="text-[15px]">{s}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 
-  // 3. The records — same defaults the app has always created.
-  const tenantId = id(21);
-  const at = new Date().toISOString();
-  try {
-    const batch = db.batch();
-    batch.set(db.doc(`users/${userId}`), {
-      id: userId, tenantId, email, phone,
-      firstName: name.split(' ')[0], lastName: name.split(' ').slice(1).join(' '), createdAt: at,
-    });
-    batch.set(db.doc(`tenants/${tenantId}`), {
-      id: tenantId, name: businessName, userId, category: CATEGORY_FOR[type] || 'other',
-      businessType: type, teamSize, modules: toTenantModules(tools), signupTools: tools,
-      subscriptionStatus: 'inactive', subscriptionTier: 'none',
-      tmhr: 50, employerTaxBurdenPct: 10, createdAt: at, onboardingComplete: false,
-      maxAutonomousRecoveryAmount: 50, maxAutonomousRecoveryPercent: 25, defaultCancellationMode: 'matrix',
-      escalationPolicy: "1. Autonomy: Staff are authorized to resolve minor hospitality or technical lapses up to their limit. 2. Criteria: Use 'Recovery Adjustment' for delays > 15m or minor inconsistencies. 3. Immediate Escalation: Mandatory for medical reactions, property damage, or guest hostility. 4. Documentation: Always log specific reasoning in the Checkout Hub.",
-      recoveryPresets: [
-        { id: 'wait-time', label: 'WAIT TIME RECOVERY', type: 'fixed', value: 15 },
-        { id: 'tech-adj', label: 'TECHNICAL REVISION', type: 'percentage', value: 20 },
-        { id: 'hospitality', label: 'HOSPITALITY LAPSE', type: 'fixed', value: 10 },
-        { id: 'protocol-fail', label: 'PROTOCOL FAILURE', type: 'percentage', value: 100 },
-      ],
-      bookingPageSettings: { heroTitle: `Welcome to ${businessName}`, primaryColor: '#7955c4', showTeam: teamSize === 'team', servicesSectionTitle: 'The Menu' },
-      ...(code ? { inviteCode: code } : {}),
-      signupIp: ip, signupAt: at,
-    });
-    const lp = id(); batch.set(db.doc(`tenants/${tenantId}/lifestyleProfiles/${lp}`), { id: lp, name: 'Primary Lifestyle', isActive: true, categories: [] });
-    const bp = id(); batch.set(db.doc(`tenants/${tenantId}/businessProfiles/${bp}`), { id: bp, name: 'Core Studio Costs', isActive: true, categories: [] });
-    const sp = id();
-    const day = (enabled: boolean) => ({ enabled, start: '09:00 AM', end: '05:00 PM' });
-    batch.set(db.doc(`tenants/${tenantId}/scheduleProfiles/${sp}`), {
-      id: sp, name: 'Standard Studio Hours', isActive: true, isPublic: true,
-      week: { monday: day(true), tuesday: day(true), wednesday: day(true), thursday: day(true), friday: day(true), saturday: day(false), sunday: day(false) },
-      timeOff: { vacationDays: 14, holidays: 10 },
-    });
-    // 4. The invite and the request it came from.
-    if (inviteRef && invite) {
-      batch.set(inviteRef, { usedAt: at, usedByTenantId: tenantId, usedByEmail: email }, { merge: true });
-      if (invite.leadId) batch.set(db.doc(`platformLeads/${invite.leadId}`), { status: 'onboarded', tenantId, statusAt: at }, { merge: true });
-    }
-    await batch.commit();
-  } catch (e) {
-    // Undo: no half-made accounts.
-    try { await auth.deleteUser(userId); } catch { /* ignore */ }
-    await release();
-    return NextResponse.json({ ok: false, error: 'We couldn’t finish setting up your business. Nothing was kept — try again.' }, { status: 500 });
-  }
+  const titles = [['What do you', 'run?'], ['What do you', 'need?'], ['And', 'you?']];
+  return (
+    <div className="flex min-h-dvh flex-col px-5 py-6">
+      <style>{`.cf-step{animation:cf-step .7s cubic-bezier(.22,1,.36,1) both}@keyframes cf-step{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}@media (prefers-reduced-motion: reduce){.cf-step{animation:none}}`}</style>
+      <header className="mx-auto flex w-full max-w-5xl items-center justify-between">
+        <Link href="/" className="text-lg"><Wordmark /></Link>
+        <Link href="/login" className="text-sm text-stone-600">Sign in</Link>
+      </header>
 
-  // 5. A one-time token so the page can sign straight in.
-  const token = await auth.createCustomToken(userId);
-  return NextResponse.json({ ok: true, token, tenantId });
+      <main className={`mx-auto w-full flex-1 py-8 ${step === 1 ? 'max-w-5xl' : 'max-w-md'}`}>
+        {/* Progress */}
+        <div className="mx-auto flex max-w-md items-center gap-2" aria-label={`Step ${step + 1} of 3`}>
+          {[0, 1, 2].map((i) => <span key={i} className={`h-1.5 flex-1 rounded-full transition-colors duration-500 ${i <= step ? 'bg-stone-900' : 'bg-stone-300/70'}`} />)}
+        </div>
+
+        <div key={step} className="cf-step">
+          <h1 className="mt-8 text-center text-4xl font-light tracking-tight sm:text-5xl">{titles[step][0]} <span className="font-semibold">{titles[step][1]}</span></h1>
+
+          {step === 0 && (
+            <div className="mt-8 space-y-4">
+              {inviteOnly && (
+                <div className={`rounded-3xl p-4 ${inviteOk ? 'bg-emerald-50' : 'glass'}`}>
+                  <p className="text-[13px] text-stone-600">{inviteOk ? '✓ Invite accepted — welcome.' : 'ClarityFlow is in early access. Enter the invite code from your email.'}</p>
+                  {!inviteOk && <input value={invite} onChange={(e) => { setInvite(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '')); setErr(''); }} placeholder="Invite code" autoComplete="off" className={field + ' mt-2 font-mono tracking-[0.15em]'} />}
+                  {!inviteOk && <p className="mt-2 text-[12px] text-stone-500">No code yet? <Link href="/request-access" className="font-medium text-stone-900 underline-offset-2 hover:underline">Request access</Link></p>}
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                {TYPES.map(([k, e, l]) => (
+                  <button key={k} type="button" onClick={() => setType(k)} aria-pressed={type === k}
+                    className={`rounded-3xl p-4 text-left transition-all ${type === k ? 'bg-stone-900 text-white shadow-[0_14px_30px_-16px_rgba(28,25,23,0.8)]' : 'glass text-stone-800'} ${k === 'other' ? 'col-span-2' : ''}`}>
+                    <span className="text-2xl" aria-hidden>{e}</span><span className="mt-1 block text-[15px] font-medium">{l}</span>
+                  </button>
+                ))}
+              </div>
+              <input value={businessName} onChange={(e) => setBusinessName(e.target.value.slice(0, 80))} placeholder="Business name" autoComplete="organization" className={field} />
+              <div className="grid grid-cols-2 gap-2">
+                {([['solo', 'Just me'], ['team', 'A team']] as const).map(([k, l]) => (
+                  <button key={k} type="button" onClick={() => setTeamSize(k)} aria-pressed={teamSize === k} className={`h-12 rounded-2xl text-sm ${teamSize === k ? 'bg-stone-900 text-white' : 'glass text-stone-700'}`}>{l}</button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {step === 1 && (
+            <div className="mt-8">
+              <p className="mx-auto mb-6 max-w-lg text-center text-stone-600">We’ve switched on what a {label.toLowerCase() || 'business like yours'} usually needs. Turn tools on or off — you can change this any time.</p>
+              <ToolPicker value={tools} onChange={(v) => { setTools(v); setToolsTouched(true); }} niche={type || 'other'} nicheLabel={label} />
+            </div>
+          )}
+
+          {step === 2 && (
+            <div className="glass mt-8 space-y-3 rounded-[2rem] p-5 sm:p-6">
+              <input value={me.name} onChange={(e) => setMe({ ...me, name: e.target.value })} placeholder="Your name" autoComplete="name" className={field} />
+              <input value={me.email} onChange={(e) => setMe({ ...me, email: e.target.value })} type="email" placeholder="Email" autoComplete="email" className={field} />
+              <input value={me.phone} onChange={(e) => setMe({ ...me, phone: e.target.value })} type="tel" placeholder="Mobile number" autoComplete="tel" className={field} />
+              <div className="relative">
+                <input value={me.password} onChange={(e) => setMe({ ...me, password: e.target.value })} type={show ? 'text' : 'password'} placeholder="Create a password" autoComplete="new-password" className={field + ' pr-12'} />
+                <button type="button" onClick={() => setShow(!show)} aria-label={show ? 'Hide password' : 'Show password'} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-stone-400">{show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
+              </div>
+              <p className={`px-1 text-[12px] ${pwOk ? 'text-emerald-700' : 'text-stone-500'}`}>{pwOk ? '✓ Good to go' : 'At least 6 characters'}</p>
+              <div className="rounded-2xl bg-white/60 p-3 text-[13px] text-stone-600">
+                <span className="font-medium text-stone-900">{businessName || 'Your business'}</span> · {new Set(['booking', 'guest', ...tools]).size} tools · gives back about {hoursFor(Array.from(new Set(['booking', 'guest', ...tools])) as ToolId[])} hrs a week
+              </div>
+            </div>
+          )}
+
+          {err && <p className="mx-auto mt-4 max-w-md rounded-2xl bg-red-50 px-4 py-3 text-[13px] text-red-800">{err}{err.includes('sign in') && <> <Link href="/login" className="font-medium underline">Sign in</Link></>}</p>}
+
+          <div className="mx-auto mt-8 flex max-w-md items-center gap-3">
+            {step > 0 && <button type="button" onClick={() => { setStep(step - 1); setErr(''); }} className="glass flex h-12 w-12 shrink-0 items-center justify-center rounded-full" aria-label="Back"><ArrowLeft className="h-4 w-4" /></button>}
+            <button type="button" disabled={!canNext || checking} onClick={async () => { if (step === 0 && inviteOnly && !inviteOk && !(await checkInvite())) return; step < 2 ? setStep(step + 1) : create(); }}
+              className="h-12 flex-1 rounded-full bg-stone-900 text-sm font-medium text-white shadow-[0_12px_30px_-12px_rgba(28,25,23,0.6)] disabled:opacity-40">
+              {step < 2 ? 'Continue' : 'Build my ClarityFlow'}
+            </button>
+          </div>
+          {step === 0 && <p className="mt-5 text-center text-sm text-stone-600">Just looking? <Link href={`/demo${type && type !== 'other' ? `?type=${type}` : ''}`} className="font-medium text-stone-900 underline-offset-2 hover:underline">Try the live demo</Link></p>}
+        </div>
+      </main>
+    </div>
+  );
+}
+
+export default function SignupPage() {
+  return <Suspense fallback={null}><Signup /></Suspense>;
 }
