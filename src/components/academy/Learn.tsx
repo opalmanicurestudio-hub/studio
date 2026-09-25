@@ -456,6 +456,7 @@ export function MyCourses({ tenantId }: { tenantId: string }) {
             <h1 className="text-4xl font-light tracking-tight">My <span className="font-semibold">courses</span></h1>
             <button type="button" onClick={() => { setToken(tenantId, null); void load(); }} className="text-sm text-stone-500 underline">Sign out ({d.student.email})</button>
           </div>
+          <Inbox tenantId={tenantId} color={color} />
           {(d.programs || []).map((pr: any) => (
             <Glass key={pr.id} className="mt-6 space-y-3">
               <div className="flex flex-wrap items-baseline justify-between gap-2"><p className="text-xl font-semibold">{pr.name}</p><span className="text-[12px] uppercase tracking-widest text-stone-500">{pr.status === 'loa' ? 'leave of absence' : pr.status}</span></div>
@@ -487,6 +488,34 @@ export function MyCourses({ tenantId }: { tenantId: string }) {
         </>
       )}
     </Shell>
+  );
+}
+
+// ── Messages & announcements (in My courses) ─────────────────────────────
+function Inbox({ tenantId, color }: { tenantId: string; color: string }) {
+  const [d, setD] = useState<any>(null);
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => setD(await api({ action: 'inbox', tenantId, token: getToken(tenantId) })), [tenantId]);
+  useEffect(() => { void load(); }, [load]);
+  if (!d?.ok) return null;
+  return (
+    <div className="mt-6 space-y-3">
+      {d.announcements.slice(0, 3).map((a: any, i: number) => (
+        <div key={i} className="rounded-[1.5rem] border border-white/70 p-4" style={{ background: `${color}14` }}><p className="text-[11px] uppercase tracking-[0.2em] text-stone-500">Announcement · {new Date(a.at).toLocaleDateString()}</p><p className="mt-1 font-semibold">{a.title}</p><p className="whitespace-pre-wrap text-[15px] text-stone-700">{a.body}</p></div>
+      ))}
+      <Glass className="space-y-2">
+        <button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center justify-between text-left"><span className="font-semibold">Messages with your school{d.messages.length ? ` · ${d.messages.length}` : ''}</span><span className="text-sm text-stone-500">{open ? 'Hide' : 'Open'}</span></button>
+        {open && (
+          <>
+            <div className="max-h-72 space-y-1.5 overflow-y-auto">{d.messages.length === 0 ? <p className="text-sm text-stone-500">Questions about hours, schedules or anything else — send a message.</p> : d.messages.map((m: any, i: number) => <div key={i} className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${m.from === 'student' ? 'ml-auto text-white' : 'bg-white/80'}`} style={m.from === 'student' ? { background: color } : undefined}><p className="whitespace-pre-wrap">{m.text}</p><p className="mt-0.5 text-[10px] opacity-70">{m.from === 'school' ? m.by + ' · ' : ''}{new Date(m.at).toLocaleString()}</p></div>)}</div>
+            <div className="flex gap-2"><textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder="Write to your school" className="flex-1 rounded-2xl border border-white/80 bg-white/75 p-3 text-sm" />
+              <button type="button" disabled={busy || !text.trim()} onClick={async () => { setBusy(true); const r = await api({ action: 'message', tenantId, token: getToken(tenantId), text }); setBusy(false); if (r.ok) { setText(''); void load(); } }} className="rounded-2xl px-4 text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>Send</button></div>
+          </>
+        )}
+      </Glass>
+    </div>
   );
 }
 
