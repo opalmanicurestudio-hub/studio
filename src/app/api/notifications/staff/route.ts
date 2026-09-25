@@ -20,6 +20,7 @@
  * decides whether to also interrupt someone.
  */
 
+import { linkOrigin } from '@/lib/app-origin';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
@@ -78,11 +79,7 @@ export async function POST(req: NextRequest) {
   const db = getAdminDb();
   const tenant = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
   const studioName = tenant.name || tenant.businessName || 'Your studio';
-  const base = String(
-    tenant.publicOrigin
-    || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')
-    || req.nextUrl.origin,
-  ).replace(/\/$/, '');
+  const base = linkOrigin(tenant, req.nextUrl.origin);
 
   const results: Array<{ userId: string; sms: boolean; email: boolean; heldBack?: string }> = [];
 
