@@ -80,6 +80,7 @@
 // without looking at the published roster. That is the server being right and
 // the page being behind, and the fix is to pass that page the same data.
 
+import { linkOrigin } from '@/lib/app-origin';
 import { offerProblem, walletStatus, offerLine } from '@/lib/offers';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -695,11 +696,7 @@ export async function POST(req: NextRequest) {
         const whenStr = `${local.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' })} at ${local.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' })}`;
 
         // Links live on the PERMANENT domain, never a frozen preview URL.
-        const base = String(
-          tData.publicOrigin
-          || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')
-          || req.nextUrl.origin,
-        ).replace(/\/$/, '');
+        const base = linkOrigin(tData, req.nextUrl.origin);
         // v18 — ONE portal for clients: the master check-in link. Arrival,
         // running-late, concierge, forms/deposit, and the studio's real
         // cancellation flow all live at /check-in/{token}; every button we
