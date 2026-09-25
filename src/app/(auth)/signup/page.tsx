@@ -9,22 +9,19 @@
 //   4 Building…            each step ticks off as it really happens, then
 //                          → Your ClarityFlow (/subscriptions)
 //
-// The account and business records are created EXACTLY as before (same
-// defaults: schedule, profiles, recovery presets, booking page settings) —
-// plus the business type and the chosen tools, saved as tenant.modules,
-// which the sidebar already uses to show only what they turned on.
+// The account and business are created ON THE SERVER (/api/signup), with the
+// same defaults as always plus the business type and chosen tools. The page
+// only collects the answers and signs in with the token it gets back.
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Suspense } from 'react';
-import { getAuth, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { getFirestore, doc, writeBatch } from 'firebase/firestore';
-import { nanoid } from 'nanoid';
+import { getAuth, signInWithCustomToken } from 'firebase/auth';
 import { Eye, EyeOff, Loader, ArrowLeft } from 'lucide-react';
 import { Wordmark } from '@/components/auth/AuthBackdrop';
 import { ToolPicker } from '@/components/modules/ToolPicker';
-import { RECOMMENDED, CATEGORY_FOR, toTenantModules, hoursFor, TOOL_BY_ID, type ToolId } from '@/lib/module-catalog';
+import { RECOMMENDED, hoursFor, TOOL_BY_ID, type ToolId } from '@/lib/module-catalog';
 
 const TYPES: [string, string, string][] = [
   ['salon', '✂️', 'Salon or suites'], ['spa', '🌿', 'Spa or wellness'], ['fitness', '🧘', 'Fitness studio'], ['tattoo', '🖋️', 'Tattoo or piercing'],
@@ -80,122 +77,30 @@ function Signup() {
   const canNext = step === 0 ? !!type && businessName.trim().length >= 2 && (!inviteOnly || invite.trim().length >= 4) : step === 1 ? tools.length > 0 : me.name.trim().length >= 2 && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(me.email) && me.phone.replace(/\D/g, '').length >= 7 && pwOk;
   const steps = useMemo(() => ['Creating your account', `Setting up ${businessName.trim() || 'your business'}`, `Turning on ${tools.length} tools`, 'Opening your booking page'], [businessName, tools.length]);
 
+  // Everything happens on the server (/api/signup): the invite is checked and
+  // reserved, the account and business are created, and we get back a
+  // one-time token to sign in with. The browser can't create accounts itself.
   const create = async () => {
     setErr(''); setBuilding(0);
-    const data = { name: me.name.trim(), email: me.email.trim(), phone: me.phone.trim(), password: me.password, businessName: businessName.trim(), category: CATEGORY_FOR[type] || 'other', teamSize };
-    const auth = getAuth();
-    const db = getFirestore();
-    const batch = writeBatch(db);
+    const tick = window.setInterval(() => setBuilding((x) => (x >= 0 && x < 2 ? x + 1 : x)), 900);
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
-      await updateProfile(userCredential.user, { displayName: data.name });
-      setBuilding(1);
-      const userId = userCredential.user.uid;
-      const tenantId = nanoid();
-      // 3. User document — includes tenantId so dashboard can find it
-      const userDocRef = doc(db, 'users', userId);
-      batch.set(userDocRef, {
-        id: userId,
-        tenantId: tenantId, // ← CRITICAL: dashboard needs this to load tenant data
-        email: data.email,
-        phone: data.phone,
-        firstName: data.name.split(' ')[0],
-        lastName: data.name.split(' ').slice(1).join(' '),
-        createdAt: new Date().toISOString(),
-      });
-
-      // 4. Tenant document
-      const tenantDocRef = doc(db, 'tenants', tenantId);
-      batch.set(tenantDocRef, {
-        id: tenantId,
-        name: data.businessName,
-        userId: userId,
-        category: data.category,
-        subscriptionStatus: 'inactive',
-        subscriptionTier: 'none',
-        tmhr: 50,
-        employerTaxBurdenPct: 10,
-        createdAt: new Date().toISOString(),
-        onboardingComplete: false,
-        maxAutonomousRecoveryAmount: 50,
-        maxAutonomousRecoveryPercent: 25,
-        defaultCancellationMode: 'matrix',
-        escalationPolicy:
-          "1. Autonomy: Staff are authorized to resolve minor hospitality or technical lapses up to their limit. 2. Criteria: Use 'Recovery Adjustment' for delays > 15m or minor inconsistencies. 3. Immediate Escalation: Mandatory for medical reactions, property damage, or guest hostility. 4. Documentation: Always log specific reasoning in the Checkout Hub.",
-        recoveryPresets: [
-          { id: 'wait-time', label: 'WAIT TIME RECOVERY', type: 'fixed', value: 15 },
-          { id: 'tech-adj', label: 'TECHNICAL REVISION', type: 'percentage', value: 20 },
-          { id: 'hospitality', label: 'HOSPITALITY LAPSE', type: 'fixed', value: 10 },
-          { id: 'protocol-fail', label: 'PROTOCOL FAILURE', type: 'percentage', value: 100 },
-        ],
-        bookingPageSettings: {
-          heroTitle: `Welcome to ${data.businessName}`,
-          primaryColor: '#7955c4',
-          showTeam: data.teamSize === 'team',
-          servicesSectionTitle: 'The Menu',
-        },
-      });
-
-      // 5. Default Lifestyle Profile
-      const lifestyleRef = doc(db, `tenants/${tenantId}/lifestyleProfiles`, nanoid());
-      batch.set(lifestyleRef, {
-        id: lifestyleRef.id,
-        name: 'Primary Lifestyle',
-        isActive: true,
-        categories: [],
-      });
-
-      // 6. Default Business Profile
-      const businessProfRef = doc(db, `tenants/${tenantId}/businessProfiles`, nanoid());
-      batch.set(businessProfRef, {
-        id: businessProfRef.id,
-        name: 'Core Studio Costs',
-        isActive: true,
-        categories: [],
-      });
-
-      // 7. Default Schedule
-      const scheduleRef = doc(db, `tenants/${tenantId}/scheduleProfiles`, nanoid());
-      batch.set(scheduleRef, {
-        id: scheduleRef.id,
-        name: 'Standard Studio Hours',
-        isActive: true,
-        isPublic: true,
-        week: {
-          monday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
-          tuesday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
-          wednesday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
-          thursday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
-          friday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
-          saturday: { enabled: false, start: '09:00 AM', end: '05:00 PM' },
-          sunday: { enabled: false, start: '09:00 AM', end: '05:00 PM' },
-        },
-        timeOff: { vacationDays: 14, holidays: 10 },
-      });
-
-      // New with the journey: what they run, and the tools they chose.
-      batch.set(doc(db, 'tenants', tenantId), { businessType: type, teamSize, modules: toTenantModules(tools), signupTools: tools }, { merge: true });
+      const r = await fetch('/api/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invite, type, businessName: businessName.trim(), teamSize, tools, name: me.name.trim(), email: me.email.trim(), phone: me.phone.trim(), password: me.password }) });
+      const d = await r.json().catch(() => null);
+      window.clearInterval(tick);
+      if (!d?.ok || !d.token) throw new Error(d?.error || 'Something went wrong creating your account. Try again.');
       setBuilding(2);
-      await batch.commit();
-      if (inviteOnly && invite) {
-        try {
-          const tk = await userCredential.user.getIdToken();
-          await fetch('/api/invites', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify({ action: 'redeem', code: invite, tenantId }) });
-        } catch { /* the account exists either way */ }
-      }
+      await signInWithCustomToken(getAuth(), d.token);
       setBuilding(3);
-      await new Promise((r) => setTimeout(r, 700));
+      await new Promise((res) => setTimeout(res, 600));
       setBuilding(4);
-      await new Promise((r) => setTimeout(r, 500));
+      await new Promise((res) => setTimeout(res, 400));
       router.push('/subscriptions');
-    } catch (error: any) {
+    } catch (e: any) {
+      window.clearInterval(tick);
       setBuilding(-1);
-      const code = String(error?.code || '');
-      setErr(code.includes('email-already-in-use') ? 'There’s already an account with that email — sign in instead.'
-        : code.includes('weak-password') ? 'Choose a longer password (6+ characters).'
-        : code.includes('invalid-email') ? 'That email address doesn’t look right.'
-        : 'Something went wrong creating your account. Try again.');
-      setStep(2);
+      setErr(String(e?.message || 'Something went wrong creating your account. Try again.'));
+      setStep(/invite/i.test(String(e?.message || '')) ? 0 : 2);
     }
   };
 
