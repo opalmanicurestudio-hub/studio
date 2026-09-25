@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { linkOrigin } from '@/lib/app-origin';
 import Stripe from 'stripe';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { brandedEmailHtml } from '@/lib/email-template';
@@ -324,7 +325,7 @@ export async function POST(req: NextRequest) {
         const tData: any = tenantDoc.data() || {};
         const comms: any = { sendReceipts: true, ownerEmailOnFailedAutopay: true, ...(tData.rentComms || {}) };
         const businessName = String(tData.name || 'ClarityFlow');
-        const base = String(tData.publicOrigin || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 'https://studio-one-blue.vercel.app')).replace(/\/+$/, '');
+        const base = linkOrigin(tData, 'https://studio-one-blue.vercel.app');
         const portalUrl = renter?.portalToken ? `${base}/rent/${tenantId}?rt=${renter.portalToken}` : '';
         const amountStr = `$${((lease.rentAmountCents || 0) / 100).toFixed(2)}`;
         const boothName = booth?.name || 'your booth';
