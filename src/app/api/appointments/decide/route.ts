@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { linkOrigin } from '@/lib/app-origin';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
 import { verifyStaffActor, decisionVerdict, actorAuthority } from '@/lib/staff-auth';
@@ -306,11 +307,7 @@ export async function POST(req: NextRequest) {
   try {
     const tenant = tenantDoc;
     const studioName = tenant.name || tenant.businessName || 'Your studio';
-    const base = String(
-      tenant.publicOrigin
-      || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')
-      || req.nextUrl.origin,
-    ).replace(/\/$/, '');
+    const base = linkOrigin(tenant, req.nextUrl.origin);
     const portalUrl = apt.checkInToken ? `${base}/check-in/${apt.checkInToken}` : `${base}/book/${tenantId}`;
     const bookUrl = `${base}/book/${tenantId}`;
 
