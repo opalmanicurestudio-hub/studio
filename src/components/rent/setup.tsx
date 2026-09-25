@@ -999,7 +999,20 @@ export function MyCampaigns({ data, tenantId, token }: { data: any; tenantId: st
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   const services: any[] = data?.myServices || [];
-  const load = useCallback(async () => { const d = await api({ action: 'rc-list', tenantId, token }); if (d?.ok) setSt(d); }, [tenantId, token]);
+  const [offers, setOffers] = useState<any[]>([]);
+  const [newOffer, setNewOffer] = useState<{ open: boolean; type: 'percentage' | 'fixed'; value: string; code: string; until: string; onePer: boolean }>({ open: false, type: 'percentage', value: '15', code: '', until: '', onePer: true });
+  const load = useCallback(async () => {
+    const [d, o] = await Promise.all([api({ action: 'rc-list', tenantId, token }), api({ action: 'offers-list', tenantId, token })]);
+    if (d?.ok) setSt(d); if (o?.ok) setOffers(o.offers || []);
+  }, [tenantId, token]);
+  const createOffer = async () => {
+    setErr('');
+    const d = await api({ action: 'offer-save', tenantId, token, type: newOffer.type, value: Number(newOffer.value), code: newOffer.code, validUntil: newOffer.until, limitOnePerCustomer: newOffer.onePer });
+    if (!d?.ok) { setErr(d?.error || 'Could not create the offer.'); return; }
+    setNewOffer((x) => ({ ...x, open: false, code: '' }));
+    const o = await api({ action: 'offers-list', tenantId, token }); if (o?.ok) setOffers(o.offers || []);
+    if (draft) { setDraft({ ...draft, renterOfferId: d.id, offerText: '' }); setQuote(null); }
+  };
   useEffect(() => { void load(); }, [load]);
   if (!st) return <p className="py-2 text-center text-[11px] font-bold text-slate-400">Loading…</p>;
   if (st.policy.mode === 'off') return <p className="text-[11px] font-bold text-slate-500">{st.policy.tenantName} hasn’t turned on campaigns for renters yet. Reconnect (above) still nudges quiet clients for you.</p>;
@@ -1057,13 +1070,13 @@ export function MyCampaigns({ data, tenantId, token }: { data: any; tenantId: st
           <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Start from a template</p>
           <div className="grid grid-cols-1 gap-1.5">
             {CAMPAIGN_TEMPLATES.filter((t) => t.renterOk && !t.automation && AUD.some(([k]) => k === t.audience)).map((t) => (
-              <button key={t.id} type="button" onClick={() => { setMsg(''); setQuote(null); setDraft({ name: t.title, type: t.channel, subject: t.subject, body: t.body, targetAudience: t.audience, targetServiceIds: [], targetMinSpend: 0, offerText: '', templateId: t.id }); }}
+              <button key={t.id} type="button" onClick={() => { setMsg(''); setQuote(null); setDraft({ name: t.title, type: t.channel, subject: t.subject, body: t.body, targetAudience: t.audience, targetServiceIds: [], targetMinSpend: 0, offerText: '', renterOfferId: '', templateId: t.id }); }}
                 className="rounded-xl border-2 border-slate-200 bg-white px-3 py-2 text-left hover:border-slate-900">
                 <span className="block text-[11px] font-black text-slate-900">{t.title} <span className="font-bold text-slate-400">· {t.channel === 'sms' ? 'text' : 'email'}</span></span>
                 <span className="block text-[10px] font-bold text-slate-500">{t.blurb}</span>
               </button>
             ))}
-            <button type="button" onClick={() => { setMsg(''); setQuote(null); setDraft({ name: '', type: 'email', subject: '', body: 'Hi {first}, ', targetAudience: 'inactive_90', targetServiceIds: [], targetMinSpend: 0, offerText: '', templateId: '' }); }} className="rounded-xl border-2 border-dashed border-slate-300 px-3 py-2 text-left text-[11px] font-black text-slate-700">Blank message</button>
+            <button type="button" onClick={() => { setMsg(''); setQuote(null); setDraft({ name: '', type: 'email', subject: '', body: 'Hi {first}, ', targetAudience: 'inactive_90', targetServiceIds: [], targetMinSpend: 0, offerText: '', renterOfferId: '', templateId: '' }); }} className="rounded-xl border-2 border-dashed border-slate-300 px-3 py-2 text-left text-[11px] font-black text-slate-700">Blank message</button>
           </div>
         </div>
       )}
@@ -1084,11 +1097,37 @@ export function MyCampaigns({ data, tenantId, token }: { data: any; tenantId: st
           <div className="flex flex-wrap gap-1">{TOKENS.map((t) => <button key={t.token} type="button" onClick={() => { setDraft({ ...draft, body: `${draft.body || ''}${draft.body && !/\s$/.test(draft.body) ? ' ' : ''}${t.token}` }); setQuote(null); }} className="rounded-full border-2 border-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-600">+ {t.label}</button>)}</div>
           <textarea value={draft.body} onChange={(e) => { setDraft({ ...draft, body: e.target.value.slice(0, 1200) }); setQuote(null); }} rows={5} placeholder="Your message — {first} becomes their first name" aria-label="Message" className="w-full rounded-xl border-2 border-slate-200 px-3 py-2 text-[12px]" />
           {/\[[^\]]+\]/.test(draft.body || '') && <p className="text-[10px] font-bold text-amber-700">Replace the part in [square brackets] with your own words.</p>}
-          <input value={draft.offerText || ''} onChange={(e) => { setDraft({ ...draft, offerText: e.target.value.slice(0, 140) }); setQuote(null); }} placeholder="Offer (optional) — e.g. 15% off your next visit this month" aria-label="Offer" className="h-10 w-full rounded-xl border-2 border-slate-200 px-3 text-sm font-bold" />
-          <p className="text-[9px] font-bold text-slate-400">The offer goes where “The offer” sits in your message (or at the end). You honor it at checkout.</p>
+          {/* A real offer: code, rules, applied automatically when you tap Done on their visit. */}
+          <div className="space-y-1.5 rounded-xl border-2 border-slate-100 p-2">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Offer (optional)</p>
+            <div className="flex flex-wrap gap-1.5">
+              <button type="button" onClick={() => { setDraft({ ...draft, renterOfferId: '', offerText: '' }); setQuote(null); }} className={cn('h-8 rounded-lg border-2 px-2.5 text-[10px] font-black', !draft.renterOfferId ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 text-slate-600')}>None</button>
+              {offers.filter((o: any) => o.isActive && !o.problem).map((o: any) => (
+                <button key={o.id} type="button" onClick={() => { setDraft({ ...draft, renterOfferId: o.id, offerText: '' }); setQuote(null); }} className={cn('h-8 rounded-lg border-2 px-2.5 text-[10px] font-black', draft.renterOfferId === o.id ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 text-slate-600')}>{o.type === 'percentage' ? `${o.value}%` : `$${o.value}`} off · {o.code}</button>
+              ))}
+              <button type="button" onClick={() => setNewOffer((x) => ({ ...x, open: !x.open, code: x.code || `OFFER${x.value}` }))} className="h-8 rounded-lg border-2 border-dashed border-slate-300 px-2.5 text-[10px] font-black text-slate-600">+ New offer</button>
+            </div>
+            {newOffer.open && (
+              <div className="space-y-1.5 rounded-lg bg-slate-50 p-2">
+                <div className="grid grid-cols-2 gap-1.5">
+                  {(['percentage', 'fixed'] as const).map((t) => <button key={t} type="button" onClick={() => setNewOffer((x) => ({ ...x, type: t }))} className={cn('h-8 rounded-lg border-2 text-[10px] font-black', newOffer.type === t ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 text-slate-600')}>{t === 'percentage' ? '% off' : '$ off'}</button>)}
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <input type="number" min={1} value={newOffer.value} onChange={(e) => setNewOffer((x) => ({ ...x, value: e.target.value }))} aria-label="Amount" placeholder="Amount" className="h-9 rounded-lg border-2 border-slate-200 px-2 text-sm font-bold" />
+                  <input value={newOffer.code} onChange={(e) => setNewOffer((x) => ({ ...x, code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20) }))} aria-label="Code" placeholder="CODE" className="h-9 rounded-lg border-2 border-slate-200 px-2 font-mono text-sm font-bold tracking-widest" />
+                </div>
+                <input type="date" value={newOffer.until} onChange={(e) => setNewOffer((x) => ({ ...x, until: e.target.value }))} aria-label="Ends" className="h-9 w-full rounded-lg border-2 border-slate-200 px-2 text-sm" />
+                <label className="flex items-center gap-1.5 text-[10px] font-bold text-slate-600"><input type="checkbox" checked={newOffer.onePer} onChange={(e) => setNewOffer((x) => ({ ...x, onePer: e.target.checked }))} />Once per client</label>
+                <button type="button" onClick={createOffer} className="h-9 w-full rounded-lg bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white">Create offer</button>
+              </div>
+            )}
+            <p className="text-[9px] font-bold text-slate-400">The code goes in your message. When they book with it — or it’s waiting for them — it comes off automatically when you tap Done on their visit.</p>
+          </div>
           <div className="rounded-xl bg-slate-50 p-2">
             <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">Preview</p>
-            <p className="text-[11px] whitespace-pre-wrap text-slate-700">{fillTokens(draft.body || '', { first: 'Alexandra', business: data?.renter?.businessName || `${data?.renter?.firstName || ''} ${data?.renter?.lastName || ''}`.trim() || 'You', offer: draft.offerText || null, link: 'your booking link' })}{draft.offerText && !(draft.body || '').includes('{offer}') ? ` ${draft.offerText}.` : ''}</p>
+            {(() => { const o = offers.find((x: any) => x.id === draft.renterOfferId); const line = o ? o.line : (draft.offerText || null); return (
+            <p className="text-[11px] whitespace-pre-wrap text-slate-700">{fillTokens(draft.body || '', { first: 'Alexandra', business: data?.renter?.businessName || `${data?.renter?.firstName || ''} ${data?.renter?.lastName || ''}`.trim() || 'You', offer: line, link: 'your booking link' })}{line && !(draft.body || '').includes('{offer}') ? ` ${line}.` : ''}</p>
+            ); })()}
           </div>
           {draft.type === 'sms' && <p className="text-[9px] font-bold text-slate-400">{(draft.body || '').length} characters · your name and “Reply STOP to opt out” are added · about 150 characters per text</p>}
           {quote && (
@@ -1107,12 +1146,23 @@ export function MyCampaigns({ data, tenantId, token }: { data: any; tenantId: st
           </div>
         </div>
       )}
+      {offers.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Your offers</p>
+          {offers.map((o: any) => (
+            <div key={o.id} className="flex items-center justify-between gap-2 rounded-xl border-2 border-slate-100 bg-white px-2.5 py-1.5 text-[11px] font-bold text-slate-600">
+              <span className="min-w-0 truncate"><span className="font-mono font-black text-slate-900">{o.code}</span> · {o.type === 'percentage' ? `${o.value}%` : `$${o.value}`} off · used {o.usageCount}{o.usageLimit ? `/${o.usageLimit}` : ''}{o.validUntil ? ` · until ${new Date(o.validUntil).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}{o.problem && o.isActive ? ` · ${o.problem.replace(/^That offer /, '')}` : ''}</span>
+              <button type="button" onClick={async () => { await api({ action: 'offer-toggle', tenantId, token, offerId: o.id, active: !o.isActive }); void load(); }} className="shrink-0 text-[9px] font-black uppercase tracking-widest underline">{o.isActive ? 'Pause' : 'Resume'}</button>
+            </div>
+          ))}
+        </div>
+      )}
       {st.campaigns.length > 0 && (
         <div className="space-y-1">
           <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Your campaigns</p>
           {st.campaigns.map((c: any) => (
             <div key={c.id} className="flex items-center justify-between gap-2 text-[11px] font-bold text-slate-600">
-              <span className="min-w-0 truncate"><span className="font-black text-slate-900">{c.name}</span> · {c.type === 'sms' ? 'text' : 'email'} · {c.status === 'draft' ? 'draft' : `${c.recipientCount} sent · ${c.convertedCount} booked · $${((c.convertedRevenueCents || 0) / 100).toFixed(0)}`}{c.chargedCents ? ` · paid $${(c.chargedCents / 100).toFixed(2)}` : ''}</span>
+              <span className="min-w-0 truncate"><span className="font-black text-slate-900">{c.name}</span> · {c.type === 'sms' ? 'text' : 'email'} · {c.status === 'draft' ? 'draft' : `${c.recipientCount} sent · ${c.convertedCount} booked · $${((c.convertedRevenueCents || 0) / 100).toFixed(0)}`}{c.offersRedeemed ? ` · 🎁 ${c.offersRedeemed} offer${c.offersRedeemed === 1 ? '' : 's'} used` : ''}{c.chargedCents ? ` · paid $${(c.chargedCents / 100).toFixed(2)}` : ''}</span>
               {c.status === 'draft' && <button type="button" onClick={() => { setMsg(''); setQuote(null); setDraft({ ...c }); }} className="shrink-0 text-[9px] font-black uppercase tracking-widest underline">Open</button>}
             </div>
           ))}
