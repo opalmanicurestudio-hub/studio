@@ -13,6 +13,7 @@
 //      Requests without it are rejected, so nobody can trigger a sync
 //      storm from outside.
 
+import { linkOrigin } from '@/lib/app-origin';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { syncTenantBankFeed, listBankFeedTenants } from '@/lib/plaid-sync';
@@ -924,7 +925,7 @@ export async function GET(req: NextRequest) {
       if (!smsConfigured()) break; // no SMS → these are pure-noise skips
       const tz = tenantTimeZone(tDoc.data() as any);
       const todayStr = todayIn(tz);
-      const base = String((tDoc.data() as any)?.publicOrigin || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/+$/, '');
+      const base = linkOrigin((tDoc.data() as any), '');
 
       // 1) RENT COMING DUE (3 days out) — friendly nudge with pay link.
       try {
