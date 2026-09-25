@@ -84,6 +84,20 @@ export async function senderFor(db: any, tenantId: string, c: any, fallbackOrigi
   return { name: String(t.name || 'the business'), origin, timeZone, tenant: t, renter: null, owner: null, bookBase: `${origin}/book/${encodeURIComponent(tenantId)}` };
 }
 
+/** The people behind the numbers: who gets it (with where it goes) and who's left out, why. */
+export function peopleOf(aud: any, channel: 'email' | 'sms', cap = 1000) {
+  const mask = (x: string | null) => {
+    if (!x) return '';
+    if (channel === 'sms') { const d = x.replace(/\D/g, ''); return d.length >= 4 ? `•••• ${d.slice(-4)}` : x; }
+    const [u, dom] = x.split('@'); return dom ? `${u.slice(0, 2)}…@${dom}` : x;
+  };
+  const byName = (a: any, b: any) => String(a.name).localeCompare(String(b.name));
+  return {
+    recipients: [...aud.members].sort(byName).slice(0, cap).map((m: any) => ({ id: m.id, name: m.name || 'Client', to: mask(channel === 'sms' ? m.phone : m.email) })),
+    skipped: [...(aud.skipped || [])].sort(byName).slice(0, cap),
+  };
+}
+
 export async function previewCampaign(db: any, tenantId: string, c: any, fallbackOrigin?: string) {
   const channel: 'email' | 'sms' = c.type === 'sms' ? 'sms' : 'email';
   const who = await senderFor(db, tenantId, c, fallbackOrigin);
