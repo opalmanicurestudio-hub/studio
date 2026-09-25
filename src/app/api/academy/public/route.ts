@@ -1,438 +1,106 @@
-// src/app/api/academy/public/route.ts
+// src/app/api/academy/journey/route.ts
 //
-// THE ACADEMY, FOR STUDENTS — no ClarityFlow account needed.
-//   catalog   { tenantId }                          published courses
-//   course    { tenantId, slug, token? }            page + curriculum (+ progress if enrolled)
-//   checkout  { tenantId, courseId, email, name }   Stripe Checkout (card or pay-later);
-//                                                   free courses enrol straight away
-//   confirm   { tenantId, sessionId }               after payment → enrolled + signed in
-//   login     { tenantId, email }                   emails a sign-in link (always "ok")
-//   exchange  { tenantId, loginToken }              email link → 30-day sign-in
-//   me        { tenantId, token }                   my courses + progress
-//   lesson    { tenantId, courseId, lessonId, token? }  content; video token if allowed
-//   progress  { tenantId, token, courseId, lessonId, done }
+// STUDENT JOURNEY — owners, managers and instructors (license/placement edits:
+// owners and managers).
+//   students · refresh · journey-save · outcomes
+//   threads · thread · reply · announce · announcements
 
 import { NextRequest, NextResponse } from 'next/server';
-import Stripe from 'stripe';
 import { getAdminDb } from '@/lib/firebase-admin';
-import { resolveFromAddress } from '@/lib/notify';
+import { verifyStaffActor } from '@/lib/staff-auth';
+import { appendAudit } from '@/lib/academy-compliance';
+import { computeRisk, evaluateSap, outcomes, postMessage, sendEmail } from '@/lib/academy-journey';
 import { linkOrigin } from '@/lib/app-origin';
-import { payLaterCheckoutParams } from '@/lib/pay-later';
-import { loadCourseBySlug, loadLessons, studentFromToken, enroll, enrollFromCheckout, createStudentSession, createLoginLink, studentIdFor, sha, muxPlaybackToken, embedUrl } from '@/lib/academy';
-import { applyBeat, appendAudit, jitterMin, lessonMet, qrValid, metersBetween, mergeRanges, watchedSeconds, DEFAULT_RULES, type Range } from '@/lib/academy-compliance';
-import { randomBytes } from 'crypto';
-import { savePrivateImage } from '@/lib/private-storage';
-import { programProgress } from '@/lib/academy-school';
-import { DEFAULT_DOCS, DEFAULT_REFUND, admissionByToken, issueApplicationLink, setStage, renderAgreement, createTuitionPlan, completeDownPayment, planBalance, sha as sha256hex } from '@/lib/academy-admissions';
-import { savePrivateDocument } from '@/lib/private-storage';
 
 export const dynamic = 'force-dynamic';
-const hits = new Map<string, { n: number; at: number }>();
-const stripe = () => new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2025-04-30.basil' as any });
-const publicCourse = (c: any) => ({ id: c.id, slug: c.slug, title: c.title, subtitle: c.subtitle || '', description: c.description || '', priceCents: c.priceCents || 0, level: c.level || null,
-  instructorName: c.instructorName || null, coverUrl: c.coverUrl || null, whatYouLearn: c.whatYouLearn || [], lessonCount: c.lessonCount || 0 });
-
-async function sendEmail(to: string, subject: string, text: string) {
-  if (!process.env.RESEND_API_KEY) return false;
-  try { const r = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: resolveFromAddress(), to, subject, text }) }); return r.ok; } catch { return false; }
-}
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
-  const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'x';
-  const h = hits.get(ip); const now = Date.now();
-  if (h && now - h.at < 60000 && h.n >= 120) return NextResponse.json({ ok: false, error: 'Slow down a moment.' }, { status: 429 });
-  hits.set(ip, h && now - h.at < 60000 ? { n: h.n + 1, at: h.at } : { n: 1, at: now });
-
   const b = await req.json().catch(() => ({}));
   const tenantId = String(b.tenantId || '');
+  const auth = await verifyStaffActor(req, tenantId);
+  if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+  const isInstructor = String(auth.actor.role || '').toLowerCase() === 'instructor';
+  const isLead = auth.actor.isManager || auth.actor.isTenantOwner;
+  if (!isLead && !isInstructor) return NextResponse.json({ ok: false, error: 'Owners, managers and instructors only.' }, { status: 403 });
+  if (!isLead && b.action === 'journey-save') return NextResponse.json({ ok: false, error: 'Owners and managers only.' }, { status: 403 });
   const db = getAdminDb();
-  const tSnap = await db.doc(`tenants/${tenantId}`).get();
-  if (!tSnap.exists) return NextResponse.json({ ok: false, error: 'Academy not found.' }, { status: 404 });
-  const t = tSnap.data() as any;
-  if (t.modules?.academy === false) return NextResponse.json({ ok: false, error: 'This academy isn’t open.' }, { status: 404 });
-  const brand = { name: t.name || 'Academy', color: t.bookingPageSettings?.primaryColor || '#1c1917', logoUrl: t.logoUrl || t.bookingPageSettings?.logoUrl || null };
+  const who = auth.actor.name || auth.actor.uid;
+  const t = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
   const origin = linkOrigin(t, req.nextUrl.origin);
-  const student = await studentFromToken(tenantId, b.token);
 
   try {
-    if (b.action === 'catalog') {
-      const s = await db.collection(`tenants/${tenantId}/courses`).where('status', '==', 'published').limit(100).get();
-      return NextResponse.json({ ok: true, brand, courses: s.docs.map((d: any) => publicCourse({ id: d.id, ...(d.data() as any) })), signedIn: !!student });
+    if (b.action === 'students') {
+      const [enr, progs] = await Promise.all([db.collection(`tenants/${tenantId}/programEnrollments`).limit(3000).get(), db.collection(`tenants/${tenantId}/programs`).limit(100).get()]);
+      const names = new Map(progs.docs.map((d: any) => [d.id, (d.data() as any).name]));
+      const rank: Record<string, number> = { high: 0, watch: 1, ok: 2 };
+      const students = enr.docs.map((d: any) => { const e = d.data() as any; return { id: d.id, studentId: e.studentId, name: e.name, email: e.email, status: e.status, program: names.get(e.programId) || '—', programId: e.programId, startDate: e.startDate,
+        risk: e.risk || null, sap: (e.sap || []).slice(-1)[0] || null, sapHistory: e.sap || [], journey: e.journey || {} }; })
+        .filter((s: any) => !b.programId || s.programId === b.programId)
+        .sort((a: any, c: any) => (a.status === 'active' ? 0 : 1) - (c.status === 'active' ? 0 : 1) || (rank[a.risk?.level] ?? 3) - (rank[c.risk?.level] ?? 3) || (c.risk?.score || 0) - (a.risk?.score || 0));
+      return NextResponse.json({ ok: true, students });
     }
 
-    if (b.action === 'course') {
-      const c = await loadCourseBySlug(tenantId, String(b.slug || ''));
-      if (!c || c.status !== 'published') return NextResponse.json({ ok: false, error: 'Course not found.' }, { status: 404 });
-      const lessons = await loadLessons(tenantId, c.id);
-      const enr = student ? ((await db.doc(`tenants/${tenantId}/enrollments/${c.id}_${student.id}`).get()).data() as any) || null : null;
-      return NextResponse.json({ ok: true, brand, course: publicCourse(c), enrolled: !!enr, progress: enr?.progress || {}, lastLessonId: enr?.lastLessonId || null, student: student ? { email: student.email, name: student.name } : null,
-        lessons: lessons.map((l: any) => ({ id: l.id, title: l.title, moduleTitle: l.moduleTitle, kind: l.kind, preview: !!l.preview, durationSec: l.durationSec || null,
-          unlockAt: enr && Number(l.releaseAfterDays) > 0 ? new Date(new Date(enr.startDate || enr.createdAt).getTime() + Number(l.releaseAfterDays) * 86400000).toISOString() : null })),
-        payLater: !!t.payLater?.enabled && (c.priceCents || 0) >= (Number(t.payLater?.minAmount ?? 150) * 100) });
-    }
-
-    if (b.action === 'checkout') {
-      const email = String(b.email || student?.email || '').trim().toLowerCase();
-      const name = String(b.name || student?.name || '').trim().slice(0, 80) || null;
-      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return NextResponse.json({ ok: false, error: 'Enter your email.' }, { status: 400 });
-      const cSnap = await db.doc(`tenants/${tenantId}/courses/${String(b.courseId || '')}`).get();
-      const c = cSnap.exists ? ({ id: cSnap.id, ...(cSnap.data() as any) }) : null;
-      if (!c || c.status !== 'published') return NextResponse.json({ ok: false, error: 'Course not found.' }, { status: 404 });
-      const already = await db.doc(`tenants/${tenantId}/enrollments/${c.id}_${studentIdFor(email)}`).get();
-      if (already.exists) return NextResponse.json({ ok: false, error: 'You’re already enrolled — sign in with your email to continue.', already: true }, { status: 400 });
-      if (!c.priceCents) {
-        const r = await enroll({ tenantId, courseId: c.id, email, name, paidCents: 0 });
-        return NextResponse.json({ ok: true, free: true, token: await createStudentSession(tenantId, r.studentId) });
-      }
-      if (!t.stripeAccountId) return NextResponse.json({ ok: false, error: 'This academy can’t take payments yet.' }, { status: 400 });
-      const session = await stripe().checkout.sessions.create({
-        mode: 'payment', customer_email: email,
-        line_items: [{ quantity: 1, price_data: { currency: 'usd', unit_amount: c.priceCents, product_data: { name: c.title, description: (c.subtitle || `Online course · ${brand.name}`).slice(0, 300) } } }],
-        ...payLaterCheckoutParams(t.payLater, c.priceCents),
-        metadata: { type: 'academy_course', courseId: c.id, email, name: name || '' },
-        payment_intent_data: { metadata: { type: 'academy_course', courseId: c.id, email } },
-        success_url: `${origin}/learn/${tenantId}/welcome?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${origin}/learn/${tenantId}/${c.slug}`,
-      } as any, { stripeAccount: t.stripeAccountId });
-      return NextResponse.json({ ok: true, url: session.url });
-    }
-
-    if (b.action === 'confirm') {
-      if (!t.stripeAccountId) return NextResponse.json({ ok: false, error: 'No payments set up.' }, { status: 400 });
-      const s = await stripe().checkout.sessions.retrieve(String(b.sessionId || ''), {}, { stripeAccount: t.stripeAccountId });
-      const r = await enrollFromCheckout(tenantId, s);
-      if (!r) return NextResponse.json({ ok: false, pending: true, error: 'Your payment is still being confirmed — this page will update.' });
-      const course = ((await db.doc(`tenants/${tenantId}/courses/${s.metadata?.courseId}`).get()).data() as any) || {};
-      if (r.created) {
-        const link = `${origin}/learn/${tenantId}/my?login=${await createLoginLink(tenantId, r.studentId)}`;
-        await sendEmail(String(s.metadata?.email), `You’re in — ${course.title || 'your course'}`, `Welcome to ${course.title || 'your course'} with ${brand.name}!\n\nStart learning any time:\n${origin}/learn/${tenantId}/${course.slug || ''}\n\nOn another device? Sign in here (link works for 30 minutes):\n${link}\n\nOr visit ${origin}/learn/${tenantId}/my and enter this email for a fresh link.`);
-      }
-      return NextResponse.json({ ok: true, token: await createStudentSession(tenantId, r.studentId), slug: course.slug || null, title: course.title || null });
-    }
-
-    if (b.action === 'login') {
-      const email = String(b.email || '').trim().toLowerCase();
-      if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-        const sid = studentIdFor(email);
-        if ((await db.doc(`tenants/${tenantId}/students/${sid}`).get()).exists) {
-          const link = `${origin}/learn/${tenantId}/my?login=${await createLoginLink(tenantId, sid)}`;
-          await sendEmail(email, `Your sign-in link — ${brand.name}`, `Here’s your link to continue learning with ${brand.name} (works for 30 minutes):\n\n${link}\n\nIf you didn’t ask for this, you can ignore it.`);
-        }
-      }
-      return NextResponse.json({ ok: true });   // same answer either way — no one can probe for students
-    }
-
-    if (b.action === 'exchange') {
-      const ref = db.doc(`tenants/${tenantId}/studentLogins/${sha(String(b.loginToken || ''))}`);
-      const l = ((await ref.get()).data() as any) || null;
-      if (!l || l.used || new Date(l.expiresAt).getTime() < Date.now()) return NextResponse.json({ ok: false, error: 'That sign-in link has expired — ask for a new one.' }, { status: 400 });
-      await ref.set({ used: true, usedAt: new Date().toISOString() }, { merge: true });
-      return NextResponse.json({ ok: true, token: await createStudentSession(tenantId, l.studentId) });
-    }
-
-    if (b.action === 'me') {
-      if (!student) return NextResponse.json({ ok: true, brand, student: null, courses: [] });
-      const e = await db.collection(`tenants/${tenantId}/enrollments`).where('studentId', '==', student.id).limit(100).get();
-      const courses = [];
-      for (const d of e.docs) {
-        const en = d.data() as any;
-        const c = ((await db.doc(`tenants/${tenantId}/courses/${en.courseId}`).get()).data() as any) || null;
-        if (!c) continue;
-        const done = Object.keys(en.progress || {}).length;
-        courses.push({ ...publicCourse({ id: en.courseId, ...c }), done, pct: Math.round((done / Math.max(1, c.lessonCount || 1)) * 100), lastLessonId: en.lastLessonId || null, since: en.createdAt,
-          onlineHours: Math.round(((en.onlineSec || 0) / 3600) * 10) / 10, requiredOnlineHours: c.requiredOnlineHours || null, requiredInPersonHours: c.requiredInPersonHours || null, certificateCode: en.certificateCode || null });
-      }
-      // Licensed-school students: their program's hours and service requirements.
-      const pe = await db.collection(`tenants/${tenantId}/programEnrollments`).where('studentId', '==', student.id).limit(10).get();
-      const programs = [];
-      for (const d of pe.docs) { const pr = await programProgress(tenantId, d.id); if (pr) programs.push({ id: d.id, name: pr.program.name, status: pr.enrollment.status, hours: pr.hours, totalHours: pr.program.totalHours, requirements: pr.requirements, requirementsPct: pr.requirementsPct }); }
-      return NextResponse.json({ ok: true, brand, student: { email: student.email, name: student.name }, courses, programs });
-    }
-
-    if (b.action === 'lesson') {
-      const courseId = String(b.courseId || ''), lessonId = String(b.lessonId || '');
-      const c = ((await db.doc(`tenants/${tenantId}/courses/${courseId}`).get()).data() as any) || null;
-      const l = ((await db.doc(`tenants/${tenantId}/courses/${courseId}/lessons/${lessonId}`).get()).data() as any) || null;
-      if (!c || !l || c.status !== 'published') return NextResponse.json({ ok: false, error: 'Lesson not found.' }, { status: 404 });
-      const enrolled = student ? (await db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`).get()).exists : false;
-      if (!enrolled && !l.preview) return NextResponse.json({ ok: false, locked: true, error: 'Enrol to watch this lesson.' }, { status: 403 });
-      // Scheduled release: unlocks N days after the student starts.
-      if (enrolled && student && Number(l.releaseAfterDays) > 0) {
-        const en = ((await db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`).get()).data() as any) || {};
-        const unlock = new Date(new Date(en.startDate || en.createdAt || Date.now()).getTime() + Number(l.releaseAfterDays) * 86400000);
-        if (unlock.getTime() > Date.now()) return NextResponse.json({ ok: false, locked: true, error: `This lesson unlocks on ${unlock.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}.` }, { status: 403 });
-      }
-      const video = l.kind === 'video'
-        ? (l.muxPlaybackId && l.muxStatus === 'ready' ? { type: 'mux', playbackId: l.muxPlaybackId, token: muxPlaybackToken(l.muxPlaybackId) } : l.videoUrl ? { type: 'embed', url: embedUrl(l.videoUrl) } : null)
-        : null;
-      if (enrolled && student) await db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`).set({ lastLessonId: lessonId, lastSeenAt: new Date().toISOString() }, { merge: true });
-      const enr = enrolled && student ? ((await db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`).get()).data() as any) || {} : {};
-      const stat = enr.stats?.[lessonId] || {};
-      const quiz = l.quiz?.questions?.length ? { passPct: l.quiz.passPct || 80, questions: l.quiz.questions.map((q: any) => ({ q: q.q, options: q.options })), attempts: (enr.quiz?.[lessonId]?.attempts || []).slice(-5), passed: !!enr.quiz?.[lessonId]?.passed } : null;
-      return NextResponse.json({ ok: true, enrolled, lesson: { id: lessonId, title: l.title, moduleTitle: l.moduleTitle, kind: l.kind, body: l.body || '', downloadUrl: l.downloadUrl || null, downloadName: l.downloadName || null, preview: !!l.preview, video, durationSec: l.durationSec || null, minMinutes: l.minMinutes || 0, quiz },
-        tracking: { compliance: !!c.compliance, checkEveryMin: c.compliance ? (c.attentionCheckMinutes ?? DEFAULT_RULES.attentionCheckMinutes) : 0, minEngagementPct: c.minEngagementPct ?? DEFAULT_RULES.minEngagementPct, minWatchPct: c.minWatchPct ?? DEFAULT_RULES.minWatchPct,
-          engagedSec: stat.engagedSec || 0, watchedSec: stat.watchedSec || 0 } });
-    }
-
-    if (b.action === 'progress') {
-      if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
-      const ref = db.doc(`tenants/${tenantId}/enrollments/${String(b.courseId || '')}_${student.id}`);
+    if (b.action === 'refresh') {
+      const ref = db.doc(`tenants/${tenantId}/programEnrollments/${String(b.enrollmentId || '')}`);
       const e = ((await ref.get()).data() as any) || null;
-      if (!e) return NextResponse.json({ ok: false, error: 'Not enrolled.' }, { status: 403 });
-      const progress = { ...(e.progress || {}) };
-      const courseId = String(b.courseId || ''), lessonId = String(b.lessonId || '');
-      if (b.done) {
-        const c = ((await db.doc(`tenants/${tenantId}/courses/${courseId}`).get()).data() as any) || {};
-        const l = ((await db.doc(`tenants/${tenantId}/courses/${courseId}/lessons/${lessonId}`).get()).data() as any) || {};
-        const st = e.stats?.[lessonId] || {};
-        const m = lessonMet(c, l, { engagedSec: st.engagedSec || 0, watchedSec: st.watchedSec || 0, quizPassed: !!e.quiz?.[lessonId]?.passed });
-        if (!m.met) return NextResponse.json({ ok: false, error: m.why, notMet: true }, { status: 400 });
-        progress[lessonId] = new Date().toISOString();
-        await appendAudit(tenantId, { type: 'lesson.completed', studentId: student.id, courseId, by: student.email, summary: `Completed “${l.title || lessonId}” — ${Math.round((st.engagedSec || 0) / 60)} active min, ${l.durationSec ? Math.round(((st.watchedSec || 0) / l.durationSec) * 100) + '% watched' : 'no video'}`, data: { lessonId, engagedSec: st.engagedSec || 0, watchedSec: st.watchedSec || 0 } });
-      } else {
-        const c = ((await db.doc(`tenants/${tenantId}/courses/${courseId}`).get()).data() as any) || {};
-        if (c.compliance) return NextResponse.json({ ok: false, error: 'Completed lessons stay on your record.' }, { status: 400 });
-        delete progress[lessonId];
-      }
-      await ref.set({ progress, lastLessonId: lessonId }, { merge: true });
-      return NextResponse.json({ ok: true, progress });
+      if (!e) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
+      const p = ((await db.doc(`tenants/${tenantId}/programs/${e.programId}`).get()).data() as any) || {};
+      const risk = await computeRisk(tenantId, e, p);
+      await ref.set({ risk }, { merge: true });
+      const sap = await evaluateSap(tenantId, ref, e, p, who);
+      return NextResponse.json({ ok: true, risk, newChecks: sap });
     }
 
-    // ── Admissions: apply, then a private application page ──
-    if (b.action === 'programs') {
-      const s = await db.collection(`tenants/${tenantId}/programs`).where('status', '==', 'active').limit(50).get();
-      return NextResponse.json({ ok: true, brand, programs: s.docs.map((d: any) => { const p = d.data() as any; return { id: d.id, name: p.name, totalHours: p.totalHours || null, description: p.description || null,
-        tuitionCents: p.tuition ? p.tuition.tuitionCents + p.tuition.registrationFeeCents + p.tuition.kitCents : null, installments: p.tuition?.installments || 0 }; }) });
-    }
-    if (b.action === 'apply') {
-      const name = String(b.name || '').trim().slice(0, 80), mail = String(b.email || '').trim().toLowerCase();
-      if (!name || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) return NextResponse.json({ ok: false, error: 'Add your name and email.' }, { status: 400 });
-      const p = ((await db.doc(`tenants/${tenantId}/programs/${String(b.programId || '')}`).get()).data() as any) || null;
-      if (!p || p.status === 'archived') return NextResponse.json({ ok: false, error: 'Choose a program.' }, { status: 400 });
-      const dupe = await db.collection(`tenants/${tenantId}/admissions`).where('email', '==', mail).limit(20).get();
-      const open = dupe.docs.find((d: any) => (d.data() as any).programId === b.programId && !['declined', 'withdrawn'].includes((d.data() as any).stage));
-      const at = new Date().toISOString();
-      const wantsToApply = b.intent !== 'info';
-      let id = open?.id;
-      if (!id) {
-        const ref = db.collection(`tenants/${tenantId}/admissions`).doc(); id = ref.id;
-        await ref.set({ id, name, email: mail, phone: String(b.phone || '').slice(0, 30) || null, programId: b.programId, stage: wantsToApply ? 'applied' : 'inquiry', source: String(b.source || 'website').slice(0, 80),
-          message: String(b.message || '').slice(0, 1000) || null, requiredDocs: p.requiredDocs?.length ? p.requiredDocs : DEFAULT_DOCS, documents: {}, notes: [], createdAt: at, updatedAt: at, history: [{ stage: wantsToApply ? 'applied' : 'inquiry', at, by: 'applicant' }] });
-        await appendAudit(tenantId, { type: 'admissions.created', by: mail, summary: `${wantsToApply ? 'Application' : 'Inquiry'} from ${name} for ${p.name}`, data: { admissionId: id } });
-      }
-      if (wantsToApply) {
-        const token = await issueApplicationLink(tenantId, id!);
-        const link = `${origin}/learn/${tenantId}/application/${token}`;
-        await sendEmail(mail, `Your application — ${brand.name}`, `Hi ${name.split(' ')[0]},
-
-Thanks for applying to ${p.name}! Your private application page is here — upload your documents, read and sign your enrolment agreement, and make your down payment:
-
-${link}
-
-Keep this link private.
-
-— ${brand.name}`);
-        return NextResponse.json({ ok: true, applied: true, link });
-      }
-      return NextResponse.json({ ok: true, applied: false });
-    }
-    if (b.action?.startsWith?.('app-') || b.action === 'application') {
-      const a = await admissionByToken(tenantId, String(b.appToken || ''));
-      if (!a) return NextResponse.json({ ok: false, error: 'This application link isn’t valid — ask the school for a new one.' }, { status: 404 });
-      const p = ((await db.doc(`tenants/${tenantId}/programs/${a.programId}`).get()).data() as any) || {};
-      const tuition = p.tuition || { tuitionCents: 0, registrationFeeCents: 0, kitCents: 0, downPaymentCents: 0, installments: 0, interval: 'month' };
-      const studentId = studentIdFor(a.email); const planId = `${a.programId}_${studentId}`;
-      const agreementText = () => renderAgreement(p.agreementTemplate || '', { student: a.name, program: p.name || 'Program', school: brand.name, start: a.startDate ? new Date(a.startDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'to be confirmed', tuition, refund: p.refundPolicy || DEFAULT_REFUND, totalHours: p.totalHours || null });
-
-      if (b.action === 'application') {
-        const plan = ((await db.doc(`tenants/${tenantId}/tuitionPlans/${planId}`).get()).data() as any) || null;
-        const bal = plan ? await planBalance(tenantId, planId) : null;
-        const docs = (a.requiredDocs || DEFAULT_DOCS).map((k: string) => ({ key: k, status: a.documents?.[k]?.status || 'missing', reason: a.documents?.[k]?.reason || null }));
-        return NextResponse.json({ ok: true, brand, applicant: { name: a.name, email: a.email, stage: a.stage, startDate: a.startDate || null, waitlisted: !!a.waitlisted },
-          program: { name: p.name, totalHours: p.totalHours || null, tuition }, docs,
-          agreement: a.agreement?.signedAt ? { signed: true, signedAt: a.agreement.signedAt, signedName: a.agreement.signedName, text: a.agreement.text } : { signed: false, text: agreementText() },
-          payment: plan ? { downPaymentCents: plan.downPaymentCents, paid: !!plan.downPaidAt, balanceCents: bal?.balanceCents ?? null, installmentCents: plan.installmentCents, installmentsTotal: plan.installmentsTotal, nextDueAt: plan.nextDueAt, autopay: !!plan.autopay } : null });
-      }
-      if (b.action === 'app-upload') {
-        const key = String(b.docKey || ''); if (!(a.requiredDocs || DEFAULT_DOCS).includes(key)) return NextResponse.json({ ok: false, error: 'Unknown document.' }, { status: 400 });
-        if (a.documents?.[key]?.status === 'verified') return NextResponse.json({ ok: false, error: 'That document is already verified.' }, { status: 400 });
-        const safe = key.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
-        const f = await savePrivateDocument(tenantId, `tenants/${tenantId}/academy/admissions/${a.id}/${safe}-${Date.now()}`, String(b.file || ''));
-        const docs = { ...(a.documents || {}), [key]: { ref: f.ref, sha256: f.sha256, type: f.type, at: new Date().toISOString(), status: 'submitted', reason: null } };
-        const allIn = (a.requiredDocs || DEFAULT_DOCS).every((k: string) => docs[k]);
-        await a.ref.set({ documents: docs, updatedAt: new Date().toISOString() }, { merge: true });
-        await appendAudit(tenantId, { type: 'admissions.doc_uploaded', by: a.email, summary: `${a.name} uploaded ${key}`, data: { admissionId: a.id, sha256: f.sha256 } });
-        if (allIn && ['inquiry', 'tour', 'applied'].includes(a.stage)) await setStage(tenantId, a.id, 'documents', 'applicant', 'All documents uploaded');
-        return NextResponse.json({ ok: true });
-      }
-      if (b.action === 'app-sign') {
-        if (a.agreement?.signedAt) return NextResponse.json({ ok: true, already: true });
-        const missing = (a.requiredDocs || DEFAULT_DOCS).filter((k: string) => !a.documents?.[k]);
-        if (missing.length) return NextResponse.json({ ok: false, error: `Upload ${missing.join(', ')} first.` }, { status: 400 });
-        const typed = String(b.typedName || '').trim().replace(/\s+/g, ' ');
-        if (!b.agree || typed.toLowerCase() !== String(a.name).trim().replace(/\s+/g, ' ').toLowerCase()) return NextResponse.json({ ok: false, error: `Type your full name exactly as “${a.name}” and tick the box to sign.` }, { status: 400 });
-        const text = agreementText(); const signedAt = new Date().toISOString();
-        const agreement = { text, sha256: sha256hex(text), signedName: typed, signedAt, ip: (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || null, userAgent: String(req.headers.get('user-agent') || '').slice(0, 240) };
-        await a.ref.set({ agreement, updatedAt: signedAt }, { merge: true });
-        await appendAudit(tenantId, { type: 'admissions.signed', by: a.email, summary: `${a.name} signed the enrolment agreement for ${p.name}`, data: { admissionId: a.id, sha256: agreement.sha256 } });
-        await setStage(tenantId, a.id, 'agreement', 'applicant', 'Agreement signed');
-        await createTuitionPlan({ tenantId, programId: a.programId, studentId, email: a.email, name: a.name, admissionId: a.id, tuition, by: 'applicant' });
-        return NextResponse.json({ ok: true });
-      }
-      if (b.action === 'app-pay') {
-        const plan = ((await db.doc(`tenants/${tenantId}/tuitionPlans/${planId}`).get()).data() as any) || null;
-        if (!plan) return NextResponse.json({ ok: false, error: 'Sign your agreement first.' }, { status: 400 });
-        if (plan.downPaidAt) return NextResponse.json({ ok: false, error: 'Already paid — thank you!' }, { status: 400 });
-        if (!t.stripeAccountId) return NextResponse.json({ ok: false, error: 'The school can’t take payments online yet — contact them.' }, { status: 400 });
-        const session = await stripe().checkout.sessions.create({
-          mode: 'payment', customer_email: a.email, customer_creation: 'always', payment_method_types: ['card'],
-          line_items: [{ quantity: 1, price_data: { currency: 'usd', unit_amount: plan.downPaymentCents, product_data: { name: `${p.name} — ${plan.installmentsTotal ? 'down payment' : 'tuition'}`, description: plan.installmentsTotal ? `Your card is saved for ${plan.installmentsTotal} automatic instalments.` : undefined } } }],
-          payment_intent_data: { ...(plan.installmentsTotal ? { setup_future_usage: 'off_session' } : {}), metadata: { type: 'academy_tuition', planId, admissionId: a.id } },
-          metadata: { type: 'academy_tuition', planId, admissionId: a.id },
-          success_url: `${origin}/learn/${tenantId}/application/${String(b.appToken)}?session_id={CHECKOUT_SESSION_ID}`,
-          cancel_url: `${origin}/learn/${tenantId}/application/${String(b.appToken)}`,
-        } as any, { stripeAccount: t.stripeAccountId });
-        return NextResponse.json({ ok: true, url: session.url });
-      }
-      if (b.action === 'app-confirm') {
-        const s = await stripe().checkout.sessions.retrieve(String(b.sessionId || ''), {}, { stripeAccount: t.stripeAccountId });
-        if (s.metadata?.planId !== planId) return NextResponse.json({ ok: false, error: 'That payment isn’t for this application.' }, { status: 400 });
-        const r = await completeDownPayment(tenantId, s);
-        return NextResponse.json({ ok: !!r, pending: !r });
-      }
+    if (b.action === 'journey-save') {
+      const ref = db.doc(`tenants/${tenantId}/programEnrollments/${String(b.enrollmentId || '')}`);
+      const e = ((await ref.get()).data() as any) || null;
+      if (!e) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
+      const j = { ...(e.journey || {}) };
+      if (b.license) j.license = { examDate: String(b.license.examDate || '').slice(0, 10) || null, result: ['passed', 'failed', 'scheduled'].includes(b.license.result) ? b.license.result : null, licenseNumber: String(b.license.licenseNumber || '').slice(0, 40) || null, updatedAt: new Date().toISOString(), by: who };
+      if (b.placement) j.placement = { status: ['hired', 'renting', 'self_employed', 'seeking', 'not_seeking'].includes(b.placement.status) ? b.placement.status : null, where: String(b.placement.where || '').slice(0, 120) || null, at: String(b.placement.at || '').slice(0, 10) || null, updatedAt: new Date().toISOString(), by: who };
+      await ref.set({ journey: j }, { merge: true });
+      await appendAudit(tenantId, { type: 'journey.updated', studentId: e.studentId, by: who, summary: `${e.name}: ${b.license ? `license ${j.license?.result || '—'}${j.license?.licenseNumber ? ` #${j.license.licenseNumber}` : ''}` : ''}${b.placement ? ` placement ${j.placement?.status || '—'}${j.placement?.where ? ` at ${j.placement.where}` : ''}` : ''}`, data: j });
+      return NextResponse.json({ ok: true, journey: j });
     }
 
-    // ── Verified online time ──
-    if (b.action === 'session-start') {
-      if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
-      const courseId = String(b.courseId || ''), lessonId = String(b.lessonId || '');
-      if (!(await db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`).get()).exists) return NextResponse.json({ ok: false, error: 'Not enrolled.' }, { status: 403 });
-      const c = ((await db.doc(`tenants/${tenantId}/courses/${courseId}`).get()).data() as any) || {};
-      const every = c.compliance ? (c.attentionCheckMinutes ?? DEFAULT_RULES.attentionCheckMinutes) : 0;
-      const ref = db.collection(`tenants/${tenantId}/learningSessions`).doc();
-      const at = new Date().toISOString();
-      await ref.set({ id: ref.id, studentId: student.id, email: student.email, courseId, lessonId, startedAt: at, lastBeatAt: at, status: 'active', engagedSec: 0, idleSec: 0, beats: 0,
-        checksIssued: 0, checksPassed: 0, checksMissed: 0, check: null, nextCheckAt: every ? new Date(Date.now() + jitterMin(every) * 60000).toISOString() : null, ranges: [], watchedSec: 0,
-        ip: (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || null, userAgent: String(req.headers.get('user-agent') || '').slice(0, 240) });
-      return NextResponse.json({ ok: true, sessionId: ref.id });
+    if (b.action === 'outcomes') return NextResponse.json({ ok: true, outcomes: await outcomes(tenantId, b.programId || null) });
+
+    if (b.action === 'threads') {
+      const s = await db.collection(`tenants/${tenantId}/academyThreads`).orderBy('lastAt', 'desc').limit(300).get();
+      return NextResponse.json({ ok: true, threads: s.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })) });
     }
-    if (b.action === 'heartbeat') {
-      if (!student) return NextResponse.json({ ok: false, error: 'Sign in again.' }, { status: 401 });
-      const sRef = db.doc(`tenants/${tenantId}/learningSessions/${String(b.sessionId || '')}`);
-      const sess = ((await sRef.get()).data() as any) || null;
-      if (!sess || sess.studentId !== student.id || sess.status !== 'active') return NextResponse.json({ ok: false, restart: true });
-      const c = ((await db.doc(`tenants/${tenantId}/courses/${sess.courseId}`).get()).data() as any) || {};
-      const l = ((await db.doc(`tenants/${tenantId}/courses/${sess.courseId}/lessons/${sess.lessonId}`).get()).data() as any) || {};
-      const ranges: Range[] = (Array.isArray(b.ranges) ? b.ranges : []).slice(0, 50).map((r: any) => [Number(r?.[0]) || 0, Number(r?.[1]) || 0] as Range);
-      const r = applyBeat(sess, { visible: !!b.visible, playing: !!b.playing, interacted: !!b.interacted, ranges, checkAnswer: b.checkAnswer ? String(b.checkAnswer) : null },
-        { checkEveryMin: c.compliance ? (c.attentionCheckMinutes ?? DEFAULT_RULES.attentionCheckMinutes) : 0, videoDurationSec: l.durationSec || null });
-      await sRef.set(r.patch, { merge: true });
-      // Roll this session's gains into the student's record for the lesson.
-      const eRef = db.doc(`tenants/${tenantId}/enrollments/${sess.courseId}_${student.id}`);
-      const e = ((await eRef.get()).data() as any) || {};
-      const st = e.stats?.[sess.lessonId] || {};
-      const lessonRanges = r.patch.ranges ? mergeRanges(st.ranges || [], r.patch.ranges) : (st.ranges || []);
-      const next = { engagedSec: (st.engagedSec || 0) + r.credit, ranges: lessonRanges, watchedSec: watchedSeconds(lessonRanges) };
-      await eRef.set({ stats: { [sess.lessonId]: next }, onlineSec: (e.onlineSec || 0) + r.credit, lastActiveAt: new Date().toISOString() }, { merge: true });
-      return NextResponse.json({ ok: true, credited: r.credit, check: r.showCheck, paused: r.blocked, lessonEngagedSec: next.engagedSec, lessonWatchedSec: next.watchedSec });
+    if (b.action === 'thread') {
+      const ref = db.doc(`tenants/${tenantId}/academyThreads/${String(b.studentId || '')}`);
+      const m = await ref.collection('messages').orderBy('at').limit(500).get();
+      await ref.set({ unreadSchool: 0 }, { merge: true });
+      return NextResponse.json({ ok: true, messages: m.docs.map((d: any) => d.data()) });
     }
-    if (b.action === 'session-end') {
-      const sRef = db.doc(`tenants/${tenantId}/learningSessions/${String(b.sessionId || '')}`);
-      const sess = ((await sRef.get()).data() as any) || null;
-      if (sess && student && sess.studentId === student.id && sess.status === 'active') {
-        await sRef.set({ status: 'closed', endedAt: new Date().toISOString() }, { merge: true });
-        await appendAudit(tenantId, { type: 'online.session', studentId: student.id, courseId: sess.courseId, by: student.email, summary: `Online session: ${Math.round((sess.engagedSec || 0) / 60)} active min (${Math.round((sess.idleSec || 0) / 60)} idle), checks ${sess.checksPassed || 0}/${sess.checksIssued || 0} answered`, data: { sessionId: sess.id, lessonId: sess.lessonId, engagedSec: sess.engagedSec || 0, idleSec: sess.idleSec || 0, checksMissed: sess.checksMissed || 0 } });
-      }
+    if (b.action === 'reply') {
+      const st = ((await db.doc(`tenants/${tenantId}/students/${String(b.studentId || '')}`).get()).data() as any) || null;
+      if (!st) return NextResponse.json({ ok: false, error: 'Student not found.' }, { status: 404 });
+      await postMessage({ tenantId, studentId: String(b.studentId), from: 'school', by: who, text: b.text, studentEmail: st.email, studentName: st.name });
+      await sendEmail(st.email, `New message from ${t.name || 'your academy'}`, `${String(b.text).slice(0, 1500)}\n\n— ${who}, ${t.name || ''}\n\nReply in your student portal: ${origin}/learn/${tenantId}/my`);
       return NextResponse.json({ ok: true });
     }
 
-    // ── Quizzes (graded here; answers never leave the server) ──
-    if (b.action === 'quiz-submit') {
-      if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
-      const courseId = String(b.courseId || ''), lessonId = String(b.lessonId || '');
-      const eRef = db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`);
-      const e = ((await eRef.get()).data() as any) || null;
-      if (!e) return NextResponse.json({ ok: false, error: 'Not enrolled.' }, { status: 403 });
-      const l = ((await db.doc(`tenants/${tenantId}/courses/${courseId}/lessons/${lessonId}`).get()).data() as any) || {};
-      const qs = l.quiz?.questions || [];
-      if (!qs.length) return NextResponse.json({ ok: false, error: 'No quiz here.' }, { status: 400 });
-      const answers: number[] = Array.isArray(b.answers) ? b.answers.map((x: any) => Number(x)) : [];
-      const correct = qs.reduce((n: number, q: any, i: number) => n + (answers[i] === Number(q.answer) ? 1 : 0), 0);
-      const score = Math.round((correct / qs.length) * 100);
-      const passed = score >= (l.quiz.passPct || 80);
-      const prev = e.quiz?.[lessonId] || { attempts: [] };
-      const attempt = { at: new Date().toISOString(), score, correct, total: qs.length, passed };
-      await eRef.set({ quiz: { [lessonId]: { attempts: [...(prev.attempts || []), attempt].slice(-50), passed: prev.passed || passed, best: Math.max(prev.best || 0, score) } } }, { merge: true });
-      await appendAudit(tenantId, { type: 'quiz.attempt', studentId: student.id, courseId, by: student.email, summary: `Quiz “${l.title || lessonId}”: ${score}% (${correct}/${qs.length}) — ${passed ? 'passed' : 'not passed'}`, data: { lessonId, score, passed } });
-      return NextResponse.json({ ok: true, score, correct, total: qs.length, passed, wrong: qs.map((q: any, i: number) => answers[i] !== Number(q.answer) ? i : -1).filter((i: number) => i >= 0) });
+    if (b.action === 'announce') {
+      const title = String(b.title || '').trim().slice(0, 120), body = String(b.body || '').trim().slice(0, 4000);
+      if (!title || !body) return NextResponse.json({ ok: false, error: 'A title and message are needed.' }, { status: 400 });
+      const ref = db.collection(`tenants/${tenantId}/academyAnnouncements`).doc();
+      const target = { programId: b.programId || null, cohortId: b.cohortId || null };
+      await ref.set({ id: ref.id, title, body, ...target, by: who, at: new Date().toISOString() });
+      // Who hears it: active students in the program (and cohort, via admissions).
+      let recipients = (await db.collection(`tenants/${tenantId}/programEnrollments`).where('status', '==', 'active').limit(3000).get()).docs.map((d: any) => d.data() as any).filter((e: any) => !target.programId || e.programId === target.programId);
+      if (target.cohortId) { const inCohort = new Set((await db.collection(`tenants/${tenantId}/admissions`).where('cohortId', '==', target.cohortId).limit(1000).get()).docs.map((d: any) => String((d.data() as any).email).toLowerCase())); recipients = recipients.filter((e: any) => inCohort.has(String(e.email).toLowerCase())); }
+      let emailed = 0;
+      if (b.email) for (const r of recipients.slice(0, 500)) { if (await sendEmail(r.email, `${title} — ${t.name || 'your academy'}`, `${body}\n\n— ${who}\n\n${origin}/learn/${tenantId}/my`)) emailed++; }
+      await appendAudit(tenantId, { type: 'announcement', by: who, summary: `Announcement “${title}” to ${recipients.length} student${recipients.length === 1 ? '' : 's'}${b.email ? ` (${emailed} emailed)` : ''}` });
+      return NextResponse.json({ ok: true, recipients: recipients.length, emailed });
     }
-
-    // ── Clock in / out at the academy (rotating QR) ──
-    if (b.action === 'attend-status' || b.action === 'attend') {
-      if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.', needsSignIn: true }, { status: 401 });
-      const open = await db.collection(`tenants/${tenantId}/attendance`).where('studentId', '==', student.id).where('status', '==', 'open').limit(1).get();
-      if (b.action === 'attend-status') return NextResponse.json({ ok: true, student: { email: student.email, name: student.name }, requirePhoto: !!t.academy?.requirePhoto, requireGeo: !!t.academy?.requireGeo, open: open.empty ? null : { id: open.docs[0].id, clockInAt: (open.docs[0].data() as any).clockInAt } });
-      if (!qrValid(tenantId, String(b.code || ''), Number(b.w))) return NextResponse.json({ ok: false, error: 'That code has expired — scan the screen again.' }, { status: 400 });
-      const cfg = t.academy || {};
-      const geo = b.geo && Number.isFinite(Number(b.geo.lat)) ? { lat: Number(b.geo.lat), lng: Number(b.geo.lng), accuracy: Number(b.geo.accuracy) || null } : null;
-      let distance: number | null = null;
-      if (cfg.geo?.lat != null && geo) distance = Math.round(metersBetween(cfg.geo, geo));
-      if (cfg.requireGeo) {
-        if (!geo) return NextResponse.json({ ok: false, error: 'Allow location to clock in — the academy requires it.', needsGeo: true }, { status: 400 });
-        if (distance != null && distance > (cfg.geo?.radiusM || 150) + Math.min(100, geo.accuracy || 0)) return NextResponse.json({ ok: false, error: `You appear to be ${distance} m from the academy. Clock in on site.` }, { status: 400 });
-      }
-      if (cfg.requirePhoto && !b.photo) return NextResponse.json({ ok: false, error: 'Take a photo to clock in — the academy requires it.', needsPhoto: true }, { status: 400 });
-      const at = new Date().toISOString();
-      const meta: any = { ip: (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || null, userAgent: String(req.headers.get('user-agent') || '').slice(0, 240), geo, distanceM: distance, photo: null };
-      const attRef = b.direction === 'in' ? db.collection(`tenants/${tenantId}/attendance`).doc() : (open.empty ? null : open.docs[0].ref);
-      if (b.photo && attRef) {
-        try { meta.photo = { ...(await savePrivateImage(tenantId, `tenants/${tenantId}/academy/attendance/${attRef.id}-${b.direction === 'in' ? 'in' : 'out'}.jpg`, String(b.photo))), live: !!b.photoLive, at }; }
-        catch (e: any) { return NextResponse.json({ ok: false, error: String(e?.message || 'Photo upload failed — try again.') }, { status: 400 }); }
-        // The first photo on file becomes the student's reference photo.
-        const sRef = db.doc(`tenants/${tenantId}/students/${student.id}`);
-        if (!(((await sRef.get()).data() as any) || {}).referencePhoto) await sRef.set({ referencePhoto: { ref: meta.photo.ref, sha256: meta.photo.sha256, at } }, { merge: true });
-      }
-      if (b.direction === 'in') {
-        if (!open.empty) return NextResponse.json({ ok: false, error: `You’re already clocked in since ${new Date((open.docs[0].data() as any).clockInAt).toLocaleTimeString()}.` }, { status: 400 });
-        const ref = attRef!;
-        await ref.set({ id: ref.id, studentId: student.id, email: student.email, name: student.name || null, courseId: b.courseId || null, clockInAt: at, clockOutAt: null, minutes: 0, status: 'open', in: meta, out: null, corrections: [] });
-        await appendAudit(tenantId, { type: 'attendance.in', studentId: student.id, by: student.email, summary: `Clocked in${distance != null ? ` (${distance} m from academy)` : ''}${meta.photo ? ' with photo' : ''}`, data: { attendanceId: ref.id, at, photoSha256: meta.photo?.sha256 || null } });
-        return NextResponse.json({ ok: true, direction: 'in', at });
-      }
-      if (open.empty) return NextResponse.json({ ok: false, error: 'You’re not clocked in.' }, { status: 400 });
-      const p = open.docs[0].data() as any;
-      const minutes = Math.max(0, Math.floor((Date.now() - new Date(p.clockInAt).getTime()) / 60000));
-      await open.docs[0].ref.set({ clockOutAt: at, minutes, status: cfg.requireApproval ? 'pending' : 'closed', out: meta }, { merge: true });
-      await appendAudit(tenantId, { type: 'attendance.out', studentId: student.id, by: student.email, summary: `Clocked out — ${Math.floor(minutes / 60)}h ${minutes % 60}m${cfg.requireApproval ? ' (awaiting instructor approval)' : ''}${meta.photo ? ' with photo' : ''}`, data: { attendanceId: open.docs[0].id, at, minutes, photoSha256: meta.photo?.sha256 || null } });
-      return NextResponse.json({ ok: true, direction: 'out', at, minutes, pending: !!cfg.requireApproval });
-    }
-
-    // ── Certificates ──
-    if (b.action === 'certificate') {
-      if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
-      const courseId = String(b.courseId || '');
-      const e = ((await db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`).get()).data() as any) || null;
-      const c = ((await db.doc(`tenants/${tenantId}/courses/${courseId}`).get()).data() as any) || null;
-      if (!e || !c) return NextResponse.json({ ok: false, error: 'Not enrolled.' }, { status: 403 });
-      if (e.certificateCode) return NextResponse.json({ ok: true, code: e.certificateCode });
-      const lessons = await loadLessons(tenantId, courseId);
-      const missing = lessons.filter((l: any) => !e.progress?.[l.id]);
-      if (missing.length) return NextResponse.json({ ok: false, error: `${missing.length} lesson${missing.length === 1 ? '' : 's'} still to complete.` }, { status: 400 });
-      const onlineH = (e.onlineSec || 0) / 3600;
-      if (c.requiredOnlineHours && onlineH < c.requiredOnlineHours) return NextResponse.json({ ok: false, error: `${(c.requiredOnlineHours - onlineH).toFixed(1)} more online hours needed.` }, { status: 400 });
-      if (c.requiredInPersonHours) {
-        const att = await db.collection(`tenants/${tenantId}/attendance`).where('studentId', '==', student.id).limit(5000).get();
-        const h = att.docs.map((d: any) => d.data() as any).filter((p: any) => ['closed', 'approved'].includes(p.status) && (!p.courseId || p.courseId === courseId)).reduce((n: number, p: any) => n + (p.minutes || 0), 0) / 60;
-        if (h < c.requiredInPersonHours) return NextResponse.json({ ok: false, error: `${(c.requiredInPersonHours - h).toFixed(1)} more in-person hours needed.` }, { status: 400 });
-      }
-      const code = randomBytes(5).toString('hex').toUpperCase();
-      const issuedAt = new Date().toISOString();
-      const cert = { code, tenantId, tenantName: t.name || null, courseId, courseTitle: c.title, studentId: student.id, studentName: student.name || student.email, email: student.email, issuedAt,
-        onlineHours: Math.round(onlineH * 10) / 10, requiredOnlineHours: c.requiredOnlineHours || null, requiredInPersonHours: c.requiredInPersonHours || null, status: 'valid' };
-      await db.doc(`platformCertificates/${code}`).set(cert);
-      await db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`).set({ certificateCode: code, completedAt: issuedAt }, { merge: true });
-      await appendAudit(tenantId, { type: 'certificate.issued', studentId: student.id, courseId, by: 'system', summary: `Certificate ${code} issued for “${c.title}”`, data: { code } });
-      return NextResponse.json({ ok: true, code });
+    if (b.action === 'announcements') {
+      const s = await db.collection(`tenants/${tenantId}/academyAnnouncements`).orderBy('at', 'desc').limit(100).get();
+      return NextResponse.json({ ok: true, announcements: s.docs.map((d: any) => d.data()) });
     }
 
     return NextResponse.json({ ok: false, error: 'Unknown action' }, { status: 400 });
