@@ -1,5 +1,7 @@
 'use client';
 
+import { RequestDecisionPanel } from '@/components/appointments/RequestDecisionPanel';
+import { isAwaitingApproval } from '@/lib/booking-approval';
 import { PrivateImg, resolvePrivateUrl, openPrivateFile } from '@/components/shared/private-file';
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { format, differenceInMinutes, parseISO, differenceInSeconds, formatDistanceToNow } from 'date-fns';
@@ -2318,7 +2320,11 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           ? <CancellationRecord appointment={appointment} transactions={transactions} staff={staff || []} cancellationEvent={cancellationEvent} depositDecision={latestDepositDecision} onProcessRefund={handleProcessPendingRefund} onKeepAsCredit={handleKeepAsCredit} isProcessingRefund={isProcessingRefund} />
           : isCompleted
             ? <CompletionReceipt appointment={appointment} transactions={transactions} staff={staff || []} providers={providers} />
-            : <ReadinessBanner appointment={appointment} client={client} complianceInfo={complianceInfo} hasDeposit={hasLiveDeposit} isLoadingDeposit={isLoadingLiveDeposit} cardSecured={cardSecured} />}
+            : isAwaitingApproval(appointment)
+              // A waiting request gets its answer here — not "ready to start".
+              ? <RequestDecisionPanel appointment={appointment} firestore={firestore} tenantId={String(selectedTenant?.id || appointment?.tenantId || '')}
+                  actorUid={currentUser?.uid || null} actorName={String(currentUser?.displayName || currentUser?.email || selectedTenant?.name || 'The studio')} studioName={selectedTenant?.name || null} />
+              : <ReadinessBanner appointment={appointment} client={client} complianceInfo={complianceInfo} hasDeposit={hasLiveDeposit} isLoadingDeposit={isLoadingLiveDeposit} cardSecured={cardSecured} />}
 
         {/* ── Live timer ─────────────────────────────────────────────────── */}
         {appointment.status === 'servicing' && elapsedTime && (
