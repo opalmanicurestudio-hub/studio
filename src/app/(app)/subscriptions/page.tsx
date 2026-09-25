@@ -13,12 +13,12 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { collection, doc, query, updateDoc, where } from 'firebase/firestore';
+import { collection, query, where } from 'firebase/firestore';
 import { Loader } from 'lucide-react';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { AuthBackdrop, Wordmark } from '@/components/auth/AuthBackdrop';
 import { ToolPicker } from '@/components/modules/ToolPicker';
-import { fromTenantModules, hoursFor, toTenantModules, RECOMMENDED, TOOL_BY_ID, type ToolId } from '@/lib/module-catalog';
+import { fromTenantModules, hoursFor, RECOMMENDED, TOOL_BY_ID, type ToolId } from '@/lib/module-catalog';
 
 export default function YourClarityFlowPage() {
   const { user, firestore } = useFirebase();
@@ -39,17 +39,19 @@ export default function YourClarityFlowPage() {
     setTools(chosen.length ? chosen : (RECOMMENDED.other as ToolId[]));
   }, [tenant, tools]);
 
+  // Saved by the server: account-status fields can't be changed from the
+  // browser any more (firestore.rules), so activation can't be faked.
   const save = async () => {
-    if (!firestore || !tenant || !tools) return;
+    if (!tenant || !tools || !user) return;
     setBusy(true); setErr('');
     try {
-      await updateDoc(doc(firestore, 'tenants', tenant.id), {
-        modules: toTenantModules(tools),
-        ...(isNew ? { subscriptionStatus: 'active', subscriptionTier: 'early_access', activatedAt: new Date().toISOString() } : {}),
-      });
+      const tk = await user.getIdToken();
+      const r = await fetch('/api/account/activate', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify({ tenantId: tenant.id, tools }) });
+      const d = await r.json().catch(() => null);
+      if (!d?.ok) throw new Error(d?.error || 'Couldn’t save your tools.');
       router.push('/dashboard');
     } catch (e: any) {
-      setErr('Couldn’t save your tools — check your connection and try again.');
+      setErr(String(e?.message || 'Couldn’t save your tools — check your connection and try again.'));
       setBusy(false);
     }
   };
