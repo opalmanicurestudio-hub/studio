@@ -18,6 +18,7 @@
 // POST { tenantId, appointmentId, clientEmail?, clientPhone? }
 // → { ok, emailSent, smsSent, reason? }
 
+import { linkOrigin } from '@/lib/app-origin';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { sendNotification, ensureApptToken } from '@/lib/notify';
@@ -72,11 +73,7 @@ export async function POST(req: NextRequest) {
       : 'your scheduled time';
 
     // Links live on the PERMANENT domain, never a frozen preview URL.
-    const base = String(
-      tData.publicOrigin
-      || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')
-      || req.nextUrl.origin,
-    ).replace(/\/$/, '');
+    const base = linkOrigin(tData, req.nextUrl.origin);
     // v18 — ONE portal for clients: the master check-in link carries
     // everything (arrival, running-late, concierge, forms/deposit, the
     // studio's cancellation flow). manageToken lives on only as the key
