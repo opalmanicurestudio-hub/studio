@@ -65,7 +65,7 @@ export default function FinancePage() {
           {!d.finance && <Glass><p className="text-sm text-stone-700">No Stripe figures for this month yet — press <span className="font-semibold">Sync from Stripe</span>. After that it updates every day on its own.</p></Glass>}
 
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-            <Stat label="Income this month" value={c2(L.revenue)} sub={`${c2(d.income.fees)} platform fees`} />
+            <Stat label="Income this month" value={c2(L.revenue)} sub={`${c2(d.income.subscriptions)} subscriptions · ${c2(d.income.fees)} fees`} />
             <Stat label="Cost to serve" value={c2(L.costToServe)} sub={`${c2(d.costs.perBusiness)} per active business`} />
             <Stat label="Gross margin" value={L.grossMarginPct == null ? '—' : `${Math.round(L.grossMarginPct)}%`} sub="goal: 80%+" tone={L.grossMarginPct != null && L.grossMarginPct < 75 ? 'text-red-600' : ''} />
             <Stat label="After tax" value={c2(L.afterTax)} tone={L.afterTax < 0 ? 'text-red-600' : 'text-emerald-700'} sub="after everyone’s paid" />
@@ -108,6 +108,40 @@ export default function FinancePage() {
               ))}
             </Glass>
           </div>
+
+          {/* ── Billing: ClarityFlow's own subscriptions ── */}
+          <Glass className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Label>Subscriptions · {d.billing.subscribers} paying · {c2(d.income.subscriptions)} this month</Label>
+              <span className={`rounded-full px-3 py-1 text-[12px] font-medium ${d.billing.enabled ? 'bg-emerald-100 text-emerald-800' : 'bg-stone-200 text-stone-700'}`}>Billing {d.billing.enabled ? 'on' : 'off'}</span>
+            </div>
+            <div className="grid gap-2 md:grid-cols-3">
+              <div className="rounded-2xl bg-white/65 p-3 text-sm">
+                <p className="font-semibold">{d.billing.pricesReadyAt ? '✓' : '1.'} Prices in Stripe</p>
+                <p className="text-[12px] text-stone-500">{d.billing.pricesReadyAt ? `Set up ${new Date(d.billing.pricesReadyAt).toLocaleDateString()}` : 'Creates every plan and tool price in your Stripe account.'}</p>
+                <button type="button" disabled={!!busy} onClick={async () => { setBusy('prices'); const r = await hq({ action: 'billing-setup-prices' }); setBusy(''); setMsg(r.ok ? `Prices ready in Stripe (${r.created} new).` : r.error); void load(month); }} className="mt-2 h-8 rounded-full bg-stone-900 px-3 text-[12px] text-white disabled:opacity-40">{busy === 'prices' ? 'Creating…' : d.billing.pricesReadyAt ? 'Check again' : 'Set up prices'}</button>
+              </div>
+              <div className="rounded-2xl bg-white/65 p-3 text-sm">
+                <p className="font-semibold">{d.billing.webhookReady ? '✓' : '2.'} Stripe tells ClarityFlow</p>
+                <p className="text-[12px] text-stone-500">{d.billing.webhookReady ? 'Billing webhook connected.' : 'Stripe → Developers → Webhooks → Add endpoint: …/api/stripe/billing-webhook (Your account). Put its signing secret in Vercel as STRIPE_BILLING_WEBHOOK_SECRET.'}</p>
+              </div>
+              <div className="rounded-2xl bg-white/65 p-3 text-sm">
+                <p className="font-semibold">{d.billing.enabled ? '✓' : '3.'} Switch billing on</p>
+                <p className="text-[12px] text-stone-500">{d.billing.enabled ? 'New businesses subscribe before entering.' : 'Until then, businesses enter free (early access).'}</p>
+                <button type="button" disabled={!!busy} onClick={async () => { if (!window.confirm(d.billing.enabled ? 'Switch billing OFF? New businesses will enter free again.' : 'Switch billing ON? New businesses will subscribe before entering.')) return; setBusy('enable'); const r = await hq({ action: 'billing-settings', enabled: !d.billing.enabled }); setBusy(''); setMsg(r.ok ? `Billing ${r.billing.enabled ? 'on' : 'off'}.` : r.error); void load(month); }} className={`mt-2 h-8 rounded-full px-3 text-[12px] disabled:opacity-40 ${d.billing.enabled ? 'border border-stone-300 bg-white' : 'bg-emerald-600 text-white'}`}>{d.billing.enabled ? 'Switch off' : 'Switch on'}</button>
+              </div>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+              <label className="text-[12px] text-stone-600">Founding members — % off forever<input id="cf-founding" type="number" defaultValue={d.billing.foundingPct} min={0} max={90} className="mt-1 h-10 w-full rounded-xl border border-white/80 bg-white/75 px-3 text-sm text-stone-900" /></label>
+              <label className="text-[12px] text-stone-600">Free until (optional — subscriptions start then)<input id="cf-free" type="date" defaultValue={d.billing.freeUntil ? String(d.billing.freeUntil).slice(0, 10) : ''} className="mt-1 h-10 w-full rounded-xl border border-white/80 bg-white/75 px-3 text-sm text-stone-900" /></label>
+              <button type="button" disabled={!!busy} onClick={async () => { const pct = (document.getElementById('cf-founding') as HTMLInputElement).value; const free = (document.getElementById('cf-free') as HTMLInputElement).value; setBusy('bset'); const r = await hq({ action: 'billing-settings', foundingPct: Number(pct) || 0, freeUntil: free || null }); setBusy(''); setMsg(r.ok ? 'Billing settings saved.' : r.error); void load(month); }} className="h-10 self-end rounded-xl bg-stone-900 px-4 text-sm text-white disabled:opacity-40">Save</button>
+            </div>
+            <details className="rounded-2xl bg-white/55 p-3 text-sm">
+              <summary className="cursor-pointer font-medium">The price list ({d.billing.prices.length} prices)</summary>
+              <div className="mt-2 grid gap-1 sm:grid-cols-2">{d.billing.prices.map((p: any) => <p key={p.key} className="flex justify-between gap-2 rounded-xl bg-white/70 px-3 py-1.5 text-[13px]"><span>{p.name}</span><span className="font-semibold">${p.amount}/mo</span></p>)}</div>
+              <p className="mt-2 text-[11px] text-stone-500">Change prices in src/lib/billing-plans.ts (bump the version, e.g. _v2), then “Set up prices” again. Existing subscribers keep their price.</p>
+            </details>
+          </Glass>
 
           <div className="grid gap-4 lg:grid-cols-2">
             <Glass>
