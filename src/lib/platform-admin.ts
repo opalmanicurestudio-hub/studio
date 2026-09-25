@@ -2,7 +2,8 @@
 //
 // WHO RUNS CLARITYFLOW ITSELF — the HQ team, and what each role may do.
 //
-//   owner      everything (the emails in PLATFORM_ADMIN_EMAILS are owners)
+//   owner      everything, including the company's money (the emails in
+//              PLATFORM_ADMIN_EMAILS are owners)
 //   support    help desk, businesses (fixes, notes, resets), early access
 //   developer  help desk (bugs), businesses (read + fixes), system
 //   analyst    insights and businesses, read-only
@@ -13,10 +14,10 @@
 import { getAdminAuth, getAdminDb } from '@/lib/firebase-admin';
 
 export type HqRole = 'owner' | 'support' | 'developer' | 'analyst';
-export type HqPerm = 'tickets' | 'tenants' | 'fix' | 'suspend' | 'invites' | 'system' | 'insights' | 'team';
+export type HqPerm = 'tickets' | 'tenants' | 'fix' | 'suspend' | 'invites' | 'system' | 'insights' | 'team' | 'finance';
 
 const PERMS: Record<HqRole, HqPerm[]> = {
-  owner: ['tickets', 'tenants', 'fix', 'suspend', 'invites', 'system', 'insights', 'team'],
+  owner: ['tickets', 'tenants', 'fix', 'suspend', 'invites', 'system', 'insights', 'team', 'finance'],
   support: ['tickets', 'tenants', 'fix', 'invites'],
   developer: ['tickets', 'tenants', 'fix', 'system'],
   analyst: ['tenants', 'insights'],
