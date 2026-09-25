@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { recordCronRun } from '@/lib/cron-heartbeat';
 import { linkOrigin } from '@/lib/app-origin';
 import Stripe from 'stripe';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
@@ -126,6 +127,7 @@ export async function POST(req: NextRequest) {
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  void recordCronRun('autopay-leases');   // HQ → System: "did it run?"
 
   const { db } = getAdmin();
   const stripe = getStripe();
