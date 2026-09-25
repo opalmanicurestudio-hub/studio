@@ -10,7 +10,7 @@ import { use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Loader, ArrowLeft } from 'lucide-react';
 import { HqNav, hq, HEALTH_TONE, ago } from '@/components/hq/hq';
-import { TOOL_BY_ID, type ToolId } from '@/lib/module-catalog';
+import { TOOL_BY_ID, TOOLS, type ToolId } from '@/lib/module-catalog';
 
 const KIND: Record<string, string> = { booking: '📅', message: '✉️', change: '✎', help: '🛟' };
 const when = (iso?: string) => (iso ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '');
@@ -20,7 +20,21 @@ export default function HqTenantPage({ params }: { params: Promise<{ id: string 
   const [d, setD] = useState<any>(null);
   const [err, setErr] = useState('');
   const [kind, setKind] = useState<'all' | 'booking' | 'message' | 'change' | 'help' | 'problems'>('all');
-  useEffect(() => { hq({ action: 'tenant', id }).then((r) => (r.ok ? setD(r) : setErr(r.error || 'Couldn’t load.'))); }, [id]);
+  const load = () => hq({ action: 'tenant', id }).then((r) => (r.ok ? setD(r) : setErr(r.error || 'Couldn’t load.')));
+  useEffect(() => { void load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState('');
+  const [note, setNote] = useState('');
+  const [tools, setTools] = useState<string[] | null>(null);
+  const fix = async (fixName: string, extra: any = {}, confirmText?: string) => {
+    if (confirmText && !window.confirm(confirmText)) return;
+    setBusy(fixName + (extra.appointmentId || '')); setMsg('');
+    const r = await hq({ action: 'fix', tenantId: id, fix: fixName, ...extra });
+    setBusy('');
+    if (r.link) { try { await navigator.clipboard.writeText(r.link); } catch { /* ignore */ } }
+    setMsg(r.message || r.error || (r.ok ? 'Done.' : 'That didn’t work.'));
+    void load();
+  };
 
   const timeline = (d?.timeline || []).filter((e: any) => kind === 'all' ? true : kind === 'problems' ? e.tone === 'bad' || e.tone === 'warn' : e.kind === kind);
   return (
@@ -61,6 +75,58 @@ export default function HqTenantPage({ params }: { params: Promise<{ id: string 
                 <a href={d.tenant.bookingUrl} target="_blank" rel="noreferrer" className="inline-block pt-1 text-[12px] font-bold underline">Open their booking page ↗</a>
               </section>
             </div>
+
+            {/* ── Fix & manage — every action is logged ── */}
+            <section className="space-y-3 rounded-3xl border-2 border-slate-900 bg-white p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Fix & manage</p>
+              {msg && <p className="break-all rounded-2xl bg-emerald-50 p-3 text-sm text-emerald-900">{msg}</p>}
+              <div className="flex flex-wrap gap-2">
+                <button type="button" disabled={!!busy} onClick={() => fix('password-link', { send: true }, `Email a password reset link to ${d.tenant.owner.email}?`)} className="h-9 rounded-xl bg-slate-900 px-3 text-xs font-bold text-white disabled:opacity-50">Email a password reset</button>
+                <button type="button" disabled={!!busy} onClick={() => fix('password-link', { send: false })} className="h-9 rounded-xl border-2 px-3 text-xs font-bold disabled:opacity-50">Copy reset link</button>
+                {d.accessLocked
+                  ? <button type="button" disabled={!!busy} onClick={() => fix('restore', {}, 'Restore access for this business?')} className="h-9 rounded-xl border-2 border-emerald-300 px-3 text-xs font-bold text-emerald-800">Restore access</button>
+                  : <button type="button" disabled={!!busy} onClick={() => { const reason = window.prompt('Pause access — reason (shown in your log):'); if (reason !== null) void fix('suspend', { reason }); }} className="h-9 rounded-xl border-2 border-red-200 px-3 text-xs font-bold text-red-700">Pause access</button>}
+              </div>
+              {d.accessLocked && <p className="text-sm font-bold text-red-700">Access is paused — they see the suspended page.</p>}
+              <p className="text-[12px] text-slate-500">In the app: {d.presence?.lastSeenAt ? `last seen ${ago(d.presence.lastSeenAt)} on version ${d.presence.version || '?'}${d.currentVersion && d.presence.version && d.presence.version !== d.currentVersion ? ' — ⚠ not the current version (old copy or cached app)' : ''}` : 'not seen since this was added'}</p>
+
+              <div>
+                <p className="mb-1.5 text-[11px] font-bold text-slate-500">Recent bookings</p>
+                <div className="space-y-1">
+                  {(d.recent || []).map((a: any) => (
+                    <div key={a.id} className="flex flex-wrap items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2 text-[13px]">
+                      <span className="min-w-0 flex-1 truncate">{a.clientName || 'Client'} · {a.serviceName || ''} · {a.startTime ? new Date(a.startTime).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''} · <span className="font-bold">{a.status}</span></span>
+                      <button type="button" disabled={!!busy} onClick={() => fix('resend-confirmation', { appointmentId: a.id })} className="h-7 rounded-lg border px-2 text-[11px] font-bold">{busy === 'resend-confirmation' + a.id ? '…' : 'Resend confirmation'}</button>
+                      {a.hasCheckIn && <button type="button" disabled={!!busy} onClick={() => fix('resync-checkin', { appointmentId: a.id })} className="h-7 rounded-lg border px-2 text-[11px] font-bold">{busy === 'resync-checkin' + a.id ? '…' : 'Re-sync status'}</button>}
+                    </div>
+                  ))}
+                  {(!d.recent || d.recent.length === 0) && <p className="text-sm text-slate-500">No bookings yet.</p>}
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-1.5 text-[11px] font-bold text-slate-500">Tools (for them)</p>
+                {tools === null ? <button type="button" onClick={() => setTools(d.tenant.tools)} className="h-8 rounded-lg border px-3 text-[11px] font-bold">Change their tools</button> : (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-1.5">{TOOLS.map((t) => { const on = tools.includes(t.id) || t.gates.length === 0; return (
+                      <button key={t.id} type="button" disabled={t.gates.length === 0} onClick={() => setTools(on ? tools.filter((x) => x !== t.id) : [...tools, t.id])} className={`h-8 rounded-full px-3 text-[12px] ${on ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'}`}>{t.emoji} {t.name}</button>); })}</div>
+                    <div className="flex gap-2"><button type="button" onClick={async () => { await fix('set-tools', { tools }); setTools(null); }} className="h-8 rounded-lg bg-slate-900 px-3 text-[11px] font-bold text-white">Save tools</button><button type="button" onClick={() => setTools(null)} className="h-8 rounded-lg px-3 text-[11px] font-bold text-slate-500">Cancel</button></div>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <p className="mb-1.5 text-[11px] font-bold text-slate-500">Private notes (only HQ sees these)</p>
+                <div className="flex gap-2"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Called Sept 25 — moving from Vagaro next week" className="h-9 min-w-0 flex-1 rounded-xl border-2 px-3 text-sm" /><button type="button" disabled={!note.trim()} onClick={async () => { await fix('note', { text: note }); setNote(''); }} className="h-9 rounded-xl bg-slate-900 px-3 text-xs font-bold text-white disabled:opacity-40">Save</button></div>
+                <div className="mt-2 space-y-1">{(d.notes || []).map((n: any, i: number) => <p key={i} className="rounded-xl bg-amber-50 px-3 py-2 text-[13px] text-amber-950">{n.text} <span className="text-[11px] text-amber-700">— {n.by?.split('@')[0]} · {ago(n.at)}</span></p>)}</div>
+              </div>
+
+              {(d.hqActions || []).length > 0 && (
+                <details><summary className="cursor-pointer text-[11px] font-bold text-slate-500">HQ actions on this business</summary>
+                  <div className="mt-1 space-y-0.5">{d.hqActions.map((a: any) => <p key={a.id} className="text-[12px] text-slate-600">{ago(a.at)} · {a.by?.split('@')[0]} · {a.summary}</p>)}</div>
+                </details>
+              )}
+            </section>
 
             <section className="rounded-3xl border-2 border-slate-200 bg-white p-4">
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Tools on</p>
