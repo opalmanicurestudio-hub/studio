@@ -38,10 +38,17 @@ export function SchoolPrograms({ tenantId, courses }: { tenantId: string; course
   if (!d) return <Loader className="h-5 w-5 animate-spin" />;
   const program = d.programs.find((p: any) => p.id === sel);
   const save = async () => {
-    setBusy(true); const r = await api({ action: 'program-save', tenantId, program: edit }); setBusy(false);
+    const td = edit.tuitionD || {};
+    const program = { ...edit, requiredDocs: String(edit.requiredDocsText || '').split('\n').map((x: string) => x.trim()).filter(Boolean),
+      tuition: { tuitionCents: Math.round(Number(td.tuition) * 100) || 0, registrationFeeCents: Math.round(Number(td.registration) * 100) || 0, kitCents: Math.round(Number(td.kit) * 100) || 0, downPaymentCents: Math.round(Number(td.down) * 100) || 0, installments: Number(td.installments) || 0, interval: td.interval } };
+    setBusy(true); const r = await api({ action: 'program-save', tenantId, program }); setBusy(false);
     if (!r.ok) { setMsg(r.error); return; } setMsg('Program saved.'); setEdit(null); await load(); setSel(r.id);
   };
-  const newProgram = () => setEdit({ name: '', totalHours: '', requiredOnlineHours: '', requiredInPersonHours: '', requirements: [{ label: '', count: 0, serviceIds: [] }], rubric: d.defaultRubric, courseIds: [], tipPolicy: 'school' });
+  const DEFAULT_TIERS = [{ upToPct: 10, keepPct: 10 }, { upToPct: 25, keepPct: 25 }, { upToPct: 50, keepPct: 50 }, { upToPct: 100, keepPct: 100 }];
+  const withMoney = (p: any) => ({ ...p, requiredDocsText: (p.requiredDocs?.length ? p.requiredDocs : ['Photo ID', 'High school diploma or GED', 'Proof of age']).join('\n'),
+    tuitionD: { tuition: (p.tuition?.tuitionCents || 0) / 100, registration: (p.tuition?.registrationFeeCents || 0) / 100, kit: (p.tuition?.kitCents || 0) / 100, down: (p.tuition?.downPaymentCents || 0) / 100, installments: p.tuition?.installments || 0, interval: p.tuition?.interval || 'month' },
+    refundPolicy: p.refundPolicy || { cancelDays: 3, registrationNonRefundable: true, kitNonRefundable: true, tiers: DEFAULT_TIERS }, agreementTemplate: p.agreementTemplate || '' });
+  const newProgram = () => setEdit(withMoney({ name: '', totalHours: '', requiredOnlineHours: '', requiredInPersonHours: '', requirements: [{ label: '', count: 0, serviceIds: [] }], rubric: d.defaultRubric, courseIds: [], tipPolicy: 'school' }));
 
   return (
     <div className="space-y-4">
@@ -86,6 +93,35 @@ export function SchoolPrograms({ tenantId, courses }: { tenantId: string; course
             <p className="text-sm font-black">Theory courses <span className="font-normal text-muted-foreground">— enrolled students get these free</span></p>
             <div className="flex flex-wrap gap-1">{courses.map((c: any) => { const on = (edit.courseIds || []).includes(c.id); return <button key={c.id} type="button" onClick={() => setEdit({ ...edit, courseIds: on ? edit.courseIds.filter((x: string) => x !== c.id) : [...(edit.courseIds || []), c.id] })} className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${on ? 'bg-foreground text-background' : 'bg-background'}`}>{c.title}</button>; })}</div>
           </div>
+          <div className="space-y-2 rounded-2xl bg-muted/40 p-3">
+            <p className="text-sm font-black">Tuition <span className="font-normal text-muted-foreground">— what enrolling costs, and how it’s paid</span></p>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {([['tuition', 'Tuition ($)'], ['registration', 'Registration fee ($)'], ['kit', 'Kit ($)'], ['down', 'Down payment ($)'], ['installments', 'Instalments after that']] as const).map(([k, l]) => (
+                <label key={k} className="text-[12px] font-bold">{l}<input className={field} type="number" min={0} value={edit.tuitionD[k]} onChange={(e) => setEdit({ ...edit, tuitionD: { ...edit.tuitionD, [k]: e.target.value } })} /></label>
+              ))}
+              <label className="text-[12px] font-bold">Every<select className={field} value={edit.tuitionD.interval} onChange={(e) => setEdit({ ...edit, tuitionD: { ...edit.tuitionD, interval: e.target.value } })}><option value="month">month</option><option value="biweekly">2 weeks</option></select></label>
+            </div>
+            {(() => { const td = edit.tuitionD; const total = (Number(td.tuition) || 0) + (Number(td.registration) || 0) + (Number(td.kit) || 0); const n = Number(td.installments) || 0; return <p className="text-[12px] text-muted-foreground">Total ${total.toLocaleString()} · {n ? `$${Number(td.down || 0).toLocaleString()} down, then ${n} × about $${Math.round((total - (Number(td.down) || 0)) / n).toLocaleString()} on autopay` : 'paid in full at enrolment'}</p>; })()}
+          </div>
+          <div className="space-y-2 rounded-2xl bg-muted/40 p-3">
+            <p className="text-sm font-black">Refund policy <span className="font-normal text-muted-foreground">— set this to your state’s required refund schedule</span></p>
+            <div className="flex flex-wrap items-center gap-3 text-[12px] font-bold">
+              <label>Full refund if cancelled within <input className="h-8 w-14 rounded-lg border px-2" type="number" value={edit.refundPolicy.cancelDays} onChange={(e) => setEdit({ ...edit, refundPolicy: { ...edit.refundPolicy, cancelDays: e.target.value } })} /> days of signing</label>
+              <label className="flex items-center gap-1"><input type="checkbox" checked={edit.refundPolicy.registrationNonRefundable} onChange={(e) => setEdit({ ...edit, refundPolicy: { ...edit.refundPolicy, registrationNonRefundable: e.target.checked } })} />Registration fee non-refundable</label>
+              <label className="flex items-center gap-1"><input type="checkbox" checked={edit.refundPolicy.kitNonRefundable} onChange={(e) => setEdit({ ...edit, refundPolicy: { ...edit.refundPolicy, kitNonRefundable: e.target.checked } })} />Kit non-refundable once issued</label>
+            </div>
+            {edit.refundPolicy.tiers.map((x: any, i: number) => (
+              <div key={i} className="flex items-center gap-2 text-[12px]">Withdrawing by <input className="h-8 w-16 rounded-lg border px-2" type="number" value={x.upToPct} onChange={(e) => { const ts = [...edit.refundPolicy.tiers]; ts[i] = { ...ts[i], upToPct: e.target.value }; setEdit({ ...edit, refundPolicy: { ...edit.refundPolicy, tiers: ts } }); }} />% of the program → school keeps <input className="h-8 w-16 rounded-lg border px-2" type="number" value={x.keepPct} onChange={(e) => { const ts = [...edit.refundPolicy.tiers]; ts[i] = { ...ts[i], keepPct: e.target.value }; setEdit({ ...edit, refundPolicy: { ...edit.refundPolicy, tiers: ts } }); }} />% of tuition
+                <button type="button" onClick={() => setEdit({ ...edit, refundPolicy: { ...edit.refundPolicy, tiers: edit.refundPolicy.tiers.filter((_: any, k: number) => k !== i) } })} className="text-red-600" aria-label="Remove"><Trash2 className="h-3.5 w-3.5" /></button></div>
+            ))}
+            <button type="button" onClick={() => setEdit({ ...edit, refundPolicy: { ...edit.refundPolicy, tiers: [...edit.refundPolicy.tiers, { upToPct: 100, keepPct: 100 }] } })} className="rounded-full bg-background px-3 py-1 text-[12px] font-bold">+ Step</button>
+          </div>
+          <div className="grid gap-2 rounded-2xl bg-muted/40 p-3 md:grid-cols-2">
+            <label className="text-sm font-black">Documents applicants upload (one per line)<textarea className={field + ' h-28 py-2'} value={edit.requiredDocsText} onChange={(e) => setEdit({ ...edit, requiredDocsText: e.target.value })} /></label>
+            <label className="text-sm font-black">About this program (shown on the apply page)<textarea className={field + ' h-28 py-2'} value={edit.description || ''} onChange={(e) => setEdit({ ...edit, description: e.target.value })} /></label>
+            <label className="text-sm font-black md:col-span-2">Enrolment agreement <span className="font-normal text-muted-foreground">— leave empty to use the standard one. Fill-ins: {'{{student}} {{program}} {{school}} {{start}} {{hours}} {{tuition}} {{registration}} {{kit}} {{total}} {{plan}} {{refundPolicy}}'}</span>
+              <textarea className={field + ' h-48 py-2 font-mono text-[12px]'} value={edit.agreementTemplate} onChange={(e) => setEdit({ ...edit, agreementTemplate: e.target.value })} placeholder="Leave empty for the standard agreement — have your state’s required wording reviewed before use." /></label>
+          </div>
           <div className="flex gap-2"><button type="button" disabled={busy || !edit.name.trim()} onClick={save} className="h-10 rounded-xl bg-foreground px-5 text-sm font-bold text-background disabled:opacity-50">{busy ? 'Saving…' : 'Save program'}</button><button type="button" onClick={() => setEdit(null)} className="h-10 px-4 text-sm font-bold text-muted-foreground">Cancel</button></div>
         </div>
       )}
@@ -94,7 +130,7 @@ export function SchoolPrograms({ tenantId, courses }: { tenantId: string; course
         <div className="space-y-3 rounded-2xl border-2 border-border/60 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div><p className="text-lg font-black">{program.name}</p><p className="text-[12px] text-muted-foreground">{program.totalHours || '—'} hours · {(program.requirements || []).map((r: any) => `${r.label} × ${r.count}`).join(' · ') || 'no service requirements yet'}</p></div>
-            <button type="button" onClick={() => setEdit({ ...program, requirements: program.requirements?.length ? program.requirements : [{ label: '', count: 0, serviceIds: [] }], rubric: program.rubric || d.defaultRubric })} className="h-9 rounded-xl border-2 px-3 text-sm font-bold">Edit program</button>
+            <button type="button" onClick={() => setEdit(withMoney({ ...program, requirements: program.requirements?.length ? program.requirements : [{ label: '', count: 0, serviceIds: [] }], rubric: program.rubric || d.defaultRubric }))} className="h-9 rounded-xl border-2 px-3 text-sm font-bold">Edit program</button>
           </div>
           <div className="grid gap-2 rounded-2xl bg-muted/40 p-3 sm:grid-cols-[1fr_1fr_160px_auto]">
             <input className={field} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Student name" />
