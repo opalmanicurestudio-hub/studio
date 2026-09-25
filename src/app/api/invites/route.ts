@@ -17,7 +17,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
-import { verifyPlatformAdmin, signupIsOpen } from '@/lib/platform-admin';
+import { verifyPlatformAdmin, signupIsOpen, can } from '@/lib/platform-admin';
 import { resolveFromAddress } from '@/lib/notify';
 import { linkOrigin } from '@/lib/app-origin';
 
@@ -71,6 +71,7 @@ export async function POST(req: NextRequest) {
 
   // ── Everything below is for platform admins only ──
   const admin = await verifyPlatformAdmin(req);
+  if (admin && !can(admin.role, 'invites')) return NextResponse.json({ ok: false, error: 'Your HQ role can’t manage invites.' }, { status: 403 });
   if (!admin) return NextResponse.json({ ok: false, error: 'Only ClarityFlow admins can do that. (Set PLATFORM_ADMIN_EMAILS in Vercel.)' }, { status: 403 });
 
   if (action === 'list') {
