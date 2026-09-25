@@ -52,6 +52,7 @@
  */
 export const dynamic = 'force-dynamic';
 
+import { isFrozenHost } from '@/lib/app-origin';
 import { useState, useMemo, useRef, useCallback, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 
@@ -5496,6 +5497,7 @@ export default function BoothsPage() {
                   const v = window.prompt(`Links are automatic — they currently use ${shareOrigin.replace(/^https?:\/\//, '')}. Only enter a domain here to OVERRIDE that (e.g. https://yourbrand.com). Leave empty to stay automatic:`, cur);
                   if (v === null) return;
                   const cleaned = v.trim().replace(/\/+$/, '');
+                  if (cleaned && isFrozenHost(cleaned, String(process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL || ''))) { toast({ variant: 'destructive', title: 'That’s an old copy of the app', description: 'Addresses like that never get updates. Leave this blank to use the live address automatically.' }); return; }
                   if (cleaned && !/^https?:\/\/[^ ]+\.[^ ]+$/.test(cleaned)) { toast({ variant: 'destructive', title: 'That doesn\'t look like a URL', description: 'Include https:// — e.g. https://yourbrand.com' }); return; }
                   try {
                     await updateDoc(doc(firestore, 'tenants', tenantId), { publicOrigin: cleaned || null });
