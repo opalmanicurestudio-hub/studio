@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, createElement } from 'react';
 import Link from 'next/link';
+import { createPortal } from 'react-dom';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AuthBackdrop } from '@/components/auth/AuthBackdrop';
 
@@ -27,10 +28,170 @@ async function api(body: any) {
 const money = (c: number) => (c ? `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: c % 100 ? 2 : 0 })}` : 'Free');
 const mins = (s?: number | null) => (s ? `${Math.max(1, Math.round(s / 60))} min` : '');
 
-function Shell({ brand, tenantId, children }: { brand?: any; tenantId: string; children: React.ReactNode }) {
+// ── Accessibility: size, contrast, easier font, less motion (this device) ─
+const A11Y_KEY = 'cf_a11y';
+type A11y = { size: 0 | 1 | 2 | 3; contrast: boolean; readable: boolean; still: boolean };
+const A11Y_DEFAULT: A11y = { size: 0, contrast: false, readable: false, still: false };
+function useA11y() {
+  const [a, setA] = useState<A11y>(A11Y_DEFAULT);
+  useEffect(() => { try { const v = JSON.parse(localStorage.getItem(A11Y_KEY) || 'null'); if (v) setA({ ...A11Y_DEFAULT, ...v }); } catch { /* none */ } }, []);
+  useEffect(() => {
+    const html = document.documentElement; const prev = html.style.fontSize;
+    html.style.fontSize = ['100%', '112.5%', '125%', '140%'][a.size];
+    if (a.readable && !document.querySelector('link[data-cf-font]')) { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = 'https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap'; l.dataset.cfFont = '1'; document.head.appendChild(l); }
+    return () => { html.style.fontSize = prev; };
+  }, [a.size, a.readable]);
+  const save = (next: A11y) => { setA(next); try { localStorage.setItem(A11Y_KEY, JSON.stringify(next)); } catch { /* private mode */ } };
+  return [a, save] as const;
+}
+const A11Y_CSS = `
+[data-cf-contrast="1"] .glass, [data-cf-contrast="1"] section, [data-cf-contrast="1"] header { background:#fff !important; backdrop-filter:none !important; border-color:#1c1917 !important; }
+[data-cf-contrast="1"] [class*="text-stone-4"], [data-cf-contrast="1"] [class*="text-stone-5"], [data-cf-contrast="1"] [class*="text-stone-6"] { color:#1c1917 !important; }
+[data-cf-contrast="1"] .cf-backdrop { display:none !important; }
+[data-cf-readable="1"] { font-family: 'Atkinson Hyperlegible', system-ui, sans-serif !important; letter-spacing:.02em; word-spacing:.08em; }
+[data-cf-readable="1"] p, [data-cf-readable="1"] li { line-height:1.8 !important; }
+[data-cf-still="1"] *, [data-cf-still="1"] *::before, [data-cf-still="1"] *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
+`;
+function A11yMenu({ a, save }: { a: A11y; save: (x: A11y) => void }) {
+  const [open, setOpen] = useState(false);
   return (
-    <div className="relative min-h-dvh text-stone-900">
-      <AuthBackdrop />
+    <div className="relative">
+      <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-label="Reading and display settings" className="h-9 rounded-full bg-white/70 px-3 text-sm font-semibold">Aa</button>
+      {open && typeof document !== 'undefined' && createPortal(
+        <>
+        <div className="fixed inset-0 z-[70] bg-black/20" onClick={() => setOpen(false)} aria-hidden />
+        <div className="fixed inset-x-3 top-16 z-[71] space-y-3 rounded-2xl border border-stone-200 bg-white p-4 text-sm text-stone-900 shadow-2xl sm:inset-x-auto sm:right-6 sm:w-80" role="dialog" aria-label="Display settings">
+          <div className="flex items-center justify-between"><p className="font-semibold">Reading & display</p><button type="button" onClick={() => setOpen(false)} aria-label="Close" className="h-8 w-8 rounded-full bg-stone-100">✕</button></div>
+          <div><p className="font-semibold">Text size</p><div className="mt-1 flex gap-1">{[0, 1, 2, 3].map((n) => <button key={n} type="button" onClick={() => save({ ...a, size: n as A11y['size'] })} aria-pressed={a.size === n} className={`h-9 flex-1 rounded-lg ${a.size === n ? 'bg-stone-900 text-white' : 'bg-stone-100'}`} style={{ fontSize: 12 + n * 3 }}>A</button>)}</div></div>
+          {([['contrast', 'High contrast', 'Solid backgrounds, darker text'], ['readable', 'Easier-to-read font', 'Clearer letters and more spacing — helpful for dyslexia'], ['still', 'Reduce motion', 'No animations']] as const).map(([k, l, h]) => (
+            <label key={k} className="flex cursor-pointer items-start gap-2"><input type="checkbox" className="mt-1" checked={a[k]} onChange={(e) => save({ ...a, [k]: e.target.checked })} /><span><span className="font-semibold">{l}</span><span className="block text-[12px] text-stone-500">{h}</span></span></label>
+          ))}
+          <p className="text-[11px] text-stone-500">Saved on this device. Lessons also have “Listen” to hear the notes read aloud, and videos have their own caption and speed controls.</p>
+        </div>
+        </>, document.body)}
+    </div>
+  );
+}
+
+/** Read the lesson notes aloud (the device's own voice). */
+function Listen({ text }: { text: string }) {
+  const [on, setOn] = useState(false);
+  useEffect(() => () => { try { window.speechSynthesis.cancel(); } catch { /* none */ } }, []);
+  if (typeof window === 'undefined' || !('speechSynthesis' in window) || !text.trim()) return null;
+  const toggle = () => { const s = window.speechSynthesis; if (on) { s.cancel(); setOn(false); return; } const u = new SpeechSynthesisUtterance(text.replace(/^#+\s*/gm, '')); u.rate = 0.95; u.onend = () => setOn(false); s.cancel(); s.speak(u); setOn(true); };
+  return <button type="button" onClick={toggle} className="rounded-full bg-white/80 px-4 py-2 text-sm shadow-sm">{on ? '■ Stop' : '🔊 Listen'}</button>;
+}
+
+// ── Flashcards: flip, then "Got it" or "Again" (missed cards come back) ───
+function Flashcards({ cards, color }: { cards: { front: string; back: string }[]; color: string }) {
+  const [deck, setDeck] = useState(() => cards.map((c, i) => ({ ...c, i })));
+  const [flip, setFlip] = useState(false);
+  const [known, setKnown] = useState(0);
+  if (!deck.length) return <Glass className="text-center"><p className="text-lg font-semibold">🎉 All {cards.length} cards learned</p><button type="button" onClick={() => { setDeck(cards.map((c, i) => ({ ...c, i }))); setKnown(0); }} className="mt-2 text-sm underline">Go again</button></Glass>;
+  const c = deck[0];
+  const next = (gotIt: boolean) => { setFlip(false); if (gotIt) { setKnown(known + 1); setDeck(deck.slice(1)); } else setDeck([...deck.slice(1), c]); };
+  return (
+    <Glass className="space-y-3">
+      <div className="flex justify-between text-[12px] text-stone-500"><span>Flashcards</span><span>{known} of {cards.length} learned</span></div>
+      <button type="button" onClick={() => setFlip(!flip)} aria-label={flip ? 'Show question' : 'Show answer'} className="flex min-h-40 w-full items-center justify-center rounded-2xl bg-white/80 p-6 text-center text-xl">{flip ? c.back : c.front}</button>
+      <p className="text-center text-[12px] text-stone-500">{flip ? 'Did you know it?' : 'Tap the card to see the answer'}</p>
+      {flip && <div className="flex gap-2"><button type="button" onClick={() => next(false)} className="h-11 flex-1 rounded-full bg-white/80 text-sm">Again</button><button type="button" onClick={() => next(true)} className="h-11 flex-1 rounded-full text-sm font-medium text-white" style={{ background: color }}>Got it</button></div>}
+    </Glass>
+  );
+}
+
+// ── Activities: match · put in order · client scenario ──────────────────
+function shuffle<T>(xs: T[]) { const a = [...xs]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+function Activity({ a, color }: { a: any; color: string }) {
+  if (a.type === 'match') return <MatchGame a={a} color={color} />;
+  if (a.type === 'order') return <OrderGame a={a} color={color} />;
+  return <Scenario a={a} color={color} />;
+}
+function MatchGame({ a, color }: { a: any; color: string }) {
+  const [rights] = useState(() => shuffle(a.pairs.map((p: any, i: number) => ({ text: p.right, i }))));
+  const [pick, setPick] = useState<number | null>(null);
+  const [done, setDone] = useState<Set<number>>(new Set());
+  const [wrong, setWrong] = useState<number | null>(null);
+  const tryMatch = (ri: number) => { if (pick == null) return; if (ri === pick) { setDone(new Set([...done, pick])); setPick(null); } else { setWrong(ri); setTimeout(() => setWrong(null), 700); } };
+  return (
+    <Glass className="space-y-3">
+      <p className="font-semibold">{a.prompt}</p><p className="text-[12px] text-stone-500">Tap an item on the left, then its match on the right.</p>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-2">{a.pairs.map((p: any, i: number) => <button key={i} type="button" disabled={done.has(i)} onClick={() => setPick(i)} aria-pressed={pick === i} className={`w-full rounded-xl p-3 text-left text-sm ${done.has(i) ? 'bg-emerald-100 text-emerald-800' : pick === i ? 'text-white' : 'bg-white/80'}`} style={pick === i && !done.has(i) ? { background: color } : undefined}>{done.has(i) ? '✓ ' : ''}{p.left}</button>)}</div>
+        <div className="space-y-2">{rights.map((r: any) => <button key={r.i} type="button" disabled={done.has(r.i)} onClick={() => tryMatch(r.i)} className={`w-full rounded-xl p-3 text-left text-sm ${done.has(r.i) ? 'bg-emerald-100 text-emerald-800' : wrong === r.i ? 'bg-red-100' : 'bg-white/80'}`}>{r.text}</button>)}</div>
+      </div>
+      {done.size === a.pairs.length && <p className="font-semibold text-emerald-700">🎉 All matched!</p>}
+    </Glass>
+  );
+}
+function OrderGame({ a, color }: { a: any; color: string }) {
+  const [items, setItems] = useState<string[]>(() => { let s = shuffle(a.steps as string[]); if (s.join('|') === a.steps.join('|')) s = [...s].reverse(); return s; });
+  const [checked, setChecked] = useState(false);
+  const move = (i: number, d: -1 | 1) => { const j = i + d; if (j < 0 || j >= items.length) return; const n = [...items]; [n[i], n[j]] = [n[j], n[i]]; setItems(n); setChecked(false); };
+  const right = items.every((x, i) => x === a.steps[i]);
+  return (
+    <Glass className="space-y-3">
+      <p className="font-semibold">{a.prompt}</p><p className="text-[12px] text-stone-500">Use the arrows to put them in order, then check.</p>
+      <ol className="space-y-1.5">{items.map((x, i) => (
+        <li key={x} className={`flex items-center gap-2 rounded-xl p-2.5 text-sm ${checked ? (x === a.steps[i] ? 'bg-emerald-100' : 'bg-red-100') : 'bg-white/80'}`}>
+          <span className="w-6 text-center font-semibold">{i + 1}</span><span className="flex-1">{x}</span>
+          <button type="button" onClick={() => move(i, -1)} aria-label={`Move “${x}” up`} className="h-8 w-8 rounded-lg bg-white">↑</button>
+          <button type="button" onClick={() => move(i, 1)} aria-label={`Move “${x}” down`} className="h-8 w-8 rounded-lg bg-white">↓</button>
+        </li>
+      ))}</ol>
+      <button type="button" onClick={() => setChecked(true)} className="h-11 rounded-full px-6 text-sm font-medium text-white" style={{ background: color }}>Check my order</button>
+      {checked && <p className={`font-semibold ${right ? 'text-emerald-700' : 'text-stone-700'}`}>{right ? '🎉 Perfect order!' : 'Not quite — the red ones are in the wrong place.'}</p>}
+    </Glass>
+  );
+}
+function Scenario({ a, color }: { a: any; color: string }) {
+  const [chosen, setChosen] = useState<number | null>(null);
+  return (
+    <Glass className="space-y-3">
+      <p className="text-[11px] uppercase tracking-[0.2em] text-stone-400">Client scenario</p>
+      <p className="whitespace-pre-wrap text-[15px] font-semibold">{a.prompt}</p>
+      <div className="space-y-2">{a.options.map((o: any, i: number) => (
+        <div key={i}>
+          <button type="button" onClick={() => setChosen(i)} className={`w-full rounded-xl p-3 text-left text-sm ${chosen === i ? (o.correct ? 'bg-emerald-100' : 'bg-red-100') : 'bg-white/80'}`}>{o.text}</button>
+          {chosen === i && <p className={`mt-1 px-2 text-[13px] ${o.correct ? 'text-emerald-800' : 'text-red-800'}`}>{o.correct ? '✓ ' : '✗ '}{o.feedback}</p>}
+        </div>
+      ))}</div>
+      {chosen != null && !a.options[chosen].correct && <p className="text-[12px] text-stone-500">Try another answer.</p>}
+    </Glass>
+  );
+}
+
+// ── Ask the tutor ─────────────────────────────────────────────────────────
+function Tutor({ tenantId, courseId, lessonId, color }: { tenantId: string; courseId: string; lessonId: string; color: string }) {
+  const [q, setQ] = useState('');
+  const [chat, setChat] = useState<{ q: string; a: string }[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const ask = async () => {
+    const question = q.trim(); if (!question) return;
+    setBusy(true); setErr('');
+    const r = await api({ action: 'tutor', tenantId, token: getToken(tenantId), courseId, lessonId, question });
+    setBusy(false);
+    if (r.ok) { setChat([...chat, { q: question, a: r.answer }]); setQ(''); } else setErr(r.error || 'Try again.');
+  };
+  return (
+    <Glass className="space-y-3">
+      <p className="font-semibold">✨ Ask the tutor</p>
+      <p className="text-[12px] text-stone-500">Answers come only from this course’s lessons. For anything else, message your instructor.</p>
+      {chat.map((c, i) => <div key={i} className="space-y-1.5"><p className="ml-auto max-w-[85%] rounded-2xl px-3 py-2 text-sm text-white" style={{ background: color }}>{c.q}</p><p className="max-w-[92%] whitespace-pre-wrap rounded-2xl bg-white/80 px-3 py-2 text-sm">{c.a}</p></div>)}
+      <div className="flex gap-2"><input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void ask(); }} placeholder="e.g. Why does the apex sit behind the stress point?" className="h-11 flex-1 rounded-2xl border border-white/80 bg-white/75 px-4 text-sm" />
+        <button type="button" disabled={busy || !q.trim()} onClick={ask} className="rounded-2xl px-4 text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>{busy ? '…' : 'Ask'}</button></div>
+      {err && <p className="text-sm text-red-700">{err}</p>}
+    </Glass>
+  );
+}
+
+function Shell({ brand, tenantId, children }: { brand?: any; tenantId: string; children: React.ReactNode }) {
+  const [a, save] = useA11y();
+  return (
+    <div className="relative min-h-dvh text-stone-900" data-cf-contrast={a.contrast ? '1' : undefined} data-cf-readable={a.readable ? '1' : undefined} data-cf-still={a.still ? '1' : undefined}>
+      <style>{A11Y_CSS}</style>
+      <div className="cf-backdrop"><AuthBackdrop /></div>
       <div className="relative z-10">
         <header className="sticky top-0 z-20 border-b border-white/60 bg-white/55 backdrop-blur-2xl">
           <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-5 py-3">
@@ -38,7 +199,7 @@ function Shell({ brand, tenantId, children }: { brand?: any; tenantId: string; c
               {brand?.logoUrl && <img src={brand.logoUrl} alt="" className="h-8 w-8 rounded-full object-cover" />}
               <span className="truncate text-lg font-light tracking-tight">{brand?.name || 'Academy'} <span className="font-semibold">Academy</span></span>
             </Link>
-            <Link href={`/learn/${tenantId}/my`} className="shrink-0 rounded-full bg-white/70 px-4 py-2 text-sm">My courses</Link>
+            <div className="flex shrink-0 items-center gap-2"><A11yMenu a={a} save={save} /><Link href={`/learn/${tenantId}/my`} className="rounded-full bg-white/70 px-4 py-2 text-sm">My courses</Link></div>
           </div>
         </header>
         <main className="mx-auto max-w-5xl px-5 pb-28 pt-8">{children}</main>
@@ -283,7 +444,9 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
                   {tr.compliance && <span className="w-full text-[11px] text-stone-400">This course records verified learning time for your school. Time counts while this page is open and you’re actively learning.</span>}
                 </div>
               )}
-              {L.body && <Glass><Prose text={L.body} /></Glass>}
+              {L.body && <Glass className="space-y-3"><div className="flex justify-end"><Listen text={L.body} /></div><Prose text={L.body} /></Glass>}
+              {lesson.enrolled && L.activity && <Activity a={L.activity} color={color} />}
+              {lesson.enrolled && L.flashcards?.length > 0 && <Flashcards cards={L.flashcards} color={color} />}
               {L.downloadUrl && <a href={L.downloadUrl} target="_blank" rel="noreferrer" className="glass flex items-center justify-between rounded-2xl border border-white/70 px-4 py-3 text-sm"><span>↓ {L.downloadName || 'Download'}</span><span className="text-stone-500">Open</span></a>}
               {L.quiz && lesson.enrolled && (
                 <Glass className="space-y-4">
@@ -301,6 +464,7 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
                   {(L.quiz.attempts || []).length > 0 && <p className="text-[12px] text-stone-500">Attempts: {L.quiz.attempts.map((a: any) => `${a.score}%`).join(' · ')}</p>}
                 </Glass>
               )}
+              {lesson.aiTutor && <Tutor tenantId={tenantId} courseId={course.course.id} lessonId={lessonId} color={color} />}
               {note && <p className="rounded-2xl bg-amber-50 p-3 text-sm text-amber-900">{note}</p>}
               <div className="flex flex-wrap items-center gap-2">
                 {prev && <Link href={`/learn/${tenantId}/${slug}/${prev.id}`} className="rounded-full bg-white/70 px-4 py-2.5 text-sm">← Previous</Link>}
