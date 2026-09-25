@@ -26,6 +26,13 @@ export async function POST(req: NextRequest) {
   const db = getAdminDb();
   const at = new Date().toISOString();
 
+  // Last seen in the app, and on which version — HQ → System spots anyone
+  // stuck on an old copy of the app.
+  if (b.action === 'ping') {
+    await db.doc(`platformPresence/${tenantId}`).set({ lastSeenAt: at, version: String(b.version || '').slice(0, 20) || null, host: String(b.host || '').slice(0, 120) || null, byUid: auth.actor.uid }, { merge: true });
+    return NextResponse.json({ ok: true });
+  }
+
   if (b.action === 'mine') {
     const snap = await db.collection('platformTickets').where('tenantId', '==', tenantId).limit(50).get();
     const tickets = snap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).sort((a: any, c: any) => String(c.createdAt).localeCompare(String(a.createdAt)));
