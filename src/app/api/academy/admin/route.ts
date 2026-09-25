@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
   // Owners, managers and instructors. Only owners/managers change courses and settings.
   const isInstructor = String(auth.actor.role || '').toLowerCase() === 'instructor';
   if (!auth.actor.isManager && !auth.actor.isTenantOwner && !isInstructor) return NextResponse.json({ ok: false, error: 'Only owners, managers and instructors can use the academy tools.' }, { status: 403 });
-  const INSTRUCTOR_OK = ['list', 'course-get', 'students', 'attendance', 'attendance-approve', 'attendance-resolve', 'attendance-code', 'transcript', 'audit-verify'];
+  const INSTRUCTOR_OK = ['list', 'course-get', 'students', 'attendance', 'attendance-approve', 'attendance-resolve', 'attendance-code', 'attendance-photo-check', 'transcript', 'audit-verify'];
   if (isInstructor && !auth.actor.isManager && !INSTRUCTOR_OK.includes(String(b.action))) return NextResponse.json({ ok: false, error: 'Instructors can review attendance and students, not change courses.' }, { status: 403 });
   const who = auth.actor.name || auth.actor.uid;
   const db = getAdminDb();
@@ -155,7 +155,10 @@ export async function POST(req: NextRequest) {
       const map = new Map<string, any>();
       for (const s of [recent, open, flagged, pending]) for (const d of s.docs) map.set(d.id, { id: d.id, ...(d.data() as any) });
       const t = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
-      return NextResponse.json({ ok: true, punches: [...map.values()].sort((a, c) => String(c.clockInAt).localeCompare(String(a.clockInAt))), settings: t.academy || {} });
+      const punches = [...map.values()].sort((a, c) => String(c.clockInAt).localeCompare(String(a.clockInAt)));
+      const refs: Record<string, string | null> = {};
+      for (const sid of Array.from(new Set(punches.map((p: any) => p.studentId))).slice(0, 300) as string[]) refs[sid] = ((((await db.doc(`tenants/${tenantId}/students/${sid}`).get()).data() as any) || {}).referencePhoto?.ref) || null;
+      return NextResponse.json({ ok: true, punches, referencePhotos: refs, settings: t.academy || {} });
     }
     if (b.action === 'attendance-approve' || b.action === 'attendance-resolve') {
       const ref = db.doc(`tenants/${tenantId}/attendance/${String(b.id || '')}`);
@@ -179,6 +182,17 @@ export async function POST(req: NextRequest) {
       await appendAudit(tenantId, { type: 'attendance.corrected', studentId: p.studentId, by: who, summary: `Corrected ${p.email}: ${new Date(inAt).toLocaleString()} → ${new Date(outAt).toLocaleTimeString()} (${Math.floor(minutes / 60)}h ${minutes % 60}m). Reason: ${reason}`, data: { attendanceId: ref.id, ...correction } });
       return NextResponse.json({ ok: true });
     }
+    if (b.action === 'attendance-photo-check') {
+      const ref = db.doc(`tenants/${tenantId}/attendance/${String(b.id || '')}`);
+      const p = ((await ref.get()).data() as any) || null;
+      if (!p) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
+      const match = !!b.match;
+      const note = String(b.note || '').trim().slice(0, 300);
+      if (!match && !note) return NextResponse.json({ ok: false, error: 'Say what doesn’t match — it’s kept on the record.' }, { status: 400 });
+      await ref.set({ photoCheck: { match, note: note || null, by: who, at: now }, ...(match ? {} : { status: 'flagged', flagReason: 'Photo doesn’t match', flaggedAt: now }) }, { merge: true });
+      await appendAudit(tenantId, { type: match ? 'attendance.photo_ok' : 'attendance.photo_mismatch', studentId: p.studentId, by: who, summary: match ? `Photo checked — matches ${p.email}` : `Photo does NOT match ${p.email} — flagged, no hours until resolved. ${note}`, data: { attendanceId: ref.id } });
+      return NextResponse.json({ ok: true });
+    }
     if (b.action === 'attendance-code') {
       const t = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
       const w = qrWindow();
@@ -188,10 +202,10 @@ export async function POST(req: NextRequest) {
       if (!auth.actor.isTenantOwner && !auth.actor.isManager) return NextResponse.json({ ok: false, error: 'Owners and managers only.' }, { status: 403 });
       const cur = ((((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {}).academy) || {};
       const next = { ...cur,
-        ...('requireGeo' in b ? { requireGeo: !!b.requireGeo } : {}), ...('requireApproval' in b ? { requireApproval: !!b.requireApproval } : {}),
+        ...('requireGeo' in b ? { requireGeo: !!b.requireGeo } : {}), ...('requireApproval' in b ? { requireApproval: !!b.requireApproval } : {}), ...('requirePhoto' in b ? { requirePhoto: !!b.requirePhoto } : {}),
         ...(b.geo && Number.isFinite(Number(b.geo.lat)) ? { geo: { lat: Number(b.geo.lat), lng: Number(b.geo.lng), radiusM: Math.max(30, Math.min(2000, Number(b.geo.radiusM) || 150)) } } : {}) };
       await db.doc(`tenants/${tenantId}`).set({ academy: next }, { merge: true });
-      await appendAudit(tenantId, { type: 'settings.changed', by: who, summary: `Attendance settings: location ${next.requireGeo ? 'required' : 'optional'}${next.geo ? ` (${next.geo.radiusM} m)` : ''}, approval ${next.requireApproval ? 'required' : 'automatic'}`, data: next });
+      await appendAudit(tenantId, { type: 'settings.changed', by: who, summary: `Attendance settings: location ${next.requireGeo ? 'required' : 'optional'}${next.geo ? ` (${next.geo.radiusM} m)` : ''}, photo ${next.requirePhoto ? 'required' : 'optional'}, approval ${next.requireApproval ? 'required' : 'automatic'}`, data: next });
       return NextResponse.json({ ok: true, settings: next });
     }
     if (b.action === 'transcript') {
