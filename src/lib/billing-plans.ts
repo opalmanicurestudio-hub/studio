@@ -38,6 +38,7 @@ export const TOOL_PRICES: Partial<Record<ToolId, PriceDef>> = {
   kiosk: { key: 'cf_tool_kiosk_v2', name: 'Front desk & walk-ins', amount: 19, description: 'Walk-in kiosk, waitlist, lobby board' },
   voice: { key: 'cf_tool_voice_v2', name: 'AI receptionist', amount: 99, description: 'Answers, books and reschedules by phone' },
   lounge: { key: 'cf_tool_lounge_v2', name: 'Lounge & hospitality', amount: 39, description: 'Guest lounge menu, host stand, kitchen display' },
+  academy: { key: 'cf_tool_academy_v2', name: 'Online academy', amount: 49, description: 'Courses, video lessons, student portal' },
 };
 
 export const ALL_PRICES: PriceDef[] = [CORE.solo, CORE.team, EXTRA_STAFF, EXTRA_RENTER, ...Object.values(TOOL_PRICES) as PriceDef[]];
