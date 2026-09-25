@@ -21,7 +21,17 @@ import { signals, ownersLastSignIn } from '@/lib/hq-signals';
 import { fromTenantModules, toTenantModules, TOOL_BY_ID, type ToolId } from '@/lib/module-catalog';
 import { SCHEDULED_JOBS } from '@/lib/cron-heartbeat';
 import { internalOrigin } from '@/lib/message-policy';
-import { platformAdminEmails, signupIsOpen } from '@/lib/platform-admin';
+import { platformAdminEmails, signupIsOpen, can, permsFor, type HqPerm } from '@/lib/platform-admin';
+import { aiDraftReply, CATEGORY_LABEL, SLA_HOURS, type Priority } from '@/lib/support-triage';
+import { computeMetrics } from '@/lib/hq-metrics';
+import { askClaude, aiConfigured } from '@/lib/ai';
+
+// Which permission each action needs (see src/lib/platform-admin.ts).
+const NEEDS: Record<string, HqPerm> = {
+  tenants: 'tenants', tenant: 'tenants', fix: 'fix', system: 'system', tickets: 'tickets', 'ticket-reply': 'tickets', 'ticket-status': 'tickets',
+  'ticket-update': 'tickets', 'ticket-note': 'tickets', 'ticket-draft': 'tickets', macros: 'tickets', 'macro-save': 'tickets', 'macro-delete': 'tickets',
+  insights: 'insights', 'insights-refresh': 'insights', 'insights-brief': 'insights', team: 'team', 'team-save': 'team', 'team-remove': 'team',
+};
 import { smsConfigured } from '@/lib/sms';
 
 // Every HQ action that changes something is written here: who, what, when.
@@ -36,8 +46,11 @@ export const maxDuration = 60;
 export async function POST(req: NextRequest) {
   const admin = await verifyPlatformAdmin(req);
   const b = await req.json().catch(() => ({}));
-  if (b.action === 'whoami') return NextResponse.json({ ok: true, admin: !!admin });
-  if (!admin) return NextResponse.json({ ok: false, error: 'HQ is for ClarityFlow admins. (Set PLATFORM_ADMIN_EMAILS in Vercel.)' }, { status: 403 });
+  if (b.action === 'whoami') return NextResponse.json({ ok: true, admin: !!admin, role: admin?.role || null, perms: admin ? permsFor(admin.role) : [], name: admin?.name || null, email: admin?.email || null, ai: aiConfigured() });
+  if (!admin) return NextResponse.json({ ok: false, error: 'HQ is for the ClarityFlow team. (Owners: PLATFORM_ADMIN_EMAILS in Vercel; others: HQ → Team.)' }, { status: 403 });
+  const need = NEEDS[String(b.action)];
+  if (need && !can(admin.role, need)) return NextResponse.json({ ok: false, error: `Your HQ role (${admin.role}) can’t do that.` }, { status: 403 });
+  if (b.action === 'fix' && (b.fix === 'suspend' || b.fix === 'restore') && !can(admin.role, 'suspend')) return NextResponse.json({ ok: false, error: 'Only an owner can pause or restore access.' }, { status: 403 });
   const db = getAdminDb();
 
   if (b.action === 'tenants') {
@@ -82,12 +95,13 @@ export async function POST(req: NextRequest) {
       ...audit.map((a: any) => ({ at: a.at, kind: 'change', tone: 'info', text: `${a.summary || a.action}${a.actor?.name ? ` — ${a.actor.name}` : ''}` })),
       ...tickets.map((k: any) => ({ at: k.createdAt, kind: 'help', tone: 'warn', text: `Help request: “${String(k.subject || k.message || '').slice(0, 90)}” · ${k.status}` })),
     ].filter((e) => e.at).sort((a, b2) => String(b2.at).localeCompare(String(a.at))).slice(0, 80);
-    const [notesSnap, presenceSnap, hqAudit] = await Promise.all([
+    const [notesSnap, presenceSnap, hqAudit, metricsSnap] = await Promise.all([
       db.doc(`platformNotes/${id}`).get(), db.doc(`platformPresence/${id}`).get(),
       safe(db.collection('platformAudit').where('tenantId', '==', id).limit(30)),
+      db.doc(`platformTenantMetrics/${id}`).get(),
     ]);
     const recent = appts.slice(0, 12).map((a: any) => ({ id: a.id, clientName: a.clientName || null, serviceName: a.serviceName || null, startTime: a.startTime || null, status: a.status || null, hasCheckIn: !!a.checkInToken }));
-    return NextResponse.json({ ok: true, recent, notes: ((notesSnap.data() as any)?.notes || []).slice(-50).reverse(), presence: presenceSnap.exists ? presenceSnap.data() : null,
+    return NextResponse.json({ ok: true, metrics: metricsSnap.exists ? metricsSnap.data() : null, recent, notes: ((notesSnap.data() as any)?.notes || []).slice(-50).reverse(), presence: presenceSnap.exists ? presenceSnap.data() : null,
       currentVersion: String(process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 12) || null, accessLocked: t.accessLocked === true,
       hqActions: hqAudit.sort((a: any, c: any) => String(c.at).localeCompare(String(a.at))).slice(0, 15),
       tenant: {
@@ -222,6 +236,8 @@ If you didn’t ask for this, you can ignore it.
       const message = String(b.message || '').trim().slice(0, 4000);
       if (!message) return NextResponse.json({ ok: false, error: 'Write a reply first.' }, { status: 400 });
       patch.thread = [...(Array.isArray(k.thread) ? k.thread : []), { at, from: 'hq', by: admin.email, message }];
+      if (!k.firstRespondedAt) patch.firstRespondedAt = at;
+      if (!k.assignee) patch.assignee = admin.email;
       if (k.contactEmail && process.env.RESEND_API_KEY) {
         try {
           const r = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
@@ -233,6 +249,93 @@ If you didn’t ask for this, you can ignore it.
     }
     await ref.set(patch, { merge: true });
     return NextResponse.json({ ok: true, emailed });
+  }
+
+  // ── Tickets: assign, prioritise, categorise, escalate, internal notes ──
+  if (b.action === 'ticket-update') {
+    const ref = db.doc(`platformTickets/${String(b.ticketId || '')}`);
+    const k = ((await ref.get()).data() as any) || null;
+    if (!k) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
+    const patch: any = { updatedAt: new Date().toISOString() };
+    if ('assignee' in b) patch.assignee = b.assignee ? String(b.assignee).toLowerCase().slice(0, 120) : null;
+    if (b.priority && ['urgent', 'high', 'normal', 'low'].includes(b.priority)) { patch.priority = b.priority; if (!k.firstRespondedAt) patch.firstResponseDueAt = new Date(new Date(k.createdAt).getTime() + SLA_HOURS[b.priority as Priority] * 3600000).toISOString(); }
+    if (b.category && (CATEGORY_LABEL as any)[b.category]) patch.category = b.category;
+    if (b.escalate) { patch.devStatus = 'new'; patch.escalatedAt = patch.updatedAt; patch.escalatedBy = admin.email; patch.category = 'bug'; }
+    if (b.devStatus && ['new', 'investigating', 'fixed', 'wont_fix'].includes(b.devStatus)) patch.devStatus = b.devStatus;
+    await ref.set(patch, { merge: true });
+    return NextResponse.json({ ok: true });
+  }
+  if (b.action === 'ticket-note') {
+    const ref = db.doc(`platformTickets/${String(b.ticketId || '')}`);
+    const k = ((await ref.get()).data() as any) || null;
+    const text = String(b.text || '').trim().slice(0, 3000);
+    if (!k || !text) return NextResponse.json({ ok: false, error: 'Nothing to add.' }, { status: 400 });
+    await ref.set({ internalNotes: [...(k.internalNotes || []), { at: new Date().toISOString(), by: admin.email, text }], updatedAt: new Date().toISOString() }, { merge: true });
+    return NextResponse.json({ ok: true });
+  }
+  if (b.action === 'ticket-draft') {
+    const k = ((await db.doc(`platformTickets/${String(b.ticketId || '')}`).get()).data() as any) || null;
+    if (!k) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
+    const r = await aiDraftReply({ ticket: k, instructions: String(b.instructions || '').slice(0, 500) });
+    return NextResponse.json({ ok: r.ok, draft: r.text, error: r.error, costUsd: r.costUsd });
+  }
+  // Saved replies ("macros") the whole team can reuse.
+  if (b.action === 'macros') {
+    const snap = await db.collection('platformMacros').limit(200).get();
+    return NextResponse.json({ ok: true, macros: snap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).sort((a: any, c: any) => String(a.title).localeCompare(String(c.title))) });
+  }
+  if (b.action === 'macro-save') {
+    const title = String(b.title || '').trim().slice(0, 80), body = String(b.body || '').trim().slice(0, 3000);
+    if (!title || !body) return NextResponse.json({ ok: false, error: 'A title and a reply are needed.' }, { status: 400 });
+    const ref = b.id ? db.doc(`platformMacros/${String(b.id)}`) : db.collection('platformMacros').doc();
+    await ref.set({ id: ref.id, title, body, category: String(b.category || '') || null, updatedAt: new Date().toISOString(), by: admin.email }, { merge: true });
+    return NextResponse.json({ ok: true, id: ref.id });
+  }
+  if (b.action === 'macro-delete') { await db.doc(`platformMacros/${String(b.id || '')}`).delete(); return NextResponse.json({ ok: true }); }
+
+  // ── Insights ──
+  if (b.action === 'insights' || b.action === 'insights-refresh') {
+    if (b.action === 'insights-refresh') await computeMetrics();
+    const [snaps, tm] = await Promise.all([
+      db.collection('platformMetrics').orderBy('date', 'desc').limit(60).get(),
+      db.collection('platformTenantMetrics').limit(500).get(),
+    ]);
+    const days = snaps.docs.map((d: any) => d.data() as any).reverse();
+    return NextResponse.json({ ok: true, latest: days[days.length - 1] || null, days: days.map((d: any) => ({ date: d.date, revenue30: d.revenue30, bookings30: d.bookings30, activeBusinesses: d.activeBusinesses, cost: d.cost30?.total })),
+      tenants: tm.docs.map((d: any) => { const v = d.data() as any; delete v.history; return v; }), ai: aiConfigured() });
+  }
+  if (b.action === 'insights-brief') {
+    const snap = await db.collection('platformMetrics').orderBy('date', 'desc').limit(8).get();
+    const days = snap.docs.map((d: any) => d.data() as any);
+    if (!days.length) return NextResponse.json({ ok: false, error: 'No metrics yet — refresh Insights first.' });
+    const r = await askClaude({ tier: 'smart', maxTokens: 700, purpose: 'insights_brief',
+      system: 'You are the chief of staff for ClarityFlow, a small SaaS company run by its founder. Write a short weekly briefing in plain English: 1) what changed (with numbers), 2) three specific actions for this week, most valuable first, 3) one risk to watch. Under 220 words. Use only the data given; never invent figures. No headings with #; use short bold labels.',
+      prompt: `Latest platform snapshot:
+${JSON.stringify(days[0]).slice(0, 6000)}
+
+A week earlier:
+${JSON.stringify(days[days.length - 1]).slice(0, 3000)}` });
+    return NextResponse.json({ ok: r.ok, brief: r.text, error: r.error });
+  }
+
+  // ── Team (owners only) ──
+  if (b.action === 'team') {
+    const snap = await db.collection('platformTeam').limit(100).get();
+    return NextResponse.json({ ok: true, owners: platformAdminEmails(), members: snap.docs.map((d: any) => ({ email: d.id, ...(d.data() as any) })) });
+  }
+  if (b.action === 'team-save') {
+    const email = String(b.email || '').trim().toLowerCase();
+    const role = String(b.role || '');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || !['support', 'developer', 'analyst'].includes(role)) return NextResponse.json({ ok: false, error: 'An email and a role (support, developer or analyst) are needed.' }, { status: 400 });
+    await db.doc(`platformTeam/${email}`).set({ role, name: String(b.name || '').trim().slice(0, 60) || email.split('@')[0], active: true, addedBy: admin.email, addedAt: new Date().toISOString() }, { merge: true });
+    await audit(db, admin.email, null, 'team-save', `Gave ${email} the ${role} role`);
+    return NextResponse.json({ ok: true });
+  }
+  if (b.action === 'team-remove') {
+    const email = String(b.email || '').trim().toLowerCase();
+    await db.doc(`platformTeam/${email}`).set({ active: false, removedAt: new Date().toISOString(), removedBy: admin.email }, { merge: true });
+    await audit(db, admin.email, null, 'team-remove', `Removed ${email} from HQ`);
+    return NextResponse.json({ ok: true });
   }
 
   return NextResponse.json({ ok: false, error: 'Unknown action' }, { status: 400 });
