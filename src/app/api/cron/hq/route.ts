@@ -16,6 +16,7 @@ import { setupScore } from '@/lib/hq-health';
 import { linkOrigin } from '@/lib/app-origin';
 import { resolveFromAddress } from '@/lib/notify';
 import { platformAdminEmails } from '@/lib/platform-admin';
+import { computeMetrics } from '@/lib/hq-metrics';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -77,5 +78,8 @@ export async function GET(req: NextRequest) {
     await email(to, `HQ today: ${stuck.length} stuck · ${open} help request${open === 1 ? '' : 's'} waiting`,
       `${stuck.length ? `Still stuck after two nudges:\n${stuck.map((x) => `• ${x}`).join('\n')}\n\n` : ''}${open ? `${open} help request${open === 1 ? '' : 's'} waiting on you: ${base}/admin/support\n\n` : ''}Nudges sent today: ${sent.length}\n\nHQ: ${base}/admin/tenants`);
   }
-  return NextResponse.json({ ok: true, nudged: sent, stuck: stuck.length, openTickets: open });
+  // Today's numbers for HQ → Insights (every figure gets a trend).
+  let metrics = false;
+  try { await computeMetrics(); metrics = true; } catch { /* Insights can refresh by hand */ }
+  return NextResponse.json({ ok: true, nudged: sent, stuck: stuck.length, openTickets: open, metrics });
 }
