@@ -4,7 +4,7 @@ import { notifyStaff, managerIds } from '@/lib/staff-notify';
 import { getAuth } from 'firebase/auth';
 
 export type ApprovalResult =
-  | { ok: true; message: string; nextStatus?: string | null }
+  | { ok: true; message: string; nextStatus?: string | null; chargeFailed?: boolean }
   | { ok: false; reason: string; alreadyStatus?: string | null };
 
 export type ApprovableAppointment = {
@@ -124,6 +124,7 @@ async function decideViaRoute(
   decision: 'accept' | 'decline',
   staffName?: string | null,
   declineOutcome?: 'alternative' | 'final',
+  reason?: string | null,
 ): Promise<ApprovalResult> {
   try {
     const res = await fetch('/api/appointments/decide', {
@@ -133,7 +134,7 @@ async function decideViaRoute(
         tenantId,
         appointmentId: apt.id,
         decision,
-        ...(decision === 'decline' ? { declineOutcome: declineOutcome || 'alternative' } : {}),
+        ...(decision === 'decline' ? { declineOutcome: declineOutcome || 'alternative', reason: String(reason || '').slice(0, 300) } : {}),
       }),
     });
     const data = await res.json().catch(() => null);
@@ -147,6 +148,7 @@ async function decideViaRoute(
     return {
       ok: true,
       message: data.message || (decision === 'accept' ? 'Accepted' : 'Declined'),
+      chargeFailed: data.chargeFailed === true,
       nextStatus: data.status || (decision === 'accept' ? 'confirmed' : 'declined'),
     };
   } catch {
@@ -799,10 +801,11 @@ export async function denyBooking(
   actorStaffId?: string | null,
   staffName?: string | null,
   declineOutcome?: 'alternative' | 'final',
+  reason?: string | null,
 ): Promise<ApprovalResult> {
   if (!tenantId || !apt?.id) return { ok: false, reason: 'Missing studio or booking' };
   const channel = approvalChannel(apt);
-  if (channel === 'request') return decideViaRoute(tenantId, apt, 'decline', staffName, declineOutcome);
+  if (channel === 'request') return decideViaRoute(tenantId, apt, 'decline', staffName, declineOutcome, reason);
   if (channel === 'voice') {
     if (!firestore) return { ok: false, reason: 'Missing studio or booking' };
     const res = await denyVoiceBooking(firestore, tenantId, apt, actorStaffId);
