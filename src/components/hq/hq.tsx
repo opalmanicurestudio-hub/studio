@@ -43,7 +43,7 @@ export function useHqMe() {
 
 const TABS: [string, string, string][] = [
   ['/admin/tenants', 'Businesses', 'tenants'], ['/admin/support', 'Help desk', 'tickets'], ['/admin/insights', 'Insights', 'insights'],
-  ['/admin/early-access', 'Early access', 'invites'], ['/admin/system', 'System', 'system'], ['/admin/team', 'Team', 'team'],
+  ['/admin/finance', 'Finance', 'finance'], ['/admin/early-access', 'Early access', 'invites'], ['/admin/system', 'System', 'system'], ['/admin/team', 'Team', 'team'],
 ];
 
 export function HqShell({ children, title, sub, action }: { children: React.ReactNode; title?: string; sub?: string; action?: React.ReactNode }) {
