@@ -145,7 +145,10 @@ export async function POST(req: NextRequest) {
            * approvalChannel() fell through to the voice check and the
            * booking stayed "awaiting you" on the planner and in the voice
            * queue after it had already been answered here. */
-          voiceApproval: accepted ? 'approved' : 'denied',
+          // (This used `accepted`, which is only declared AFTER the
+          // transaction — using it here threw, and every accept failed with
+          // "Could not record that decision". This branch IS the accept.)
+          voiceApproval: 'approved',
           voiceApprovalAt: nowIso,
           voiceApprovalBy: actor.uid || null,
           status: nextStatus,
@@ -163,6 +166,11 @@ export async function POST(req: NextRequest) {
       }
 
       tx.update(aptRef, {
+        // The legacy voice flag is answered on a decline too, so the booking
+        // leaves the voice queue as well as the requests list.
+        voiceApproval: 'denied',
+        voiceApprovalAt: nowIso,
+        voiceApprovalBy: actor.uid || null,
         status: 'declined',
         decidedAt: nowIso,
         decidedBy: staffName,
@@ -173,7 +181,9 @@ export async function POST(req: NextRequest) {
       return { ok: true, status: 'declined', depositCents, apt };
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: 'Could not record that decision — nothing changed.' }, { status: 500 });
+    // Say what actually went wrong — a bare "could not record" hid this bug.
+    console.error('[decide] transaction failed', e);
+    return NextResponse.json({ ok: false, error: `Could not record that decision — nothing changed. (${String(e?.message || e).slice(0, 140)})` }, { status: 500 });
   }
 
   if (outcome?.error) {
