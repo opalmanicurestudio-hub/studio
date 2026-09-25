@@ -13,7 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { personalise } from '@/lib/campaigns';
-import { previewCampaign, sendCampaignBatch, senderFor, composeText, loadOffer } from '@/lib/campaign-engine';
+import { previewCampaign, sendCampaignBatch, senderFor, composeText, loadOffer, peopleOf } from '@/lib/campaign-engine';
 import { fillTokens } from '@/lib/campaign-templates';
 import { sendNotification, resolveFromAddress } from '@/lib/notify';
 import { brandedEmailHtml } from '@/lib/email-template';
@@ -115,7 +115,7 @@ export async function POST(req: NextRequest) {
   if (mode === 'preview') {
     return NextResponse.json({ ok: true, summary: pv.summary, sample: pv.aud.members.slice(0, 8).map((m) => m.first), offer: pv.offer?.line || null, abTest: !!c.subjectB, segments: pv.segments,
       estCostCents: c.type === 'sms' ? Math.round(pv.segments * pv.summary.willReceive * costPerSegment) : 0,
-      sampleText: pv.sampleText, sampleSubject: pv.sampleSubject, senderName: pv.who.name });
+      sampleText: pv.sampleText, sampleSubject: pv.sampleSubject, senderName: pv.who.name, ...peopleOf(pv.aud, pv.channel) });
   }
 
   const r = await sendCampaignBatch(db, tenantId, campaignId, { actorName: auth.actor.name || auth.actor.uid, fallbackOrigin: req.nextUrl.origin });
