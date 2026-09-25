@@ -122,6 +122,11 @@ export default function YourClarityFlowPage() {
                 <div className="mt-3 space-y-1">
                   {bill.quote.lines.map((l: any) => <p key={l.key} className="flex justify-between text-sm"><span className="text-stone-600">{l.name}{l.qty > 1 ? ` × ${l.qty}` : ''}</span><span>${l.total}</span></p>)}
                 </div>
+                <div className="mt-3 rounded-2xl bg-white/60 p-3">
+                  <div className="flex justify-between text-sm"><span>Texts this month</span><span className="font-semibold">{(bill.textsThisMonth || 0).toLocaleString()} of {bill.quote.textsIncluded.toLocaleString()} included</span></div>
+                  <div className="mt-1.5 h-1.5 rounded-full bg-white"><div className={`h-1.5 rounded-full ${(bill.textsThisMonth || 0) > bill.quote.textsIncluded ? 'bg-amber-500' : 'bg-stone-900'}`} style={{ width: `${Math.min(100, ((bill.textsThisMonth || 0) / Math.max(1, bill.quote.textsIncluded)) * 100)}%` }} /></div>
+                  <p className="mt-1 text-[11px] text-stone-500">Beyond that, 3¢ per text — added to next month’s invoice. Emails are always included.</p>
+                </div>
                 <p className="mt-3 text-[12px] text-stone-500">Priced for {bill.quote.size.staff} team member{bill.quote.size.staff === 1 ? '' : 's'}{bill.quote.tools.includes('renters') ? ` and ${bill.quote.size.renters} renter${bill.quote.size.renters === 1 ? '' : 's'}` : ''}. Change tools any time — the difference is prorated.{bill.freeUntil && new Date(bill.freeUntil) > new Date() ? ` Free until ${new Date(bill.freeUntil).toLocaleDateString()}.` : ''}</p>
                 {bill.subscription && (
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/70 p-3 text-sm">
