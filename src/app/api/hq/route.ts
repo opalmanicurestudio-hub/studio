@@ -16,54 +16,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { verifyPlatformAdmin } from '@/lib/platform-admin';
-import { healthScore, setupScore, type TenantSignals } from '@/lib/hq-health';
-import { fromTenantModules } from '@/lib/module-catalog';
+import { healthScore, setupScore } from '@/lib/hq-health';
+import { signals, ownersLastSignIn } from '@/lib/hq-signals';
+import { fromTenantModules, toTenantModules, TOOL_BY_ID, type ToolId } from '@/lib/module-catalog';
+import { SCHEDULED_JOBS } from '@/lib/cron-heartbeat';
+import { internalOrigin } from '@/lib/message-policy';
+import { platformAdminEmails, signupIsOpen } from '@/lib/platform-admin';
+import { smsConfigured } from '@/lib/sms';
+
+// Every HQ action that changes something is written here: who, what, when.
+async function audit(db: any, by: string, tenantId: string | null, action: string, summary: string, extra: any = {}) {
+  try { const r = db.collection('platformAudit').doc(); await r.set({ id: r.id, at: new Date().toISOString(), by, tenantId, action, summary, ...extra }); } catch { /* never block the action */ }
+}
 import { resolveFromAddress } from '@/lib/notify';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
-const DAY = 86400000;
-
-async function count(q: any): Promise<number> { try { return (await q.count().get()).data().count; } catch { return 0; } }
-
-async function signals(db: any, t: any, lastSignIn: string | null): Promise<TenantSignals> {
-  const base = `tenants/${t.id}`;
-  const now = Date.now();
-  const d7 = new Date(now - 7 * DAY).toISOString(), d14 = new Date(now - 14 * DAY).toISOString();
-  const appts = db.collection(`${base}/appointments`);
-  const msgs = db.collection(`${base}/messageLog`);
-  // Single-field queries only, so no composite indexes are needed: this
-  // week's messages and this business's tickets are read and tallied here.
-  const [services, clients, staff, appointmentsTotal, bookings7d, bookings14d, msgWeek, tickets] = await Promise.all([
-    count(db.collection(`${base}/services`)), count(db.collection(`${base}/clients`)), count(db.collection(`${base}/staff`)),
-    count(appts), count(appts.where('createdAt', '>=', d7)), count(appts.where('createdAt', '>=', d14)),
-    msgs.where('sentAt', '>=', d7).select('status').limit(2000).get().then((r: any) => r.docs.map((d: any) => (d.data() as any).status)).catch(() => [] as string[]),
-    db.collection('platformTickets').where('tenantId', '==', t.id).select('status').limit(200).get().then((r: any) => r.docs.map((d: any) => (d.data() as any).status)).catch(() => [] as string[]),
-  ]);
-  const sent7 = (msgWeek as string[]).filter((x) => x === 'sent').length;
-  const failed7 = (msgWeek as string[]).filter((x) => x === 'failed').length;
-  const openTickets = (tickets as string[]).filter((x) => x === 'open' || x === 'waiting_on_us').length;
-  return {
-    services, clients, staff, appointmentsTotal, bookings7d, bookingsPrev7d: Math.max(0, bookings14d - bookings7d),
-    messagesSent7d: sent7, messagesFailed7d: failed7, openTickets,
-    daysSinceOwnerSignIn: lastSignIn ? Math.floor((now - new Date(lastSignIn).getTime()) / DAY) : null,
-    stripeConnected: !!(t.stripeAccountId && t.stripeChargesEnabled !== false),
-    active: t.subscriptionStatus === 'active', teamSize: t.teamSize || 'solo',
-    ageDays: t.createdAt ? Math.floor((now - new Date(t.createdAt).getTime()) / DAY) : 999,
-  };
-}
-
-async function ownersLastSignIn(uids: string[]): Promise<Record<string, { email: string | null; lastSignIn: string | null }>> {
-  const out: Record<string, any> = {};
-  const auth = getAdminAuth();
-  for (let i = 0; i < uids.length; i += 100) {
-    try {
-      const r = await auth.getUsers(uids.slice(i, i + 100).map((uid) => ({ uid })));
-      for (const u of r.users) out[u.uid] = { email: u.email || null, lastSignIn: u.metadata.lastRefreshTime || u.metadata.lastSignInTime || null };
-    } catch { /* keep going */ }
-  }
-  return out;
-}
 
 export async function POST(req: NextRequest) {
   const admin = await verifyPlatformAdmin(req);
@@ -114,11 +82,127 @@ export async function POST(req: NextRequest) {
       ...audit.map((a: any) => ({ at: a.at, kind: 'change', tone: 'info', text: `${a.summary || a.action}${a.actor?.name ? ` — ${a.actor.name}` : ''}` })),
       ...tickets.map((k: any) => ({ at: k.createdAt, kind: 'help', tone: 'warn', text: `Help request: “${String(k.subject || k.message || '').slice(0, 90)}” · ${k.status}` })),
     ].filter((e) => e.at).sort((a, b2) => String(b2.at).localeCompare(String(a.at))).slice(0, 80);
-    return NextResponse.json({ ok: true, tenant: {
+    const [notesSnap, presenceSnap, hqAudit] = await Promise.all([
+      db.doc(`platformNotes/${id}`).get(), db.doc(`platformPresence/${id}`).get(),
+      safe(db.collection('platformAudit').where('tenantId', '==', id).limit(30)),
+    ]);
+    const recent = appts.slice(0, 12).map((a: any) => ({ id: a.id, clientName: a.clientName || null, serviceName: a.serviceName || null, startTime: a.startTime || null, status: a.status || null, hasCheckIn: !!a.checkInToken }));
+    return NextResponse.json({ ok: true, recent, notes: ((notesSnap.data() as any)?.notes || []).slice(-50).reverse(), presence: presenceSnap.exists ? presenceSnap.data() : null,
+      currentVersion: String(process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 12) || null, accessLocked: t.accessLocked === true,
+      hqActions: hqAudit.sort((a: any, c: any) => String(c.at).localeCompare(String(a.at))).slice(0, 15),
+      tenant: {
       id, name: t.name, businessType: t.businessType || t.category || 'other', status: t.subscriptionStatus || 'inactive', createdAt: t.createdAt || null,
       activatedAt: t.activatedAt || null, inviteCode: t.inviteCode || null, teamSize: t.teamSize || null, tools: fromTenantModules(t.modules),
       owner: { email: o.email, lastSignIn: o.lastSignIn, uid: t.userId || null }, bookingUrl: `/book/${id}`,
     }, signals: s, setup: setupScore(s), health: healthScore(s), timeline, tickets });
+  }
+
+  // ── Fix & manage one business — every action logged in platformAudit ──
+  if (b.action === 'fix') {
+    const tenantId = String(b.tenantId || '');
+    const tRef = db.doc(`tenants/${tenantId}`);
+    const t = ((await tRef.get()).data() as any) || null;
+    if (!t) return NextResponse.json({ ok: false, error: 'Business not found.' }, { status: 404 });
+    const fix = String(b.fix || '');
+    const at = new Date().toISOString();
+
+    if (fix === 'resend-confirmation') {
+      const r = await fetch(`${internalOrigin(t, req.nextUrl.origin)}/api/notifications/resend-confirmation`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, appointmentId: String(b.appointmentId || '') }) });
+      const d = await r.json().catch(() => ({}));
+      await audit(db, admin.email, tenantId, fix, `Resent the confirmation for appointment ${b.appointmentId}`, { result: d });
+      return NextResponse.json({ ok: !!(d.emailSent || d.smsSent), message: d.emailSent || d.smsSent ? `Sent${d.emailSent ? ' by email' : ''}${d.smsSent ? ' by text' : ''}.` : (d.reason || 'Nothing was sent.') });
+    }
+    if (fix === 'resync-checkin') {
+      // The check-in copy of a booking drifting from the booking itself — the
+      // bug that made accepted requests still say "requested".
+      const aRef = db.doc(`tenants/${tenantId}/appointments/${String(b.appointmentId || '')}`);
+      const a = ((await aRef.get()).data() as any) || null;
+      if (!a?.checkInToken) return NextResponse.json({ ok: false, message: 'This booking has no check-in record.' });
+      const patch = { status: a.status, startTime: a.startTime || null, updatedAt: at };
+      await Promise.all([db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set(patch, { merge: true }).catch(() => {}), db.doc(`appointmentCheckIns/${a.checkInToken}`).set(patch, { merge: true }).catch(() => {})]);
+      await audit(db, admin.email, tenantId, fix, `Re-synced the check-in record of appointment ${b.appointmentId} to "${a.status}"`);
+      return NextResponse.json({ ok: true, message: `Check-in record now matches: ${a.status}.` });
+    }
+    if (fix === 'password-link') {
+      if (!t.userId) return NextResponse.json({ ok: false, message: 'No owner account.' });
+      const email = (await getAdminAuth().getUser(t.userId)).email;
+      if (!email) return NextResponse.json({ ok: false, message: 'The owner has no email on file.' });
+      const link = await getAdminAuth().generatePasswordResetLink(email);
+      let emailed = false;
+      if (b.send && process.env.RESEND_API_KEY) {
+        const r = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from: resolveFromAddress(), to: email, reply_to: admin.email, subject: 'Reset your ClarityFlow password', text: `Here’s a link to set a new password:
+
+${link}
+
+If you didn’t ask for this, you can ignore it.
+
+— ClarityFlow` }) }).catch(() => null);
+        emailed = !!r?.ok;
+      }
+      await audit(db, admin.email, tenantId, fix, `${emailed ? 'Emailed' : 'Created'} a password reset link for ${email}`);
+      return NextResponse.json({ ok: true, link, message: emailed ? `Reset link emailed to ${email}.` : 'Reset link created and copied.' });
+    }
+    if (fix === 'suspend' || fix === 'restore') {
+      await tRef.set({ accessLocked: fix === 'suspend', accessLockedAt: fix === 'suspend' ? at : null, accessLockedReason: fix === 'suspend' ? String(b.reason || '').slice(0, 200) || null : null }, { merge: true });
+      await audit(db, admin.email, tenantId, fix, fix === 'suspend' ? `Paused access${b.reason ? `: ${b.reason}` : ''}` : 'Restored access');
+      return NextResponse.json({ ok: true, message: fix === 'suspend' ? 'Access paused — they’ll see the suspended page.' : 'Access restored.' });
+    }
+    if (fix === 'set-tools') {
+      const tools = (Array.isArray(b.tools) ? b.tools : []).map(String).filter((x: string) => TOOL_BY_ID[x as ToolId]) as ToolId[];
+      await tRef.set({ modules: toTenantModules(tools) }, { merge: true });
+      await audit(db, admin.email, tenantId, fix, `Set tools: ${tools.join(', ')}`);
+      return NextResponse.json({ ok: true, message: 'Tools updated — their sidebar follows.' });
+    }
+    if (fix === 'note') {
+      const text = String(b.text || '').trim().slice(0, 2000);
+      if (!text) return NextResponse.json({ ok: false, message: 'Write a note first.' });
+      const ref = db.doc(`platformNotes/${tenantId}`);
+      const cur = ((await ref.get()).data() as any)?.notes || [];
+      await ref.set({ notes: [...cur, { at, by: admin.email, text }].slice(-200) }, { merge: true });
+      return NextResponse.json({ ok: true, message: 'Note saved (only HQ can see it).' });
+    }
+    return NextResponse.json({ ok: false, error: 'Unknown fix' }, { status: 400 });
+  }
+
+  // ── System: is the platform itself healthy? ──
+  if (b.action === 'system') {
+    const now = Date.now();
+    const [jobs, presence, tenantsSnap, openTickets] = await Promise.all([
+      Promise.all(SCHEDULED_JOBS.map(async (j) => { const d = ((await db.doc(`platformHealth/cron_${j.name}`).get()).data() as any) || null; const hrs = d?.lastRunAt ? (now - new Date(d.lastRunAt).getTime()) / 3600000 : null;
+        return { ...j, lastRunAt: d?.lastRunAt || null, late: hrs === null || hrs > j.everyHours + 3, hoursAgo: hrs === null ? null : Math.round(hrs) }; })),
+      db.collection('platformPresence').limit(500).get(),
+      db.collection('tenants').select('name').limit(300).get(),
+      db.collection('platformTickets').where('status', 'in', ['open', 'waiting_on_us']).limit(200).get().catch(() => ({ size: 0 })),
+    ]);
+    // Delivery over the last 7 days, across every business.
+    const since = new Date(now - 7 * 86400000).toISOString();
+    const delivery: Record<string, { sent: number; failed: number; other: number }> = { email: { sent: 0, failed: 0, other: 0 }, sms: { sent: 0, failed: 0, other: 0 } };
+    const failures: any[] = [];
+    for (const td of tenantsSnap.docs) {
+      try {
+        const m = await db.collection(`tenants/${td.id}/messageLog`).where('sentAt', '>=', since).select('channel', 'status', 'error', 'sentAt', 'kind').limit(1000).get();
+        for (const x of m.docs) { const v = x.data() as any; const ch = v.channel === 'sms' ? 'sms' : 'email'; const k = v.status === 'sent' ? 'sent' : v.status === 'failed' ? 'failed' : 'other'; delivery[ch][k]++;
+          if (k === 'failed' && failures.length < 12) failures.push({ tenant: (td.data() as any).name || td.id, tenantId: td.id, channel: ch, kind: v.kind, error: String(v.error || '').slice(0, 140), at: v.sentAt }); }
+      } catch { /* skip */ }
+    }
+    const current = String(process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 12) || null;
+    const versions: Record<string, number> = {};
+    const behind: any[] = [];
+    for (const d of presence.docs) { const v = d.data() as any; const ver = v.version || 'unknown'; versions[ver] = (versions[ver] || 0) + 1;
+      if (current && ver !== current && v.lastSeenAt && now - new Date(v.lastSeenAt).getTime() < 3 * 86400000) behind.push({ tenantId: d.id, version: ver, host: v.host || null, lastSeenAt: v.lastSeenAt }); }
+    const from = resolveFromAddress();
+    const settings = [
+      { key: 'PLATFORM_ADMIN_EMAILS', ok: platformAdminEmails().length > 0, note: 'Who can open HQ' },
+      { key: 'RESEND_API_KEY', ok: !!process.env.RESEND_API_KEY, note: 'All email' },
+      { key: 'NOTIFY_FROM_EMAIL', ok: !!process.env.NOTIFY_FROM_EMAIL && !/resend\.dev/i.test(from), note: /resend\.dev/i.test(from) ? `Sending from Resend’s test address (${from}) — only reaches you` : `Sending as ${from}` },
+      { key: 'Texting (Twilio)', ok: smsConfigured(), note: smsConfigured() ? 'Connected' : 'TWILIO_* not set — no texts' },
+      { key: 'CRON_SECRET', ok: !!process.env.CRON_SECRET, note: 'Protects the daily jobs' },
+      { key: 'LEADS_NOTIFY_EMAIL', ok: !!process.env.LEADS_NOTIFY_EMAIL, note: 'Where access requests and help requests are emailed' },
+      { key: 'Live address', ok: !!process.env.VERCEL_PROJECT_PRODUCTION_URL, note: process.env.VERCEL_PROJECT_PRODUCTION_URL || 'Turn on “Automatically expose System Environment Variables”' },
+      { key: 'Sign-up', ok: true, note: signupIsOpen() ? 'Open to everyone' : 'Invite only' },
+    ];
+    return NextResponse.json({ ok: true, jobs, delivery, failures, versions, behind: behind.slice(0, 20), current, settings, openTickets: (openTickets as any).size || 0, tenants: tenantsSnap.size });
   }
 
   if (b.action === 'tickets') {
