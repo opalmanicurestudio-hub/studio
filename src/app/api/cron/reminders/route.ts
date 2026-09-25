@@ -22,6 +22,7 @@
 // reminder goes out — reruns and overlapping windows can't double-text.
 // Delivery: SMS first, branded-email fallback, per the messaging layer.
 
+import { linkOrigin } from '@/lib/app-origin';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { smsConfigured, sendTenantSms } from '@/lib/sms';
@@ -113,7 +114,7 @@ export async function GET(req: NextRequest) {
       // catch-up must not re-fire on the very next hour and re-text everyone
       // the stamping loop had already covered.
       try { await stateRef.set({ lastRunAt: new Date().toISOString(), localHour }, { merge: true }); } catch { /* best effort */ }
-      const base = String((tDoc.data() as any)?.publicOrigin || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/+$/, '');
+      const base = linkOrigin((tDoc.data() as any), '');
 
       // Target LOCAL day: today + daysBefore, counted in DAYS rather than in
       // 86,400,000-millisecond blocks. The two differ on the two mornings a
