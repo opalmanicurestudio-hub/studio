@@ -94,7 +94,8 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   const checkOffer = async (code: string, quiet = false) => {
     setOfferErr('');
     try {
-      const r = await fetch('/api/offers/check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, code }) });
+      // On a renter's page the code is checked against THAT renter's offers.
+      const r = await fetch('/api/offers/check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, code, ...(providerId ? { provider: providerId } : {}) }) });
       const d = await r.json().catch(() => null);
       if (d?.ok) { setOfferShown({ code: d.code, line: d.line, amount: d.amount, until: d.until, oncePer: d.oncePer }); setCampaignRef((x) => ({ campaignId: x?.campaignId || null, code: d.code })); setOfferOpen(false); }
       else { if (!quiet) setOfferErr(d?.error || 'That code didn’t work.'); if (quiet) setCampaignRef((x) => (x ? { ...x, code: null } : x)); }
@@ -851,6 +852,30 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           <div className={pane}>
             {rescheduleNote && <p className="mb-4 rounded-2xl px-4 py-3 text-[13px]" style={{ background: card, color: ink, border: `1px solid ${accent}`, fontWeight: lightWeight }}>{rescheduleNote}</p>}
             {pkgThanks && <p className="mb-4 rounded-2xl px-4 py-3 text-[13px]" style={{ background: accent, color: onAcc, fontWeight: lightWeight }}>Thank you — your package is ready. Your credits come off each visit; just book as usual.</p>}
+            {/* The client's offer on the renter's page — glass, in the renter's colours. */}
+            {offerShown ? (
+              <div className="glass relative mb-6 overflow-hidden rounded-[1.5rem] p-4" style={{ border: `1px solid ${line}` }} role="status">
+                <div aria-hidden className="pointer-events-none absolute -right-10 -top-12 h-32 w-32 rounded-full blur-2xl" style={{ background: accent, opacity: 0.25 }} />
+                <div className="relative flex items-center gap-3">
+                  <div className="glass flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-xl" aria-hidden>🎁</div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] uppercase tracking-[0.22em]" style={{ color: mute }}>Your offer</p>
+                    <p className="text-[24px] leading-tight" style={{ fontFamily: face, fontWeight: lightWeight }}>{offerShown.amount || offerShown.line}</p>
+                    <p className="text-[12px]" style={{ color: mute }}>{offerShown.until ? `Until ${offerShown.until} · ` : ''}code {offerShown.code} · taken off at your visit</p>
+                  </div>
+                </div>
+              </div>
+            ) : offerOpen ? (
+              <div className="mb-6 flex gap-2">
+                <input value={offerInput} onChange={(e) => { setOfferInput(e.target.value.toUpperCase()); setOfferErr(''); }} onKeyDown={(e) => { if (e.key === 'Enter') void checkOffer(offerInput); }} placeholder="Offer code" aria-label="Offer code" autoFocus
+                  className="h-11 min-w-0 flex-1 rounded-full px-4 font-mono text-sm tracking-[0.12em] outline-none" style={{ background: card, border: `1px solid ${line}`, color: ink }} />
+                <button type="button" onClick={() => checkOffer(offerInput)} className="h-11 shrink-0 rounded-full px-5 text-[11px] uppercase tracking-[0.18em]" style={{ background: accent, color: onAcc }}>Apply</button>
+                {offerErr && <p className="sr-only" role="alert">{offerErr}</p>}
+              </div>
+            ) : (
+              <button type="button" onClick={() => setOfferOpen(true)} className="mb-6 text-[12px] underline" style={{ color: mute }}>🎁 Have an offer code?</button>
+            )}
+            {offerOpen && offerErr && <p className="-mt-4 mb-6 text-[12px]" style={{ color: mute }}>{offerErr}</p>}
             {memberThanks && <p className="mb-4 rounded-2xl px-4 py-3 text-[13px]" style={{ background: accent, color: onAcc, fontWeight: lightWeight }}>Welcome — you&apos;re a member. Your included visits and perks apply from your next booking.</p>}
             {providerMemberships.length > 0 && (
               <div className="mb-8">
