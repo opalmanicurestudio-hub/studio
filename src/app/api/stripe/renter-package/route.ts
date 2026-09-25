@@ -10,6 +10,7 @@
 // the studio's ledger. Hosted Checkout (redirect), so this works from the
 // renter's public page without embedding anything.
 
+import { payLaterCheckoutParams } from '@/lib/pay-later';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -48,6 +49,8 @@ export async function POST(req: NextRequest) {
     const session = await getStripe().checkout.sessions.create(
       {
         mode: 'payment',
+        // Pay-later stays hidden until renters get their own "Offer pay-later" switch.
+        ...payLaterCheckoutParams(null, priceCents),
         line_items: [{
           quantity: 1,
           price_data: {
