@@ -131,8 +131,9 @@ export function Course({ tenantId, slug }: { tenantId: string; slug: string }) {
                 <div key={m.title}>
                   <p className="font-semibold">{m.title}</p>
                   <div className="mt-1.5 space-y-1">{m.lessons.map((l: any) => {
-                    const open = d.enrolled || l.preview;
-                    const row = <span className="flex items-center gap-2 rounded-2xl bg-white/60 px-3 py-2 text-sm"><span>{d.progress?.[l.id] ? '✓' : l.kind === 'video' ? '▶' : l.kind === 'download' ? '↓' : '≡'}</span><span className="min-w-0 flex-1 truncate">{l.title}</span>{!d.enrolled && l.preview && <span className="rounded-full px-2 py-0.5 text-[11px] font-medium text-white" style={{ background: color }}>Watch free</span>}{!open && <span className="text-stone-400">🔒</span>}<span className="text-[12px] text-stone-500">{mins(l.durationSec)}</span></span>;
+                    const locked = l.unlockAt && new Date(l.unlockAt).getTime() > Date.now();
+                    const open = (d.enrolled && !locked) || l.preview;
+                    const row = <span className="flex items-center gap-2 rounded-2xl bg-white/60 px-3 py-2 text-sm"><span>{d.progress?.[l.id] ? '✓' : l.kind === 'video' ? '▶' : l.kind === 'download' ? '↓' : '≡'}</span><span className="min-w-0 flex-1 truncate">{l.title}</span>{!d.enrolled && l.preview && <span className="rounded-full px-2 py-0.5 text-[11px] font-medium text-white" style={{ background: color }}>Watch free</span>}{!open && <span className="text-stone-400">{locked ? `🗓 ${new Date(l.unlockAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : '🔒'}</span>}<span className="text-[12px] text-stone-500">{mins(l.durationSec)}</span></span>;
                     return open ? <Link key={l.id} href={`/learn/${tenantId}/${slug}/${l.id}`}>{row}</Link> : <div key={l.id}>{row}</div>;
                   })}</div>
                 </div>
@@ -515,6 +516,128 @@ export function Welcome({ tenantId }: { tenantId: string }) {
         {state === 'done' && <><p className="text-4xl">🎓</p><p className="mt-2 text-2xl font-light">You’re <span className="font-semibold">in.</span></p><p className="mt-1 text-stone-600">Taking you to your course… we’ve emailed you a link too.</p></>}
         {state === 'error' && <><p className="text-lg font-semibold">Almost there</p><p className="mt-1 text-stone-600">{err} If you were charged, you’ll get an email shortly — or <Link href={`/learn/${tenantId}/my`} className="underline">sign in</Link>.</p></>}
       </Glass>
+    </Shell>
+  );
+}
+
+// ── Apply (licensed schools) ─────────────────────────────────────────────
+const usd = (c: number) => `$${(Math.round(c || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+export function Apply({ tenantId }: { tenantId: string }) {
+  const sp = useSearchParams();
+  const [d, setD] = useState<any>(null);
+  const [f, setF] = useState({ programId: sp?.get('program') || '', name: '', email: '', phone: '', message: '' });
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<any>(null);
+  const [err, setErr] = useState('');
+  useEffect(() => { api({ action: 'programs', tenantId }).then((r) => { setD(r); if (r.ok && !f.programId && r.programs[0]) setF((x) => ({ ...x, programId: r.programs[0].id })); }); }, [tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!d) return <Shell tenantId={tenantId}><Loading /></Shell>;
+  const color = d.brand?.color || '#1c1917';
+  const go = async (intent: 'apply' | 'info') => {
+    setBusy(true); setErr('');
+    const r = await api({ action: 'apply', tenantId, ...f, intent, source: sp?.get('utm_source') || sp?.get('source') || (document.referrer ? new URL(document.referrer).hostname : 'website') });
+    setBusy(false); if (r.ok) setDone(r); else setErr(r.error || 'Something went wrong.');
+  };
+  return (
+    <Shell brand={d.brand} tenantId={tenantId}>
+      <h1 className="text-4xl font-light tracking-tight sm:text-5xl">Start your <span className="font-semibold">career</span></h1>
+      <p className="mt-2 text-lg text-stone-600">Apply to {d.brand?.name}. It takes two minutes — no payment today.</p>
+      {done ? (
+        <Glass className="mt-8 max-w-xl text-center"><p className="text-4xl">✉️</p><p className="mt-2 text-xl font-semibold">{done.applied ? 'Application started!' : 'Thanks — we’ll be in touch.'}</p><p className="mt-1 text-stone-600">{done.applied ? 'We’ve emailed you a private link to your application — upload your documents, read your enrolment agreement and finish when you’re ready.' : 'Someone from the school will reply soon.'}</p>{done.link && <a href={done.link} className="mt-4 inline-block rounded-full px-6 py-3 text-sm font-medium text-white" style={{ background: color }}>Open my application</a>}</Glass>
+      ) : (
+        <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_380px]">
+          <div className="space-y-3">
+            {d.programs.map((p: any) => (
+              <button key={p.id} type="button" onClick={() => setF({ ...f, programId: p.id })} className={`glass block w-full rounded-[1.5rem] border p-5 text-left ${f.programId === p.id ? 'border-stone-900' : 'border-white/70'}`}>
+                <p className="text-xl font-semibold">{p.name}</p>
+                <p className="mt-1 text-sm text-stone-600">{p.totalHours ? `${p.totalHours} hours` : ''}{p.tuitionCents ? ` · ${usd(p.tuitionCents)} total${p.installments ? ` · payment plan available` : ''}` : ''}</p>
+                {p.description && <p className="mt-2 whitespace-pre-wrap text-[15px] text-stone-700">{p.description}</p>}
+              </button>
+            ))}
+            {d.programs.length === 0 && <Glass><p>Programs will be listed here soon.</p></Glass>}
+          </div>
+          <Glass className="space-y-3 lg:sticky lg:top-24 lg:self-start">
+            {(['name', 'email', 'phone'] as const).map((k) => <input key={k} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} type={k === 'email' ? 'email' : 'text'} placeholder={k === 'name' ? 'Full legal name' : k === 'email' ? 'Email' : 'Phone (optional)'} className="h-11 w-full rounded-2xl border border-white/80 bg-white/75 px-4" />)}
+            <textarea value={f.message} onChange={(e) => setF({ ...f, message: e.target.value })} rows={3} placeholder="Anything we should know? (optional)" className="w-full rounded-2xl border border-white/80 bg-white/75 p-4" />
+            {err && <p className="text-sm text-red-700">{err}</p>}
+            <button type="button" disabled={busy || !f.programId || !f.name || !f.email.includes('@')} onClick={() => go('apply')} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-50" style={{ background: color }}>{busy ? 'One moment…' : 'Apply now'}</button>
+            <button type="button" disabled={busy || !f.programId || !f.name || !f.email.includes('@')} onClick={() => go('info')} className="h-11 w-full rounded-full bg-white/70 text-sm disabled:opacity-50">Just ask a question</button>
+          </Glass>
+        </div>
+      )}
+    </Shell>
+  );
+}
+
+// ── Application (private link) ───────────────────────────────────────────
+export function Application({ tenantId, appToken }: { tenantId: string; appToken: string }) {
+  const sp = useSearchParams();
+  const [d, setD] = useState<any>(null);
+  const [busy, setBusy] = useState('');
+  const [err, setErr] = useState('');
+  const [sign, setSign] = useState({ typedName: '', agree: false });
+  const load = useCallback(async () => setD(await api({ action: 'application', tenantId, appToken })), [tenantId, appToken]);
+  useEffect(() => {
+    const sid = sp?.get('session_id');
+    if (sid) { setBusy('confirm'); (async () => { for (let i = 0; i < 10; i++) { const r = await api({ action: 'app-confirm', tenantId, appToken, sessionId: sid }); if (r.ok) break; await new Promise((res) => setTimeout(res, 2500)); } window.history.replaceState(null, '', `/learn/${tenantId}/application/${appToken}`); setBusy(''); void load(); })(); }
+    else void load();
+  }, [tenantId, appToken, sp, load]);
+  if (!d) return <Shell tenantId={tenantId}><Loading /></Shell>;
+  if (!d.ok) return <Shell tenantId={tenantId}><Glass className="mx-auto max-w-md text-center"><p>{d.error}</p></Glass></Shell>;
+  const color = d.brand.color;
+  const docsIn = d.docs.every((x: any) => x.status !== 'missing' && x.status !== 'rejected');
+  const upload = async (key: string, file: File) => {
+    setBusy(key); setErr('');
+    let data: string;
+    if (file.type === 'application/pdf') data = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.readAsDataURL(file); });
+    else data = await new Promise((res) => { const r = new FileReader(); const img = new Image(); r.onload = () => { img.onload = () => { const w = Math.min(1600, img.width), h = Math.round((img.height / img.width) * w); const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d')!.drawImage(img, 0, 0, w, h); res(c.toDataURL('image/jpeg', 0.8)); }; img.src = String(r.result); }; r.readAsDataURL(file); });
+    const r = await api({ action: 'app-upload', tenantId, appToken, docKey: key, file: data });
+    setBusy(''); if (!r.ok) setErr(r.error); void load();
+  };
+  const Step = ({ n, title, done, children }: { n: number; title: string; done: boolean; children: React.ReactNode }) => (
+    <Glass className="space-y-3"><div className="flex items-center gap-3"><span className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold ${done ? 'text-white' : 'bg-white/80'}`} style={done ? { background: color } : undefined}>{done ? '✓' : n}</span><p className="text-lg font-semibold">{title}</p></div>{children}</Glass>
+  );
+  return (
+    <Shell brand={d.brand} tenantId={tenantId}>
+      <h1 className="text-4xl font-light tracking-tight">Your application, <span className="font-semibold">{d.applicant.name.split(' ')[0]}</span></h1>
+      <p className="mt-2 text-stone-600">{d.program.name}{d.program.totalHours ? ` · ${d.program.totalHours} hours` : ''}{d.applicant.startDate ? ` · starts ${new Date(d.applicant.startDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}` : ''}{d.applicant.waitlisted ? ' · on the waitlist' : ''}</p>
+      {busy === 'confirm' && <Glass className="mt-6"><p>Confirming your payment…</p></Glass>}
+      {err && <p className="mt-4 rounded-2xl bg-red-50 p-3 text-sm text-red-800">{err}</p>}
+      <div className="mt-6 space-y-4">
+        <Step n={1} title="Upload your documents" done={docsIn}>
+          {d.docs.map((x: any) => (
+            <div key={x.key} className="flex flex-wrap items-center gap-2 rounded-2xl bg-white/60 px-4 py-3 text-sm">
+              <span className="min-w-0 flex-1">{x.key} · <span className={x.status === 'verified' ? 'text-emerald-700' : x.status === 'rejected' ? 'text-red-700' : 'text-stone-500'}>{x.status === 'missing' ? 'needed' : x.status === 'submitted' ? 'received — being checked' : x.status}</span>{x.reason ? <span className="block text-[12px] text-red-700">{x.reason}</span> : null}</span>
+              {x.status !== 'verified' && <label className="cursor-pointer rounded-full bg-white px-4 py-2 text-[13px] shadow-sm">{busy === x.key ? 'Uploading…' : x.status === 'missing' ? 'Upload' : 'Replace'}<input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) void upload(x.key, file); }} /></label>}
+            </div>
+          ))}
+          <p className="text-[12px] text-stone-500">A clear photo or a PDF. Your documents are private to the school’s admissions team.</p>
+        </Step>
+        <Step n={2} title="Read and sign your enrolment agreement" done={d.agreement.signed}>
+          <pre className="max-h-80 overflow-y-auto whitespace-pre-wrap rounded-2xl bg-white/70 p-4 text-[13px] leading-relaxed">{d.agreement.text}</pre>
+          {d.agreement.signed ? <p className="text-sm text-emerald-700">✓ Signed by {d.agreement.signedName} on {new Date(d.agreement.signedAt).toLocaleString()}</p> : (
+            <>
+              <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={sign.agree} onChange={(e) => setSign({ ...sign, agree: e.target.checked })} />I have read and understood this agreement, and I agree to it.</label>
+              <input value={sign.typedName} onChange={(e) => setSign({ ...sign, typedName: e.target.value })} placeholder={`Type your full name: ${d.applicant.name}`} className="h-11 w-full rounded-2xl border border-white/80 bg-white/75 px-4 font-serif text-lg italic" />
+              <button type="button" disabled={!docsIn || !sign.agree || !sign.typedName || !!busy} onClick={async () => { setBusy('sign'); setErr(''); const r = await api({ action: 'app-sign', tenantId, appToken, ...sign }); setBusy(''); if (!r.ok) setErr(r.error); void load(); }} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>{busy === 'sign' ? 'Signing…' : 'Sign agreement'}</button>
+              {!docsIn && <p className="text-[12px] text-stone-500">Upload your documents first.</p>}
+              <p className="text-[11px] text-stone-500">Your typed name is your electronic signature. We record the exact text, the time, and your device.</p>
+            </>
+          )}
+        </Step>
+        <Step n={3} title={d.payment?.installmentsTotal ? 'Make your down payment' : 'Pay your tuition'} done={!!d.payment?.paid}>
+          {!d.payment ? <p className="text-sm text-stone-600">Available once you’ve signed.</p> : d.payment.paid ? (
+            <p className="text-sm">✓ Paid. {d.payment.installmentsTotal ? `Your remaining ${d.payment.installmentsTotal} payments of about ${usd(d.payment.installmentCents)} are on autopay${d.payment.nextDueAt ? ` — next on ${new Date(d.payment.nextDueAt).toLocaleDateString()}` : ''}.` : ''} Balance: {usd(d.payment.balanceCents || 0)}.</p>
+          ) : (
+            <>
+              <p className="text-sm">{usd(d.payment.downPaymentCents)} today{d.payment.installmentsTotal ? `, then ${d.payment.installmentsTotal} automatic payments of about ${usd(d.payment.installmentCents)} on the same card` : ''}.</p>
+              <button type="button" disabled={!!busy} onClick={async () => { setBusy('pay'); const r = await api({ action: 'app-pay', tenantId, appToken }); if (r.ok && r.url) window.location.href = r.url; else { setBusy(''); setErr(r.error || 'Couldn’t start payment.'); } }} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>{busy === 'pay' ? 'One moment…' : `Pay ${usd(d.payment.downPaymentCents)}`}</button>
+            </>
+          )}
+        </Step>
+        <Step n={4} title="You’re enrolled" done={d.applicant.stage === 'enrolled'}>
+          {d.applicant.stage === 'enrolled' ? <p className="text-sm">Welcome! Sign in to <Link href={`/learn/${tenantId}/my`} className="underline">My courses</Link> with {d.applicant.email} to start your theory lessons and track your hours.</p> : <p className="text-sm text-stone-600">Happens automatically when your payment goes through.</p>}
+        </Step>
+      </div>
     </Shell>
   );
 }
