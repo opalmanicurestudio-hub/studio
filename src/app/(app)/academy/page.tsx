@@ -12,13 +12,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAuth } from 'firebase/auth';
-import { Loader, ArrowUp, ArrowDown, Pencil, Trash2, ExternalLink, Video, FileText, Download, Plus } from 'lucide-react';
+import { Loader, ArrowUp, ArrowDown, Pencil, Trash2, ExternalLink, Video, FileText, Download, Plus, Home as HomeIcon, BookOpen, Sparkles, Users, Clock, ClipboardList, GraduationCap, Settings as SettingsIcon } from 'lucide-react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { PrivateImg } from '@/components/shared/private-file';
 import { SchoolPrograms } from '@/components/academy/SchoolPrograms';
 import { StudentSalon } from '@/components/academy/StudentSalon';
 import { AdmissionsBoard } from '@/components/academy/AdmissionsBoard';
 import { StudentJourney } from '@/components/academy/StudentJourney';
+import { AttendancePanel } from '@/components/academy/AttendancePanel';
+import { AcademyHome, academyHome, type Section } from '@/components/academy/AcademyHome';
 import { useTenant } from '@/context/TenantContext';
 
 async function api(body: any) {
@@ -29,7 +31,7 @@ async function api(body: any) {
 const money = (c: number) => (c ? `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: c % 100 ? 2 : 0 })}` : 'Free');
 const field = 'h-11 w-full rounded-xl border-2 border-border/60 bg-background px-3 text-sm';
 const KIND_ICON: Record<string, any> = { video: Video, text: FileText, download: Download };
-const blankLesson = (moduleTitle = 'Module 1') => ({ id: '', title: '', moduleTitle, kind: 'video', body: '', videoUrl: '', downloadUrl: '', downloadName: '', preview: false, minMinutes: 0, quiz: null as any });
+const blankLesson = (moduleTitle = 'Module 1') => ({ id: '', title: '', moduleTitle, kind: 'video', body: '', videoUrl: '', downloadUrl: '', downloadName: '', preview: false, minMinutes: 0, quiz: null as any, flashcards: [] as any[], activity: null as any });
 const hm = (min: number) => `${Math.floor((min || 0) / 60)}h ${(min || 0) % 60}m`;
 const dt = (iso?: string | null) => (iso ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—');
 const toLocalInput = (iso?: string | null) => { if (!iso) return ''; const d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
@@ -45,6 +47,19 @@ export default function AcademyBuilderPage() {
   const [att, setAtt] = useState<any>(null);
   const [trx, setTrx] = useState<any>(null);
   const [audit, setAudit] = useState<any>(null);
+  const [drafting, setDrafting] = useState('');
+  const [tutorLog, setTutorLog] = useState<any[] | null>(null);
+  /** Ask AI for a draft from the lesson's own text; it fills the editor — nothing is saved until you press Save. */
+  const draft = async (kind: 'quiz' | 'flashcards' | 'match' | 'order' | 'scenario') => {
+    setDrafting(kind); setMsg('');
+    const r = await api({ action: 'ai-draft', tenantId, courseId: sel, kind, title: lesson.title, text: lesson.body });
+    setDrafting('');
+    if (!r.ok) { setMsg(r.error); return; }
+    if (kind === 'quiz' && r.draft.questions) setLesson({ ...lesson, quiz: { passPct: lesson.quiz?.passPct || 80, questions: r.draft.questions } });
+    else if (kind === 'flashcards' && r.draft.flashcards) setLesson({ ...lesson, flashcards: r.draft.flashcards });
+    else if (r.draft.activity) setLesson({ ...lesson, activity: r.draft.activity });
+    setMsg('Draft added below — read it through, change anything, then Save lesson.');
+  };
   const [form, setForm] = useState<any>(null);
   const [lesson, setLesson] = useState<any>(null);   // the lesson being edited
   const [students, setStudents] = useState<any[] | null>(null);
@@ -54,9 +69,11 @@ export default function AcademyBuilderPage() {
   const poll = useRef<number | null>(null);
   // Online courses only, or a licensed school (programs + student salon too).
   const [mode, setMode] = useState<'courses' | 'school' | null>(null);
-  const [section, setSection] = useState<'courses' | 'programs' | 'admissions' | 'students' | 'salon'>('courses');
+  const [section, setSection] = useState<Section>('home');
+  const [home, setHome] = useState<any>(null);
+  useEffect(() => { if (tenantId) academyHome(tenantId).then((r) => r?.ok && setHome(r)); }, [tenantId, section]);
   useEffect(() => { if (!tenantId) return; (async () => { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : ''; const r = await fetch('/api/academy/school', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify({ action: 'overview', tenantId }) }).then((x) => x.json()).catch(() => null); setMode(r?.mode || 'courses'); })(); }, [tenantId]);
-  const changeMode = async (m: 'courses' | 'school') => { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : ''; const r = await fetch('/api/academy/school', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify({ action: 'mode', tenantId, mode: m }) }).then((x) => x.json()).catch(() => null); if (r?.ok) { setMode(m); if (m === 'courses') setSection('courses'); } else setMsg(r?.error || 'Couldn’t change the mode.'); };
+  const changeMode = async (m: 'courses' | 'school') => { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : ''; const r = await fetch('/api/academy/school', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify({ action: 'mode', tenantId, mode: m }) }).then((x) => x.json()).catch(() => null); if (r?.ok) { setMode(m); academyHome(tenantId).then((h) => h?.ok && setHome(h)); } else setMsg(r?.error || 'Couldn’t change the mode.'); };
 
   const loadList = useCallback(async () => { if (!tenantId) return; const r = await api({ action: 'list', tenantId }); if (r.ok) setCourses(r.courses); else setMsg(r.error); }, [tenantId]);
   const loadCourse = useCallback(async (id: string) => {
@@ -65,10 +82,10 @@ export default function AcademyBuilderPage() {
     setD(r);
     const c = r.course;
     setForm({ id: c.id, title: c.title, subtitle: c.subtitle || '', priceDollars: (c.priceCents || 0) / 100, level: c.level || '', instructorName: c.instructorName || '', coverUrl: c.coverUrl || '', whatYouLearn: (c.whatYouLearn || []).join('\n'), description: c.description || '', status: c.status || 'draft',
-      compliance: !!c.compliance, requiredOnlineHours: c.requiredOnlineHours || '', requiredInPersonHours: c.requiredInPersonHours || '', minEngagementPct: c.minEngagementPct ?? 80, minWatchPct: c.minWatchPct ?? 90, attentionCheckMinutes: c.attentionCheckMinutes ?? 10 });
+      aiTutor: c.aiTutor !== false, compliance: !!c.compliance, requiredOnlineHours: c.requiredOnlineHours || '', requiredInPersonHours: c.requiredInPersonHours || '', minEngagementPct: c.minEngagementPct ?? 80, minWatchPct: c.minWatchPct ?? 90, attentionCheckMinutes: c.attentionCheckMinutes ?? 10 });
   }, [tenantId]);
   useEffect(() => { void loadList(); }, [loadList]);
-  useEffect(() => { if (sel) { void loadCourse(sel); setStudents(null); setLesson(null); } }, [sel, loadCourse]);
+  useEffect(() => { if (sel) { void loadCourse(sel); setStudents(null); setLesson(null); setTutorLog(null); } }, [sel, loadCourse]);
   useEffect(() => () => { if (poll.current) window.clearInterval(poll.current); }, []);
 
   const saveCourse = async (extra: any = {}) => {
@@ -125,35 +142,97 @@ export default function AcademyBuilderPage() {
   }, [d]);
   const publicUrl = d?.course ? `/learn/${tenantId}/${d.course.slug}` : '';
 
+  const NAV: { group: string; items: { key: Section; label: string; hint: string; icon: any; school?: boolean; badge?: number }[] }[] = [
+    { group: '', items: [{ key: 'home', label: 'Home', hint: 'What needs you today', icon: HomeIcon }] },
+    { group: 'Teach', items: [
+      { key: 'courses', label: 'Courses', hint: 'Lessons, videos, quizzes', icon: BookOpen },
+      { key: 'salon', label: 'Student salon', hint: 'Sign off students’ services', icon: Sparkles, school: true, badge: home?.school?.checkoffsToday } ] },
+    { group: 'Students', items: [
+      { key: 'students', label: 'Students', hint: 'Progress, risk, messages', icon: Users, school: true, badge: (home?.school?.atRisk || 0) + (home?.school?.unread || 0) },
+      { key: 'attendance', label: 'Attendance', hint: 'Clock-ins, photos, fixes', icon: Clock, school: true, badge: home?.school?.attendanceToFix } ] },
+    { group: 'Enrol', items: [
+      { key: 'admissions', label: 'Admissions', hint: 'Applicants, tuition, cohorts', icon: ClipboardList, school: true, badge: (home?.school?.docsToCheck || 0) + (home?.school?.toCountersign || 0) + (home?.school?.newInquiries || 0) } ] },
+    { group: 'Set up', items: [
+      { key: 'programs', label: 'Programs', hint: 'Hours, services, tuition rules', icon: GraduationCap, school: true },
+      { key: 'settings', label: 'Settings', hint: 'Academy type and your links', icon: SettingsIcon } ] },
+  ];
+  const visible = NAV.map((g) => ({ ...g, items: g.items.filter((i) => !i.school || mode === 'school') })).filter((g) => g.items.length);
+  const current = visible.flatMap((g) => g.items).find((i) => i.key === section) || visible[0].items[0];
+  const go = (k: Section) => { setSection(k); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  const links = tenantId ? [['Your academy page', `/learn/${tenantId}`, 'Where people browse and buy your courses'], ...(mode === 'school' ? [['Apply page', `/learn/${tenantId}/apply`, 'Share this with future students'], ['Clock-in screen', '/academy-screen', 'Open on a tablet at the front desk'], ['Student portal', `/learn/${tenantId}/my`, 'Where students sign in']] : [])] : [];
+
   return (
     <div className="min-h-screen bg-background">
       <AppHeader title="Academy" />
-      <main className="mx-auto max-w-6xl space-y-4 px-4 pb-24 pt-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div><h1 className="text-2xl font-black tracking-tight">Academy</h1><p className="text-sm text-muted-foreground">Build courses, sell them online, and see how students are doing.</p></div>
-          <div className="flex gap-2">
-            {tenantId && <a href={`/learn/${tenantId}`} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-1.5 rounded-xl border-2 px-3 text-sm font-bold">Your academy page <ExternalLink className="h-3.5 w-3.5" /></a>}
-            <button type="button" onClick={newCourse} className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-foreground px-4 text-sm font-bold text-background"><Plus className="h-4 w-4" />New course</button>
-          </div>
-        </div>
-        {mode && (
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-muted/40 p-2">
-            <div className="flex gap-1">
-              {([['courses', 'Courses'], ...(mode === 'school' ? [['programs', 'Programs'], ['admissions', 'Admissions'], ['students', 'Students'], ['salon', 'Student salon']] : [])] as [string, string][]).map(([k, l]) => <button key={k} type="button" onClick={() => setSection(k as any)} className={`h-9 rounded-full px-4 text-sm font-bold ${section === k ? 'bg-foreground text-background' : ''}`}>{l}</button>)}
+      <main className="mx-auto max-w-7xl px-4 pb-24 pt-4">
+        <div className="grid gap-6 lg:grid-cols-[230px_1fr]">
+          {/* The menu: grouped by job, in plain words. A strip of buttons on phones. */}
+          <nav aria-label="Academy" className="lg:sticky lg:top-20 lg:self-start">
+            <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-2 lg:mx-0 lg:block lg:space-y-4 lg:overflow-visible lg:px-0">
+              {visible.map((g) => (
+                <div key={g.group || 'top'} className="contents lg:block lg:space-y-1">
+                  {g.group && <p className="hidden px-3 text-[10px] font-black uppercase tracking-widest text-muted-foreground lg:block">{g.group}</p>}
+                  {g.items.map((i) => { const I = i.icon; const on = section === i.key; return (
+                    <button key={i.key} type="button" onClick={() => go(i.key)} aria-current={on ? 'page' : undefined} className={`flex shrink-0 items-center gap-2.5 rounded-xl px-3 py-2 text-left transition lg:w-full ${on ? 'bg-foreground text-background' : 'bg-muted/40 hover:bg-muted lg:bg-transparent'}`}>
+                      <I className="h-4 w-4 shrink-0" />
+                      <span className="min-w-0 flex-1"><span className="block whitespace-nowrap text-sm font-bold">{i.label}</span><span className={`hidden text-[11px] lg:block ${on ? 'opacity-70' : 'text-muted-foreground'}`}>{i.hint}</span></span>
+                      {!!i.badge && <span className={`rounded-full px-1.5 text-[11px] font-black ${on ? 'bg-background text-foreground' : 'bg-red-500 text-white'}`}>{i.badge}</span>}
+                    </button>
+                  ); })}
+                </div>
+              ))}
             </div>
-            <div className="flex items-center gap-1 text-[12px]">
-              <span className="font-bold text-muted-foreground">Academy type:</span>
-              <button type="button" onClick={() => changeMode('courses')} className={`rounded-full px-3 py-1.5 font-bold ${mode === 'courses' ? 'bg-foreground text-background' : 'bg-background'}`}>Online courses</button>
-              <button type="button" onClick={() => { if (mode !== 'school' && !window.confirm('Switch on licensed-school tools? Programs, hours requirements, the student salon and check-offs become available. Your online courses keep working as they are.')) return; void changeMode('school'); }} className={`rounded-full px-3 py-1.5 font-bold ${mode === 'school' ? 'bg-foreground text-background' : 'bg-background'}`}>Licensed school</button>
-            </div>
-          </div>
-        )}
-        {msg && <p className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{msg}</p>}
-        {section === 'programs' && mode === 'school' && <SchoolPrograms tenantId={tenantId} courses={courses || []} />}
-        {section === 'salon' && mode === 'school' && <StudentSalon tenantId={tenantId} />}
-        {section === 'admissions' && mode === 'school' && <AdmissionsBoard tenantId={tenantId} />}
-        {section === 'students' && mode === 'school' && <StudentJourney tenantId={tenantId} />}
-        {d && !d.mux && <p className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Video hosting isn’t connected yet — you can paste a private Vimeo or unlisted YouTube link for now. Add MUX_TOKEN_ID, MUX_TOKEN_SECRET, MUX_SIGNING_KEY_ID and MUX_SIGNING_KEY_PRIVATE in Vercel to upload protected videos.</p>}
+          </nav>
+
+          <div className="min-w-0 space-y-4">
+            {section !== 'home' && (
+              <div className="flex flex-wrap items-end justify-between gap-2">
+                <div><h1 className="text-2xl font-black tracking-tight">{current.label}</h1><p className="text-sm text-muted-foreground">{current.hint}</p></div>
+                {section === 'courses' && <div className="flex gap-2">
+                  {tenantId && <a href={`/learn/${tenantId}`} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-1.5 rounded-xl border-2 px-3 text-sm font-bold">Your academy page <ExternalLink className="h-3.5 w-3.5" /></a>}
+                  <button type="button" onClick={newCourse} className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-foreground px-4 text-sm font-bold text-background"><Plus className="h-4 w-4" />New course</button>
+                </div>}
+              </div>
+            )}
+            {msg && <p className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{msg}</p>}
+            {section === 'home' && <AcademyHome tenantId={tenantId} data={home} go={go} />}
+            {section === 'programs' && mode === 'school' && <SchoolPrograms tenantId={tenantId} courses={courses || []} />}
+            {section === 'salon' && mode === 'school' && <StudentSalon tenantId={tenantId} />}
+            {section === 'admissions' && mode === 'school' && <AdmissionsBoard tenantId={tenantId} />}
+            {section === 'students' && mode === 'school' && <StudentJourney tenantId={tenantId} />}
+            {section === 'attendance' && mode === 'school' && <AttendancePanel tenantId={tenantId} />}
+            {section === 'settings' && (
+              <div className="space-y-4">
+                <section className="space-y-2 rounded-2xl bg-muted/40 p-4">
+                  <p className="font-black">What kind of academy is this?</p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {([['courses', 'Online courses', 'Sell classes online. Students buy, watch and earn a certificate.'], ['school', 'Licensed school', 'Everything in online courses, plus programs, hours, attendance, admissions, tuition and a student salon.']] as const).map(([k, l, h]) => (
+                      <button key={k} type="button" onClick={() => { if (k === mode) return; if (k === 'school' && !window.confirm('Switch on licensed-school tools? Your online courses keep working as they are.')) return; void changeMode(k); }} className={`rounded-2xl border-2 p-4 text-left ${mode === k ? 'border-foreground bg-background' : 'border-transparent bg-background/60'}`}>
+                        <p className="font-black">{mode === k ? '● ' : '○ '}{l}</p><p className="text-[13px] text-muted-foreground">{h}</p></button>
+                    ))}
+                  </div>
+                </section>
+                <section className="space-y-2 rounded-2xl bg-muted/40 p-4">
+                  <p className="font-black">Your links</p>
+                  {links.map(([l, href, h]) => (
+                    <div key={l} className="flex flex-wrap items-center gap-2 rounded-xl bg-background px-3 py-2 text-sm">
+                      <span className="min-w-0 flex-1"><span className="font-bold">{l}</span> <span className="text-muted-foreground">· {h}</span></span>
+                      <a href={href} target="_blank" rel="noreferrer" className="text-[12px] font-bold underline">Open</a>
+                      <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(`${window.location.origin}${href}`); setMsg(`${l} link copied.`); } catch { /* ignore */ } }} className="text-[12px] font-bold underline">Copy link</button>
+                    </div>
+                  ))}
+                </section>
+                {mode === 'school' && (
+                  <section className="space-y-1 rounded-2xl bg-muted/40 p-4 text-sm">
+                    <p className="font-black">Who can do what</p>
+                    <p><span className="font-bold">Owners & managers</span> — everything, including admissions, tuition and courses.</p>
+                    <p><span className="font-bold">Instructors</span> (Staff → role “instructor”) — student salon sign-offs, attendance, students and messages. Not money, documents or course editing.</p>
+                    <p><span className="font-bold">Students</span> — their own courses, hours, messages and clock-in, through the student portal.</p>
+                  </section>
+                )}
+              </div>
+            )}
+            {section === 'courses' && d && !d.mux && <p className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Video hosting isn’t connected yet — you can paste a private Vimeo or unlisted YouTube link for now. Add MUX_TOKEN_ID, MUX_TOKEN_SECRET, MUX_SIGNING_KEY_ID and MUX_SIGNING_KEY_PRIVATE in Vercel to upload protected videos.</p>}
 
         {section === 'courses' && <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
           <div className="space-y-2">
@@ -170,7 +249,7 @@ export default function AcademyBuilderPage() {
           {!d || !form ? <div className="rounded-3xl border-2 border-dashed p-10 text-center text-muted-foreground">Choose a course, or create your first one.</div> : (
             <div className="space-y-4 rounded-3xl border-2 border-border/60 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap gap-1">{(['details', 'curriculum', 'students', 'attendance'] as const).map((k) => <button key={k} type="button" onClick={() => { setTab(k); if (k === 'students' && !students) api({ action: 'students', tenantId, courseId: sel }).then((r) => r.ok && setStudents(r.students)); if (k === 'attendance') api({ action: 'attendance', tenantId }).then((r) => r.ok && setAtt(r)); }} className={`h-9 rounded-full px-4 text-sm font-bold capitalize ${tab === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{k}</button>)}</div>
+                <div className="flex flex-wrap gap-1">{(['details', 'curriculum', 'students'] as const).map((k) => <button key={k} type="button" onClick={() => { setTab(k); if (k === 'students' && !students) api({ action: 'students', tenantId, courseId: sel }).then((r) => r.ok && setStudents(r.students)); }} className={`h-9 rounded-full px-4 text-sm font-bold capitalize ${tab === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{k}</button>)}</div>
                 <div className="flex items-center gap-2">
                   {d.course.status === 'published' && <a href={publicUrl} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1 rounded-full border-2 px-3 text-[13px] font-bold">View page <ExternalLink className="h-3.5 w-3.5" /></a>}
                   <button type="button" disabled={!!busy} onClick={() => saveCourse({ status: d.course.status === 'published' ? 'draft' : 'published' })} className={`h-9 rounded-full px-4 text-[13px] font-bold ${d.course.status === 'published' ? 'border-2' : 'bg-emerald-600 text-white'}`}>{d.course.status === 'published' ? 'Unpublish' : 'Publish'}</button>
@@ -187,6 +266,8 @@ export default function AcademyBuilderPage() {
                   <label className="text-sm font-bold">Cover image link<input className={field} value={form.coverUrl} onChange={(e) => setForm({ ...form, coverUrl: e.target.value })} placeholder="https://…" /></label>
                   <label className="text-sm font-bold md:col-span-2">What they’ll learn (one per line)<textarea className={field + ' h-28 py-2'} value={form.whatYouLearn} onChange={(e) => setForm({ ...form, whatYouLearn: e.target.value })} /></label>
                   <label className="text-sm font-bold md:col-span-2">Description<textarea className={field + ' h-40 py-2'} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
+                  <label className="flex items-start gap-3 rounded-2xl bg-muted/40 p-4 md:col-span-2"><input type="checkbox" className="mt-1" checked={form.aiTutor !== false} onChange={(e) => setForm({ ...form, aiTutor: e.target.checked })} />
+                    <span><span className="block font-black">✨ AI tutor for students</span><span className="text-[12px] text-muted-foreground">Students can ask questions on any lesson. Answers come only from this course’s written lessons; anything else is sent back to you. You can read every question in Students.</span></span></label>
                   <div className="space-y-3 rounded-2xl border-2 border-dashed border-border/60 p-4 md:col-span-2">
                     <label className="flex items-start gap-3"><input type="checkbox" className="mt-1" checked={form.compliance} onChange={(e) => setForm({ ...form, compliance: e.target.checked })} />
                       <span><span className="block font-black">Track hours for a state board</span><span className="text-[12px] text-muted-foreground">Only active time counts, “Still with us?” checks run, lessons can’t be marked complete until the rules below are met, and every record is kept in a tamper-evident log. Set these to match your state’s rules.</span></span></label>
@@ -216,7 +297,7 @@ export default function AcademyBuilderPage() {
                             {l.kind === 'video' && <span className="ml-2 text-[11px] text-muted-foreground">{l.muxStatus === 'ready' ? `✓ video${l.durationSec ? ` · ${Math.round(l.durationSec / 60)} min` : ''}` : l.muxStatus ? l.muxStatus : l.videoUrl ? '✓ link' : '⚠ no video yet'}</span>}</span>
                           <button type="button" aria-label="Move up" onClick={async () => { await api({ action: 'lesson-move', tenantId, courseId: sel, lessonId: l.id, direction: 'up' }); await loadCourse(sel!); }} className="p-1"><ArrowUp className="h-4 w-4" /></button>
                           <button type="button" aria-label="Move down" onClick={async () => { await api({ action: 'lesson-move', tenantId, courseId: sel, lessonId: l.id, direction: 'down' }); await loadCourse(sel!); }} className="p-1"><ArrowDown className="h-4 w-4" /></button>
-                          <button type="button" aria-label="Edit" onClick={() => setLesson({ ...blankLesson(), ...l, videoUrl: l.videoUrl || '', downloadUrl: l.downloadUrl || '', downloadName: l.downloadName || '', minMinutes: l.minMinutes || 0, releaseAfterDays: l.releaseAfterDays || 0, quiz: l.quiz || null })} className="p-1"><Pencil className="h-4 w-4" /></button>
+                          <button type="button" aria-label="Edit" onClick={() => setLesson({ ...blankLesson(), ...l, videoUrl: l.videoUrl || '', downloadUrl: l.downloadUrl || '', downloadName: l.downloadName || '', minMinutes: l.minMinutes || 0, releaseAfterDays: l.releaseAfterDays || 0, quiz: l.quiz || null, flashcards: l.flashcards || [], activity: l.activity || null })} className="p-1"><Pencil className="h-4 w-4" /></button>
                           <button type="button" aria-label="Delete" onClick={async () => { if (window.confirm(`Delete “${l.title}”?`)) { await api({ action: 'lesson-delete', tenantId, courseId: sel, lessonId: l.id }); await loadCourse(sel!); } }} className="p-1 text-red-600"><Trash2 className="h-4 w-4" /></button>
                         </div>
                       ); })}
@@ -259,6 +340,31 @@ export default function AcademyBuilderPage() {
                       <div className="grid gap-2 md:grid-cols-2">
                         <label className="text-sm font-bold">Minimum active minutes (optional — e.g. for reading lessons)<input className={field} type="number" min={0} value={lesson.minMinutes || 0} onChange={(e) => setLesson({ ...lesson, minMinutes: Number(e.target.value) || 0 })} /></label>
                         <label className="text-sm font-bold">Unlocks after (days from the student’s start — 0 = straight away)<input className={field} type="number" min={0} value={lesson.releaseAfterDays || 0} onChange={(e) => setLesson({ ...lesson, releaseAfterDays: Number(e.target.value) || 0 })} /></label>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border-2 border-dashed border-violet-200 bg-violet-50/60 p-3">
+                        <span className="mr-1 text-sm font-black">✨ Draft with AI from this lesson’s text:</span>
+                        {([['quiz', 'Quiz'], ['flashcards', 'Flashcards'], ['match', 'Matching'], ['order', 'Put in order'], ['scenario', 'Client scenario']] as const).map(([k, l]) => (
+                          <button key={k} type="button" disabled={!!drafting || String(lesson.body || '').length < 120} onClick={() => draft(k)} className="h-8 rounded-full bg-background px-3 text-[12px] font-bold disabled:opacity-40">{drafting === k ? 'Drafting…' : l}</button>
+                        ))}
+                        {String(lesson.body || '').length < 120 && <span className="w-full text-[11px] text-muted-foreground">Write a few paragraphs of lesson text first — drafts use only what you’ve written.</span>}
+                      </div>
+                      <div className="space-y-2 rounded-2xl bg-muted/40 p-3">
+                        <div className="flex items-center justify-between"><p className="text-sm font-black">Flashcards {lesson.flashcards?.length ? `· ${lesson.flashcards.length}` : '(optional)'}</p>
+                          <button type="button" onClick={() => setLesson({ ...lesson, flashcards: [...(lesson.flashcards || []), { front: '', back: '' }] })} className="rounded-full bg-background px-3 py-1 text-[12px] font-bold">+ Card</button></div>
+                        {(lesson.flashcards || []).map((f: any, i: number) => (
+                          <div key={i} className="flex gap-2"><input className={field} value={f.front} placeholder="Front (term or question)" onChange={(e) => { const fs = [...lesson.flashcards]; fs[i] = { ...fs[i], front: e.target.value }; setLesson({ ...lesson, flashcards: fs }); }} /><input className={field} value={f.back} placeholder="Back (answer)" onChange={(e) => { const fs = [...lesson.flashcards]; fs[i] = { ...fs[i], back: e.target.value }; setLesson({ ...lesson, flashcards: fs }); }} /><button type="button" onClick={() => setLesson({ ...lesson, flashcards: lesson.flashcards.filter((_: any, k: number) => k !== i) })} className="p-2 text-red-600" aria-label="Remove card"><Trash2 className="h-4 w-4" /></button></div>
+                        ))}
+                      </div>
+                      <div className="space-y-2 rounded-2xl bg-muted/40 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-black">Activity (optional)</p>
+                          <select className="h-8 rounded-lg border px-2 text-[12px]" value={lesson.activity?.type || ''} onChange={(e) => { const t = e.target.value; setLesson({ ...lesson, activity: !t ? null : t === 'match' ? { type: 'match', prompt: 'Match each item to its pair', pairs: [{ left: '', right: '' }, { left: '', right: '' }] } : t === 'order' ? { type: 'order', prompt: 'Put these steps in order', steps: ['', ''] } : { type: 'scenario', prompt: '', options: [{ text: '', correct: true, feedback: '' }, { text: '', correct: false, feedback: '' }] } }); }}>
+                            <option value="">None</option><option value="match">Match the pairs</option><option value="order">Put in order</option><option value="scenario">Client scenario</option></select></div>
+                        {lesson.activity && <input className={field} value={lesson.activity.prompt} placeholder={lesson.activity.type === 'scenario' ? 'Describe the client situation…' : 'Instruction'} onChange={(e) => setLesson({ ...lesson, activity: { ...lesson.activity, prompt: e.target.value } })} />}
+                        {lesson.activity?.type === 'match' && lesson.activity.pairs.map((p: any, i: number) => <div key={i} className="flex gap-2"><input className={field} value={p.left} placeholder="Item" onChange={(e) => { const ps = [...lesson.activity.pairs]; ps[i] = { ...ps[i], left: e.target.value }; setLesson({ ...lesson, activity: { ...lesson.activity, pairs: ps } }); }} /><input className={field} value={p.right} placeholder="Its match" onChange={(e) => { const ps = [...lesson.activity.pairs]; ps[i] = { ...ps[i], right: e.target.value }; setLesson({ ...lesson, activity: { ...lesson.activity, pairs: ps } }); }} /></div>)}
+                        {lesson.activity?.type === 'order' && lesson.activity.steps.map((x: string, i: number) => <div key={i} className="flex items-center gap-2"><span className="w-5 text-sm font-bold">{i + 1}</span><input className={field} value={x} placeholder={`Step ${i + 1} (in the correct order)`} onChange={(e) => { const st = [...lesson.activity.steps]; st[i] = e.target.value; setLesson({ ...lesson, activity: { ...lesson.activity, steps: st } }); }} /></div>)}
+                        {lesson.activity?.type === 'scenario' && lesson.activity.options.map((o: any, i: number) => <div key={i} className="space-y-1 rounded-xl bg-background p-2"><div className="flex items-center gap-2"><input type="radio" name="scn-correct" checked={o.correct} onChange={() => setLesson({ ...lesson, activity: { ...lesson.activity, options: lesson.activity.options.map((x: any, k: number) => ({ ...x, correct: k === i })) } })} title="The right answer" /><input className={field} value={o.text} placeholder={`Choice ${i + 1}`} onChange={(e) => { const os = [...lesson.activity.options]; os[i] = { ...os[i], text: e.target.value }; setLesson({ ...lesson, activity: { ...lesson.activity, options: os } }); }} /></div><input className={field} value={o.feedback} placeholder="Feedback when chosen (why it’s right or wrong)" onChange={(e) => { const os = [...lesson.activity.options]; os[i] = { ...os[i], feedback: e.target.value }; setLesson({ ...lesson, activity: { ...lesson.activity, options: os } }); }} /></div>)}
+                        {lesson.activity && lesson.activity.type !== 'scenario' && <button type="button" onClick={() => setLesson({ ...lesson, activity: lesson.activity.type === 'match' ? { ...lesson.activity, pairs: [...lesson.activity.pairs, { left: '', right: '' }] } : { ...lesson.activity, steps: [...lesson.activity.steps, ''] } })} className="rounded-full bg-background px-3 py-1 text-[12px] font-bold">+ Add</button>}
+                        {lesson.activity?.type === 'scenario' && <button type="button" onClick={() => setLesson({ ...lesson, activity: { ...lesson.activity, options: [...lesson.activity.options, { text: '', correct: false, feedback: '' }] } })} className="rounded-full bg-background px-3 py-1 text-[12px] font-bold">+ Choice</button>}
                       </div>
                       <div className="space-y-2 rounded-2xl bg-muted/40 p-3">
                         <div className="flex items-center justify-between"><p className="text-sm font-black">Quiz {lesson.quiz?.questions?.length ? `· ${lesson.quiz.questions.length} questions` : '(optional)'}</p>
@@ -310,59 +416,14 @@ export default function AcademyBuilderPage() {
                 </div>
               )}
 
-              {tab === 'attendance' && (
-                <div className="space-y-4">
-                  {!att ? <Loader className="h-5 w-5 animate-spin" /> : (
-                    <>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <a href="/academy-screen" target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-foreground px-4 text-sm font-bold text-background">Open the clock-in screen <ExternalLink className="h-3.5 w-3.5" /></a>
-                        <button type="button" onClick={async () => { setAudit({ loading: true }); setAudit(await api({ action: 'audit-verify', tenantId })); }} className="h-10 rounded-xl border-2 px-4 text-sm font-bold">Verify records</button>
-                        <button type="button" onClick={async () => setAtt(await api({ action: 'attendance', tenantId }))} className="h-10 rounded-xl px-3 text-sm font-bold text-muted-foreground">Refresh</button>
-                      </div>
-                      {audit && !audit.loading && (
-                        <div className={`rounded-2xl p-3 text-sm ${audit.verified ? 'bg-emerald-50 text-emerald-900' : 'bg-red-50 text-red-900'}`}>
-                          <p className="font-black">{audit.verified ? `✓ Records intact — all ${audit.checked} entries verified` : `✕ ${audit.problem}`}</p>
-                          <details className="mt-1"><summary className="cursor-pointer text-[12px]">Latest entries</summary>{(audit.recent || []).map((e: any) => <p key={e.seq} className="text-[12px]">#{e.seq} · {dt(e.at)} · {e.by} · {e.summary}</p>)}</details>
-                        </div>
-                      )}
-                      <div className="grid gap-2 rounded-2xl bg-muted/40 p-3 text-sm sm:grid-cols-3">
-                        <label className="flex items-center gap-2"><input type="checkbox" checked={!!att.settings.requireGeo} onChange={async (e) => { const r = await api({ action: 'academy-settings', tenantId, requireGeo: e.target.checked }); if (r.ok) setAtt({ ...att, settings: r.settings }); else setMsg(r.error); }} />Require being on site (location)</label>
-                        <label className="flex items-center gap-2"><input type="checkbox" checked={!!att.settings.requirePhoto} onChange={async (e) => { const r = await api({ action: 'academy-settings', tenantId, requirePhoto: e.target.checked }); if (r.ok) setAtt({ ...att, settings: r.settings }); else setMsg(r.error); }} />Require a photo at clock-in and out</label>
-                        <label className="flex items-center gap-2"><input type="checkbox" checked={!!att.settings.requireApproval} onChange={async (e) => { const r = await api({ action: 'academy-settings', tenantId, requireApproval: e.target.checked }); if (r.ok) setAtt({ ...att, settings: r.settings }); else setMsg(r.error); }} />Instructor approves every day’s hours</label>
-                        <button type="button" onClick={() => navigator.geolocation?.getCurrentPosition(async (p) => { const r = await api({ action: 'academy-settings', tenantId, geo: { lat: p.coords.latitude, lng: p.coords.longitude, radiusM: 150 } }); if (r.ok) { setAtt({ ...att, settings: r.settings }); setMsg('Academy location saved (150 m radius). Do this while standing at the academy.'); } }, () => setMsg('Allow location to set the academy’s position.'), { enableHighAccuracy: true })} className="rounded-xl border-2 px-3 py-2 text-left text-[12px] font-bold">{att.settings.geo ? `✓ Location set (${att.settings.geo.radiusM} m) — reset here` : 'Set the academy’s location (do this on site)'}</button>
-                      </div>
-                      {(() => { const need = att.punches.filter((p: any) => ['open', 'flagged', 'pending'].includes(p.status)); return (
-                        <div className="space-y-1.5">
-                          <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Needs attention · {need.length}</p>
-                          {need.length === 0 && <p className="text-sm text-muted-foreground">Nothing to resolve.</p>}
-                          {need.map((p: any) => (
-                            <div key={p.id} className={`flex flex-wrap items-center gap-2 rounded-2xl px-3 py-2 text-sm ${p.status === 'flagged' ? 'bg-red-50' : p.status === 'open' ? 'bg-sky-50' : 'bg-amber-50'}`}>
-                              {(p.in?.photo?.ref || p.out?.photo?.ref) && (
-                                <span className="flex shrink-0 items-center gap-1" title="Today’s photos beside the student’s reference photo">
-                                  {att.referencePhotos?.[p.studentId] && <PrivateImg src={att.referencePhotos[p.studentId]} alt="Reference" className="h-11 w-11 rounded-full border-2 border-white object-cover opacity-70" />}
-                                  {p.in?.photo?.ref && <PrivateImg src={p.in.photo.ref} alt="Clock-in" className="h-11 w-11 rounded-full border-2 border-white object-cover" />}
-                                  {p.out?.photo?.ref && <PrivateImg src={p.out.photo.ref} alt="Clock-out" className="h-11 w-11 rounded-full border-2 border-white object-cover" />}
-                                </span>
-                              )}
-                              <span className="min-w-0 flex-1">{p.name || p.email} · in {dt(p.clockInAt)}{p.clockOutAt ? ` · out ${new Date(p.clockOutAt).toLocaleTimeString()} · ${hm(p.minutes)}` : ''} · <span className="font-bold">{p.status === 'open' ? 'on the floor now' : p.status === 'flagged' ? 'no clock-out — no hours until resolved' : 'awaiting approval'}</span></span>
-                              {p.in?.photo?.ref && !p.photoCheck && <>
-                                <button type="button" onClick={async () => { const r = await api({ action: 'attendance-photo-check', tenantId, id: p.id, match: true }); if (r.ok) setAtt(await api({ action: 'attendance', tenantId })); else setMsg(r.error); }} className="h-8 rounded-lg border-2 border-emerald-300 px-2 text-[12px] font-bold text-emerald-800">Photo matches</button>
-                                <button type="button" onClick={async () => { const note = window.prompt('What doesn’t match? (kept on the record)'); if (!note) return; const r = await api({ action: 'attendance-photo-check', tenantId, id: p.id, match: false, note }); if (r.ok) setAtt(await api({ action: 'attendance', tenantId })); else setMsg(r.error); }} className="h-8 rounded-lg border-2 border-red-200 px-2 text-[12px] font-bold text-red-700">Doesn’t match</button>
-                              </>}
-                              {p.photoCheck && <span className={`text-[11px] font-bold ${p.photoCheck.match ? 'text-emerald-700' : 'text-red-700'}`}>{p.photoCheck.match ? '✓ photo checked' : '✕ photo mismatch'}</span>}
-                              {p.status === 'pending' && <button type="button" onClick={async () => { const r = await api({ action: 'attendance-approve', tenantId, id: p.id }); if (r.ok) setAtt(await api({ action: 'attendance', tenantId })); else setMsg(r.error); }} className="h-8 rounded-lg bg-foreground px-3 text-[12px] font-bold text-background">Approve</button>}
-                              {p.status !== 'open' && <button type="button" onClick={async () => { const outIn = window.prompt('Clock-out time (YYYY-MM-DDTHH:MM, your local time):', toLocalInput(p.clockOutAt || p.clockInAt)); if (!outIn) return; const reason = window.prompt('Reason for this correction (required — it’s kept on the record):'); if (!reason) return; const r = await api({ action: 'attendance-resolve', tenantId, id: p.id, clockOutAt: new Date(outIn).toISOString(), reason }); if (r.ok) setAtt(await api({ action: 'attendance', tenantId })); else setMsg(r.error); }} className="h-8 rounded-lg border-2 px-3 text-[12px] font-bold">Correct</button>}
-                            </div>
-                          ))}
-                        </div>
-                      ); })()}
-                      <details className="text-sm"><summary className="cursor-pointer font-bold">Recent attendance ({att.punches.length})</summary>
-                        <div className="mt-1 space-y-0.5">{att.punches.map((p: any) => <p key={p.id} className="text-[12px]">{p.name || p.email} · {dt(p.clockInAt)} → {p.clockOutAt ? new Date(p.clockOutAt).toLocaleTimeString() : '—'} · {hm(p.minutes)} · {p.status}{p.corrections?.length ? ` · corrected ${p.corrections.length}×` : ''}</p>)}</div></details>
-                    </>
+              {tab === 'students' && (
+                <details className="rounded-2xl bg-muted/40 p-3 text-sm" onToggle={(e) => { if ((e.target as HTMLDetailsElement).open && !tutorLog) api({ action: 'tutor-log', tenantId, courseId: sel }).then((r) => r.ok && setTutorLog(r.log)); }}>
+                  <summary className="cursor-pointer font-bold">✨ What students asked the tutor</summary>
+                  {!tutorLog ? <Loader className="mt-2 h-4 w-4 animate-spin" /> : tutorLog.length === 0 ? <p className="mt-1 text-muted-foreground">No questions yet.</p> : (
+                    <div className="mt-2 max-h-80 space-y-2 overflow-y-auto">{tutorLog.map((x, i) => <div key={i} className="rounded-xl bg-background p-2"><p className="font-bold">{x.question}</p><p className="whitespace-pre-wrap text-[12px] text-muted-foreground">{x.answer}</p><p className="text-[10px] text-muted-foreground">{x.email} · {new Date(x.at).toLocaleString()}</p></div>)}</div>
                   )}
-                </div>
+                </details>
               )}
-
               {tab === 'students' && (
                 <div className="space-y-1.5">
                   {!students && <Loader className="h-5 w-5 animate-spin" />}
@@ -378,6 +439,8 @@ export default function AcademyBuilderPage() {
             </div>
           )}
         </div>}
+          </div>
+        </div>
       </main>
     </div>
   );
