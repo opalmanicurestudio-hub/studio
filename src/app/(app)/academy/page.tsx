@@ -24,7 +24,11 @@ async function api(body: any) {
 const money = (c: number) => (c ? `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: c % 100 ? 2 : 0 })}` : 'Free');
 const field = 'h-11 w-full rounded-xl border-2 border-border/60 bg-background px-3 text-sm';
 const KIND_ICON: Record<string, any> = { video: Video, text: FileText, download: Download };
-const blankLesson = (moduleTitle = 'Module 1') => ({ id: '', title: '', moduleTitle, kind: 'video', body: '', videoUrl: '', downloadUrl: '', downloadName: '', preview: false });
+const blankLesson = (moduleTitle = 'Module 1') => ({ id: '', title: '', moduleTitle, kind: 'video', body: '', videoUrl: '', downloadUrl: '', downloadName: '', preview: false, minMinutes: 0, quiz: null as any });
+const hm = (min: number) => `${Math.floor((min || 0) / 60)}h ${(min || 0) % 60}m`;
+const dt = (iso?: string | null) => (iso ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—');
+const toLocalInput = (iso?: string | null) => { if (!iso) return ''; const d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+const csv = (rows: any[][]) => rows.map((r) => r.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
 
 export default function AcademyBuilderPage() {
   const { selectedTenant } = useTenant();
@@ -32,7 +36,10 @@ export default function AcademyBuilderPage() {
   const [courses, setCourses] = useState<any[] | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const [d, setD] = useState<any>(null);            // { course, lessons, mux, muxSigning }
-  const [tab, setTab] = useState<'details' | 'curriculum' | 'students'>('details');
+  const [tab, setTab] = useState<'details' | 'curriculum' | 'students' | 'attendance'>('details');
+  const [att, setAtt] = useState<any>(null);
+  const [trx, setTrx] = useState<any>(null);
+  const [audit, setAudit] = useState<any>(null);
   const [form, setForm] = useState<any>(null);
   const [lesson, setLesson] = useState<any>(null);   // the lesson being edited
   const [students, setStudents] = useState<any[] | null>(null);
@@ -47,7 +54,8 @@ export default function AcademyBuilderPage() {
     if (!r.ok) { setMsg(r.error); return; }
     setD(r);
     const c = r.course;
-    setForm({ id: c.id, title: c.title, subtitle: c.subtitle || '', priceDollars: (c.priceCents || 0) / 100, level: c.level || '', instructorName: c.instructorName || '', coverUrl: c.coverUrl || '', whatYouLearn: (c.whatYouLearn || []).join('\n'), description: c.description || '', status: c.status || 'draft' });
+    setForm({ id: c.id, title: c.title, subtitle: c.subtitle || '', priceDollars: (c.priceCents || 0) / 100, level: c.level || '', instructorName: c.instructorName || '', coverUrl: c.coverUrl || '', whatYouLearn: (c.whatYouLearn || []).join('\n'), description: c.description || '', status: c.status || 'draft',
+      compliance: !!c.compliance, requiredOnlineHours: c.requiredOnlineHours || '', requiredInPersonHours: c.requiredInPersonHours || '', minEngagementPct: c.minEngagementPct ?? 80, minWatchPct: c.minWatchPct ?? 90, attentionCheckMinutes: c.attentionCheckMinutes ?? 10 });
   }, [tenantId]);
   useEffect(() => { void loadList(); }, [loadList]);
   useEffect(() => { if (sel) { void loadCourse(sel); setStudents(null); setLesson(null); } }, [sel, loadCourse]);
@@ -136,7 +144,7 @@ export default function AcademyBuilderPage() {
           {!d || !form ? <div className="rounded-3xl border-2 border-dashed p-10 text-center text-muted-foreground">Choose a course, or create your first one.</div> : (
             <div className="space-y-4 rounded-3xl border-2 border-border/60 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex gap-1">{(['details', 'curriculum', 'students'] as const).map((k) => <button key={k} type="button" onClick={() => { setTab(k); if (k === 'students' && !students) api({ action: 'students', tenantId, courseId: sel }).then((r) => r.ok && setStudents(r.students)); }} className={`h-9 rounded-full px-4 text-sm font-bold capitalize ${tab === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{k}</button>)}</div>
+                <div className="flex flex-wrap gap-1">{(['details', 'curriculum', 'students', 'attendance'] as const).map((k) => <button key={k} type="button" onClick={() => { setTab(k); if (k === 'students' && !students) api({ action: 'students', tenantId, courseId: sel }).then((r) => r.ok && setStudents(r.students)); if (k === 'attendance') api({ action: 'attendance', tenantId }).then((r) => r.ok && setAtt(r)); }} className={`h-9 rounded-full px-4 text-sm font-bold capitalize ${tab === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{k}</button>)}</div>
                 <div className="flex items-center gap-2">
                   {d.course.status === 'published' && <a href={publicUrl} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1 rounded-full border-2 px-3 text-[13px] font-bold">View page <ExternalLink className="h-3.5 w-3.5" /></a>}
                   <button type="button" disabled={!!busy} onClick={() => saveCourse({ status: d.course.status === 'published' ? 'draft' : 'published' })} className={`h-9 rounded-full px-4 text-[13px] font-bold ${d.course.status === 'published' ? 'border-2' : 'bg-emerald-600 text-white'}`}>{d.course.status === 'published' ? 'Unpublish' : 'Publish'}</button>
@@ -153,6 +161,19 @@ export default function AcademyBuilderPage() {
                   <label className="text-sm font-bold">Cover image link<input className={field} value={form.coverUrl} onChange={(e) => setForm({ ...form, coverUrl: e.target.value })} placeholder="https://…" /></label>
                   <label className="text-sm font-bold md:col-span-2">What they’ll learn (one per line)<textarea className={field + ' h-28 py-2'} value={form.whatYouLearn} onChange={(e) => setForm({ ...form, whatYouLearn: e.target.value })} /></label>
                   <label className="text-sm font-bold md:col-span-2">Description<textarea className={field + ' h-40 py-2'} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
+                  <div className="space-y-3 rounded-2xl border-2 border-dashed border-border/60 p-4 md:col-span-2">
+                    <label className="flex items-start gap-3"><input type="checkbox" className="mt-1" checked={form.compliance} onChange={(e) => setForm({ ...form, compliance: e.target.checked })} />
+                      <span><span className="block font-black">Track hours for a state board</span><span className="text-[12px] text-muted-foreground">Only active time counts, “Still with us?” checks run, lessons can’t be marked complete until the rules below are met, and every record is kept in a tamper-evident log. Set these to match your state’s rules.</span></span></label>
+                    {form.compliance && (
+                      <div className="grid gap-2 sm:grid-cols-3">
+                        <label className="text-[12px] font-bold">Online hours required<input className={field} type="number" min={0} value={form.requiredOnlineHours} onChange={(e) => setForm({ ...form, requiredOnlineHours: e.target.value })} /></label>
+                        <label className="text-[12px] font-bold">In-person hours required<input className={field} type="number" min={0} value={form.requiredInPersonHours} onChange={(e) => setForm({ ...form, requiredInPersonHours: e.target.value })} /></label>
+                        <label className="text-[12px] font-bold">“Still with us?” every (min)<input className={field} type="number" min={0} max={60} value={form.attentionCheckMinutes} onChange={(e) => setForm({ ...form, attentionCheckMinutes: e.target.value })} /></label>
+                        <label className="text-[12px] font-bold">Active time needed (% of video)<input className={field} type="number" min={0} max={100} value={form.minEngagementPct} onChange={(e) => setForm({ ...form, minEngagementPct: e.target.value })} /></label>
+                        <label className="text-[12px] font-bold">Video actually watched (%)<input className={field} type="number" min={0} max={100} value={form.minWatchPct} onChange={(e) => setForm({ ...form, minWatchPct: e.target.value })} /></label>
+                      </div>
+                    )}
+                  </div>
                   <button type="button" disabled={!!busy} onClick={() => saveCourse()} className="h-11 rounded-xl bg-foreground text-sm font-bold text-background disabled:opacity-50 md:col-span-2">{busy === 'course' ? 'Saving…' : 'Save details'}</button>
                 </div>
               )}
@@ -169,7 +190,7 @@ export default function AcademyBuilderPage() {
                             {l.kind === 'video' && <span className="ml-2 text-[11px] text-muted-foreground">{l.muxStatus === 'ready' ? `✓ video${l.durationSec ? ` · ${Math.round(l.durationSec / 60)} min` : ''}` : l.muxStatus ? l.muxStatus : l.videoUrl ? '✓ link' : '⚠ no video yet'}</span>}</span>
                           <button type="button" aria-label="Move up" onClick={async () => { await api({ action: 'lesson-move', tenantId, courseId: sel, lessonId: l.id, direction: 'up' }); await loadCourse(sel!); }} className="p-1"><ArrowUp className="h-4 w-4" /></button>
                           <button type="button" aria-label="Move down" onClick={async () => { await api({ action: 'lesson-move', tenantId, courseId: sel, lessonId: l.id, direction: 'down' }); await loadCourse(sel!); }} className="p-1"><ArrowDown className="h-4 w-4" /></button>
-                          <button type="button" aria-label="Edit" onClick={() => setLesson({ ...blankLesson(), ...l, videoUrl: l.videoUrl || '', downloadUrl: l.downloadUrl || '', downloadName: l.downloadName || '' })} className="p-1"><Pencil className="h-4 w-4" /></button>
+                          <button type="button" aria-label="Edit" onClick={() => setLesson({ ...blankLesson(), ...l, videoUrl: l.videoUrl || '', downloadUrl: l.downloadUrl || '', downloadName: l.downloadName || '', minMinutes: l.minMinutes || 0, quiz: l.quiz || null })} className="p-1"><Pencil className="h-4 w-4" /></button>
                           <button type="button" aria-label="Delete" onClick={async () => { if (window.confirm(`Delete “${l.title}”?`)) { await api({ action: 'lesson-delete', tenantId, courseId: sel, lessonId: l.id }); await loadCourse(sel!); } }} className="p-1 text-red-600"><Trash2 className="h-4 w-4" /></button>
                         </div>
                       ); })}
@@ -209,11 +230,93 @@ export default function AcademyBuilderPage() {
                           <label className="text-sm font-bold">Download name<input className={field} value={lesson.downloadName} onChange={(e) => setLesson({ ...lesson, downloadName: e.target.value })} placeholder="Nail anatomy worksheet" /></label>
                         </div>
                       )}
+                      <label className="text-sm font-bold">Minimum active minutes (optional — e.g. for reading lessons)<input className={field} type="number" min={0} value={lesson.minMinutes || 0} onChange={(e) => setLesson({ ...lesson, minMinutes: Number(e.target.value) || 0 })} /></label>
+                      <div className="space-y-2 rounded-2xl bg-muted/40 p-3">
+                        <div className="flex items-center justify-between"><p className="text-sm font-black">Quiz {lesson.quiz?.questions?.length ? `· ${lesson.quiz.questions.length} questions` : '(optional)'}</p>
+                          <button type="button" onClick={() => setLesson({ ...lesson, quiz: { passPct: lesson.quiz?.passPct || 80, questions: [...(lesson.quiz?.questions || []), { q: '', options: ['', '', '', ''], answer: 0 }] } })} className="rounded-full bg-background px-3 py-1 text-[12px] font-bold">+ Question</button></div>
+                        {lesson.quiz?.questions?.length > 0 && <label className="text-[12px] font-bold">Pass mark (%)<input className={field} type="number" min={1} max={100} value={lesson.quiz.passPct} onChange={(e) => setLesson({ ...lesson, quiz: { ...lesson.quiz, passPct: Number(e.target.value) || 80 } })} /></label>}
+                        {(lesson.quiz?.questions || []).map((q: any, qi: number) => {
+                          const setQ = (patch: any) => { const qs = [...lesson.quiz.questions]; qs[qi] = { ...qs[qi], ...patch }; setLesson({ ...lesson, quiz: { ...lesson.quiz, questions: qs } }); };
+                          return (
+                            <div key={qi} className="space-y-1.5 rounded-xl bg-background p-3">
+                              <div className="flex gap-2"><input className={field} value={q.q} onChange={(e) => setQ({ q: e.target.value })} placeholder={`Question ${qi + 1}`} /><button type="button" onClick={() => setLesson({ ...lesson, quiz: { ...lesson.quiz, questions: lesson.quiz.questions.filter((_: any, k: number) => k !== qi) } })} className="p-2 text-red-600" aria-label="Remove question"><Trash2 className="h-4 w-4" /></button></div>
+                              {q.options.map((o: string, oi: number) => (
+                                <label key={oi} className="flex items-center gap-2 text-sm"><input type="radio" name={`ans-${qi}`} checked={q.answer === oi} onChange={() => setQ({ answer: oi })} title="Correct answer" />
+                                  <input className="h-9 flex-1 rounded-lg border px-2 text-sm" value={o} onChange={(e) => { const os = [...q.options]; os[oi] = e.target.value; setQ({ options: os }); }} placeholder={`Option ${oi + 1}${oi === q.answer ? ' (correct)' : ''}`} /></label>
+                              ))}
+                              <p className="text-[11px] text-muted-foreground">Tick the correct answer. Students never see it — marking happens on the server.</p>
+                            </div>
+                          );
+                        })}
+                      </div>
                       <div className="flex gap-2">
                         <button type="button" disabled={!!busy || !lesson.title.trim()} onClick={async () => { const id = await saveLesson(); if (id) { setLesson(null); setMsg('Lesson saved.'); } }} className="h-10 rounded-xl bg-foreground px-5 text-sm font-bold text-background disabled:opacity-50">{busy === 'lesson' ? 'Saving…' : 'Save lesson'}</button>
                         <button type="button" onClick={() => setLesson(null)} className="h-10 rounded-xl px-4 text-sm font-bold text-muted-foreground">Close</button>
                       </div>
                     </div>
+                  )}
+                </div>
+              )}
+
+              {trx && (
+                <div className="space-y-3 rounded-2xl border-2 border-foreground/40 p-4" id="cf-transcript">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div><p className="text-lg font-black">Transcript · {trx.transcript.student.name || trx.transcript.student.email}</p><p className="text-[12px] text-muted-foreground">{trx.course?.title} · generated {new Date().toLocaleString()}</p></div>
+                    <div className="flex gap-2 print:hidden">
+                      <button type="button" onClick={() => window.print()} className="h-9 rounded-full border-2 px-3 text-[12px] font-bold">Print</button>
+                      <button type="button" onClick={() => { const T = trx.transcript; const rows = [['Type', 'Date', 'Detail', 'Minutes', 'Status / checks'], ...T.sessions.map((x: any) => ['Online', x.startedAt, x.lessonId, Math.round((x.engagedSec || 0) / 60), `checks ${x.checksPassed || 0}/${x.checksIssued || 0}`]), ...T.punches.map((p: any) => ['In person', p.clockInAt, `out ${p.clockOutAt || '—'}`, p.minutes || 0, `${p.status}${p.corrections?.length ? ` (corrected ${p.corrections.length}×)` : ''}`])]; const blob = new Blob([csv(rows)], { type: 'text/csv' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `transcript-${T.student.email}.csv`; a.click(); }} className="h-9 rounded-full border-2 px-3 text-[12px] font-bold">CSV</button>
+                      <button type="button" onClick={() => setTrx(null)} className="h-9 rounded-full px-3 text-[12px] font-bold text-muted-foreground">Close</button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
+                    {[['Online (verified)', `${trx.transcript.totals.onlineHours} h${trx.course?.requiredOnlineHours ? ` / ${trx.course.requiredOnlineHours}` : ''}`], ['In person (approved)', `${trx.transcript.totals.inPersonHours} h${trx.course?.requiredInPersonHours ? ` / ${trx.course.requiredInPersonHours}` : ''}`], ['Attention checks missed', `${trx.transcript.totals.checksMissed} of ${trx.transcript.totals.checksIssued}`], ['Punches to resolve', trx.transcript.totals.flaggedPunches]].map(([l, v]) => (
+                      <div key={String(l)} className="rounded-2xl bg-muted/40 p-3"><p className="text-lg font-black">{v}</p><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{l}</p></div>
+                    ))}
+                  </div>
+                  <details open className="text-sm"><summary className="cursor-pointer font-bold">Online sessions ({trx.transcript.sessions.length})</summary>
+                    <div className="mt-1 space-y-0.5">{trx.transcript.sessions.map((x: any) => <p key={x.id} className="text-[12px]">{dt(x.startedAt)} · {(d?.lessons || []).find((l: any) => l.id === x.lessonId)?.title || x.lessonId} · <span className="font-bold">{Math.round((x.engagedSec || 0) / 60)} active min</span> ({Math.round((x.idleSec || 0) / 60)} idle) · checks {x.checksPassed || 0}/{x.checksIssued || 0}{x.checksMissed ? ` · ${x.checksMissed} missed` : ''}</p>)}</div></details>
+                  <details open className="text-sm"><summary className="cursor-pointer font-bold">In-person attendance ({trx.transcript.punches.length})</summary>
+                    <div className="mt-1 space-y-0.5">{trx.transcript.punches.map((p: any) => <p key={p.id} className="text-[12px]">{dt(p.clockInAt)} → {p.clockOutAt ? new Date(p.clockOutAt).toLocaleTimeString() : '—'} · <span className="font-bold">{hm(p.minutes)}</span> · {p.status}{p.approvedBy ? ` by ${p.approvedBy}` : ''}{p.corrections?.length ? ` · corrected: ${p.corrections.map((c: any) => `“${c.reason}” (${c.by})`).join('; ')}` : ''}{p.in?.distanceM != null ? ` · ${p.in.distanceM} m away` : ''}</p>)}</div></details>
+                  <p className="text-[11px] text-muted-foreground">Every entry above is also in the tamper-evident audit log (Attendance → Verify records).</p>
+                </div>
+              )}
+
+              {tab === 'attendance' && (
+                <div className="space-y-4">
+                  {!att ? <Loader className="h-5 w-5 animate-spin" /> : (
+                    <>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <a href="/academy-screen" target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-foreground px-4 text-sm font-bold text-background">Open the clock-in screen <ExternalLink className="h-3.5 w-3.5" /></a>
+                        <button type="button" onClick={async () => { setAudit({ loading: true }); setAudit(await api({ action: 'audit-verify', tenantId })); }} className="h-10 rounded-xl border-2 px-4 text-sm font-bold">Verify records</button>
+                        <button type="button" onClick={async () => setAtt(await api({ action: 'attendance', tenantId }))} className="h-10 rounded-xl px-3 text-sm font-bold text-muted-foreground">Refresh</button>
+                      </div>
+                      {audit && !audit.loading && (
+                        <div className={`rounded-2xl p-3 text-sm ${audit.verified ? 'bg-emerald-50 text-emerald-900' : 'bg-red-50 text-red-900'}`}>
+                          <p className="font-black">{audit.verified ? `✓ Records intact — all ${audit.checked} entries verified` : `✕ ${audit.problem}`}</p>
+                          <details className="mt-1"><summary className="cursor-pointer text-[12px]">Latest entries</summary>{(audit.recent || []).map((e: any) => <p key={e.seq} className="text-[12px]">#{e.seq} · {dt(e.at)} · {e.by} · {e.summary}</p>)}</details>
+                        </div>
+                      )}
+                      <div className="grid gap-2 rounded-2xl bg-muted/40 p-3 text-sm sm:grid-cols-3">
+                        <label className="flex items-center gap-2"><input type="checkbox" checked={!!att.settings.requireGeo} onChange={async (e) => { const r = await api({ action: 'academy-settings', tenantId, requireGeo: e.target.checked }); if (r.ok) setAtt({ ...att, settings: r.settings }); else setMsg(r.error); }} />Require being on site (location)</label>
+                        <label className="flex items-center gap-2"><input type="checkbox" checked={!!att.settings.requireApproval} onChange={async (e) => { const r = await api({ action: 'academy-settings', tenantId, requireApproval: e.target.checked }); if (r.ok) setAtt({ ...att, settings: r.settings }); else setMsg(r.error); }} />Instructor approves every day’s hours</label>
+                        <button type="button" onClick={() => navigator.geolocation?.getCurrentPosition(async (p) => { const r = await api({ action: 'academy-settings', tenantId, geo: { lat: p.coords.latitude, lng: p.coords.longitude, radiusM: 150 } }); if (r.ok) { setAtt({ ...att, settings: r.settings }); setMsg('Academy location saved (150 m radius). Do this while standing at the academy.'); } }, () => setMsg('Allow location to set the academy’s position.'), { enableHighAccuracy: true })} className="rounded-xl border-2 px-3 py-2 text-left text-[12px] font-bold">{att.settings.geo ? `✓ Location set (${att.settings.geo.radiusM} m) — reset here` : 'Set the academy’s location (do this on site)'}</button>
+                      </div>
+                      {(() => { const need = att.punches.filter((p: any) => ['open', 'flagged', 'pending'].includes(p.status)); return (
+                        <div className="space-y-1.5">
+                          <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Needs attention · {need.length}</p>
+                          {need.length === 0 && <p className="text-sm text-muted-foreground">Nothing to resolve.</p>}
+                          {need.map((p: any) => (
+                            <div key={p.id} className={`flex flex-wrap items-center gap-2 rounded-2xl px-3 py-2 text-sm ${p.status === 'flagged' ? 'bg-red-50' : p.status === 'open' ? 'bg-sky-50' : 'bg-amber-50'}`}>
+                              <span className="min-w-0 flex-1">{p.name || p.email} · in {dt(p.clockInAt)}{p.clockOutAt ? ` · out ${new Date(p.clockOutAt).toLocaleTimeString()} · ${hm(p.minutes)}` : ''} · <span className="font-bold">{p.status === 'open' ? 'on the floor now' : p.status === 'flagged' ? 'no clock-out — no hours until resolved' : 'awaiting approval'}</span></span>
+                              {p.status === 'pending' && <button type="button" onClick={async () => { const r = await api({ action: 'attendance-approve', tenantId, id: p.id }); if (r.ok) setAtt(await api({ action: 'attendance', tenantId })); else setMsg(r.error); }} className="h-8 rounded-lg bg-foreground px-3 text-[12px] font-bold text-background">Approve</button>}
+                              {p.status !== 'open' && <button type="button" onClick={async () => { const outIn = window.prompt('Clock-out time (YYYY-MM-DDTHH:MM, your local time):', toLocalInput(p.clockOutAt || p.clockInAt)); if (!outIn) return; const reason = window.prompt('Reason for this correction (required — it’s kept on the record):'); if (!reason) return; const r = await api({ action: 'attendance-resolve', tenantId, id: p.id, clockOutAt: new Date(outIn).toISOString(), reason }); if (r.ok) setAtt(await api({ action: 'attendance', tenantId })); else setMsg(r.error); }} className="h-8 rounded-lg border-2 px-3 text-[12px] font-bold">Correct</button>}
+                            </div>
+                          ))}
+                        </div>
+                      ); })()}
+                      <details className="text-sm"><summary className="cursor-pointer font-bold">Recent attendance ({att.punches.length})</summary>
+                        <div className="mt-1 space-y-0.5">{att.punches.map((p: any) => <p key={p.id} className="text-[12px]">{p.name || p.email} · {dt(p.clockInAt)} → {p.clockOutAt ? new Date(p.clockOutAt).toLocaleTimeString() : '—'} · {hm(p.minutes)} · {p.status}{p.corrections?.length ? ` · corrected ${p.corrections.length}×` : ''}</p>)}</div></details>
+                    </>
                   )}
                 </div>
               )}
@@ -224,7 +327,7 @@ export default function AcademyBuilderPage() {
                   {students?.length === 0 && <p className="text-sm text-muted-foreground">No students yet. Share your course page to get your first.</p>}
                   {students?.map((s) => (
                     <div key={s.email} className="flex items-center justify-between gap-3 rounded-2xl bg-muted/40 px-3 py-2 text-sm">
-                      <span className="min-w-0 truncate">{s.email} <span className="text-muted-foreground">· since {new Date(s.since).toLocaleDateString()} · {money(s.paidCents)}</span></span>
+                      <button type="button" onClick={async () => { const r = await api({ action: 'transcript', tenantId, studentId: s.studentId, courseId: sel }); if (r.ok) setTrx(r); else setMsg(r.error); }} className="min-w-0 truncate text-left underline-offset-2 hover:underline">{s.email} <span className="text-muted-foreground">· since {new Date(s.since).toLocaleDateString()} · {money(s.paidCents)} · {s.onlineHours} h online{s.certificateCode ? ' · 🎓' : ''}</span></button>
                       <span className="flex w-40 shrink-0 items-center gap-2"><span className="h-1.5 flex-1 rounded-full bg-background"><span className="block h-1.5 rounded-full bg-foreground" style={{ width: `${s.pct || 0}%` }} /></span><span className="text-[12px] font-bold">{s.pct || 0}%</span></span>
                     </div>
                   ))}
