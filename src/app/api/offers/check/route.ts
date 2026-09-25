@@ -25,8 +25,21 @@ export async function POST(req: NextRequest) {
   const code = String(body.code || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 40);
   if (!tenantId || code.length < 3) return NextResponse.json({ ok: false, error: 'Enter the code from your message.' }, { status: 400 });
   try {
-    const snap = await getAdminDb().collection(`tenants/${tenantId}/discounts`).where('code', '==', code).limit(1).get();
-    const d: any = snap.docs[0]?.data() || null;
+    const db = getAdminDb();
+    let d: any = null;
+    const provider = String(body.provider || '').trim();
+    if (provider) {
+      // On a renter's page, codes are the RENTER's offers.
+      const st = ((await db.doc(`tenants/${tenantId}/staff/${provider}`).get()).data() as any) || null;
+      const renterId = st?.renterId ? String(st.renterId) : null;
+      if (renterId) {
+        const hit = await db.collection(`tenants/${tenantId}/renterOffers`).where('ownerRenterId', '==', renterId).get();
+        d = hit.docs.map((x: any) => x.data() as any).find((o: any) => String(o.code || '').toUpperCase() === code) || null;
+      }
+    } else {
+      const snap = await db.collection(`tenants/${tenantId}/discounts`).where('code', '==', code).limit(1).get();
+      d = snap.docs[0]?.data() || null;
+    }
     const problem = offerProblem(d);
     if (problem) return NextResponse.json({ ok: false, error: problem });
     const until = d.validUntil ? new Date(d.validUntil).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
