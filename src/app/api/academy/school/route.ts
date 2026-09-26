@@ -18,7 +18,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { appendAudit } from '@/lib/academy-compliance';
 import { enrollInProgram, setProgramStatus, programProgress, keyOf, DEFAULT_RUBRIC, allServiceIds, setClinicServices, syncStudentServices } from '@/lib/academy-school';
-import { NC_TEMPLATES } from '@/lib/state-rules/nc';
+import { BUILT_IN, customProgram, US_STATES } from '@/lib/state-rules';
 import { savePrivateImage } from '@/lib/private-storage';
 
 export const dynamic = 'force-dynamic';
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
   const isInstructor = String(auth.actor.role || '').toLowerCase() === 'instructor';
   const isLead = auth.actor.isManager || auth.actor.isTenantOwner;
   if (!isLead && !isInstructor) return NextResponse.json({ ok: false, error: 'Owners, managers and instructors only.' }, { status: 403 });
-  const LEAD_ONLY = ['mode', 'program-save', 'program-enroll', 'program-status', 'program-from-template'];
+  const LEAD_ONLY = ['mode', 'program-save', 'program-enroll', 'program-status', 'program-from-template', 'program-from-custom'];
   if (!isLead && LEAD_ONLY.includes(String(b.action))) return NextResponse.json({ ok: false, error: 'Owners and managers only.' }, { status: 403 });
   const db = getAdminDb();
   const who = auth.actor.name || auth.actor.uid;
@@ -118,15 +118,25 @@ export async function POST(req: NextRequest) {
     }
 
     // ── State templates (North Carolina, 21 NCAC 14T) ──
-    if (b.action === 'templates') return NextResponse.json({ ok: true, templates: NC_TEMPLATES.map((x) => ({ key: `${x.state}:${x.discipline}`, name: x.name, totalHours: x.totalHours, rule: x.rule, evaluations: x.evaluations.length, performances: x.performances.length })) });
+    if (b.action === 'templates') return NextResponse.json({ ok: true, states: US_STATES, templates: BUILT_IN.map((x) => ({ key: `${x.state}:${x.discipline}`, state: x.state, name: x.name, totalHours: x.totalHours, rule: x.rule, checkedAt: x.checkedAt, evaluations: x.evaluations.length, performances: x.performances.length })) });
+    // "Set up for my state" — the school enters its own state's rules.
+    if (b.action === 'program-from-custom') {
+      const c = customProgram(b.custom || {});
+      if (!c.totalHours) return NextResponse.json({ ok: false, error: 'Enter the total hours your state requires.' }, { status: 400 });
+      const ref = db.collection(`tenants/${tenantId}/programs`).doc();
+      await ref.set({ id: ref.id, ...c, requirements: c.performances.map((x) => ({ key: x.key, label: x.label, count: 1, serviceIds: [] })), rubric: DEFAULT_RUBRIC, courseIds: [], tipPolicy: 'school',
+        sap: { checkpoints: [Math.round(c.totalHours / 2), c.totalHours], minAttendancePct: 67, minQuizAvg: c.passGrade, minPracticalAvg: 3 }, status: 'active', createdAt: now, updatedAt: now, fromTemplate: 'custom' });
+      await appendAudit(tenantId, { type: 'program.saved', by: who, summary: `Program “${c.name}” set up from ${c.state ? US_STATES[c.state] : 'custom'} rules${c.rule ? ` (${c.rule})` : ''}`, data: { programId: ref.id } });
+      return NextResponse.json({ ok: true, id: ref.id });
+    }
     if (b.action === 'program-from-template') {
-      const tp = NC_TEMPLATES.find((x) => `${x.state}:${x.discipline}` === b.key);
+      const tp = BUILT_IN.find((x) => `${x.state}:${x.discipline}` === b.key);
       if (!tp) return NextResponse.json({ ok: false, error: 'Unknown template.' }, { status: 400 });
       const ref = db.collection(`tenants/${tenantId}/programs`).doc();
       await ref.set({ id: ref.id, name: tp.name, state: tp.state, discipline: tp.discipline, rule: tp.rule, totalHours: tp.totalHours, requiredOnlineHours: null, requiredInPersonHours: null,
         limits: tp.limits, passGrade: tp.passGrade, weeklyGuidedMinPct: tp.weeklyGuidedMinPct, evaluations: tp.evaluations,
         requirements: tp.performances.map((x) => ({ key: x.key, label: x.label, count: 1, serviceIds: [] })), rubric: DEFAULT_RUBRIC, courseIds: [], tipPolicy: 'school',
-        requiredDocs: tp.requiredDocs, boardForms: tp.boardForms, sap: { checkpoints: [Math.round(tp.totalHours / 2), tp.totalHours], minAttendancePct: 67, minQuizAvg: tp.passGrade, minPracticalAvg: 3 },
+        requiredDocs: tp.requiredDocs, boardForms: tp.boardForms, retention: tp.retention, checkedAt: tp.checkedAt, sap: { checkpoints: [Math.round(tp.totalHours / 2), tp.totalHours], minAttendancePct: 67, minQuizAvg: tp.passGrade, minPracticalAvg: 3 },
         status: 'active', createdAt: now, updatedAt: now, fromTemplate: `${tp.state}:${tp.discipline}` });
       await appendAudit(tenantId, { type: 'program.saved', by: who, summary: `Program “${tp.name}” created from the North Carolina template (${tp.rule})`, data: { programId: ref.id } });
       return NextResponse.json({ ok: true, id: ref.id });
