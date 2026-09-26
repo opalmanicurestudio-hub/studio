@@ -28,7 +28,8 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 const KINDS = ['video', 'text', 'download', 'assignment'];
 const str = (v: any, n: number) => String(v ?? '').slice(0, n);
-const BLOCK_TYPES = ['text', 'image', 'steps', 'callout', 'file', 'divider', 'interactive', 'hotspots', 'stages', 'game'];
+const BLOCK_TYPES = ['text', 'image', 'steps', 'callout', 'file', 'divider', 'interactive', 'hotspots', 'stages', 'game', 'timeline'];
+const LAYOUTS = ['steps', 'article', 'split', 'cards', 'focus'];
 /** Template games (drawn by ClarityFlow): Sort it · Speed round · Memory match · Sequence. */
 function cleanGame(t: string, d: any) {
   const s = (v: any, n: number) => String(v ?? '').trim().slice(0, n);
@@ -51,6 +52,7 @@ function cleanBlocks(v: any) {
     if (b.type === 'callout') return { id, type: 'callout', tone: ['safety', 'key', 'tip'].includes(b.tone) ? b.tone : 'key', text: str(b.text, 1500) };
     if (b.type === 'interactive') { const html = cleanHtml(b.html); return html ? { id, type: 'interactive', game: !!b.game, title: str(b.title, 120), request: str(b.request, 1000), html, height: Math.max(200, Math.min(1400, Number(b.height) || 480)) } : null; }
     if (b.type === 'hotspots') return b.mediaId ? { id, type: 'hotspots', mediaId: str(b.mediaId, 40), title: str(b.title, 160), points: (b.points || []).slice(0, 20).map((p: any) => ({ x: Math.max(0, Math.min(100, Number(p.x) || 0)), y: Math.max(0, Math.min(100, Number(p.y) || 0)), label: str(p.label, 80), text: str(p.text, 600) })).filter((p: any) => p.label) } : null;
+    if (b.type === 'timeline') { const events = (b.events || []).slice(0, 30).map((e: any) => ({ when: str(e.when, 40), title: str(e.title, 120), text: str(e.text, 600), mediaId: e.mediaId ? str(e.mediaId, 40) : null })).filter((e: any) => e.when || e.title); return events.length ? { id, type: 'timeline', title: str(b.title, 160), events } : null; }
     if (b.type === 'game') { const tpl = ['sort', 'speed', 'memory', 'sequence'].includes(b.template) ? b.template : 'sort'; const data = cleanGame(tpl, b.data); return data ? { id, type: 'game', template: tpl, title: str(b.title, 120), data } : null; }
     if (b.type === 'stages') return { id, type: 'stages', title: str(b.title, 160), stages: (b.stages || []).slice(0, 12).map((x: any) => ({ label: str(x.label, 80), text: str(x.text, 800), mediaId: x.mediaId ? str(x.mediaId, 40) : null })).filter((x: any) => x.label || x.text) };
     if (b.type === 'steps') return { id, type: 'steps', title: str(b.title, 160), steps: (b.steps || []).slice(0, 40).map((x: any) => ({ text: str(x.text, 800), mediaId: x.mediaId ? str(x.mediaId, 40) : null })).filter((x: any) => x.text || x.mediaId) };
@@ -198,6 +200,7 @@ async function handle(req: NextRequest) {
         activity: cleanActivity(l.activity),
         ...('blocks' in l ? { blocks: cleanBlocks(l.blocks) } : {}),
         ...('stepMode' in l ? { stepMode: l.stepMode === true } : {}),
+        ...('layout' in l ? { layout: LAYOUTS.includes(l.layout) ? l.layout : null, stepMode: l.layout === 'steps' } : {}),
         // Refer-or-treat client cases, and questions that pop up during the video.
         ...('cases' in l ? { cases: cleanCases(l.cases) } : {}),
         ...('videoQuestions' in l ? { videoQuestions: (Array.isArray(l.videoQuestions) ? l.videoQuestions : []).slice(0, 20).map((q: any) => ({ at: Math.max(1, Math.round(Number(q.at) || 0)), q: str(q.q, 300), options: (q.options || []).map((o: any) => str(o, 160)).filter(Boolean).slice(0, 4), answer: Math.max(0, Number(q.answer) || 0), explain: str(q.explain, 400) })).filter((q: any) => q.q && q.options.length >= 2).sort((a: any, b: any) => a.at - b.at) } : {}),
@@ -229,6 +232,13 @@ async function handle(req: NextRequest) {
       items.forEach((x: any, k: number) => batch.set(db.doc(`${base}/${courseId}/lessons/${String(x.id)}`), { order: k, moduleTitle: str(x.moduleTitle, 120) || 'Module 1', updatedAt: now }, { merge: true }));
       await batch.commit();
       return NextResponse.json({ ok: true });
+    }
+    // One layout for every lesson in the course.
+    if (b.action === 'lessons-layout') {
+      const layout = LAYOUTS.includes(b.layout) ? b.layout : null; if (!layout) return NextResponse.json({ ok: false, error: 'Choose a layout.' }, { status: 400 });
+      const all = await loadLessons(tenantId, courseId); const batch = db.batch();
+      all.forEach((x: any) => batch.set(db.doc(`${base}/${courseId}/lessons/${x.id}`), { layout, stepMode: layout === 'steps', updatedAt: now }, { merge: true }));
+      await batch.commit(); return NextResponse.json({ ok: true, count: all.length });
     }
     if (b.action === 'lesson-move') {
       const all = await loadLessons(tenantId, courseId);
@@ -345,6 +355,7 @@ async function handle(req: NextRequest) {
         if (['image', 'file', 'hotspots'].includes(k.type)) blocks.push({ ...k, media: await link(k.mediaId) });
         else if (k.type === 'steps') blocks.push({ ...k, steps: await Promise.all((k.steps || []).map(async (s: any) => ({ ...s, media: await link(s.mediaId) }))) });
         else if (k.type === 'stages') blocks.push({ ...k, stages: await Promise.all((k.stages || []).map(async (s: any) => ({ ...s, media: await link(s.mediaId) }))) });
+        else if (k.type === 'timeline') blocks.push({ ...k, events: await Promise.all((k.events || []).map(async (s: any) => ({ ...s, media: await link(s.mediaId) }))) });
         else blocks.push(k);
       }
       const course = ((await db.doc(`${base}/${courseId}`).get()).data() as any) || {};
@@ -546,6 +557,21 @@ Reply with the complete HTML only, inside one \`\`\`html code block.${gameRules}
       if (b.action === 'ai-cases') { const c = cleanCases({ prompt: 'What would you do?', cases: j.cases }); return c ? NextResponse.json({ ok: true, cases: c }) : NextResponse.json({ ok: false, error: 'The draft didn’t come back usable — try again.' }, { status: 502 }); }
       const dur = Number(lx.durationSec) || 0;
       return NextResponse.json({ ok: true, questions: (j.questions || []).slice(0, 10).map((q: any) => ({ at: dur ? Math.round(Math.max(0.03, Math.min(0.97, Number(q.pos) || 0.5)) * dur) : 60, q: String(q.q || '').slice(0, 300), options: (q.options || []).map((o: any) => String(o).slice(0, 160)).slice(0, 4), answer: Math.max(0, Number(q.answer) || 0), explain: String(q.explain || '').slice(0, 400) })).filter((q: any) => q.q && q.options.length >= 2), durationKnown: !!dur });
+    }
+
+    // ── ✨ Draft a timeline from the lesson ──
+    if (b.action === 'ai-timeline') {
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
+      const lx = b.lessonId ? (((await db.doc(`${base}/${courseId}/lessons/${String(b.lessonId)}`).get()).data() as any) || {}) : {};
+      const material = `${lx.title || ''}\n${lx.body || ''}\n${lx.transcript ? String(lx.transcript).slice(0, 6000) : ''}\n${(lx.blocks || []).map((k: any) => k.text || '').join('\n')}`.slice(0, 12000);
+      if (material.trim().length < 120) return NextResponse.json({ ok: false, error: 'Write (and save) some lesson text first — the timeline is drawn from it.' }, { status: 400 });
+      const r = await askClaude({ tier: 'smart', maxTokens: 2500, purpose: 'academy-ai-timeline', tenantId,
+        system: 'You turn lesson material into a timeline for students at a licensed beauty / nail school. Use ONLY dates, events and facts that appear in the material — never add, guess or round dates. If the material has no dated or ordered events, return {"events":[]}. Reply with JSON only.',
+        prompt: `Lesson material:\n${material}\n\nReturn JSON {"title":"short title","events":[{"when":"the date or period exactly as written","title":"short event name","text":"one or two plain sentences"}]} in chronological order, 3–12 events.` });
+      const j: any = r.ok ? parseJson(r.text) : null;
+      const events = (j?.events || []).slice(0, 20).map((e: any) => ({ when: String(e.when || '').slice(0, 40), title: String(e.title || '').slice(0, 120), text: String(e.text || '').slice(0, 600), mediaId: null })).filter((e: any) => e.title);
+      if (!events.length) return NextResponse.json({ ok: false, error: j ? 'This lesson doesn’t have dated events to put on a timeline.' : 'The timeline didn’t come back usable — try again.' }, { status: j ? 400 : 502 });
+      return NextResponse.json({ ok: true, title: String(j.title || '').slice(0, 160), events });
     }
 
     // ── ✨ Fill a game template from the lesson ──
