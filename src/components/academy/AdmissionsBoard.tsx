@@ -11,6 +11,7 @@
 //   Cohorts    start dates and capacity (full → new applicants waitlisted)
 
 import { deviceId } from '@/lib/device';
+import { printDocument, esc, heading, type DocBrand } from '@/lib/doc-theme';
 import { useCallback, useEffect, useState } from 'react';
 import { getAuth } from 'firebase/auth';
 import { Loader, Plus, X } from 'lucide-react';
@@ -26,7 +27,7 @@ const dt = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString('en-
 const field = 'h-10 w-full rounded-xl border-2 border-border/60 bg-background px-3 text-sm';
 const COLS: [string, string][] = [['inquiry', 'Inquiry'], ['tour', 'Tour'], ['applied', 'Applied'], ['documents', 'Documents'], ['agreement', 'Signed'], ['enrolled', 'Enrolled']];
 
-export function AdmissionsBoard({ tenantId }: { tenantId: string }) {
+export function AdmissionsBoard({ tenantId, brand }: { tenantId: string; brand?: DocBrand }) {
   const [tab, setTab] = useState<'pipeline' | 'tuition' | 'cohorts'>('pipeline');
   const [d, setD] = useState<any>(null);
   const [open, setOpen] = useState<string | null>(null);
@@ -173,6 +174,7 @@ export function AdmissionsBoard({ tenantId }: { tenantId: string }) {
                       <p>Signed by <span className="font-bold">{a.agreement.signedName}</span> on {new Date(a.agreement.signedAt).toLocaleString()} · {a.agreement.ip || 'IP unknown'}</p>
                       <p className="break-all font-mono text-[11px] text-muted-foreground">Fingerprint {a.agreement.sha256}</p>
                       {a.agreement.countersignedBy ? <p className="text-emerald-700">✓ Countersigned by {a.agreement.countersignedBy} on {dt(a.agreement.countersignedAt)}</p> : <button type="button" onClick={() => act({ action: 'countersign', id: a.id }, 'Countersigned.')} className="h-9 rounded-lg bg-foreground px-3 text-[12px] font-bold text-background">Countersign for the school</button>}
+                      {brand && <button type="button" onClick={() => printAgreement(a, progName(a.programId), brand)} className="h-9 rounded-lg border-2 px-3 text-[12px] font-bold">🖨 Print signed agreement</button>}
                       <details><summary className="cursor-pointer text-[12px] font-bold">Read what they signed</summary><pre className="mt-1 whitespace-pre-wrap text-[12px]">{a.agreement.text}</pre></details>
                     </div>
                   ) : <p className="text-sm text-muted-foreground">Not signed yet — they sign on their application page after uploading documents.</p>}
@@ -212,4 +214,20 @@ export function AdmissionsBoard({ tenantId }: { tenantId: string }) {
       )}
     </div>
   );
+}
+
+
+/** The signed enrolment agreement — official once the school has countersigned. */
+function printAgreement(a: any, program: string, brand: DocBrand) {
+  const g = a.agreement || {}; const d = (v: any) => (v ? new Date(v).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short' }) : '—');
+  printDocument({
+    title: `Enrolment agreement — ${a.name}`, brand,
+    official: g.countersignedAt ? { label: 'For the school', date: new Date(g.countersignedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) } : false,
+    footerNote: `Fingerprint ${g.sha256 || '—'} · the exact text signed is kept with this record`,
+    body: `${heading('Enrolment', 'agreement')}<p class="sub">${esc(a.name)} · ${esc(program)}</p>
+      <div style="white-space:pre-wrap">${esc(g.text || '')}</div>
+      <h2>Student’s electronic signature</h2>
+      <div class="panel">Signed by <b>${esc(g.signedName)}</b> on ${esc(d(g.signedAt))}${g.ip ? ` · IP ${esc(g.ip)}` : ''}<br><span class="muted">Fingerprint ${esc(g.sha256 || '—')}</span></div>
+      ${g.countersignedAt ? `<p class="muted">Countersigned in ClarityFlow by ${esc(g.countersignedBy)} on ${esc(d(g.countersignedAt))}.</p>` : '<p class="warn">Not yet countersigned by the school.</p>'}`,
+  });
 }
