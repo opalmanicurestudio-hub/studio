@@ -493,6 +493,38 @@ Keep this link private.
       return st ? NextResponse.json({ ok: true, ...st, brand }) : NextResponse.json({ ok: false, error: 'Class not found.' }, { status: 404 });
     }
 
+    // ── Assignments (students) ──
+    if (b.action === 'assignment' || b.action === 'assignment-submit') {
+      if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+      const courseId = String(b.courseId || ''), lessonId = String(b.lessonId || '');
+      const enr = ((await db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`).get()).data() as any) || null;
+      if (!enr) return NextResponse.json({ ok: false, error: 'Not enrolled.' }, { status: 403 });
+      const lx = ((await db.doc(`tenants/${tenantId}/courses/${courseId}/lessons/${lessonId}`).get()).data() as any) || {};
+      if (!lx.assignment) return NextResponse.json({ ok: false, error: 'Not an assignment.' }, { status: 400 });
+      const ref = db.doc(`tenants/${tenantId}/submissions/${courseId}_${lessonId}_${student.id}`);
+      const cur = ((await ref.get()).data() as any) || null;
+      const due = lx.assignment.dueDays ? new Date(new Date(enr.startDate || enr.createdAt).getTime() + lx.assignment.dueDays * 86400000).toISOString() : null;
+      if (b.action === 'assignment') {
+        const files = [];
+        for (const f of cur?.files || []) files.push({ name: f.name, type: f.type, url: await mediaUrl(f.path, 60) });
+        return NextResponse.json({ ok: true, due, submission: cur ? { status: cur.status, text: cur.text || '', submittedAt: cur.submittedAt, files, grade: cur.status !== 'submitted' ? cur.grade || null : null } : null });
+      }
+      if (cur && cur.status === 'returned' && !lx.assignment.resubmit) return NextResponse.json({ ok: false, error: 'This assignment has been graded.' }, { status: 400 });
+      if (cur && cur.status === 'returned' && lx.assignment.resubmit === false) return NextResponse.json({ ok: false, error: 'Resubmission isn’t allowed for this one.' }, { status: 400 });
+      const text = String(b.text || '').slice(0, 20000);
+      const files = [...(cur?.files || [])];
+      for (const [i, f] of (Array.isArray(b.files) ? b.files : []).slice(0, 8).entries()) {
+        const saved = await savePrivateDocument(tenantId, `tenants/${tenantId}/academy/submissions/${courseId}/${lessonId}/${student.id}-${Date.now()}-${i}`, String(f.data || ''), 3_000_000);
+        files.push({ name: String(f.name || `file-${i + 1}`).slice(0, 120), type: saved.type, path: saved.path, ref: saved.ref, sha256: saved.sha256 });
+      }
+      if (!text.trim() && !files.length) return NextResponse.json({ ok: false, error: 'Write an answer or add a photo/file.' }, { status: 400 });
+      const at = new Date().toISOString();
+      await ref.set({ id: ref.id, courseId, lessonId, studentId: student.id, email: student.email, name: student.name || null, text, files, status: 'submitted', submittedAt: at, late: due ? at > due : false,
+        attempts: (cur?.attempts || 0) + 1, grade: cur?.grade || null, history: cur?.history || [] });
+      await appendAudit(tenantId, { type: 'assignment.submitted', studentId: student.id, courseId, by: student.email, summary: `Submitted “${lx.title}”${due && at > due ? ' (late)' : ''}${cur ? ` — attempt ${(cur.attempts || 0) + 1}` : ''}`, data: { submissionId: ref.id } });
+      return NextResponse.json({ ok: true });
+    }
+
     // ── Messages & announcements (students) ──
     if (b.action === 'inbox' || b.action === 'message') {
       if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
