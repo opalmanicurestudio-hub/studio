@@ -26,7 +26,16 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 const KINDS = ['video', 'text', 'download', 'assignment'];
 const str = (v: any, n: number) => String(v ?? '').slice(0, n);
-const BLOCK_TYPES = ['text', 'image', 'steps', 'callout', 'file', 'divider', 'interactive', 'hotspots', 'stages'];
+const BLOCK_TYPES = ['text', 'image', 'steps', 'callout', 'file', 'divider', 'interactive', 'hotspots', 'stages', 'game'];
+/** Template games (drawn by ClarityFlow): Sort it · Speed round · Memory match · Sequence. */
+function cleanGame(t: string, d: any) {
+  const s = (v: any, n: number) => String(v ?? '').trim().slice(0, n);
+  if (t === 'sort') { const bins = (d?.bins || []).map((x: any) => s(x, 40)).filter(Boolean).slice(0, 4); const items = (d?.items || []).map((x: any) => ({ text: s(x.text, 80), bin: Math.max(0, Math.min(bins.length - 1, Number(x.bin) || 0)) })).filter((x: any) => x.text).slice(0, 16); return bins.length >= 2 && items.length >= 3 ? { bins, items } : null; }
+  if (t === 'speed') { const items = (d?.items || []).map((x: any) => ({ text: s(x.text, 160), true: !!x.true, why: s(x.why, 200) })).filter((x: any) => x.text).slice(0, 20); return items.length >= 3 ? { items, seconds: Math.max(3, Math.min(20, Number(d?.seconds) || 8)) } : null; }
+  if (t === 'memory') { const pairs = (d?.pairs || []).map((x: any) => ({ a: s(x.a, 60), b: s(x.b, 80) })).filter((x: any) => x.a && x.b).slice(0, 8); return pairs.length >= 3 ? { pairs } : null; }
+  if (t === 'sequence') { const steps = (d?.steps || []).map((x: any) => s(x, 120)).filter(Boolean).slice(0, 10); return steps.length >= 3 ? { steps } : null; }
+  return null;
+}
 /** AI-built interactives run in a sealed frame for students; keep them self-contained and a sensible size. */
 function cleanHtml(v: any) { const h = String(v || ''); return h.length > 150_000 ? '' : h; }
 /** Content blocks: text · image · step-by-step (a photo per step) · callout (safety / key point / tip) · file · divider. */
@@ -38,8 +47,9 @@ function cleanBlocks(v: any) {
     if (b.type === 'image') return b.mediaId ? { id, type: 'image', mediaId: str(b.mediaId, 40), caption: str(b.caption, 300) } : null;
     if (b.type === 'file') return b.mediaId ? { id, type: 'file', mediaId: str(b.mediaId, 40), label: str(b.label, 160) } : null;
     if (b.type === 'callout') return { id, type: 'callout', tone: ['safety', 'key', 'tip'].includes(b.tone) ? b.tone : 'key', text: str(b.text, 1500) };
-    if (b.type === 'interactive') { const html = cleanHtml(b.html); return html ? { id, type: 'interactive', title: str(b.title, 120), request: str(b.request, 1000), html, height: Math.max(200, Math.min(1400, Number(b.height) || 480)) } : null; }
+    if (b.type === 'interactive') { const html = cleanHtml(b.html); return html ? { id, type: 'interactive', game: !!b.game, title: str(b.title, 120), request: str(b.request, 1000), html, height: Math.max(200, Math.min(1400, Number(b.height) || 480)) } : null; }
     if (b.type === 'hotspots') return b.mediaId ? { id, type: 'hotspots', mediaId: str(b.mediaId, 40), title: str(b.title, 160), points: (b.points || []).slice(0, 20).map((p: any) => ({ x: Math.max(0, Math.min(100, Number(p.x) || 0)), y: Math.max(0, Math.min(100, Number(p.y) || 0)), label: str(p.label, 80), text: str(p.text, 600) })).filter((p: any) => p.label) } : null;
+    if (b.type === 'game') { const tpl = ['sort', 'speed', 'memory', 'sequence'].includes(b.template) ? b.template : 'sort'; const data = cleanGame(tpl, b.data); return data ? { id, type: 'game', template: tpl, title: str(b.title, 120), data } : null; }
     if (b.type === 'stages') return { id, type: 'stages', title: str(b.title, 160), stages: (b.stages || []).slice(0, 12).map((x: any) => ({ label: str(x.label, 80), text: str(x.text, 800), mediaId: x.mediaId ? str(x.mediaId, 40) : null })).filter((x: any) => x.label || x.text) };
     if (b.type === 'steps') return { id, type: 'steps', title: str(b.title, 160), steps: (b.steps || []).slice(0, 40).map((x: any) => ({ text: str(x.text, 800), mediaId: x.mediaId ? str(x.mediaId, 40) : null })).filter((x: any) => x.text || x.mediaId) };
     return { id, type: 'divider' };
@@ -338,6 +348,9 @@ async function handle(req: NextRequest) {
       let material = '';
       if (b.useLesson && b.lessonId) { const lx = ((await db.doc(`${base}/${courseId}/lessons/${String(b.lessonId)}`).get()).data() as any) || {}; material = `${lx.title || ''}\n${lx.body || ''}\n${lx.transcript ? String(lx.transcript).slice(0, 4000) : ''}`.slice(0, 8000); }
       const current = typeof b.currentHtml === 'string' && b.currentHtml.length < 150_000 ? b.currentHtml : '';
+      const gameRules = b.game ? `
+THIS ONE IS A GAME. Make it genuinely fun for students: a clear goal, a short "How to play" line, points or a timer, satisfying feedback (small bounce/flash on right answers), and a Play again button.
+When a round finishes, call window.cfScore(scorePercent) exactly once with a whole number 0–100 — that sends the score to the school's gradebook. Keep the content accurate and from the instructor's material.` : '';
       const system = `You build interactive, animated teaching visuals for students at a state-licensed beauty / nail school, as ONE self-contained HTML fragment: markup, then one inline <script>. It runs inside a sealed frame that already contains the ClarityFlow style kit described below.
 
 ${KIT_GUIDE}
@@ -355,7 +368,7 @@ Here is an example of the expected quality and use of the kit:
 ${KIT_EXAMPLE}
 \`\`\`
 
-Reply with the complete HTML only, inside one \`\`\`html code block.`;
+Reply with the complete HTML only, inside one \`\`\`html code block.${gameRules}`;
       const context = `Course: ${course.title || '—'}${course.subtitle ? ` — ${course.subtitle}` : ''}${material ? `\n\nInstructor's lesson material (follow it):\n${material}` : ''}`;
       const prompt = current
         ? `Here is the current interactive:\n\`\`\`html\n${current}\n\`\`\`\n\nChange requested: ${String(b.change || '').slice(0, 800)}\nReturn the complete updated HTML.\n\n${context}`
@@ -409,6 +422,48 @@ Reply with the complete HTML only, inside one \`\`\`html code block.`;
       if (b.action === 'ai-cases') { const c = cleanCases({ prompt: 'What would you do?', cases: j.cases }); return c ? NextResponse.json({ ok: true, cases: c }) : NextResponse.json({ ok: false, error: 'The draft didn’t come back usable — try again.' }, { status: 502 }); }
       const dur = Number(lx.durationSec) || 0;
       return NextResponse.json({ ok: true, questions: (j.questions || []).slice(0, 10).map((q: any) => ({ at: dur ? Math.round(Math.max(0.03, Math.min(0.97, Number(q.pos) || 0.5)) * dur) : 60, q: String(q.q || '').slice(0, 300), options: (q.options || []).map((o: any) => String(o).slice(0, 160)).slice(0, 4), answer: Math.max(0, Number(q.answer) || 0), explain: String(q.explain || '').slice(0, 400) })).filter((q: any) => q.q && q.options.length >= 2), durationKnown: !!dur });
+    }
+
+    // ── ✨ Fill a game template from the lesson ──
+    if (b.action === 'ai-game') {
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
+      const tpl = ['sort', 'speed', 'memory', 'sequence'].includes(b.template) ? b.template : 'sort';
+      const lx = b.lessonId ? (((await db.doc(`${base}/${courseId}/lessons/${String(b.lessonId)}`).get()).data() as any) || {}) : {};
+      const material = `${lx.title || ''}\n${lx.body || String(b.text || '')}\n${lx.transcript ? String(lx.transcript).slice(0, 6000) : ''}\n${(lx.blocks || []).map((k: any) => k.text || (k.steps || []).map((x: any) => x.text).join('\n') || '').join('\n')}`.slice(0, 12000);
+      if (material.trim().length < 120) return NextResponse.json({ ok: false, error: 'Write some lesson text first (and save) — games are made from it.' }, { status: 400 });
+      const shape: Record<string, string> = {
+        sort: '{"bins":["2–4 short category names"],"items":[{"text":"short item","bin":0}]} — 8 to 12 items, each clearly belonging to one bin',
+        speed: '{"items":[{"text":"a short statement","true":true,"why":"one-line explanation"}],"seconds":8} — 10 to 14 statements, about half false (believable misconceptions)',
+        memory: '{"pairs":[{"a":"term","b":"short meaning"}]} — 6 pairs',
+        sequence: '{"steps":["first step","second step"]} — 5 to 8 steps of a procedure, in the correct order',
+      };
+      const r = await askClaude({ tier: 'smart', maxTokens: 2500, purpose: 'academy-ai-game', tenantId,
+        system: 'You write fun, accurate review games for a state-licensed beauty / nail school. Use only facts from the lesson material given — never invent facts, products, figures or regulations. Keep text short enough for phone screens. Reply with JSON only.',
+        prompt: `Lesson material:\n${material}\n\nReturn JSON exactly in this shape: ${shape[tpl]}` });
+      const j: any = r.ok ? parseJson(r.text) : null;
+      const data = j ? cleanGame(tpl, j) : null;
+      return data ? NextResponse.json({ ok: true, data }) : NextResponse.json({ ok: false, error: 'The game didn’t come back usable — try again.' }, { status: 502 });
+    }
+
+    // ── 📄 Turn a file (PDF or pasted text) into a lesson draft — nothing saved until the owner saves ──
+    if (b.action === 'ai-file-lesson') {
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
+      const text = String(b.text || '').slice(0, 40000);
+      const pdf = typeof b.pdf === 'string' && b.pdf.startsWith('data:application/pdf;base64,') ? b.pdf.split(',')[1] : null;
+      if (pdf && pdf.length > 4_300_000) return NextResponse.json({ ok: false, error: 'That PDF is too large (about 3 MB max) — split it, or paste the text.' }, { status: 400 });
+      if (!pdf && text.trim().length < 200) return NextResponse.json({ ok: false, error: 'Attach a PDF or paste at least a few paragraphs.' }, { status: 400 });
+      const want = { keyPoints: b.want?.keyPoints !== false, flashcards: b.want?.flashcards !== false, quiz: b.want?.quiz !== false };
+      const r = await askClaude({ tier: 'smart', maxTokens: 7000, purpose: 'academy-file-lesson', tenantId, pdfBase64: pdf,
+        system: 'You turn an instructor\'s document into a clear, student-friendly lesson for a state-licensed beauty / nail school. Use ONLY what the document says — never add facts, figures, products or regulations it doesn\'t contain; if the document is unclear, leave that part out. Plain, friendly language; short paragraphs; "# " for section headings. Reply with JSON only.',
+        prompt: `${pdf ? 'The attached PDF is the source.' : `Source document:\n${text}`}\n${b.focus ? `Focus on: ${String(b.focus).slice(0, 300)}\n` : ''}\nReturn JSON: {"title":"lesson title","notes":"the study notes, with # headings — covering everything important, in the document's order","keyPoints":["the 3–6 things students must remember"]${want.flashcards ? ',"flashcards":[{"front":"term or question","back":"short answer"}]' : ''}${want.quiz ? ',"quiz":[{"q":"question","options":["…","…","…"],"answer":0}]' : ''}} — ${want.flashcards ? '8–12 flashcards, ' : ''}${want.quiz ? '5–8 quiz questions with one right answer and believable wrong ones' : ''}.` });
+      const j: any = r.ok ? parseJson(r.text) : null;
+      if (!j?.notes) return NextResponse.json({ ok: false, error: r.error || 'The notes didn’t come back usable — try again (or a smaller file).' }, { status: 502 });
+      const uidL = () => Math.random().toString(36).slice(2, 10);
+      const draft: any = { title: str(j.title, 160), kind: 'text', body: str(j.notes, 20000), blocks: [], fromFile: true };
+      if (want.keyPoints && Array.isArray(j.keyPoints) && j.keyPoints.length) draft.blocks.push({ id: uidL(), type: 'callout', tone: 'key', text: j.keyPoints.slice(0, 8).map((x: any) => `• ${str(x, 200)}`).join('\n') });
+      if (want.flashcards && Array.isArray(j.flashcards)) draft.flashcards = j.flashcards.slice(0, 20).map((x: any) => ({ front: str(x.front, 200), back: str(x.back, 400) })).filter((x: any) => x.front && x.back);
+      if (want.quiz && Array.isArray(j.quiz)) draft.quiz = { passPct: 80, questions: j.quiz.slice(0, 12).map((q: any) => ({ q: str(q.q, 300), options: (q.options || []).map((o: any) => str(o, 160)).filter(Boolean).slice(0, 4), answer: Math.max(0, Number(q.answer) || 0) })).filter((q: any) => q.q && q.options.length >= 2) };
+      return NextResponse.json({ ok: true, draft });
     }
 
     // ── Saved materials: generate once, save, reprint without AI ──
@@ -487,7 +542,7 @@ Reply with the complete HTML only, inside one \`\`\`html code block.`;
       const items = lessons.filter((l: any) => l.quiz?.questions?.length || l.kind === 'assignment').map((l: any) => ({ id: l.id, title: l.title, kind: l.kind === 'assignment' ? 'assignment' : 'quiz' }));
       // Live-class exit tickets saved for this course.
       const liveKeys = new Map<string, string>();
-      enr.docs.forEach((d: any) => Object.entries((d.data() as any).quiz || {}).forEach(([k, v]: any) => { if (/^(live|act|cases|vq)_/.test(k)) liveKeys.set(k, v.title || (k.startsWith('live_') ? 'Live class' : 'Practice')); }));
+      enr.docs.forEach((d: any) => Object.entries((d.data() as any).quiz || {}).forEach(([k, v]: any) => { if (/^(live|act|cases|vq|game)_/.test(k)) liveKeys.set(k, v.title || (k.startsWith('live_') ? 'Live class' : 'Practice')); }));
       for (const [id, title] of liveKeys) items.push({ id, title, kind: 'quiz' });
       const S = subs.docs.map((d: any) => d.data() as any);
       const rows = enr.docs.map((d: any) => { const e = d.data() as any;
