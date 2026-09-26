@@ -12,6 +12,7 @@
 //   lesson    { tenantId, courseId, lessonId, token? }  content; video token if allowed
 //   progress  { tenantId, token, courseId, lessonId, done }
 
+import { findLive, studentBeat, studentAnswer } from '@/lib/academy-live';
 import { askClaude, aiConfigured } from '@/lib/ai';
 import { postMessage, sendEmail as sendJourneyEmail } from '@/lib/academy-journey';
 import { NextRequest, NextResponse } from 'next/server';
@@ -172,7 +173,7 @@ export async function POST(req: NextRequest) {
       const stat = enr.stats?.[lessonId] || {};
       const quiz = l.quiz?.questions?.length ? { passPct: l.quiz.passPct || 80, questions: l.quiz.questions.map((q: any) => ({ q: q.q, options: q.options })), attempts: (enr.quiz?.[lessonId]?.attempts || []).slice(-5), passed: !!enr.quiz?.[lessonId]?.passed } : null;
       return NextResponse.json({ ok: true, enrolled, aiTutor: enrolled && c.aiTutor !== false && aiConfigured(), lesson: { id: lessonId, title: l.title, moduleTitle: l.moduleTitle, kind: l.kind, body: l.body || '', downloadUrl: l.downloadUrl || null, downloadName: l.downloadName || null, preview: !!l.preview, video, durationSec: l.durationSec || null, minMinutes: l.minMinutes || 0, quiz,
-        flashcards: l.flashcards || [], activity: l.activity || null },
+        flashcards: l.flashcards || [], activity: l.activity || null, transcript: l.transcript || null },
         tracking: { compliance: !!c.compliance, checkEveryMin: c.compliance ? (c.attentionCheckMinutes ?? DEFAULT_RULES.attentionCheckMinutes) : 0, minEngagementPct: c.minEngagementPct ?? DEFAULT_RULES.minEngagementPct, minWatchPct: c.minWatchPct ?? DEFAULT_RULES.minWatchPct,
           engagedSec: stat.engagedSec || 0, watchedSec: stat.watchedSec || 0 } });
     }
@@ -320,7 +321,7 @@ Keep this link private.
       const lessons = await loadLessons(tenantId, courseId);
       const cur = lessons.find((l: any) => l.id === b.lessonId);
       const ordered = cur ? [cur, ...lessons.filter((l: any) => l.id !== cur.id)] : lessons;
-      let material = ''; for (const l of ordered) { const chunk = `\n### Lesson: ${l.title}\n${String(l.body || '').trim() || '(video lesson — no written notes)'}\n`; if (material.length + chunk.length > 24000) break; material += chunk; }
+      let material = ''; for (const l of ordered) { const chunk = `\n### Lesson: ${l.title}\n${String(l.body || '').trim()}${l.transcript ? `\n[Video transcript]\n${String(l.transcript).slice(0, 8000)}` : ''}${!l.body && !l.transcript ? '(video lesson — no notes or transcript yet)' : ''}\n`; if (material.length + chunk.length > 24000) break; material += chunk; }
       const r = await askClaude({ tier: 'fast', maxTokens: 700, purpose: 'academy-tutor', tenantId,
         system: `You are the study tutor for the course "${c.title}" at ${brand.name}. Answer ONLY from the course material below. If the material doesn't cover the question, say so plainly and suggest asking their instructor (they can message the school from "My courses") — do not answer from general knowledge. Never diagnose or give medical advice; for anything about a client's health, infection or contraindications, tell them to follow the course's rules and check with their instructor. Keep answers short and clear for a student, and end with the lesson(s) you used, like: (From: Lesson title).\n\nCOURSE MATERIAL:${material}`,
         prompt: question });
@@ -328,6 +329,15 @@ Keep this link private.
       await uRef.set({ n: used + 1, at: new Date().toISOString() }, { merge: true });
       await db.collection(`tenants/${tenantId}/tutorLogs`).add({ courseId, lessonId: b.lessonId || null, studentId: student.id, email: student.email, question, answer: r.text.slice(0, 4000), at: new Date().toISOString() });
       return NextResponse.json({ ok: true, answer: r.text, left: 29 - used });
+    }
+
+    // ── Live class (students) ──
+    if (b.action === 'live-find' || b.action === 'live-state' || b.action === 'live-answer') {
+      if (!student) return NextResponse.json({ ok: false, error: 'Sign in to join the class.', needsSignIn: true }, { status: 401 });
+      if (b.action === 'live-find') { const s = await findLive(tenantId, String(b.code || '')); return s ? NextResponse.json({ ok: true, sessionId: s.id, title: s.title }) : NextResponse.json({ ok: false, error: 'No live class with that code — check the screen.' }, { status: 404 }); }
+      if (b.action === 'live-answer') { try { await studentAnswer(tenantId, String(b.sessionId || ''), student.id, String(b.questionId || ''), Number(b.choice)); return NextResponse.json({ ok: true }); } catch (e: any) { return NextResponse.json({ ok: false, error: e.message }, { status: 400 }); } }
+      const st = await studentBeat(tenantId, String(b.sessionId || ''), student, !!b.visible);
+      return st ? NextResponse.json({ ok: true, ...st, brand }) : NextResponse.json({ ok: false, error: 'Class not found.' }, { status: 404 });
     }
 
     // ── Messages & announcements (students) ──
