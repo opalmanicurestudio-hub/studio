@@ -78,7 +78,8 @@ function Blocks({ blocks, accent }: { blocks: any[]; accent?: string | null }) {
             <div className="space-y-2">{s.text && <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{s.text}</p>}{s.media?.url && <img src={s.media.url} alt={`Step ${k + 1}`} className="w-full max-w-md rounded-2xl" />}</div></div>)}</Glass>
       );
       if (b.type === 'divider') return <hr key={i} className="border-white/70" />;
-      if (b.type === 'interactive') return <div key={i} className="space-y-1">{b.title && <p className="px-1 text-lg font-semibold">✨ {b.title}</p>}<InteractiveFrame html={b.html} title={b.title} accent={accent} /></div>;
+      // The interactive has its own heading inside the frame — nothing extra above it.
+      if (b.type === 'interactive') return <div key={i}><InteractiveFrame html={b.html} title={b.title} accent={accent} /></div>;
       if (b.type === 'hotspots') return b.media?.url ? <Hotspots key={i} b={b} /> : null;
       if (b.type === 'stages') return <Stages key={i} b={b} />;
       return null;
