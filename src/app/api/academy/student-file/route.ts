@@ -101,6 +101,7 @@ export async function POST(req: NextRequest) {
         profile: { id: studentId, name: st.name, email: st.email, dob: st.dob || null, phone: st.phone || a0?.phone || null, address: st.address || null, emergency: st.emergency || null, language: st.language || 'en', photo: st.referencePhoto?.ref || null, createdAt: st.createdAt },
         programs, admission: a0 ? { stage: a0.stage, source: a0.source, cohortId: a0.cohortId || null, agreement: a0.agreement ? { signedAt: a0.agreement.signedAt, signedName: a0.agreement.signedName, sha256: a0.agreement.sha256, countersignedBy: a0.agreement.countersignedBy || null, text: a0.agreement.text } : null, documents: a0.documents || {} } : null,
         files: files.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).sort((x: any, y: any) => String(y.at).localeCompare(String(x.at))),
+        signed: (await db.collection(`${T}/docAcks`).where('studentId', '==', studentId).limit(200).get()).docs.map((d: any) => { const a = d.data() as any; return { title: a.title, version: a.version, signedName: a.signedName, at: a.at }; }).sort((x: any, y: any) => String(y.at).localeCompare(String(x.at))),
         forms: forms.docs.map((d: any) => d.data()).sort((x: any, y: any) => String(x.dueAt).localeCompare(String(y.dueAt))),
         records, grades, notes: (st.staffNotes || []).slice().reverse(),
         messages: thread.docs.map((d: any) => d.data()).reverse(),
