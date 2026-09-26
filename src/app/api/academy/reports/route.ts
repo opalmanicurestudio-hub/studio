@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
   const db = getAdminDb(); const T = `tenants/${tenantId}`; const who = auth.actor.name || auth.actor.uid;
   const t = ((await db.doc(T).get()).data() as any) || {};
   const school = { name: t.name || 'The academy', address: [t.address, t.city, t.state, t.zip].filter(Boolean).join(', ') || t.businessAddress || '', phone: t.phone || '', email: t.email || '' };
+  const brand = { name: school.name, logoUrl: t.logoUrl || t.bookingPageSettings?.logoUrl || null, color: t.bookingPageSettings?.primaryColor || null, address: school.address || null };
   const progs = await db.collection(`${T}/programs`).limit(100).get();
   const P = new Map(progs.docs.map((x: any) => [x.id, x.data() as any]));
 
@@ -48,7 +49,7 @@ export async function POST(req: NextRequest) {
         startDate: e.startDate || null, status_: e.status, graduatedAt: e.graduatedAt || null, hours: pr.hours, requirements: pr.requirements, issuedAt, issuedBy: who };
       await db.doc(`platformDocuments/${code}`).set(doc);
       await appendAudit(tenantId, { type: 'report.hours_letter', studentId: e.studentId, by: who, summary: `Hours certification letter ${code} issued for ${e.name}: ${pr.hours.total} h (${pr.hours.online} online incl. ${pr.hours.live} live, ${pr.hours.inPerson} in person)`, data: { code } });
-      return NextResponse.json({ ok: true, letter: { ...doc, school, verifyUrl: `${linkOrigin(t, req.nextUrl.origin)}/verify/${code}` } });
+      return NextResponse.json({ ok: true, brand, letter: { ...doc, school, verifyUrl: `${linkOrigin(t, req.nextUrl.origin)}/verify/${code}` } });
     }
 
     if (b.action === 'attendance') {
@@ -69,7 +70,7 @@ export async function POST(req: NextRequest) {
         .filter((e: any) => e.status === 'active' || online[e.studentId] || inP[e.studentId] || liveM[e.studentId])
         .map((e: any) => [e.name, P.get(e.programId)?.name || '—', e.status, h(online[e.studentId] || 0), h(liveM[e.studentId] || 0), h(inP[e.studentId] || 0), h((online[e.studentId] || 0) + (liveM[e.studentId] || 0) + (inP[e.studentId] || 0)), open[e.studentId] || 0])
         .sort((a: any, c: any) => String(a[0]).localeCompare(String(c[0])));
-      return NextResponse.json({ ok: true, report: { title: `Monthly attendance — ${new Date(from).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`, subtitle: `${school.name}${b.programId ? ` · ${P.get(b.programId)?.name}` : ''}`,
+      return NextResponse.json({ ok: true, brand, report: { title: `Monthly attendance — ${new Date(from).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`, subtitle: `${school.name}${b.programId ? ` · ${P.get(b.programId)?.name}` : ''}`,
         columns: ['Student', 'Program', 'Status', 'Online (verified) h', 'Live class h', 'In person (approved) h', 'Total h', 'Punches not resolved'], rows,
         notes: ['Online hours count only verified active learning time. In-person hours count only closed or approved punches; punches not resolved earn no hours until an instructor corrects them.', 'Every entry is backed by the academy’s tamper-evident audit log.'] } });
     }
@@ -81,7 +82,7 @@ export async function POST(req: NextRequest) {
         for (const s of e.sap || []) rows.push([e.name, P.get(e.programId)?.name || '—', `${s.checkpoint} h`, d(s.at), s.hours, s.attendancePct ?? '—', s.quizAvg ?? '—', s.practicalAvg ?? '—', s.result, (s.fails || []).join('; ')]);
         if (!(e.sap || []).length && e.status === 'active') rows.push([e.name, P.get(e.programId)?.name || '—', '—', '—', '—', '—', '—', '—', 'no checkpoint yet', '']); }
       rows.sort((a, c) => String(a[0]).localeCompare(String(c[0])));
-      return NextResponse.json({ ok: true, report: { title: 'Satisfactory academic progress', subtitle: school.name, columns: ['Student', 'Program', 'Checkpoint', 'Checked', 'Hours', 'Attendance %', 'Quiz avg %', 'Practical avg', 'Result', 'Below minimum'], rows,
+      return NextResponse.json({ ok: true, brand, report: { title: 'Satisfactory academic progress', subtitle: school.name, columns: ['Student', 'Program', 'Checkpoint', 'Checked', 'Hours', 'Attendance %', 'Quiz avg %', 'Practical avg', 'Result', 'Below minimum'], rows,
         notes: ['Thresholds and checkpoints are the school’s program settings. Attendance % = hours completed ÷ hours scheduled at the time of the check.'] } });
     }
 
@@ -90,7 +91,7 @@ export async function POST(req: NextRequest) {
       const enr = await db.collection(`${T}/programEnrollments`).where('status', '==', 'graduated').limit(3000).get();
       const rows = enr.docs.map((x: any) => x.data() as any).filter((e: any) => !b.programId || e.programId === b.programId)
         .map((e: any) => [e.name, P.get(e.programId)?.name || '—', d(e.startDate), d(e.graduatedAt), e.journey?.license?.result || '—', e.journey?.license?.licenseNumber || '', e.journey?.placement?.status?.replace('_', ' ') || '—', e.journey?.placement?.where || '']);
-      return NextResponse.json({ ok: true, report: { title: 'Student outcomes', subtitle: `${school.name}${b.programId ? ` · ${P.get(b.programId)?.name}` : ''}`,
+      return NextResponse.json({ ok: true, brand, report: { title: 'Student outcomes', subtitle: `${school.name}${b.programId ? ` · ${P.get(b.programId)?.name}` : ''}`,
         summary: [['Completion', o.rates.completion == null ? '—' : `${o.rates.completion}%`, `${o.counts.graduated} graduated · ${o.counts.withdrawn} withdrew`], ['Licensure', o.rates.licensure == null ? '—' : `${o.rates.licensure}%`, `${o.counts.licensed} of ${o.counts.tookExam} passed`], ['Placement', o.rates.placement == null ? '—' : `${o.rates.placement}%`, `${o.counts.placed} of ${o.counts.graduated} graduates`]],
         columns: ['Graduate', 'Program', 'Started', 'Graduated', 'License exam', 'License #', 'Placement', 'Where'], rows,
         notes: ['Accreditors define these rates precisely (for example which students count and over what period) — check your accreditor’s formula before submitting.'] } });
