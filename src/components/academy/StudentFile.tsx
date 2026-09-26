@@ -56,7 +56,7 @@ export function StudentFile({ tenantId, studentId, brand, onClose }: { tenantId:
 
   const printFile = () => {
     const pr = prog;
-    printDocument({ title: `Student file — ${P.name}`, brand, body: `
+    printDocument({ title: `Student file — ${P.name}`, brand, official: { label: 'Certified true record — school official' }, body: `
       ${heading('Student', 'file')}<p class="sub">${esc(P.name)} · ${esc(P.email)}${P.dob ? ` · born ${esc(d(P.dob))}` : ''}</p>
       <div class="panel"><b>Contact</b> ${esc(P.phone || '—')} · ${esc(P.address || '—')}<br><b>Emergency</b> ${esc(P.emergency?.name || '—')} ${P.emergency?.relation ? `(${esc(P.emergency.relation)})` : ''} ${esc(P.emergency?.phone || '')}</div>
       ${f.programs.map((p: any) => `
@@ -262,12 +262,13 @@ function AccommodationsCard({ value, canManage, onSave }: any) {
 }
 
 // ── Letters ───────────────────────────────────────────────────────────────
-function letterTemplates(f: any) {
+function letterTemplates(f: any, brand?: any) {
   const P = f.profile || {}; const pr = (f.programs || [])[0] || {};
   const first = String(P.name || 'Student').split(' ')[0]; const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   const prog = pr.name || '[[fill in: program]]'; const start = pr.startDate ? new Date(pr.startDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : '[[fill in: start date]]';
   const hrs = pr.hours ? `${pr.hours.total} of ${pr.totalHours || '—'} hours` : '[[fill in: hours]]';
-  const sign = '\n\nSincerely,\n\n[[fill in: your name and title]]';
+  // With a signer in School identity, the official block below the letter carries the signature, name and title.
+  const sign = brand?.signerName ? '\n\nSincerely,' : '\n\nSincerely,\n\n[[fill in: your name and title]]';
   return [
     { kind: 'enrolment', title: 'Enrolment confirmation', body: `Dear ${first},\n\nWelcome! This letter confirms your enrolment in **${prog}**, starting ${start}.\n\n# What happens next\n- Your student portal is where you’ll find lessons, hours and your to-do list\n- Please read and sign the student handbook in your portal\n- Bring [[fill in: what to bring on day one]]\n\nWe’re glad to have you.${sign}` },
     { kind: 'warning', title: 'Progress warning', body: `Dear ${first},\n\nThis letter is a formal notice about your progress in **${prog}** as of ${today}. You have completed ${hrs}.\n\n# What we noticed\n[[fill in: what isn’t meeting the standard — attendance, grades or practicals]]\n\n# What needs to happen\n[[fill in: the improvement plan and the date it will be reviewed]]\n\nWe want you to succeed. Please speak with us if anything is getting in the way — we can help.${sign}` },
@@ -279,11 +280,11 @@ function letterTemplates(f: any) {
   ];
 }
 function Letters({ f, brand, onSend }: any) {
-  const tpls = letterTemplates(f);
+  const tpls = letterTemplates(f, brand);
   const [cur, setCur] = useState<any>(null); const [busy, setBusy] = useState('');
   const holes = (t: string) => (String(t || '').match(/\[\[[^\]]*\]\]/g) || []).length;
   const P = f.profile || {};
-  const print = (t: string, b: string, when?: string) => printDocument({ title: t, brand, body: `<p class="muted">${esc(new Date(when || Date.now()).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }))}</p><p><b>${esc(P.name || '')}</b>${P.address ? `<br>${esc(P.address)}` : ''}</p>${heading('', t)}${mdLite(b)}` });
+  const print = (t: string, b: string, when?: string) => printDocument({ title: t, brand, official: { date: new Date(when || Date.now()).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) }, body: `<p class="muted">${esc(new Date(when || Date.now()).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }))}</p><p><b>${esc(P.name || '')}</b>${P.address ? `<br>${esc(P.address)}` : ''}</p>${heading('', t)}${mdLite(b)}` });
   return (
     <section className="space-y-3">
       {!cur ? <>
