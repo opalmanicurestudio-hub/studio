@@ -11,7 +11,7 @@
 //   Students     who's enrolled, since when, how far they've got
 
 import { CourseBoard } from '@/components/academy/CourseBoard';
-import { AddToLesson, LessonPreview, TemplatePicker, LESSON_KINDS } from '@/components/academy/LessonCanvas';
+import { AddToLesson, LessonPreview, TemplatePicker, LESSON_KINDS, FileToLesson, printStudyGuide } from '@/components/academy/LessonCanvas';
 import { ModuleSettings, GamifySetting, modKey } from '@/components/academy/ModuleSettings';
 import { AiCreditsMeter } from '@/components/academy/AiCreditsMeter';
 import { deviceId } from '@/lib/device';
@@ -79,7 +79,7 @@ export default function AcademyBuilderPage() {
   const [form, setForm] = useState<any>(null);
   const [lesson, setLesson] = useState<any>(null);   // the lesson being edited
   // The lesson canvas: ＋ picker, settings drawer, phone preview (phones), template picker.
-  const [addOpen, setAddOpen] = useState(false); const [drawer, setDrawer] = useState(false); const [showPrev, setShowPrev] = useState(false); const [pickTpl, setPickTpl] = useState<string | boolean>(false);
+  const [addOpen, setAddOpen] = useState(false); const [drawer, setDrawer] = useState(false); const [showPrev, setShowPrev] = useState(false); const [pickTpl, setPickTpl] = useState<string | boolean>(false); const [fromFile, setFromFile] = useState<string | null>(null);
   const [students, setStudents] = useState<any[] | null>(null);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState('');
@@ -352,7 +352,8 @@ export default function AcademyBuilderPage() {
                     onAddLesson={(title) => setPickTpl(title)}
                     onNewModule={() => { const t = window.prompt('Name the new module', `Module ${modules.length + 1}`); if (t && t.trim()) setPickTpl(t.trim()); }} />
                   {!lesson && !(d.lessons || []).length && <button type="button" onClick={() => setPickTpl(true)} className="inline-flex h-10 items-center gap-1.5 rounded-xl border-2 border-dashed px-4 text-sm font-bold"><Plus className="h-4 w-4" />Add a lesson</button>}
-                  {pickTpl && <TemplatePicker onClose={() => setPickTpl(false)} onPick={(tpl) => { setPickTpl(false); setLesson({ ...blankLesson(typeof pickTpl === 'string' ? pickTpl : modules[modules.length - 1]?.title), stepMode: true, ...tpl }); }} />}
+                  {fromFile && <FileToLesson call={(body) => api({ ...body, tenantId, courseId: sel })} onClose={() => setFromFile(null)} onDraft={(dr) => { const mod = fromFile; setFromFile(null); setLesson({ ...blankLesson(mod), stepMode: true, ...dr }); setMsg('Here’s the draft from your file — check it, change anything, then Save.'); }} />}
+                  {pickTpl && <TemplatePicker onClose={() => setPickTpl(false)} onFromFile={() => { setFromFile(typeof pickTpl === 'string' ? pickTpl : modules[modules.length - 1]?.title || 'Module 1'); setPickTpl(false); }} onPick={(tpl) => { setPickTpl(false); setLesson({ ...blankLesson(typeof pickTpl === 'string' ? pickTpl : modules[modules.length - 1]?.title), stepMode: true, ...tpl }); }} />}
 
                   {lesson && (
                     <div className="fixed inset-0 z-50 overflow-y-auto bg-background">
@@ -489,7 +490,8 @@ export default function AcademyBuilderPage() {
                       {drawer && (
                         <div className="fixed inset-0 z-[60] flex justify-end bg-black/30" onClick={() => setDrawer(false)}>
                           <div onClick={(e) => e.stopPropagation()} className="h-full w-full max-w-md space-y-4 overflow-y-auto bg-background p-5 shadow-2xl">
-                            <div className="flex items-center justify-between"><p className="text-xl font-black">Lesson settings</p><button type="button" onClick={() => setDrawer(false)} className="text-sm font-bold text-muted-foreground">Done</button></div>
+                            <button type="button" onClick={() => printStudyGuide(lesson, docBrand)} className="h-11 w-full rounded-xl border-2 text-sm font-bold">🖨 Print study guide</button>
+                      <div className="flex items-center justify-between"><p className="text-xl font-black">Lesson settings</p><button type="button" onClick={() => setDrawer(false)} className="text-sm font-bold text-muted-foreground">Done</button></div>
                             <label className="flex items-start gap-3 rounded-2xl bg-muted/40 p-3 text-sm"><input type="checkbox" className="mt-1" checked={lesson.stepMode === true} onChange={(e) => setLesson({ ...lesson, stepMode: e.target.checked })} /><span><b>Show one step at a time</b><span className="block text-[12px] text-muted-foreground">Students swipe through the lesson screen by screen, with a progress bar — great on phones.</span></span></label>
                             <div className="rounded-2xl bg-muted/40 p-3 text-sm"><label className="ml-auto inline-flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={lesson.preview} onChange={(e) => setLesson({ ...lesson, preview: e.target.checked })} />Free preview</label><p className="text-[12px] text-muted-foreground">Anyone can open this lesson before enrolling.</p></div>
                       <div className="grid gap-2 md:grid-cols-2">
