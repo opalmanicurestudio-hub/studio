@@ -85,6 +85,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ...out });
     }
 
+    // ── Rotation: weekly duty rota for the student salon ──
+    if (b.action === 'rotation-get' || b.action === 'rotation-save') {
+      const week = /^\d{4}-\d{2}-\d{2}$/.test(String(b.week || '')) ? String(b.week) : (() => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.toISOString().slice(0, 10); })();
+      const ref = db.doc(`tenants/${tenantId}/rotations/${week}`);
+      if (b.action === 'rotation-save') {
+        if (!isLead && !isInstructor) return NextResponse.json({ ok: false, error: 'Not allowed.' }, { status: 403 });
+        const stations = (Array.isArray(b.stations) ? b.stations : []).map((x: any) => String(x).trim().slice(0, 40)).filter(Boolean).slice(0, 10);
+        const days = (Array.isArray(b.days) ? b.days : []).filter((x: any) => ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].includes(x));
+        const clean: any = {};
+        for (const dk of days) { clean[dk] = {}; for (const st of stations) clean[dk][st] = ((b.assignments?.[dk]?.[st]) || []).map(String).slice(0, 30); }
+        await ref.set({ week, stations, days, assignments: clean, published: !!b.publish, updatedAt: now, updatedBy: who }, { merge: false });
+        if (b.publish) await appendAudit(tenantId, { type: 'rotation.published', by: who, summary: `Rotation for the week of ${week} published (${stations.length} stations, ${days.length} days)` });
+        return NextResponse.json({ ok: true });
+      }
+      const [r, prev, stu] = await Promise.all([ref.get(), db.collection(`tenants/${tenantId}/rotations`).orderBy('week', 'desc').limit(1).get(),
+        db.collection(`tenants/${tenantId}/programEnrollments`).where('status', '==', 'active').limit(1000).get()]);
+      const last = prev.docs[0]?.data() as any;
+      return NextResponse.json({ ok: true, week, rotation: r.exists ? r.data() : null,
+        defaults: { stations: last?.stations || ['Clinic floor', 'Dispensary', 'Front desk', 'Sanitation'], days: last?.days || ['tue', 'wed', 'thu', 'fri', 'sat'] },
+        students: stu.docs.map((d: any) => { const e = d.data() as any; return { id: e.studentId, name: e.name }; }).sort((a: any, c: any) => String(a.name).localeCompare(String(c.name))) });
+    }
+
     if (b.action === 'mode') {
       const mode = b.mode === 'school' ? 'school' : 'courses';
       await db.doc(`tenants/${tenantId}`).set({ academy: { mode } }, { merge: true });
@@ -117,6 +139,10 @@ export async function POST(req: NextRequest) {
       await ref.set(next, { merge: true });
       // Keep active students on the clinic services this program now uses.
       const added = allServiceIds(next).filter((x) => !allServiceIds(cur).includes(x)), removed = allServiceIds(cur).filter((x) => !allServiceIds(next).includes(x));
+      if (cur.tipPolicy !== next.tipPolicy) {
+        const act = await db.collection(`tenants/${tenantId}/programEnrollments`).where('programId', '==', ref.id).limit(2000).get();
+        for (const d of act.docs) { const e = d.data() as any; if (e.staffId) await db.doc(`tenants/${tenantId}/staff/${e.staffId}`).set({ tipPolicy: next.tipPolicy }, { merge: true }); }
+      }
       if (added.length || removed.length) {
         const act = await db.collection(`tenants/${tenantId}/programEnrollments`).where('programId', '==', ref.id).where('status', '==', 'active').limit(1000).get();
         for (const d of act.docs) { const e = d.data() as any; if (added.length) await setClinicServices(tenantId, e.staffId, added, true); if (removed.length) await setClinicServices(tenantId, e.staffId, removed, false); }
