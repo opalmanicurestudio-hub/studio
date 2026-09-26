@@ -64,10 +64,12 @@ function Assignment({ tenantId, courseId, lessonId, color }: { tenantId: string;
 }
 
 // ── Lesson content blocks (student view) ────────────────────────────────
-function Blocks({ blocks, accent }: { blocks: any[]; accent?: string | null }) {
+function Blocks({ blocks, accent, hideAt }: { blocks: any[]; accent?: string | null; hideAt?: (i: number) => string }) {
   const tone: Record<string, [string, string]> = { safety: ['🛑 Safety', 'border-red-200 bg-red-50/90 text-red-950'], key: ['⭐ Key point', 'border-amber-200 bg-amber-50/90 text-amber-950'], tip: ['💡 Tip', 'border-sky-200 bg-sky-50/90 text-sky-950'] };
   return (
-    <div className="space-y-4">{blocks.map((b: any, i: number) => {
+    <div className="space-y-4">{blocks.map((b: any, i: number) => <div key={i} className={hideAt ? hideAt(i) : ''}>{oneBlock(b, i)}</div>)}</div>
+  );
+  function oneBlock(b: any, i: number) {
       if (b.type === 'text') return <Glass key={i}><Prose text={b.text} /></Glass>;
       if (b.type === 'callout') return <div key={i} className={`rounded-[1.25rem] border-2 p-4 ${tone[b.tone]?.[1] || ''}`}><p className="text-[12px] font-semibold uppercase tracking-widest">{tone[b.tone]?.[0]}</p><p className="mt-1 whitespace-pre-wrap text-[15px]">{b.text}</p></div>;
       if (b.type === 'image') return b.media?.url ? <figure key={i}><img src={b.media.url} alt={b.caption || ''} className="w-full rounded-[1.25rem]" />{b.caption && <figcaption className="mt-1 text-center text-[13px] text-stone-500">{b.caption}</figcaption>}</figure> : null;
@@ -82,8 +84,7 @@ function Blocks({ blocks, accent }: { blocks: any[]; accent?: string | null }) {
       if (b.type === 'hotspots') return b.media?.url ? <Hotspots key={i} b={b} /> : null;
       if (b.type === 'stages') return <Stages key={i} b={b} />;
       return null;
-    })}</div>
-  );
+  }
 }
 
 // ── Accessibility: size, contrast, easier font, less motion (this device) ─
@@ -624,6 +625,9 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
   // Must be set up before the loading return below (React needs the same order every render).
   const [cheer, setCheer] = useState(0);
   const [recap, setRecap] = useState<any>(null); const [gained, setGained] = useState(0);
+  // One step at a time: which step is on screen, and whether the student chose "Show all".
+  const [stepAt, setStepAt] = useState(0); const [showAll, setShowAll] = useState(false);
+  useEffect(() => { setStepAt(0); }, [lessonId]);
   // Video pop-up questions: pause at each time; scrubbing past one still asks it.
   const playerEl = useRef<any>(null);
   const [vq, setVq] = useState<any>(null); const [vqPick, setVqPick] = useState<number | null>(null);
@@ -658,6 +662,24 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
   const trk = lesson.tracking || {};
   const engaged = Math.max(eng.engagedSec, trk.engagedSec || 0), watched = Math.max(eng.watchedSec, trk.watchedSec || 0);
   const dur = L?.durationSec || 0;
+  // The lesson's steps (only used when the lesson has step mode on and there's more than one).
+  const stepIds: string[] = [];
+  if (L) {
+    if (L.kind === 'video') stepIds.push('video');
+    if (L.body) stepIds.push('body');
+    (L.blocks || []).forEach((_: any, i: number) => stepIds.push(`block:${i}`));
+    if (lesson.enrolled && L.kind === 'assignment') stepIds.push('assignment');
+    if (lesson.enrolled && L.cases?.cases?.length > 0) stepIds.push('cases');
+    if (lesson.enrolled && L.activity) stepIds.push('activity');
+    if (lesson.enrolled && L.flashcards?.length > 0) stepIds.push('flashcards');
+    if (L.downloadUrl) stepIds.push('download');
+    if (L.quiz && lesson.enrolled) stepIds.push('quiz');
+  }
+  const stepping = !!L?.stepMode && !showAll && stepIds.length > 1;
+  const cur = Math.min(stepAt, Math.max(0, stepIds.length - 1));
+  const hide = (id: string) => (stepping && stepIds[cur] !== id ? 'hidden' : '');
+  const lastStep = !stepping || cur >= stepIds.length - 1;
+  const goStep = (n: number) => { if (stepIds[cur] === 'video' && stepIds[n] !== 'video') { try { playerEl.current?.pause?.(); } catch { /* */ } } setStepAt(n); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const complete = async () => {
     setBusy(true); setNote('');
     const r = await api({ action: 'progress', tenantId, token, courseId: course.course.id, lessonId, done: !done });
@@ -697,9 +719,13 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
                   {vqPick != null && <><p className="text-sm text-stone-600">{vqPick === vq.answer ? '✓ Right. ' : 'Not quite. '}{vq.explain}</p>
                     <button type="button" onClick={() => { const n = new Map(vqDone); n.set(vq.i, vqPick === vq.answer); setVqDone(n); setVq(null); setVqPick(null); if (n.size === (L.videoQuestions || []).length) void api({ action: 'activity-score', part: 'video', tenantId, token, courseId: course.course.id, lessonId, pct: Math.round(([...n.values()].filter(Boolean).length / n.size) * 100) }); try { playerEl.current?.play?.(); } catch { /* */ } }} className="h-12 w-full rounded-full text-sm font-medium text-white" style={{ background: color }}>Keep watching</button></>}
                 </div></div>}
+              {stepping && <div className="cf-rise space-y-1"><div className="flex gap-1">{stepIds.map((id, i) => <button key={id} type="button" aria-label={`Step ${i + 1}`} onClick={() => goStep(i)} className="h-1.5 flex-1 rounded-full transition-colors" style={{ background: i <= cur ? color : 'rgba(120,113,108,.2)' }} />)}</div>
+                <p className="flex justify-between text-[12px] text-stone-500"><span>Step {cur + 1} of {stepIds.length}</span><button type="button" onClick={() => setShowAll(true)} className="underline">Show all</button></p></div>}
+              <div className={hide('video')}>
               {mode === 'mux' && <MuxPlayer playbackId={L.video.playbackId} token={L.video.token} color={color} title={L.title} bind={(el: any) => { eng.bindPlayer(el); playerEl.current = el; }} />}
               {mode === 'embed' && L.video.url && <iframe src={L.video.url} title={L.title} className="aspect-video w-full rounded-[1.25rem]" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen />}
               {L.kind === 'video' && !L.video && <Glass><p className="text-stone-600">This video is being prepared — check back shortly.</p></Glass>}
+              </div>
               {lesson.enrolled && (
                 <div className="glass flex flex-wrap items-center gap-x-4 gap-y-1 rounded-2xl border border-white/70 px-4 py-2.5 text-[13px] text-stone-600">
                   <span>⏱ Active time: <span className="font-semibold text-stone-900">{Math.floor(engaged / 60)} min</span>{trk.compliance && dur ? ` of ${Math.ceil((dur * (trk.minEngagementPct || 80)) / 100 / 60)} needed` : ''}{trk.compliance && L.minMinutes ? ` of ${L.minMinutes} needed` : ''}</span>
@@ -708,19 +734,19 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
                   {trk.compliance && <span className="w-full text-[11px] text-stone-400">This course records verified learning time for your school. Time counts while this page is open and you’re actively learning.</span>}
                 </div>
               )}
-              {L.body && <Glass className="space-y-3"><div className="flex justify-end"><Listen text={L.body} /></div><Prose text={L.body} /></Glass>}
+              {L.body && <Glass className={`space-y-3 ${hide('body')}`}><div className="flex justify-end"><Listen text={L.body} /></div><Prose text={L.body} /></Glass>}
               <Celebrate show={cheer > 0} color={color} key={cheer} />
               {gained > 0 && <p key={`g${cheer}`} className="cf-pop fixed left-1/2 top-20 z-40 -translate-x-1/2 rounded-full bg-white px-4 py-2 text-sm font-semibold shadow-lg" style={{ color }}>+{gained} points</p>}
               {recap && <ModuleRecap r={recap} color={color} onDone={() => { window.location.href = `/learn/${tenantId}/${slug}`; }} />}
-              {(L.blocks || []).length > 0 && <Blocks blocks={L.blocks} accent={color} />}
-              {lesson.enrolled && L.kind === 'assignment' && <Assignment tenantId={tenantId} courseId={course.course.id} lessonId={lessonId} color={color} />}
+              {(L.blocks || []).length > 0 && <Blocks blocks={L.blocks} accent={color} hideAt={(i: number) => hide(`block:${i}`)} />}
+              {lesson.enrolled && L.kind === 'assignment' && <div className={hide('assignment')}><Assignment tenantId={tenantId} courseId={course.course.id} lessonId={lessonId} color={color} /></div>}
               {L.transcript && <details className="glass rounded-2xl border border-white/70 px-4 py-3"><summary className="cursor-pointer text-sm font-semibold">📄 Transcript</summary><p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap text-[15px] leading-relaxed text-stone-700">{L.transcript}</p></details>}
-              {lesson.enrolled && L.cases?.cases?.length > 0 && <Cases c={L.cases} color={color} report={(pct) => void api({ action: 'activity-score', part: 'cases', tenantId, token, courseId: course.course.id, lessonId, pct })} />}
-              {lesson.enrolled && L.activity && <Activity a={L.activity} color={color} report={(pct) => void api({ action: 'activity-score', tenantId, token, courseId: course.course.id, lessonId, pct })} />}
-              {lesson.enrolled && L.flashcards?.length > 0 && <Flashcards cards={L.flashcards} color={color} />}
-              {L.downloadUrl && <a href={L.downloadUrl} target="_blank" rel="noreferrer" className="glass flex items-center justify-between rounded-2xl border border-white/70 px-4 py-3 text-sm"><span>↓ {L.downloadName || 'Download'}</span><span className="text-stone-500">Open</span></a>}
+              {lesson.enrolled && L.cases?.cases?.length > 0 && <div className={hide('cases')}><Cases c={L.cases} color={color} report={(pct) => void api({ action: 'activity-score', part: 'cases', tenantId, token, courseId: course.course.id, lessonId, pct })} /></div>}
+              {lesson.enrolled && L.activity && <div className={hide('activity')}><Activity a={L.activity} color={color} report={(pct) => void api({ action: 'activity-score', tenantId, token, courseId: course.course.id, lessonId, pct })} /></div>}
+              {lesson.enrolled && L.flashcards?.length > 0 && <div className={hide('flashcards')}><Flashcards cards={L.flashcards} color={color} /></div>}
+              {L.downloadUrl && <div className={hide('download')}><a href={L.downloadUrl} target="_blank" rel="noreferrer" className="glass flex items-center justify-between rounded-2xl border border-white/70 px-4 py-3 text-sm"><span>↓ {L.downloadName || 'Download'}</span><span className="text-stone-500">Open</span></a></div>}
               {L.quiz && lesson.enrolled && (
-                <Glass className="space-y-4">
+                <Glass className={`space-y-4 ${hide('quiz')}`}>
                   <div className="flex items-baseline justify-between"><p className="text-lg font-semibold">Quiz</p><p className="text-[12px] text-stone-500">Pass mark {L.quiz.passPct}%{L.quiz.passed ? ' · ✓ passed' : ''}</p></div>
                   {L.quiz.questions.map((q: any, k: number) => (
                     <div key={k} className={`rounded-2xl p-3 ${quizResult?.wrong?.includes(k) ? 'bg-red-50' : 'bg-white/60'}`}>
@@ -737,7 +763,9 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
               )}
               {lesson.aiTutor && <Tutor tenantId={tenantId} courseId={course.course.id} lessonId={lessonId} color={color} />}
               {note && <p className="rounded-2xl bg-amber-50 p-3 text-sm text-amber-900">{note}</p>}
-              <div className="flex flex-wrap items-center gap-2">
+              {stepping && !lastStep && <div className="sticky bottom-3 z-20 flex gap-2 rounded-full bg-white/85 p-1.5 shadow-lg backdrop-blur"><button type="button" disabled={cur === 0} onClick={() => goStep(cur - 1)} className="h-12 flex-1 rounded-full text-sm disabled:opacity-40">Back</button><button type="button" onClick={() => goStep(cur + 1)} className="h-12 flex-[2] rounded-full text-sm font-medium text-white" style={{ background: color }}>Next</button></div>}
+              {stepping && lastStep && cur > 0 && <button type="button" onClick={() => goStep(cur - 1)} className="text-sm text-stone-500 underline">← Back a step</button>}
+              <div className={`flex flex-wrap items-center gap-2 ${stepping && !lastStep ? 'hidden' : ''}`}>
                 {prev && <Link href={`/learn/${tenantId}/${slug}/${prev.id}`} className="rounded-full bg-white/70 px-4 py-2.5 text-sm">← Previous</Link>}
                 {lesson.enrolled ? (
                   <button type="button" disabled={busy || (done && trk.compliance)} onClick={complete} className="ml-auto rounded-full px-5 py-2.5 text-sm font-medium text-white disabled:opacity-60" style={{ background: color }}>{done ? '✓ Completed' : next ? 'Mark complete → next' : 'Mark complete'}</button>
