@@ -53,7 +53,8 @@ async function resolveBlocks(tenantId: string, courseId: string, blocks: any[]) 
   };
   const out = [];
   for (const b of blocks) {
-    if (b.type === 'image' || b.type === 'file') out.push({ ...b, media: await link(b.mediaId) });
+    if (b.type === 'image' || b.type === 'file' || b.type === 'hotspots') out.push({ ...b, media: await link(b.mediaId) });
+    else if (b.type === 'stages') out.push({ ...b, stages: await Promise.all((b.stages || []).map(async (x: any) => ({ ...x, media: await link(x.mediaId) }))) });
     else if (b.type === 'steps') out.push({ ...b, steps: await Promise.all((b.steps || []).map(async (x: any) => ({ ...x, media: await link(x.mediaId) }))) });
     else out.push(b);
   }
@@ -194,7 +195,9 @@ export async function POST(req: NextRequest) {
       const quiz = l.quiz?.questions?.length ? { passPct: l.quiz.passPct || 80, questions: l.quiz.questions.map((q: any) => ({ q: q.q, options: q.options })), attempts: (enr.quiz?.[lessonId]?.attempts || []).slice(-5), passed: !!enr.quiz?.[lessonId]?.passed } : null;
       const studentLang = student ? ((((await db.doc(`tenants/${tenantId}/students/${student.id}`).get()).data() as any) || {}).language || 'en') : 'en';
       return NextResponse.json({ ok: true, enrolled, studentLang, aiTutor: enrolled && c.aiTutor !== false && aiConfigured(), lesson: { id: lessonId, title: l.title, moduleTitle: l.moduleTitle, kind: l.kind, body: l.body || '', downloadUrl: l.downloadUrl || null, downloadName: l.downloadName || null, preview: !!l.preview, video, durationSec: l.durationSec || null, minMinutes: l.minMinutes || 0, quiz,
-        flashcards: l.flashcards || [], activity: l.activity || null, transcript: l.transcript || null, blocks: await resolveBlocks(tenantId, courseId, l.blocks || []) },
+        flashcards: l.flashcards || [], activity: l.activity || null, transcript: l.transcript || null, blocks: await resolveBlocks(tenantId, courseId, l.blocks || []),
+          cases: l.cases ? { ...l.cases, cases: await Promise.all(l.cases.cases.map(async (x: any) => ({ ...x, media: x.mediaId ? (await resolveBlocks(tenantId, courseId, [{ type: 'image', mediaId: x.mediaId }]))[0]?.media || null : null }))) } : null,
+          videoQuestions: l.kind === 'video' ? l.videoQuestions || [] : [] },
         tracking: { compliance: !!c.compliance, checkEveryMin: c.compliance ? (c.attentionCheckMinutes ?? DEFAULT_RULES.attentionCheckMinutes) : 0, minEngagementPct: c.minEngagementPct ?? DEFAULT_RULES.minEngagementPct, minWatchPct: c.minWatchPct ?? DEFAULT_RULES.minWatchPct,
           engagedSec: stat.engagedSec || 0, watchedSec: stat.watchedSec || 0 } });
     }
@@ -507,12 +510,53 @@ Keep this link private.
       const e = ((await eRef.get()).data() as any) || null;
       if (!e) return NextResponse.json({ ok: false, error: 'Not enrolled.' }, { status: 403 });
       const lx = ((await db.doc(`tenants/${tenantId}/courses/${courseId}/lessons/${lessonId}`).get()).data() as any) || null;
-      if (!lx?.activity) return NextResponse.json({ ok: false, error: 'No activity here.' }, { status: 400 });
+      const part = ['cases', 'video'].includes(b.part) ? b.part : 'activity';
+      if (part === 'activity' && !lx?.activity) return NextResponse.json({ ok: false, error: 'No activity here.' }, { status: 400 });
+      if (part === 'cases' && !lx?.cases) return NextResponse.json({ ok: false, error: 'No cases here.' }, { status: 400 });
+      if (part === 'video' && !(lx?.videoQuestions || []).length) return NextResponse.json({ ok: false, error: 'No video questions here.' }, { status: 400 });
       const pct = Math.max(0, Math.min(100, Math.round(Number(b.pct) || 0)));
-      const key = `act_${lessonId}`; const prev = e.quiz?.[key];
+      const key = `${part === 'cases' ? 'cases' : part === 'video' ? 'vq' : 'act'}_${lessonId}`; const prev = e.quiz?.[key];
       const at = new Date().toISOString();
-      await eRef.set({ quiz: { [key]: { best: Math.max(prev?.best || 0, pct), passed: Math.max(prev?.best || 0, pct) >= 70, attempts: [...(prev?.attempts || []).slice(-19), { at, score: pct, passed: pct >= 70 }], title: lx.title, activity: lx.activity.type } } }, { merge: true });
+      await eRef.set({ quiz: { [key]: { best: Math.max(prev?.best || 0, pct), passed: Math.max(prev?.best || 0, pct) >= 70, attempts: [...(prev?.attempts || []).slice(-19), { at, score: pct, passed: pct >= 70 }], title: part === 'cases' ? `${lx.title} — cases` : part === 'video' ? `${lx.title} — video questions` : lx.title, activity: part === 'activity' ? lx.activity.type : part } } }, { merge: true });
       return NextResponse.json({ ok: true, best: Math.max(prev?.best || 0, pct) });
+    }
+
+    // ── State-board practice: timed, mixed questions from enrolled courses' banks ──
+    if (['practice-info', 'practice-start', 'practice-submit'].includes(b.action)) {
+      if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+      const T = `tenants/${tenantId}`;
+      const enr = await db.collection(`${T}/enrollments`).where('studentId', '==', student.id).limit(100).get();
+      const courseIds = enr.docs.map((d: any) => (d.data() as any).courseId).filter(Boolean);
+      const bank: any[] = [];
+      for (let i = 0; i < courseIds.length; i += 10) { const q = await db.collection(`${T}/questionBank`).where('courseId', 'in', courseIds.slice(i, i + 10)).limit(3000).get(); q.docs.forEach((d: any) => bank.push(d.data())); }
+      const hist = db.collection(`${T}/practiceAttempts`);
+      if (b.action === 'practice-info') {
+        const h = await hist.where('studentId', '==', student.id).limit(50).get();
+        return NextResponse.json({ ok: true, available: bank.length, history: h.docs.map((d: any) => d.data() as any).filter((x: any) => x.submittedAt).sort((x: any, y: any) => String(y.submittedAt).localeCompare(String(x.submittedAt))).slice(0, 10).map((x: any) => ({ at: x.submittedAt, pct: x.pct, count: x.count, weakest: x.weakest || [] })) });
+      }
+      if (b.action === 'practice-start') {
+        if (bank.length < 5) return NextResponse.json({ ok: false, error: 'Your school hasn’t added enough practice questions yet.' }, { status: 400 });
+        const count = Math.max(5, Math.min(100, Number(b.count) || 25, bank.length));
+        const minutes = Math.max(5, Math.min(180, Number(b.minutes) || Math.round(count * 1.2)));
+        const pick = [...bank].sort(() => Math.random() - 0.5).slice(0, count);
+        const ref = hist.doc(); const at = new Date();
+        await ref.set({ id: ref.id, studentId: student.id, startedAt: at.toISOString(), endsAt: new Date(at.getTime() + minutes * 60000).toISOString(), count, questionIds: pick.map((q) => q.id) });
+        // Answers stay on the server until the student hands in.
+        return NextResponse.json({ ok: true, attemptId: ref.id, endsAt: new Date(at.getTime() + minutes * 60000).toISOString(), questions: pick.map((q) => ({ id: q.id, q: q.q, options: q.options, topic: q.topic || 'General' })) });
+      }
+      const ref = hist.doc(String(b.attemptId || '')); const a = ((await ref.get()).data() as any) || null;
+      if (!a || a.studentId !== student.id) return NextResponse.json({ ok: false, error: 'Practice not found.' }, { status: 404 });
+      if (a.submittedAt) return NextResponse.json({ ok: false, error: 'Already handed in.' }, { status: 400 });
+      const byId = new Map(bank.map((q) => [q.id, q]));
+      const answers = Array.isArray(b.answers) ? b.answers : [];
+      const topics: Record<string, { right: number; total: number }> = {}; let right = 0;
+      const review = a.questionIds.map((id: string, i: number) => { const q = byId.get(id); if (!q) return null; const ok = Number(answers[i]) === q.answer; if (ok) right++; const tp = q.topic || 'General'; topics[tp] = topics[tp] || { right: 0, total: 0 }; topics[tp].total++; if (ok) topics[tp].right++;
+        return { q: q.q, options: q.options, answer: q.answer, chose: answers[i] ?? null, ok, explanation: q.explanation || null, topic: tp }; }).filter(Boolean);
+      const pct = Math.round((right / Math.max(1, review.length)) * 100);
+      const byTopic = Object.entries(topics).map(([t, v]) => ({ topic: t, ...v, pct: Math.round((v.right / v.total) * 100) })).sort((x, y) => x.pct - y.pct);
+      const late = Date.now() > new Date(a.endsAt).getTime() + 30000;
+      await ref.set({ submittedAt: new Date().toISOString(), pct, right, late, weakest: byTopic.slice(0, 3).filter((x) => x.pct < 70).map((x) => x.topic) }, { merge: true });
+      return NextResponse.json({ ok: true, pct, right, total: review.length, late, byTopic, review });
     }
 
     // ── Assignments (students) ──
