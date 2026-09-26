@@ -36,13 +36,14 @@ const S = {
   cardSaved: 'Card updated.', retried: 'We tried your payment again:', success: 'it went through', failed: 'it didn’t go through — please try another card',
   write: 'Write to your school', send: 'Send', showOriginal: 'Show original', showTranslation: 'Show translation', translatedNote: 'Translated automatically',
   agreement: 'Enrolment agreement', signedOn: 'Signed on', readingAid: 'Translation to help you understand — the English original is the version you signed.',
+  todo: 'To do', dueWord: 'Due', overdueWord: 'Overdue', reviewWord: 'Review', allDone: 'All caught up', lessonsWord: 'lessons', goWord: 'Start',
   toGo: 'to go', certificates: 'Certificates',
   practice: 'State-board practice', practiceHint: 'Timed, mixed questions from your courses — see which topics to study.', questionsWord: 'questions', startPractice: 'Start', handIn: 'Hand in', timeLeft: 'left', unanswered: 'unanswered',
   yourScore: 'Your score', byTopic: 'By topic', studyNext: 'Study these next', review: 'Questions you missed', rightAnswer: 'Right answer', recent: 'Recent attempts', prev: 'Back', nextQ: 'Next', close: 'Close', notEnough: 'Your school hasn’t added practice questions yet.', letters: 'Hours letters', uploads: 'Your documents', nothingYet: 'Nothing here yet.', signOut: 'Sign out', joinLive: 'Join a live class',
   statusApproved: 'approved', statusOpen: 'on the floor', statusFlagged: 'needs your instructor', statusPending: 'waiting for approval', statusClosed: 'recorded',
 };
 type Str = typeof S;
-const UI_V = 'v3';   // bump when words are added, so phones fetch the new translations
+const UI_V = 'v4';   // bump when words are added, so phones fetch the new translations
 
 /** The portal's words in the student's language (translated once, remembered on this device). */
 function useWords(tenantId: string, lang: string): Str {
@@ -149,6 +150,7 @@ function Today({ p, w, lang, tenantId, color, go }: any) {
   return (
     <div className="cf-stagger space-y-3">
       {p.game && <Card><GameChips g={p.game} color={color} /></Card>}
+      <TodoCard w={w} lang={lang} tenantId={tenantId} color={color} />
       {late && <Card tone="alert"><p className="font-semibold text-red-900">{w.paymentFailed}</p><p className="text-sm text-red-800">{usd(late.balanceCents)} · {late.lastError}</p><button type="button" onClick={() => go('tuition')} className="mt-2 rounded-full bg-red-600 px-4 py-2 text-sm font-medium text-white">{w.updateCard} / {w.payNow}</button></Card>}
       {p.needs.length > 0 && <Card tone="alert"><p className="font-semibold text-red-900">{w.redo}</p>{p.needs.map((n: any) => <p key={n.doc} className="text-sm text-red-800">{n.doc}{n.reason ? ` — ${n.reason}` : ''}</p>)}</Card>}
       {p.isSchool && (
@@ -340,5 +342,27 @@ function Practice({ w, tenantId, color }: any) {
       {err && <p className="text-sm text-red-700">{err}</p>}
       {info.history.length > 0 && <p className="text-[12px] text-stone-500">{w.recent}: {info.history.slice(0, 4).map((h: any) => `${h.pct}%`).join(' · ')}</p>}
     </section>
+  );
+}
+
+
+/** Assigned work and automatic reviews — what to do next. */
+function TodoCard({ w, lang, tenantId, color }: any) {
+  const [items, setItems] = useState<any[] | null>(null);
+  useEffect(() => { api({ action: 'todo', tenantId, token: getToken(tenantId) }).then((r) => setItems(r.ok ? r.items : [])); }, [tenantId]);
+  if (!items || !items.length) return null;
+  const open = items.filter((x) => !x.done);
+  return (
+    <Card title={w.todo}>
+      {open.length === 0 ? <p className="text-sm text-emerald-700">✓ {w.allDone}</p> : open.slice(0, 6).map((x) => (
+        <Link key={x.id} href={`/learn/${tenantId}/${x.courseSlug}/${x.nextLessonId}`} className="flex items-center gap-3 border-b border-white/60 py-2.5 last:border-0">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm" style={{ background: x.overdue ? '#fee2e2' : `${color}1a`, color: x.overdue ? '#b91c1c' : color }}>{x.review ? '🔁' : x.finished > 0 ? '◐' : '○'}</span>
+          <span className="min-w-0 flex-1"><span className="block truncate font-semibold">{x.review ? `${w.reviewWord}: ` : ''}{x.title}</span>
+            <span className={`block text-[12px] ${x.overdue ? 'font-semibold text-red-700' : 'text-stone-500'}`}>{x.overdue ? w.overdueWord : x.dueAt ? `${w.dueWord} ${fmt(x.dueAt, lang, { weekday: 'short', month: 'short', day: 'numeric' })}` : x.courseTitle} · {x.finished}/{x.total} {w.lessonsWord}</span>
+            {x.note && <span className="block truncate text-[12px] text-stone-500">“{x.note}”</span>}</span>
+          <span className="shrink-0 rounded-full px-3 py-1 text-[12px] font-medium text-white" style={{ background: color }}>{w.goWord}</span>
+        </Link>
+      ))}
+    </Card>
   );
 }
