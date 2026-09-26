@@ -499,6 +499,22 @@ Keep this link private.
       return st ? NextResponse.json({ ok: true, ...st, brand }) : NextResponse.json({ ok: false, error: 'Class not found.' }, { status: 404 });
     }
 
+    // ── Online puzzle / practice scores → the gradebook (best attempt kept) ──
+    if (b.action === 'activity-score') {
+      if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+      const courseId = String(b.courseId || ''), lessonId = String(b.lessonId || '');
+      const eRef = db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`);
+      const e = ((await eRef.get()).data() as any) || null;
+      if (!e) return NextResponse.json({ ok: false, error: 'Not enrolled.' }, { status: 403 });
+      const lx = ((await db.doc(`tenants/${tenantId}/courses/${courseId}/lessons/${lessonId}`).get()).data() as any) || null;
+      if (!lx?.activity) return NextResponse.json({ ok: false, error: 'No activity here.' }, { status: 400 });
+      const pct = Math.max(0, Math.min(100, Math.round(Number(b.pct) || 0)));
+      const key = `act_${lessonId}`; const prev = e.quiz?.[key];
+      const at = new Date().toISOString();
+      await eRef.set({ quiz: { [key]: { best: Math.max(prev?.best || 0, pct), passed: Math.max(prev?.best || 0, pct) >= 70, attempts: [...(prev?.attempts || []).slice(-19), { at, score: pct, passed: pct >= 70 }], title: lx.title, activity: lx.activity.type } } }, { merge: true });
+      return NextResponse.json({ ok: true, best: Math.max(prev?.best || 0, pct) });
+    }
+
     // ── Assignments (students) ──
     if (b.action === 'assignment' || b.action === 'assignment-submit') {
       if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
