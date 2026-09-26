@@ -6,7 +6,8 @@
 //   Academy on Core Solo: 300 / month · Academy on Studio: 800 / month
 //   HQ can override (tenant.ai.monthlyCredits) or add bonus credits for a
 //   month (tenant.ai.bonus["YYYY-MM"]).
-// What things cost (credits): build a course 10 · generate questions 3 ·
+// What things cost (credits): interactive (built on Claude Opus) 8 ·
+// build a course 10 · generate questions 3 ·
 // lesson plan / worksheet / assignment / quiz & flashcard draft 2 ·
 // grading feedback 1. Students' AI tutor has its own per-student limits and
 // never uses the school's credits. Failed AI attempts are refunded.
@@ -15,7 +16,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
 
 export const AI_WEIGHTS: Record<string, number> = {
-  'ai-interactive': 5, 'ai-cases': 2, 'ai-video-questions': 2, 'ai-hotspots': 1,
+  'ai-interactive': 8, 'ai-cases': 2, 'ai-video-questions': 2, 'ai-hotspots': 1,
   'ai-course': 10, 'qbank-ai': 3, 'ai-plan': 2, 'worksheet-ai': 2, 'ai-assignment': 2, 'ai-draft': 2, 'submission-ai': 1,
 };
 export const PLAN_CREDITS = { none: 50, solo: 300, studio: 800 };
