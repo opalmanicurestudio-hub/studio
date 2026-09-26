@@ -9,6 +9,7 @@
 //   PlanEditor    the instructor's lesson plan in the Board's instruction order,
 //                 infection control integrated — "Draft with AI" and "Print"
 
+import { GameEditor } from '@/components/academy/Games';
 import { useEffect, useState } from 'react';
 import { getAuth } from 'firebase/auth';
 import { ArrowUp, ArrowDown, Trash2 } from 'lucide-react';
@@ -67,7 +68,7 @@ export function BlocksEditor({ tenantId, courseId, value, onChange, lessonId, ac
   const blocks = value || [];
   const set = (i: number, patch: any) => onChange(blocks.map((b, k) => (k === i ? { ...b, ...patch } : b)));
   const move = (i: number, d: number) => { const j = i + d; if (j < 0 || j >= blocks.length) return; const n = [...blocks]; [n[i], n[j]] = [n[j], n[i]]; onChange(n); };
-  const add = (type: string) => onChange([...blocks, type === 'interactive' ? { id: uid(), type, title: '', request: '', html: '' } : type === 'hotspots' ? { id: uid(), type, title: '', mediaId: null, points: [] } : type === 'stages' ? { id: uid(), type, title: '', stages: [{ label: '', text: '', mediaId: null }, { label: '', text: '', mediaId: null }] } : type === 'steps' ? { id: uid(), type, title: '', steps: [{ text: '', mediaId: null }] } : type === 'callout' ? { id: uid(), type, tone: 'safety', text: '' } : { id: uid(), type, text: '' }]);
+  const add = (type: string) => onChange([...blocks, type === 'game' ? { id: uid(), type, template: 'sort', title: '', data: null } : type === 'interactive' ? { id: uid(), type, title: '', request: '', html: '' } : type === 'hotspots' ? { id: uid(), type, title: '', mediaId: null, points: [] } : type === 'stages' ? { id: uid(), type, title: '', stages: [{ label: '', text: '', mediaId: null }, { label: '', text: '', mediaId: null }] } : type === 'steps' ? { id: uid(), type, title: '', steps: [{ text: '', mediaId: null }] } : type === 'callout' ? { id: uid(), type, tone: 'safety', text: '' } : { id: uid(), type, text: '' }]);
   const chosen = (m: any) => { if (!pick) return; setNames((x) => ({ ...x, [m.id]: m.name })); const b = blocks[pick.index];
     if (pick.step != null && b.type === 'stages') { const stages = [...b.stages]; stages[pick.step] = { ...stages[pick.step], mediaId: m.id }; set(pick.index, { stages }); }
     else if (pick.step != null) { const steps = [...b.steps]; steps[pick.step] = { ...steps[pick.step], mediaId: m.id }; set(pick.index, { steps }); }
@@ -90,6 +91,8 @@ export function BlocksEditor({ tenantId, courseId, value, onChange, lessonId, ac
               <button type="button" onClick={() => set(i, { steps: b.steps.filter((_: any, x: number) => x !== k) })} aria-label="Remove step" className="mt-2 text-red-600"><Trash2 className="h-4 w-4" /></button></div>)}
             <button type="button" onClick={() => set(i, { steps: [...b.steps, { text: '', mediaId: null }] })} className="rounded-full bg-muted px-3 py-1 text-[12px] font-bold">+ Step</button></>}
           {b.type === 'divider' && <hr className="border-dashed" />}
+          {b.type === 'game' && <GameEditor b={b} onChange={(patch: any) => set(i, patch)} onFreeForm={() => set(i, { type: 'interactive', game: true, request: '', html: '', template: undefined, data: undefined })}
+            onAi={async () => { if (!lessonId) return 'Save the lesson once first — games are made from its text.'; const r = await api({ action: 'ai-game', tenantId, courseId, lessonId, template: b.template }); if (!r.ok) return r.error; set(i, { data: r.data, aiStamp: Date.now() }); return null; }} />}
           {b.type === 'interactive' && <InteractiveEditor tenantId={tenantId} courseId={courseId} lessonId={lessonId} accent={accent} b={b} onChange={(patch: any) => set(i, patch)} />}
           {b.type === 'hotspots' && <HotspotsEditor tenantId={tenantId} courseId={courseId} lessonId={lessonId} b={b} onChange={(patch: any) => set(i, patch)} onPick={() => setPick({ index: i, kind: 'image' })} />}
           {b.type === 'stages' && <>
@@ -102,7 +105,7 @@ export function BlocksEditor({ tenantId, courseId, value, onChange, lessonId, ac
             <p className="text-[11px] text-muted-foreground">Students drag a slider through the stages.</p></>}
         </div>
       ))}
-      <div className="flex flex-wrap gap-1.5">{([['interactive', '✨ Interactive'], ['hotspots', '📍 Hotspots'], ['stages', '🎚 Stages'], ['text', '¶ Text'], ['steps', '🔢 Step-by-step'], ['image', '🖼 Image'], ['callout', '🛑 Callout'], ['file', '📄 File'], ['divider', '— Divider']] as const).map(([k, l]) => <button key={k} type="button" onClick={() => add(k)} className="rounded-full bg-background px-3 py-1.5 text-[12px] font-bold">{l}</button>)}</div>
+      <div className="flex flex-wrap gap-1.5">{([['game', '🎮 Game'], ['interactive', '✨ Interactive'], ['hotspots', '📍 Hotspots'], ['stages', '🎚 Stages'], ['text', '¶ Text'], ['steps', '🔢 Step-by-step'], ['image', '🖼 Image'], ['callout', '🛑 Callout'], ['file', '📄 File'], ['divider', '— Divider']] as const).map(([k, l]) => <button key={k} type="button" onClick={() => add(k)} className="rounded-full bg-background px-3 py-1.5 text-[12px] font-bold">{l}</button>)}</div>
       {pick && <MediaPicker tenantId={tenantId} courseId={courseId} kind={pick.kind} onPick={chosen} onClose={() => setPick(null)} />}
     </div>
   );
@@ -165,7 +168,7 @@ function InteractiveEditor({ tenantId, courseId, lessonId, accent, b, onChange }
   const build = async (revise: boolean, fixProblem?: string) => {
     setBusy(fixProblem ? 'fix' : revise ? 'revise' : 'build'); setErr(''); setProblem('');
     const ask = fixProblem ? `Fix this problem so it works: ${fixProblem}` : change;
-    const r = await api({ action: 'ai-interactive', tenantId, courseId, lessonId, useLesson: useLesson && !!lessonId, request: b.request, ...(revise || fixProblem ? { currentHtml: b.html, change: ask } : {}) });
+    const r = await api({ action: 'ai-interactive', tenantId, courseId, lessonId, game: !!b.game, useLesson: useLesson && !!lessonId, request: b.request, ...(revise || fixProblem ? { currentHtml: b.html, change: ask } : {}) });
     setBusy(''); if (r.ok) { onChange({ html: r.html, title: b.title || b.request.slice(0, 60) }); setChange(''); setSaved(false); if (r.problem) setProblem(r.problem); if (r.note) setErr(r.note); } else setErr(r.error);
   };
   return (
@@ -173,7 +176,7 @@ function InteractiveEditor({ tenantId, courseId, lessonId, accent, b, onChange }
       {/* Once built, the request folds away — students never see it. */}
       {b.html ? <details className="rounded-xl bg-muted/40 px-3 py-2 text-sm"><summary className="cursor-pointer font-bold text-muted-foreground">What you asked for</summary>
         <textarea rows={2} className={`${area} mt-2`} value={b.request} onChange={(e) => onChange({ request: e.target.value })} /></details>
-        : <textarea rows={2} className={area} value={b.request} onChange={(e) => onChange({ request: e.target.value })} placeholder="What should it show? e.g. How UV gel cures from the top down, and why thick or dark coats stay liquid underneath — with a time slider" />}
+        : <textarea rows={2} className={area} value={b.request} onChange={(e) => onChange({ request: e.target.value })} placeholder={b.game ? 'Describe the game — e.g. A salon simulator: a client arrives and students pick the service steps in order, with infection-control steps scored' : 'What should it show? e.g. How UV gel cures from the top down, and why thick or dark coats stay liquid underneath — with a time slider'} />}
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" disabled={!!busy || !b.request.trim()} onClick={() => build(false)} className="h-10 rounded-xl bg-violet-700 px-4 text-sm font-bold text-white disabled:opacity-40">{busy === 'build' ? 'Building… (up to 2 minutes)' : b.html ? '✨ Build again' : '✨ Build it'}</button>
         <label className="flex items-center gap-1.5 text-[12px] font-bold"><input type="checkbox" checked={useLesson} onChange={(e) => setUseLesson(e.target.checked)} disabled={!lessonId} />Use this lesson’s text{!lessonId ? ' (save the lesson first)' : ''}</label>
