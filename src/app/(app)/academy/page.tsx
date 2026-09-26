@@ -24,7 +24,7 @@ import { StudentJourney } from '@/components/academy/StudentJourney';
 import { AttendancePanel } from '@/components/academy/AttendancePanel';
 import { LiveClass } from '@/components/academy/LiveClass';
 import { AcademyReports } from '@/components/academy/AcademyReports';
-import { BlocksEditor, PlanEditor } from '@/components/academy/LessonStudio';
+import { BlocksEditor, PlanEditor, CasesEditor, VideoQuestionsEditor } from '@/components/academy/LessonStudio';
 import { CourseMaterials } from '@/components/academy/CourseMaterials';
 import { Grading } from '@/components/academy/Grading';
 import { AiCourseBuilder } from '@/components/academy/AiCourseBuilder';
@@ -347,7 +347,7 @@ export default function AcademyBuilderPage() {
                             {l.kind === 'video' && <span className="ml-2 text-[11px] text-muted-foreground">{l.muxStatus === 'ready' ? `✓ video${l.durationSec ? ` · ${Math.round(l.durationSec / 60)} min` : ''}` : l.muxStatus ? l.muxStatus : l.videoUrl ? '✓ link' : '⚠ no video yet'}</span>}</span>
                           <button type="button" aria-label="Move up" onClick={async () => { await api({ action: 'lesson-move', tenantId, courseId: sel, lessonId: l.id, direction: 'up' }); await loadCourse(sel!); }} className="p-1"><ArrowUp className="h-4 w-4" /></button>
                           <button type="button" aria-label="Move down" onClick={async () => { await api({ action: 'lesson-move', tenantId, courseId: sel, lessonId: l.id, direction: 'down' }); await loadCourse(sel!); }} className="p-1"><ArrowDown className="h-4 w-4" /></button>
-                          <button type="button" aria-label="Edit" onClick={() => setLesson({ ...blankLesson(), ...l, videoUrl: l.videoUrl || '', downloadUrl: l.downloadUrl || '', downloadName: l.downloadName || '', minMinutes: l.minMinutes || 0, releaseAfterDays: l.releaseAfterDays || 0, quiz: l.quiz || null, flashcards: l.flashcards || [], activity: l.activity || null, blocks: l.blocks || [], plan: l.plan || null, assignment: l.assignment || null })} className="p-1"><Pencil className="h-4 w-4" /></button>
+                          <button type="button" aria-label="Edit" onClick={() => setLesson({ ...blankLesson(), ...l, videoUrl: l.videoUrl || '', downloadUrl: l.downloadUrl || '', downloadName: l.downloadName || '', minMinutes: l.minMinutes || 0, releaseAfterDays: l.releaseAfterDays || 0, quiz: l.quiz || null, flashcards: l.flashcards || [], activity: l.activity || null, blocks: l.blocks || [], plan: l.plan || null, assignment: l.assignment || null, cases: l.cases || null, videoQuestions: l.videoQuestions || [], transcript: l.transcript || null })} className="p-1"><Pencil className="h-4 w-4" /></button>
                           <button type="button" aria-label="Delete" onClick={async () => { if (window.confirm(`Delete “${l.title}”?`)) { await api({ action: 'lesson-delete', tenantId, courseId: sel, lessonId: l.id }); await loadCourse(sel!); } }} className="p-1 text-red-600"><Trash2 className="h-4 w-4" /></button>
                         </div>
                       ); })}
@@ -414,7 +414,9 @@ export default function AcademyBuilderPage() {
                           <button type="button" onClick={() => setLesson({ ...lesson, assignment: { ...lesson.assignment, rubric: [...(lesson.assignment.rubric || []), { criterion: '', points: 10 }] } })} className="rounded-full bg-background px-3 py-1 text-[12px] font-bold">+ Criterion</button>
                         </div>
                       )}
-                      <BlocksEditor tenantId={tenantId} courseId={sel!} value={lesson.blocks || []} onChange={(blocks) => setLesson({ ...lesson, blocks })} />
+                      <BlocksEditor tenantId={tenantId} courseId={sel!} lessonId={lesson.id || null} value={lesson.blocks || []} onChange={(blocks) => setLesson({ ...lesson, blocks })} />
+                      <CasesEditor tenantId={tenantId} courseId={sel!} lesson={lesson} onChange={(cases) => setLesson({ ...lesson, cases })} />
+                      {lesson.kind === 'video' && <VideoQuestionsEditor tenantId={tenantId} courseId={sel!} lesson={lesson} onChange={(videoQuestions) => setLesson({ ...lesson, videoQuestions })} />}
                       <PlanEditor tenantId={tenantId} courseId={sel!} lesson={lesson} value={lesson.plan} onChange={(plan) => setLesson({ ...lesson, plan })} brand={docBrand} courseTitle={d.course.title} />
                       <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border-2 border-dashed border-violet-200 bg-violet-50/60 p-3">
                         <span className="mr-1 text-sm font-black">✨ Draft with AI from this lesson’s text:</span>
