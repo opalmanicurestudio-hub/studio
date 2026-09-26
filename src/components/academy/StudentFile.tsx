@@ -120,6 +120,7 @@ export function StudentFile({ tenantId, studentId, brand, onClose }: { tenantId:
               </>
             )}
 
+            {sec === 'documents' && (f.signed || []).length > 0 && <section className="space-y-1 rounded-2xl bg-emerald-50 p-3 text-sm"><p className="font-black text-emerald-900">Signed school documents</p>{f.signed.map((a: any, i: number) => <p key={i}>✓ <b>{a.title}</b> (v{a.version}) — signed “{a.signedName}” on {d(a.at)}</p>)}</section>}
             {sec === 'documents' && (
               <section className="space-y-2">
                 <p className="text-sm text-muted-foreground">The permanent file {prog?.state === 'NC' ? 'North Carolina requires (21 NCAC 14T .0502)' : 'for this program'}. Scan with your phone — several pages become one PDF. Nothing is ever deleted; a new copy keeps the old one.</p>
