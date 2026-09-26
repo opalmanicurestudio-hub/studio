@@ -15,17 +15,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState, createElement } from 'react';
 import Link from 'next/link';
 import { createPortal } from 'react-dom';
+import { StudentPortal } from '@/components/academy/StudentPortal';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AuthBackdrop } from '@/components/auth/AuthBackdrop';
 
-const key = (t: string) => `cf_student_${t}`;
-const getToken = (t: string) => { try { return localStorage.getItem(key(t)); } catch { return null; } };
-const setToken = (t: string, v: string | null) => { try { v ? localStorage.setItem(key(t), v) : localStorage.removeItem(key(t)); } catch { /* private mode */ } };
-async function api(body: any) {
+export const key = (t: string) => `cf_student_${t}`;
+export const getToken = (t: string) => { try { return localStorage.getItem(key(t)); } catch { return null; } };
+export const setToken = (t: string, v: string | null) => { try { v ? localStorage.setItem(key(t), v) : localStorage.removeItem(key(t)); } catch { /* private mode */ } };
+export async function api(body: any) {
   const r = await fetch('/api/academy/public', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   return r.json().catch(() => ({ ok: false, error: 'No response' }));
 }
-const money = (c: number) => (c ? `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: c % 100 ? 2 : 0 })}` : 'Free');
+export const money = (c: number) => (c ? `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: c % 100 ? 2 : 0 })}` : 'Free');
 const mins = (s?: number | null) => (s ? `${Math.max(1, Math.round(s / 60))} min` : '');
 
 // ── Accessibility: size, contrast, easier font, less motion (this device) ─
@@ -208,7 +209,7 @@ function Tutor({ tenantId, courseId, lessonId, color }: { tenantId: string; cour
   );
 }
 
-function Shell({ brand, tenantId, children }: { brand?: any; tenantId: string; children: React.ReactNode }) {
+export function Shell({ brand, tenantId, children }: { brand?: any; tenantId: string; children: React.ReactNode }) {
   const [a, save] = useA11y();
   return (
     <div className="relative min-h-dvh text-stone-900" data-cf-contrast={a.contrast ? '1' : undefined} data-cf-readable={a.readable ? '1' : undefined} data-cf-still={a.still ? '1' : undefined}>
@@ -230,11 +231,11 @@ function Shell({ brand, tenantId, children }: { brand?: any; tenantId: string; c
     </div>
   );
 }
-const Glass = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => <section className={`glass rounded-[1.75rem] border border-white/70 p-5 ${className}`}>{children}</section>;
-const Loading = () => <div className="flex justify-center p-16"><span className="h-6 w-6 animate-spin rounded-full border-2 border-stone-300 border-t-stone-900" /></div>;
+export const Glass = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => <section className={`glass rounded-[1.75rem] border border-white/70 p-5 ${className}`}>{children}</section>;
+export const Loading = () => <div className="flex justify-center p-16"><span className="h-6 w-6 animate-spin rounded-full border-2 border-stone-300 border-t-stone-900" /></div>;
 
 /** Paragraphs and "# headings" — enough for lesson notes. */
-function Prose({ text }: { text: string }) {
+export function Prose({ text }: { text: string }) {
   if (!text?.trim()) return null;
   return <div className="space-y-3 text-[15px] leading-relaxed text-stone-800">{text.split(/\n{2,}/).map((p, i) => p.startsWith('#') ? <h3 key={i} className="pt-2 text-lg font-semibold">{p.replace(/^#+\s*/, '')}</h3> : <p key={i} className="whitespace-pre-wrap">{p}</p>)}</div>;
 }
@@ -412,13 +413,18 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
   const [note, setNote] = useState('');
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [quizResult, setQuizResult] = useState<any>(null);
+  const [tr, setTr] = useState<any>(null);          // this lesson in the student's language
+  const [trBusy, setTrBusy] = useState(false);
   const token = typeof window !== 'undefined' ? getToken(tenantId) : null;
   const load = useCallback(async () => {
     const c = await api({ action: 'course', tenantId, slug, token }); setCourse(c);
     if (c.ok) setLesson(await api({ action: 'lesson', tenantId, courseId: c.course.id, lessonId, token }));
   }, [tenantId, slug, lessonId, token]);
   useEffect(() => { setQuizResult(null); setAnswers({}); setNote(''); void load(); }, [load]);
-  const L = lesson?.ok ? lesson.lesson : null;
+  const L0 = lesson?.ok ? lesson.lesson : null;
+  // Translated view: same lesson, the student's language (quiz answers stay in the same positions).
+  const L = L0 && tr ? { ...L0, title: tr.title || L0.title, body: tr.body || L0.body, transcript: tr.transcript || L0.transcript, flashcards: tr.flashcards?.length ? tr.flashcards : L0.flashcards, activity: tr.activity || L0.activity,
+    quiz: L0.quiz && tr.quiz ? { ...L0.quiz, questions: L0.quiz.questions.map((q: any, i: number) => ({ ...q, ...(tr.quiz.questions[i] || {}) })) } : L0.quiz } : L0;
   const mode = L?.video?.type === 'mux' ? 'mux' : L?.video?.type === 'embed' ? 'embed' : 'page';
   const eng = useEngagement({ tenantId, token, courseId: course?.course?.id, lessonId, on: !!lesson?.enrolled, mode });
   if (!course || !lesson) return <Shell tenantId={tenantId}><Loading /></Shell>;
@@ -429,8 +435,8 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
   const next = list[i + 1], prev = list[i - 1];
   const done = !!course.progress?.[lessonId];
   const pct = Math.round((Object.keys(course.progress || {}).length / Math.max(1, list.length)) * 100);
-  const tr = lesson.tracking || {};
-  const engaged = Math.max(eng.engagedSec, tr.engagedSec || 0), watched = Math.max(eng.watchedSec, tr.watchedSec || 0);
+  const trk = lesson.tracking || {};
+  const engaged = Math.max(eng.engagedSec, trk.engagedSec || 0), watched = Math.max(eng.watchedSec, trk.watchedSec || 0);
   const dur = L?.durationSec || 0;
   const complete = async () => {
     setBusy(true); setNote('');
@@ -455,15 +461,19 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
             <>
               <p className="text-[11px] uppercase tracking-[0.25em] text-stone-400">{L.moduleTitle}</p>
               <h1 className="text-3xl font-light tracking-tight">{L.title}</h1>
+              {lesson.enrolled && lesson.studentLang && lesson.studentLang !== 'en' && (
+                <div className="flex items-center gap-2"><button type="button" disabled={trBusy} onClick={async () => { if (tr) { setTr(null); return; } setTrBusy(true); const r = await api({ action: 'lesson-translate', tenantId, token, courseId: course.course.id, lessonId }); setTrBusy(false); if (r.ok) setTr(r); }} className="rounded-full bg-white/80 px-4 py-2 text-sm shadow-sm">{trBusy ? '…' : tr ? '🌐 Original' : '🌐 Translate'}</button>
+                  {tr && <span className="text-[12px] text-stone-500">Translated automatically — ask your instructor if anything is unclear.</span>}</div>
+              )}
               {mode === 'mux' && <MuxPlayer playbackId={L.video.playbackId} token={L.video.token} color={color} title={L.title} bind={eng.bindPlayer} />}
               {mode === 'embed' && L.video.url && <iframe src={L.video.url} title={L.title} className="aspect-video w-full rounded-[1.25rem]" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen />}
               {L.kind === 'video' && !L.video && <Glass><p className="text-stone-600">This video is being prepared — check back shortly.</p></Glass>}
               {lesson.enrolled && (
                 <div className="glass flex flex-wrap items-center gap-x-4 gap-y-1 rounded-2xl border border-white/70 px-4 py-2.5 text-[13px] text-stone-600">
-                  <span>⏱ Active time: <span className="font-semibold text-stone-900">{Math.floor(engaged / 60)} min</span>{tr.compliance && dur ? ` of ${Math.ceil((dur * (tr.minEngagementPct || 80)) / 100 / 60)} needed` : ''}{tr.compliance && L.minMinutes ? ` of ${L.minMinutes} needed` : ''}</span>
-                  {mode === 'mux' && dur > 0 && <span>▶ Watched: <span className="font-semibold text-stone-900">{Math.min(100, Math.round((watched / dur) * 100))}%</span>{tr.compliance ? ` of ${tr.minWatchPct || 90}% needed` : ''}</span>}
+                  <span>⏱ Active time: <span className="font-semibold text-stone-900">{Math.floor(engaged / 60)} min</span>{trk.compliance && dur ? ` of ${Math.ceil((dur * (trk.minEngagementPct || 80)) / 100 / 60)} needed` : ''}{trk.compliance && L.minMinutes ? ` of ${L.minMinutes} needed` : ''}</span>
+                  {mode === 'mux' && dur > 0 && <span>▶ Watched: <span className="font-semibold text-stone-900">{Math.min(100, Math.round((watched / dur) * 100))}%</span>{trk.compliance ? ` of ${trk.minWatchPct || 90}% needed` : ''}</span>}
                   {eng.paused && <span className="font-semibold text-amber-700">Paused — answer the check to keep your time counting</span>}
-                  {tr.compliance && <span className="w-full text-[11px] text-stone-400">This course records verified learning time for your school. Time counts while this page is open and you’re actively learning.</span>}
+                  {trk.compliance && <span className="w-full text-[11px] text-stone-400">This course records verified learning time for your school. Time counts while this page is open and you’re actively learning.</span>}
                 </div>
               )}
               {L.body && <Glass className="space-y-3"><div className="flex justify-end"><Listen text={L.body} /></div><Prose text={L.body} /></Glass>}
@@ -492,7 +502,7 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
               <div className="flex flex-wrap items-center gap-2">
                 {prev && <Link href={`/learn/${tenantId}/${slug}/${prev.id}`} className="rounded-full bg-white/70 px-4 py-2.5 text-sm">← Previous</Link>}
                 {lesson.enrolled ? (
-                  <button type="button" disabled={busy || (done && tr.compliance)} onClick={complete} className="ml-auto rounded-full px-5 py-2.5 text-sm font-medium text-white disabled:opacity-60" style={{ background: color }}>{done ? '✓ Completed' : next ? 'Mark complete → next' : 'Mark complete'}</button>
+                  <button type="button" disabled={busy || (done && trk.compliance)} onClick={complete} className="ml-auto rounded-full px-5 py-2.5 text-sm font-medium text-white disabled:opacity-60" style={{ background: color }}>{done ? '✓ Completed' : next ? 'Mark complete → next' : 'Mark complete'}</button>
                 ) : (
                   <Link href={`/learn/${tenantId}/${slug}`} className="ml-auto rounded-full px-5 py-2.5 text-sm font-medium text-white" style={{ background: color }}>Enrol to continue</Link>
                 )}
@@ -620,6 +630,8 @@ export function MyCourses({ tenantId }: { tenantId: string }) {
     else void load();
   }, [tenantId, sp, load]);
   if (!d) return <Shell tenantId={tenantId}><Loading /></Shell>;
+  // Signed in → the full student portal.
+  if (d.student) return <StudentPortal tenantId={tenantId} courses={d.courses} onSignOut={() => { setToken(tenantId, null); void load(); }} />;
   const color = d.brand?.color || '#1c1917';
   return (
     <Shell brand={d.brand} tenantId={tenantId}>
