@@ -626,20 +626,23 @@ export const CheckoutHub = ({
     return (staff || []).filter((s: Staff) => staffIds.has(s.id));
   }, [appointmentsData, staff]);
 
+  // Academy student-salon providers: their program decides tips —
+  // 'student' (as normal), 'school' (goes to the school, not the student's pay), 'none'.
+  const studentsNoTips = allInvolvedStaff.length > 0 && allInvolvedStaff.every((s: any) => s.isStudent && s.tipPolicy === 'none');
   const handleTotalTipChange = useCallback((value: number) => {
-    const roundedValue = Number(safeNumber(value).toFixed(2));
+    let roundedValue = Number(safeNumber(value).toFixed(2));
+    if (allInvolvedStaff.length > 0 && allInvolvedStaff.every((s: any) => s.isStudent && s.tipPolicy === 'none')) roundedValue = 0;
     setTipAmount(roundedValue);
     if (allInvolvedStaff.length > 0) {
       const splitAmount = Number((roundedValue / allInvolvedStaff.length).toFixed(2));
       const newAllocations: Record<string, number> = {};
       let currentTotal = 0;
       allInvolvedStaff.forEach((member: Staff, index: number) => {
-        if (index === allInvolvedStaff.length - 1) {
-          newAllocations[member.id] = Number((roundedValue - currentTotal).toFixed(2));
-        } else {
-          newAllocations[member.id] = splitAmount;
-          currentTotal += splitAmount;
-        }
+        const policy = (member as any).isStudent ? ((member as any).tipPolicy || 'school') : 'staff';
+        const key = policy === 'school' || policy === 'none' ? '__school' : member.id;   // school tips: kept by the business, never in a student's pay
+        const share = index === allInvolvedStaff.length - 1 ? Number((roundedValue - currentTotal).toFixed(2)) : splitAmount;
+        if (index !== allInvolvedStaff.length - 1) currentTotal += splitAmount;
+        newAllocations[key] = Number(((newAllocations[key] || 0) + share).toFixed(2));
       });
       setTipAllocations(newAllocations);
     }
@@ -1309,6 +1312,7 @@ export const CheckoutHub = ({
                     <p className="text-[10px] font-bold text-muted-foreground uppercase">Your technician appreciates your support</p>
                   </div>
 
+                  {studentsNoTips && <p className="col-span-2 rounded-2xl bg-muted/40 p-3 text-center text-sm font-bold text-muted-foreground">Student-salon service — this school doesn’t accept tips for students.</p>}
                   <div className="grid grid-cols-2 gap-3">
                     {presets.filter(p => p > 0).map(pct => {
                       const tipAmt = Number((baseForTip * (pct / 100)).toFixed(2));
