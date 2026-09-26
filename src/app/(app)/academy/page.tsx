@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAuth } from 'firebase/auth';
-import { Loader, ArrowUp, ArrowDown, Pencil, Trash2, ExternalLink, Video, FileText, Download, Plus, Home as HomeIcon, BookOpen, Sparkles, Users, Clock, ClipboardList, GraduationCap, Settings as SettingsIcon, Radio } from 'lucide-react';
+import { Loader, ArrowUp, ArrowDown, Pencil, Trash2, ExternalLink, Video, FileText, Download, Plus, Home as HomeIcon, BookOpen, Sparkles, Users, Clock, ClipboardList, GraduationCap, Settings as SettingsIcon, Radio, Printer } from 'lucide-react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { PrivateImg } from '@/components/shared/private-file';
 import { SchoolPrograms } from '@/components/academy/SchoolPrograms';
@@ -22,6 +22,8 @@ import { StudentJourney } from '@/components/academy/StudentJourney';
 import { AttendancePanel } from '@/components/academy/AttendancePanel';
 import { LiveClass } from '@/components/academy/LiveClass';
 import { AcademyReports } from '@/components/academy/AcademyReports';
+import { BlocksEditor, PlanEditor } from '@/components/academy/LessonStudio';
+import { CourseMaterials } from '@/components/academy/CourseMaterials';
 import { AcademyHome, academyHome, type Section } from '@/components/academy/AcademyHome';
 import { useTenant } from '@/context/TenantContext';
 
@@ -33,7 +35,7 @@ async function api(body: any) {
 const money = (c: number) => (c ? `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: c % 100 ? 2 : 0 })}` : 'Free');
 const field = 'h-11 w-full rounded-xl border-2 border-border/60 bg-background px-3 text-sm';
 const KIND_ICON: Record<string, any> = { video: Video, text: FileText, download: Download };
-const blankLesson = (moduleTitle = 'Module 1') => ({ id: '', title: '', moduleTitle, kind: 'video', body: '', videoUrl: '', downloadUrl: '', downloadName: '', preview: false, minMinutes: 0, quiz: null as any, flashcards: [] as any[], activity: null as any });
+const blankLesson = (moduleTitle = 'Module 1') => ({ id: '', title: '', moduleTitle, kind: 'video', body: '', videoUrl: '', downloadUrl: '', downloadName: '', preview: false, minMinutes: 0, quiz: null as any, flashcards: [] as any[], activity: null as any, blocks: [] as any[], plan: null as any });
 const hm = (min: number) => `${Math.floor((min || 0) / 60)}h ${(min || 0) % 60}m`;
 const dt = (iso?: string | null) => (iso ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—');
 const toLocalInput = (iso?: string | null) => { if (!iso) return ''; const d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
@@ -149,6 +151,7 @@ export default function AcademyBuilderPage() {
     { group: 'Teach', items: [
       { key: 'courses', label: 'Courses', hint: 'Lessons, videos, quizzes', icon: BookOpen },
       { key: 'live', label: 'Live class', hint: 'Join code, questions, minutes', icon: Radio },
+      { key: 'materials', label: 'Tests & worksheets', hint: 'Question bank, printables', icon: Printer },
       { key: 'salon', label: 'Student salon', hint: 'Sign off students’ services', icon: Sparkles, school: true, badge: home?.school?.checkoffsToday } ] },
     { group: 'Students', items: [
       { key: 'students', label: 'Students', hint: 'Progress, risk, messages', icon: Users, school: true, badge: (home?.school?.atRisk || 0) + (home?.school?.unread || 0) },
@@ -207,6 +210,7 @@ export default function AcademyBuilderPage() {
             {section === 'students' && mode === 'school' && <StudentJourney tenantId={tenantId} brand={docBrand} />}
             {section === 'attendance' && mode === 'school' && <AttendancePanel tenantId={tenantId} />}
             {section === 'live' && <LiveClass tenantId={tenantId} />}
+            {section === 'materials' && <CourseMaterials tenantId={tenantId} courses={courses || []} brand={docBrand} />}
             {section === 'reports' && mode === 'school' && <AcademyReports tenantId={tenantId} />}
             {section === 'settings' && (
               <div className="space-y-4">
@@ -305,7 +309,7 @@ export default function AcademyBuilderPage() {
                             {l.kind === 'video' && <span className="ml-2 text-[11px] text-muted-foreground">{l.muxStatus === 'ready' ? `✓ video${l.durationSec ? ` · ${Math.round(l.durationSec / 60)} min` : ''}` : l.muxStatus ? l.muxStatus : l.videoUrl ? '✓ link' : '⚠ no video yet'}</span>}</span>
                           <button type="button" aria-label="Move up" onClick={async () => { await api({ action: 'lesson-move', tenantId, courseId: sel, lessonId: l.id, direction: 'up' }); await loadCourse(sel!); }} className="p-1"><ArrowUp className="h-4 w-4" /></button>
                           <button type="button" aria-label="Move down" onClick={async () => { await api({ action: 'lesson-move', tenantId, courseId: sel, lessonId: l.id, direction: 'down' }); await loadCourse(sel!); }} className="p-1"><ArrowDown className="h-4 w-4" /></button>
-                          <button type="button" aria-label="Edit" onClick={() => setLesson({ ...blankLesson(), ...l, videoUrl: l.videoUrl || '', downloadUrl: l.downloadUrl || '', downloadName: l.downloadName || '', minMinutes: l.minMinutes || 0, releaseAfterDays: l.releaseAfterDays || 0, quiz: l.quiz || null, flashcards: l.flashcards || [], activity: l.activity || null })} className="p-1"><Pencil className="h-4 w-4" /></button>
+                          <button type="button" aria-label="Edit" onClick={() => setLesson({ ...blankLesson(), ...l, videoUrl: l.videoUrl || '', downloadUrl: l.downloadUrl || '', downloadName: l.downloadName || '', minMinutes: l.minMinutes || 0, releaseAfterDays: l.releaseAfterDays || 0, quiz: l.quiz || null, flashcards: l.flashcards || [], activity: l.activity || null, blocks: l.blocks || [], plan: l.plan || null })} className="p-1"><Pencil className="h-4 w-4" /></button>
                           <button type="button" aria-label="Delete" onClick={async () => { if (window.confirm(`Delete “${l.title}”?`)) { await api({ action: 'lesson-delete', tenantId, courseId: sel, lessonId: l.id }); await loadCourse(sel!); } }} className="p-1 text-red-600"><Trash2 className="h-4 w-4" /></button>
                         </div>
                       ); })}
@@ -357,6 +361,8 @@ export default function AcademyBuilderPage() {
                         <label className="text-sm font-bold">Minimum active minutes (optional — e.g. for reading lessons)<input className={field} type="number" min={0} value={lesson.minMinutes || 0} onChange={(e) => setLesson({ ...lesson, minMinutes: Number(e.target.value) || 0 })} /></label>
                         <label className="text-sm font-bold">Unlocks after (days from the student’s start — 0 = straight away)<input className={field} type="number" min={0} value={lesson.releaseAfterDays || 0} onChange={(e) => setLesson({ ...lesson, releaseAfterDays: Number(e.target.value) || 0 })} /></label>
                       </div>
+                      <BlocksEditor tenantId={tenantId} courseId={sel!} value={lesson.blocks || []} onChange={(blocks) => setLesson({ ...lesson, blocks })} />
+                      <PlanEditor tenantId={tenantId} courseId={sel!} lesson={lesson} value={lesson.plan} onChange={(plan) => setLesson({ ...lesson, plan })} brand={docBrand} courseTitle={d.course.title} />
                       <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border-2 border-dashed border-violet-200 bg-violet-50/60 p-3">
                         <span className="mr-1 text-sm font-black">✨ Draft with AI from this lesson’s text:</span>
                         {([['quiz', 'Quiz'], ['flashcards', 'Flashcards'], ['match', 'Matching'], ['order', 'Put in order'], ['scenario', 'Client scenario']] as const).map(([k, l]) => (
