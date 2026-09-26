@@ -170,7 +170,10 @@ function InteractiveEditor({ tenantId, courseId, lessonId, accent, b, onChange }
   };
   return (
     <div className="space-y-2">
-      <textarea rows={2} className={area} value={b.request} onChange={(e) => onChange({ request: e.target.value })} placeholder="What should it show? e.g. How UV gel cures from the top down, and why thick or dark coats stay liquid underneath — with a time slider" />
+      {/* Once built, the request folds away — students never see it. */}
+      {b.html ? <details className="rounded-xl bg-muted/40 px-3 py-2 text-sm"><summary className="cursor-pointer font-bold text-muted-foreground">What you asked for</summary>
+        <textarea rows={2} className={`${area} mt-2`} value={b.request} onChange={(e) => onChange({ request: e.target.value })} /></details>
+        : <textarea rows={2} className={area} value={b.request} onChange={(e) => onChange({ request: e.target.value })} placeholder="What should it show? e.g. How UV gel cures from the top down, and why thick or dark coats stay liquid underneath — with a time slider" />}
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" disabled={!!busy || !b.request.trim()} onClick={() => build(false)} className="h-10 rounded-xl bg-violet-700 px-4 text-sm font-bold text-white disabled:opacity-40">{busy === 'build' ? 'Building… (up to 2 minutes)' : b.html ? '✨ Build again' : '✨ Build it'}</button>
         <label className="flex items-center gap-1.5 text-[12px] font-bold"><input type="checkbox" checked={useLesson} onChange={(e) => setUseLesson(e.target.checked)} disabled={!lessonId} />Use this lesson’s text{!lessonId ? ' (save the lesson first)' : ''}</label>
@@ -181,7 +184,7 @@ function InteractiveEditor({ tenantId, courseId, lessonId, accent, b, onChange }
       {err && <p className="text-sm text-red-700">{err}</p>}
       {b.html && (
         <div className="space-y-2">
-          <input className={field} value={b.title} onChange={(e) => onChange({ title: e.target.value })} placeholder="Title students see" />
+          <label className="block text-[12px] font-bold text-muted-foreground">Name in your library <span className="font-normal">(students don’t see this)</span><input className={field} value={b.title} onChange={(e) => onChange({ title: e.target.value })} placeholder="e.g. Gel curing" /></label>
           {problem && <div className="flex flex-wrap items-center gap-2 rounded-2xl border-2 border-red-200 bg-red-50 p-3 text-sm"><span className="min-w-0 flex-1 text-red-900"><b>This interactive has a problem:</b> {problem}</span>
             <button type="button" disabled={!!busy} onClick={() => build(true, problem)} className="h-9 rounded-xl bg-red-600 px-4 text-[12px] font-bold text-white disabled:opacity-50">{busy === 'fix' ? 'Fixing…' : '✨ Fix it'}</button></div>}
           <div className="rounded-3xl bg-[#f7f5f2] p-2"><InteractiveFrame key={b.html.length + (b.html.charCodeAt(40) || 0)} html={b.html} title={b.title} accent={accent} onProblem={(p) => setProblem((x) => x || p)} /></div>
