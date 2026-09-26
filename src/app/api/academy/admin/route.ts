@@ -185,6 +185,7 @@ async function handle(req: NextRequest) {
         flashcards: (Array.isArray(l.flashcards) ? l.flashcards : []).map((f: any) => ({ front: String(f.front || '').slice(0, 300), back: String(f.back || '').slice(0, 600) })).filter((f: any) => f.front && f.back).slice(0, 60),
         activity: cleanActivity(l.activity),
         ...('blocks' in l ? { blocks: cleanBlocks(l.blocks) } : {}),
+        ...('stepMode' in l ? { stepMode: l.stepMode === true } : {}),
         // Refer-or-treat client cases, and questions that pop up during the video.
         ...('cases' in l ? { cases: cleanCases(l.cases) } : {}),
         ...('videoQuestions' in l ? { videoQuestions: (Array.isArray(l.videoQuestions) ? l.videoQuestions : []).slice(0, 20).map((q: any) => ({ at: Math.max(1, Math.round(Number(q.at) || 0)), q: str(q.q, 300), options: (q.options || []).map((o: any) => str(o, 160)).filter(Boolean).slice(0, 4), answer: Math.max(0, Number(q.answer) || 0), explain: str(q.explain, 400) })).filter((q: any) => q.q && q.options.length >= 2).sort((a: any, b: any) => a.at - b.at) } : {}),
@@ -207,6 +208,16 @@ async function handle(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    // The course board: save the whole order (and which module each lesson is in) in one go.
+    if (b.action === 'lessons-arrange') {
+      const all = await loadLessons(tenantId, courseId); const known = new Set(all.map((x: any) => x.id));
+      const items = (Array.isArray(b.items) ? b.items : []).filter((x: any) => known.has(String(x.id))).slice(0, 500);
+      if (items.length !== all.length) return NextResponse.json({ ok: false, error: 'The lesson list changed — refresh and try again.' }, { status: 409 });
+      const batch = db.batch();
+      items.forEach((x: any, k: number) => batch.set(db.doc(`${base}/${courseId}/lessons/${String(x.id)}`), { order: k, moduleTitle: str(x.moduleTitle, 120) || 'Module 1', updatedAt: now }, { merge: true }));
+      await batch.commit();
+      return NextResponse.json({ ok: true });
+    }
     if (b.action === 'lesson-move') {
       const all = await loadLessons(tenantId, courseId);
       const i = all.findIndex((x: any) => x.id === b.lessonId); const j = i + (b.direction === 'up' ? -1 : 1);
