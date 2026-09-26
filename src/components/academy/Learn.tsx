@@ -105,7 +105,29 @@ function shuffle<T>(xs: T[]) { const a = [...xs]; for (let i = a.length - 1; i >
 function Activity({ a, color }: { a: any; color: string }) {
   if (a.type === 'match') return <MatchGame a={a} color={color} />;
   if (a.type === 'order') return <OrderGame a={a} color={color} />;
+  if (a.type === 'label') return <LabelGame a={a} color={color} />;
   return <Scenario a={a} color={color} />;
+}
+/** Label the diagram: tap a label, then the numbered spot it belongs to. */
+function LabelGame({ a, color }: { a: any; color: string }) {
+  const [labels] = useState(() => shuffle(a.points.map((p: any, i: number) => ({ text: p.label, i }))));
+  const [pick, setPick] = useState<number | null>(null);
+  const [done, setDone] = useState<Set<number>>(new Set());
+  const [wrong, setWrong] = useState<number | null>(null);
+  const place = (i: number) => { if (pick == null || done.has(i)) return; if (pick === i) { setDone(new Set([...done, i])); setPick(null); } else { setWrong(i); setTimeout(() => setWrong(null), 700); } };
+  return (
+    <Glass className="space-y-3">
+      <p className="font-semibold">{a.prompt}</p><p className="text-[12px] text-stone-500">Tap a label below, then the numbered spot it belongs to.</p>
+      <div className="relative inline-block w-full">
+        <img src={a.imageUrl} alt="Diagram to label" className="w-full rounded-2xl" />
+        {a.points.map((p: any, i: number) => (
+          <button key={i} type="button" onClick={() => place(i)} aria-label={done.has(i) ? `Spot ${i + 1}: ${p.label}` : `Spot ${i + 1}`} className={`absolute flex min-h-8 min-w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full px-2 text-[12px] font-bold shadow ring-2 ring-white ${done.has(i) ? 'bg-emerald-600 text-white' : wrong === i ? 'bg-red-500 text-white' : 'bg-white text-stone-900'}`} style={{ left: `${p.x}%`, top: `${p.y}%` }}>{done.has(i) ? p.label : i + 1}</button>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-2">{labels.filter((l: any) => !done.has(l.i)).map((l: any) => <button key={l.i} type="button" onClick={() => setPick(l.i)} aria-pressed={pick === l.i} className={`rounded-full px-3 py-2 text-sm ${pick === l.i ? 'text-white' : 'bg-white/80'}`} style={pick === l.i ? { background: color } : undefined}>{l.text}</button>)}</div>
+      {done.size === a.points.length && <p className="font-semibold text-emerald-700">🎉 All labelled!</p>}
+    </Glass>
+  );
 }
 function MatchGame({ a, color }: { a: any; color: string }) {
   const [rights] = useState(() => shuffle(a.pairs.map((p: any, i: number) => ({ text: p.right, i }))));
@@ -445,6 +467,7 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
                 </div>
               )}
               {L.body && <Glass className="space-y-3"><div className="flex justify-end"><Listen text={L.body} /></div><Prose text={L.body} /></Glass>}
+              {L.transcript && <details className="glass rounded-2xl border border-white/70 px-4 py-3"><summary className="cursor-pointer text-sm font-semibold">📄 Transcript</summary><p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap text-[15px] leading-relaxed text-stone-700">{L.transcript}</p></details>}
               {lesson.enrolled && L.activity && <Activity a={L.activity} color={color} />}
               {lesson.enrolled && L.flashcards?.length > 0 && <Flashcards cards={L.flashcards} color={color} />}
               {L.downloadUrl && <a href={L.downloadUrl} target="_blank" rel="noreferrer" className="glass flex items-center justify-between rounded-2xl border border-white/70 px-4 py-3 text-sm"><span>↓ {L.downloadName || 'Download'}</span><span className="text-stone-500">Open</span></a>}
@@ -618,7 +641,7 @@ export function MyCourses({ tenantId }: { tenantId: string }) {
         <>
           <div className="flex flex-wrap items-end justify-between gap-2">
             <h1 className="text-4xl font-light tracking-tight">My <span className="font-semibold">courses</span></h1>
-            <button type="button" onClick={() => { setToken(tenantId, null); void load(); }} className="text-sm text-stone-500 underline">Sign out ({d.student.email})</button>
+            <div className="flex items-center gap-3"><Link href={`/learn/${tenantId}/live`} className="rounded-full px-4 py-2 text-sm text-white" style={{ background: color }}>● Join a live class</Link><button type="button" onClick={() => { setToken(tenantId, null); void load(); }} className="text-sm text-stone-500 underline">Sign out ({d.student.email})</button></div>
           </div>
           <Inbox tenantId={tenantId} color={color} />
           {(d.programs || []).map((pr: any) => (
@@ -680,6 +703,62 @@ function Inbox({ tenantId, color }: { tenantId: string; color: string }) {
         )}
       </Glass>
     </div>
+  );
+}
+
+// ── Live class (students) ────────────────────────────────────────────────
+export function LiveJoin({ tenantId }: { tenantId: string }) {
+  const sp = useSearchParams();
+  const [code, setCode] = useState(sp?.get('code') || '');
+  const [sid, setSid] = useState<string | null>(null);
+  const [st, setSt] = useState<any>(null);
+  const [err, setErr] = useState('');
+  const [needSignIn, setNeedSignIn] = useState(false);
+  // Read the sign-in after the page loads (the server can't see it), so the first render matches.
+  const [token, setTok] = useState<string | null | undefined>(undefined);
+  useEffect(() => { setTok(getToken(tenantId)); }, [tenantId]);
+  const join = useCallback(async (c: string) => { setErr(''); const r = await api({ action: 'live-find', tenantId, token, code: c }); if (r.ok) setSid(r.sessionId); else { setErr(r.error); if (r.needsSignIn) setNeedSignIn(true); } }, [tenantId, token]);
+  useEffect(() => { if (token && code.length === 6 && sp?.get('code')) void join(code); }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!sid) return;
+    let alive = true;
+    const tick = async () => { const r = await api({ action: 'live-state', tenantId, token, sessionId: sid, visible: document.visibilityState === 'visible' }); if (alive && r.ok) setSt(r); };
+    void tick(); const iv = window.setInterval(tick, 3000);
+    return () => { alive = false; window.clearInterval(iv); };
+  }, [sid, tenantId, token]);
+  const color = st?.brand?.color || '#1c1917';
+  if (token === undefined) return <Shell tenantId={tenantId}><Loading /></Shell>;
+  if (needSignIn || !token) return <Shell tenantId={tenantId}><Glass className="mx-auto max-w-sm text-center"><p className="text-xl font-semibold">Sign in to join</p><p className="mt-1 text-sm text-stone-600">Use the email you enrolled with, then come back to this page.</p><Link href={`/learn/${tenantId}/my`} className="mt-4 inline-block rounded-full bg-stone-900 px-6 py-3 text-sm text-white">Sign in</Link></Glass></Shell>;
+  if (!sid) return (
+    <Shell tenantId={tenantId}><Glass className="mx-auto max-w-sm space-y-3 text-center">
+      <p className="text-2xl font-light">Join a <span className="font-semibold">live class</span></p>
+      <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" placeholder="6-digit code" className="h-14 w-full rounded-2xl border border-white/80 bg-white/80 text-center font-mono text-3xl tracking-widest" />
+      {err && <p className="text-sm text-red-700">{err}</p>}
+      <button type="button" disabled={code.length !== 6} onClick={() => join(code)} className="h-12 w-full rounded-full bg-stone-900 text-sm font-medium text-white disabled:opacity-40">Join</button>
+    </Glass></Shell>
+  );
+  if (!st) return <Shell tenantId={tenantId}><Loading /></Shell>;
+  const q = st.question;
+  return (
+    <Shell brand={st.brand} tenantId={tenantId}>
+      <div className="mx-auto max-w-md space-y-4">
+        <div className="flex items-center justify-between"><p className="text-xl font-semibold">{st.title}</p><span className={`rounded-full px-3 py-1 text-[12px] font-semibold ${st.status === 'live' ? 'bg-red-500 text-white' : 'bg-stone-200'}`}>{st.status === 'live' ? '● Live' : 'Ended'}</span></div>
+        {st.status !== 'live' ? <Glass className="text-center"><p className="text-lg font-semibold">Class has ended</p><p className="text-stone-600">You attended {st.minutes} minute{st.minutes === 1 ? '' : 's'}. Thanks for joining!</p></Glass>
+          : !q ? <Glass className="text-center"><p className="text-4xl">👀</p><p className="mt-2 text-stone-600">Listen in — questions will appear here.</p></Glass> : (
+          <Glass className="space-y-3">
+            <p className="text-lg font-semibold">{q.q}</p>
+            {q.options.map((o: string, i: number) => {
+              const mine = st.mine === i, right = q.reveal && q.correct === i, wrong = q.reveal && mine && q.correct !== i;
+              return <button key={i} type="button" disabled={!q.open} onClick={async () => { const r = await api({ action: 'live-answer', tenantId, token, sessionId: sid, questionId: q.id, choice: i }); if (r.ok) setSt({ ...st, mine: i }); else setErr(r.error); }}
+                className={`block w-full rounded-2xl p-4 text-left text-[15px] ${right ? 'bg-emerald-100 font-semibold' : wrong ? 'bg-red-100' : mine ? 'text-white' : 'bg-white/80'}`} style={mine && !q.reveal ? { background: color } : undefined}>{right ? '✓ ' : ''}{o}</button>;
+            })}
+            <p className="text-center text-[12px] text-stone-500">{q.open ? (st.mine != null ? 'Answer sent — you can change it until your instructor closes answers.' : 'Tap your answer') : q.reveal ? 'Answer revealed' : 'Answers closed'}</p>
+          </Glass>
+        )}
+        {err && <p className="text-center text-sm text-red-700">{err}</p>}
+        <p className="text-center text-[12px] text-stone-500">You’ve been here {st.minutes} min · keep this page open to count your time</p>
+      </div>
+    </Shell>
   );
 }
 
