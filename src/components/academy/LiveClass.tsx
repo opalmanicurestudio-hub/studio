@@ -1,197 +1,176 @@
-// src/lib/academy-live.ts
+'use client';
+// src/components/academy/LiveClass.tsx
 //
-// LIVE CLASS 2.0 — a class students join on their phones (in the room or at home).
-//
-//   Activities the instructor sends (one at a time):
-//     quiz        multiple choice, optional timer — faster right answers earn
-//                 more points (500–1000); leaderboard + room-vs-home teams
-//     poll        multiple choice, no right answer
-//     word        word cloud — a word or short phrase each
-//     rate        "rate this set": a photo, students score 1–5, then the
-//                 instructor's score is revealed (trains a professional eye)
-//     tap         "tap the photo": students tap where they'd file / what's wrong;
-//                 optional target circle revealed at the end
-//     confidence  🟢 got it · 🟡 almost · 🔴 lost
-//     exit        exit ticket: up to 5 questions at the end → saved to the
-//                 course gradebook
-//   Always on: the room's pulse (each student's 🟢🟡🔴 and "too fast"), and an
-//   anonymous question queue with upvotes.
-//   Minutes: the SERVER credits time only while a student's class page is open
-//   and visible (≤35 s per check-in, gaps under 75 s). Recorded at the end.
+// LIVE CLASS 2.0 — the instructor's classroom screen (TV, laptop or phone).
+//   Send:   Quick quiz (timer + points) · Poll · Word cloud · Rate this set ·
+//           Tap the photo · Confidence check · Exit ticket (→ gradebook)
+//   See:    live results for each · the room's pulse (🟢🟡🔴, "too fast") ·
+//           Room vs Home teams + leaderboard · the question queue · who's here
+//   End:    everyone's verified minutes recorded; exit ticket saved to grades
 
-import { randomInt, randomBytes } from 'crypto';
-import { getAdminDb } from '@/lib/firebase-admin';
-import { appendAudit } from '@/lib/academy-compliance';
-import { mediaUrl } from '@/lib/academy';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { getAuth } from 'firebase/auth';
+import QRCode from 'qrcode';
+import { Loader } from 'lucide-react';
+import { deviceId } from '@/lib/device';
 
-export const KINDS = ['quiz', 'poll', 'word', 'rate', 'tap', 'confidence', 'exit'] as const;
-export const newJoinCode = () => String(randomInt(100000, 999999));
-const S = (t: string, id: string) => getAdminDb().doc(`tenants/${t}/liveSessions/${id}`);
+async function call(path: string, body: any) {
+  const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
+  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}`, 'x-cf-device': deviceId() }, body: JSON.stringify(body) });
+  return r.json().catch(() => ({ ok: false, error: 'No response' }));
+}
+const api = (body: any) => call('/api/academy/live', body);
+const field = 'h-11 w-full rounded-xl border-2 border-border/60 bg-background px-3 text-sm';
+const KINDS: [string, string, string][] = [['quiz', '⚡ Quick quiz', 'Timer + points'], ['poll', '📊 Poll', 'No right answer'], ['word', '☁️ Word cloud', 'One word each'], ['rate', '⭐ Rate this set', 'Score a photo 1–5'], ['tap', '👆 Tap the photo', 'Where would you…?'], ['confidence', '🚦 Confidence', '🟢🟡🔴'], ['exit', '🎟 Exit ticket', 'Saved to grades']];
+const shrink = (file: File) => new Promise<string>((res) => { const r = new FileReader(); const img = new Image(); r.onload = () => { img.onload = () => { const k = Math.min(1, 1400 / Math.max(img.width, img.height)); const c = document.createElement('canvas'); c.width = img.width * k; c.height = img.height * k; c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height); res(c.toDataURL('image/jpeg', 0.82)); }; img.src = String(r.result); }; r.readAsDataURL(file); });
+const blankQ = () => ({ q: '', options: ['', ''], answer: 0 });
 
-export async function findLive(tenantId: string, code: string) {
-  const s = await getAdminDb().collection(`tenants/${tenantId}/liveSessions`).where('code', '==', String(code || '').trim()).where('status', '==', 'live').limit(1).get();
-  return s.empty ? null : { id: s.docs[0].id, ...(s.docs[0].data() as any) };
+function Bars({ labels, counts, correct, reveal }: { labels: string[]; counts: number[]; correct?: number | null; reveal?: boolean }) {
+  const max = Math.max(1, ...counts);
+  return <div className="space-y-2">{labels.map((l, i) => { const ok = reveal && correct === i; return (
+    <div key={i}><div className="flex justify-between gap-2 text-sm"><span className={ok ? 'font-black text-emerald-700' : ''}>{ok ? '✓ ' : ''}{l}</span><span className="font-bold tabular-nums">{counts[i] || 0}</span></div>
+      <div className="mt-1 h-4 rounded-full bg-muted"><div className={`h-4 rounded-full transition-all duration-500 ${ok ? 'bg-emerald-600' : 'bg-foreground'}`} style={{ width: `${((counts[i] || 0) / max) * 100}%` }} /></div></div>
+  ); })}</div>;
 }
 
-/** What a student may see of the current activity (no answers until revealed). */
-async function publicActivity(q: any) {
-  if (!q) return null;
-  const image = q.imagePath ? await mediaUrl(q.imagePath, 60) : null;
-  return { id: q.id, kind: q.kind || 'quiz', q: q.q, options: q.options || null, open: q.open, reveal: q.reveal, endsAt: q.endsAt || null, image,
-    correct: q.reveal ? q.correct ?? null : null, instructorRating: q.reveal ? q.instructorRating ?? null : null, target: q.reveal ? q.target ?? null : null,
-    questions: q.kind === 'exit' ? (q.questions || []).map((x: any) => ({ q: x.q, options: x.options })) : null };
-}
+export function LiveClass({ tenantId }: { tenantId: string }) {
+  const [list, setList] = useState<any[] | null>(null);
+  const [programs, setPrograms] = useState<any[]>([]);
+  const [courses, setCourses] = useState<any[]>([]);
+  const [live, setLive] = useState<string | null>(null);
+  const [st, setSt] = useState<any>(null);
+  const [qr, setQr] = useState<string | null>(null);
+  const [start, setStart] = useState({ title: '', programId: '', courseId: '' });
+  const [kind, setKind] = useState('quiz');
+  const [c, setC] = useState<any>({ q: '', options: ['', ''], correct: -1, timerSec: 20, instructorRating: 4, photo: null, target: null, questions: [blankQ()] });
+  const [now, setNow] = useState(Date.now());
+  const [msg, setMsg] = useState(''); const [busy, setBusy] = useState(false);
+  const timer = useRef<number | null>(null);
+  const loadList = useCallback(async () => { const r = await api({ action: 'list', tenantId }); if (r.ok) { setList(r.sessions); const cur = r.sessions.find((s: any) => s.status === 'live'); if (cur) setLive((x) => x || cur.id); } }, [tenantId]);
+  useEffect(() => { void loadList(); call('/api/academy/school', { action: 'overview', tenantId }).then((r) => r?.ok && setPrograms(r.programs || [])); call('/api/academy/admin', { action: 'list', tenantId }).then((r) => r?.ok && setCourses(r.courses || [])); }, [tenantId, loadList]);
+  useEffect(() => { const t = window.setInterval(() => setNow(Date.now()), 500); return () => window.clearInterval(t); }, []);
+  useEffect(() => {
+    if (!live) return;
+    const tick = async () => { const r = await api({ action: 'state', tenantId, id: live }); if (r.ok) { setSt(r); if (r.joinUrl) setQr((q) => q || null); if (!qr && r.joinUrl) setQr(await QRCode.toDataURL(r.joinUrl, { margin: 1, width: 360 })); } };
+    void tick(); timer.current = window.setInterval(tick, 2000);
+    return () => { if (timer.current) window.clearInterval(timer.current); };
+  }, [live, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-/** A student's check-in: credit time (server clock), pulse, and what to show. */
-export async function studentBeat(tenantId: string, sessionId: string, student: { id: string; email: string; name: string | null }, visible: boolean, extra?: { team?: string | null; pulse?: string | null; fast?: boolean | null }) {
-  const ref = S(tenantId, sessionId);
-  const s = ((await ref.get()).data() as any) || null;
-  if (!s) return null;
-  const pRef = ref.collection('participants').doc(student.id);
-  const p = ((await pRef.get()).data() as any) || null;
-  const now = Date.now(); const iso = new Date(now).toISOString();
-  const mood: any = {};
-  if (extra?.team && ['room', 'home'].includes(extra.team)) mood.team = extra.team;
-  if (extra?.pulse && ['green', 'yellow', 'red'].includes(extra.pulse)) mood.pulse = extra.pulse;
-  if (extra?.fast != null) mood.fast = !!extra.fast;
-  if (s.status === 'live') {
-    if (!p) await pRef.set({ studentId: student.id, email: student.email, name: student.name, joinedAt: iso, lastSeenAt: iso, lastCreditAt: iso, creditedSec: 0, team: 'room', ...mood });
-    else {
-      const gap = (now - new Date(p.lastCreditAt || p.lastSeenAt).getTime()) / 1000;
-      const patch: any = { lastSeenAt: iso, leftAt: null, ...mood };
-      if (gap >= 20) { patch.lastCreditAt = iso; if (visible && gap <= 75) patch.creditedSec = (p.creditedSec || 0) + Math.min(gap, 35); }
-      await pRef.set(patch, { merge: true });
-    }
+  const send = async () => {
+    setBusy(true); setMsg('');
+    const body: any = { action: 'ask', tenantId, id: live, kind, q: c.q };
+    if (kind === 'quiz' || kind === 'poll') { body.options = c.options.filter((x: string) => x.trim()); if (kind === 'quiz') { body.correct = c.correct >= 0 ? c.correct : null; body.timerSec = c.timerSec || 0; } }
+    if (kind === 'rate' || kind === 'tap') { body.photo = c.photo; if (kind === 'rate') body.instructorRating = c.instructorRating; if (kind === 'tap' && c.target) body.target = c.target; }
+    if (kind === 'exit') body.questions = c.questions;
+    const r = await api(body); setBusy(false);
+    if (!r.ok) { setMsg(r.error); return; }
+    setC({ ...c, q: '', options: ['', ''], correct: -1, photo: null, target: null, questions: [blankQ()] });
+  };
+  const fillExit = async () => {
+    const cid = st?.session?.courseId; if (!cid) { setMsg('Link this class to a course (when starting it) to use its question bank.'); return; }
+    const r = await call('/api/academy/admin', { action: 'qbank-list', tenantId, courseId: cid });
+    const qs = (r.questions || []).sort(() => Math.random() - 0.5).slice(0, 3).map((q: any) => ({ q: q.q, options: q.options.slice(0, 4), answer: Math.min(q.answer, 3) }));
+    if (!qs.length) { setMsg('The course’s question bank is empty — add questions in Tests & worksheets.'); return; }
+    setC({ ...c, questions: qs });
+  };
+
+  if (live && st) {
+    const s = st.session; const cur = s.current; const R = st.results || {};
+    const left = cur?.endsAt ? Math.max(0, Math.ceil((new Date(cur.endsAt).getTime() - now) / 1000)) : null;
+    const maxW = Math.max(1, ...((R.words || []).map((w: any) => w.n)));
+    if (s.status === 'ended') return (
+      <div className="space-y-3 rounded-3xl bg-emerald-50 p-6"><p className="text-2xl font-black">Class ended 🎉</p><p>{s.summary?.participants || 0} students · {s.summary?.minutes || 0} verified minutes · {s.summary?.activities || 0} activities{s.courseId ? ' · exit ticket saved to the gradebook' : ''}.</p>
+        <button type="button" onClick={() => { setLive(null); setSt(null); setQr(null); void loadList(); }} className="h-11 rounded-xl bg-foreground px-5 text-sm font-bold text-background">Back to classes</button></div>
+    );
+    return (
+      <div className="grid gap-4 xl:grid-cols-[1fr_340px]">
+        <div className="min-w-0 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xl font-black">{s.title} <span className="ml-1 rounded-full bg-red-500 px-2 py-0.5 align-middle text-[11px] text-white">● LIVE</span></p>
+            <button type="button" onClick={async () => { if (!window.confirm('End the class? Everyone’s minutes are recorded now.')) return; const r = await api({ action: 'end', tenantId, id: live }); if (!r.ok) setMsg(r.error); }} className="h-10 rounded-xl border-2 border-red-200 px-4 text-sm font-bold text-red-700">End class</button></div>
+
+          {cur ? (
+            <div className="space-y-3 rounded-3xl border-2 border-foreground/20 p-4 sm:p-5">
+              <div className="flex items-start justify-between gap-3"><div><p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">{KINDS.find(([k]) => k === (cur.kind || 'quiz'))?.[1]}</p><p className="text-xl font-black sm:text-2xl">{cur.q}</p></div>
+                {left != null && cur.open && <span className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-xl font-black ${left <= 5 ? 'bg-red-500 text-white' : 'bg-muted'}`}>{left}</span>}</div>
+              {['quiz', 'poll', 'confidence'].includes(cur.kind || 'quiz') && <Bars labels={cur.options || []} counts={R.counts || []} correct={cur.correct} reveal={cur.reveal} />}
+              {cur.kind === 'word' && <div className="flex min-h-32 flex-wrap items-center justify-center gap-x-4 gap-y-1 rounded-2xl bg-muted/40 p-4">{(R.words || []).length === 0 ? <p className="text-muted-foreground">Words appear here as they come in…</p> : R.words.map((w: any, i: number) => <span key={w.w} className="font-black leading-tight" style={{ fontSize: `${14 + (w.n / maxW) * 30}px`, opacity: 0.55 + (w.n / maxW) * 0.45, color: i % 3 === 0 ? 'hsl(var(--foreground))' : i % 3 === 1 ? '#7c3aed' : '#0f766e' }}>{w.w}</span>)}</div>}
+              {cur.kind === 'rate' && <div className="grid gap-3 sm:grid-cols-2">{cur.image && <img src={cur.image} alt="" className="w-full rounded-2xl" />}<div className="space-y-2"><p className="text-4xl font-black">{R.avg ?? '—'}<span className="text-lg text-muted-foreground"> / 5 class average</span></p><Bars labels={['1', '2', '3', '4', '5'].map((n) => `${'⭐'.repeat(Number(n))}`)} counts={R.dist || []} />{cur.reveal && cur.instructorRating && <p className="rounded-xl bg-emerald-50 p-2 font-black text-emerald-800">Your score: {cur.instructorRating} / 5</p>}</div></div>}
+              {cur.kind === 'tap' && cur.image && <div className="relative mx-auto max-w-xl"><img src={cur.image} alt="" className="w-full rounded-2xl" />{(R.points || []).map((p: any, i: number) => <span key={i} className="absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-red-500/60 ring-2 ring-white" style={{ left: `${p.x}%`, top: `${p.y}%` }} />)}{cur.reveal && cur.target && <span className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-emerald-500" style={{ left: `${cur.target.x}%`, top: `${cur.target.y}%`, width: `${cur.target.r * 2}%`, aspectRatio: '1' }} />}</div>}
+              {cur.kind === 'exit' && <div className="space-y-1"><p className="text-3xl font-black">{R.avg ?? '—'}{R.avg != null ? '%' : ''} <span className="text-base text-muted-foreground">average</span></p>{(cur.questions || []).map((q: any, i: number) => <p key={i} className="text-sm">{i + 1}. {q.q} — <b>{R.perQuestion?.[i] || 0}</b> right</p>)}</div>}
+              <p className="text-sm text-muted-foreground">{R.answered || 0} of {st.here} answered{cur.open ? '' : ' · closed'}</p>
+              <div className="flex flex-wrap gap-2">
+                {cur.open && <button type="button" onClick={() => api({ action: 'close', tenantId, id: live })} className="h-10 rounded-xl border-2 px-4 text-sm font-bold">Close answers</button>}
+                {!cur.reveal && (cur.correct != null || cur.instructorRating || cur.target) && <button type="button" onClick={() => api({ action: 'reveal', tenantId, id: live })} className="h-10 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white">Reveal</button>}
+              </div>
+            </div>
+          ) : <p className="rounded-3xl border-2 border-dashed p-8 text-center text-muted-foreground">Send an activity whenever you like — students answer on their phones.</p>}
+
+          <div className="space-y-3 rounded-3xl bg-muted/40 p-4">
+            <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">{KINDS.map(([k, l, h]) => <button key={k} type="button" onClick={() => setKind(k)} className={`shrink-0 rounded-2xl px-3 py-2 text-left ${kind === k ? 'bg-foreground text-background' : 'bg-background'}`}><span className="block whitespace-nowrap text-sm font-black">{l}</span><span className="block whitespace-nowrap text-[11px] opacity-70">{h}</span></button>)}</div>
+            {kind !== 'confidence' && kind !== 'exit' && <input className={field} value={c.q} onChange={(e) => setC({ ...c, q: e.target.value })} placeholder={kind === 'word' ? 'e.g. One word: what causes lifting?' : kind === 'rate' ? 'e.g. How clean is this cuticle work?' : kind === 'tap' ? 'e.g. Tap where the apex should sit' : 'Question'} />}
+            {kind === 'confidence' && <input className={field} value={c.q} onChange={(e) => setC({ ...c, q: e.target.value })} placeholder="How confident are you with this? (optional)" />}
+            {(kind === 'quiz' || kind === 'poll') && <>{c.options.map((o: string, i: number) => <div key={i} className="flex items-center gap-2">{kind === 'quiz' && <input type="radio" name="lc" checked={c.correct === i} onChange={() => setC({ ...c, correct: i })} title="Right answer" className="h-5 w-5" />}<input className={field} value={o} onChange={(e) => { const os = [...c.options]; os[i] = e.target.value; setC({ ...c, options: os }); }} placeholder={`Answer ${i + 1}`} /></div>)}
+              <div className="flex flex-wrap items-center gap-2">{c.options.length < 4 && <button type="button" onClick={() => setC({ ...c, options: [...c.options, ''] })} className="h-9 rounded-full bg-background px-3 text-[12px] font-bold">+ Answer</button>}
+                {kind === 'quiz' && <label className="flex items-center gap-2 text-[12px] font-bold">Timer<select className="h-9 rounded-lg border-2 px-2" value={c.timerSec} onChange={(e) => setC({ ...c, timerSec: Number(e.target.value) })}><option value={0}>None</option><option value={10}>10 s</option><option value={20}>20 s</option><option value={30}>30 s</option><option value={60}>60 s</option></select></label>}
+                {kind === 'quiz' && <span className="text-[11px] text-muted-foreground">Tick the right answer — faster right answers score more.</span>}</div></>}
+            {(kind === 'rate' || kind === 'tap') && (
+              <div className="space-y-2">
+                {!c.photo ? <label className="flex h-24 cursor-pointer items-center justify-center rounded-2xl border-2 border-dashed text-sm font-bold">📷 Take or choose a photo<input type="file" accept="image/*" capture="environment" className="hidden" onChange={async (e) => { const f = e.target.files?.[0]; if (f) setC({ ...c, photo: await shrink(f) }); }} /></label>
+                  : <div className="relative mx-auto max-w-md" onClick={(e) => { if (kind !== 'tap') return; const r = (e.currentTarget as HTMLDivElement).getBoundingClientRect(); setC({ ...c, target: { x: ((e.clientX - r.left) / r.width) * 100, y: ((e.clientY - r.top) / r.height) * 100, r: 10 } }); }}>
+                    <img src={c.photo} alt="" className={`w-full rounded-2xl ${kind === 'tap' ? 'cursor-crosshair' : ''}`} />{c.target && <span className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-emerald-500" style={{ left: `${c.target.x}%`, top: `${c.target.y}%`, width: '20%', aspectRatio: '1' }} />}</div>}
+                {kind === 'tap' && c.photo && <p className="text-[11px] text-muted-foreground">Optional: tap the photo to mark the right area — revealed at the end.</p>}
+                {kind === 'rate' && <label className="flex items-center gap-2 text-sm font-bold">Your score (revealed after){[1, 2, 3, 4, 5].map((n) => <button key={n} type="button" onClick={() => setC({ ...c, instructorRating: n })} className={`h-9 w-9 rounded-full ${c.instructorRating >= n ? 'bg-amber-400' : 'bg-background'}`}>⭐</button>)}</label>}
+              </div>
+            )}
+            {kind === 'exit' && (
+              <div className="space-y-2">
+                <div className="flex flex-wrap gap-2"><button type="button" onClick={fillExit} className="h-9 rounded-full bg-violet-100 px-3 text-[12px] font-bold text-violet-900">Fill 3 from the question bank</button><span className="text-[11px] text-muted-foreground">Scores go to the course gradebook when you end the class.</span></div>
+                {c.questions.map((q: any, qi: number) => <div key={qi} className="space-y-1 rounded-2xl bg-background p-3"><input className={field} value={q.q} onChange={(e) => { const qs = [...c.questions]; qs[qi] = { ...q, q: e.target.value }; setC({ ...c, questions: qs }); }} placeholder={`Question ${qi + 1}`} />
+                  {q.options.map((o: string, oi: number) => <div key={oi} className="flex items-center gap-2"><input type="radio" name={`ex${qi}`} checked={q.answer === oi} onChange={() => { const qs = [...c.questions]; qs[qi] = { ...q, answer: oi }; setC({ ...c, questions: qs }); }} /><input className={field} value={o} onChange={(e) => { const qs = [...c.questions]; const os = [...q.options]; os[oi] = e.target.value; qs[qi] = { ...q, options: os }; setC({ ...c, questions: qs }); }} placeholder={`Answer ${oi + 1}`} /></div>)}
+                  {q.options.length < 4 && <button type="button" onClick={() => { const qs = [...c.questions]; qs[qi] = { ...q, options: [...q.options, ''] }; setC({ ...c, questions: qs }); }} className="text-[12px] font-bold underline">+ answer</button>}</div>)}
+                {c.questions.length < 5 && <button type="button" onClick={() => setC({ ...c, questions: [...c.questions, blankQ()] })} className="h-9 rounded-full bg-background px-3 text-[12px] font-bold">+ Question</button>}
+              </div>
+            )}
+            {msg && <p className="text-sm text-red-700">{msg}</p>}
+            <button type="button" disabled={busy} onClick={send} className="h-12 w-full rounded-xl bg-foreground text-sm font-black text-background disabled:opacity-40">{busy ? 'Sending…' : 'Send to students'}</button>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div className="rounded-3xl bg-foreground p-5 text-center text-background"><p className="text-[11px] uppercase tracking-widest opacity-70">Join on your phone</p><p className="font-mono text-5xl font-black tracking-widest">{s.code}</p>{qr && <img src={qr} alt="Scan to join" className="mx-auto mt-3 w-44 rounded-xl bg-white p-2" />}<p className="mt-2 text-[12px] opacity-70">{st.here} here now</p></div>
+          <div className="rounded-3xl bg-muted/40 p-4"><p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">The room’s pulse</p>
+            <div className="mt-2 flex h-5 overflow-hidden rounded-full bg-background">{(['green', 'yellow', 'red'] as const).map((k) => { const n = st.pulse[k]; const t = Math.max(1, st.pulse.green + st.pulse.yellow + st.pulse.red); return n ? <div key={k} className={k === 'green' ? 'bg-emerald-500' : k === 'yellow' ? 'bg-amber-400' : 'bg-red-500'} style={{ width: `${(n / t) * 100}%` }} /> : null; })}</div>
+            <p className="mt-1 text-sm">🟢 {st.pulse.green} · 🟡 {st.pulse.yellow} · 🔴 {st.pulse.red}{st.pulse.fast ? <b className="ml-2 text-red-700">· {st.pulse.fast} say “too fast”</b> : ''}</p></div>
+          <div className="rounded-3xl bg-muted/40 p-4"><p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Teams</p>
+            <div className="mt-1 grid grid-cols-2 gap-2 text-center"><div className="rounded-2xl bg-background p-2"><p className="text-2xl font-black">{st.teams.room}</p><p className="text-[11px]">🏫 Room</p></div><div className="rounded-2xl bg-background p-2"><p className="text-2xl font-black">{st.teams.home}</p><p className="text-[11px]">🏠 Home</p></div></div>
+            {st.board.filter((x: any) => x.points).slice(0, 5).map((x: any, i: number) => <p key={i} className="mt-1 flex justify-between text-sm"><span>{['🥇', '🥈', '🥉', '4.', '5.'][i]} {x.name}</span><b>{x.points}</b></p>)}</div>
+          <div className="rounded-3xl bg-muted/40 p-4"><p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Questions from students · {st.queue.filter((x: any) => !x.answered).length}</p>
+            <div className="mt-2 max-h-72 space-y-1.5 overflow-y-auto">{st.queue.length === 0 ? <p className="text-sm text-muted-foreground">None yet.</p> : st.queue.map((x: any) => <div key={x.id} className={`rounded-xl bg-background p-2 text-sm ${x.answered ? 'opacity-40' : ''}`}><p><b>▲ {x.votes}</b> {x.text}</p><p className="flex justify-between text-[11px] text-muted-foreground"><span>{x.name}</span>{!x.answered && <button type="button" onClick={() => api({ action: 'answered', tenantId, id: live, qid: x.id })} className="font-bold underline">Answered</button>}</p></div>)}</div></div>
+          <details className="rounded-3xl bg-muted/40 p-4"><summary className="cursor-pointer text-sm font-black">Who’s here ({st.here})</summary><div className="mt-2 max-h-60 space-y-0.5 overflow-y-auto">{st.people.map((p: any) => <p key={p.email} className={`text-sm ${p.here ? '' : 'text-muted-foreground'}`}>{p.here ? '●' : '○'} {p.name} <span className="text-[11px] text-muted-foreground">· {p.team === 'home' ? '🏠' : '🏫'} · {p.minutes} min {p.pulse === 'red' ? '🔴' : p.pulse === 'yellow' ? '🟡' : p.pulse === 'green' ? '🟢' : ''}</span></p>)}</div></details>
+        </div>
+      </div>
+    );
   }
-  const q = s.current || null;
-  const mine = q ? (((await ref.collection('answers').doc(`${q.id}_${student.id}`).get()).data() as any) || null) : null;
-  const me = { ...(p || {}), ...mood };
-  return { status: s.status, title: s.title, activity: await publicActivity(q), mine: mine ? { choice: mine.choice ?? null, text: mine.text ?? null, rating: mine.rating ?? null, x: mine.x ?? null, y: mine.y ?? null, choices: mine.choices ?? null, points: q?.reveal ? mine.points || 0 : null, score: q?.reveal ? mine.score ?? null : null } : null,
-    minutes: Math.floor(((p?.creditedSec) || 0) / 60), team: me.team || 'room', pulse: me.pulse || null, fast: !!me.fast };
-}
+  if (live && !st) return <Loader className="h-5 w-5 animate-spin" />;
 
-/** A student's answer to the current activity (shape depends on the kind). */
-export async function studentAnswer(tenantId: string, sessionId: string, studentId: string, questionId: string, a: any) {
-  const ref = S(tenantId, sessionId);
-  const s = ((await ref.get()).data() as any) || null;
-  const q = s?.current;
-  if (!s || s.status !== 'live' || !q || q.id !== questionId || !q.open) throw new Error('That activity has closed.');
-  if (q.endsAt && Date.now() > new Date(q.endsAt).getTime() + 1500) throw new Error('Time’s up!');
-  const kind = q.kind || 'quiz';
-  const doc: any = { questionId, studentId, kind, at: new Date().toISOString() };
-  if (kind === 'quiz' || kind === 'poll' || kind === 'confidence') {
-    const n = Number(a.choice); const opts = kind === 'confidence' ? 3 : (q.options || []).length;
-    if (!Number.isInteger(n) || n < 0 || n >= opts) throw new Error('Choose an answer.');
-    doc.choice = n;
-    if (kind === 'quiz' && q.correct != null) {
-      // Speed points: 1000 for an instant right answer, down to 500 at the buzzer (500 flat without a timer).
-      const elapsed = (Date.now() - new Date(q.at).getTime()) / 1000; const T = Number(q.timerSec) || 0;
-      doc.points = n === q.correct ? (T ? Math.round(500 + 500 * Math.max(0, 1 - elapsed / T)) : 500) : 0;
-    }
-  } else if (kind === 'word') {
-    const t = String(a.text || '').trim().toLowerCase().replace(/[^\p{L}\p{N}\s'-]/gu, '').replace(/\s+/g, ' ').slice(0, 40);
-    if (!t) throw new Error('Type a word.'); doc.text = t;
-  } else if (kind === 'rate') {
-    const r = Math.round(Number(a.rating)); if (!(r >= 1 && r <= 5)) throw new Error('Choose 1–5.'); doc.rating = r;
-  } else if (kind === 'tap') {
-    const x = Number(a.x), y = Number(a.y); if (!(x >= 0 && x <= 100 && y >= 0 && y <= 100)) throw new Error('Tap the photo.'); doc.x = Math.round(x * 10) / 10; doc.y = Math.round(y * 10) / 10;
-  } else if (kind === 'exit') {
-    const qs = q.questions || []; const ch = (Array.isArray(a.choices) ? a.choices : []).map((x: any) => Number(x));
-    if (ch.length !== qs.length || ch.some((x: number, i: number) => !Number.isInteger(x) || x < 0 || x >= qs[i].options.length)) throw new Error('Answer every question.');
-    doc.choices = ch; doc.score = Math.round((ch.filter((x: number, i: number) => x === qs[i].answer).length / Math.max(1, qs.length)) * 100);
-  }
-  await ref.collection('answers').doc(`${questionId}_${studentId}`).set(doc);
-}
-
-/** Anonymous question queue (names shown to the instructor only). */
-export async function askQuestion(tenantId: string, sessionId: string, student: any, text: string) {
-  const t = String(text || '').trim().slice(0, 300); if (!t) throw new Error('Type your question.');
-  const r = S(tenantId, sessionId).collection('queue').doc();
-  await r.set({ id: r.id, text: t, studentId: student.id, name: student.name || student.email, votes: [student.id], answered: false, at: new Date().toISOString() });
-}
-export async function upvote(tenantId: string, sessionId: string, studentId: string, qid: string) {
-  const r = S(tenantId, sessionId).collection('queue').doc(qid); const d = ((await r.get()).data() as any) || null; if (!d) return;
-  const votes: string[] = d.votes || []; await r.set({ votes: votes.includes(studentId) ? votes.filter((x) => x !== studentId) : [...votes, studentId] }, { merge: true });
-}
-export async function markAnswered(tenantId: string, sessionId: string, qid: string) { await S(tenantId, sessionId).collection('queue').doc(qid).set({ answered: true }, { merge: true }); }
-export async function queueFor(tenantId: string, sessionId: string, viewerId?: string | null, withNames = false) {
-  const s = await S(tenantId, sessionId).collection('queue').limit(200).get();
-  return s.docs.map((d: any) => d.data() as any).map((x: any) => ({ id: x.id, text: x.text, votes: (x.votes || []).length, mine: viewerId ? (x.votes || []).includes(viewerId) : false, answered: !!x.answered, ...(withNames ? { name: x.name } : {}) }))
-    .sort((a: any, b: any) => Number(a.answered) - Number(b.answered) || b.votes - a.votes);
-}
-
-/** Everything the instructor's screen shows, live. */
-export async function sessionState(tenantId: string, sessionId: string) {
-  const ref = S(tenantId, sessionId);
-  const s = ((await ref.get()).data() as any) || null;
-  if (!s) return null;
-  const q = s.current || null;
-  const [parts, answers, allAns] = await Promise.all([ref.collection('participants').limit(500).get(), q ? ref.collection('answers').where('questionId', '==', q.id).limit(1000).get() : Promise.resolve(null), ref.collection('answers').limit(10000).get()]);
-  const now = Date.now();
-  const P = parts.docs.map((d: any) => d.data() as any);
-  const here = P.filter((p: any) => now - new Date(p.lastSeenAt).getTime() < 45000);
-  const A = (answers?.docs || []).map((d: any) => d.data() as any);
-  const kind = q?.kind || 'quiz';
-  const results: any = { answered: A.length };
-  if (['quiz', 'poll'].includes(kind)) results.counts = (q.options || []).map((_: any, i: number) => A.filter((x: any) => x.choice === i).length);
-  if (kind === 'confidence') results.counts = [0, 1, 2].map((i) => A.filter((x: any) => x.choice === i).length);
-  if (kind === 'word') { const f: Record<string, number> = {}; A.forEach((x: any) => { f[x.text] = (f[x.text] || 0) + 1; }); results.words = Object.entries(f).sort((a, b) => b[1] - a[1]).slice(0, 40).map(([w, n]) => ({ w, n })); }
-  if (kind === 'rate') { const r = A.map((x: any) => x.rating); results.avg = r.length ? Math.round((r.reduce((a: number, b: number) => a + b, 0) / r.length) * 10) / 10 : null; results.dist = [1, 2, 3, 4, 5].map((n) => r.filter((x: number) => x === n).length); }
-  if (kind === 'tap') results.points = A.slice(0, 400).map((x: any) => ({ x: x.x, y: x.y }));
-  if (kind === 'exit') { const sc = A.map((x: any) => x.score); results.avg = sc.length ? Math.round(sc.reduce((a: number, b: number) => a + b, 0) / sc.length) : null; results.perQuestion = (q.questions || []).map((qq: any, i: number) => A.filter((x: any) => x.choices?.[i] === qq.answer).length); }
-  // Points and teams (quiz answers across the whole class).
-  const pts: Record<string, number> = {}; allAns.docs.forEach((d: any) => { const x = d.data() as any; if (x.points) pts[x.studentId] = (pts[x.studentId] || 0) + x.points; });
-  const board = P.map((p: any) => ({ name: p.name || p.email, team: p.team || 'room', points: pts[p.studentId] || 0 })).sort((a: any, b: any) => b.points - a.points);
-  const teams = { room: board.filter((x: any) => x.team === 'room').reduce((n: number, x: any) => n + x.points, 0), home: board.filter((x: any) => x.team === 'home').reduce((n: number, x: any) => n + x.points, 0) };
-  const pulse = { green: here.filter((p: any) => p.pulse === 'green').length, yellow: here.filter((p: any) => p.pulse === 'yellow').length, red: here.filter((p: any) => p.pulse === 'red').length, fast: here.filter((p: any) => p.fast).length };
-  return { session: { id: sessionId, ...s, current: q ? { ...q, image: q.imagePath ? await mediaUrl(q.imagePath, 60) : null } : null },
-    people: P.map((p: any) => ({ name: p.name || p.email, email: p.email, team: p.team || 'room', here: now - new Date(p.lastSeenAt).getTime() < 45000, minutes: Math.floor((p.creditedSec || 0) / 60), pulse: p.pulse || null })).sort((a: any, b: any) => Number(b.here) - Number(a.here) || String(a.name).localeCompare(String(b.name))),
-    here: here.length, results, board: board.slice(0, 10), teams, pulse, queue: await queueFor(tenantId, sessionId, null, true) };
-}
-
-/** Start an activity. */
-export async function sendActivity(tenantId: string, sessionId: string, a: any, image?: { path: string } | null) {
-  const ref = S(tenantId, sessionId); const s = ((await ref.get()).data() as any) || {};
-  const kind = (KINDS as readonly string[]).includes(a.kind) ? a.kind : 'quiz';
-  const at = new Date();
-  const cur: any = { id: randomBytes(5).toString('hex'), kind, q: String(a.q || '').slice(0, 300), open: true, reveal: false, at: at.toISOString() };
-  if (['quiz', 'poll'].includes(kind)) { cur.options = (a.options || []).map((o: any) => String(o).trim().slice(0, 120)).filter(Boolean).slice(0, 6); if (cur.options.length < 2) throw new Error('Add at least two answers.'); if (kind === 'quiz' && Number.isInteger(a.correct) && a.correct >= 0 && a.correct < cur.options.length) cur.correct = a.correct; }
-  if (kind === 'quiz' && Number(a.timerSec) > 0) { cur.timerSec = Math.min(120, Math.max(5, Number(a.timerSec))); cur.endsAt = new Date(at.getTime() + cur.timerSec * 1000).toISOString(); }
-  if (kind === 'confidence') { cur.q = cur.q || 'How confident are you with this?'; cur.options = ['🟢 Got it', '🟡 Almost', '🔴 Lost']; }
-  if (['rate', 'tap'].includes(kind)) { if (!image?.path) throw new Error('Add a photo.'); cur.imagePath = image.path; }
-  if (kind === 'rate' && Number(a.instructorRating) >= 1) cur.instructorRating = Math.min(5, Math.round(Number(a.instructorRating)));
-  if (kind === 'tap' && a.target && Number.isFinite(Number(a.target.x))) cur.target = { x: Number(a.target.x), y: Number(a.target.y), r: Math.min(40, Math.max(3, Number(a.target.r) || 10)) };
-  if (kind === 'exit') { cur.q = cur.q || 'Exit ticket'; cur.questions = (a.questions || []).slice(0, 5).map((x: any) => ({ q: String(x.q || '').slice(0, 300), options: (x.options || []).map((o: any) => String(o).slice(0, 120)).filter(Boolean).slice(0, 4), answer: Math.max(0, Number(x.answer) || 0) })).filter((x: any) => x.q && x.options.length >= 2); if (!cur.questions.length) throw new Error('Add at least one question.'); }
-  if (!cur.q && !['confidence', 'exit'].includes(kind)) throw new Error('Write the question or prompt.');
-  await ref.set({ current: cur, activities: [...(s.activities || s.questions || []), { id: cur.id, kind, q: cur.q, options: cur.options || null, correct: cur.correct ?? null, questions: cur.questions || null, at: cur.at }] }, { merge: true });
-}
-
-/** End the class: freeze minutes, points, exit tickets → gradebook; audit. */
-export async function endSession(tenantId: string, sessionId: string, by: string) {
-  const db = getAdminDb(); const ref = S(tenantId, sessionId);
-  const s = ((await ref.get()).data() as any) || null;
-  if (!s) throw new Error('Not found.');
-  if (s.status === 'ended') return { participants: s.summary?.participants || 0 };
-  const at = new Date().toISOString();
-  const [parts, answers] = await Promise.all([ref.collection('participants').limit(500).get(), ref.collection('answers').limit(10000).get()]);
-  const A = answers.docs.map((d: any) => d.data() as any);
-  const acts = new Map<string, any>((s.activities || s.questions || []).map((q: any) => [q.id, q]));
-  let total = 0; const exit = [...acts.values()].filter((x: any) => x.kind === 'exit').pop();
-  for (const d of parts.docs) {
-    const p = d.data() as any; const minutes = Math.floor((p.creditedSec || 0) / 60); total += minutes;
-    const mine = A.filter((x: any) => x.studentId === p.studentId);
-    const quizzes = mine.filter((x: any) => (x.kind || 'quiz') === 'quiz' && acts.get(x.questionId)?.correct != null);
-    const right = quizzes.filter((x: any) => x.choice === acts.get(x.questionId).correct).length;
-    const ex = exit ? mine.find((x: any) => x.questionId === exit.id) : null;
-    await db.doc(`tenants/${tenantId}/liveAttendance/${sessionId}_${p.studentId}`).set({ sessionId, studentId: p.studentId, email: p.email, name: p.name || null, title: s.title, programId: s.programId || null, courseId: s.courseId || null,
-      joinedAt: p.joinedAt, endedAt: at, minutes, team: p.team || 'room', points: mine.reduce((n: number, x: any) => n + (x.points || 0), 0), answers: { right, total: quizzes.length }, exitScore: ex?.score ?? null });
-    // Exit ticket → the course gradebook (as a live-class quiz).
-    if (ex && s.courseId) {
-      const eRef = db.doc(`tenants/${tenantId}/enrollments/${s.courseId}_${p.studentId}`);
-      if ((await eRef.get()).exists) await eRef.set({ quiz: { [`live_${sessionId}`]: { best: ex.score, passed: ex.score >= 70, attempts: [{ at, score: ex.score, passed: ex.score >= 70 }], live: true, title: `Live: ${s.title}` } } }, { merge: true });
-    }
-  }
-  await ref.set({ status: 'ended', endedAt: at, current: s.current ? { ...s.current, open: false } : null, summary: { participants: parts.size, minutes: total, activities: acts.size } }, { merge: true });
-  await appendAudit(tenantId, { type: 'live.ended', by, summary: `Live class “${s.title}” ended — ${parts.size} student${parts.size === 1 ? '' : 's'}, ${total} verified minutes, ${acts.size} activit${acts.size === 1 ? 'y' : 'ies'}${exit ? ', exit ticket saved to the gradebook' : ''}`, data: { sessionId } });
-  return { participants: parts.size };
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2 rounded-3xl border-2 border-foreground/20 p-4">
+        <p className="font-black">Start a live class</p>
+        <div className="grid gap-2 sm:grid-cols-[1fr_200px_200px_auto]">
+          <input className={field} value={start.title} onChange={(e) => setStart({ ...start, title: e.target.value })} placeholder="e.g. Theory — infection control" />
+          <select className={field} value={start.programId} onChange={(e) => setStart({ ...start, programId: e.target.value })}><option value="">Any program</option>{programs.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+          <select className={field} value={start.courseId} onChange={(e) => setStart({ ...start, courseId: e.target.value })}><option value="">No course</option>{courses.map((x: any) => <option key={x.id} value={x.id}>{x.title}</option>)}</select>
+          <button type="button" onClick={async () => { const r = await api({ action: 'start', tenantId, ...start }); if (r.ok) { setLive(r.id); setStart({ title: '', programId: '', courseId: '' }); } else setMsg(r.error); }} className="h-11 rounded-xl bg-foreground px-5 text-sm font-bold text-background">Start class</button>
+        </div>
+        <p className="text-[12px] text-muted-foreground">Put this screen on the classroom TV. Students join with the code on their phones — in the room or from home. Link a course to use its question bank and save the exit ticket to its gradebook.</p>
+      </div>
+      <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Past classes</p>
+      {!list ? <Loader className="h-5 w-5 animate-spin" /> : list.length === 0 ? <p className="text-sm text-muted-foreground">None yet.</p> : list.map((s) => (
+        <div key={s.id} className="flex items-center justify-between rounded-2xl bg-muted/40 px-3 py-2 text-sm"><span><span className="font-bold">{s.title}</span> <span className="text-muted-foreground">· {new Date(s.startedAt).toLocaleString()}</span></span>
+          {s.status === 'live' ? <button type="button" onClick={() => setLive(s.id)} className="rounded-full bg-red-500 px-3 py-1 text-[12px] font-bold text-white">● Live — open</button> : <span className="text-[12px]">{s.summary?.participants || 0} students · {s.summary?.minutes || 0} min</span>}</div>
+      ))}
+      {msg && <p className="text-sm text-red-700">{msg}</p>}
+    </div>
+  );
 }
