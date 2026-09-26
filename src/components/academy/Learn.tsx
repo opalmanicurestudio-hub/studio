@@ -12,6 +12,7 @@
 //
 // A student's sign-in is a token kept in this browser (30 days).
 
+import { Celebrate, Skeleton } from '@/components/academy/Delight';
 import { useCallback, useEffect, useMemo, useRef, useState, createElement } from 'react';
 import Link from 'next/link';
 import { createPortal } from 'react-dom';
@@ -283,7 +284,7 @@ export function Shell({ brand, tenantId, children }: { brand?: any; tenantId: st
   );
 }
 export const Glass = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => <section className={`glass rounded-[1.75rem] border border-white/70 p-5 ${className}`}>{children}</section>;
-export const Loading = () => <div className="flex justify-center p-16"><span className="h-6 w-6 animate-spin rounded-full border-2 border-stone-300 border-t-stone-900" /></div>;
+export const Loading = () => <Skeleton />;
 
 /** Paragraphs and "# headings" — enough for lesson notes. */
 export function Prose({ text }: { text: string }) {
@@ -489,11 +490,14 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
   const trk = lesson.tracking || {};
   const engaged = Math.max(eng.engagedSec, trk.engagedSec || 0), watched = Math.max(eng.watchedSec, trk.watchedSec || 0);
   const dur = L?.durationSec || 0;
+  const [cheer, setCheer] = useState(0);
   const complete = async () => {
     setBusy(true); setNote('');
     const r = await api({ action: 'progress', tenantId, token, courseId: course.course.id, lessonId, done: !done });
     setBusy(false);
     if (!r.ok) { setNote(r.error || 'Not yet.'); return; }
+    // A little celebration on completing a lesson, then on to the next one.
+    if (!done) { setCheer((n) => n + 1); await new Promise((res) => setTimeout(res, 900)); }
     if (!done && next) window.location.href = `/learn/${tenantId}/${slug}/${next.id}`; else void load();
   };
   const submitQuiz = async () => {
@@ -528,6 +532,7 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
                 </div>
               )}
               {L.body && <Glass className="space-y-3"><div className="flex justify-end"><Listen text={L.body} /></div><Prose text={L.body} /></Glass>}
+              <Celebrate show={cheer > 0} color={color} key={cheer} />
               {(L.blocks || []).length > 0 && <Blocks blocks={L.blocks} />}
               {lesson.enrolled && L.kind === 'assignment' && <Assignment tenantId={tenantId} courseId={course.course.id} lessonId={lessonId} color={color} />}
               {L.transcript && <details className="glass rounded-2xl border border-white/70 px-4 py-3"><summary className="cursor-pointer text-sm font-semibold">📄 Transcript</summary><p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap text-[15px] leading-relaxed text-stone-700">{L.transcript}</p></details>}
@@ -776,53 +781,90 @@ export function LiveJoin({ tenantId }: { tenantId: string }) {
   const sp = useSearchParams();
   const [code, setCode] = useState(sp?.get('code') || '');
   const [sid, setSid] = useState<string | null>(null);
+  const [team, setTeam] = useState<'room' | 'home' | null>(null);
   const [st, setSt] = useState<any>(null);
   const [err, setErr] = useState('');
   const [needSignIn, setNeedSignIn] = useState(false);
+  const [mood, setMood] = useState<{ pulse: string | null; fast: boolean }>({ pulse: null, fast: false });
+  const [ask, setAsk] = useState<{ open: boolean; text: string; queue: any[] }>({ open: false, text: '', queue: [] });
+  const [word, setWord] = useState(''); const [exit, setExit] = useState<number[]>([]);
+  const [now, setNow] = useState(Date.now());
   // Read the sign-in after the page loads (the server can't see it), so the first render matches.
   const [token, setTok] = useState<string | null | undefined>(undefined);
   useEffect(() => { setTok(getToken(tenantId)); }, [tenantId]);
+  useEffect(() => { const t = window.setInterval(() => setNow(Date.now()), 500); return () => window.clearInterval(t); }, []);
   const join = useCallback(async (c: string) => { setErr(''); const r = await api({ action: 'live-find', tenantId, token, code: c }); if (r.ok) setSid(r.sessionId); else { setErr(r.error); if (r.needsSignIn) setNeedSignIn(true); } }, [tenantId, token]);
   useEffect(() => { if (token && code.length === 6 && sp?.get('code')) void join(code); }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (!sid) return;
-    let alive = true;
-    const tick = async () => { const r = await api({ action: 'live-state', tenantId, token, sessionId: sid, visible: document.visibilityState === 'visible' }); if (alive && r.ok) setSt(r); };
-    void tick(); const iv = window.setInterval(tick, 3000);
-    return () => { alive = false; window.clearInterval(iv); };
-  }, [sid, tenantId, token]);
+  const beat = useCallback(async (extra?: any) => { if (!sid) return; const r = await api({ action: 'live-state', tenantId, token, sessionId: sid, visible: document.visibilityState === 'visible', team, ...(extra || {}) }); if (r.ok) setSt(r); }, [sid, tenantId, token, team]);
+  useEffect(() => { if (!sid || !team) return; void beat(); const iv = window.setInterval(() => void beat(), 3000); return () => window.clearInterval(iv); }, [sid, team, beat]);
+  const act = st?.activity; const mine = st?.mine;
+  // Show the pulse the student already chose (e.g. after reopening the page).
+  useEffect(() => { if (st && mood.pulse == null && (st.pulse || st.fast)) setMood({ pulse: st.pulse || null, fast: !!st.fast }); }, [st]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setWord(''); setExit([]); }, [act?.id]);
+  const answer = async (a: any) => { setErr(''); const r = await api({ action: 'live-answer', tenantId, token, sessionId: sid, questionId: act.id, answer: a }); if (!r.ok) setErr(r.error); void beat(); };
+  const setPulse = (patch: any) => { const m = { ...mood, ...patch }; setMood(m); void beat({ pulse: m.pulse, fast: m.fast }); };
+  const loadQueue = async () => { const r = await api({ action: 'live-queue', tenantId, token, sessionId: sid }); if (r.ok) setAsk((x) => ({ ...x, queue: r.queue })); };
   const color = st?.brand?.color || '#1c1917';
   if (token === undefined) return <Shell tenantId={tenantId}><Loading /></Shell>;
-  if (needSignIn || !token) return <Shell tenantId={tenantId}><Glass className="mx-auto max-w-sm text-center"><p className="text-xl font-semibold">Sign in to join</p><p className="mt-1 text-sm text-stone-600">Use the email you enrolled with, then come back to this page.</p><Link href={`/learn/${tenantId}/my`} className="mt-4 inline-block rounded-full bg-stone-900 px-6 py-3 text-sm text-white">Sign in</Link></Glass></Shell>;
+  if (needSignIn || !token) return <Shell tenantId={tenantId}><Glass className="mx-auto max-w-sm text-center"><p className="text-xl font-semibold">Sign in to join</p><p className="mt-1 text-sm text-stone-500">Your minutes are recorded to your account.</p><Link href={`/learn/${tenantId}/my`} className="mt-4 inline-block rounded-full bg-stone-900 px-6 py-3 text-sm text-white">Sign in</Link></Glass></Shell>;
   if (!sid) return (
     <Shell tenantId={tenantId}><Glass className="mx-auto max-w-sm space-y-3 text-center">
       <p className="text-2xl font-light">Join a <span className="font-semibold">live class</span></p>
-      <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" placeholder="6-digit code" className="h-14 w-full rounded-2xl border border-white/80 bg-white/80 text-center font-mono text-3xl tracking-widest" />
+      <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" placeholder="6-digit code" className="h-14 w-full rounded-2xl border border-white/80 bg-white/80 text-center font-mono text-2xl tracking-[0.3em]" />
       {err && <p className="text-sm text-red-700">{err}</p>}
       <button type="button" disabled={code.length !== 6} onClick={() => join(code)} className="h-12 w-full rounded-full bg-stone-900 text-sm font-medium text-white disabled:opacity-40">Join</button>
     </Glass></Shell>
   );
+  if (!team) return (
+    <Shell tenantId={tenantId}><Glass className="mx-auto max-w-sm space-y-3 text-center"><p className="text-2xl font-light">Where are <span className="font-semibold">you?</span></p>
+      <div className="grid grid-cols-2 gap-3">{([['room', '🏫', 'In the room'], ['home', '🏠', 'At home']] as const).map(([k, i, l]) => <button key={k} type="button" onClick={() => setTeam(k)} className="rounded-3xl bg-white/85 p-5 text-center shadow-sm active:scale-95"><span className="block text-4xl">{i}</span><span className="mt-1 block text-sm font-semibold">{l}</span></button>)}</div>
+      <p className="text-[12px] text-stone-500">You’ll be on that team for quiz points.</p></Glass></Shell>
+  );
   if (!st) return <Shell tenantId={tenantId}><Loading /></Shell>;
-  const q = st.question;
+  if (st.status === 'ended') return <Shell brand={st.brand} tenantId={tenantId}><Glass className="mx-auto max-w-sm text-center"><p className="text-3xl">🎉</p><p className="text-xl font-semibold">Class finished</p><p className="mt-1 text-stone-600">{st.minutes} minutes recorded to your hours.</p><Link href={`/learn/${tenantId}/my`} className="mt-4 inline-block rounded-full px-6 py-3 text-sm text-white" style={{ background: color }}>Back to my portal</Link></Glass></Shell>;
+  const left = act?.endsAt ? Math.max(0, Math.ceil((new Date(act.endsAt).getTime() - now) / 1000)) : null;
+  const closed = !act?.open || left === 0;
+  const kind = act?.kind || 'quiz';
   return (
     <Shell brand={st.brand} tenantId={tenantId}>
-      <div className="mx-auto max-w-md space-y-4">
-        <div className="flex items-center justify-between"><p className="text-xl font-semibold">{st.title}</p><span className={`rounded-full px-3 py-1 text-[12px] font-semibold ${st.status === 'live' ? 'bg-red-500 text-white' : 'bg-stone-200'}`}>{st.status === 'live' ? '● Live' : 'Ended'}</span></div>
-        {st.status !== 'live' ? <Glass className="text-center"><p className="text-lg font-semibold">Class has ended</p><p className="text-stone-600">You attended {st.minutes} minute{st.minutes === 1 ? '' : 's'}. Thanks for joining!</p></Glass>
-          : !q ? <Glass className="text-center"><p className="text-4xl">👀</p><p className="mt-2 text-stone-600">Listen in — questions will appear here.</p></Glass> : (
+      <div className="mx-auto max-w-md space-y-4 pb-28">
+        <div className="flex items-center justify-between"><p className="text-lg font-semibold">{st.title}</p><span className="rounded-full bg-red-500 px-2.5 py-1 text-[11px] font-semibold text-white">● LIVE · {st.minutes} min</span></div>
+        {!act ? <Glass className="py-10 text-center"><p className="text-4xl">👀</p><p className="mt-2 text-stone-600">Listen in — activities will pop up here.</p></Glass> : (
           <Glass className="space-y-3">
-            <p className="text-lg font-semibold">{q.q}</p>
-            {q.options.map((o: string, i: number) => {
-              const mine = st.mine === i, right = q.reveal && q.correct === i, wrong = q.reveal && mine && q.correct !== i;
-              return <button key={i} type="button" disabled={!q.open} onClick={async () => { const r = await api({ action: 'live-answer', tenantId, token, sessionId: sid, questionId: q.id, choice: i }); if (r.ok) setSt({ ...st, mine: i }); else setErr(r.error); }}
-                className={`block w-full rounded-2xl p-4 text-left text-[15px] ${right ? 'bg-emerald-100 font-semibold' : wrong ? 'bg-red-100' : mine ? 'text-white' : 'bg-white/80'}`} style={mine && !q.reveal ? { background: color } : undefined}>{right ? '✓ ' : ''}{o}</button>;
-            })}
-            <p className="text-center text-[12px] text-stone-500">{q.open ? (st.mine != null ? 'Answer sent — you can change it until your instructor closes answers.' : 'Tap your answer') : q.reveal ? 'Answer revealed' : 'Answers closed'}</p>
+            <div className="flex items-start justify-between gap-3"><p className="text-xl font-semibold leading-snug">{act.q}</p>{left != null && !mine && <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-lg font-bold ${left <= 5 ? 'bg-red-500 text-white' : 'bg-white/80'}`}>{left}</span>}</div>
+            {['quiz', 'poll', 'confidence'].includes(kind) && <div className="grid gap-2">{(act.options || []).map((o: string, i: number) => { const picked = mine?.choice === i; const right = act.reveal && act.correct === i; const wrong = act.reveal && picked && act.correct !== i && act.correct != null; return (
+              <button key={i} type="button" disabled={closed || mine != null} onClick={() => answer({ choice: i })} className={`min-h-14 rounded-2xl px-4 py-3 text-left text-[16px] font-medium shadow-sm transition active:scale-[0.98] ${right ? 'bg-emerald-600 text-white' : wrong ? 'bg-red-500 text-white' : picked ? 'text-white' : 'bg-white/90'}`} style={picked && !right && !wrong ? { background: color } : undefined}>{right ? '✓ ' : ''}{o}</button>); })}</div>}
+            {kind === 'word' && (mine ? <p className="rounded-2xl bg-white/80 p-3 text-center">You said <b>“{mine.text}”</b> — watch the screen ☁️</p> : <div className="flex gap-2"><input value={word} onChange={(e) => setWord(e.target.value.slice(0, 40))} placeholder="Your word" className="h-12 flex-1 rounded-2xl border border-white/80 bg-white/90 px-4 text-[16px]" /><button type="button" disabled={!word.trim() || closed} onClick={() => answer({ text: word })} className="rounded-2xl px-5 text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>Send</button></div>)}
+            {kind === 'rate' && <>{act.image && <img src={act.image} alt="" className="w-full rounded-2xl" />}<div className="flex justify-center gap-1">{[1, 2, 3, 4, 5].map((n) => <button key={n} type="button" disabled={closed || mine != null} onClick={() => answer({ rating: n })} className={`h-14 w-14 rounded-2xl text-2xl ${mine?.rating >= n ? 'bg-amber-400' : 'bg-white/80'}`} aria-label={`${n} stars`}>⭐</button>)}</div>{act.reveal && act.instructorRating && <p className="rounded-2xl bg-emerald-50 p-3 text-center">Your instructor gave it <b>{act.instructorRating}/5</b>{mine?.rating ? ` — you said ${mine.rating}` : ''}.</p>}</>}
+            {kind === 'tap' && act.image && <div className="relative" onClick={(e) => { if (closed || mine) return; const r = (e.currentTarget as HTMLDivElement).getBoundingClientRect(); void answer({ x: ((e.clientX - r.left) / r.width) * 100, y: ((e.clientY - r.top) / r.height) * 100 }); }}>
+              <img src={act.image} alt="" className="w-full rounded-2xl" />{mine?.x != null && <span className="absolute h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-white bg-red-500" style={{ left: `${mine.x}%`, top: `${mine.y}%` }} />}
+              {act.reveal && act.target && <span className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-emerald-500" style={{ left: `${act.target.x}%`, top: `${act.target.y}%`, width: `${act.target.r * 2}%`, aspectRatio: '1' }} />}
+              {!mine && !closed && <p className="absolute inset-x-0 bottom-2 text-center text-[12px] font-semibold text-white drop-shadow">Tap the photo</p>}</div>}
+            {kind === 'exit' && (mine ? <p className="rounded-2xl bg-white/80 p-3 text-center">✓ Sent{mine.score != null ? ` — ${mine.score}%` : ''}. Thanks!</p> : <div className="space-y-3">{(act.questions || []).map((q: any, qi: number) => <div key={qi}><p className="font-medium">{qi + 1}. {q.q}</p><div className="mt-1 grid gap-1.5">{q.options.map((o: string, oi: number) => <button key={oi} type="button" onClick={() => { const e = [...exit]; e[qi] = oi; setExit(e); }} className={`min-h-12 rounded-xl px-3 text-left text-[15px] ${exit[qi] === oi ? 'text-white' : 'bg-white/90'}`} style={exit[qi] === oi ? { background: color } : undefined}>{o}</button>)}</div></div>)}
+              <button type="button" disabled={closed || (act.questions || []).some((_: any, i: number) => exit[i] == null)} onClick={() => answer({ choices: exit })} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>Hand in</button></div>)}
+            {mine && !act.reveal && kind === 'quiz' && <p className="text-center text-sm text-stone-500">Answer locked in ✓</p>}
+            {act.reveal && mine?.points != null && kind === 'quiz' && <p className={`text-center text-lg font-semibold ${mine.points ? 'text-emerald-700' : 'text-stone-500'}`}>{mine.points ? `+${mine.points} points!` : 'Not this time'}</p>}
+            {err && <p className="text-center text-sm text-red-700">{err}</p>}
           </Glass>
         )}
-        {err && <p className="text-center text-sm text-red-700">{err}</p>}
-        <p className="text-center text-[12px] text-stone-500">You’ve been here {st.minutes} min · keep this page open to count your time</p>
       </div>
+      {/* Always-there bar: how I'm doing · too fast · ask */}
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/70 bg-white/85 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl">
+        <div className="mx-auto flex max-w-md items-center gap-2 p-2">
+          {(['green', 'yellow', 'red'] as const).map((k) => <button key={k} type="button" onClick={() => setPulse({ pulse: k })} aria-pressed={mood.pulse === k} aria-label={k === 'green' ? 'Got it' : k === 'yellow' ? 'Almost' : 'Lost'} className={`h-11 w-11 rounded-full text-xl transition ${mood.pulse === k ? 'scale-110 bg-white shadow ring-2 ring-stone-900' : 'opacity-70'}`}>{k === 'green' ? '🟢' : k === 'yellow' ? '🟡' : '🔴'}</button>)}
+          <button type="button" onClick={() => setPulse({ fast: !mood.fast })} aria-pressed={mood.fast} className={`h-11 rounded-full px-3 text-[13px] font-semibold ${mood.fast ? 'bg-red-500 text-white' : 'bg-white/80'}`}>🐢 Too fast</button>
+          <button type="button" onClick={() => { setAsk((x) => ({ ...x, open: true })); void loadQueue(); }} className="ml-auto h-11 rounded-full px-4 text-[13px] font-semibold text-white" style={{ background: color }}>✋ Ask</button>
+        </div>
+      </div>
+      {ask.open && (
+        <div className="fixed inset-0 z-40 flex items-end bg-black/40" onClick={() => setAsk((x) => ({ ...x, open: false }))}>
+          <div onClick={(e) => e.stopPropagation()} className="max-h-[80dvh] w-full space-y-3 overflow-y-auto rounded-t-3xl bg-white p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+            <p className="text-lg font-semibold">Questions for your instructor</p><p className="text-[12px] text-stone-500">Classmates don’t see who asked. Tap ▲ on questions you want answered too.</p>
+            <div className="flex gap-2"><input value={ask.text} onChange={(e) => setAsk({ ...ask, text: e.target.value })} placeholder="Type your question" className="h-12 flex-1 rounded-2xl border px-3 text-[16px]" /><button type="button" disabled={!ask.text.trim()} onClick={async () => { const r = await api({ action: 'live-ask', tenantId, token, sessionId: sid, text: ask.text }); if (r.ok) setAsk({ ...ask, text: '', queue: r.queue }); }} className="rounded-2xl px-4 text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>Send</button></div>
+            {ask.queue.map((q: any) => <div key={q.id} className={`flex items-center gap-3 rounded-2xl bg-stone-50 p-3 ${q.answered ? 'opacity-40' : ''}`}><button type="button" onClick={async () => { const r = await api({ action: 'live-vote', tenantId, token, sessionId: sid, qid: q.id }); if (r.ok) setAsk((x) => ({ ...x, queue: r.queue })); }} className={`flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-xl text-sm font-bold ${q.mine ? 'text-white' : 'bg-white'}`} style={q.mine ? { background: color } : undefined}>▲<span>{q.votes}</span></button><p className="text-[15px]">{q.text}{q.answered ? ' · answered' : ''}</p></div>)}
+          </div>
+        </div>
+      )}
     </Shell>
   );
 }
