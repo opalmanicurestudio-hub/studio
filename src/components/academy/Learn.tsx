@@ -64,7 +64,7 @@ function Assignment({ tenantId, courseId, lessonId, color }: { tenantId: string;
 }
 
 // ── Lesson content blocks (student view) ────────────────────────────────
-function Blocks({ blocks }: { blocks: any[] }) {
+function Blocks({ blocks, accent }: { blocks: any[]; accent?: string | null }) {
   const tone: Record<string, [string, string]> = { safety: ['🛑 Safety', 'border-red-200 bg-red-50/90 text-red-950'], key: ['⭐ Key point', 'border-amber-200 bg-amber-50/90 text-amber-950'], tip: ['💡 Tip', 'border-sky-200 bg-sky-50/90 text-sky-950'] };
   return (
     <div className="space-y-4">{blocks.map((b: any, i: number) => {
@@ -78,7 +78,7 @@ function Blocks({ blocks }: { blocks: any[] }) {
             <div className="space-y-2">{s.text && <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{s.text}</p>}{s.media?.url && <img src={s.media.url} alt={`Step ${k + 1}`} className="w-full max-w-md rounded-2xl" />}</div></div>)}</Glass>
       );
       if (b.type === 'divider') return <hr key={i} className="border-white/70" />;
-      if (b.type === 'interactive') return <div key={i} className="space-y-1">{b.title && <p className="px-1 text-lg font-semibold">✨ {b.title}</p>}<InteractiveFrame html={b.html} title={b.title} /></div>;
+      if (b.type === 'interactive') return <div key={i} className="space-y-1">{b.title && <p className="px-1 text-lg font-semibold">✨ {b.title}</p>}<InteractiveFrame html={b.html} title={b.title} accent={accent} /></div>;
       if (b.type === 'hotspots') return b.media?.url ? <Hotspots key={i} b={b} /> : null;
       if (b.type === 'stages') return <Stages key={i} b={b} />;
       return null;
@@ -690,7 +690,7 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
               )}
               {L.body && <Glass className="space-y-3"><div className="flex justify-end"><Listen text={L.body} /></div><Prose text={L.body} /></Glass>}
               <Celebrate show={cheer > 0} color={color} key={cheer} />
-              {(L.blocks || []).length > 0 && <Blocks blocks={L.blocks} />}
+              {(L.blocks || []).length > 0 && <Blocks blocks={L.blocks} accent={color} />}
               {lesson.enrolled && L.kind === 'assignment' && <Assignment tenantId={tenantId} courseId={course.course.id} lessonId={lessonId} color={color} />}
               {L.transcript && <details className="glass rounded-2xl border border-white/70 px-4 py-3"><summary className="cursor-pointer text-sm font-semibold">📄 Transcript</summary><p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap text-[15px] leading-relaxed text-stone-700">{L.transcript}</p></details>}
               {lesson.enrolled && L.cases?.cases?.length > 0 && <Cases c={L.cases} color={color} report={(pct) => void api({ action: 'activity-score', part: 'cases', tenantId, token, courseId: course.course.id, lessonId, pct })} />}
