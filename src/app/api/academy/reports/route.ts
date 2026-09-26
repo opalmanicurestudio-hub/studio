@@ -8,6 +8,7 @@
 //   outcomes     { programId? }          rates + the graduates behind them
 // Each returns { title, subtitle, columns, rows, notes } (+ letter).
 
+import { deviceAllowed } from '@/lib/approved-devices';
 import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -30,6 +31,7 @@ export async function POST(req: NextRequest) {
   const isInstructor = String(auth.actor.role || '').toLowerCase() === 'instructor';
   const isLead = auth.actor.isManager || auth.actor.isTenantOwner;
   if (!isLead && !isInstructor) return NextResponse.json({ ok: false, error: 'Owners, managers and instructors only.' }, { status: 403 });
+  { const dv = await deviceAllowed(tenantId, req); if (!dv.ok) return NextResponse.json({ ok: false, error: dv.error, deviceBlocked: true }, { status: 403 }); }
   if (b.action === 'hours-letter' && !isLead) return NextResponse.json({ ok: false, error: 'Only owners and managers can issue certification letters.' }, { status: 403 });
   const db = getAdminDb(); const T = `tenants/${tenantId}`; const who = auth.actor.name || auth.actor.uid;
   const t = ((await db.doc(T).get()).data() as any) || {};
