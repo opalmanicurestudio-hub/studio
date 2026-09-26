@@ -144,6 +144,26 @@ export async function completeDownPayment(tenantId: string, session: any) {
   return { planId, already: false };
 }
 
+/** Charge one plan's next instalment now (autopay, or right after a card update). */
+export async function chargePlan(tenantId: string, stripeAccountId: string, ref: any, p: any) {
+  const { balanceCents } = await planBalance(tenantId, ref.id);
+  const amount = Math.min(balanceCents, p.installmentsPaid + 1 >= p.installmentsTotal ? balanceCents : p.installmentCents);
+  if (amount <= 0) { await ref.set({ status: 'paid', nextDueAt: null }, { merge: true }); return { ok: true, amount: 0 }; }
+  try {
+    const pi = await stripe().paymentIntents.create({ amount, currency: 'usd', customer: p.customerId, payment_method: p.paymentMethodId, off_session: true, confirm: true,
+      description: `Tuition instalment ${p.installmentsPaid + 1} of ${p.installmentsTotal}`, metadata: { type: 'academy_tuition_installment', planId: ref.id } }, { stripeAccount: stripeAccountId, idempotencyKey: `tuition_${ref.id}_${p.installmentsPaid + 1}_${(p.failures || 0)}_${p.paymentMethodId}` });
+    if (pi.status !== 'succeeded') throw new Error(pi.status);
+    await ledger(tenantId, ref.id, p.studentId, 'payment', amount, `Instalment ${p.installmentsPaid + 1} of ${p.installmentsTotal} (autopay)`, 'autopay', pi.id);
+    const paid = p.installmentsPaid + 1;
+    await ref.set({ installmentsPaid: paid, failures: 0, lastError: null, lastAttemptAt: new Date().toISOString(), status: paid >= p.installmentsTotal ? 'paid' : 'active', nextDueAt: paid >= p.installmentsTotal ? null : addInterval(p.nextDueAt || new Date().toISOString(), p.interval) }, { merge: true });
+    return { ok: true, amount };
+  } catch (e: any) {
+    await ref.set({ status: 'past_due', failures: (p.failures || 0) + 1, lastAttemptAt: new Date().toISOString(), lastError: String(e?.message || e).slice(0, 200) }, { merge: true });
+    await appendAudit(tenantId, { type: 'tuition.failed', studentId: p.studentId, by: 'autopay', summary: `Instalment ${p.installmentsPaid + 1} of ${p.installmentsTotal} failed for ${p.name}: ${String(e?.message || e).slice(0, 120)}`, data: { planId: ref.id } });
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
 /** Daily: charge instalments that are due, on the card saved at the down payment. */
 export async function chargeDueInstallments() {
   const db = getAdminDb();
@@ -156,25 +176,91 @@ export async function chargeDueInstallments() {
       const p = d.data() as any;
       if (!p.autopay || !p.nextDueAt || new Date(p.nextDueAt).getTime() > now || p.installmentsPaid >= p.installmentsTotal) continue;
       if (p.lastAttemptAt && now - new Date(p.lastAttemptAt).getTime() < 3 * 86400000) continue;   // retry every 3 days
-      const { balanceCents } = await planBalance(tDoc.id, d.id);
-      const amount = Math.min(balanceCents, p.installmentsPaid + 1 >= p.installmentsTotal ? balanceCents : p.installmentCents);
-      if (amount <= 0) { await d.ref.set({ status: 'paid', nextDueAt: null }, { merge: true }); continue; }
-      try {
-        const pi = await stripe().paymentIntents.create({ amount, currency: 'usd', customer: p.customerId, payment_method: p.paymentMethodId, off_session: true, confirm: true,
-          description: `Tuition instalment ${p.installmentsPaid + 1} of ${p.installmentsTotal}`, metadata: { type: 'academy_tuition_installment', planId: d.id } }, { stripeAccount: t.stripeAccountId, idempotencyKey: `tuition_${d.id}_${p.installmentsPaid + 1}_${(p.failures || 0)}` });
-        if (pi.status !== 'succeeded') throw new Error(pi.status);
-        await ledger(tDoc.id, d.id, p.studentId, 'payment', amount, `Instalment ${p.installmentsPaid + 1} of ${p.installmentsTotal} (autopay)`, 'autopay', pi.id);
-        const paid = p.installmentsPaid + 1;
-        await d.ref.set({ installmentsPaid: paid, failures: 0, lastAttemptAt: new Date().toISOString(), status: paid >= p.installmentsTotal ? 'paid' : 'active', nextDueAt: paid >= p.installmentsTotal ? null : addInterval(p.nextDueAt, p.interval) }, { merge: true });
-        charged++;
-      } catch (e: any) {
-        await d.ref.set({ status: 'past_due', failures: (p.failures || 0) + 1, lastAttemptAt: new Date().toISOString(), lastError: String(e?.message || e).slice(0, 200) }, { merge: true });
-        await appendAudit(tDoc.id, { type: 'tuition.failed', studentId: p.studentId, by: 'autopay', summary: `Instalment ${p.installmentsPaid + 1} of ${p.installmentsTotal} failed for ${p.name}: ${String(e?.message || e).slice(0, 120)}`, data: { planId: d.id } });
-        failed++;
-      }
+      const r = await chargePlan(tDoc.id, t.stripeAccountId, d.ref, p);
+      if (r.ok) charged++; else failed++;
     }
   }
   return { charged, failed };
+}
+
+/** What's coming: the remaining instalments with dates and amounts. */
+export function upcomingPayments(p: any, balanceCents: number) {
+  const out: { n: number; dueAt: string; amountCents: number }[] = [];
+  let left = balanceCents; let due = p.nextDueAt;
+  for (let n = p.installmentsPaid + 1; n <= p.installmentsTotal && left > 0 && due; n++) {
+    const amt = n === p.installmentsTotal ? left : Math.min(left, p.installmentCents);
+    out.push({ n, dueAt: due, amountCents: amt }); left -= amt; due = addInterval(due, p.interval);
+  }
+  return out;
+}
+
+/** A student pays now — the next instalment or the whole balance (Stripe Checkout). */
+export async function studentPaySession(opts: { tenantId: string; stripeAccountId: string; planId: string; what: 'next' | 'balance'; origin: string; returnPath: string }) {
+  const db = getAdminDb();
+  const p = ((await db.doc(`tenants/${opts.tenantId}/tuitionPlans/${opts.planId}`).get()).data() as any) || null;
+  if (!p) throw new Error('No tuition plan.');
+  const { balanceCents } = await planBalance(opts.tenantId, opts.planId);
+  if (balanceCents <= 0) throw new Error('Nothing is owed — you’re all paid up.');
+  const amount = opts.what === 'balance' ? balanceCents : Math.min(balanceCents, p.installmentCents || balanceCents);
+  const session = await stripe().checkout.sessions.create({
+    mode: 'payment', payment_method_types: ['card'], ...(p.customerId ? { customer: p.customerId } : { customer_email: p.email, customer_creation: 'always' }),
+    line_items: [{ quantity: 1, price_data: { currency: 'usd', unit_amount: amount, product_data: { name: opts.what === 'balance' ? 'Tuition — remaining balance' : `Tuition — instalment ${p.installmentsPaid + 1} of ${p.installmentsTotal}` } } }],
+    payment_intent_data: { metadata: { type: 'academy_tuition_payment', planId: opts.planId, what: opts.what } },
+    metadata: { type: 'academy_tuition_payment', planId: opts.planId, what: opts.what },
+    success_url: `${opts.origin}${opts.returnPath}${opts.returnPath.includes('?') ? '&' : '?'}paid={CHECKOUT_SESSION_ID}`, cancel_url: `${opts.origin}${opts.returnPath}`,
+  } as any, { stripeAccount: opts.stripeAccountId });
+  return session.url as string;
+}
+
+/** Record a student's own payment (return page or webhook — safe to run twice). */
+export async function completeStudentPayment(tenantId: string, session: any) {
+  if (session?.metadata?.type !== 'academy_tuition_payment' || session.payment_status !== 'paid') return null;
+  const db = getAdminDb();
+  const marker = db.doc(`tenants/${tenantId}/tuitionPayments/${session.id}`);
+  if ((await marker.get()).exists) return { already: true };
+  await marker.set({ at: new Date().toISOString(), planId: session.metadata.planId });
+  const ref = db.doc(`tenants/${tenantId}/tuitionPlans/${session.metadata.planId}`);
+  const p = ((await ref.get()).data() as any) || null;
+  if (!p) return null;
+  const amount = Number(session.amount_total) || 0;
+  await ledger(tenantId, ref.id, p.studentId, 'payment', amount, session.metadata.what === 'balance' ? 'Paid remaining balance (online)' : `Instalment ${p.installmentsPaid + 1} of ${p.installmentsTotal} (paid online)`, 'student', session.payment_intent || session.id);
+  const { balanceCents } = await planBalance(tenantId, ref.id);
+  if (balanceCents <= 0) await ref.set({ status: 'paid', nextDueAt: null, failures: 0, lastError: null }, { merge: true });
+  else if (session.metadata.what === 'next') { const paid = p.installmentsPaid + 1; await ref.set({ installmentsPaid: paid, status: 'active', failures: 0, lastError: null, nextDueAt: paid >= p.installmentsTotal ? null : addInterval(p.nextDueAt || new Date().toISOString(), p.interval) }, { merge: true }); }
+  else await ref.set({ status: p.status === 'past_due' ? 'active' : p.status, failures: 0, lastError: null }, { merge: true });
+  return { already: false };
+}
+
+/** Update the autopay card (Stripe Checkout in "setup" mode — no charge). */
+export async function cardUpdateSession(opts: { tenantId: string; stripeAccountId: string; planId: string; origin: string; returnPath: string }) {
+  const db = getAdminDb();
+  const ref = db.doc(`tenants/${opts.tenantId}/tuitionPlans/${opts.planId}`);
+  const p = ((await ref.get()).data() as any) || null;
+  if (!p) throw new Error('No tuition plan.');
+  let customer = p.customerId;
+  if (!customer) { const c = await stripe().customers.create({ email: p.email, name: p.name }, { stripeAccount: opts.stripeAccountId }); customer = c.id; await ref.set({ customerId: customer }, { merge: true }); }
+  const session = await stripe().checkout.sessions.create({ mode: 'setup', customer, payment_method_types: ['card'], currency: 'usd',
+    metadata: { type: 'academy_card_update', planId: opts.planId }, setup_intent_data: { metadata: { type: 'academy_card_update', planId: opts.planId } },
+    success_url: `${opts.origin}${opts.returnPath}${opts.returnPath.includes('?') ? '&' : '?'}card={CHECKOUT_SESSION_ID}`, cancel_url: `${opts.origin}${opts.returnPath}` } as any, { stripeAccount: opts.stripeAccountId });
+  return session.url as string;
+}
+
+/** Save the new card; if a payment had failed, try it again straight away. */
+export async function completeCardUpdate(tenantId: string, stripeAccountId: string, session: any) {
+  if (session?.metadata?.type !== 'academy_card_update' || session.status !== 'complete') return null;
+  const db = getAdminDb();
+  const ref = db.doc(`tenants/${tenantId}/tuitionPlans/${session.metadata.planId}`);
+  const p = ((await ref.get()).data() as any) || null;
+  if (!p) return null;
+  const si = await stripe().setupIntents.retrieve(String(session.setup_intent), {}, { stripeAccount: stripeAccountId });
+  const pm = typeof si.payment_method === 'string' ? si.payment_method : si.payment_method?.id;
+  if (!pm) return null;
+  if (p.paymentMethodId === pm) return { already: true, retried: null };
+  await ref.set({ paymentMethodId: pm, autopay: p.installmentsTotal > p.installmentsPaid, cardUpdatedAt: new Date().toISOString() }, { merge: true });
+  await appendAudit(tenantId, { type: 'tuition.card_updated', studentId: p.studentId, by: p.email, summary: `${p.name} updated their autopay card`, data: { planId: ref.id } });
+  let retried: any = null;
+  if (p.status === 'past_due') retried = await chargePlan(tenantId, stripeAccountId, ref, { ...p, paymentMethodId: pm });
+  return { already: false, retried };
 }
 
 /**
