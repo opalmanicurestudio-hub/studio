@@ -12,6 +12,7 @@
 //   lesson    { tenantId, courseId, lessonId, token? }  content; video token if allowed
 //   progress  { tenantId, token, courseId, lessonId, done }
 
+import { getIdentity } from '@/lib/school-identity';
 import { itemsFor, publicPortfolio, newToken } from '@/lib/academy-portfolio';
 import { COLORS, reviewDeck, recordReview, glossary } from '@/lib/academy-study';
 import { effectiveA11y } from '@/lib/accommodations';
@@ -81,7 +82,8 @@ export async function POST(req: NextRequest) {
   if (!tSnap.exists) return NextResponse.json({ ok: false, error: 'Academy not found.' }, { status: 404 });
   const t = tSnap.data() as any;
   if (t.modules?.academy === false) return NextResponse.json({ ok: false, error: 'This academy isn’t open.' }, { status: 404 });
-  const brand = { name: t.name || 'Academy', color: t.bookingPageSettings?.primaryColor || '#1c1917', logoUrl: t.logoUrl || t.bookingPageSettings?.logoUrl || null };
+  const ident = await getIdentity(tenantId, t, { forPublic: true });
+  const brand = { name: ident.displayName || t.name || 'Academy', color: t.bookingPageSettings?.primaryColor || '#1c1917', logoUrl: ident.logoUrl };
   const origin = linkOrigin(t, req.nextUrl.origin);
   const student = await studentFromToken(tenantId, b.token);
 
