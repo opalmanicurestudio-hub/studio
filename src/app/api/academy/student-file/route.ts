@@ -23,7 +23,7 @@ import { appendAudit } from '@/lib/academy-compliance';
 import { programProgress, recordEvaluation } from '@/lib/academy-school';
 import { planBalance } from '@/lib/academy-admissions';
 import { privateBucket, savePrivateDocument } from '@/lib/private-storage';
-import { ncRetainUntil } from '@/lib/state-rules/nc';
+import { retainUntil } from '@/lib/state-rules';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
           hours: pr?.hours, totalHours: p.totalHours || null, limits: p.limits || null, requirements: pr?.requirements || [],
           evaluations: (p.evaluations || []).map((x: any) => ({ ...x, result: e.evaluations?.[x.key] || null })), sap: e.sap || [], journey: e.journey || {}, risk: e.risk || null,
           requiredDocs: p.requiredDocs || [], boardForms: p.boardForms || [],
-          retainUntil: p.state === 'NC' ? ncRetainUntil(e.createdAt || e.startDate || now, e.journey?.license?.examAcceptedAt || null) : null,
+          retainUntil: retainUntil(p, e.createdAt || e.startDate || now, e.journey?.license?.examAcceptedAt || null),
           tuition: plan ? { status: plan.status, balanceCents: bal!.balanceCents, paidCents: bal!.paidCents, totalCents: plan.totalCents, nextDueAt: plan.nextDueAt || null, entries: bal!.entries.slice(-40).reverse() } : null });
       }
       // NC-style records: daily in-school + online minutes, weekly subtotals, running total.
