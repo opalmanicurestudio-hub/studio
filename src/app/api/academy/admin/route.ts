@@ -7,6 +7,7 @@
 //   video-status   (is Mux done processing? saves the playback id)
 //   students       (who's enrolled, and how far they've got)
 
+import { DOC_KINDS, schoolFacts, syllabusFrom, fingerprint } from '@/lib/school-docs';
 import { progressFor, nudge } from '@/lib/academy-assign';
 import { modKey, notifyModuleOpen } from '@/lib/academy-modules';
 import { KIT_GUIDE, KIT_EXAMPLE, extractHtml, scriptError } from '@/lib/interactive-kit';
@@ -115,7 +116,7 @@ async function handle(req: NextRequest) {
   // Owners, managers and instructors. Only owners/managers change courses and settings.
   const isInstructor = String(auth.actor.role || '').toLowerCase() === 'instructor';
   if (!auth.actor.isManager && !auth.actor.isTenantOwner && !isInstructor) return NextResponse.json({ ok: false, error: 'Only owners, managers and instructors can use the academy tools.' }, { status: 403 });
-  const INSTRUCTOR_OK = ['assign-options', 'assign-list', 'assign-save', 'assign-delete', 'assign-progress', 'assign-nudge', 'group-save', 'group-delete', 'interactive-list', 'ai-credits', 'materials-list', 'material-save', 'submissions', 'submission-ai', 'submission-grade', 'gradebook', 'media-list', 'media-url', 'qbank-list', 'worksheet-ai', 'tutor-log', 'list', 'course-get', 'students', 'attendance', 'attendance-approve', 'attendance-resolve', 'attendance-code', 'attendance-photo-check', 'transcript', 'audit-verify'];
+  const INSTRUCTOR_OK = ['docs-list', 'doc-get', 'doc-syllabus', 'assign-options', 'assign-list', 'assign-save', 'assign-delete', 'assign-progress', 'assign-nudge', 'group-save', 'group-delete', 'interactive-list', 'ai-credits', 'materials-list', 'material-save', 'submissions', 'submission-ai', 'submission-grade', 'gradebook', 'media-list', 'media-url', 'qbank-list', 'worksheet-ai', 'tutor-log', 'list', 'course-get', 'students', 'attendance', 'attendance-approve', 'attendance-resolve', 'attendance-code', 'attendance-photo-check', 'transcript', 'audit-verify'];
   if (isInstructor && !auth.actor.isManager && !INSTRUCTOR_OK.includes(String(b.action))) return NextResponse.json({ ok: false, error: 'Instructors can review attendance and students, not change courses.' }, { status: 403 });
   const who = auth.actor.name || auth.actor.uid;
   if (['attendance', 'attendance-approve', 'attendance-resolve', 'attendance-photo-check', 'transcript', 'students', 'submissions', 'gradebook'].includes(String(b.action))) {
@@ -320,6 +321,49 @@ async function handle(req: NextRequest) {
       const j: any = r.ok ? parseJson(r.text) : null;
       if (!j?.prompt) return NextResponse.json({ ok: false, error: 'The draft didn’t come back usable — try again.' }, { status: 502 });
       return NextResponse.json({ ok: true, assignment: { prompt: String(j.prompt).slice(0, 4000), type: kind, rubric: (j.rubric || []).slice(0, 10).map((x: any) => ({ criterion: String(x.criterion || '').slice(0, 200), points: Math.max(1, Math.min(100, Math.round(Number(x.points) || 10))) })).filter((x: any) => x.criterion), dueDays: Math.max(0, Math.min(60, Number(j.dueDays) || 7)), resubmit: true } });
+    }
+
+    // ── School documents: handbook, policies, syllabi — drafted, published, signed ──
+    if (b.action === 'docs-list') {
+      const q = await db.collection(`tenants/${tenantId}/schoolDocs`).orderBy('updatedAt', 'desc').limit(200).get();
+      return NextResponse.json({ ok: true, docs: q.docs.map((d: any) => { const x = d.data() as any; return { id: d.id, kind: x.kind, title: x.title, status: x.status, changed: x.status === 'published' && fingerprint(x.body || '') !== x.hash, version: x.version || 0, requireAck: !!x.requireAck, publishedAt: x.publishedAt || null, updatedAt: x.updatedAt }; }), kinds: Object.entries(DOC_KINDS).map(([k, v]) => ({ key: k, title: v.title, ack: v.ack })) });
+    }
+    if (b.action === 'doc-get') { const d = await db.doc(`tenants/${tenantId}/schoolDocs/${String(b.id || '')}`).get(); return d.exists ? NextResponse.json({ ok: true, doc: { id: d.id, ...(d.data() as any) } }) : NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 }); }
+    if (b.action === 'doc-save') {
+      const x = b.doc || {}; const ref = x.id ? db.doc(`tenants/${tenantId}/schoolDocs/${String(x.id)}`) : db.collection(`tenants/${tenantId}/schoolDocs`).doc();
+      const kind = DOC_KINDS[x.kind] ? x.kind : 'custom';
+      const prev = x.id ? (((await ref.get()).data() as any) || {}) : {};
+      await ref.set({ id: ref.id, status: prev.status || 'draft', kind, title: str(x.title, 160) || DOC_KINDS[kind].title, body: String(x.body || '').slice(0, 120000), requireAck: !!x.requireAck, courseId: x.courseId || null, updatedAt: now, updatedBy: who, ...(x.id ? {} : { createdAt: now, version: 0 }) }, { merge: true });
+      return NextResponse.json({ ok: true, id: ref.id });
+    }
+    if (b.action === 'doc-delete') { await db.doc(`tenants/${tenantId}/schoolDocs/${String(b.id || '')}`).delete(); return NextResponse.json({ ok: true }); }
+    if (b.action === 'doc-syllabus') { const sy = await syllabusFrom(tenantId, courseId); return NextResponse.json({ ok: true, ...sy }); }
+    if (b.action === 'doc-ai') {
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
+      const k = DOC_KINDS[b.kind]; if (!k || !k.ask) return NextResponse.json({ ok: false, error: 'Choose a document type.' }, { status: 400 });
+      const facts = await schoolFacts(tenantId);
+      const r = await askClaude({ tier: 'smart', maxTokens: 8000, purpose: 'school-doc', tenantId,
+        system: `You draft school documents for a licensed beauty / nail school, in clear, warm, plain language for students. Use ONLY the school facts given. Where a detail is unknown (dates, amounts, names, addresses, rules the facts don't state), write a placeholder like [[fill in: refund deadline]] — never invent figures, legal requirements or regulations. If a state is given, you may mention that the school follows its state board's rules, but do not quote specific regulations unless they are in the facts. Format: "# " for section headings, "## " for sub-headings, "- " for bullet points, **bold** sparingly. No preamble — start with the document.`,
+        prompt: `School facts:\n${JSON.stringify(facts, null, 1)}\n\n${b.notes ? `Owner's notes (follow them):\n${String(b.notes).slice(0, 2000)}\n\n` : ''}Write ${k.ask}.` });
+      if (!r.ok || !r.text.trim()) return NextResponse.json({ ok: false, error: r.error || 'The draft didn’t come back — try again.' }, { status: 502 });
+      if (r.stopReason === 'max_tokens') return NextResponse.json({ ok: false, error: 'The draft was too long to finish — try again with notes narrowing it down.' }, { status: 502 });
+      return NextResponse.json({ ok: true, title: k.title, body: r.text.replace(/^```[a-z]*\n?|```$/g, '').trim() });
+    }
+    if (b.action === 'doc-publish') {
+      const ref = db.doc(`tenants/${tenantId}/schoolDocs/${String(b.id || '')}`); const x = ((await ref.get()).data() as any) || null;
+      if (!x) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
+      if (/\[\[/.test(x.body || '')) return NextResponse.json({ ok: false, error: 'Fill in the highlighted [[…]] parts before publishing.' }, { status: 400 });
+      const version = (x.version || 0) + 1;
+      // Students see exactly this snapshot until the next publish.
+      await ref.set({ status: 'published', version, publishedAt: now, publishedBy: who, hash: fingerprint(x.body), publishedBody: x.body, publishedTitle: x.title, history: [...(x.history || []).slice(-19), { version, at: now, by: who, hash: fingerprint(x.body) }] }, { merge: true });
+      await appendAudit(tenantId, { type: 'doc.published', by: who, summary: `Published “${x.title}” (version ${version})${x.requireAck ? ' — students asked to sign' : ''}`, data: { docId: ref.id, version } });
+      return NextResponse.json({ ok: true, version });
+    }
+    if (b.action === 'doc-acks') {
+      const ref = db.doc(`tenants/${tenantId}/schoolDocs/${String(b.id || '')}`); const x = ((await ref.get()).data() as any) || {};
+      const [studs, acks] = await Promise.all([db.collection(`tenants/${tenantId}/students`).limit(3000).get(), db.collection(`tenants/${tenantId}/docAcks`).where('docId', '==', ref.id).limit(5000).get()]);
+      const signed = new Map(acks.docs.map((d: any) => d.data() as any).filter((a: any) => a.version === x.version).map((a: any) => [a.studentId, a]));
+      return NextResponse.json({ ok: true, version: x.version || 0, rows: studs.docs.map((d: any) => { const s = d.data() as any; const a: any = signed.get(d.id); return { studentId: d.id, name: s.name || s.email, signedAt: a?.at || null, signedName: a?.signedName || null }; }).sort((p: any, q: any) => Number(!!p.signedAt) - Number(!!q.signedAt) || String(p.name).localeCompare(String(q.name))) });
     }
 
     // ── Assign work: what, who, when, automatic review ──
