@@ -10,6 +10,7 @@
 //                download; free-preview switch; reorder; edit; delete
 //   Students     who's enrolled, since when, how far they've got
 
+import { ModuleSettings, GamifySetting, modKey } from '@/components/academy/ModuleSettings';
 import { AiCreditsMeter } from '@/components/academy/AiCreditsMeter';
 import { deviceId } from '@/lib/device';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -264,6 +265,7 @@ export default function AcademyBuilderPage() {
                     </div>
                   ))}
                 </section>
+                <GamifySetting tenantId={tenantId} />
                 <AiCreditsMeter tenantId={tenantId} />
                 {mode === 'school' && <DevicesPanel tenantId={tenantId} />}
                 {mode === 'school' && (
@@ -339,7 +341,7 @@ export default function AcademyBuilderPage() {
                 <div className="space-y-4">
                   {modules.map((m) => (
                     <div key={m.title} className="space-y-1.5">
-                      <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">{m.title}</p>
+                      <ModuleSettings tenantId={tenantId} courseId={sel!} title={m.title} first={modules[0]?.title === m.title} cfg={(d.course.modules || {})[modKey(m.title)] || null} onSaved={() => loadCourse(sel!)} />
                       {m.lessons.map((l: any) => { const I = KIND_ICON[l.kind] || FileText; return (
                         <div key={l.id} className="flex items-center gap-2 rounded-2xl bg-muted/40 px-3 py-2 text-sm">
                           <I className="h-4 w-4 shrink-0" />
