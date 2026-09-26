@@ -14,7 +14,7 @@
 
 import { upcomingPayments, studentPaySession, completeStudentPayment, cardUpdateSession, completeCardUpdate } from '@/lib/academy-admissions';
 import { translateTexts, translateLong, LANGUAGES } from '@/lib/translate';
-import { findLive, studentBeat, studentAnswer } from '@/lib/academy-live';
+import { findLive, studentBeat, studentAnswer, askQuestion, upvote, queueFor } from '@/lib/academy-live';
 import { askClaude, aiConfigured } from '@/lib/ai';
 import { postMessage, sendEmail as sendJourneyEmail } from '@/lib/academy-journey';
 import { NextRequest, NextResponse } from 'next/server';
@@ -485,11 +485,17 @@ Keep this link private.
     }
 
     // ── Live class (students) ──
-    if (b.action === 'live-find' || b.action === 'live-state' || b.action === 'live-answer') {
+    if (['live-find', 'live-state', 'live-answer', 'live-ask', 'live-vote', 'live-queue'].includes(b.action)) {
       if (!student) return NextResponse.json({ ok: false, error: 'Sign in to join the class.', needsSignIn: true }, { status: 401 });
       if (b.action === 'live-find') { const s = await findLive(tenantId, String(b.code || '')); return s ? NextResponse.json({ ok: true, sessionId: s.id, title: s.title }) : NextResponse.json({ ok: false, error: 'No live class with that code — check the screen.' }, { status: 404 }); }
-      if (b.action === 'live-answer') { try { await studentAnswer(tenantId, String(b.sessionId || ''), student.id, String(b.questionId || ''), Number(b.choice)); return NextResponse.json({ ok: true }); } catch (e: any) { return NextResponse.json({ ok: false, error: e.message }, { status: 400 }); } }
-      const st = await studentBeat(tenantId, String(b.sessionId || ''), student, !!b.visible);
+      const sid = String(b.sessionId || '');
+      try {
+        if (b.action === 'live-answer') { await studentAnswer(tenantId, sid, student.id, String(b.questionId || ''), b.answer || {}); return NextResponse.json({ ok: true }); }
+        if (b.action === 'live-ask') { await askQuestion(tenantId, sid, student, String(b.text || '')); return NextResponse.json({ ok: true, queue: await queueFor(tenantId, sid, student.id) }); }
+        if (b.action === 'live-vote') { await upvote(tenantId, sid, student.id, String(b.qid || '')); return NextResponse.json({ ok: true, queue: await queueFor(tenantId, sid, student.id) }); }
+        if (b.action === 'live-queue') return NextResponse.json({ ok: true, queue: await queueFor(tenantId, sid, student.id) });
+      } catch (e: any) { return NextResponse.json({ ok: false, error: e.message }, { status: 400 }); }
+      const st = await studentBeat(tenantId, sid, student, !!b.visible, { team: b.team || null, pulse: b.pulse || null, fast: typeof b.fast === 'boolean' ? b.fast : null });
       return st ? NextResponse.json({ ok: true, ...st, brand }) : NextResponse.json({ ok: false, error: 'Class not found.' }, { status: 404 });
     }
 
