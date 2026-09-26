@@ -12,6 +12,7 @@
 //   lesson    { tenantId, courseId, lessonId, token? }  content; video token if allowed
 //   progress  { tenantId, token, courseId, lessonId, done }
 
+import { moduleStates, whatChanged, award, gameView } from '@/lib/academy-modules';
 import { upcomingPayments, studentPaySession, completeStudentPayment, cardUpdateSession, completeCardUpdate } from '@/lib/academy-admissions';
 import { translateTexts, translateLong, LANGUAGES } from '@/lib/translate';
 import { findLive, studentBeat, studentAnswer, askQuestion, upvote, queueFor } from '@/lib/academy-live';
@@ -89,7 +90,11 @@ export async function POST(req: NextRequest) {
       if (!c || c.status !== 'published') return NextResponse.json({ ok: false, error: 'Course not found.' }, { status: 404 });
       const lessons = await loadLessons(tenantId, c.id);
       const enr = student ? ((await db.doc(`tenants/${tenantId}/enrollments/${c.id}_${student.id}`).get()).data() as any) || null : null;
-      return NextResponse.json({ ok: true, brand, course: publicCourse(c), enrolled: !!enr, progress: enr?.progress || {}, lastLessonId: enr?.lastLessonId || null, student: student ? { email: student.email, name: student.name } : null,
+      // The journey: each module's state for this student, and unlocks not yet celebrated.
+      const mods = moduleStates(c, lessons, enr?.progress || {});
+      const justUnlocked = enr ? mods.filter((m, i) => i > 0 && m.open && m.release !== 'open' && !enr.seenUnlocks?.[m.key]).map((m) => ({ key: m.key, title: m.title, intro: m.intro })) : [];
+      const game = enr && student ? gameView(t, ((await db.doc(`tenants/${tenantId}/students/${student.id}`).get()).data() as any) || {}) : null;
+      return NextResponse.json({ ok: true, brand, course: publicCourse(c), enrolled: !!enr, modules: mods.map(({ lessonIds, ...m }) => ({ ...m, lessonIds })), justUnlocked, game, progress: enr?.progress || {}, lastLessonId: enr?.lastLessonId || null, student: student ? { email: student.email, name: student.name } : null,
         lessons: lessons.map((l: any) => ({ id: l.id, title: l.title, moduleTitle: l.moduleTitle, kind: l.kind, preview: !!l.preview, durationSec: l.durationSec || null,
           unlockAt: enr && Number(l.releaseAfterDays) > 0 ? new Date(new Date(enr.startDate || enr.createdAt).getTime() + Number(l.releaseAfterDays) * 86400000).toISOString() : null })),
         payLater: !!t.payLater?.enabled && (c.priceCents || 0) >= (Number(t.payLater?.minAmount ?? 150) * 100) });
@@ -181,6 +186,13 @@ export async function POST(req: NextRequest) {
       const enrolled = student ? (await db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`).get()).exists : false;
       if (!enrolled && !l.preview) return NextResponse.json({ ok: false, locked: true, error: 'Enrol to watch this lesson.' }, { status: 403 });
       // Scheduled release: unlocks N days after the student starts.
+      if (enrolled && student) {
+        const c2 = ((await db.doc(`tenants/${tenantId}/courses/${courseId}`).get()).data() as any) || {};
+        const en2 = ((await db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`).get()).data() as any) || {};
+        const ms = moduleStates(c2, await loadLessons(tenantId, courseId), en2.progress || {});
+        const mine = ms.find((m) => m.lessonIds.includes(lessonId));
+        if (mine && !mine.open) return NextResponse.json({ ok: false, locked: true, error: `${mine.title}: ${mine.reason}.` }, { status: 403 });
+      }
       if (enrolled && student && Number(l.releaseAfterDays) > 0) {
         const en = ((await db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`).get()).data() as any) || {};
         const unlock = new Date(new Date(en.startDate || en.createdAt || Date.now()).getTime() + Number(l.releaseAfterDays) * 86400000);
@@ -202,6 +214,13 @@ export async function POST(req: NextRequest) {
           engagedSec: stat.engagedSec || 0, watchedSec: stat.watchedSec || 0 } });
     }
 
+    if (b.action === 'seen-unlock') {
+      if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+      const keys = (Array.isArray(b.keys) ? b.keys : []).map(String).slice(0, 20);
+      await db.doc(`tenants/${tenantId}/enrollments/${String(b.courseId || '')}_${student.id}`).set({ seenUnlocks: Object.fromEntries(keys.map((k: string) => [k, new Date().toISOString()])) }, { merge: true });
+      return NextResponse.json({ ok: true });
+    }
+
     if (b.action === 'progress') {
       if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
       const ref = db.doc(`tenants/${tenantId}/enrollments/${String(b.courseId || '')}_${student.id}`);
@@ -209,12 +228,15 @@ export async function POST(req: NextRequest) {
       if (!e) return NextResponse.json({ ok: false, error: 'Not enrolled.' }, { status: 403 });
       const progress = { ...(e.progress || {}) };
       const courseId = String(b.courseId || ''), lessonId = String(b.lessonId || '');
+      let firstTime = false; let before: any[] | null = null;
       if (b.done) {
         const c = ((await db.doc(`tenants/${tenantId}/courses/${courseId}`).get()).data() as any) || {};
         const l = ((await db.doc(`tenants/${tenantId}/courses/${courseId}/lessons/${lessonId}`).get()).data() as any) || {};
         const st = e.stats?.[lessonId] || {};
         const m = lessonMet(c, l, { engagedSec: st.engagedSec || 0, watchedSec: st.watchedSec || 0, quizPassed: !!e.quiz?.[lessonId]?.passed });
         if (!m.met) return NextResponse.json({ ok: false, error: m.why, notMet: true }, { status: 400 });
+        firstTime = !progress[lessonId];
+        before = moduleStates(c, await loadLessons(tenantId, courseId), progress);
         progress[lessonId] = new Date().toISOString();
         await appendAudit(tenantId, { type: 'lesson.completed', studentId: student.id, courseId, by: student.email, summary: `Completed “${l.title || lessonId}” — ${Math.round((st.engagedSec || 0) / 60)} active min, ${l.durationSec ? Math.round(((st.watchedSec || 0) / l.durationSec) * 100) + '% watched' : 'no video'}`, data: { lessonId, engagedSec: st.engagedSec || 0, watchedSec: st.watchedSec || 0 } });
       } else {
@@ -223,7 +245,19 @@ export async function POST(req: NextRequest) {
         delete progress[lessonId];
       }
       await ref.set({ progress, lastLessonId: lessonId }, { merge: true });
-      return NextResponse.json({ ok: true, progress });
+      if (!b.done || !before) return NextResponse.json({ ok: true, progress });
+      const c = ((await db.doc(`tenants/${tenantId}/courses/${courseId}`).get()).data() as any) || {};
+      const lessonsNow = await loadLessons(tenantId, courseId);
+      const after = moduleStates(c, lessonsNow, progress);
+      const ch = whatChanged(before, after);
+      const items: any[] = firstTime ? [{ key: `l:${courseId}:${lessonId}`, points: 10 }] : [];
+      if (ch.completed) items.push({ key: `m:${courseId}:${ch.completed.key}`, points: 50, badge: { id: `m:${courseId}:${ch.completed.key}`, name: ch.completed.badge?.name || ch.completed.title, emoji: ch.completed.badge?.emoji || '🏅' } });
+      if (ch.courseDone) items.push({ key: `c:${courseId}`, points: 100, badge: { id: `c:${courseId}`, name: c.title || 'Course complete', emoji: '🎓' } });
+      const game = await award(tenantId, student.id, items).catch(() => null);
+      const next = after.find((m) => m.key === ch.unlocked[0]?.key) || null;
+      return NextResponse.json({ ok: true, progress, unlocked: ch.unlocked, courseDone: ch.courseDone,
+        completedModule: ch.completed ? { key: ch.completed.key, title: ch.completed.title, lessonTitles: ch.completed.lessonTitles, badge: game ? (ch.completed.badge || { name: ch.completed.title, emoji: '🏅' }) : null } : null,
+        nextModule: next ? { key: next.key, title: next.title } : null, game });
     }
 
     // ── Admissions: apply, then a private application page ──
@@ -412,7 +446,7 @@ Keep this link private.
           clock: open.empty ? null : { since: (open.docs[0].data() as any).clockInAt }, duty, week, clinic, next, needs, programs,
           tuition: plans.map((x: any) => ({ id: x.id, status: x.p.status, balanceCents: x.bal.balanceCents, nextDueAt: x.p.nextDueAt || null, installmentCents: x.p.installmentCents, autopay: !!x.p.autopay, lastError: x.p.status === 'past_due' ? (x.p.lastError || 'Payment failed') : null })),
           announcements: anns.docs.map((d: any) => d.data() as any).filter((a: any) => (!a.programId || progIds.has(a.programId)) && (!a.cohortId || cohortIds.has(a.cohortId))).slice(0, 3).map((a: any) => ({ title: a.title, body: a.body, at: a.at })),
-          unread: ((thread.data() as any) || {}).unreadStudent || 0, isSchool: progEnr.length > 0 });
+          unread: ((thread.data() as any) || {}).unreadStudent || 0, isSchool: progEnr.length > 0, game: gameView(t, sDoc) });
       }
 
       if (b.action === 'hours') {
