@@ -45,13 +45,14 @@ export function LiveClass({ tenantId }: { tenantId: string }) {
   const [c, setC] = useState<any>({ q: '', options: ['', ''], correct: -1, timerSec: 20, instructorRating: 4, photo: null, target: null, questions: [blankQ()] });
   const [now, setNow] = useState(Date.now());
   const [msg, setMsg] = useState(''); const [busy, setBusy] = useState(false);
+  const [loadErr, setLoadErr] = useState('');
   const timer = useRef<number | null>(null);
   const loadList = useCallback(async () => { const r = await api({ action: 'list', tenantId }); if (r.ok) { setList(r.sessions); const cur = r.sessions.find((s: any) => s.status === 'live'); if (cur) setLive((x) => x || cur.id); } }, [tenantId]);
   useEffect(() => { void loadList(); call('/api/academy/school', { action: 'overview', tenantId }).then((r) => r?.ok && setPrograms(r.programs || [])); call('/api/academy/admin', { action: 'list', tenantId }).then((r) => r?.ok && setCourses(r.courses || [])); }, [tenantId, loadList]);
   useEffect(() => { const t = window.setInterval(() => setNow(Date.now()), 500); return () => window.clearInterval(t); }, []);
   useEffect(() => {
     if (!live) return;
-    const tick = async () => { const r = await api({ action: 'state', tenantId, id: live }); if (r.ok) { setSt(r); if (r.joinUrl) setQr((q) => q || null); if (!qr && r.joinUrl) setQr(await QRCode.toDataURL(r.joinUrl, { margin: 1, width: 360 })); } };
+    const tick = async () => { const r = await api({ action: 'state', tenantId, id: live }); if (!r.ok) { setLoadErr(r.error || 'The class didn’t load.'); return; } setLoadErr(''); if (r.ok) { setSt(r); if (r.joinUrl) setQr((q) => q || null); if (!qr && r.joinUrl) setQr(await QRCode.toDataURL(r.joinUrl, { margin: 1, width: 360 })); } };
     void tick(); timer.current = window.setInterval(tick, 2000);
     return () => { if (timer.current) window.clearInterval(timer.current); };
   }, [live, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -151,7 +152,14 @@ export function LiveClass({ tenantId }: { tenantId: string }) {
       </div>
     );
   }
-  if (live && !st) return <Loader className="h-5 w-5 animate-spin" />;
+  // Never spin forever: if the class can't load, say why and offer a way out.
+  if (live && !st) return loadErr ? (
+    <div className="space-y-3 rounded-3xl border-2 border-red-200 bg-red-50 p-5">
+      <p className="font-black text-red-900">The class screen couldn’t load</p><p className="text-sm text-red-800">{loadErr}</p>
+      <div className="flex flex-wrap gap-2"><button type="button" onClick={() => { setLoadErr(''); setLive(null); setTimeout(() => setLive(live), 0); }} className="h-10 rounded-xl bg-foreground px-4 text-sm font-bold text-background">Try again</button>
+        <button type="button" onClick={() => { setLoadErr(''); setLive(null); void loadList(); }} className="h-10 rounded-xl border-2 px-4 text-sm font-bold">Back to classes</button></div>
+    </div>
+  ) : <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader className="h-5 w-5 animate-spin" />Opening the class…</div>;
 
   return (
     <div className="space-y-4">
