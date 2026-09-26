@@ -2,15 +2,19 @@
 // src/components/academy/AdmissionsBoard.tsx
 //
 // ADMISSIONS (licensed-school mode; owners and managers).
-//   Pipeline   inquiry → tour → applied → documents → agreement → enrolled
+//   Pipeline   inquiry → tour → applied → under review → (decision) offer →
+//              accepted → signed → enrolled · waitlist · not accepted — see
+//              AdmissionReview.tsx. Applying is not acceptance.
 //              Open an applicant: send their private application link, set
 //              cohort / start, check documents, see the signed agreement and
 //              countersign, tuition + ledger, record a payment, quote a
 //              refund, withdraw (with reason), notes.
 //   Tuition    every plan: balance, next payment, autopay, failures
-//   Cohorts    start dates and capacity (full → new applicants waitlisted)
+//   Cohorts    start dates and capacity (a full cohort can't be over-offered;
+//              a freed place goes to the waitlist automatically)
 
 import { deviceId } from '@/lib/device';
+import { AdmissionReview } from '@/components/academy/AdmissionReview';
 import { printDocument, esc, heading, type DocBrand } from '@/lib/doc-theme';
 import { useCallback, useEffect, useState } from 'react';
 import { getAuth } from 'firebase/auth';
@@ -25,7 +29,8 @@ async function api(body: any) {
 const $ = (c?: number | null) => (c == null ? '—' : `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const dt = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—');
 const field = 'h-10 w-full rounded-xl border-2 border-border/60 bg-background px-3 text-sm';
-const COLS: [string, string][] = [['inquiry', 'Inquiry'], ['tour', 'Tour'], ['applied', 'Applied'], ['documents', 'Documents'], ['agreement', 'Signed'], ['enrolled', 'Enrolled']];
+const COLS: [string, string][] = [['inquiry', 'Inquiry'], ['tour', 'Tour'], ['applied', 'Applied'], ['review', 'Under review'], ['offer', 'Offer out'], ['accepted', 'Accepted'], ['waitlist', 'Waitlist'], ['agreement', 'Signed'], ['enrolled', 'Enrolled']];
+const inCol = (a: any, k: string) => a.stage === k || (k === 'review' && a.stage === 'documents');
 
 export function AdmissionsBoard({ tenantId, brand }: { tenantId: string; brand?: DocBrand }) {
   const [tab, setTab] = useState<'pipeline' | 'tuition' | 'cohorts'>('pipeline');
@@ -71,7 +76,7 @@ export function AdmissionsBoard({ tenantId, brand }: { tenantId: string; brand?:
       {tab === 'pipeline' && (
         <>
           <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-2">
-            {COLS.map(([k, l]) => { const items = d.admissions.filter((a: any) => a.stage === k).sort((a: any, b: any) => String(b.updatedAt).localeCompare(String(a.updatedAt))); return (
+            {COLS.map(([k, l]) => { const items = d.admissions.filter((a: any) => inCol(a, k)).sort((a: any, b: any) => k === 'waitlist' ? String(a.waitlistedAt || '').localeCompare(String(b.waitlistedAt || '')) : String(b.updatedAt).localeCompare(String(a.updatedAt))); return (
               <div key={k} className="w-64 shrink-0 space-y-2 rounded-2xl bg-muted/40 p-2">
                 <p className="px-1 text-[11px] font-black uppercase tracking-widest text-muted-foreground">{l} · {items.length}</p>
                 {items.map((a: any) => (
@@ -81,7 +86,9 @@ export function AdmissionsBoard({ tenantId, brand }: { tenantId: string; brand?:
                     <p className="mt-1 flex flex-wrap gap-1 text-[10px] font-bold">
                       {a.docsTotal > 0 && <span className="rounded-full bg-muted px-1.5 py-0.5">docs {a.docsDone}/{a.docsTotal}</span>}
                       {a.signed && <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-emerald-800">signed</span>}
-                      {a.waitlisted && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-amber-800">waitlist</span>}
+                      {k === 'waitlist' && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-amber-800">#{items.indexOf(a) + 1}</span>}
+                      {a.offerExpiresAt && <span className={`rounded-full px-1.5 py-0.5 ${Date.parse(a.offerExpiresAt) - Date.now() < 2 * 86400000 ? 'bg-red-100 text-red-800' : 'bg-violet-100 text-violet-800'}`}>answer by {new Date(a.offerExpiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
+                      {a.interviewAt && <span className="rounded-full bg-sky-100 px-1.5 py-0.5 text-sky-800">interview {new Date(a.interviewAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
                       {a.source && <span className="rounded-full bg-muted px-1.5 py-0.5">{a.source}</span>}
                     </p>
                   </button>
@@ -90,7 +97,7 @@ export function AdmissionsBoard({ tenantId, brand }: { tenantId: string; brand?:
             ); })}
           </div>
           {d.admissions.some((a: any) => ['declined', 'withdrawn'].includes(a.stage)) && (
-            <details className="text-sm"><summary className="cursor-pointer font-bold text-muted-foreground">Declined & withdrawn ({d.admissions.filter((a: any) => ['declined', 'withdrawn'].includes(a.stage)).length})</summary>
+            <details className="text-sm"><summary className="cursor-pointer font-bold text-muted-foreground">Not accepted & withdrawn ({d.admissions.filter((a: any) => ['declined', 'withdrawn'].includes(a.stage)).length})</summary>
               <div className="mt-1 space-y-1">{d.admissions.filter((a: any) => ['declined', 'withdrawn'].includes(a.stage)).map((a: any) => <button key={a.id} type="button" onClick={() => setOpen(a.id)} className="block text-left text-[13px] underline-offset-2 hover:underline">{a.name} · {a.stage} · {progName(a.programId)}</button>)}</div></details>
           )}
         </>
@@ -144,15 +151,19 @@ export function AdmissionsBoard({ tenantId, brand }: { tenantId: string; brand?:
 
                 <div className="flex flex-wrap gap-2">
                   <select className="h-10 rounded-xl border-2 px-2 text-sm" value={a.stage} onChange={async (e) => { const stage = e.target.value; const note = ['declined', 'withdrawn'].includes(stage) ? window.prompt('Reason (kept on the record):') : ''; if (['declined', 'withdrawn'].includes(stage) && !note) return; await act({ action: 'stage', id: a.id, stage, note }, 'Stage updated.'); }}>
-                    {['inquiry', 'tour', 'applied', 'documents', 'agreement', 'declined', 'withdrawn'].map((s) => <option key={s} value={s}>{s}</option>)}{a.stage === 'enrolled' && <option value="enrolled">enrolled</option>}
+                    {(() => { const L: Record<string, string> = { inquiry: 'Inquiry', tour: 'Tour', applied: 'Applied', review: 'Under review', documents: 'Under review', offer: 'Offer out', accepted: 'Accepted', waitlist: 'Waitlist', agreement: 'Signed', enrolled: 'Enrolled', declined: 'Not accepted', withdrawn: 'Withdrawn' };
+                      const manual = ['inquiry', 'tour', 'applied', 'review', 'withdrawn'];
+                      return [...(manual.includes(a.stage) ? [] : [a.stage]), ...manual].map((s) => <option key={s} value={s} disabled={!manual.includes(s)}>{L[s] || s}</option>); })()}
                   </select>
                   <button type="button" onClick={async () => { const r = await act({ action: 'send-link', id: a.id }); if (r?.ok) { try { await navigator.clipboard.writeText(r.link); } catch { /* ignore */ } setMsg(`Application link ${r.emailed ? 'emailed to' : 'created for'} ${a.name}${r.emailed ? '' : ' (copied — send it yourself)'}.`); } }} className="h-10 rounded-xl bg-foreground px-4 text-sm font-bold text-background">{a.hasLink ? 'Send a new application link' : 'Send application link'}</button>
                 </div>
 
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <label className="text-[12px] font-bold">Cohort<select className={field} value={a.cohortId || ''} onChange={async (e) => { if (!e.target.value) return; const r = await act({ action: 'cohort-assign', id: a.id, cohortId: e.target.value }); if (r?.ok) setMsg(r.waitlisted ? 'That cohort is full — added to its waitlist.' : 'Cohort set.'); }}><option value="">—</option>{d.cohorts.filter((c: any) => c.programId === a.programId).map((c: any) => <option key={c.id} value={c.id}>{c.name} · {dt(c.startDate)}</option>)}</select></label>
-                  <label className="text-[12px] font-bold">Start date{a.waitlisted ? ' (waitlisted)' : ''}<input className={field} type="date" value={a.startDate || ''} onChange={(e) => act({ action: 'set-start', id: a.id, startDate: e.target.value })} /></label>
+                  <label className="text-[12px] font-bold">Cohort<select className={field} value={a.cohortId || ''} onChange={async (e) => { if (!e.target.value) return; const r = await act({ action: 'cohort-assign', id: a.id, cohortId: e.target.value }); if (r?.ok) setMsg(r.full ? 'Cohort set — it’s full, so an offer can’t be made until a place opens (or waitlist them).' : 'Cohort set.'); }}><option value="">—</option>{d.cohorts.filter((c: any) => c.programId === a.programId).map((c: any) => <option key={c.id} value={c.id}>{c.name} · {dt(c.startDate)}</option>)}</select></label>
+                  <label className="text-[12px] font-bold">Start date<input className={field} type="date" value={a.startDate || ''} onChange={(e) => act({ action: 'set-start', id: a.id, startDate: e.target.value })} /></label>
                 </div>
+
+                <AdmissionReview x={x} act={act} brand={brand} />
 
                 <section className="space-y-1.5">
                   <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Documents</p>
