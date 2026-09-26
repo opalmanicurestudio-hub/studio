@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react';
 import { getAuth } from 'firebase/auth';
 import { ArrowUp, ArrowDown, Trash2 } from 'lucide-react';
 import { printDocument, heading, esc } from '@/lib/doc-theme';
+import { InteractiveFrame } from '@/components/academy/InteractiveFrame';
 
 async function api(body: any) {
   const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
@@ -60,15 +61,16 @@ export function MediaPicker({ tenantId, courseId, kind, onPick, onClose }: { ten
 
 // ── Content blocks ────────────────────────────────────────────────────────
 const TONE: Record<string, [string, string]> = { safety: ['🛑 Safety', 'bg-red-50 border-red-200'], key: ['⭐ Key point', 'bg-amber-50 border-amber-200'], tip: ['💡 Tip', 'bg-sky-50 border-sky-200'] };
-export function BlocksEditor({ tenantId, courseId, value, onChange }: { tenantId: string; courseId: string; value: any[]; onChange: (v: any[]) => void }) {
+export function BlocksEditor({ tenantId, courseId, value, onChange, lessonId }: { tenantId: string; courseId: string; value: any[]; onChange: (v: any[]) => void; lessonId?: string | null }) {
   const [pick, setPick] = useState<{ index: number; step?: number; kind: 'image' | 'any' } | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
   const blocks = value || [];
   const set = (i: number, patch: any) => onChange(blocks.map((b, k) => (k === i ? { ...b, ...patch } : b)));
   const move = (i: number, d: number) => { const j = i + d; if (j < 0 || j >= blocks.length) return; const n = [...blocks]; [n[i], n[j]] = [n[j], n[i]]; onChange(n); };
-  const add = (type: string) => onChange([...blocks, type === 'steps' ? { id: uid(), type, title: '', steps: [{ text: '', mediaId: null }] } : type === 'callout' ? { id: uid(), type, tone: 'safety', text: '' } : { id: uid(), type, text: '' }]);
+  const add = (type: string) => onChange([...blocks, type === 'interactive' ? { id: uid(), type, title: '', request: '', html: '' } : type === 'hotspots' ? { id: uid(), type, title: '', mediaId: null, points: [] } : type === 'stages' ? { id: uid(), type, title: '', stages: [{ label: '', text: '', mediaId: null }, { label: '', text: '', mediaId: null }] } : type === 'steps' ? { id: uid(), type, title: '', steps: [{ text: '', mediaId: null }] } : type === 'callout' ? { id: uid(), type, tone: 'safety', text: '' } : { id: uid(), type, text: '' }]);
   const chosen = (m: any) => { if (!pick) return; setNames((x) => ({ ...x, [m.id]: m.name })); const b = blocks[pick.index];
-    if (pick.step != null) { const steps = [...b.steps]; steps[pick.step] = { ...steps[pick.step], mediaId: m.id }; set(pick.index, { steps }); }
+    if (pick.step != null && b.type === 'stages') { const stages = [...b.stages]; stages[pick.step] = { ...stages[pick.step], mediaId: m.id }; set(pick.index, { stages }); }
+    else if (pick.step != null) { const steps = [...b.steps]; steps[pick.step] = { ...steps[pick.step], mediaId: m.id }; set(pick.index, { steps }); }
     else set(pick.index, { mediaId: m.id, ...(b.type === 'file' && !b.label ? { label: m.name } : {}) }); setPick(null); };
   return (
     <div className="space-y-2 rounded-2xl bg-muted/40 p-3">
@@ -88,9 +90,19 @@ export function BlocksEditor({ tenantId, courseId, value, onChange }: { tenantId
               <button type="button" onClick={() => set(i, { steps: b.steps.filter((_: any, x: number) => x !== k) })} aria-label="Remove step" className="mt-2 text-red-600"><Trash2 className="h-4 w-4" /></button></div>)}
             <button type="button" onClick={() => set(i, { steps: [...b.steps, { text: '', mediaId: null }] })} className="rounded-full bg-muted px-3 py-1 text-[12px] font-bold">+ Step</button></>}
           {b.type === 'divider' && <hr className="border-dashed" />}
+          {b.type === 'interactive' && <InteractiveEditor tenantId={tenantId} courseId={courseId} lessonId={lessonId} b={b} onChange={(patch: any) => set(i, patch)} />}
+          {b.type === 'hotspots' && <HotspotsEditor tenantId={tenantId} courseId={courseId} lessonId={lessonId} b={b} onChange={(patch: any) => set(i, patch)} onPick={() => setPick({ index: i, kind: 'image' })} />}
+          {b.type === 'stages' && <>
+            <input className={field} value={b.title} onChange={(e) => set(i, { title: e.target.value })} placeholder="e.g. How a nail grows out — month by month" />
+            {b.stages.map((st: any, k: number) => <div key={k} className="grid gap-2 sm:grid-cols-[160px_1fr_auto_auto]"><input className={field} value={st.label} onChange={(e) => { const a = [...b.stages]; a[k] = { ...st, label: e.target.value }; set(i, { stages: a }); }} placeholder={`Stage ${k + 1} name`} />
+              <input className={field} value={st.text} onChange={(e) => { const a = [...b.stages]; a[k] = { ...st, text: e.target.value }; set(i, { stages: a }); }} placeholder="What’s happening at this stage" />
+              <button type="button" onClick={() => setPick({ index: i, step: k, kind: 'image' })} className="h-10 rounded-lg border-2 px-2 text-[12px] font-bold">{st.mediaId ? '✓ image' : '🖼 image'}</button>
+              <button type="button" onClick={() => set(i, { stages: b.stages.filter((_: any, x: number) => x !== k) })} aria-label="Remove stage" className="text-red-600"><Trash2 className="h-4 w-4" /></button></div>)}
+            {b.stages.length < 12 && <button type="button" onClick={() => set(i, { stages: [...b.stages, { label: '', text: '', mediaId: null }] })} className="rounded-full bg-muted px-3 py-1 text-[12px] font-bold">+ Stage</button>}
+            <p className="text-[11px] text-muted-foreground">Students drag a slider through the stages.</p></>}
         </div>
       ))}
-      <div className="flex flex-wrap gap-1.5">{([['text', '¶ Text'], ['steps', '🔢 Step-by-step'], ['image', '🖼 Image'], ['callout', '🛑 Callout'], ['file', '📄 File'], ['divider', '— Divider']] as const).map(([k, l]) => <button key={k} type="button" onClick={() => add(k)} className="rounded-full bg-background px-3 py-1.5 text-[12px] font-bold">{l}</button>)}</div>
+      <div className="flex flex-wrap gap-1.5">{([['interactive', '✨ Interactive'], ['hotspots', '📍 Hotspots'], ['stages', '🎚 Stages'], ['text', '¶ Text'], ['steps', '🔢 Step-by-step'], ['image', '🖼 Image'], ['callout', '🛑 Callout'], ['file', '📄 File'], ['divider', '— Divider']] as const).map(([k, l]) => <button key={k} type="button" onClick={() => add(k)} className="rounded-full bg-background px-3 py-1.5 text-[12px] font-bold">{l}</button>)}</div>
       {pick && <MediaPicker tenantId={tenantId} courseId={courseId} kind={pick.kind} onPick={chosen} onClose={() => setPick(null)} />}
     </div>
   );
@@ -140,6 +152,113 @@ export function PlanEditor({ tenantId, courseId, lesson, value, onChange, brand,
           <label className="text-[12px] font-bold">Subjects (comma-separated — e.g. Infection control, Nail anatomy)<input className={field} value={(p.subjects || []).join(', ')} onChange={(e) => set({ subjects: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })} /></label>
         </div>
       )}
+    </div>
+  );
+}
+
+
+// ── ✨ Make an interactive (animated HTML, sealed frame) ──────────────────
+function InteractiveEditor({ tenantId, courseId, lessonId, b, onChange }: any) {
+  const [busy, setBusy] = useState(''); const [err, setErr] = useState(''); const [change, setChange] = useState('');
+  const [useLesson, setUseLesson] = useState(true); const [lib, setLib] = useState<any[] | null>(null); const [saved, setSaved] = useState(false);
+  const build = async (revise: boolean) => {
+    setBusy(revise ? 'revise' : 'build'); setErr('');
+    const r = await api({ action: 'ai-interactive', tenantId, courseId, lessonId, useLesson: useLesson && !!lessonId, request: b.request, ...(revise ? { currentHtml: b.html, change } : {}) });
+    setBusy(''); if (r.ok) { onChange({ html: r.html, title: b.title || b.request.slice(0, 60) }); setChange(''); setSaved(false); } else setErr(r.error);
+  };
+  return (
+    <div className="space-y-2">
+      <textarea rows={2} className={area} value={b.request} onChange={(e) => onChange({ request: e.target.value })} placeholder="What should it show? e.g. How UV gel cures from the top down, and why thick or dark coats stay liquid underneath — with a time slider" />
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" disabled={!!busy || !b.request.trim()} onClick={() => build(false)} className="h-10 rounded-xl bg-violet-700 px-4 text-sm font-bold text-white disabled:opacity-40">{busy === 'build' ? 'Building… (up to a minute)' : b.html ? '✨ Build again' : '✨ Build it'}</button>
+        <label className="flex items-center gap-1.5 text-[12px] font-bold"><input type="checkbox" checked={useLesson} onChange={(e) => setUseLesson(e.target.checked)} disabled={!lessonId} />Use this lesson’s text{!lessonId ? ' (save the lesson first)' : ''}</label>
+        <button type="button" onClick={async () => { const r = await api({ action: 'interactive-list', tenantId, courseId }); setLib(r.ok ? r.items : []); }} className="h-10 rounded-xl border-2 px-3 text-[12px] font-bold">Use one from the library</button>
+        <span className="text-[11px] text-muted-foreground">About 5 AI credits per build or change.</span>
+      </div>
+      {lib && <div className="max-h-56 space-y-1 overflow-y-auto rounded-xl border-2 p-2">{lib.length === 0 ? <p className="text-[12px] text-muted-foreground">Nothing saved yet.</p> : lib.map((x: any) => <button key={x.id} type="button" onClick={() => { onChange({ html: x.html, title: x.title, request: x.request }); setLib(null); setSaved(true); }} className="block w-full rounded-lg px-2 py-1.5 text-left text-sm hover:bg-muted"><b>{x.title}</b><span className="block truncate text-[11px] text-muted-foreground">{x.request}</span></button>)}</div>}
+      {err && <p className="text-sm text-red-700">{err}</p>}
+      {b.html && (
+        <div className="space-y-2">
+          <input className={field} value={b.title} onChange={(e) => onChange({ title: e.target.value })} placeholder="Title students see" />
+          <div className="rounded-2xl border-2 border-violet-200 p-1"><InteractiveFrame html={b.html} title={b.title} /></div>
+          <div className="flex flex-wrap gap-2"><input className={`${field} flex-1`} value={change} onChange={(e) => setChange(e.target.value)} placeholder="Ask for changes — e.g. add a heat indicator, make the labels bigger, slow the animation" />
+            <button type="button" disabled={!!busy || !change.trim()} onClick={() => build(true)} className="h-10 rounded-xl border-2 px-4 text-sm font-bold disabled:opacity-40">{busy === 'revise' ? 'Changing…' : 'Change it'}</button>
+            <button type="button" disabled={saved} onClick={async () => { const r = await api({ action: 'interactive-save', tenantId, courseId, html: b.html, title: b.title, request: b.request }); if (r.ok) setSaved(true); else setErr(r.error); }} className="h-10 rounded-xl border-2 px-4 text-sm font-bold disabled:opacity-50">{saved ? '✓ In library' : 'Save to library'}</button></div>
+          <p className="text-[11px] text-muted-foreground">Check it’s accurate before saving the lesson — students see exactly this. It runs in a sealed frame with no internet access.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── 📍 Hotspots on your own image ────────────────────────────────────────
+function HotspotsEditor({ tenantId, courseId, lessonId, b, onChange, onPick }: any) {
+  const [url, setUrl] = useState<string | null>(null); const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
+  useEffect(() => { if (b.mediaId) api({ action: 'media-url', tenantId, courseId, mediaId: b.mediaId }).then((r) => r.ok && setUrl(r.url)); }, [b.mediaId, tenantId, courseId]);
+  const pts = b.points || [];
+  return (
+    <div className="space-y-2">
+      <input className={field} value={b.title} onChange={(e) => onChange({ title: e.target.value })} placeholder="e.g. Parts of the nail unit" />
+      <button type="button" onClick={onPick} className="h-9 rounded-lg border-2 px-3 text-[12px] font-bold">{b.mediaId ? '✓ Image chosen — change' : 'Choose your image'}</button>
+      {url && <div className="relative inline-block max-w-full cursor-crosshair" onClick={(e) => { const r = (e.currentTarget as HTMLDivElement).getBoundingClientRect(); onChange({ points: [...pts, { x: ((e.clientX - r.left) / r.width) * 100, y: ((e.clientY - r.top) / r.height) * 100, label: '', text: '' }] }); }}>
+        <img src={url} alt="" className="max-h-96 max-w-full rounded-xl" />{pts.map((p: any, i: number) => <span key={i} className="absolute flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-violet-700 text-[12px] font-bold text-white ring-2 ring-white" style={{ left: `${p.x}%`, top: `${p.y}%` }}>{i + 1}</span>)}</div>}
+      {url && <p className="text-[11px] text-muted-foreground">Tap the image to drop a numbered point, then name it below.</p>}
+      {pts.map((p: any, i: number) => <div key={i} className="grid gap-2 sm:grid-cols-[28px_180px_1fr_auto]"><span className="mt-2 text-sm font-black">{i + 1}</span><input className={field} value={p.label} onChange={(e) => { const a = [...pts]; a[i] = { ...p, label: e.target.value }; onChange({ points: a }); }} placeholder="Name" /><input className={field} value={p.text} onChange={(e) => { const a = [...pts]; a[i] = { ...p, text: e.target.value }; onChange({ points: a }); }} placeholder="What it is / does" /><button type="button" onClick={() => onChange({ points: pts.filter((_: any, k: number) => k !== i) })} aria-label="Remove point" className="text-red-600"><Trash2 className="h-4 w-4" /></button></div>)}
+      {pts.some((p: any) => p.label) && <button type="button" disabled={busy} onClick={async () => { setBusy(true); setErr(''); const r = await api({ action: 'ai-hotspots', tenantId, courseId, lessonId, labels: pts.map((p: any) => p.label) }); setBusy(false); if (r.ok) onChange({ points: pts.map((p: any, i: number) => ({ ...p, text: p.text || r.texts[i] || '' })) }); else setErr(r.error); }} className="h-9 rounded-full bg-violet-100 px-3 text-[12px] font-bold text-violet-900 disabled:opacity-50">{busy ? 'Writing…' : '✨ Suggest explanations for empty ones'}</button>}
+      {err && <p className="text-sm text-red-700">{err}</p>}
+    </div>
+  );
+}
+
+// ── Refer-or-treat client cases ──────────────────────────────────────────
+export function CasesEditor({ tenantId, courseId, lesson, onChange }: { tenantId: string; courseId: string; lesson: any; onChange: (v: any) => void }) {
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState(''); const [pick, setPick] = useState<number | null>(null);
+  const c = lesson.cases; const cases = c?.cases || [];
+  const set = (i: number, patch: any) => onChange({ ...c, cases: cases.map((x: any, k: number) => (k === i ? { ...x, ...patch } : x)) });
+  const blankCase = () => ({ story: '', mediaId: null, options: [{ text: 'Proceed with the service as planned', correct: false, feedback: '' }, { text: 'Adapt the service', correct: false, feedback: '' }, { text: 'Refer the client to a doctor', correct: true, feedback: '' }] });
+  return (
+    <div className="space-y-2 rounded-2xl bg-muted/40 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-black">Refer-or-treat cases {cases.length ? `· ${cases.length}` : '(optional)'}</p>
+        <span className="flex gap-2"><button type="button" disabled={busy || !lesson.id} onClick={async () => { setBusy(true); setErr(''); const r = await api({ action: 'ai-cases', tenantId, courseId, lessonId: lesson.id, count: 5 }); setBusy(false); if (r.ok) onChange({ prompt: c?.prompt || 'What would you do?', cases: [...cases, ...r.cases.cases] }); else setErr(r.error); }} className="h-8 rounded-full bg-violet-100 px-3 text-[12px] font-bold text-violet-900 disabled:opacity-40">{busy ? 'Drafting…' : '✨ Draft 5 from this lesson'}</button>
+          <button type="button" onClick={() => onChange({ prompt: c?.prompt || 'What would you do?', cases: [...cases, blankCase()] })} className="h-8 rounded-full bg-background px-3 text-[12px] font-bold">+ Case</button></span></div>
+      {!lesson.id && <p className="text-[11px] text-muted-foreground">Save the lesson once to draft cases from it.</p>}
+      {err && <p className="text-sm text-red-700">{err}</p>}
+      {cases.map((x: any, i: number) => (
+        <div key={i} className="space-y-1.5 rounded-xl bg-background p-3">
+          <div className="flex items-start gap-2"><textarea rows={2} className={area} value={x.story} onChange={(e) => set(i, { story: e.target.value })} placeholder="The client says… you notice…" />
+            <button type="button" onClick={() => setPick(i)} className="h-9 shrink-0 rounded-lg border-2 px-2 text-[12px] font-bold">{x.mediaId ? '✓ photo' : '📷 photo'}</button>
+            <button type="button" onClick={() => onChange(cases.length > 1 ? { ...c, cases: cases.filter((_: any, k: number) => k !== i) } : null)} aria-label="Remove case" className="mt-2 text-red-600"><Trash2 className="h-4 w-4" /></button></div>
+          {x.options.map((o: any, k: number) => <div key={k} className="grid gap-1.5 sm:grid-cols-[auto_1fr_1fr]"><input type="radio" name={`case${i}`} checked={o.correct} onChange={() => set(i, { options: x.options.map((y: any, z: number) => ({ ...y, correct: z === k })) })} className="mt-3" title="Right choice" />
+            <input className={field} value={o.text} onChange={(e) => set(i, { options: x.options.map((y: any, z: number) => (z === k ? { ...y, text: e.target.value } : y)) })} />
+            <input className={field} value={o.feedback} onChange={(e) => set(i, { options: x.options.map((y: any, z: number) => (z === k ? { ...y, feedback: e.target.value } : y)) })} placeholder="Feedback when chosen" /></div>)}
+        </div>
+      ))}
+      {pick != null && <MediaPicker tenantId={tenantId} courseId={courseId} kind="image" onPick={(m) => { set(pick, { mediaId: m.id }); setPick(null); }} onClose={() => setPick(null)} />}
+    </div>
+  );
+}
+
+// ── Questions that pop up during the video ───────────────────────────────
+const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+const secs = (v: string) => { const m = String(v).match(/^(\d+):(\d{1,2})$/); return m ? Number(m[1]) * 60 + Number(m[2]) : Number(v) || 0; };
+export function VideoQuestionsEditor({ tenantId, courseId, lesson, onChange }: { tenantId: string; courseId: string; lesson: any; onChange: (v: any[]) => void }) {
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
+  const qs: any[] = lesson.videoQuestions || [];
+  const set = (i: number, patch: any) => onChange(qs.map((x, k) => (k === i ? { ...x, ...patch } : x)));
+  return (
+    <div className="space-y-2 rounded-2xl bg-muted/40 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-black">Pop-up questions during the video {qs.length ? `· ${qs.length}` : '(optional)'}</p>
+        <span className="flex gap-2"><button type="button" disabled={busy || !lesson.id || !lesson.transcript} onClick={async () => { setBusy(true); setErr(''); const r = await api({ action: 'ai-video-questions', tenantId, courseId, lessonId: lesson.id, count: 4 }); setBusy(false); if (r.ok) { onChange([...qs, ...r.questions].sort((a, b) => a.at - b.at)); if (!r.durationKnown) setErr('Times are placeholders (the video length isn’t known yet) — set each one below.'); } else setErr(r.error); }} className="h-8 rounded-full bg-violet-100 px-3 text-[12px] font-bold text-violet-900 disabled:opacity-40">{busy ? 'Drafting…' : '✨ Draft from the captions'}</button>
+          <button type="button" onClick={() => onChange([...qs, { at: 60, q: '', options: ['', ''], answer: 0, explain: '' }])} className="h-8 rounded-full bg-background px-3 text-[12px] font-bold">+ Question</button></span></div>
+      <p className="text-[11px] text-muted-foreground">The video pauses at each time and asks the question; students answer to carry on. Works with videos uploaded to ClarityFlow.{!lesson.transcript ? ' Drafting needs the video’s captions.' : ''}</p>
+      {err && <p className="text-sm text-amber-800">{err}</p>}
+      {qs.map((q, i) => (
+        <div key={i} className="space-y-1.5 rounded-xl bg-background p-3">
+          <div className="flex gap-2"><input className={`${field} w-24`} value={mmss(q.at)} onChange={(e) => set(i, { at: secs(e.target.value) })} title="Time (m:ss)" /><input className={field} value={q.q} onChange={(e) => set(i, { q: e.target.value })} placeholder="Question" /><button type="button" onClick={() => onChange(qs.filter((_, k) => k !== i))} aria-label="Remove question" className="text-red-600"><Trash2 className="h-4 w-4" /></button></div>
+          {q.options.map((o: string, k: number) => <label key={k} className="flex items-center gap-2"><input type="radio" name={`vq${i}`} checked={q.answer === k} onChange={() => set(i, { answer: k })} /><input className={field} value={o} onChange={(e) => set(i, { options: q.options.map((y: string, z: number) => (z === k ? e.target.value : y)) })} placeholder={`Answer ${k + 1}`} /></label>)}
+          <div className="flex gap-2">{q.options.length < 4 && <button type="button" onClick={() => set(i, { options: [...q.options, ''] })} className="text-[12px] font-bold underline">+ answer</button>}<input className={field} value={q.explain || ''} onChange={(e) => set(i, { explain: e.target.value })} placeholder="Why (shown after answering)" /></div>
+        </div>
+      ))}
     </div>
   );
 }
