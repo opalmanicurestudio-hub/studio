@@ -30,17 +30,18 @@ function price(model: string): [number, number] {
   return [n('AI_PRICE_SMART_IN', 3), n('AI_PRICE_SMART_OUT', 15)];
 }
 
-export interface AiResult { ok: boolean; text: string; costUsd: number; error?: string }
+export interface AiResult { ok: boolean; text: string; costUsd: number; error?: string; stopReason?: string | null }
 
 /** `pdfBase64` (optional): a PDF sent alongside the prompt — e.g. a school's curriculum. */
-export async function askClaude(opts: { system: string; prompt: string; tier?: 'fast' | 'smart' | 'interactive'; maxTokens?: number; purpose: string; tenantId?: string | null; pdfBase64?: string | null }): Promise<AiResult> {
+export async function askClaude(opts: { system: string; prompt: string; tier?: 'fast' | 'smart' | 'interactive'; maxTokens?: number; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; purpose: string; tenantId?: string | null; pdfBase64?: string | null }): Promise<AiResult> {
   if (!aiConfigured()) return { ok: false, text: '', costUsd: 0, error: 'AI isn’t connected — add ANTHROPIC_API_KEY in Vercel.' };
   const model = MODELS[opts.tier || 'fast'];
   try {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-api-key': String(process.env.ANTHROPIC_API_KEY), 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model, max_tokens: opts.maxTokens || 800, system: opts.system, messages: [{ role: 'user', content: opts.pdfBase64 ? [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: opts.pdfBase64 } }, { type: 'text', text: opts.prompt }] : opts.prompt }] }),
+      // Effort guides how deeply Claude thinks (thinking tokens count toward max_tokens).
+      body: JSON.stringify({ model, max_tokens: opts.maxTokens || 800, ...(opts.effort ? { output_config: { effort: opts.effort } } : {}), system: opts.system, messages: [{ role: 'user', content: opts.pdfBase64 ? [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: opts.pdfBase64 } }, { type: 'text', text: opts.prompt }] : opts.prompt }] }),
     });
     const d: any = await r.json().catch(() => ({}));
     if (!r.ok) return { ok: false, text: '', costUsd: 0, error: String(d?.error?.message || `AI error ${r.status}`) };
@@ -49,7 +50,7 @@ export async function askClaude(opts: { system: string; prompt: string; tier?: '
     const inT = Number(d.usage?.input_tokens) || 0, outT = Number(d.usage?.output_tokens) || 0;
     const costUsd = (inT * pin + outT * pout) / 1_000_000;
     try { await getAdminDb().collection('platformAiUsage').add({ at: new Date().toISOString(), model, purpose: opts.purpose, tenantId: opts.tenantId || null, inputTokens: inT, outputTokens: outT, costUsd }); } catch { /* never block */ }
-    return { ok: true, text, costUsd };
+    return { ok: true, text, costUsd, stopReason: d.stop_reason || null };
   } catch (e: any) {
     return { ok: false, text: '', costUsd: 0, error: String(e?.message || e) };
   }
