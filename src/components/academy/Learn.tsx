@@ -12,6 +12,7 @@
 //
 // A student's sign-in is a token kept in this browser (30 days).
 
+import { InteractiveFrame } from '@/components/academy/InteractiveFrame';
 import { wordSearch as wordSearchGrid, crossword as crosswordGrid } from '@/lib/printables';
 import { Celebrate, Skeleton } from '@/components/academy/Delight';
 import { useCallback, useEffect, useMemo, useRef, useState, createElement } from 'react';
@@ -77,6 +78,9 @@ function Blocks({ blocks }: { blocks: any[] }) {
             <div className="space-y-2">{s.text && <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{s.text}</p>}{s.media?.url && <img src={s.media.url} alt={`Step ${k + 1}`} className="w-full max-w-md rounded-2xl" />}</div></div>)}</Glass>
       );
       if (b.type === 'divider') return <hr key={i} className="border-white/70" />;
+      if (b.type === 'interactive') return <div key={i} className="space-y-1">{b.title && <p className="px-1 text-lg font-semibold">✨ {b.title}</p>}<InteractiveFrame html={b.html} title={b.title} /></div>;
+      if (b.type === 'hotspots') return b.media?.url ? <Hotspots key={i} b={b} /> : null;
+      if (b.type === 'stages') return <Stages key={i} b={b} />;
       return null;
     })}</div>
   );
@@ -165,6 +169,50 @@ function Activity({ a, color, report }: { a: any; color: string; report?: (pct: 
   if (a.type === 'label') return <LabelGame a={a} color={color} />;
   return <Scenario a={a} color={color} />;
 }
+/** Hotspots on an image: tap a number to learn about that part. */
+function Hotspots({ b }: { b: any }) {
+  const [on, setOn] = useState<number | null>(null);
+  return (
+    <Glass className="space-y-3">{b.title && <p className="text-lg font-semibold">📍 {b.title}</p>}
+      <div className="relative mx-auto w-fit max-w-full"><img src={b.media.url} alt={b.title || ''} className="max-h-[70vh] max-w-full rounded-2xl" />
+        {b.points.map((p: any, i: number) => <button key={i} type="button" onClick={() => setOn(on === i ? null : i)} aria-label={p.label} className={`absolute flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full text-sm font-bold text-white ring-2 ring-white transition ${on === i ? 'scale-110 bg-violet-700' : 'bg-stone-900/80'}`} style={{ left: `${p.x}%`, top: `${p.y}%` }}>{i + 1}</button>)}</div>
+      {on != null ? <div className="rounded-2xl bg-white/85 p-3"><p className="font-semibold">{on + 1}. {b.points[on].label}</p><p className="text-[15px] text-stone-700">{b.points[on].text}</p></div> : <p className="text-center text-[13px] text-stone-500">Tap a number to learn about that part.</p>}
+      <div className="flex flex-wrap gap-1.5">{b.points.map((p: any, i: number) => <button key={i} type="button" onClick={() => setOn(i)} className={`rounded-full px-2.5 py-1 text-[12px] ${on === i ? 'bg-violet-700 text-white' : 'bg-white/80'}`}>{i + 1}. {p.label}</button>)}</div>
+    </Glass>
+  );
+}
+
+/** Stages: drag through a process one stage at a time. */
+function Stages({ b }: { b: any }) {
+  const [k, setK] = useState(0); const st = b.stages[k] || {};
+  if (!b.stages.length) return null;
+  return (
+    <Glass className="space-y-3">{b.title && <p className="text-lg font-semibold">🎚 {b.title}</p>}
+      {st.media?.url && <img src={st.media.url} alt={st.label} className="w-full rounded-2xl" />}
+      <div><p className="text-[11px] uppercase tracking-widest text-stone-500">Stage {k + 1} of {b.stages.length}</p><p className="text-xl font-semibold">{st.label}</p><p className="text-[15px] text-stone-700">{st.text}</p></div>
+      <input type="range" min={0} max={b.stages.length - 1} step={1} value={k} onChange={(e) => setK(Number(e.target.value))} className="w-full" aria-label="Stage" />
+      <div className="flex justify-between gap-1 text-[11px] text-stone-500">{b.stages.map((x: any, i: number) => <button key={i} type="button" onClick={() => setK(i)} className={i === k ? 'font-semibold text-stone-900' : ''}>{x.label || i + 1}</button>)}</div>
+    </Glass>
+  );
+}
+
+/** Refer-or-treat client cases, one at a time. */
+function Cases({ c, color, report }: { c: any; color: string; report?: (pct: number) => void }) {
+  const [i, setI] = useState(0); const [pick, setPick] = useState<number | null>(null); const [right, setRight] = useState(0); const [done, setDone] = useState(false);
+  const x = c.cases[i];
+  if (done) return <Glass className="space-y-2 text-center"><p className="text-3xl">🩺</p><p className="text-xl font-semibold">{right} of {c.cases.length} right</p><p className="text-stone-600">Saved. When in doubt, refer — a doctor can rule things out safely.</p><button type="button" onClick={() => { setI(0); setPick(null); setRight(0); setDone(false); }} className="text-sm underline">Try again</button></Glass>;
+  return (
+    <Glass className="space-y-3">
+      <div className="flex items-center justify-between"><p className="text-lg font-semibold">🩺 {c.prompt}</p><span className="text-sm text-stone-500">{i + 1}/{c.cases.length}</span></div>
+      {x.media?.url && <img src={x.media.url} alt="" className="w-full rounded-2xl" />}
+      <p className="whitespace-pre-wrap text-[16px] leading-relaxed">{x.story}</p>
+      <div className="grid gap-2">{x.options.map((o: any, k: number) => { const chosen = pick === k; return <button key={k} type="button" disabled={pick != null} onClick={() => { setPick(k); if (o.correct) setRight((n) => n + 1); }} className={`min-h-12 rounded-2xl px-4 py-2 text-left text-[15px] ${pick != null && o.correct ? 'bg-emerald-600 text-white' : chosen ? 'bg-red-500 text-white' : 'bg-white/90'}`}>{o.text}</button>; })}</div>
+      {pick != null && <><p className="rounded-2xl bg-white/85 p-3 text-[15px]">{x.options[pick].feedback || (x.options[pick].correct ? 'Right choice.' : 'Not the best choice here.')}</p>
+        <button type="button" onClick={() => { if (i + 1 >= c.cases.length) { setDone(true); report?.(Math.round((right / c.cases.length) * 100)); } else { setI(i + 1); setPick(null); } }} className="h-12 w-full rounded-full text-sm font-medium text-white" style={{ background: color }}>{i + 1 >= c.cases.length ? 'See my score' : 'Next case'}</button></>}
+    </Glass>
+  );
+}
+
 /** Word search: tap the first letter, then the last letter of a word. */
 function WordSearchGame({ a, color, report }: { a: any; color: string; report?: (pct: number) => void }) {
   const size = Math.min(14, Math.max(10, ...a.words.map((w: string) => w.replace(/[^A-Za-z]/g, '').length)));
@@ -558,6 +606,17 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
   const [trBusy, setTrBusy] = useState(false);
   // Must be set up before the loading return below (React needs the same order every render).
   const [cheer, setCheer] = useState(0);
+  // Video pop-up questions: pause at each time; scrubbing past one still asks it.
+  const playerEl = useRef<any>(null);
+  const [vq, setVq] = useState<any>(null); const [vqPick, setVqPick] = useState<number | null>(null);
+  const [vqDone, setVqDone] = useState<Map<number, boolean>>(new Map());
+  useEffect(() => { setVq(null); setVqPick(null); setVqDone(new Map()); }, [lessonId]);
+  useEffect(() => {
+    const qs: any[] = (lesson?.ok && lesson.enrolled ? lesson.lesson?.videoQuestions : null) || [];
+    const el = playerEl.current; if (!el || !qs.length) return;
+    const onTime = () => { if (vq) return; const t = Number(el.currentTime) || 0; const i = qs.findIndex((q, k) => !vqDone.has(k) && t >= q.at); if (i >= 0) { try { el.pause(); } catch { /* */ } setVq({ ...qs[i], i }); } };
+    el.addEventListener('timeupdate', onTime); return () => el.removeEventListener('timeupdate', onTime);
+  }, [lesson, vq, vqDone]);
   const token = typeof window !== 'undefined' ? getToken(tenantId) : null;
   const load = useCallback(async () => {
     const c = await api({ action: 'course', tenantId, slug, token }); setCourse(c);
@@ -610,7 +669,15 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
                 <div className="flex items-center gap-2"><button type="button" disabled={trBusy} onClick={async () => { if (tr) { setTr(null); return; } setTrBusy(true); const r = await api({ action: 'lesson-translate', tenantId, token, courseId: course.course.id, lessonId }); setTrBusy(false); if (r.ok) setTr(r); }} className="rounded-full bg-white/80 px-4 py-2 text-sm shadow-sm">{trBusy ? '…' : tr ? '🌐 Original' : '🌐 Translate'}</button>
                   {tr && <span className="text-[12px] text-stone-500">Translated automatically — ask your instructor if anything is unclear.</span>}</div>
               )}
-              {mode === 'mux' && <MuxPlayer playbackId={L.video.playbackId} token={L.video.token} color={color} title={L.title} bind={eng.bindPlayer} />}
+              {vq && <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-3 sm:items-center" role="dialog" aria-label="Video question">
+                <div className="w-full max-w-md space-y-3 rounded-3xl bg-white p-5">
+                  <p className="text-[11px] uppercase tracking-widest text-stone-500">Quick question · {vqDone.size + 1} of {(L.videoQuestions || []).length}</p>
+                  <p className="text-lg font-semibold">{vq.q}</p>
+                  <div className="grid gap-2">{vq.options.map((o: string, k: number) => { const chosen = vqPick === k; const right = vqPick != null && k === vq.answer; return <button key={k} type="button" disabled={vqPick != null} onClick={() => setVqPick(k)} className={`min-h-12 rounded-2xl px-4 text-left text-[15px] ${right ? 'bg-emerald-600 text-white' : chosen ? 'bg-red-500 text-white' : 'bg-stone-100'}`}>{o}</button>; })}</div>
+                  {vqPick != null && <><p className="text-sm text-stone-600">{vqPick === vq.answer ? '✓ Right. ' : 'Not quite. '}{vq.explain}</p>
+                    <button type="button" onClick={() => { const n = new Map(vqDone); n.set(vq.i, vqPick === vq.answer); setVqDone(n); setVq(null); setVqPick(null); if (n.size === (L.videoQuestions || []).length) void api({ action: 'activity-score', part: 'video', tenantId, token, courseId: course.course.id, lessonId, pct: Math.round(([...n.values()].filter(Boolean).length / n.size) * 100) }); try { playerEl.current?.play?.(); } catch { /* */ } }} className="h-12 w-full rounded-full text-sm font-medium text-white" style={{ background: color }}>Keep watching</button></>}
+                </div></div>}
+              {mode === 'mux' && <MuxPlayer playbackId={L.video.playbackId} token={L.video.token} color={color} title={L.title} bind={(el: any) => { eng.bindPlayer(el); playerEl.current = el; }} />}
               {mode === 'embed' && L.video.url && <iframe src={L.video.url} title={L.title} className="aspect-video w-full rounded-[1.25rem]" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen />}
               {L.kind === 'video' && !L.video && <Glass><p className="text-stone-600">This video is being prepared — check back shortly.</p></Glass>}
               {lesson.enrolled && (
@@ -626,6 +693,7 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
               {(L.blocks || []).length > 0 && <Blocks blocks={L.blocks} />}
               {lesson.enrolled && L.kind === 'assignment' && <Assignment tenantId={tenantId} courseId={course.course.id} lessonId={lessonId} color={color} />}
               {L.transcript && <details className="glass rounded-2xl border border-white/70 px-4 py-3"><summary className="cursor-pointer text-sm font-semibold">📄 Transcript</summary><p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap text-[15px] leading-relaxed text-stone-700">{L.transcript}</p></details>}
+              {lesson.enrolled && L.cases?.cases?.length > 0 && <Cases c={L.cases} color={color} report={(pct) => void api({ action: 'activity-score', part: 'cases', tenantId, token, courseId: course.course.id, lessonId, pct })} />}
               {lesson.enrolled && L.activity && <Activity a={L.activity} color={color} report={(pct) => void api({ action: 'activity-score', tenantId, token, courseId: course.course.id, lessonId, pct })} />}
               {lesson.enrolled && L.flashcards?.length > 0 && <Flashcards cards={L.flashcards} color={color} />}
               {L.downloadUrl && <a href={L.downloadUrl} target="_blank" rel="noreferrer" className="glass flex items-center justify-between rounded-2xl border border-white/70 px-4 py-3 text-sm"><span>↓ {L.downloadName || 'Download'}</span><span className="text-stone-500">Open</span></a>}
