@@ -8,7 +8,8 @@ import { randomBytes } from 'crypto';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { appendAudit } from '@/lib/academy-compliance';
-import { newJoinCode, sessionState, endSession } from '@/lib/academy-live';
+import { newJoinCode, sessionState, endSession, sendActivity, markAnswered } from '@/lib/academy-live';
+import { savePrivateImage } from '@/lib/private-storage';
 import { linkOrigin } from '@/lib/app-origin';
 
 export const dynamic = 'force-dynamic';
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
       const title = String(b.title || '').trim().slice(0, 120) || `Class ${new Date().toLocaleDateString()}`;
       let code = newJoinCode(); for (let i = 0; i < 5 && !(await col.where('code', '==', code).where('status', '==', 'live').limit(1).get()).empty; i++) code = newJoinCode();
       const r = col.doc();
-      await r.set({ id: r.id, title, code, status: 'live', programId: b.programId || null, courseId: b.courseId || null, startedAt: new Date().toISOString(), by: who, current: null, questions: [] });
+      await r.set({ id: r.id, title, code, status: 'live', programId: b.programId || null, courseId: b.courseId || null, startedAt: new Date().toISOString(), by: who, current: null, activities: [] });
       await appendAudit(tenantId, { type: 'live.started', by: who, summary: `Live class “${title}” started (code ${code})`, data: { sessionId: r.id } });
       return NextResponse.json({ ok: true, id: r.id, code });
     }
@@ -43,14 +44,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ...st, joinUrl: `${linkOrigin(t, req.nextUrl.origin)}/learn/${tenantId}/live?code=${st.session.code}` });
     }
     if (b.action === 'ask') {
-      const q = String(b.q || '').trim().slice(0, 300); const options = (b.options || []).map((o: any) => String(o).trim().slice(0, 120)).filter(Boolean).slice(0, 6);
-      if (!q || options.length < 2) return NextResponse.json({ ok: false, error: 'A question and at least two answers.' }, { status: 400 });
-      const correct = Number.isInteger(b.correct) && b.correct >= 0 && b.correct < options.length ? b.correct : null;
-      const s = ((await ref(b.id).get()).data() as any) || {};
-      const cur = { id: randomBytes(5).toString('hex'), q, options, correct, open: true, reveal: false, at: new Date().toISOString() };
-      await ref(b.id).set({ current: cur, questions: [...(s.questions || []), { id: cur.id, q, options, correct }] }, { merge: true });
+      // Photos for "rate this set" / "tap the photo" are stored privately; students get short-lived links.
+      let image: { path: string } | null = null;
+      if (b.photo) { const saved = await savePrivateImage(tenantId, `tenants/${tenantId}/academy/live/${String(b.id)}/${Date.now()}.jpg`, String(b.photo), 1_500_000); image = { path: saved.path }; }
+      try { await sendActivity(tenantId, String(b.id || ''), b, image); } catch (e: any) { return NextResponse.json({ ok: false, error: e.message }, { status: 400 }); }
       return NextResponse.json({ ok: true });
     }
+    if (b.action === 'answered') { await markAnswered(tenantId, String(b.id || ''), String(b.qid || '')); return NextResponse.json({ ok: true }); }
     if (b.action === 'reveal' || b.action === 'close') {
       const s = ((await ref(b.id).get()).data() as any) || {};
       if (!s.current) return NextResponse.json({ ok: true });
