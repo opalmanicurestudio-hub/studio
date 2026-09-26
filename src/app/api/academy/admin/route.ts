@@ -116,7 +116,7 @@ async function handle(req: NextRequest) {
   // Owners, managers and instructors. Only owners/managers change courses and settings.
   const isInstructor = String(auth.actor.role || '').toLowerCase() === 'instructor';
   if (!auth.actor.isManager && !auth.actor.isTenantOwner && !isInstructor) return NextResponse.json({ ok: false, error: 'Only owners, managers and instructors can use the academy tools.' }, { status: 403 });
-  const INSTRUCTOR_OK = ['docs-list', 'doc-get', 'doc-syllabus', 'assign-options', 'assign-list', 'assign-save', 'assign-delete', 'assign-progress', 'assign-nudge', 'group-save', 'group-delete', 'interactive-list', 'ai-credits', 'materials-list', 'material-save', 'submissions', 'submission-ai', 'submission-grade', 'gradebook', 'media-list', 'media-url', 'qbank-list', 'worksheet-ai', 'tutor-log', 'list', 'course-get', 'students', 'attendance', 'attendance-approve', 'attendance-resolve', 'attendance-code', 'attendance-photo-check', 'transcript', 'audit-verify'];
+  const INSTRUCTOR_OK = ['present-start', 'present-state', 'present-set', 'present-lesson', 'docs-list', 'doc-get', 'doc-syllabus', 'assign-options', 'assign-list', 'assign-save', 'assign-delete', 'assign-progress', 'assign-nudge', 'group-save', 'group-delete', 'interactive-list', 'ai-credits', 'materials-list', 'material-save', 'submissions', 'submission-ai', 'submission-grade', 'gradebook', 'media-list', 'media-url', 'qbank-list', 'worksheet-ai', 'tutor-log', 'list', 'course-get', 'students', 'attendance', 'attendance-approve', 'attendance-resolve', 'attendance-code', 'attendance-photo-check', 'transcript', 'audit-verify'];
   if (isInstructor && !auth.actor.isManager && !INSTRUCTOR_OK.includes(String(b.action))) return NextResponse.json({ ok: false, error: 'Instructors can review attendance and students, not change courses.' }, { status: 403 });
   const who = auth.actor.name || auth.actor.uid;
   if (['attendance', 'attendance-approve', 'attendance-resolve', 'attendance-photo-check', 'transcript', 'students', 'submissions', 'gradebook'].includes(String(b.action))) {
@@ -321,6 +321,34 @@ async function handle(req: NextRequest) {
       const j: any = r.ok ? parseJson(r.text) : null;
       if (!j?.prompt) return NextResponse.json({ ok: false, error: 'The draft didn’t come back usable — try again.' }, { status: 502 });
       return NextResponse.json({ ok: true, assignment: { prompt: String(j.prompt).slice(0, 4000), type: kind, rubric: (j.rubric || []).slice(0, 10).map((x: any) => ({ criterion: String(x.criterion || '').slice(0, 200), points: Math.max(1, Math.min(100, Math.round(Number(x.points) || 10))) })).filter((x: any) => x.criterion), dueDays: Math.max(0, Math.min(60, Number(j.dueDays) || 7)), resubmit: true } });
+    }
+
+    // ── Present mode: the lesson on the classroom TV, the instructor's phone as the remote ──
+    if (b.action === 'present-start') {
+      const ref = db.collection(`tenants/${tenantId}/presentations`).doc();
+      await ref.set({ id: ref.id, courseId, lessonId: String(b.lessonId || ''), step: 0, by: who, at: now, updatedAt: now });
+      return NextResponse.json({ ok: true, id: ref.id });
+    }
+    if (b.action === 'present-state' || b.action === 'present-set') {
+      const ref = db.doc(`tenants/${tenantId}/presentations/${String(b.id || '')}`); const x = ((await ref.get()).data() as any) || null;
+      if (!x) return NextResponse.json({ ok: false, error: 'This presentation has ended.' }, { status: 404 });
+      if (b.action === 'present-set') { const step = Math.max(0, Math.min(500, Math.round(Number(b.step) || 0))); await ref.set({ step, updatedAt: now }, { merge: true }); return NextResponse.json({ ok: true, step }); }
+      return NextResponse.json({ ok: true, step: x.step || 0, courseId: x.courseId, lessonId: x.lessonId, updatedAt: x.updatedAt });
+    }
+    if (b.action === 'present-lesson') {
+      const lx = ((await db.doc(`${base}/${courseId}/lessons/${String(b.lessonId || '')}`).get()).data() as any) || null;
+      if (!lx) return NextResponse.json({ ok: false, error: 'Lesson not found.' }, { status: 404 });
+      const cache = new Map<string, any>();
+      const link = async (id?: string | null) => { if (!id) return null; if (cache.has(id)) return cache.get(id); const m = ((await db.doc(`${base}/${courseId}/media/${id}`).get()).data() as any) || null; const v = m ? { url: await mediaUrl(m.path, 180), name: m.name, kind: m.kind } : null; cache.set(id, v); return v; };
+      const blocks = [];
+      for (const k of lx.blocks || []) {
+        if (['image', 'file', 'hotspots'].includes(k.type)) blocks.push({ ...k, media: await link(k.mediaId) });
+        else if (k.type === 'steps') blocks.push({ ...k, steps: await Promise.all((k.steps || []).map(async (s: any) => ({ ...s, media: await link(s.mediaId) }))) });
+        else if (k.type === 'stages') blocks.push({ ...k, stages: await Promise.all((k.stages || []).map(async (s: any) => ({ ...s, media: await link(s.mediaId) }))) });
+        else blocks.push(k);
+      }
+      const course = ((await db.doc(`${base}/${courseId}`).get()).data() as any) || {};
+      return NextResponse.json({ ok: true, lesson: { id: String(b.lessonId), title: lx.title, moduleTitle: lx.moduleTitle, body: lx.body || '', blocks, quiz: lx.quiz ? { questions: (lx.quiz.questions || []).map((q: any) => ({ q: q.q, options: q.options })) } : null, plan: lx.plan || null, cases: lx.cases || null }, courseTitle: course.title || '' });
     }
 
     // ── School documents: handbook, policies, syllabi — drafted, published, signed ──
