@@ -174,3 +174,13 @@ export function embedUrl(link?: string | null): string | null {
   if (vm) return `https://player.vimeo.com/video/${vm[1]}${vm[2] ? `?h=${vm[2]}` : ''}`;
   return /^https:\/\//.test(u) ? u : null;
 }
+
+// ── Course media (images, PDFs, audio) ────────────────────────────────────
+/** A short-lived private link to a course file (only handed to people who may see the lesson). */
+export async function mediaUrl(path: string, minutes = 60): Promise<string | null> {
+  try {
+    const { privateBucket } = await import('@/lib/private-storage');
+    const [url] = await (await privateBucket()).file(path).getSignedUrl({ action: 'read', expires: Date.now() + minutes * 60000 });
+    return url;
+  } catch { return null; }
+}
