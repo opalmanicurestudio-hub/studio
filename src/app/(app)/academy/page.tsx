@@ -414,7 +414,7 @@ export default function AcademyBuilderPage() {
                           <button type="button" onClick={() => setLesson({ ...lesson, assignment: { ...lesson.assignment, rubric: [...(lesson.assignment.rubric || []), { criterion: '', points: 10 }] } })} className="rounded-full bg-background px-3 py-1 text-[12px] font-bold">+ Criterion</button>
                         </div>
                       )}
-                      <BlocksEditor tenantId={tenantId} courseId={sel!} lessonId={lesson.id || null} value={lesson.blocks || []} onChange={(blocks) => setLesson({ ...lesson, blocks })} />
+                      <BlocksEditor tenantId={tenantId} courseId={sel!} lessonId={lesson.id || null} accent={docBrand.color} value={lesson.blocks || []} onChange={(blocks) => setLesson({ ...lesson, blocks })} />
                       <CasesEditor tenantId={tenantId} courseId={sel!} lesson={lesson} onChange={(cases) => setLesson({ ...lesson, cases })} />
                       {lesson.kind === 'video' && <VideoQuestionsEditor tenantId={tenantId} courseId={sel!} lesson={lesson} onChange={(videoQuestions) => setLesson({ ...lesson, videoQuestions })} />}
                       <PlanEditor tenantId={tenantId} courseId={sel!} lesson={lesson} value={lesson.plan} onChange={(plan) => setLesson({ ...lesson, plan })} brand={docBrand} courseTitle={d.course.title} />
