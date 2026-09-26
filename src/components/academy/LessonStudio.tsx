@@ -164,7 +164,7 @@ function InteractiveEditor({ tenantId, courseId, lessonId, b, onChange }: any) {
   const build = async (revise: boolean) => {
     setBusy(revise ? 'revise' : 'build'); setErr('');
     const r = await api({ action: 'ai-interactive', tenantId, courseId, lessonId, useLesson: useLesson && !!lessonId, request: b.request, ...(revise ? { currentHtml: b.html, change } : {}) });
-    setBusy(''); if (r.ok) { onChange({ html: r.html, title: b.title || b.request.slice(0, 60) }); setChange(''); setSaved(false); } else setErr(r.error);
+    setBusy(''); if (r.ok) { onChange({ html: r.html, title: b.title || b.request.slice(0, 60) }); setChange(''); setSaved(false); if (r.note) setErr(r.note); } else setErr(r.error);
   };
   return (
     <div className="space-y-2">
@@ -173,7 +173,7 @@ function InteractiveEditor({ tenantId, courseId, lessonId, b, onChange }: any) {
         <button type="button" disabled={!!busy || !b.request.trim()} onClick={() => build(false)} className="h-10 rounded-xl bg-violet-700 px-4 text-sm font-bold text-white disabled:opacity-40">{busy === 'build' ? 'Building… (up to a minute)' : b.html ? '✨ Build again' : '✨ Build it'}</button>
         <label className="flex items-center gap-1.5 text-[12px] font-bold"><input type="checkbox" checked={useLesson} onChange={(e) => setUseLesson(e.target.checked)} disabled={!lessonId} />Use this lesson’s text{!lessonId ? ' (save the lesson first)' : ''}</label>
         <button type="button" onClick={async () => { const r = await api({ action: 'interactive-list', tenantId, courseId }); setLib(r.ok ? r.items : []); }} className="h-10 rounded-xl border-2 px-3 text-[12px] font-bold">Use one from the library</button>
-        <span className="text-[11px] text-muted-foreground">About 5 AI credits per build or change.</span>
+        <span className="text-[11px] text-muted-foreground">Built with Claude Opus · about 8 AI credits per build or change.</span>
       </div>
       {lib && <div className="max-h-56 space-y-1 overflow-y-auto rounded-xl border-2 p-2">{lib.length === 0 ? <p className="text-[12px] text-muted-foreground">Nothing saved yet.</p> : lib.map((x: any) => <button key={x.id} type="button" onClick={() => { onChange({ html: x.html, title: x.title, request: x.request }); setLib(null); setSaved(true); }} className="block w-full rounded-lg px-2 py-1.5 text-left text-sm hover:bg-muted"><b>{x.title}</b><span className="block truncate text-[11px] text-muted-foreground">{x.request}</span></button>)}</div>}
       {err && <p className="text-sm text-red-700">{err}</p>}
