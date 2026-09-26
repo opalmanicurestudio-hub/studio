@@ -1131,7 +1131,7 @@ function POSPage() {
     Object.entries(effectiveTipAllocations).forEach(([staffId, amount]) => {
       const finalAmount = safeNumber(amount);
       if (finalAmount > 0) {
-        if (!paymentData.skipLedger) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: 'Gratuity', clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Tips', taxBucket: 'gratuity', amount: finalAmount, paymentMethod: paymentData.paymentMethod, staffId, hasReceipt: true, tenantId, checkoutSessionId }));
+        if (!paymentData.skipLedger) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: staffId === '__school' ? 'Gratuity — school (student salon)' : 'Gratuity', clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Tips', taxBucket: 'gratuity', amount: finalAmount, paymentMethod: paymentData.paymentMethod, staffId, hasReceipt: true, tenantId, checkoutSessionId }));
         if (paymentData.paymentMethod === 'cash') { cashTipsTotal += finalAmount; cashTipsByStaffUpdate[`cashTipsByStaff.${staffId}`] = increment(finalAmount); }
       }
     });
