@@ -8,6 +8,7 @@
 //   outcomes     { programId? }          rates + the graduates behind them
 // Each returns { title, subtitle, columns, rows, notes } (+ letter).
 
+import { getIdentity, brandFromIdentity } from '@/lib/school-identity';
 import { deviceAllowed } from '@/lib/approved-devices';
 import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
@@ -35,8 +36,9 @@ export async function POST(req: NextRequest) {
   if (b.action === 'hours-letter' && !isLead) return NextResponse.json({ ok: false, error: 'Only owners and managers can issue certification letters.' }, { status: 403 });
   const db = getAdminDb(); const T = `tenants/${tenantId}`; const who = auth.actor.name || auth.actor.uid;
   const t = ((await db.doc(T).get()).data() as any) || {};
-  const school = { name: t.name || 'The academy', address: [t.address, t.city, t.state, t.zip].filter(Boolean).join(', ') || t.businessAddress || '', phone: t.phone || '', email: t.email || '' };
-  const brand = { name: school.name, logoUrl: t.logoUrl || t.bookingPageSettings?.logoUrl || null, color: t.bookingPageSettings?.primaryColor || null, address: school.address || null };
+  const ident = await getIdentity(tenantId, t);
+  const brand = brandFromIdentity(ident, t);
+  const school = { name: brand.name, address: brand.address || '', phone: brand.phone || '', email: brand.email || '' };
   const progs = await db.collection(`${T}/programs`).limit(100).get();
   const P = new Map(progs.docs.map((x: any) => [x.id, x.data() as any]));
 
