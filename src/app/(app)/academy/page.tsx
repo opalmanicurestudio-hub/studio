@@ -10,6 +10,8 @@
 //                download; free-preview switch; reorder; edit; delete
 //   Students     who's enrolled, since when, how far they've got
 
+import { CourseBoard } from '@/components/academy/CourseBoard';
+import { AddToLesson, LessonPreview, TemplatePicker, LESSON_KINDS } from '@/components/academy/LessonCanvas';
 import { ModuleSettings, GamifySetting, modKey } from '@/components/academy/ModuleSettings';
 import { AiCreditsMeter } from '@/components/academy/AiCreditsMeter';
 import { deviceId } from '@/lib/device';
@@ -76,6 +78,8 @@ export default function AcademyBuilderPage() {
   };
   const [form, setForm] = useState<any>(null);
   const [lesson, setLesson] = useState<any>(null);   // the lesson being edited
+  // The lesson canvas: ＋ picker, settings drawer, phone preview (phones), template picker.
+  const [addOpen, setAddOpen] = useState(false); const [drawer, setDrawer] = useState(false); const [showPrev, setShowPrev] = useState(false); const [pickTpl, setPickTpl] = useState<string | boolean>(false);
   const [students, setStudents] = useState<any[] | null>(null);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState('');
@@ -339,35 +343,35 @@ export default function AcademyBuilderPage() {
               {tab === 'grading' && <Grading tenantId={tenantId} courseId={sel!} courseTitle={d.course.title} brand={docBrand} />}
               {tab === 'curriculum' && (
                 <div className="space-y-4">
-                  {modules.map((m) => (
-                    <div key={m.title} className="space-y-1.5">
-                      <ModuleSettings tenantId={tenantId} courseId={sel!} title={m.title} first={modules[0]?.title === m.title} cfg={(d.course.modules || {})[modKey(m.title)] || null} onSaved={() => loadCourse(sel!)} />
-                      {m.lessons.map((l: any) => { const I = KIND_ICON[l.kind] || FileText; return (
-                        <div key={l.id} className="flex items-center gap-2 rounded-2xl bg-muted/40 px-3 py-2 text-sm">
-                          <I className="h-4 w-4 shrink-0" />
-                          <span className="min-w-0 flex-1 truncate">{l.title}{l.preview && <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold text-sky-800">free preview</span>}
-                            {l.kind === 'video' && <span className="ml-2 text-[11px] text-muted-foreground">{l.muxStatus === 'ready' ? `✓ video${l.durationSec ? ` · ${Math.round(l.durationSec / 60)} min` : ''}` : l.muxStatus ? l.muxStatus : l.videoUrl ? '✓ link' : '⚠ no video yet'}</span>}</span>
-                          <button type="button" aria-label="Move up" onClick={async () => { await api({ action: 'lesson-move', tenantId, courseId: sel, lessonId: l.id, direction: 'up' }); await loadCourse(sel!); }} className="p-1"><ArrowUp className="h-4 w-4" /></button>
-                          <button type="button" aria-label="Move down" onClick={async () => { await api({ action: 'lesson-move', tenantId, courseId: sel, lessonId: l.id, direction: 'down' }); await loadCourse(sel!); }} className="p-1"><ArrowDown className="h-4 w-4" /></button>
-                          <button type="button" aria-label="Edit" onClick={() => setLesson({ ...blankLesson(), ...l, videoUrl: l.videoUrl || '', downloadUrl: l.downloadUrl || '', downloadName: l.downloadName || '', minMinutes: l.minMinutes || 0, releaseAfterDays: l.releaseAfterDays || 0, quiz: l.quiz || null, flashcards: l.flashcards || [], activity: l.activity || null, blocks: l.blocks || [], plan: l.plan || null, assignment: l.assignment || null, cases: l.cases || null, videoQuestions: l.videoQuestions || [], transcript: l.transcript || null })} className="p-1"><Pencil className="h-4 w-4" /></button>
-                          <button type="button" aria-label="Delete" onClick={async () => { if (window.confirm(`Delete “${l.title}”?`)) { await api({ action: 'lesson-delete', tenantId, courseId: sel, lessonId: l.id }); await loadCourse(sel!); } }} className="p-1 text-red-600"><Trash2 className="h-4 w-4" /></button>
-                        </div>
-                      ); })}
-                    </div>
-                  ))}
-                  {!lesson && <button type="button" onClick={() => setLesson(blankLesson(modules[modules.length - 1]?.title))} className="inline-flex h-10 items-center gap-1.5 rounded-xl border-2 border-dashed px-4 text-sm font-bold"><Plus className="h-4 w-4" />Add a lesson</button>}
+                  <CourseBoard lessons={d.lessons || []} kindIcon={(k) => KIND_ICON[k] || FileText}
+                    moduleHeader={(title, first) => <ModuleSettings tenantId={tenantId} courseId={sel!} title={title} first={first} cfg={(d.course.modules || {})[modKey(title)] || null} onSaved={() => loadCourse(sel!)} />}
+                    lessonBadges={(l) => <>{l.preview && <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold text-sky-800">free preview</span>}
+                            {l.kind === 'video' && <span className="ml-2 text-[11px] text-muted-foreground">{l.muxStatus === 'ready' ? `✓ video${l.durationSec ? ` · ${Math.round(l.durationSec / 60)} min` : ''}` : l.muxStatus ? l.muxStatus : l.videoUrl ? '✓ link' : '⚠ no video yet'}</span>}</>}
+                    lessonActions={(l) => <><button type="button" aria-label="Edit" onClick={() => setLesson({ ...blankLesson(), ...l, videoUrl: l.videoUrl || '', downloadUrl: l.downloadUrl || '', downloadName: l.downloadName || '', minMinutes: l.minMinutes || 0, releaseAfterDays: l.releaseAfterDays || 0, quiz: l.quiz || null, flashcards: l.flashcards || [], activity: l.activity || null, blocks: l.blocks || [], plan: l.plan || null, assignment: l.assignment || null, cases: l.cases || null, videoQuestions: l.videoQuestions || [], transcript: l.transcript || null })} className="p-1"><Pencil className="h-4 w-4" /></button><button type="button" aria-label="Delete" onClick={async () => { if (window.confirm(`Delete “${l.title}”?`)) { await api({ action: 'lesson-delete', tenantId, courseId: sel, lessonId: l.id }); await loadCourse(sel!); } }} className="p-1 text-red-600"><Trash2 className="h-4 w-4" /></button></>}
+                    onArrange={async (items) => { const r = await api({ action: 'lessons-arrange', tenantId, courseId: sel, items }); if (!r.ok) setMsg(r.error); await loadCourse(sel!); }}
+                    onAddLesson={(title) => setPickTpl(title)}
+                    onNewModule={() => { const t = window.prompt('Name the new module', `Module ${modules.length + 1}`); if (t && t.trim()) setPickTpl(t.trim()); }} />
+                  {!lesson && !(d.lessons || []).length && <button type="button" onClick={() => setPickTpl(true)} className="inline-flex h-10 items-center gap-1.5 rounded-xl border-2 border-dashed px-4 text-sm font-bold"><Plus className="h-4 w-4" />Add a lesson</button>}
+                  {pickTpl && <TemplatePicker onClose={() => setPickTpl(false)} onPick={(tpl) => { setPickTpl(false); setLesson({ ...blankLesson(typeof pickTpl === 'string' ? pickTpl : modules[modules.length - 1]?.title), stepMode: true, ...tpl }); }} />}
 
                   {lesson && (
-                    <div className="space-y-3 rounded-2xl border-2 border-foreground/30 p-4">
-                      <p className="font-black">{lesson.id ? 'Edit lesson' : 'New lesson'}</p>
+                    <div className="fixed inset-0 z-50 overflow-y-auto bg-background">
+                      <div className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background/95 px-3 py-2.5 backdrop-blur sm:px-4">
+                        <button type="button" onClick={() => setLesson(null)} className="h-10 shrink-0 rounded-xl px-2 text-sm font-bold text-muted-foreground">‹ <span className="hidden sm:inline">{d.course.title}</span><span className="sm:hidden">Back</span></button>
+                        <p className="min-w-0 flex-1 truncate text-base font-black">{lesson.title || (lesson.id ? 'Edit lesson' : 'New lesson')}</p>
+                        <button type="button" onClick={() => setShowPrev(true)} className="h-10 rounded-xl border-2 px-3 text-sm font-bold lg:hidden">Preview</button>
+                        <button type="button" onClick={() => setDrawer(true)} aria-label="Lesson settings" className="h-10 w-10 rounded-xl border-2 text-base">⚙</button>
+                        <button type="button" disabled={!!busy || !lesson.title.trim()} onClick={async () => { const id = await saveLesson(); if (id) { setLesson(null); setMsg('Lesson saved.'); } }} className="h-10 rounded-xl bg-foreground px-4 text-sm font-bold text-background disabled:opacity-50">{busy === 'lesson' ? 'Saving…' : 'Save'}</button>
+                      </div>
+                      <div className="mx-auto grid max-w-6xl gap-6 px-3 py-4 sm:px-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+                      <div className="min-w-0 space-y-3">
                       <div className="grid gap-2 md:grid-cols-2">
                         <label className="text-sm font-bold">Module<input className={field} value={lesson.moduleTitle} onChange={(e) => setLesson({ ...lesson, moduleTitle: e.target.value })} list="cf-modules" /></label>
                         <datalist id="cf-modules">{modules.map((m) => <option key={m.title} value={m.title} />)}</datalist>
                         <label className="text-sm font-bold">Lesson title<input className={field} value={lesson.title} onChange={(e) => setLesson({ ...lesson, title: e.target.value })} /></label>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {(['video', 'text', 'download', 'assignment'] as const).map((k) => <button key={k} type="button" onClick={() => setLesson({ ...lesson, kind: k, ...(k === 'assignment' && !lesson.assignment ? { assignment: { prompt: '', type: 'any', rubric: [{ criterion: 'Accuracy', points: 40 }, { criterion: 'Infection control & safety', points: 30 }, { criterion: 'Presentation', points: 30 }], dueDays: 7, resubmit: true } } : {}) })} className={`h-9 rounded-full px-4 text-sm font-bold capitalize ${lesson.kind === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{k}</button>)}
-                        <label className="ml-auto inline-flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={lesson.preview} onChange={(e) => setLesson({ ...lesson, preview: e.target.checked })} />Free preview</label>
+                        {(['video', 'text', 'download', 'assignment'] as const).map((k) => <button key={k} type="button" onClick={() => setLesson({ ...lesson, kind: k, ...(k === 'assignment' && !lesson.assignment ? { assignment: { prompt: '', type: 'any', rubric: [{ criterion: 'Accuracy', points: 40 }, { criterion: 'Infection control & safety', points: 30 }, { criterion: 'Presentation', points: 30 }], dueDays: 7, resubmit: true } } : {}) })} className={`h-9 rounded-full px-4 text-sm font-bold ${lesson.kind === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{LESSON_KINDS.find((x) => x[0] === k)?.[1]} {LESSON_KINDS.find((x) => x[0] === k)?.[2]}</button>)}
                       </div>
                       {lesson.kind === 'video' && (
                         <div className="space-y-2 rounded-2xl bg-muted/40 p-3">
@@ -397,10 +401,6 @@ export default function AcademyBuilderPage() {
                           <label className="text-sm font-bold">Download name<input className={field} value={lesson.downloadName} onChange={(e) => setLesson({ ...lesson, downloadName: e.target.value })} placeholder="Nail anatomy worksheet" /></label>
                         </div>
                       )}
-                      <div className="grid gap-2 md:grid-cols-2">
-                        <label className="text-sm font-bold">Minimum active minutes (optional — e.g. for reading lessons)<input className={field} type="number" min={0} value={lesson.minMinutes || 0} onChange={(e) => setLesson({ ...lesson, minMinutes: Number(e.target.value) || 0 })} /></label>
-                        <label className="text-sm font-bold">Unlocks after (days from the student’s start — 0 = straight away)<input className={field} type="number" min={0} value={lesson.releaseAfterDays || 0} onChange={(e) => setLesson({ ...lesson, releaseAfterDays: Number(e.target.value) || 0 })} /></label>
-                      </div>
                       {lesson.kind === 'assignment' && lesson.assignment && (
                         <div className="space-y-2 rounded-2xl border-2 border-amber-200 bg-amber-50/60 p-3">
                           <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-black">Assignment</p>
@@ -417,16 +417,9 @@ export default function AcademyBuilderPage() {
                         </div>
                       )}
                       <BlocksEditor tenantId={tenantId} courseId={sel!} lessonId={lesson.id || null} accent={docBrand.color} value={lesson.blocks || []} onChange={(blocks) => setLesson({ ...lesson, blocks })} />
-                      <CasesEditor tenantId={tenantId} courseId={sel!} lesson={lesson} onChange={(cases) => setLesson({ ...lesson, cases })} />
-                      {lesson.kind === 'video' && <VideoQuestionsEditor tenantId={tenantId} courseId={sel!} lesson={lesson} onChange={(videoQuestions) => setLesson({ ...lesson, videoQuestions })} />}
-                      <PlanEditor tenantId={tenantId} courseId={sel!} lesson={lesson} value={lesson.plan} onChange={(plan) => setLesson({ ...lesson, plan })} brand={docBrand} courseTitle={d.course.title} />
-                      <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border-2 border-dashed border-violet-200 bg-violet-50/60 p-3">
-                        <span className="mr-1 text-sm font-black">✨ Draft with AI from this lesson’s text:</span>
-                        {([['quiz', 'Quiz'], ['flashcards', 'Flashcards'], ['match', 'Matching'], ['order', 'Put in order'], ['scenario', 'Client scenario']] as const).map(([k, l]) => (
-                          <button key={k} type="button" disabled={!!drafting || (String(lesson.body || '').length < 120 && !lesson.transcript)} onClick={() => draft(k)} className="h-8 rounded-full bg-background px-3 text-[12px] font-bold disabled:opacity-40">{drafting === k ? 'Drafting…' : l}</button>
-                        ))}
-                        {String(lesson.body || '').length < 120 && !lesson.transcript && <span className="w-full text-[11px] text-muted-foreground">Write a few paragraphs of lesson text first — drafts use only what you’ve written.</span>}
-                      </div>
+                      {lesson.cases && <CasesEditor tenantId={tenantId} courseId={sel!} lesson={lesson} onChange={(cases) => setLesson({ ...lesson, cases })} />}
+                      {lesson.kind === 'video' && (lesson.videoQuestions || []).length > 0 && <VideoQuestionsEditor tenantId={tenantId} courseId={sel!} lesson={lesson} onChange={(videoQuestions) => setLesson({ ...lesson, videoQuestions })} />}
+                      {(lesson.flashcards || []).length > 0 && (
                       <div className="space-y-2 rounded-2xl bg-muted/40 p-3">
                         <div className="flex items-center justify-between"><p className="text-sm font-black">Flashcards {lesson.flashcards?.length ? `· ${lesson.flashcards.length}` : '(optional)'}</p>
                           <button type="button" onClick={() => setLesson({ ...lesson, flashcards: [...(lesson.flashcards || []), { front: '', back: '' }] })} className="rounded-full bg-background px-3 py-1 text-[12px] font-bold">+ Card</button></div>
@@ -434,6 +427,8 @@ export default function AcademyBuilderPage() {
                           <div key={i} className="flex gap-2"><input className={field} value={f.front} placeholder="Front (term or question)" onChange={(e) => { const fs = [...lesson.flashcards]; fs[i] = { ...fs[i], front: e.target.value }; setLesson({ ...lesson, flashcards: fs }); }} /><input className={field} value={f.back} placeholder="Back (answer)" onChange={(e) => { const fs = [...lesson.flashcards]; fs[i] = { ...fs[i], back: e.target.value }; setLesson({ ...lesson, flashcards: fs }); }} /><button type="button" onClick={() => setLesson({ ...lesson, flashcards: lesson.flashcards.filter((_: any, k: number) => k !== i) })} className="p-2 text-red-600" aria-label="Remove card"><Trash2 className="h-4 w-4" /></button></div>
                         ))}
                       </div>
+                      )}
+                      {lesson.activity && (
                       <div className="space-y-2 rounded-2xl bg-muted/40 p-3">
                         <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-black">Activity (optional)</p>
                           <select className="h-8 rounded-lg border px-2 text-[12px]" value={lesson.activity?.type || ''} onChange={(e) => { const t = e.target.value; setLesson({ ...lesson, activity: !t ? null : t === 'label' ? { type: 'label', prompt: 'Label the diagram', imageUrl: '', points: [] } : t === 'match' ? { type: 'match', prompt: 'Match each item to its pair', pairs: [{ left: '', right: '' }, { left: '', right: '' }] } : t === 'order' ? { type: 'order', prompt: 'Put these steps in order', steps: ['', ''] } : { type: 'scenario', prompt: '', options: [{ text: '', correct: true, feedback: '' }, { text: '', correct: false, feedback: '' }] } }); }}>
@@ -460,6 +455,8 @@ export default function AcademyBuilderPage() {
                         {lesson.activity && !['scenario', 'label'].includes(lesson.activity.type) && <button type="button" onClick={() => setLesson({ ...lesson, activity: lesson.activity.type === 'match' ? { ...lesson.activity, pairs: [...lesson.activity.pairs, { left: '', right: '' }] } : { ...lesson.activity, steps: [...lesson.activity.steps, ''] } })} className="rounded-full bg-background px-3 py-1 text-[12px] font-bold">+ Add</button>}
                         {lesson.activity?.type === 'scenario' && <button type="button" onClick={() => setLesson({ ...lesson, activity: { ...lesson.activity, options: [...lesson.activity.options, { text: '', correct: false, feedback: '' }] } })} className="rounded-full bg-background px-3 py-1 text-[12px] font-bold">+ Choice</button>}
                       </div>
+                      )}
+                      {lesson.quiz && (
                       <div className="space-y-2 rounded-2xl bg-muted/40 p-3">
                         <div className="flex items-center justify-between"><p className="text-sm font-black">Quiz {lesson.quiz?.questions?.length ? `· ${lesson.quiz.questions.length} questions` : '(optional)'}</p>
                           <button type="button" onClick={() => setLesson({ ...lesson, quiz: { passPct: lesson.quiz?.passPct || 80, questions: [...(lesson.quiz?.questions || []), { q: '', options: ['', '', '', ''], answer: 0 }] } })} className="rounded-full bg-background px-3 py-1 text-[12px] font-bold">+ Question</button></div>
@@ -478,11 +475,32 @@ export default function AcademyBuilderPage() {
                           );
                         })}
                       </div>
+                      )}
+                      <button type="button" onClick={() => setAddOpen(true)} className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-foreground/30 text-sm font-black hover:bg-muted/40">＋ Add to this lesson</button>
                       <div className="flex gap-2">
                         <button type="button" disabled={!!busy || !lesson.title.trim()} onClick={async () => { const id = await saveLesson(); if (id) { setLesson(null); setMsg('Lesson saved.'); } }} className="h-10 rounded-xl bg-foreground px-5 text-sm font-bold text-background disabled:opacity-50">{busy === 'lesson' ? 'Saving…' : 'Save lesson'}</button>
                         <button type="button" onClick={() => setLesson(null)} className="h-10 rounded-xl px-4 text-sm font-bold text-muted-foreground">Close</button>
                       </div>
-                    </div>
+                      </div>
+                      <aside className="hidden lg:block"><div className="sticky top-20 space-y-2"><p className="text-center text-[11px] font-black uppercase tracking-widest text-muted-foreground">As a student sees it</p><LessonPreview lesson={lesson} color={docBrand.color} stepMode={lesson.stepMode === true} /></div></aside>
+                      </div>
+                      {addOpen && <AddToLesson lesson={lesson} setLesson={setLesson} draft={draft} drafting={drafting} onClose={() => setAddOpen(false)} />}
+                      {showPrev && <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black/70 p-4" onClick={() => setShowPrev(false)}><div onClick={(e) => e.stopPropagation()}><LessonPreview lesson={lesson} color={docBrand.color} stepMode={lesson.stepMode === true} /></div><button type="button" className="h-10 rounded-full bg-white px-5 text-sm font-bold">Close preview</button></div>}
+                      {drawer && (
+                        <div className="fixed inset-0 z-[60] flex justify-end bg-black/30" onClick={() => setDrawer(false)}>
+                          <div onClick={(e) => e.stopPropagation()} className="h-full w-full max-w-md space-y-4 overflow-y-auto bg-background p-5 shadow-2xl">
+                            <div className="flex items-center justify-between"><p className="text-xl font-black">Lesson settings</p><button type="button" onClick={() => setDrawer(false)} className="text-sm font-bold text-muted-foreground">Done</button></div>
+                            <label className="flex items-start gap-3 rounded-2xl bg-muted/40 p-3 text-sm"><input type="checkbox" className="mt-1" checked={lesson.stepMode === true} onChange={(e) => setLesson({ ...lesson, stepMode: e.target.checked })} /><span><b>Show one step at a time</b><span className="block text-[12px] text-muted-foreground">Students swipe through the lesson screen by screen, with a progress bar — great on phones.</span></span></label>
+                            <div className="rounded-2xl bg-muted/40 p-3 text-sm"><label className="ml-auto inline-flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={lesson.preview} onChange={(e) => setLesson({ ...lesson, preview: e.target.checked })} />Free preview</label><p className="text-[12px] text-muted-foreground">Anyone can open this lesson before enrolling.</p></div>
+                      <div className="grid gap-2 md:grid-cols-2">
+                        <label className="text-sm font-bold">Minimum active minutes (optional — e.g. for reading lessons)<input className={field} type="number" min={0} value={lesson.minMinutes || 0} onChange={(e) => setLesson({ ...lesson, minMinutes: Number(e.target.value) || 0 })} /></label>
+                        <label className="text-sm font-bold">Unlocks after (days from the student’s start — 0 = straight away)<input className={field} type="number" min={0} value={lesson.releaseAfterDays || 0} onChange={(e) => setLesson({ ...lesson, releaseAfterDays: Number(e.target.value) || 0 })} /></label>
+                      </div>
+                            <PlanEditor tenantId={tenantId} courseId={sel!} lesson={lesson} value={lesson.plan} onChange={(plan) => setLesson({ ...lesson, plan })} brand={docBrand} courseTitle={d.course.title} />
+                          </div>
+                        </div>
+                      )}
+                      </div>
                   )}
                 </div>
               )}
