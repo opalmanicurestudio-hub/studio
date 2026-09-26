@@ -1,4 +1,4 @@
-// src/app/api/academy/student-file/route.ts
+// // src/app/api/academy/student-file/route.ts
 //
 // THE STUDENT FILE — everything about one student in one place.
 //   get           profile · programs (hours with state limits, evaluations,
@@ -14,6 +14,7 @@
 //   form-update   Board form: submitted date, confirmation #, receipt  (owners/managers)
 // Nothing in the file can be deleted: a replacement keeps the earlier version.
 
+import { itemsFor } from '@/lib/academy-portfolio';
 import { translateTexts } from '@/lib/translate';
 import { cleanAcc } from '@/lib/accommodations';
 import { deviceAllowed } from '@/lib/approved-devices';
@@ -101,6 +102,7 @@ export async function POST(req: NextRequest) {
       const a0 = adm.docs[0]?.data() as any;
       return NextResponse.json({ ok: true,
         accommodations: st.accommodations || null,
+        portfolio: await itemsFor(tenantId, studentId),
         letters: (await db.collection(`${T}/studentLetters`).where('studentId', '==', studentId).limit(100).get()).docs.map((d: any) => d.data()).sort((x: any, y: any) => String(y.at).localeCompare(String(x.at))),
         profile: { id: studentId, name: st.name, email: st.email, dob: st.dob || null, phone: st.phone || a0?.phone || null, address: st.address || null, emergency: st.emergency || null, language: st.language || 'en', photo: st.referencePhoto?.ref || null, createdAt: st.createdAt },
         programs, admission: a0 ? { stage: a0.stage, source: a0.source, cohortId: a0.cohortId || null, agreement: a0.agreement ? { signedAt: a0.agreement.signedAt, signedName: a0.agreement.signedName, sha256: a0.agreement.sha256, countersignedBy: a0.agreement.countersignedBy || null, text: a0.agreement.text } : null, documents: a0.documents || {} } : null,
@@ -121,6 +123,16 @@ export async function POST(req: NextRequest) {
       await appendAudit(tenantId, { type: 'student.profile', studentId, by: who, summary: 'Student details updated', data: { fields: Object.keys(clean) } });
       return NextResponse.json({ ok: true });
     }
+    // ── Portfolio: instructors approve (or hide) each piece before it can be shown ──
+    if (b.action === 'portfolio-review') {
+      const ref = db.doc(`${T}/portfolio/${String(b.id || '')}`); const x = ((await ref.get()).data() as any) || null;
+      if (!x || x.studentId !== studentId) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
+      const status = b.status === 'approved' ? 'approved' : 'hidden';
+      await ref.set({ status, reviewedBy: who, reviewedAt: now, reviewNote: String(b.note || '').slice(0, 300) || null }, { merge: true });
+      await appendAudit(tenantId, { type: 'portfolio.reviewed', studentId, by: who, summary: `Portfolio “${x.service}” ${status === 'approved' ? 'approved' : 'hidden'}` });
+      return NextResponse.json({ ok: true });
+    }
+
     // ── Letters: saved to the file; emailed in the student's language with the English original ──
     if (b.action === 'letter-send') {
       if (!isLead) return NextResponse.json({ ok: false, error: 'Owners and managers only.' }, { status: 403 });
