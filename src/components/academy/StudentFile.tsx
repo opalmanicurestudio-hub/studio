@@ -16,6 +16,7 @@
 //   Grades · Tuition · Messages & notes · History (this student's audit trail)
 //   Print complete file — one document in the ClarityFlow look.
 
+import { ProgressRing } from '@/components/academy/Delight';
 import { deviceId } from '@/lib/device';
 import { useCallback, useEffect, useState } from 'react';
 import { getAuth } from 'firebase/auth';
@@ -91,6 +92,8 @@ export function StudentFile({ tenantId, studentId, brand, onClose }: { tenantId:
           <div className="min-w-0 space-y-4">
             {sec === 'overview' && (
               <>
+                {f.programs.filter((p: any) => p.totalHours).map((p: any) => <div key={p.id} className="flex flex-wrap items-center gap-4 rounded-2xl bg-muted/40 p-4"><ProgressRing value={p.hours?.total || 0} max={p.totalHours} color={brand.color || '#1c1917'} label={`${p.hours?.total || 0}`} sub={`of ${p.totalHours} h`} />
+                  <div className="min-w-0 flex-1 space-y-2">{(p.requirements || []).slice(0, 4).map((r: any) => <div key={r.key}><div className="flex justify-between text-[12px]"><span className="truncate">{r.label}</span><b>{r.done}/{r.required}</b></div><div className="mt-0.5 h-1.5 rounded-full bg-background"><div className="h-1.5 rounded-full" style={{ width: `${Math.min(100, (r.done / Math.max(1, r.required)) * 100)}%`, background: brand.color || '#1c1917' }} /></div></div>)}</div></div>)}
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{f.programs.map((p: any) => [['Total hours', `${p.hours?.total ?? 0}${p.totalHours ? ` / ${p.totalHours}` : ''}`], ['In school', `${p.hours?.inPerson ?? 0} h`], ['Online', `${p.hours?.online ?? 0} h`], ['Keep records until', p.retainUntil ? d(p.retainUntil) : '—']]).flat().map(([l, v]: any, i: number) => <div key={i} className="rounded-2xl bg-muted/40 p-3"><p className="text-lg font-black">{v}</p><p className="text-[11px] text-muted-foreground">{l}</p></div>)}</div>
                 {f.programs.flatMap((p: any) => p.hours?.notes || []).map((n: string) => <p key={n} className="rounded-xl bg-amber-50 p-2 text-[12px] text-amber-900">{n}</p>)}
                 <section className="space-y-2 rounded-2xl border-2 border-border/60 p-4">
