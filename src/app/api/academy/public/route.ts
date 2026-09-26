@@ -12,6 +12,7 @@
 //   lesson    { tenantId, courseId, lessonId, token? }  content; video token if allowed
 //   progress  { tenantId, token, courseId, lessonId, done }
 
+import { fingerprint } from '@/lib/school-docs';
 import { todoFor } from '@/lib/academy-assign';
 import { moduleStates, whatChanged, award, gameView } from '@/lib/academy-modules';
 import { upcomingPayments, studentPaySession, completeStudentPayment, cardUpdateSession, completeCardUpdate } from '@/lib/academy-admissions';
@@ -213,6 +214,28 @@ export async function POST(req: NextRequest) {
           videoQuestions: l.kind === 'video' ? l.videoQuestions || [] : [] },
         tracking: { compliance: !!c.compliance, checkEveryMin: c.compliance ? (c.attentionCheckMinutes ?? DEFAULT_RULES.attentionCheckMinutes) : 0, minEngagementPct: c.minEngagementPct ?? DEFAULT_RULES.minEngagementPct, minWatchPct: c.minWatchPct ?? DEFAULT_RULES.minWatchPct,
           engagedSec: stat.engagedSec || 0, watchedSec: stat.watchedSec || 0 } });
+    }
+
+    // ── School documents to read and sign (handbook, policies…) ──
+    if (b.action === 'docs-to-sign' || b.action === 'doc-read' || b.action === 'doc-sign' || b.action === 'docs-mine') {
+      if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+      const T = `tenants/${tenantId}`;
+      if (b.action === 'docs-to-sign' || b.action === 'docs-mine') {
+        const [pub, acks] = await Promise.all([db.collection(`${T}/schoolDocs`).where('status', '==', 'published').limit(100).get(), db.collection(`${T}/docAcks`).where('studentId', '==', student.id).limit(500).get()]);
+        const have = new Set(acks.docs.map((d: any) => { const a = d.data() as any; return `${a.docId}_${a.version}`; }));
+        const docs = pub.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+        if (b.action === 'docs-mine') return NextResponse.json({ ok: true, docs: docs.map((x: any) => ({ id: x.id, title: x.publishedTitle || x.title, version: x.version, requireAck: !!x.requireAck, signed: have.has(`${x.id}_${x.version}`) })) });
+        return NextResponse.json({ ok: true, docs: docs.filter((x: any) => x.requireAck && !have.has(`${x.id}_${x.version}`)).map((x: any) => ({ id: x.id, title: x.publishedTitle || x.title, version: x.version })) });
+      }
+      const d = ((await db.doc(`${T}/schoolDocs/${String(b.id || '')}`).get()).data() as any) || null;
+      if (!d || d.status !== 'published') return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
+      const pubBody = d.publishedBody ?? d.body, pubTitle = d.publishedTitle || d.title;
+      if (b.action === 'doc-read') return NextResponse.json({ ok: true, doc: { id: String(b.id), title: pubTitle, body: pubBody, version: d.version, requireAck: !!d.requireAck } });
+      const name = String(b.name || '').trim().slice(0, 120);
+      if (name.length < 2 || !b.agree) return NextResponse.json({ ok: false, error: 'Type your full name and tick the box to sign.' }, { status: 400 });
+      await db.doc(`${T}/docAcks/${String(b.id)}_${d.version}_${student.id}`).set({ docId: String(b.id), version: d.version, studentId: student.id, email: student.email, title: pubTitle, signedName: name, at: new Date().toISOString(), hash: fingerprint(pubBody), agent: String(req.headers.get('user-agent') || '').slice(0, 200) });
+      await appendAudit(tenantId, { type: 'doc.signed', studentId: student.id, by: student.email, summary: `Signed “${pubTitle}” (version ${d.version}) as “${name}”`, data: { docId: String(b.id), version: d.version } });
+      return NextResponse.json({ ok: true });
     }
 
     // ── The student's to-do list (assigned work, automatic reviews) ──
