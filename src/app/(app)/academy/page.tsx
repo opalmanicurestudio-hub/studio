@@ -10,6 +10,7 @@
 //                download; free-preview switch; reorder; edit; delete
 //   Students     who's enrolled, since when, how far they've got
 
+import { SchoolDocs } from '@/components/academy/SchoolDocs';
 import { AssignPanel } from '@/components/academy/AssignPanel';
 import { CourseBoard } from '@/components/academy/CourseBoard';
 import { AddToLesson, LessonPreview, TemplatePicker, LESSON_KINDS, FileToLesson, printStudyGuide } from '@/components/academy/LessonCanvas';
@@ -177,6 +178,7 @@ export default function AcademyBuilderPage() {
       { key: 'admissions', label: 'Admissions', hint: 'Applicants, tuition, cohorts', icon: ClipboardList, school: true, badge: (home?.school?.docsToCheck || 0) + (home?.school?.toCountersign || 0) + (home?.school?.newInquiries || 0) } ] },
     { group: 'Set up', items: [
       { key: 'programs', label: 'Programs', hint: 'Hours, services, tuition rules', icon: GraduationCap, school: true },
+      { key: 'documents', label: 'School documents', hint: 'Handbook, policies, syllabi, labels', icon: FileText },
       { key: 'settings', label: 'Settings', hint: 'Academy type and your links', icon: SettingsIcon } ] },
   ];
   const docBrand = { name: String((selectedTenant as any)?.name || home?.name || 'Academy'), logoUrl: (selectedTenant as any)?.logoUrl || (selectedTenant as any)?.bookingPageSettings?.logoUrl || null, color: (selectedTenant as any)?.bookingPageSettings?.primaryColor || null };
@@ -249,6 +251,7 @@ export default function AcademyBuilderPage() {
             {section === 'attendance' && mode === 'school' && <AttendancePanel tenantId={tenantId} />}
             {section === 'live' && <LiveClass tenantId={tenantId} />}
             {section === 'assign' && <AssignPanel tenantId={tenantId} />}
+            {section === 'documents' && <SchoolDocs tenantId={tenantId} brand={docBrand} courses={courses || []} />}
             {section === 'materials' && <CourseMaterials tenantId={tenantId} courses={courses || []} brand={docBrand} />}
             {section === 'reports' && mode === 'school' && <AcademyReports tenantId={tenantId} />}
             {section === 'settings' && (
