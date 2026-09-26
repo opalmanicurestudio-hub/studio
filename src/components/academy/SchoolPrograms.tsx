@@ -25,6 +25,8 @@ const STATUS: Record<string, string> = { active: 'bg-emerald-100 text-emerald-80
 export function SchoolPrograms({ tenantId, courses, brand }: { tenantId: string; courses: any[]; brand: { name: string; logoUrl?: string | null; color?: string | null } }) {
   const [fileFor, setFileFor] = useState<string | null>(null);
   const [templates, setTemplates] = useState<any[]>([]);
+  const [states, setStates] = useState<Record<string, string>>({});
+  const [custom, setCustom] = useState<any>(null);
   const [d, setD] = useState<any>(null);
   const [edit, setEdit] = useState<any>(null);
   const [roster, setRoster] = useState<any[] | null>(null);
@@ -35,7 +37,7 @@ export function SchoolPrograms({ tenantId, courses, brand }: { tenantId: string;
   const [busy, setBusy] = useState(false);
   const load = useCallback(async () => { const r = await api({ action: 'overview', tenantId }); if (r.ok) setD(r); else setMsg(r.error); }, [tenantId]);
   const loadRoster = useCallback(async (pid: string) => { const r = await api({ action: 'roster', tenantId, programId: pid }); if (r.ok) setRoster(r.students); }, [tenantId]);
-  useEffect(() => { void load(); api({ action: 'templates', tenantId }).then((r) => r.ok && setTemplates(r.templates)); }, [load, tenantId]);
+  useEffect(() => { void load(); api({ action: 'templates', tenantId }).then((r) => { if (r.ok) { setTemplates(r.templates); setStates(r.states || {}); } }); }, [load, tenantId]);
   useEffect(() => { if (sel) { void loadRoster(sel); setProg(null); } }, [sel, loadRoster]);
 
   if (!d) return <Loader className="h-5 w-5 animate-spin" />;
@@ -69,7 +71,31 @@ export function SchoolPrograms({ tenantId, courses, brand }: { tenantId: string;
           <div className="flex flex-wrap gap-2">{templates.map((t) => <button key={t.key} type="button" onClick={async () => { if (!window.confirm(`Create “${t.name}” (${t.totalHours} hours, ${t.rule})?`)) return; const r = await api({ action: 'program-from-template', tenantId, key: t.key }); if (r.ok) { await load(); setSel(r.id); setMsg('Program created — now set performance counts and link your clinic services (Edit program).'); } else setMsg(r.error); }} className="rounded-xl border-2 px-3 py-2 text-left text-sm"><span className="font-bold">{t.name}</span><span className="block text-[11px] text-muted-foreground">{t.totalHours} h · {t.evaluations} evaluations · {t.performances} performances</span></button>)}</div>
         </div>
       )}
-      {d.programs.length === 0 && !edit && <p className="rounded-2xl border-2 border-dashed p-6 text-center text-sm text-muted-foreground">Or create your own program with the hours and services your state requires.</p>}
+      {!edit && !custom && <button type="button" onClick={() => setCustom({ state: '', discipline: '', source: '', totalHours: '', onlineMaxPct: '', dailyCapHours: '', weeklyCapHours: '', quarterHour: true, passGrade: 70, infectionEvaluations: '', infectionPassPct: 100, requiredEvaluations: '', performances: '', requiredDocs: '', boardForms: [{ label: 'Enrollment form', trigger: 'enrollment', dueDays: 30 }, { label: 'Graduation form', trigger: 'graduation', dueDays: 30 }, { label: 'Withdrawal form', trigger: 'withdrawal', dueDays: 30 }], retentionYears: 5, untilExamIfEarlier: false })} className="w-full rounded-2xl border-2 border-dashed p-4 text-left text-sm"><span className="font-black">Set up for my state</span> <span className="text-muted-foreground">— another state, or a program not listed: enter your state’s rules and everything (clinic gating, hour limits, checklist, form deadlines, retention) works the same way.</span></button>}
+      {custom && (
+        <div className="space-y-3 rounded-2xl border-2 border-foreground/30 p-4">
+          <p className="font-black">Set up for my state</p>
+          <p className="text-[12px] text-muted-foreground">Copy these from your state board’s published rules. Everything stays editable afterwards.</p>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <label className="text-[12px] font-bold">State<select className={field} value={custom.state} onChange={(e) => setCustom({ ...custom, state: e.target.value })}><option value="">Choose…</option>{Object.entries(states).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+            <label className="text-[12px] font-bold">License / program<input className={field} value={custom.discipline} onChange={(e) => setCustom({ ...custom, discipline: e.target.value })} placeholder="e.g. Nail Technician" /></label>
+            <label className="text-[12px] font-bold">Rule reference<input className={field} value={custom.source} onChange={(e) => setCustom({ ...custom, source: e.target.value })} placeholder="e.g. SC Code Regs 35-1" /></label>
+            {([['totalHours', 'Total hours required'], ['onlineMaxPct', 'Max % of hours online (blank = no limit, 0 = not allowed)'], ['dailyCapHours', 'Max hours per day (blank = none)'], ['weeklyCapHours', 'Max hours per week (blank = none)'], ['passGrade', 'Passing grade %'], ['retentionYears', 'Keep records (years)']] as const).map(([k, l]) => <label key={k} className="text-[12px] font-bold">{l}<input type="number" className={field} value={custom[k]} onChange={(e) => setCustom({ ...custom, [k]: e.target.value })} /></label>)}
+            <label className="flex items-center gap-2 text-[12px] font-bold"><input type="checkbox" checked={custom.quarterHour} onChange={(e) => setCustom({ ...custom, quarterHour: e.target.checked })} />Round hours down to the quarter hour</label>
+            <label className="flex items-center gap-2 text-[12px] font-bold sm:col-span-2"><input type="checkbox" checked={custom.untilExamIfEarlier} onChange={(e) => setCustom({ ...custom, untilExamIfEarlier: e.target.checked })} />…or until the student is accepted for the state exam, if that’s earlier</label>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="text-[12px] font-bold">Infection-control evaluations, in order (one per line)<textarea rows={4} className={field + ' h-auto py-2'} value={custom.infectionEvaluations} onChange={(e) => setCustom({ ...custom, infectionEvaluations: e.target.value })} placeholder={'Hand washing\nImplement disinfection'} /></label>
+            <label className="text-[12px] font-bold">Required evaluations — “Name &gt; performance it unlocks” (one per line)<textarea rows={4} className={field + ' h-auto py-2'} value={custom.requiredEvaluations} onChange={(e) => setCustom({ ...custom, requiredEvaluations: e.target.value })} placeholder={'Basic manicure > Basic manicure\nPedicure > Basic pedicure'} /></label>
+            <label className="text-[12px] font-bold">Required performances (one per line)<textarea rows={4} className={field + ' h-auto py-2'} value={custom.performances} onChange={(e) => setCustom({ ...custom, performances: e.target.value })} placeholder={'Basic manicure\nBasic pedicure\nNail tips'} /></label>
+            <label className="text-[12px] font-bold">Documents kept on file (one per line)<textarea rows={4} className={field + ' h-auto py-2'} value={custom.requiredDocs} onChange={(e) => setCustom({ ...custom, requiredDocs: e.target.value })} placeholder={'Enrollment form\nGovernment photo ID\nProof of education'} /></label>
+          </div>
+          <div className="space-y-1"><p className="text-[12px] font-bold">Forms owed to the state board</p>{custom.boardForms.map((f: any, i: number) => <div key={i} className="flex gap-2"><input className={field} value={f.label} onChange={(e) => { const fs = [...custom.boardForms]; fs[i] = { ...f, label: e.target.value }; setCustom({ ...custom, boardForms: fs }); }} /><select className={`${field} w-40`} value={f.trigger} onChange={(e) => { const fs = [...custom.boardForms]; fs[i] = { ...f, trigger: e.target.value }; setCustom({ ...custom, boardForms: fs }); }}><option value="enrollment">after enrolment</option><option value="transfer">after transfer</option><option value="withdrawal">after withdrawal</option><option value="graduation">after graduation</option></select><input type="number" className={`${field} w-24`} value={f.dueDays} onChange={(e) => { const fs = [...custom.boardForms]; fs[i] = { ...f, dueDays: e.target.value }; setCustom({ ...custom, boardForms: fs }); }} title="Due within (days)" /><button type="button" onClick={() => setCustom({ ...custom, boardForms: custom.boardForms.filter((_: any, k: number) => k !== i) })} className="text-red-600" aria-label="Remove"><Trash2 className="h-4 w-4" /></button></div>)}
+            <button type="button" onClick={() => setCustom({ ...custom, boardForms: [...custom.boardForms, { label: '', trigger: 'enrollment', dueDays: 30 }] })} className="rounded-full bg-muted px-3 py-1 text-[12px] font-bold">+ Form</button></div>
+          <div className="flex gap-2"><button type="button" disabled={busy || !custom.totalHours} onClick={async () => { setBusy(true); const r = await api({ action: 'program-from-custom', tenantId, custom }); setBusy(false); if (r.ok) { setCustom(null); await load(); setSel(r.id); setMsg('Program created from your state’s rules — now set performance counts and link your clinic services.'); } else setMsg(r.error); }} className="h-10 rounded-xl bg-foreground px-5 text-sm font-bold text-background disabled:opacity-40">Create program</button><button type="button" onClick={() => setCustom(null)} className="h-10 px-3 text-sm font-bold text-muted-foreground">Cancel</button></div>
+        </div>
+      )}
+      {d.programs.length === 0 && !edit && !custom && <p className="rounded-2xl border-2 border-dashed p-6 text-center text-sm text-muted-foreground">Or create your own program with the hours and services your state requires.</p>}
 
       {edit && (
         <div className="space-y-3 rounded-2xl border-2 border-foreground/30 p-4">
