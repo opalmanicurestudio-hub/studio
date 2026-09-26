@@ -68,9 +68,10 @@ export function BlocksEditor({ tenantId, courseId, value, onChange, lessonId, ac
   const blocks = value || [];
   const set = (i: number, patch: any) => onChange(blocks.map((b, k) => (k === i ? { ...b, ...patch } : b)));
   const move = (i: number, d: number) => { const j = i + d; if (j < 0 || j >= blocks.length) return; const n = [...blocks]; [n[i], n[j]] = [n[j], n[i]]; onChange(n); };
-  const add = (type: string) => onChange([...blocks, type === 'game' ? { id: uid(), type, template: 'sort', title: '', data: null } : type === 'interactive' ? { id: uid(), type, title: '', request: '', html: '' } : type === 'hotspots' ? { id: uid(), type, title: '', mediaId: null, points: [] } : type === 'stages' ? { id: uid(), type, title: '', stages: [{ label: '', text: '', mediaId: null }, { label: '', text: '', mediaId: null }] } : type === 'steps' ? { id: uid(), type, title: '', steps: [{ text: '', mediaId: null }] } : type === 'callout' ? { id: uid(), type, tone: 'safety', text: '' } : { id: uid(), type, text: '' }]);
+  const add = (type: string) => onChange([...blocks, type === 'timeline' ? { id: uid(), type, title: '', events: [{ when: '', title: '', text: '', mediaId: null }, { when: '', title: '', text: '', mediaId: null }] } : type === 'game' ? { id: uid(), type, template: 'sort', title: '', data: null } : type === 'interactive' ? { id: uid(), type, title: '', request: '', html: '' } : type === 'hotspots' ? { id: uid(), type, title: '', mediaId: null, points: [] } : type === 'stages' ? { id: uid(), type, title: '', stages: [{ label: '', text: '', mediaId: null }, { label: '', text: '', mediaId: null }] } : type === 'steps' ? { id: uid(), type, title: '', steps: [{ text: '', mediaId: null }] } : type === 'callout' ? { id: uid(), type, tone: 'safety', text: '' } : { id: uid(), type, text: '' }]);
   const chosen = (m: any) => { if (!pick) return; setNames((x) => ({ ...x, [m.id]: m.name })); const b = blocks[pick.index];
-    if (pick.step != null && b.type === 'stages') { const stages = [...b.stages]; stages[pick.step] = { ...stages[pick.step], mediaId: m.id }; set(pick.index, { stages }); }
+    if (pick.step != null && b.type === 'timeline') { const events = [...b.events]; events[pick.step] = { ...events[pick.step], mediaId: m.id }; set(pick.index, { events }); }
+    else if (pick.step != null && b.type === 'stages') { const stages = [...b.stages]; stages[pick.step] = { ...stages[pick.step], mediaId: m.id }; set(pick.index, { stages }); }
     else if (pick.step != null) { const steps = [...b.steps]; steps[pick.step] = { ...steps[pick.step], mediaId: m.id }; set(pick.index, { steps }); }
     else set(pick.index, { mediaId: m.id, ...(b.type === 'file' && !b.label ? { label: m.name } : {}) }); setPick(null); };
   return (
@@ -91,6 +92,8 @@ export function BlocksEditor({ tenantId, courseId, value, onChange, lessonId, ac
               <button type="button" onClick={() => set(i, { steps: b.steps.filter((_: any, x: number) => x !== k) })} aria-label="Remove step" className="mt-2 text-red-600"><Trash2 className="h-4 w-4" /></button></div>)}
             <button type="button" onClick={() => set(i, { steps: [...b.steps, { text: '', mediaId: null }] })} className="rounded-full bg-muted px-3 py-1 text-[12px] font-bold">+ Step</button></>}
           {b.type === 'divider' && <hr className="border-dashed" />}
+          {b.type === 'timeline' && <TimelineEditor b={b} onChange={(patch: any) => set(i, patch)} onPickImage={(k: number) => setPick({ index: i, step: k, kind: 'image' })}
+            onAi={async () => { if (!lessonId) return 'Save the lesson once first — the timeline is drawn from its text.'; const r = await api({ action: 'ai-timeline', tenantId, courseId, lessonId }); if (!r.ok) return r.error; set(i, { title: b.title || r.title, events: r.events }); return null; }} />}
           {b.type === 'game' && <GameEditor b={b} onChange={(patch: any) => set(i, patch)} onFreeForm={() => set(i, { type: 'interactive', game: true, request: '', html: '', template: undefined, data: undefined })}
             onAi={async () => { if (!lessonId) return 'Save the lesson once first — games are made from its text.'; const r = await api({ action: 'ai-game', tenantId, courseId, lessonId, template: b.template }); if (!r.ok) return r.error; set(i, { data: r.data, aiStamp: Date.now() }); return null; }} />}
           {b.type === 'interactive' && <InteractiveEditor tenantId={tenantId} courseId={courseId} lessonId={lessonId} accent={accent} b={b} onChange={(patch: any) => set(i, patch)} />}
@@ -105,7 +108,7 @@ export function BlocksEditor({ tenantId, courseId, value, onChange, lessonId, ac
             <p className="text-[11px] text-muted-foreground">Students drag a slider through the stages.</p></>}
         </div>
       ))}
-      <div className="flex flex-wrap gap-1.5">{([['game', '🎮 Game'], ['interactive', '✨ Interactive'], ['hotspots', '📍 Hotspots'], ['stages', '🎚 Stages'], ['text', '¶ Text'], ['steps', '🔢 Step-by-step'], ['image', '🖼 Image'], ['callout', '🛑 Callout'], ['file', '📄 File'], ['divider', '— Divider']] as const).map(([k, l]) => <button key={k} type="button" onClick={() => add(k)} className="rounded-full bg-background px-3 py-1.5 text-[12px] font-bold">{l}</button>)}</div>
+      <div className="flex flex-wrap gap-1.5">{([['timeline', '🕰 Timeline'], ['game', '🎮 Game'], ['interactive', '✨ Interactive'], ['hotspots', '📍 Hotspots'], ['stages', '🎚 Stages'], ['text', '¶ Text'], ['steps', '🔢 Step-by-step'], ['image', '🖼 Image'], ['callout', '🛑 Callout'], ['file', '📄 File'], ['divider', '— Divider']] as const).map(([k, l]) => <button key={k} type="button" onClick={() => add(k)} className="rounded-full bg-background px-3 py-1.5 text-[12px] font-bold">{l}</button>)}</div>
       {pick && <MediaPicker tenantId={tenantId} courseId={courseId} kind={pick.kind} onPick={chosen} onClose={() => setPick(null)} />}
     </div>
   );
@@ -269,6 +272,31 @@ export function VideoQuestionsEditor({ tenantId, courseId, lesson, onChange }: {
           <div className="flex gap-2">{q.options.length < 4 && <button type="button" onClick={() => set(i, { options: [...q.options, ''] })} className="text-[12px] font-bold underline">+ answer</button>}<input className={field} value={q.explain || ''} onChange={(e) => set(i, { explain: e.target.value })} placeholder="Why (shown after answering)" /></div>
         </div>
       ))}
+    </div>
+  );
+}
+
+
+// ── 🕰 Timeline editor ────────────────────────────────────────────────────
+function TimelineEditor({ b, onChange, onPickImage, onAi }: any) {
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
+  const ev: any[] = b.events || [];
+  const setE = (k: number, patch: any) => onChange({ events: ev.map((x, j) => (j === k ? { ...x, ...patch } : x)) });
+  const move = (k: number, d: number) => { const j = k + d; if (j < 0 || j >= ev.length) return; const a = [...ev]; [a[k], a[j]] = [a[j], a[k]]; onChange({ events: a }); };
+  return (
+    <div className="space-y-2">
+      <input className={field} value={b.title} onChange={(e) => onChange({ title: e.target.value })} placeholder="e.g. A short history of nail care" />
+      <button type="button" disabled={busy} onClick={async () => { setBusy(true); setErr(''); const e = await onAi(); setBusy(false); if (e) setErr(e); }} className="h-9 rounded-full bg-violet-100 px-3 text-[12px] font-bold text-violet-900 disabled:opacity-50">{busy ? 'Drafting…' : '✨ Draft from this lesson'}</button>
+      {err && <p className="text-sm text-red-700">{err}</p>}
+      {ev.map((e, k) => (
+        <div key={k} className="space-y-1.5 rounded-xl border-l-4 border-violet-400 bg-background p-2 pl-3">
+          <div className="grid gap-1.5 sm:grid-cols-[140px_1fr_auto]"><input className={field} value={e.when} onChange={(x) => setE(k, { when: x.target.value })} placeholder="Date or period" /><input className={field} value={e.title} onChange={(x) => setE(k, { title: x.target.value })} placeholder="What happened" />
+            <span className="flex items-center gap-1"><button type="button" onClick={() => move(k, -1)} aria-label="Move up" className="h-9 w-8 rounded-lg">↑</button><button type="button" onClick={() => move(k, 1)} aria-label="Move down" className="h-9 w-8 rounded-lg">↓</button><button type="button" onClick={() => onChange({ events: ev.filter((_, j) => j !== k) })} aria-label="Remove event" className="text-red-600"><Trash2 className="h-4 w-4" /></button></span></div>
+          <div className="flex gap-1.5"><input className={field} value={e.text} onChange={(x) => setE(k, { text: x.target.value })} placeholder="A sentence or two (optional)" /><button type="button" onClick={() => onPickImage(k)} className="h-10 shrink-0 rounded-lg border-2 px-2 text-[12px] font-bold">{e.mediaId ? '✓ photo' : '🖼 photo'}</button></div>
+        </div>
+      ))}
+      {ev.length < 30 && <button type="button" onClick={() => onChange({ events: [...ev, { when: '', title: '', text: '', mediaId: null }] })} className="rounded-full bg-muted px-3 py-1 text-[12px] font-bold">+ Event</button>}
+      <p className="text-[11px] text-muted-foreground">Students see the line draw as they scroll and each event land in turn — or press ▶ Play.</p>
     </div>
   );
 }
