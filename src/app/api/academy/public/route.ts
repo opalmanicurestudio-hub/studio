@@ -12,6 +12,8 @@
 //   lesson    { tenantId, courseId, lessonId, token? }  content; video token if allowed
 //   progress  { tenantId, token, courseId, lessonId, done }
 
+import { upcomingPayments, studentPaySession, completeStudentPayment, cardUpdateSession, completeCardUpdate } from '@/lib/academy-admissions';
+import { translateTexts, translateLong, LANGUAGES } from '@/lib/translate';
 import { findLive, studentBeat, studentAnswer } from '@/lib/academy-live';
 import { askClaude, aiConfigured } from '@/lib/ai';
 import { postMessage, sendEmail as sendJourneyEmail } from '@/lib/academy-journey';
@@ -172,7 +174,8 @@ export async function POST(req: NextRequest) {
       const enr = enrolled && student ? ((await db.doc(`tenants/${tenantId}/enrollments/${courseId}_${student.id}`).get()).data() as any) || {} : {};
       const stat = enr.stats?.[lessonId] || {};
       const quiz = l.quiz?.questions?.length ? { passPct: l.quiz.passPct || 80, questions: l.quiz.questions.map((q: any) => ({ q: q.q, options: q.options })), attempts: (enr.quiz?.[lessonId]?.attempts || []).slice(-5), passed: !!enr.quiz?.[lessonId]?.passed } : null;
-      return NextResponse.json({ ok: true, enrolled, aiTutor: enrolled && c.aiTutor !== false && aiConfigured(), lesson: { id: lessonId, title: l.title, moduleTitle: l.moduleTitle, kind: l.kind, body: l.body || '', downloadUrl: l.downloadUrl || null, downloadName: l.downloadName || null, preview: !!l.preview, video, durationSec: l.durationSec || null, minMinutes: l.minMinutes || 0, quiz,
+      const studentLang = student ? ((((await db.doc(`tenants/${tenantId}/students/${student.id}`).get()).data() as any) || {}).language || 'en') : 'en';
+      return NextResponse.json({ ok: true, enrolled, studentLang, aiTutor: enrolled && c.aiTutor !== false && aiConfigured(), lesson: { id: lessonId, title: l.title, moduleTitle: l.moduleTitle, kind: l.kind, body: l.body || '', downloadUrl: l.downloadUrl || null, downloadName: l.downloadName || null, preview: !!l.preview, video, durationSec: l.durationSec || null, minMinutes: l.minMinutes || 0, quiz,
         flashcards: l.flashcards || [], activity: l.activity || null, transcript: l.transcript || null },
         tracking: { compliance: !!c.compliance, checkEveryMin: c.compliance ? (c.attentionCheckMinutes ?? DEFAULT_RULES.attentionCheckMinutes) : 0, minEngagementPct: c.minEngagementPct ?? DEFAULT_RULES.minEngagementPct, minWatchPct: c.minWatchPct ?? DEFAULT_RULES.minWatchPct,
           engagedSec: stat.engagedSec || 0, watchedSec: stat.watchedSec || 0 } });
@@ -306,6 +309,138 @@ Keep this link private.
       }
     }
 
+    // ── Student portal ──
+    if (['portal', 'set-language', 'translate', 'lesson-translate', 'hours', 'tuition', 'tuition-pay', 'tuition-confirm', 'card-update', 'card-confirm', 'documents'].includes(b.action)) {
+      if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.', needsSignIn: true }, { status: 401 });
+      const T = `tenants/${tenantId}`;
+      const sDoc = ((await db.doc(`${T}/students/${student.id}`).get()).data() as any) || {};
+      const lang = LANGUAGES[sDoc.language] ? sDoc.language : 'en';
+      const myPath = `/learn/${tenantId}/my`;
+
+      if (b.action === 'set-language') {
+        const l = LANGUAGES[b.lang] ? b.lang : 'en';
+        await db.doc(`${T}/students/${student.id}`).set({ language: l }, { merge: true });
+        return NextResponse.json({ ok: true, lang: l });
+      }
+      if (b.action === 'translate') {
+        const l = LANGUAGES[b.lang] ? b.lang : lang;
+        const texts = (Array.isArray(b.texts) ? b.texts : []).map((x: any) => String(x ?? '').slice(0, 4000)).slice(0, 80);
+        if (l === 'en') return NextResponse.json({ ok: true, texts });
+        return NextResponse.json({ ok: true, texts: await translateTexts(tenantId, texts, l) });
+      }
+      if (b.action === 'lesson-translate') {
+        if (lang === 'en') return NextResponse.json({ ok: false, error: 'Choose your language first.' }, { status: 400 });
+        const courseId = String(b.courseId || ''), lessonId = String(b.lessonId || '');
+        if (!(await db.doc(`${T}/enrollments/${courseId}_${student.id}`).get()).exists) return NextResponse.json({ ok: false, error: 'Not enrolled.' }, { status: 403 });
+        const l = ((await db.doc(`${T}/courses/${courseId}/lessons/${lessonId}`).get()).data() as any) || {};
+        const short: string[] = [l.title || '', ...(l.quiz?.questions || []).flatMap((q: any) => [q.q, ...(q.options || [])]), ...(l.flashcards || []).flatMap((f: any) => [f.front, f.back]),
+          ...(l.activity ? [l.activity.prompt || '', ...(l.activity.pairs || []).flatMap((p: any) => [p.left, p.right]), ...(l.activity.steps || []), ...(l.activity.points || []).map((p: any) => p.label), ...(l.activity.options || []).flatMap((o: any) => [o.text, o.feedback])] : [])];
+        const [tShort, body, transcript] = await Promise.all([translateTexts(tenantId, short, lang), l.body ? translateLong(tenantId, l.body, lang) : Promise.resolve(''), l.transcript ? translateLong(tenantId, l.transcript, lang) : Promise.resolve('')]);
+        let i = 0; const nx = () => tShort[i++];
+        const title = nx();
+        const quiz = l.quiz?.questions?.length ? { questions: l.quiz.questions.map((q: any) => ({ q: nx(), options: (q.options || []).map(() => nx()) })) } : null;
+        const flashcards = (l.flashcards || []).map(() => ({ front: nx(), back: nx() }));
+        let activity: any = null;
+        if (l.activity) { activity = { ...l.activity, prompt: nx() };
+          if (l.activity.pairs) activity.pairs = l.activity.pairs.map(() => ({ left: nx(), right: nx() }));
+          if (l.activity.steps) activity.steps = l.activity.steps.map(() => nx());
+          if (l.activity.points) activity.points = l.activity.points.map((p: any) => ({ ...p, label: nx() }));
+          if (l.activity.options) activity.options = l.activity.options.map((o: any) => ({ ...o, text: nx(), feedback: nx() })); }
+        return NextResponse.json({ ok: true, lang, title, body, transcript, quiz, flashcards, activity });
+      }
+
+      const [pe, ce, thread] = await Promise.all([
+        db.collection(`${T}/programEnrollments`).where('studentId', '==', student.id).limit(10).get(),
+        db.collection(`${T}/enrollments`).where('studentId', '==', student.id).limit(100).get(),
+        db.doc(`${T}/academyThreads/${student.id}`).get(),
+      ]);
+      const progEnr = pe.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+      const plans: any[] = [];
+      for (const e of progEnr) { const pd = await db.doc(`${T}/tuitionPlans/${e.id}`).get(); if (pd.exists) { const p = pd.data() as any; const bal = await planBalance(tenantId, pd.id); plans.push({ id: pd.id, p, bal }); } }
+
+      if (b.action === 'portal') {
+        const today = new Date(); const dayKey = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][today.getDay()];
+        const monday = new Date(today); monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+        const [open, rota, anns, adm] = await Promise.all([
+          db.collection(`${T}/attendance`).where('studentId', '==', student.id).where('status', '==', 'open').limit(1).get(),
+          db.doc(`${T}/rotations/${monday.toISOString().slice(0, 10)}`).get(),
+          db.collection(`${T}/academyAnnouncements`).orderBy('at', 'desc').limit(10).get(),
+          db.collection(`${T}/admissions`).where('email', '==', student.email).limit(5).get(),
+        ]);
+        const progIds = new Set(progEnr.map((e: any) => e.programId));
+        const cohortIds = new Set(adm.docs.map((d: any) => (d.data() as any).cohortId).filter(Boolean));
+        // Today's duty + clinic clients (first names only).
+        const r = rota.exists ? (rota.data() as any) : null;
+        const duty = r?.published ? Object.entries(r.assignments?.[dayKey] || {}).filter(([, ids]: any) => (ids || []).includes(student.id)).map(([st]) => st) : [];
+        const week = r?.published ? (r.days || []).map((dk: string) => ({ day: dk, stations: Object.entries(r.assignments?.[dk] || {}).filter(([, ids]: any) => (ids || []).includes(student.id)).map(([st]) => st) })) : [];
+        const clinic: any[] = [];
+        for (const e of progEnr.filter((x: any) => x.staffId && x.status === 'active')) {
+          const ap = await db.collection(`${T}/appointments`).where('staffId', '==', e.staffId).limit(1500).get();
+          const from = new Date(today); from.setHours(0, 0, 0, 0); const to = new Date(from.getTime() + 86400000);
+          for (const d of ap.docs) { const a = d.data() as any; const at = new Date(a.startTime).getTime(); if (at >= from.getTime() && at < to.getTime() && !['cancelled', 'declined', 'no_show'].includes(a.status)) clinic.push({ time: a.startTime, service: a.serviceName || 'Service', client: String(a.clientName || 'Client').split(' ')[0], signedOff: !!a.clinicCheckoff?.signedOff }); }
+        }
+        clinic.sort((x, y) => String(x.time).localeCompare(String(y.time)));
+        // Continue learning: most recent course activity.
+        const courses = ce.docs.map((d: any) => d.data() as any).sort((x: any, y: any) => String(y.lastActiveAt || y.createdAt).localeCompare(String(x.lastActiveAt || x.createdAt)));
+        let next: any = null;
+        for (const c of courses.slice(0, 3)) { const cd = ((await db.doc(`${T}/courses/${c.courseId}`).get()).data() as any) || null; if (!cd) continue; const done = Object.keys(c.progress || {}).length; if (done >= (cd.lessonCount || 0)) continue;
+          next = { title: cd.title, slug: cd.slug, lessonId: c.lastLessonId || null, done, total: cd.lessonCount || 0 }; break; }
+        const needs = adm.docs.flatMap((d: any) => { const a = d.data() as any; return Object.entries(a.documents || {}).filter(([, v]: any) => v.status === 'rejected').map(([k, v]: any) => ({ doc: k, reason: v.reason })); });
+        const programs = []; for (const e of progEnr) { const pr = await programProgress(tenantId, e.id); if (pr) programs.push({ id: e.id, name: pr.program.name, status: pr.enrollment.status, hours: pr.hours, totalHours: pr.program.totalHours, requirements: pr.requirements, sap: (e.sap || []).slice(-1)[0] || null, risk: null }); }
+        return NextResponse.json({ ok: true, brand, lang, languages: LANGUAGES, student: { name: student.name, email: student.email },
+          clock: open.empty ? null : { since: (open.docs[0].data() as any).clockInAt }, duty, week, clinic, next, needs, programs,
+          tuition: plans.map((x: any) => ({ id: x.id, status: x.p.status, balanceCents: x.bal.balanceCents, nextDueAt: x.p.nextDueAt || null, installmentCents: x.p.installmentCents, autopay: !!x.p.autopay, lastError: x.p.status === 'past_due' ? (x.p.lastError || 'Payment failed') : null })),
+          announcements: anns.docs.map((d: any) => d.data() as any).filter((a: any) => (!a.programId || progIds.has(a.programId)) && (!a.cohortId || cohortIds.has(a.cohortId))).slice(0, 3).map((a: any) => ({ title: a.title, body: a.body, at: a.at })),
+          unread: ((thread.data() as any) || {}).unreadStudent || 0, isSchool: progEnr.length > 0 });
+      }
+
+      if (b.action === 'hours') {
+        const [att, sess, live] = await Promise.all([
+          db.collection(`${T}/attendance`).where('studentId', '==', student.id).limit(3000).get(),
+          db.collection(`${T}/learningSessions`).where('studentId', '==', student.id).limit(3000).get(),
+          db.collection(`${T}/liveAttendance`).where('studentId', '==', student.id).limit(1000).get(),
+        ]);
+        const punches = att.docs.map((d: any) => d.data() as any).sort((x: any, y: any) => String(y.clockInAt).localeCompare(String(x.clockInAt))).slice(0, 60).map((p: any) => ({ in: p.clockInAt, out: p.clockOutAt, minutes: p.minutes || 0, status: p.status, corrected: (p.corrections || []).length > 0 }));
+        // Online time by week (last 12 weeks).
+        const weeks: Record<string, number> = {};
+        for (const d of sess.docs) { const s = d.data() as any; const dt = new Date(s.startedAt); dt.setDate(dt.getDate() - ((dt.getDay() + 6) % 7)); const k = dt.toISOString().slice(0, 10); weeks[k] = (weeks[k] || 0) + (s.engagedSec || 0) / 60; }
+        const programs = []; for (const e of progEnr) { const pr = await programProgress(tenantId, e.id); if (pr) programs.push({ name: pr.program.name, hours: pr.hours, totalHours: pr.program.totalHours, requirements: pr.requirements, sap: e.sap || [] }); }
+        return NextResponse.json({ ok: true, programs, punches, onlineByWeek: Object.entries(weeks).sort().slice(-12).map(([w, m]) => ({ week: w, minutes: Math.round(m) })),
+          live: live.docs.map((d: any) => d.data() as any).sort((x: any, y: any) => String(y.joinedAt).localeCompare(String(x.joinedAt))).slice(0, 20).map((x: any) => ({ title: x.title, at: x.joinedAt, minutes: x.minutes })) });
+      }
+
+      if (b.action === 'tuition') {
+        return NextResponse.json({ ok: true, plans: plans.map((x: any) => ({ id: x.id, name: x.p.name, status: x.p.status, totalCents: x.p.totalCents, paidCents: x.bal.paidCents, balanceCents: x.bal.balanceCents,
+          installmentsPaid: x.p.installmentsPaid || 0, installmentsTotal: x.p.installmentsTotal || 0, installmentCents: x.p.installmentCents, nextDueAt: x.p.nextDueAt || null, autopay: !!x.p.autopay, hasCard: !!x.p.paymentMethodId, lastError: x.p.status === 'past_due' ? (x.p.lastError || 'Payment failed') : null,
+          upcoming: upcomingPayments(x.p, x.bal.balanceCents), history: x.bal.entries.slice().reverse().map((e: any) => ({ at: e.at, type: e.type, amountCents: e.amountCents, desc: e.desc })) })) });
+      }
+      const mine = (id: string) => plans.find((x: any) => x.id === id);
+      if (b.action === 'tuition-pay' || b.action === 'card-update') {
+        if (!mine(String(b.planId))) return NextResponse.json({ ok: false, error: 'Plan not found.' }, { status: 404 });
+        if (!t.stripeAccountId) return NextResponse.json({ ok: false, error: 'Online payments aren’t set up — contact the school.' }, { status: 400 });
+        const url = b.action === 'tuition-pay'
+          ? await studentPaySession({ tenantId, stripeAccountId: t.stripeAccountId, planId: String(b.planId), what: b.what === 'balance' ? 'balance' : 'next', origin, returnPath: `${myPath}?tab=tuition` })
+          : await cardUpdateSession({ tenantId, stripeAccountId: t.stripeAccountId, planId: String(b.planId), origin, returnPath: `${myPath}?tab=tuition` });
+        return NextResponse.json({ ok: true, url });
+      }
+      if (b.action === 'tuition-confirm' || b.action === 'card-confirm') {
+        const s = await stripe().checkout.sessions.retrieve(String(b.sessionId || ''), {}, { stripeAccount: t.stripeAccountId });
+        if (!mine(String(s.metadata?.planId))) return NextResponse.json({ ok: false, error: 'Not your payment.' }, { status: 403 });
+        const r = b.action === 'tuition-confirm' ? await completeStudentPayment(tenantId, s) : await completeCardUpdate(tenantId, t.stripeAccountId, s);
+        return NextResponse.json({ ok: !!r, ...(r || {}) });
+      }
+
+      if (b.action === 'documents') {
+        const [adm, letters] = await Promise.all([db.collection(`${T}/admissions`).where('email', '==', student.email).limit(5).get(),
+          db.collection('platformDocuments').where('tenantId', '==', tenantId).where('email', '==', student.email).limit(50).get()]);
+        const agreements = adm.docs.map((d: any) => d.data() as any).filter((a: any) => a.agreement?.signedAt).map((a: any) => ({ signedAt: a.agreement.signedAt, signedName: a.agreement.signedName, text: a.agreement.text, countersignedBy: a.agreement.countersignedBy || null }));
+        const uploads = adm.docs.flatMap((d: any) => Object.entries((d.data() as any).documents || {}).map(([k, v]: any) => ({ doc: k, status: v.status, reason: v.reason || null, at: v.at })));
+        const certs = ce.docs.map((d: any) => d.data() as any).filter((e: any) => e.certificateCode).map((e: any) => ({ code: e.certificateCode, at: e.completedAt, courseId: e.courseId }));
+        for (const c of certs) (c as any).title = (((await db.doc(`${T}/courses/${c.courseId}`).get()).data() as any) || {}).title || 'Course';
+        return NextResponse.json({ ok: true, agreements, uploads, certificates: certs, letters: letters.docs.map((d: any) => { const x = d.data() as any; return { code: x.code, at: x.issuedAt, program: x.programName, hours: x.hours?.total }; }) });
+      }
+    }
+
     // ── AI tutor: answers only from this course's lessons ──
     if (b.action === 'tutor') {
       if (!student) return NextResponse.json({ ok: false, error: 'Sign in to ask the tutor.' }, { status: 401 });
@@ -345,7 +480,9 @@ Keep this link private.
       if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
       const ref = db.doc(`tenants/${tenantId}/academyThreads/${student.id}`);
       if (b.action === 'message') {
-        await postMessage({ tenantId, studentId: student.id, from: 'student', by: student.email, text: b.text, studentEmail: student.email, studentName: student.name });
+        const stLang = (((await db.doc(`tenants/${tenantId}/students/${student.id}`).get()).data() as any) || {}).language;
+        const inEnglish = stLang && stLang !== 'en' ? (await translateTexts(tenantId, [String(b.text)], 'en'))[0] : null;
+        await postMessage({ tenantId, studentId: student.id, from: 'student', by: student.email, text: b.text, studentEmail: student.email, studentName: student.name, translated: inEnglish, lang: stLang || null });
         try { const { getAdminAuth } = await import('@/lib/firebase-admin'); const owner = t.userId ? (await getAdminAuth().getUser(t.userId)).email : null; if (owner) await sendJourneyEmail(owner, `Message from ${student.name || student.email}`, `${String(b.text).slice(0, 1500)}\n\nReply in ClarityFlow → Academy → Students → Messages.`); } catch { /* no owner email */ }
         return NextResponse.json({ ok: true });
       }
