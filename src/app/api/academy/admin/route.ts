@@ -7,6 +7,7 @@
 //   video-status   (is Mux done processing? saves the playback id)
 //   students       (who's enrolled, and how far they've got)
 
+import { AI_WEIGHTS, takeCredits, refundCredits, creditStatus } from '@/lib/ai-credits';
 import { deviceAllowed } from '@/lib/approved-devices';
 import { letter } from '@/lib/grades';
 import { mediaUrl } from '@/lib/academy';
@@ -55,7 +56,25 @@ function cleanActivity(a: any) {
   return options.length >= 2 && options.some((o: any) => o.correct) ? { type: 'scenario', prompt: str(a.prompt, 800), options } : null;
 }
 
+/**
+ * AI actions use the business's monthly AI credits (lib/ai-credits): signed-in
+ * staff only, taken atomically before the call, refunded if it fails.
+ */
 export async function POST(req: NextRequest) {
+  const peek = await req.clone().json().catch(() => ({}));
+  const weight = AI_WEIGHTS[String(peek?.action || '')];
+  if (!weight || !aiConfigured()) return handle(req);
+  const tenantId = String(peek.tenantId || '');
+  const auth = await verifyStaffActor(req, tenantId);
+  if (!auth.ok) return handle(req);
+  const take = await takeCredits(tenantId, String(peek.action), weight);
+  if (!take.ok) return NextResponse.json({ ok: false, error: take.error, outOfCredits: true }, { status: 402 });
+  const res = await handle(req);
+  if (res.status >= 400) await refundCredits(tenantId, String(peek.action), weight).catch(() => {});
+  return res;
+}
+
+async function handle(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
   const tenantId = String(b.tenantId || '');
   const auth = await verifyStaffActor(req, tenantId);
@@ -63,7 +82,7 @@ export async function POST(req: NextRequest) {
   // Owners, managers and instructors. Only owners/managers change courses and settings.
   const isInstructor = String(auth.actor.role || '').toLowerCase() === 'instructor';
   if (!auth.actor.isManager && !auth.actor.isTenantOwner && !isInstructor) return NextResponse.json({ ok: false, error: 'Only owners, managers and instructors can use the academy tools.' }, { status: 403 });
-  const INSTRUCTOR_OK = ['submissions', 'submission-ai', 'submission-grade', 'gradebook', 'media-list', 'media-url', 'qbank-list', 'worksheet-ai', 'tutor-log', 'list', 'course-get', 'students', 'attendance', 'attendance-approve', 'attendance-resolve', 'attendance-code', 'attendance-photo-check', 'transcript', 'audit-verify'];
+  const INSTRUCTOR_OK = ['ai-credits', 'materials-list', 'material-save', 'submissions', 'submission-ai', 'submission-grade', 'gradebook', 'media-list', 'media-url', 'qbank-list', 'worksheet-ai', 'tutor-log', 'list', 'course-get', 'students', 'attendance', 'attendance-approve', 'attendance-resolve', 'attendance-code', 'attendance-photo-check', 'transcript', 'audit-verify'];
   if (isInstructor && !auth.actor.isManager && !INSTRUCTOR_OK.includes(String(b.action))) return NextResponse.json({ ok: false, error: 'Instructors can review attendance and students, not change courses.' }, { status: 403 });
   const who = auth.actor.name || auth.actor.uid;
   if (['attendance', 'attendance-approve', 'attendance-resolve', 'attendance-photo-check', 'transcript', 'students', 'submissions', 'gradebook'].includes(String(b.action))) {
@@ -237,6 +256,39 @@ export async function POST(req: NextRequest) {
       const m = ((await db.doc(`${base}/${courseId}/media/${String(b.mediaId || '')}`).get()).data() as any) || null;
       return NextResponse.json({ ok: !!m, url: m ? await mediaUrl(m.path, 30) : null });
     }
+
+    // ── AI credits (the meter in Settings) ──
+    if (b.action === 'ai-credits') return NextResponse.json({ ok: true, ...(await creditStatus(tenantId)), weights: AI_WEIGHTS });
+
+    // ── ✨ Draft an assignment from the lesson material ──
+    if (b.action === 'ai-assignment') {
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
+      const lessons = await loadLessons(tenantId, courseId);
+      const lx = lessons.find((x: any) => x.id === b.lessonId) || null;
+      const material = (lx ? [lx] : lessons).map((x: any) => `### ${x.title}\n${x.body || ''}\n${x.transcript ? String(x.transcript).slice(0, 5000) : ''}\n${(x.blocks || []).map((k: any) => k.text || (k.steps || []).map((st: any) => st.text).join('\n') || '').join('\n')}`).join('\n').slice(0, 14000);
+      const kind = ['written', 'photo', 'file', 'any'].includes(b.type) ? b.type : 'any';
+      const r = await askClaude({ tier: 'smart', maxTokens: 1500, purpose: 'academy-assignment', tenantId,
+        system: 'You write assignments for a state-licensed beauty school. Base the task only on the material given — no new regulations, products or medical claims. Hands-on tasks include the infection-control steps. Write the task clearly for the student, say exactly what to hand in, and give a rubric whose points add up to 100. Reply with JSON only.',
+        prompt: `Material:\n${material || '(no written material — base it on the lesson title)'}\n\nLesson: ${lx?.title || 'whole course'}\nWhat students hand in: ${kind === 'photo' ? 'photos of their work' : kind === 'written' ? 'a written answer' : kind === 'file' ? 'a file' : 'writing and/or photos'}\nFocus (optional): ${String(b.focus || '').slice(0, 300)}\n\nReturn JSON: {"prompt":"…","rubric":[{"criterion":"…","points":40}],"dueDays":7}` });
+      const j: any = r.ok ? parseJson(r.text) : null;
+      if (!j?.prompt) return NextResponse.json({ ok: false, error: 'The draft didn’t come back usable — try again.' }, { status: 502 });
+      return NextResponse.json({ ok: true, assignment: { prompt: String(j.prompt).slice(0, 4000), type: kind, rubric: (j.rubric || []).slice(0, 10).map((x: any) => ({ criterion: String(x.criterion || '').slice(0, 200), points: Math.max(1, Math.min(100, Math.round(Number(x.points) || 10))) })).filter((x: any) => x.criterion), dueDays: Math.max(0, Math.min(60, Number(j.dueDays) || 7)), resubmit: true } });
+    }
+
+    // ── Saved materials: generate once, save, reprint without AI ──
+    if (b.action === 'materials-list') {
+      const q = await db.collection(`tenants/${tenantId}/materials`).where('courseId', '==', courseId).limit(500).get();
+      return NextResponse.json({ ok: true, materials: q.docs.map((d: any) => d.data()).sort((a: any, c: any) => String(c.at).localeCompare(String(a.at))) });
+    }
+    if (b.action === 'material-save') {
+      const m = b.material || {};
+      if (!['test', 'worksheet'].includes(m.kind)) return NextResponse.json({ ok: false, error: 'Unknown material.' }, { status: 400 });
+      const raw = JSON.stringify(m.data || {}); if (raw.length > 400_000) return NextResponse.json({ ok: false, error: 'Too large to save.' }, { status: 400 });
+      const ref = m.id ? db.doc(`tenants/${tenantId}/materials/${String(m.id)}`) : db.collection(`tenants/${tenantId}/materials`).doc();
+      await ref.set({ id: ref.id, courseId, kind: m.kind, type: String(m.type || '').slice(0, 30), title: String(m.title || 'Untitled').slice(0, 160), lessonId: m.lessonId || null, seed: Number(m.seed) || 1, data: m.data || {}, by: who, at: now }, { merge: true });
+      return NextResponse.json({ ok: true, id: ref.id });
+    }
+    if (b.action === 'material-delete') { await db.doc(`tenants/${tenantId}/materials/${String(b.id || '')}`).delete(); return NextResponse.json({ ok: true }); }
 
     // ── Assignments: grading queue, AI-suggested feedback, returning grades ──
     if (b.action === 'submissions') {
