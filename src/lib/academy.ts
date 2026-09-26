@@ -38,8 +38,14 @@ async function mux(path: string, init: RequestInit = {}) {
 }
 
 /** A one-time upload URL — the browser PUTs the video file straight to Mux. */
-export async function muxCreateUpload(origin: string) {
-  const d = await mux('/video/v1/uploads', { method: 'POST', body: JSON.stringify({ cors_origin: origin, new_asset_settings: { playback_policy: ['signed'], video_quality: 'basic' } }) });
+export const CAPTION_LANGUAGES: Record<string, string> = { en: 'English', es: 'Spanish', pt: 'Portuguese', fr: 'French', it: 'Italian', de: 'German', auto: 'Detect automatically' };
+
+/** A one-time upload URL — the browser PUTs the video file straight to Mux.
+ *  Captions are generated automatically (Mux's speech recognition). */
+export async function muxCreateUpload(origin: string, captionLanguage = 'en') {
+  const lang = CAPTION_LANGUAGES[captionLanguage] ? captionLanguage : 'en';
+  const d = await mux('/video/v1/uploads', { method: 'POST', body: JSON.stringify({ cors_origin: origin, new_asset_settings: { playback_policy: ['signed'], video_quality: 'basic',
+    inputs: [{ generated_subtitles: [{ language_code: lang, name: `${CAPTION_LANGUAGES[lang] === 'Detect automatically' ? 'Captions' : CAPTION_LANGUAGES[lang]} (generated)` }] }] } }) });
   return { uploadId: d.id as string, url: d.url as string };
 }
 
@@ -49,7 +55,34 @@ export async function muxUploadStatus(uploadId: string) {
   if (!up.asset_id) return { status: up.status === 'errored' ? 'errored' : 'uploading' as string };
   const asset = await mux(`/video/v1/assets/${up.asset_id}`);
   const playback = (asset.playback_ids || []).find((p: any) => p.policy === 'signed') || (asset.playback_ids || [])[0];
-  return { status: asset.status === 'ready' ? 'ready' : asset.status === 'errored' ? 'errored' : 'processing', assetId: up.asset_id as string, playbackId: playback?.id as string | undefined, durationSec: Math.round(Number(asset.duration) || 0) };
+  const text = (asset.tracks || []).find((t: any) => t.type === 'text' && t.text_source === 'generated_vod');
+  return { status: asset.status === 'ready' ? 'ready' : asset.status === 'errored' ? 'errored' : 'processing', assetId: up.asset_id as string, playbackId: playback?.id as string | undefined, durationSec: Math.round(Number(asset.duration) || 0),
+    captions: text ? { trackId: text.id as string, status: String(text.status || 'preparing') } : null };
+}
+
+/** Add generated captions to a video uploaded before captions were switched on. */
+export async function muxAddCaptions(assetId: string, captionLanguage = 'en') {
+  const asset = await mux(`/video/v1/assets/${assetId}`);
+  if ((asset.tracks || []).some((t: any) => t.type === 'text' && t.text_source === 'generated_vod')) return { already: true };
+  const audio = (asset.tracks || []).find((t: any) => t.type === 'audio');
+  if (!audio) throw new Error('This video has no sound track to caption.');
+  const lang = CAPTION_LANGUAGES[captionLanguage] ? captionLanguage : 'en';
+  await mux(`/video/v1/assets/${assetId}/tracks/${audio.id}/generate-subtitles`, { method: 'POST', body: JSON.stringify({ generated_subtitles: [{ language_code: lang, name: `${CAPTION_LANGUAGES[lang]} (generated)` }] }) });
+  return { already: false };
+}
+
+/** The plain-text transcript of a ready caption track (for the tutor, AI drafts and students). */
+export async function muxTranscript(playbackId: string, trackId: string): Promise<string | null> {
+  const token = muxPlaybackToken(playbackId, 1);
+  for (const url of [`https://stream.mux.com/${playbackId}/text/${trackId}.txt${token ? `?token=${token}` : ''}`, `https://stream.mux.com/${playbackId}/text/${trackId}.vtt${token ? `?token=${token}` : ''}`]) {
+    try {
+      const r = await fetch(url); if (!r.ok) continue;
+      let t = await r.text();
+      if (url.includes('.vtt')) t = t.replace(/^WEBVTT.*$/m, '').replace(/^\d+\s*$/gm, '').replace(/^[\d:.]+ --> [\d:.]+.*$/gm, '').replace(/\n{2,}/g, '\n');
+      t = t.trim(); if (t) return t.slice(0, 40000);
+    } catch { /* try the next form */ }
+  }
+  return null;
 }
 
 /** A signed playback token (JWT, RS256) for one video, valid for 6 hours. */
