@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getAuth } from 'firebase/auth';
 import { Loader, Plus, Trash2 } from 'lucide-react';
+import { StudentFile } from '@/components/academy/StudentFile';
 
 async function api(body: any) {
   const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
@@ -21,7 +22,9 @@ async function api(body: any) {
 const field = 'h-10 w-full rounded-xl border-2 border-border/60 bg-background px-3 text-sm';
 const STATUS: Record<string, string> = { active: 'bg-emerald-100 text-emerald-800', loa: 'bg-amber-100 text-amber-800', withdrawn: 'bg-stone-200 text-stone-600', graduated: 'bg-violet-100 text-violet-800' };
 
-export function SchoolPrograms({ tenantId, courses }: { tenantId: string; courses: any[] }) {
+export function SchoolPrograms({ tenantId, courses, brand }: { tenantId: string; courses: any[]; brand: { name: string; logoUrl?: string | null; color?: string | null } }) {
+  const [fileFor, setFileFor] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<any[]>([]);
   const [d, setD] = useState<any>(null);
   const [edit, setEdit] = useState<any>(null);
   const [roster, setRoster] = useState<any[] | null>(null);
@@ -32,10 +35,11 @@ export function SchoolPrograms({ tenantId, courses }: { tenantId: string; course
   const [busy, setBusy] = useState(false);
   const load = useCallback(async () => { const r = await api({ action: 'overview', tenantId }); if (r.ok) setD(r); else setMsg(r.error); }, [tenantId]);
   const loadRoster = useCallback(async (pid: string) => { const r = await api({ action: 'roster', tenantId, programId: pid }); if (r.ok) setRoster(r.students); }, [tenantId]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); api({ action: 'templates', tenantId }).then((r) => r.ok && setTemplates(r.templates)); }, [load, tenantId]);
   useEffect(() => { if (sel) { void loadRoster(sel); setProg(null); } }, [sel, loadRoster]);
 
   if (!d) return <Loader className="h-5 w-5 animate-spin" />;
+  if (fileFor) return <StudentFile tenantId={tenantId} studentId={fileFor} brand={brand} onClose={() => setFileFor(null)} />;
   const program = d.programs.find((p: any) => p.id === sel);
   const save = async () => {
     const td = edit.tuitionD || {};
@@ -58,7 +62,14 @@ export function SchoolPrograms({ tenantId, courses }: { tenantId: string; course
         {d.programs.map((p: any) => <button key={p.id} type="button" onClick={() => { setSel(p.id); setEdit(null); }} className={`h-10 rounded-xl border-2 px-4 text-sm font-bold ${sel === p.id ? 'border-foreground' : 'border-border/60'}`}>{p.name}</button>)}
         <button type="button" onClick={newProgram} className="inline-flex h-10 items-center gap-1 rounded-xl border-2 border-dashed px-4 text-sm font-bold"><Plus className="h-4 w-4" />New program</button>
       </div>
-      {d.programs.length === 0 && !edit && <p className="rounded-2xl border-2 border-dashed p-6 text-center text-sm text-muted-foreground">Create your first program — e.g. “Nail Technology, 600 hours” — with the hours and services your state requires.</p>}
+      {!edit && templates.length > 0 && (
+        <div className="space-y-2 rounded-2xl border-2 border-dashed border-border/60 p-4">
+          <p className="font-black">Start from a North Carolina template <span className="font-normal text-muted-foreground">— 21 NCAC 14T, as readopted April 2026</span></p>
+          <p className="text-[12px] text-muted-foreground">Sets the hours, the infection-control and required evaluations (which unlock the student salon), the required performances, the 30% online limit, daily/weekly limits, quarter-hour rounding, the permanent-file checklist and Board-form deadlines. Then set your performance counts from your Board-approved curriculum and link your clinic services.</p>
+          <div className="flex flex-wrap gap-2">{templates.map((t) => <button key={t.key} type="button" onClick={async () => { if (!window.confirm(`Create “${t.name}” (${t.totalHours} hours, ${t.rule})?`)) return; const r = await api({ action: 'program-from-template', tenantId, key: t.key }); if (r.ok) { await load(); setSel(r.id); setMsg('Program created — now set performance counts and link your clinic services (Edit program).'); } else setMsg(r.error); }} className="rounded-xl border-2 px-3 py-2 text-left text-sm"><span className="font-bold">{t.name}</span><span className="block text-[11px] text-muted-foreground">{t.totalHours} h · {t.evaluations} evaluations · {t.performances} performances</span></button>)}</div>
+        </div>
+      )}
+      {d.programs.length === 0 && !edit && <p className="rounded-2xl border-2 border-dashed p-6 text-center text-sm text-muted-foreground">Or create your own program with the hours and services your state requires.</p>}
 
       {edit && (
         <div className="space-y-3 rounded-2xl border-2 border-foreground/30 p-4">
@@ -157,6 +168,7 @@ export function SchoolPrograms({ tenantId, courses }: { tenantId: string; course
               return (
                 <div key={s.id} className="flex flex-wrap items-center gap-2 rounded-2xl bg-muted/40 px-3 py-2 text-sm">
                   <button type="button" onClick={async () => { const r = await api({ action: 'progress', tenantId, enrollmentId: s.id }); if (r.ok) setProg(r.progress); }} className="min-w-0 flex-1 truncate text-left font-bold underline-offset-2 hover:underline">{s.name} <span className="font-normal text-muted-foreground">· {s.email} · since {s.startDate}</span></button>
+                  <button type="button" onClick={() => setFileFor(s.studentId)} className="h-8 rounded-lg bg-foreground px-3 text-[12px] font-bold text-background">File</button>
                   <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${STATUS[s.status] || ''}`}>{s.status === 'loa' ? 'leave' : s.status}</span>
                   {total > 0 && <span className="text-[12px] font-bold">{done}/{total} services</span>}
                   <select value="" onChange={async (e) => { const status = e.target.value; if (!status) return; const reason = ['loa', 'withdrawn'].includes(status) ? window.prompt(`Reason for ${status === 'loa' ? 'leave of absence' : 'withdrawal'} (kept on the record):`) : ''; if (['loa', 'withdrawn'].includes(status) && !reason) return; const r = await api({ action: 'program-status', tenantId, enrollmentId: s.id, status, reason }); if (r.ok) void loadRoster(program.id); else setMsg(r.error); }} className="h-8 rounded-lg border px-1 text-[12px]">
