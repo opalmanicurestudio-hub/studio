@@ -17,7 +17,8 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { appendAudit } from '@/lib/academy-compliance';
-import { enrollInProgram, setProgramStatus, programProgress, keyOf, DEFAULT_RUBRIC, allServiceIds, setClinicServices } from '@/lib/academy-school';
+import { enrollInProgram, setProgramStatus, programProgress, keyOf, DEFAULT_RUBRIC, allServiceIds, setClinicServices, syncStudentServices } from '@/lib/academy-school';
+import { NC_TEMPLATES } from '@/lib/state-rules/nc';
 import { savePrivateImage } from '@/lib/private-storage';
 
 export const dynamic = 'force-dynamic';
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
   const isInstructor = String(auth.actor.role || '').toLowerCase() === 'instructor';
   const isLead = auth.actor.isManager || auth.actor.isTenantOwner;
   if (!isLead && !isInstructor) return NextResponse.json({ ok: false, error: 'Owners, managers and instructors only.' }, { status: 403 });
-  const LEAD_ONLY = ['mode', 'program-save', 'program-enroll', 'program-status'];
+  const LEAD_ONLY = ['mode', 'program-save', 'program-enroll', 'program-status', 'program-from-template'];
   if (!isLead && LEAD_ONLY.includes(String(b.action))) return NextResponse.json({ ok: false, error: 'Owners and managers only.' }, { status: 403 });
   const db = getAdminDb();
   const who = auth.actor.name || auth.actor.uid;
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
       const out: any = { mode, name: tdoc.name || '', courses: { total: courses.size, published: courses.docs.filter((d: any) => (d.data() as any).status === 'published').length },
         month: { enrolments: enr.size, revenueCents: enr.docs.reduce((n: number, d: any) => n + ((d.data() as any).paidCents || 0), 0) } };
       if (mode === 'school') {
-        const [adm, att, risk, threads, plans, progs, students, appts] = await Promise.all([
+        const [adm, att, risk, threads, plans, progs, students, appts, forms] = await Promise.all([
           isLead ? db.collection(`${T}/admissions`).limit(3000).get() : Promise.resolve(null),
           db.collection(`${T}/attendance`).where('status', 'in', ['open', 'flagged', 'pending']).limit(1000).get(),
           db.collection(`${T}/programEnrollments`).where('status', '==', 'active').limit(3000).get(),
@@ -65,6 +66,7 @@ export async function POST(req: NextRequest) {
           db.collection(`${T}/programs`).limit(100).get(),
           db.collection(`${T}/staff`).where('isStudent', '==', true).limit(2000).get(),
           db.collection(`${T}/appointments`).where('startTime', '>=', new Date(`${today}T00:00:00`).toISOString()).where('startTime', '<', new Date(new Date(`${today}T00:00:00`).getTime() + 86400000).toISOString()).limit(2000).get(),
+          isLead ? db.collection(`${T}/boardForms`).where('status', '==', 'due').limit(500).get() : Promise.resolve(null),
         ]);
         const A = adm ? adm.docs.map((d: any) => d.data() as any) : [];
         const studentIds = new Set(students.docs.map((d: any) => d.id));
@@ -80,6 +82,7 @@ export async function POST(req: NextRequest) {
           atRisk: R.filter((e: any) => e.risk?.level === 'high').length, watch: R.filter((e: any) => e.risk?.level === 'watch').length,
           unread: threads.docs.reduce((n: number, d: any) => n + ((d.data() as any).unreadSchool || 0), 0),
           tuitionLate: plans ? plans.size : null, isLead,
+          formsDue: forms ? forms.docs.filter((x: any) => new Date((x.data() as any).dueAt).getTime() < Date.now() + 5 * 86400000).length : null,
         };
       }
       return NextResponse.json({ ok: true, ...out });
@@ -114,6 +117,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, mode });
     }
 
+    // ── State templates (North Carolina, 21 NCAC 14T) ──
+    if (b.action === 'templates') return NextResponse.json({ ok: true, templates: NC_TEMPLATES.map((x) => ({ key: `${x.state}:${x.discipline}`, name: x.name, totalHours: x.totalHours, rule: x.rule, evaluations: x.evaluations.length, performances: x.performances.length })) });
+    if (b.action === 'program-from-template') {
+      const tp = NC_TEMPLATES.find((x) => `${x.state}:${x.discipline}` === b.key);
+      if (!tp) return NextResponse.json({ ok: false, error: 'Unknown template.' }, { status: 400 });
+      const ref = db.collection(`tenants/${tenantId}/programs`).doc();
+      await ref.set({ id: ref.id, name: tp.name, state: tp.state, discipline: tp.discipline, rule: tp.rule, totalHours: tp.totalHours, requiredOnlineHours: null, requiredInPersonHours: null,
+        limits: tp.limits, passGrade: tp.passGrade, weeklyGuidedMinPct: tp.weeklyGuidedMinPct, evaluations: tp.evaluations,
+        requirements: tp.performances.map((x) => ({ key: x.key, label: x.label, count: 1, serviceIds: [] })), rubric: DEFAULT_RUBRIC, courseIds: [], tipPolicy: 'school',
+        requiredDocs: tp.requiredDocs, boardForms: tp.boardForms, sap: { checkpoints: [Math.round(tp.totalHours / 2), tp.totalHours], minAttendancePct: 67, minQuizAvg: tp.passGrade, minPracticalAvg: 3 },
+        status: 'active', createdAt: now, updatedAt: now, fromTemplate: `${tp.state}:${tp.discipline}` });
+      await appendAudit(tenantId, { type: 'program.saved', by: who, summary: `Program “${tp.name}” created from the North Carolina template (${tp.rule})`, data: { programId: ref.id } });
+      return NextResponse.json({ ok: true, id: ref.id });
+    }
+
     if (b.action === 'program-save') {
       const p = b.program || {};
       const name = String(p.name || '').trim().slice(0, 120);
@@ -135,7 +153,11 @@ export async function POST(req: NextRequest) {
           downPaymentCents: Math.max(0, Math.round(Number(p.tuition.downPaymentCents) || 0)), installments: Math.max(0, Math.min(60, Math.round(Number(p.tuition.installments) || 0))), interval: p.tuition.interval === 'biweekly' ? 'biweekly' : 'month' } : (cur.tuition || null),
         refundPolicy: p.refundPolicy?.tiers?.length ? { cancelDays: Math.max(0, Number(p.refundPolicy.cancelDays) || 0), registrationNonRefundable: !!p.refundPolicy.registrationNonRefundable, kitNonRefundable: !!p.refundPolicy.kitNonRefundable,
           tiers: p.refundPolicy.tiers.map((x: any) => ({ upToPct: Math.max(0, Math.min(100, Number(x.upToPct) || 0)), keepPct: Math.max(0, Math.min(100, Number(x.keepPct) || 0)) })).sort((a: any, c: any) => a.upToPct - c.upToPct) } : (cur.refundPolicy || null), tipPolicy: ['student', 'school', 'none'].includes(p.tipPolicy) ? p.tipPolicy : 'school',
-        status: p.status === 'archived' ? 'archived' : 'active', createdAt: cur.createdAt || now, updatedAt: now };
+        status: p.status === 'archived' ? 'archived' : 'active', createdAt: cur.createdAt || now, updatedAt: now,
+        // State rules (from a template) — kept, and editable per the school's approved curriculum.
+        ...(Array.isArray(p.evaluations) ? { evaluations: p.evaluations.map((x: any) => ({ key: String(x.key || keyOf(x.label)).slice(0, 60), label: String(x.label || '').slice(0, 160), passPct: Math.max(0, Math.min(100, Number(x.passPct) || 70)), infection: !!x.infection, gates: (x.gates || []).map(String).slice(0, 30) })).filter((x: any) => x.label) } : {}),
+        ...(p.limits ? { limits: { onlineMaxPct: Math.max(0, Math.min(100, Number(p.limits.onlineMaxPct) || 0)), dailyCapHours: Math.max(1, Math.min(24, Number(p.limits.dailyCapHours) || 10)), weeklyCapHours: Math.max(1, Math.min(168, Number(p.limits.weeklyCapHours) || 48)), quarterHour: true, fieldTripMaxHours: Math.max(0, Number(p.limits.fieldTripMaxHours) || 0), internshipMaxPct: Math.max(0, Number(p.limits.internshipMaxPct) || 0) } } : {}),
+        ...(p.passGrade != null ? { passGrade: Math.max(0, Math.min(100, Number(p.passGrade) || 70)) } : {}) };
       await ref.set(next, { merge: true });
       // Keep active students on the clinic services this program now uses.
       const added = allServiceIds(next).filter((x) => !allServiceIds(cur).includes(x)), removed = allServiceIds(cur).filter((x) => !allServiceIds(next).includes(x));
@@ -143,10 +165,12 @@ export async function POST(req: NextRequest) {
         const act = await db.collection(`tenants/${tenantId}/programEnrollments`).where('programId', '==', ref.id).limit(2000).get();
         for (const d of act.docs) { const e = d.data() as any; if (e.staffId) await db.doc(`tenants/${tenantId}/staff/${e.staffId}`).set({ tipPolicy: next.tipPolicy }, { merge: true }); }
       }
-      if (added.length || removed.length) {
-        const act = await db.collection(`tenants/${tenantId}/programEnrollments`).where('programId', '==', ref.id).where('status', '==', 'active').limit(1000).get();
-        for (const d of act.docs) { const e = d.data() as any; if (added.length) await setClinicServices(tenantId, e.staffId, added, true); if (removed.length) await setClinicServices(tenantId, e.staffId, removed, false); }
-      }
+      // Re-check every active student's cleared services against the updated program.
+      const saved = { ...cur, ...next };
+      const act = await db.collection(`tenants/${tenantId}/programEnrollments`).where('programId', '==', ref.id).where('status', '==', 'active').limit(1000).get();
+      for (const d of act.docs) await syncStudentServices(tenantId, saved, d.data() as any);
+      for (const sid of removed) { for (const d of act.docs) await setClinicServices(tenantId, (d.data() as any).staffId, [sid], false); }
+      void added;
       await appendAudit(tenantId, { type: 'program.saved', by: who, summary: `Program “${name}”: ${next.totalHours || '—'} h, ${requirements.length} service requirements`, data: { programId: ref.id } });
       return NextResponse.json({ ok: true, id: ref.id });
     }
