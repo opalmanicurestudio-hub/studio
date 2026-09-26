@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   // Only this business's private client files — nothing else in the bucket.
   // Admissions documents and the student file (IDs etc.): owners and managers only.
   const isAdmissionsDoc = path.startsWith(`tenants/${tenantId}/academy/admissions/`) || path.startsWith(`tenants/${tenantId}/academy/files/`);
-  const isAcademyPhoto = path.startsWith(`tenants/${tenantId}/academy/attendance/`) || path.startsWith(`tenants/${tenantId}/academy/clinic/`) || isAdmissionsDoc;
+  const isAcademyPhoto = path.startsWith(`tenants/${tenantId}/academy/attendance/`) || path.startsWith(`tenants/${tenantId}/academy/clinic/`) || path.startsWith(`tenants/${tenantId}/academy/submissions/`) || isAdmissionsDoc;
   if ((!path.startsWith(`tenants/${tenantId}/completions/`) && !isAcademyPhoto) || path.includes('..')) return NextResponse.json({ ok: false, error: 'Not a file you can open here.' }, { status: 403 });
   const auth = await verifyStaffActor(req, tenantId);
   if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
