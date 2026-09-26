@@ -29,6 +29,26 @@ export async function api(body: any) {
 export const money = (c: number) => (c ? `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: c % 100 ? 2 : 0 })}` : 'Free');
 const mins = (s?: number | null) => (s ? `${Math.max(1, Math.round(s / 60))} min` : '');
 
+// ── Lesson content blocks (student view) ────────────────────────────────
+function Blocks({ blocks }: { blocks: any[] }) {
+  const tone: Record<string, [string, string]> = { safety: ['🛑 Safety', 'border-red-200 bg-red-50/90 text-red-950'], key: ['⭐ Key point', 'border-amber-200 bg-amber-50/90 text-amber-950'], tip: ['💡 Tip', 'border-sky-200 bg-sky-50/90 text-sky-950'] };
+  return (
+    <div className="space-y-4">{blocks.map((b: any, i: number) => {
+      if (b.type === 'text') return <Glass key={i}><Prose text={b.text} /></Glass>;
+      if (b.type === 'callout') return <div key={i} className={`rounded-[1.25rem] border-2 p-4 ${tone[b.tone]?.[1] || ''}`}><p className="text-[12px] font-semibold uppercase tracking-widest">{tone[b.tone]?.[0]}</p><p className="mt-1 whitespace-pre-wrap text-[15px]">{b.text}</p></div>;
+      if (b.type === 'image') return b.media?.url ? <figure key={i}><img src={b.media.url} alt={b.caption || ''} className="w-full rounded-[1.25rem]" />{b.caption && <figcaption className="mt-1 text-center text-[13px] text-stone-500">{b.caption}</figcaption>}</figure> : null;
+      if (b.type === 'file') return b.media?.url ? <a key={i} href={b.media.url} target="_blank" rel="noreferrer" className="glass flex items-center justify-between rounded-2xl border border-white/70 px-4 py-3 text-sm"><span>{b.media.kind === 'audio' ? '🎧' : '📄'} {b.label || b.media.name}</span><span className="text-stone-500">Open</span></a> : null;
+      if (b.type === 'steps') return (
+        <Glass key={i} className="space-y-4">{b.title && <p className="text-lg font-semibold">{b.title}</p>}
+          {b.steps.map((s: any, k: number) => <div key={k} className="grid gap-3 sm:grid-cols-[auto_1fr] sm:items-start"><span className="flex h-8 w-8 items-center justify-center rounded-full bg-stone-900 text-sm font-semibold text-white">{k + 1}</span>
+            <div className="space-y-2">{s.text && <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{s.text}</p>}{s.media?.url && <img src={s.media.url} alt={`Step ${k + 1}`} className="w-full max-w-md rounded-2xl" />}</div></div>)}</Glass>
+      );
+      if (b.type === 'divider') return <hr key={i} className="border-white/70" />;
+      return null;
+    })}</div>
+  );
+}
+
 // ── Accessibility: size, contrast, easier font, less motion (this device) ─
 const A11Y_KEY = 'cf_a11y';
 type A11y = { size: 0 | 1 | 2 | 3; contrast: boolean; readable: boolean; still: boolean };
@@ -477,6 +497,7 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
                 </div>
               )}
               {L.body && <Glass className="space-y-3"><div className="flex justify-end"><Listen text={L.body} /></div><Prose text={L.body} /></Glass>}
+              {(L.blocks || []).length > 0 && <Blocks blocks={L.blocks} />}
               {L.transcript && <details className="glass rounded-2xl border border-white/70 px-4 py-3"><summary className="cursor-pointer text-sm font-semibold">📄 Transcript</summary><p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap text-[15px] leading-relaxed text-stone-700">{L.transcript}</p></details>}
               {lesson.enrolled && L.activity && <Activity a={L.activity} color={color} />}
               {lesson.enrolled && L.flashcards?.length > 0 && <Flashcards cards={L.flashcards} color={color} />}
