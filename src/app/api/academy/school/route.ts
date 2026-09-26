@@ -110,6 +110,33 @@ export async function POST(req: NextRequest) {
         students: stu.docs.map((d: any) => { const e = d.data() as any; return { id: e.studentId, name: e.name }; }).sort((a: any, c: any) => String(a.name).localeCompare(String(c.name))) });
     }
 
+    // ── Approved devices for student records ──
+    if (['devices', 'device-request', 'device-approve', 'device-remove', 'devices-setting'].includes(b.action)) {
+      const col = db.collection(`tenants/${tenantId}/approvedDevices`);
+      const id = String(b.deviceId || '').slice(0, 80);
+      const owner = auth.actor.isTenantOwner;
+      if (b.action === 'device-request') {
+        if (!id) return NextResponse.json({ ok: false, error: 'No device id.' }, { status: 400 });
+        const cur = ((await col.doc(id).get()).data() as any) || null;
+        if (!cur) await col.doc(id).set({ id, name: String(b.name || 'Device').slice(0, 80), status: 'pending', requestedBy: who, requestedAt: now });
+        return NextResponse.json({ ok: true, status: cur?.status || 'pending' });
+      }
+      if (b.action === 'devices') {
+        const [list, t] = await Promise.all([col.limit(200).get(), db.doc(`tenants/${tenantId}`).get()]);
+        const all = list.docs.map((d: any) => d.data() as any);
+        return NextResponse.json({ ok: true, on: !!((t.data() as any)?.academy?.approvedDevicesOnly), isOwner: owner, devices: isLead ? all : [], mine: all.find((x: any) => x.id === id)?.status || 'unknown' });
+      }
+      if (!owner) return NextResponse.json({ ok: false, error: 'Only the owner can approve devices.' }, { status: 403 });
+      if (b.action === 'device-approve') { await col.doc(id).set({ id, name: String(b.name || 'Device').slice(0, 80), status: 'approved', approvedBy: who, approvedAt: now }, { merge: true }); await appendAudit(tenantId, { type: 'device.approved', by: who, summary: `Device approved for student records: ${String(b.name || id)}` }); return NextResponse.json({ ok: true }); }
+      if (b.action === 'device-remove') { await col.doc(id).set({ status: 'removed', removedBy: who, removedAt: now }, { merge: true }); await appendAudit(tenantId, { type: 'device.removed', by: who, summary: `Device removed from student records: ${id}` }); return NextResponse.json({ ok: true }); }
+      if (b.action === 'devices-setting') {
+        if (b.on) { const mine = ((await col.doc(id).get()).data() as any) || null; if (mine?.status !== 'approved') await col.doc(id).set({ id, name: String(b.name || 'Owner device').slice(0, 80), status: 'approved', approvedBy: who, approvedAt: now }, { merge: true }); }
+        await db.doc(`tenants/${tenantId}`).set({ academy: { approvedDevicesOnly: !!b.on } }, { merge: true });
+        await appendAudit(tenantId, { type: 'settings.changed', by: who, summary: `Student records ${b.on ? 'limited to approved devices' : 'open on any signed-in device'}` });
+        return NextResponse.json({ ok: true });
+      }
+    }
+
     if (b.action === 'mode') {
       const mode = b.mode === 'school' ? 'school' : 'courses';
       await db.doc(`tenants/${tenantId}`).set({ academy: { mode } }, { merge: true });
