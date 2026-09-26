@@ -54,7 +54,7 @@ export function CourseMaterials({ tenantId, courses, brand }: { tenantId: string
           {tab === 'bank' && <Bank tenantId={tenantId} courseId={courseId} lessons={lessons} bank={bank} reload={load} setMsg={setMsg} busy={busy} setBusy={setBusy} />}
           {tab === 'test' && <TestBuilder bank={bank} lessons={lessons} course={course} brand={brand} onSave={async (m: any) => { const r = await api({ action: 'material-save', tenantId, courseId, material: m }); setMsg(r.ok ? 'Test saved — reprint it any time from Saved.' : r.error); await load(); }} />}
           {tab === 'sheets' && <Worksheets tenantId={tenantId} courseId={courseId} lessons={lessons} course={course} brand={brand} setMsg={setMsg} onSave={async (m: any) => { const r = await api({ action: 'material-save', tenantId, courseId, material: m }); setMsg(r.ok ? 'Worksheet saved — reprint it any time from Saved, no AI needed.' : r.error); await load(); }} />}
-          {tab === 'saved' && <Saved items={saved} course={course} brand={brand} onDelete={async (id: string) => { if (!window.confirm('Delete this saved item?')) return; await api({ action: 'material-delete', tenantId, courseId, id }); await load(); }} />}
+          {tab === 'saved' && <Saved items={saved} course={course} brand={brand} onPublish={async (m: any) => { const r = await api({ action: 'material-publish', tenantId, courseId, type: m.type, title: m.title, items: m.data?.items || [], seed: m.seed }); setMsg(r.ok ? 'Published to students — find it in the course’s “Practice” section.' : r.error); }} onDelete={async (id: string) => { if (!window.confirm('Delete this saved item?')) return; await api({ action: 'material-delete', tenantId, courseId, id }); await load(); }} />}
         </>
       )}
     </div>
@@ -172,6 +172,7 @@ function Worksheets({ tenantId, courseId, lessons, course, brand, setMsg, onSave
           {kind !== 'label' ? (items as any[]).map((x: any, i: number) => <p key={i} className="text-sm"><b>{i + 1}.</b> {x.term ? `${x.term} — ${x.definition}` : x.sentence ? `${x.sentence} (${x.answer})` : `${x.question} → ${x.answer}`}</p>) : <p className="text-sm">{items.points.length} labels on the diagram.</p>}
           <div className="flex gap-2"><button type="button" onClick={() => printDocument({ title: `${title} — worksheet`, brand, body: nameLine + html(false) })} className="h-10 rounded-xl bg-foreground px-4 text-sm font-bold text-background">Print worksheet</button>
             <button type="button" onClick={() => printDocument({ title: `${title} — answer key`, brand, body: html(true), footerNote: 'Answer key — keep separate from student copies' })} className="h-10 rounded-xl border-2 px-4 text-sm font-bold">Print answer key</button>
+            {kind !== 'label' && <button type="button" onClick={async () => { const r = await api({ action: 'material-publish', tenantId, courseId, type: kind, title: `${title} — ${WS.find(([k]) => k === kind)?.[1]}`, items, seed: [...String(lessonId || courseId)].reduce((n, c) => n + c.charCodeAt(0), 0) }); setMsg(r.ok ? (kind === 'short' ? 'Published as an assignment in the course’s “Practice” section.' : 'Published — students can now do it online (Practice section); scores go to the gradebook.') : r.error); }} className="h-10 rounded-xl bg-violet-700 px-4 text-sm font-bold text-white">📲 Publish to students</button>}
             <button type="button" onClick={() => onSave({ kind: 'worksheet', type: kind, title: `${title} — ${WS.find(([k]) => k === kind)?.[1]}`, lessonId: lessonId || null, seed: [...String(lessonId || courseId)].reduce((n, c) => n + c.charCodeAt(0), 0), data: { items } })} className="h-10 rounded-xl border-2 px-4 text-sm font-bold">💾 Save</button></div>
         </div>
       )}
@@ -179,7 +180,7 @@ function Worksheets({ tenantId, courseId, lessons, course, brand, setMsg, onSave
   );
 }
 
-function Saved({ items, course, brand, onDelete }: any) {
+function Saved({ items, course, brand, onDelete, onPublish }: any) {
   const render = (m: any, key: boolean) => {
     const t = m.title; const d = m.data || {};
     if (m.kind === 'test') {
@@ -204,6 +205,7 @@ function Saved({ items, course, brand, onDelete }: any) {
         <span className="min-w-0 flex-1"><b className="block truncate">{m.title}</b><span className="text-[11px] text-muted-foreground">{m.kind === 'test' ? `${(m.data?.questions || []).length} questions · ${m.data?.versions || 1} version${(m.data?.versions || 1) > 1 ? 's' : ''}` : `${(m.data?.items?.length ?? m.data?.items?.points?.length) || 0} items`} · saved {new Date(m.at).toLocaleDateString()} by {m.by}</span></span>
         <button type="button" onClick={() => printDocument({ title: m.title, brand, body: (m.kind === 'worksheet' ? nameLine : '') + render(m, false) })} className="h-9 rounded-lg bg-foreground px-3 text-[12px] font-bold text-background">Print</button>
         <button type="button" onClick={() => printDocument({ title: `${m.title} — key`, brand, body: render(m, true), footerNote: 'Answer key — keep separate from student copies' })} className="h-9 rounded-lg border-2 px-3 text-[12px] font-bold">Key</button>
+        {m.kind === 'worksheet' && m.type !== 'label' && <button type="button" onClick={() => onPublish(m)} className="h-9 rounded-lg bg-violet-700 px-3 text-[12px] font-bold text-white">📲 Publish</button>}
         <button type="button" onClick={() => onDelete(m.id)} className="h-9 rounded-lg px-2 text-red-600" aria-label="Delete"><Trash2 className="h-4 w-4" /></button>
       </div>
     ))}</div>
