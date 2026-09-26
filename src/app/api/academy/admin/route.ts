@@ -7,6 +7,7 @@
 //   video-status   (is Mux done processing? saves the playback id)
 //   students       (who's enrolled, and how far they've got)
 
+import { mediaUrl } from '@/lib/academy';
 import { askClaude, aiConfigured, parseJson } from '@/lib/ai';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -18,6 +19,29 @@ import { linkOrigin } from '@/lib/app-origin';
 export const dynamic = 'force-dynamic';
 const KINDS = ['video', 'text', 'download'];
 const str = (v: any, n: number) => String(v ?? '').slice(0, n);
+const BLOCK_TYPES = ['text', 'image', 'steps', 'callout', 'file', 'divider'];
+/** Content blocks: text · image · step-by-step (a photo per step) · callout (safety / key point / tip) · file · divider. */
+function cleanBlocks(v: any) {
+  return (Array.isArray(v) ? v : []).slice(0, 80).map((b: any) => {
+    if (!BLOCK_TYPES.includes(b?.type)) return null;
+    const id = String(b.id || Math.random().toString(36).slice(2, 10)).slice(0, 20);
+    if (b.type === 'text') return { id, type: 'text', text: str(b.text, 8000) };
+    if (b.type === 'image') return b.mediaId ? { id, type: 'image', mediaId: str(b.mediaId, 40), caption: str(b.caption, 300) } : null;
+    if (b.type === 'file') return b.mediaId ? { id, type: 'file', mediaId: str(b.mediaId, 40), label: str(b.label, 160) } : null;
+    if (b.type === 'callout') return { id, type: 'callout', tone: ['safety', 'key', 'tip'].includes(b.tone) ? b.tone : 'key', text: str(b.text, 1500) };
+    if (b.type === 'steps') return { id, type: 'steps', title: str(b.title, 160), steps: (b.steps || []).slice(0, 40).map((x: any) => ({ text: str(x.text, 800), mediaId: x.mediaId ? str(x.mediaId, 40) : null })).filter((x: any) => x.text || x.mediaId) };
+    return { id, type: 'divider' };
+  }).filter(Boolean);
+}
+const PLAN_TYPES = ['guided_theory', 'demonstration', 'guided_practice', 'independent_theory', 'practice', 'evaluation', 'performance'];
+/** The instructor's lesson plan (Board instruction order, infection control integrated). */
+function cleanPlan(p: any) {
+  if (!p) return null;
+  const list = (v: any, n = 20) => (Array.isArray(v) ? v : String(v || '').split('\n')).map((x: any) => str(x, 300).trim()).filter(Boolean).slice(0, n);
+  return { objectives: list(p.objectives), minutes: Math.max(0, Math.min(600, Number(p.minutes) || 0)), materials: list(p.materials, 40), setup: str(p.setup, 2000), infectionControl: str(p.infectionControl, 3000),
+    agenda: (Array.isArray(p.agenda) ? p.agenda : []).slice(0, 30).map((a: any) => ({ minutes: Math.max(0, Math.min(600, Number(a.minutes) || 0)), type: PLAN_TYPES.includes(a.type) ? a.type : 'guided_theory', activity: str(a.activity, 800) })),
+    notes: str(p.notes, 4000), differentiation: str(p.differentiation, 2000), assessment: str(p.assessment, 2000), subjects: list(p.subjects, 12), updatedAt: new Date().toISOString() };
+}
 /** Interactive activities: match pairs, put steps in order, or a client scenario. */
 function cleanActivity(a: any) {
   if (!a || !['match', 'order', 'scenario', 'label'].includes(a.type)) return null;
@@ -37,7 +61,7 @@ export async function POST(req: NextRequest) {
   // Owners, managers and instructors. Only owners/managers change courses and settings.
   const isInstructor = String(auth.actor.role || '').toLowerCase() === 'instructor';
   if (!auth.actor.isManager && !auth.actor.isTenantOwner && !isInstructor) return NextResponse.json({ ok: false, error: 'Only owners, managers and instructors can use the academy tools.' }, { status: 403 });
-  const INSTRUCTOR_OK = ['tutor-log', 'list', 'course-get', 'students', 'attendance', 'attendance-approve', 'attendance-resolve', 'attendance-code', 'attendance-photo-check', 'transcript', 'audit-verify'];
+  const INSTRUCTOR_OK = ['media-list', 'media-url', 'qbank-list', 'worksheet-ai', 'tutor-log', 'list', 'course-get', 'students', 'attendance', 'attendance-approve', 'attendance-resolve', 'attendance-code', 'attendance-photo-check', 'transcript', 'audit-verify'];
   if (isInstructor && !auth.actor.isManager && !INSTRUCTOR_OK.includes(String(b.action))) return NextResponse.json({ ok: false, error: 'Instructors can review attendance and students, not change courses.' }, { status: 403 });
   const who = auth.actor.name || auth.actor.uid;
   const db = getAdminDb();
@@ -114,6 +138,8 @@ export async function POST(req: NextRequest) {
         releaseAfterDays: Math.max(0, Math.min(3650, Number(l.releaseAfterDays) || 0)),
         flashcards: (Array.isArray(l.flashcards) ? l.flashcards : []).map((f: any) => ({ front: String(f.front || '').slice(0, 300), back: String(f.back || '').slice(0, 600) })).filter((f: any) => f.front && f.back).slice(0, 60),
         activity: cleanActivity(l.activity),
+        ...('blocks' in l ? { blocks: cleanBlocks(l.blocks) } : {}),
+        ...('plan' in l ? { plan: cleanPlan(l.plan) } : {}),
         quiz: Array.isArray(l.quiz?.questions) && l.quiz.questions.length ? { passPct: Math.min(100, Math.max(1, Number(l.quiz.passPct) || 80)),
           questions: l.quiz.questions.slice(0, 50).map((q: any) => ({ q: String(q.q || '').slice(0, 400), options: (q.options || []).map((o: any) => String(o).slice(0, 200)).filter(Boolean).slice(0, 6), answer: Math.max(0, Number(q.answer) || 0) })).filter((q: any) => q.q && q.options.length >= 2) } : null,
       }, { merge: true });
@@ -177,6 +203,86 @@ export async function POST(req: NextRequest) {
       const lessons = courseId ? await loadLessons(tenantId, courseId) : [];
       const total = Math.max(1, lessons.length);
       return NextResponse.json({ ok: true, students: s.docs.map((d: any) => { const e = d.data() as any; const done = Object.keys(e.progress || {}).length; return { studentId: e.studentId, email: e.email, courseId: e.courseId, since: e.createdAt, paidCents: e.paidCents || 0, done, pct: courseId ? Math.round((done / total) * 100) : null, onlineHours: Math.round(((e.onlineSec || 0) / 3600) * 10) / 10, certificateCode: e.certificateCode || null, lastActiveAt: e.lastActiveAt || null }; }).sort((a: any, c: any) => String(c.since).localeCompare(String(a.since))) });
+    }
+
+    // ── Media library (per course) ──
+    if (b.action === 'media-list') {
+      const s = await db.collection(`${base}/${courseId}/media`).limit(500).get();
+      return NextResponse.json({ ok: true, media: s.docs.map((d: any) => d.data()).sort((a: any, c: any) => String(c.at).localeCompare(String(a.at))) });
+    }
+    if (b.action === 'media-upload') {
+      const m = String(b.file || '').match(/^data:([\w/+.-]+);base64,([A-Za-z0-9+/=]+)$/);
+      if (!m || !/^(image\/(jpeg|png|webp|gif)|application\/pdf|audio\/(mpeg|mp4|x-m4a|wav|webm|ogg))$/.test(m[1])) return NextResponse.json({ ok: false, error: 'Upload an image, PDF or audio file.' }, { status: 400 });
+      const buf = Buffer.from(m[2], 'base64');
+      // Uploads travel as text (a third larger) and hosting caps a request at ~4.5 MB → ~3 MB files.
+      if (buf.length > 3_200_000) return NextResponse.json({ ok: false, error: 'That file is over 3 MB — compress the PDF or audio (images are resized for you), or split it.' }, { status: 400 });
+      const ref = db.collection(`${base}/${courseId}/media`).doc();
+      const ext = m[1].split('/')[1].replace('mpeg', 'mp3').replace('x-m4a', 'm4a');
+      const path = `tenants/${tenantId}/academy/media/${courseId}/${ref.id}.${ext}`;
+      const { privateBucket } = await import('@/lib/private-storage');
+      await (await privateBucket()).file(path).save(buf, { contentType: m[1], resumable: false, metadata: { cacheControl: 'private, max-age=3600' } });
+      const doc = { id: ref.id, name: String(b.name || 'File').slice(0, 160), type: m[1], kind: m[1].startsWith('image/') ? 'image' : m[1] === 'application/pdf' ? 'pdf' : 'audio', path, bytes: buf.length, by: who, at: now };
+      await ref.set(doc);
+      return NextResponse.json({ ok: true, media: { ...doc, url: await mediaUrl(path, 30) } });
+    }
+    if (b.action === 'media-url') {
+      const m = ((await db.doc(`${base}/${courseId}/media/${String(b.mediaId || '')}`).get()).data() as any) || null;
+      return NextResponse.json({ ok: !!m, url: m ? await mediaUrl(m.path, 30) : null });
+    }
+
+    // ── Lesson plans (AI draft — the instructor edits and saves) ──
+    if (b.action === 'ai-plan') {
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
+      const lx = ((await db.doc(`${base}/${courseId}/lessons/${String(b.lessonId || '')}`).get()).data() as any) || {};
+      const src = `${lx.body || ''}\n${lx.transcript ? `Video transcript:\n${lx.transcript}` : ''}\n${(lx.blocks || []).map((x: any) => x.text || (x.steps || []).map((s: any) => s.text).join('\n') || '').join('\n')}`.trim().slice(0, 12000);
+      const r = await askClaude({ tier: 'smart', maxTokens: 2200, purpose: 'academy-lesson-plan', tenantId,
+        system: 'You write lesson plans for instructors at a state-licensed beauty school. Follow the instruction order: guided_theory → demonstration → guided_practice → independent_theory → practice → evaluation → performance (use only the stages that fit this lesson). Integrate infection control into every hands-on step. Use only facts from the lesson material given; where the material is thin, keep items general and practical rather than inventing specifics. Reply with JSON only.',
+        prompt: `Lesson: ${lx.title || ''}\nLength in minutes (if known): ${Number(b.minutes) || ''}\n\nMaterial:\n${src || '(no written material yet — plan from the title)'}\n\nReturn JSON: {"objectives":["…"],"minutes":90,"materials":["…"],"setup":"…","infectionControl":"…","agenda":[{"minutes":15,"type":"guided_theory","activity":"…"}],"notes":"…","differentiation":"…","assessment":"…","subjects":["…"]}` });
+      const j: any = r.ok ? parseJson(r.text) : null;
+      return j ? NextResponse.json({ ok: true, plan: cleanPlan(j) }) : NextResponse.json({ ok: false, error: 'The draft didn’t come back usable — try again.' }, { status: 502 });
+    }
+
+    // ── Question bank ──
+    if (b.action === 'qbank-list') {
+      const s = await db.collection(`tenants/${tenantId}/questionBank`).where('courseId', '==', courseId).limit(2000).get();
+      return NextResponse.json({ ok: true, questions: s.docs.map((d: any) => d.data()).sort((a: any, c: any) => String(a.topic || '').localeCompare(String(c.topic || '')) || String(a.at).localeCompare(String(c.at))) });
+    }
+    if (b.action === 'qbank-save' || b.action === 'qbank-save-many') {
+      const list = b.action === 'qbank-save' ? [b.question] : (b.questions || []);
+      const saved = [];
+      for (const q of list.slice(0, 100)) {
+        const options = (q.options || []).map((o: any) => String(o).slice(0, 240)).filter(Boolean).slice(0, 6);
+        const text = String(q.q || '').trim().slice(0, 500);
+        if (!text || options.length < 2) continue;
+        const ref = q.id ? db.doc(`tenants/${tenantId}/questionBank/${String(q.id)}`) : db.collection(`tenants/${tenantId}/questionBank`).doc();
+        await ref.set({ id: ref.id, courseId, lessonId: q.lessonId || null, q: text, options, answer: Math.max(0, Math.min(options.length - 1, Number(q.answer) || 0)), topic: String(q.topic || '').slice(0, 80) || null,
+          difficulty: ['easy', 'medium', 'hard'].includes(q.difficulty) ? q.difficulty : 'medium', explanation: String(q.explanation || '').slice(0, 600) || null, source: q.source || 'instructor', by: who, at: now }, { merge: true });
+        saved.push(ref.id);
+      }
+      return NextResponse.json({ ok: true, saved: saved.length });
+    }
+    if (b.action === 'qbank-delete') { await db.doc(`tenants/${tenantId}/questionBank/${String(b.id || '')}`).delete(); return NextResponse.json({ ok: true }); }
+    if (b.action === 'qbank-ai' || b.action === 'worksheet-ai') {
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
+      const lessons = await loadLessons(tenantId, courseId);
+      const pick = b.lessonId ? lessons.filter((x: any) => x.id === b.lessonId) : lessons;
+      const material = pick.map((x: any) => `### ${x.title}\n${x.body || ''}\n${x.transcript ? String(x.transcript).slice(0, 6000) : ''}\n${(x.blocks || []).map((k: any) => k.text || (k.steps || []).map((s: any) => s.text).join('\n') || '').join('\n')}`).join('\n').slice(0, 16000);
+      if (material.replace(/###.*\n/g, '').trim().length < 150) return NextResponse.json({ ok: false, error: 'Add written lesson content (or captions) first — questions are made only from it.' }, { status: 400 });
+      const n = Math.max(3, Math.min(25, Number(b.count) || 10));
+      const kind = b.action === 'qbank-ai' ? 'mcq' : String(b.kind || 'cloze');
+      const shape: Record<string, string> = {
+        mcq: `{"questions":[{"q":"…","options":["…","…","…","…"],"answer":0,"topic":"lesson or topic name","difficulty":"${['easy', 'medium', 'hard'].includes(b.difficulty) ? b.difficulty : 'medium'}","explanation":"why the answer is right"}]} — ${n} multiple-choice questions, 4 options each, one correct, plausible wrong options, no "all/none of the above", written like a state-board exam.`,
+        cloze: `{"items":[{"sentence":"The ____ is the hardened keratin plate that covers the nail bed.","answer":"nail plate"}]} — ${n} fill-in-the-blank sentences, exactly one blank (____) each.`,
+        short: `{"items":[{"question":"…","answer":"model answer in one or two sentences"}]} — ${n} short-answer questions.`,
+        vocab: `{"items":[{"term":"…","definition":"short definition"}]} — ${n} key terms from the material (single words or short phrases, no punctuation in terms).`,
+      };
+      if (!shape[kind]) return NextResponse.json({ ok: false, error: 'Unknown worksheet type.' }, { status: 400 });
+      const r = await askClaude({ tier: 'smart', maxTokens: 3500, purpose: `academy-${kind}`, tenantId,
+        system: 'You write assessment material for a state-licensed beauty school. Use ONLY facts stated in the material given — never add facts, products, regulations or medical claims that are not in it. Clear, plain language. Reply with JSON only.',
+        prompt: `Material:\n${material}\n\nReturn JSON exactly in this shape: ${shape[kind]}` });
+      const j: any = r.ok ? parseJson(r.text) : null;
+      if (!j) return NextResponse.json({ ok: false, error: 'The draft didn’t come back usable — try again.' }, { status: 502 });
+      return NextResponse.json({ ok: true, ...(kind === 'mcq' ? { questions: (j.questions || []).map((q: any) => ({ ...q, lessonId: b.lessonId || null, source: 'ai' })) } : { items: j.items || [] }) });
     }
 
     // ── AI drafts for instructors (they review and save — nothing goes to students unapproved) ──
