@@ -16,6 +16,7 @@
 //   Grades · Tuition · Messages & notes · History (this student's audit trail)
 //   Print complete file — one document in the ClarityFlow look.
 
+import { deviceId } from '@/lib/device';
 import { useCallback, useEffect, useState } from 'react';
 import { getAuth } from 'firebase/auth';
 import { Loader, X } from 'lucide-react';
@@ -24,7 +25,7 @@ import { printDocument, heading, esc } from '@/lib/doc-theme';
 
 async function api(body: any) {
   const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
-  const r = await fetch('/api/academy/student-file', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify(body) });
+  const r = await fetch('/api/academy/student-file', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}`, 'x-cf-device': deviceId() }, body: JSON.stringify(body) });
   return r.json().catch(() => ({ ok: false, error: 'No response' }));
 }
 const shrink = (file: File, max = 1600) => new Promise<string>((res, rej) => { const r = new FileReader(); const img = new Image(); r.onload = () => { img.onload = () => { const s = Math.min(1, max / Math.max(img.width, img.height)); const c = document.createElement('canvas'); c.width = Math.round(img.width * s); c.height = Math.round(img.height * s); c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height); res(c.toDataURL('image/jpeg', 0.82)); }; img.onerror = rej; img.src = String(r.result); }; r.onerror = rej; r.readAsDataURL(file); });
@@ -77,7 +78,7 @@ export function StudentFile({ tenantId, studentId, brand, onClose }: { tenantId:
         <div className="sticky top-0 z-10 -mx-4 flex flex-wrap items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur">
           {P.photo ? <PrivateImg src={P.photo} alt="" className="h-12 w-12 rounded-full object-cover" /> : <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-lg font-black">{String(P.name || '?')[0]}</div>}
           <div className="min-w-0 flex-1"><p className="truncate text-xl font-black">{P.name}</p><p className="truncate text-[12px] text-muted-foreground">{P.email}{prog ? ` · ${prog.name} · ${prog.status}` : ''}{prog?.risk ? ` · risk ${prog.risk.level}` : ''}</p></div>
-          <button type="button" onClick={printFile} className="h-10 rounded-xl bg-foreground px-4 text-sm font-bold text-background">Print complete file</button>
+          <button type="button" onClick={printFile} className="h-10 shrink-0 rounded-xl bg-foreground px-3 text-sm font-bold text-background sm:px-4"><span className="sm:hidden">🖨 Print</span><span className="hidden sm:inline">Print complete file</span></button>
           <button type="button" onClick={onClose} aria-label="Close" className="h-10 w-10 rounded-xl border-2"><X className="mx-auto h-4 w-4" /></button>
         </div>
         {msg && <p className="mt-3 rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900" onClick={() => setMsg('')}>{msg}</p>}
@@ -90,7 +91,7 @@ export function StudentFile({ tenantId, studentId, brand, onClose }: { tenantId:
           <div className="min-w-0 space-y-4">
             {sec === 'overview' && (
               <>
-                <div className="grid gap-2 sm:grid-cols-4">{f.programs.map((p: any) => [['Total hours', `${p.hours?.total ?? 0}${p.totalHours ? ` / ${p.totalHours}` : ''}`], ['In school', `${p.hours?.inPerson ?? 0} h`], ['Online', `${p.hours?.online ?? 0} h`], ['Keep records until', p.retainUntil ? d(p.retainUntil) : '—']]).flat().map(([l, v]: any, i: number) => <div key={i} className="rounded-2xl bg-muted/40 p-3"><p className="text-lg font-black">{v}</p><p className="text-[11px] text-muted-foreground">{l}</p></div>)}</div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{f.programs.map((p: any) => [['Total hours', `${p.hours?.total ?? 0}${p.totalHours ? ` / ${p.totalHours}` : ''}`], ['In school', `${p.hours?.inPerson ?? 0} h`], ['Online', `${p.hours?.online ?? 0} h`], ['Keep records until', p.retainUntil ? d(p.retainUntil) : '—']]).flat().map(([l, v]: any, i: number) => <div key={i} className="rounded-2xl bg-muted/40 p-3"><p className="text-lg font-black">{v}</p><p className="text-[11px] text-muted-foreground">{l}</p></div>)}</div>
                 {f.programs.flatMap((p: any) => p.hours?.notes || []).map((n: string) => <p key={n} className="rounded-xl bg-amber-50 p-2 text-[12px] text-amber-900">{n}</p>)}
                 <section className="space-y-2 rounded-2xl border-2 border-border/60 p-4">
                   <div className="flex items-center justify-between"><p className="font-black">Details</p>{f.canManage && !edit && <button type="button" onClick={() => setEdit({ dob: P.dob || '', phone: P.phone || '', address: P.address || '', emergency: P.emergency || { name: '', phone: '', relation: '' } })} className="text-sm font-bold underline">Edit</button>}</div>
@@ -99,7 +100,7 @@ export function StudentFile({ tenantId, studentId, brand, onClose }: { tenantId:
                       <p><span className="text-muted-foreground">Date of birth</span> · {P.dob ? d(P.dob) : '—'}</p><p><span className="text-muted-foreground">Phone</span> · {P.phone || '—'}</p>
                       <p className="sm:col-span-2"><span className="text-muted-foreground">Address</span> · {P.address || '—'}</p>
                       <p className="sm:col-span-2"><span className="text-muted-foreground">Emergency contact</span> · {P.emergency?.name ? `${P.emergency.name}${P.emergency.relation ? ` (${P.emergency.relation})` : ''} · ${P.emergency.phone || ''}` : '—'}</p>
-                      <p><span className="text-muted-foreground">Language</span> · {P.language}</p><p><span className="text-muted-foreground">Student since</span> · {d(P.createdAt)}</p>
+                      <p><span className="text-muted-foreground">Language</span> · {({ en: 'English', es: 'Español', vi: 'Tiếng Việt', ko: '한국어', zh: '中文', pt: 'Português', fr: 'Français', ht: 'Kreyòl ayisyen', ar: 'العربية', ru: 'Русский' } as Record<string, string>)[P.language] || P.language}</p><p><span className="text-muted-foreground">Student since</span> · {d(P.createdAt)}</p>
                     </div>
                   ) : (
                     <div className="grid gap-2 sm:grid-cols-2">
