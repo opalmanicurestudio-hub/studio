@@ -35,7 +35,7 @@ const d = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString('en-U
 const hrs = (m: number) => `${(Math.floor((m / 60) * 4) / 4).toFixed(2)} h`;
 const $ = (c?: number | null) => (c == null ? '—' : `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const field = 'h-10 w-full rounded-xl border-2 border-border/60 bg-background px-3 text-sm';
-const SECTIONS = [['overview', 'Overview'], ['documents', 'Documents on file'], ['forms', 'Board forms'], ['hours', 'Hours & records'], ['evaluations', 'Evaluations & performances'], ['grades', 'Grades'], ['tuition', 'Tuition'], ['notes', 'Messages & notes'], ['letters', 'Letters'], ['history', 'History']] as const;
+const SECTIONS = [['overview', 'Overview'], ['documents', 'Documents on file'], ['forms', 'Board forms'], ['hours', 'Hours & records'], ['evaluations', 'Evaluations & performances'], ['grades', 'Grades'], ['tuition', 'Tuition'], ['notes', 'Messages & notes'], ['letters', 'Letters'], ['portfolio', 'Portfolio'], ['history', 'History']] as const;
 
 export function StudentFile({ tenantId, studentId, brand, onClose }: { tenantId: string; studentId: string; brand: { name: string; logoUrl?: string | null; color?: string | null }; onClose: () => void }) {
   const [f, setF] = useState<any>(null);
@@ -187,6 +187,7 @@ export function StudentFile({ tenantId, studentId, brand, onClose }: { tenantId:
               </section>
             )}
 
+            {sec === 'portfolio' && <PortfolioReview items={f.portfolio || []} onReview={(id: string, status: string) => act({ action: 'portfolio-review', id, status }, status === 'approved' ? 'Approved — it can now appear on the student’s shared portfolio.' : 'Hidden from the shared portfolio.')} />}
             {sec === 'letters' && <Letters f={f} brand={brand} onSend={(body: any) => act({ action: 'letter-send', ...body }, body.email ? 'Letter emailed and saved to the file.' : 'Letter saved to the file.')} />}
             {sec === 'history' && <section className="space-y-1">{f.audit.map((a: any) => <p key={a.seq} className="text-[12px]"><span className="text-muted-foreground">#{a.seq} · {new Date(a.at).toLocaleString()} · {a.by}</span> — {a.summary}</p>)}<p className="pt-2 text-[11px] text-muted-foreground">From the academy’s tamper-evident audit log (Attendance → Verify records checks the whole chain).</p></section>}
           </div>
@@ -301,6 +302,30 @@ function Letters({ f, brand, onSend }: any) {
           <button type="button" onClick={() => setCur(null)} className="h-10 px-3 text-sm font-bold text-muted-foreground">Cancel</button></div>
           : <p className="text-[12px] text-muted-foreground">Owners and managers send letters.</p>}
       </>}
+    </section>
+  );
+}
+
+
+// ── Portfolio: approve each piece before it can be shared ──────────────────
+function PortfolioReview({ items, onReview }: { items: any[]; onReview: (id: string, status: string) => void }) {
+  if (!items.length) return <p className="text-sm text-muted-foreground">No portfolio work yet. Students add before-and-after photos from their portal; you approve each piece before it can be shared.</p>;
+  const pending = items.filter((x) => x.status === 'pending').length;
+  return (
+    <section className="space-y-3">
+      {pending > 0 && <p className="rounded-2xl bg-amber-50 p-3 text-sm text-amber-900"><b>{pending} waiting for approval.</b> Check the photos show hands and nails only, and that the client consented.</p>}
+      <div className="grid gap-3 sm:grid-cols-2">{items.map((x) => (
+        <div key={x.id} className="space-y-2 rounded-2xl border-2 border-border/60 p-3">
+          <div className="grid grid-cols-2 gap-2">{[['Before', x.before], ['After', x.after]].map(([l, u]: any) => <div key={l} className="aspect-square overflow-hidden rounded-xl bg-muted">{u ? <img src={u} alt={l} className="h-full w-full object-cover" /> : <span className="flex h-full items-center justify-center text-[11px] text-muted-foreground">No {String(l).toLowerCase()}</span>}</div>)}</div>
+          <p className="font-black">{x.service}</p>{x.note && <p className="text-[13px] text-muted-foreground">{x.note}</p>}
+          <p className="text-[12px] text-muted-foreground">Client consent: <b>{x.consent?.initials}</b> · {x.consent?.at ? new Date(x.consent.at).toLocaleDateString() : ''}</p>
+          <div className="flex items-center gap-2">
+            <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${x.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : x.status === 'hidden' ? 'bg-muted' : 'bg-amber-100 text-amber-900'}`}>{x.status === 'approved' ? 'Approved' : x.status === 'hidden' ? 'Hidden' : 'Waiting'}</span>
+            {x.status !== 'approved' && <button type="button" onClick={() => onReview(x.id, 'approved')} className="ml-auto h-9 rounded-xl bg-emerald-600 px-3 text-[12px] font-bold text-white">Approve</button>}
+            {x.status !== 'hidden' && <button type="button" onClick={() => onReview(x.id, 'hidden')} className={`h-9 rounded-xl border-2 px-3 text-[12px] font-bold ${x.status === 'approved' ? 'ml-auto' : ''}`}>Hide</button>}
+          </div>
+        </div>
+      ))}</div>
     </section>
   );
 }
