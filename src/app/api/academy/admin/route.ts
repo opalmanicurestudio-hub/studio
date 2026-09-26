@@ -7,6 +7,8 @@
 //   video-status   (is Mux done processing? saves the playback id)
 //   students       (who's enrolled, and how far they've got)
 
+import { deviceAllowed } from '@/lib/approved-devices';
+import { letter } from '@/lib/grades';
 import { mediaUrl } from '@/lib/academy';
 import { askClaude, aiConfigured, parseJson } from '@/lib/ai';
 import { NextRequest, NextResponse } from 'next/server';
@@ -17,7 +19,7 @@ import { appendAudit, verifyAudit, transcript, qrWindow, qrCode, QR_WINDOW_SEC }
 import { linkOrigin } from '@/lib/app-origin';
 
 export const dynamic = 'force-dynamic';
-const KINDS = ['video', 'text', 'download'];
+const KINDS = ['video', 'text', 'download', 'assignment'];
 const str = (v: any, n: number) => String(v ?? '').slice(0, n);
 const BLOCK_TYPES = ['text', 'image', 'steps', 'callout', 'file', 'divider'];
 /** Content blocks: text · image · step-by-step (a photo per step) · callout (safety / key point / tip) · file · divider. */
@@ -61,9 +63,12 @@ export async function POST(req: NextRequest) {
   // Owners, managers and instructors. Only owners/managers change courses and settings.
   const isInstructor = String(auth.actor.role || '').toLowerCase() === 'instructor';
   if (!auth.actor.isManager && !auth.actor.isTenantOwner && !isInstructor) return NextResponse.json({ ok: false, error: 'Only owners, managers and instructors can use the academy tools.' }, { status: 403 });
-  const INSTRUCTOR_OK = ['media-list', 'media-url', 'qbank-list', 'worksheet-ai', 'tutor-log', 'list', 'course-get', 'students', 'attendance', 'attendance-approve', 'attendance-resolve', 'attendance-code', 'attendance-photo-check', 'transcript', 'audit-verify'];
+  const INSTRUCTOR_OK = ['submissions', 'submission-ai', 'submission-grade', 'gradebook', 'media-list', 'media-url', 'qbank-list', 'worksheet-ai', 'tutor-log', 'list', 'course-get', 'students', 'attendance', 'attendance-approve', 'attendance-resolve', 'attendance-code', 'attendance-photo-check', 'transcript', 'audit-verify'];
   if (isInstructor && !auth.actor.isManager && !INSTRUCTOR_OK.includes(String(b.action))) return NextResponse.json({ ok: false, error: 'Instructors can review attendance and students, not change courses.' }, { status: 403 });
   const who = auth.actor.name || auth.actor.uid;
+  if (['attendance', 'attendance-approve', 'attendance-resolve', 'attendance-photo-check', 'transcript', 'students', 'submissions', 'gradebook'].includes(String(b.action))) {
+    const dv = await deviceAllowed(tenantId, req); if (!dv.ok) return NextResponse.json({ ok: false, error: dv.error, deviceBlocked: true }, { status: 403 });
+  }
   const db = getAdminDb();
   const base = `tenants/${tenantId}/courses`;
   const now = new Date().toISOString();
@@ -139,6 +144,9 @@ export async function POST(req: NextRequest) {
         flashcards: (Array.isArray(l.flashcards) ? l.flashcards : []).map((f: any) => ({ front: String(f.front || '').slice(0, 300), back: String(f.back || '').slice(0, 600) })).filter((f: any) => f.front && f.back).slice(0, 60),
         activity: cleanActivity(l.activity),
         ...('blocks' in l ? { blocks: cleanBlocks(l.blocks) } : {}),
+        ...('assignment' in l ? { assignment: l.assignment ? { prompt: str(l.assignment.prompt, 4000), type: ['written', 'photo', 'file', 'any'].includes(l.assignment.type) ? l.assignment.type : 'any',
+          rubric: (l.assignment.rubric || []).slice(0, 12).map((r: any) => ({ criterion: str(r.criterion, 200), points: Math.max(1, Math.min(100, Number(r.points) || 1)) })).filter((r: any) => r.criterion),
+          dueDays: Math.max(0, Math.min(365, Number(l.assignment.dueDays) || 0)) || null, resubmit: l.assignment.resubmit !== false } : null } : {}),
         ...('plan' in l ? { plan: cleanPlan(l.plan) } : {}),
         quiz: Array.isArray(l.quiz?.questions) && l.quiz.questions.length ? { passPct: Math.min(100, Math.max(1, Number(l.quiz.passPct) || 80)),
           questions: l.quiz.questions.slice(0, 50).map((q: any) => ({ q: String(q.q || '').slice(0, 400), options: (q.options || []).map((o: any) => String(o).slice(0, 200)).filter(Boolean).slice(0, 6), answer: Math.max(0, Number(q.answer) || 0) })).filter((q: any) => q.q && q.options.length >= 2) } : null,
@@ -228,6 +236,90 @@ export async function POST(req: NextRequest) {
     if (b.action === 'media-url') {
       const m = ((await db.doc(`${base}/${courseId}/media/${String(b.mediaId || '')}`).get()).data() as any) || null;
       return NextResponse.json({ ok: !!m, url: m ? await mediaUrl(m.path, 30) : null });
+    }
+
+    // ── Assignments: grading queue, AI-suggested feedback, returning grades ──
+    if (b.action === 'submissions') {
+      let q: any = db.collection(`tenants/${tenantId}/submissions`).where('courseId', '==', courseId);
+      const s = await q.limit(2000).get();
+      return NextResponse.json({ ok: true, submissions: s.docs.map((d: any) => d.data()).sort((a: any, c: any) => (a.status === 'submitted' ? 0 : 1) - (c.status === 'submitted' ? 0 : 1) || String(a.submittedAt).localeCompare(String(c.submittedAt))) });
+    }
+    if (b.action === 'submission-ai') {
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
+      const sub = ((await db.doc(`tenants/${tenantId}/submissions/${String(b.id || '')}`).get()).data() as any) || null;
+      if (!sub) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
+      if (!String(sub.text || '').trim()) return NextResponse.json({ ok: false, error: 'AI feedback works on written answers — grade photos and files yourself.' }, { status: 400 });
+      const lx = ((await db.doc(`${base}/${sub.courseId}/lessons/${sub.lessonId}`).get()).data() as any) || {};
+      const rub = lx.assignment?.rubric || [];
+      const r = await askClaude({ tier: 'smart', maxTokens: 1200, purpose: 'academy-feedback', tenantId,
+        system: 'You help a beauty-school instructor mark a student’s written assignment. Suggest a score for each rubric criterion (whole numbers, 0 to its maximum) and short, kind, specific feedback the student can act on — what they did well and what to improve. Judge only against the assignment and rubric; do not invent requirements. The instructor makes the final decision. Reply with JSON only.',
+        prompt: `Assignment:\n${lx.assignment?.prompt || lx.title}\n\nRubric:\n${rub.map((x: any, i: number) => `${i + 1}. ${x.criterion} (max ${x.points})`).join('\n')}\n\nStudent answer:\n${String(sub.text).slice(0, 8000)}\n\nReturn JSON: {"scores":[n,…],"feedback":"…"}` });
+      const j: any = r.ok ? parseJson(r.text) : null;
+      if (!j) return NextResponse.json({ ok: false, error: 'The suggestion didn’t come back usable — try again.' }, { status: 502 });
+      return NextResponse.json({ ok: true, scores: rub.map((x: any, i: number) => Math.max(0, Math.min(x.points, Math.round(Number(j.scores?.[i]) || 0)))), feedback: String(j.feedback || '').slice(0, 3000) });
+    }
+    if (b.action === 'submission-grade') {
+      const ref = db.doc(`tenants/${tenantId}/submissions/${String(b.id || '')}`);
+      const sub = ((await ref.get()).data() as any) || null;
+      if (!sub) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
+      const lx = ((await db.doc(`${base}/${sub.courseId}/lessons/${sub.lessonId}`).get()).data() as any) || {};
+      const rub = lx.assignment?.rubric || [];
+      const scores = rub.map((x: any, i: number) => Math.max(0, Math.min(x.points, Math.round(Number(b.scores?.[i]) || 0))));
+      const max = rub.reduce((n: number, x: any) => n + x.points, 0) || 100;
+      const total = rub.length ? scores.reduce((n: number, x: number) => n + x, 0) : Math.max(0, Math.min(100, Number(b.pct) || 0));
+      const pct = Math.round((total / max) * 100);
+      const passGrade = 70;
+      const redo = !!b.resubmit;
+      const grade = { scores, total, max, pct, letter: letter(pct, passGrade), feedback: String(b.feedback || '').slice(0, 4000), by: who, at: now };
+      await ref.set({ status: redo ? 'resubmit' : 'returned', grade, history: [...(sub.history || []), { at: now, by: who, pct, redo }] }, { merge: true });
+      // A passing grade completes the lesson for the student.
+      if (!redo && pct >= passGrade) await db.doc(`tenants/${tenantId}/enrollments/${sub.courseId}_${sub.studentId}`).set({ progress: { [sub.lessonId]: now } }, { merge: true });
+      await appendAudit(tenantId, { type: 'assignment.graded', studentId: sub.studentId, courseId: sub.courseId, by: who, summary: `${sub.name || sub.email}: “${lx.title || 'assignment'}” ${pct}% (${grade.letter})${redo ? ' — returned for resubmission' : ''}`, data: { submissionId: ref.id, pct } });
+      try { const { sendEmail } = await import('@/lib/academy-journey'); await sendEmail(sub.email, `Your assignment has been ${redo ? 'returned for another try' : 'graded'}`, `“${lx.title || 'Assignment'}” — ${pct}% (${grade.letter}).\n\n${grade.feedback}\n\nSee it in your student portal.`); } catch { /* no email */ }
+      return NextResponse.json({ ok: true, pct, letter: grade.letter });
+    }
+    if (b.action === 'gradebook') {
+      const [enr, subs, lessons] = await Promise.all([db.collection(`tenants/${tenantId}/enrollments`).where('courseId', '==', courseId).limit(2000).get(), db.collection(`tenants/${tenantId}/submissions`).where('courseId', '==', courseId).limit(5000).get(), loadLessons(tenantId, courseId)]);
+      const items = lessons.filter((l: any) => l.quiz?.questions?.length || l.kind === 'assignment').map((l: any) => ({ id: l.id, title: l.title, kind: l.kind === 'assignment' ? 'assignment' : 'quiz' }));
+      const S = subs.docs.map((d: any) => d.data() as any);
+      const rows = enr.docs.map((d: any) => { const e = d.data() as any;
+        const cells = items.map((it: any) => it.kind === 'quiz' ? (e.quiz?.[it.id]?.best ?? null) : (S.find((x: any) => x.studentId === e.studentId && x.lessonId === it.id)?.grade?.pct ?? null));
+        const got = cells.filter((x: any) => x != null) as number[]; const avg = got.length ? Math.round(got.reduce((n, x) => n + x, 0) / got.length) : null;
+        return { studentId: e.studentId, email: e.email, cells, avg, letter: letter(avg) }; }).sort((a: any, c: any) => String(a.email).localeCompare(String(c.email)));
+      const names = new Map((await db.collection(`tenants/${tenantId}/students`).limit(3000).get()).docs.map((d: any) => [d.id, (d.data() as any).name]));
+      return NextResponse.json({ ok: true, items, rows: rows.map((r: any) => ({ ...r, name: names.get(r.studentId) || r.email })) });
+    }
+
+    // ── AI course builder: from an outline or a PDF, as drafts to approve ──
+    if (b.action === 'ai-course') {
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
+      const outline = String(b.outline || '').slice(0, 20000);
+      const pdf = typeof b.pdf === 'string' && b.pdf.startsWith('data:application/pdf;base64,') ? b.pdf.split(',')[1] : null;
+      if (pdf && pdf.length > 4_300_000) return NextResponse.json({ ok: false, error: 'That PDF is too large (about 3 MB max) — split it or paste the outline.' }, { status: 400 });
+      if (!outline.trim() && !pdf) return NextResponse.json({ ok: false, error: 'Paste an outline or attach a PDF.' }, { status: 400 });
+      const r = await askClaude({ tier: 'smart', maxTokens: 6000, purpose: 'academy-course-builder', tenantId, pdfBase64: pdf,
+        system: 'You design courses for a state-licensed beauty / wellness school. Build a clear course structure from the material the instructor provides (an outline, syllabus or curriculum). Stay faithful to it: use its topics and order; do not add regulations, products or medical claims it does not contain. Begin with infection control where the material covers hands-on services. Reply with JSON only.',
+        prompt: `${outline ? `Instructor’s outline / notes:\n${outline}\n\n` : ''}${pdf ? 'The attached PDF is the curriculum or syllabus to build from.\n\n' : ''}Audience: ${String(b.audience || 'students').slice(0, 200)}. Approximate total hours: ${Number(b.hours) || 'not given'}.\n\nReturn JSON: {"title":"…","subtitle":"…","description":"…","whatYouLearn":["…"],"modules":[{"title":"…","lessons":[{"title":"…","kind":"text|video|assignment","minutes":45,"objectives":["…"],"summary":"2–4 sentences of what the lesson covers","subjects":["…"]}]}]}` });
+      const j: any = r.ok ? parseJson(r.text) : null;
+      return j?.modules ? NextResponse.json({ ok: true, draft: j }) : NextResponse.json({ ok: false, error: r.error || 'The draft didn’t come back usable — try again (or shorten the material).' }, { status: 502 });
+    }
+    if (b.action === 'ai-course-create') {
+      const dft = b.draft || {};
+      const cref = db.collection(base).doc();
+      let slug = slugify(dft.title || 'course'); if (RESERVED_SLUGS.includes(slug)) slug = `${slug}-course`;
+      if (!(await db.collection(base).where('slug', '==', slug).limit(1).get()).empty) slug = `${slug}-${cref.id.slice(0, 4).toLowerCase()}`;
+      await cref.set({ id: cref.id, title: str(dft.title, 120) || 'New course', slug, subtitle: str(dft.subtitle, 200), description: str(dft.description, 8000), whatYouLearn: (dft.whatYouLearn || []).map((x: any) => str(x, 160)).slice(0, 12),
+        priceCents: 0, status: 'draft', aiTutor: true, captionLanguage: 'en', createdAt: now, updatedAt: now, enrolledCount: 0, revenueCents: 0, builtWithAi: true });
+      let order = 0;
+      for (const m of (dft.modules || []).slice(0, 30)) for (const l of (m.lessons || []).slice(0, 40)) {
+        if (l.skip) continue;
+        const lref = db.collection(`${base}/${cref.id}/lessons`).doc();
+        await lref.set({ id: lref.id, order: order++, moduleTitle: str(m.title, 120) || 'Module', title: str(l.title, 160) || 'Lesson', kind: KINDS.includes(l.kind) ? l.kind : 'text',
+          body: `${str(l.summary, 2000)}${(l.objectives || []).length ? `\n\n# You’ll be able to\n\n${(l.objectives || []).map((o: any) => `• ${str(o, 200)}`).join('\n')}` : ''}`,
+          plan: cleanPlan({ objectives: l.objectives, minutes: l.minutes, subjects: l.subjects, agenda: [] }), preview: order === 1, updatedAt: now });
+      }
+      await db.doc(`${base}/${cref.id}`).set({ lessonCount: order }, { merge: true });
+      return NextResponse.json({ ok: true, id: cref.id, lessons: order });
     }
 
     // ── Lesson plans (AI draft — the instructor edits and saves) ──
