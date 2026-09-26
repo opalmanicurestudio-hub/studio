@@ -12,6 +12,7 @@
 //   lesson    { tenantId, courseId, lessonId, token? }  content; video token if allowed
 //   progress  { tenantId, token, courseId, lessonId, done }
 
+import { itemsFor, publicPortfolio, newToken } from '@/lib/academy-portfolio';
 import { COLORS, reviewDeck, recordReview, glossary } from '@/lib/academy-study';
 import { effectiveA11y } from '@/lib/accommodations';
 import { fingerprint } from '@/lib/school-docs';
@@ -239,6 +240,45 @@ export async function POST(req: NextRequest) {
       await db.doc(`${T}/docAcks/${String(b.id)}_${d.version}_${student.id}`).set({ docId: String(b.id), version: d.version, studentId: student.id, email: student.email, title: pubTitle, signedName: name, at: new Date().toISOString(), hash: fingerprint(pubBody), agent: String(req.headers.get('user-agent') || '').slice(0, 200) });
       await appendAudit(tenantId, { type: 'doc.signed', studentId: student.id, by: student.email, summary: `Signed “${pubTitle}” (version ${d.version}) as “${name}”`, data: { docId: String(b.id), version: d.version } });
       return NextResponse.json({ ok: true });
+    }
+
+    // ── Portfolio: the public page (anyone with the link — approved work only) ──
+    if (b.action === 'portfolio-public') {
+      const pf = await publicPortfolio(tenantId, String(b.token || ''));
+      return pf ? NextResponse.json({ ok: true, ...pf }) : NextResponse.json({ ok: false, error: 'This portfolio isn’t available.' }, { status: 404 });
+    }
+    // ── Portfolio: the student's own work, consent, sharing ──
+    if (['pf-list', 'pf-add', 'pf-delete', 'pf-share'].includes(b.action)) {
+      if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+      const T = `tenants/${tenantId}`; const sRef = db.doc(`${T}/students/${student.id}`);
+      const s = ((await sRef.get()).data() as any) || {};
+      const share = () => ({ on: !!s.portfolio?.on, token: s.portfolio?.token || null, displayName: s.portfolio?.displayName || s.name || '' });
+      if (b.action === 'pf-list') return NextResponse.json({ ok: true, items: await itemsFor(tenantId, student.id), share: share() });
+      if (b.action === 'pf-share') {
+        const token = s.portfolio?.token || newToken();
+        const next = { on: !!b.on, token, displayName: String(b.displayName ?? s.portfolio?.displayName ?? s.name ?? '').trim().slice(0, 80) || s.name || 'Student' };
+        await sRef.set({ portfolio: next }, { merge: true });
+        await appendAudit(tenantId, { type: 'portfolio.share', studentId: student.id, by: student.email, summary: `Portfolio sharing ${next.on ? 'switched on' : 'switched off'}` });
+        return NextResponse.json({ ok: true, share: next });
+      }
+      if (b.action === 'pf-delete') {
+        const ref = db.doc(`${T}/portfolio/${String(b.id || '')}`); const x = ((await ref.get()).data() as any) || null;
+        if (!x || x.studentId !== student.id) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
+        await ref.delete(); return NextResponse.json({ ok: true });
+      }
+      const service = String(b.service || '').trim().slice(0, 120), initials = String(b.initials || '').trim().slice(0, 6);
+      if (!service) return NextResponse.json({ ok: false, error: 'Say what the service was.' }, { status: 400 });
+      if (!b.consent || initials.length < 1) return NextResponse.json({ ok: false, error: 'Confirm your client agreed, and add their initials.' }, { status: 400 });
+      if (!b.after) return NextResponse.json({ ok: false, error: 'Add at least the “after” photo.' }, { status: 400 });
+      const ref = db.collection(`${T}/portfolio`).doc(); const at = new Date().toISOString();
+      try {
+        const after = await savePrivateImage(tenantId, `tenants/${tenantId}/academy/portfolio/${student.id}/${ref.id}-after.jpg`, String(b.after), 900_000);
+        const before = b.before ? await savePrivateImage(tenantId, `tenants/${tenantId}/academy/portfolio/${student.id}/${ref.id}-before.jpg`, String(b.before), 900_000) : null;
+        await ref.set({ id: ref.id, studentId: student.id, service, note: String(b.note || '').trim().slice(0, 400) || null, before: before ? { path: before.path, sha256: before.sha256 } : null, after: { path: after.path, sha256: after.sha256 },
+          consent: { initials, confirmedBy: student.email, at, agent: String(req.headers.get('user-agent') || '').slice(0, 200) }, status: 'pending', createdAt: at });
+      } catch (e: any) { return NextResponse.json({ ok: false, error: String(e?.message || 'Photo upload failed — try again.') }, { status: 400 }); }
+      await appendAudit(tenantId, { type: 'portfolio.added', studentId: student.id, by: student.email, summary: `Added portfolio work “${service}” (client consent: ${initials})`, data: { id: ref.id } });
+      return NextResponse.json({ ok: true, id: ref.id });
     }
 
     // ── My learning: highlights, notes, own flashcards · spaced review · glossary ──
