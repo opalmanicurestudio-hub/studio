@@ -12,6 +12,7 @@
 //   lesson    { tenantId, courseId, lessonId, token? }  content; video token if allowed
 //   progress  { tenantId, token, courseId, lessonId, done }
 
+import { effectiveA11y } from '@/lib/accommodations';
 import { fingerprint } from '@/lib/school-docs';
 import { todoFor } from '@/lib/academy-assign';
 import { moduleStates, whatChanged, award, gameView } from '@/lib/academy-modules';
@@ -208,7 +209,8 @@ export async function POST(req: NextRequest) {
       const stat = enr.stats?.[lessonId] || {};
       const quiz = l.quiz?.questions?.length ? { passPct: l.quiz.passPct || 80, questions: l.quiz.questions.map((q: any) => ({ q: q.q, options: q.options })), attempts: (enr.quiz?.[lessonId]?.attempts || []).slice(-5), passed: !!enr.quiz?.[lessonId]?.passed } : null;
       const studentLang = student ? ((((await db.doc(`tenants/${tenantId}/students/${student.id}`).get()).data() as any) || {}).language || 'en') : 'en';
-      return NextResponse.json({ ok: true, enrolled, studentLang, aiTutor: enrolled && c.aiTutor !== false && aiConfigured(), lesson: { id: lessonId, stepMode: l.stepMode === true, title: l.title, moduleTitle: l.moduleTitle, kind: l.kind, body: l.body || '', downloadUrl: l.downloadUrl || null, downloadName: l.downloadName || null, preview: !!l.preview, video, durationSec: l.durationSec || null, minMinutes: l.minMinutes || 0, quiz,
+      const accView = student ? effectiveA11y(((await db.doc(`tenants/${tenantId}/students/${student.id}`).get()).data() as any) || {}) : null;
+      return NextResponse.json({ ok: true, enrolled, studentLang, extraTime: accView?.extraTime || 1, audioFirst: !!accView?.audioFirst, aiTutor: enrolled && c.aiTutor !== false && aiConfigured(), lesson: { id: lessonId, stepMode: l.stepMode === true, title: l.title, moduleTitle: l.moduleTitle, kind: l.kind, body: l.body || '', downloadUrl: l.downloadUrl || null, downloadName: l.downloadName || null, preview: !!l.preview, video, durationSec: l.durationSec || null, minMinutes: l.minMinutes || 0, quiz,
         flashcards: l.flashcards || [], activity: l.activity || null, transcript: l.transcript || null, blocks: await resolveBlocks(tenantId, courseId, l.blocks || []),
           cases: l.cases ? { ...l.cases, cases: await Promise.all(l.cases.cases.map(async (x: any) => ({ ...x, media: x.mediaId ? (await resolveBlocks(tenantId, courseId, [{ type: 'image', mediaId: x.mediaId }]))[0]?.media || null : null }))) } : null,
           videoQuestions: l.kind === 'video' ? l.videoQuestions || [] : [] },
@@ -242,6 +244,14 @@ export async function POST(req: NextRequest) {
     if (b.action === 'todo') {
       if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
       return NextResponse.json({ ok: true, items: await todoFor(tenantId, student.id) });
+    }
+
+    // ── Accessibility: accommodations + the student's own Aa choices (any device) ──
+    if (b.action === 'a11y-get' || b.action === 'a11y-set') {
+      if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+      const ref = db.doc(`tenants/${tenantId}/students/${student.id}`);
+      if (b.action === 'a11y-set') { const p = b.prefs || {}; await ref.set({ a11y: { size: Math.max(0, Math.min(3, Number(p.size) || 0)), contrast: !!p.contrast, readable: !!p.readable, still: !!p.still } }, { merge: true }); return NextResponse.json({ ok: true }); }
+      return NextResponse.json({ ok: true, ...effectiveA11y(((await ref.get()).data() as any) || {}) });
     }
 
     if (b.action === 'seen-unlock') {
@@ -601,7 +611,8 @@ Keep this link private.
       if (b.action === 'practice-start') {
         if (bank.length < 5) return NextResponse.json({ ok: false, error: 'Your school hasn’t added enough practice questions yet.' }, { status: 400 });
         const count = Math.max(5, Math.min(100, Number(b.count) || 25, bank.length));
-        const minutes = Math.max(5, Math.min(180, Number(b.minutes) || Math.round(count * 1.2)));
+        const extra = effectiveA11y(((await db.doc(`${T}/students/${student.id}`).get()).data() as any) || {}).extraTime;
+        const minutes = Math.round(Math.max(5, Math.min(180, Number(b.minutes) || Math.round(count * 1.2))) * extra);
         const pick = [...bank].sort(() => Math.random() - 0.5).slice(0, count);
         const ref = hist.doc(); const at = new Date();
         await ref.set({ id: ref.id, studentId: student.id, startedAt: at.toISOString(), endsAt: new Date(at.getTime() + minutes * 60000).toISOString(), count, questionIds: pick.map((q) => q.id) });
