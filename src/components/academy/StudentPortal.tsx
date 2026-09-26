@@ -16,6 +16,7 @@
 // Language: the portal's words and all content are shown in the student's
 // language (AI translation, cached); originals are always one tap away.
 
+import { PortfolioCard } from '@/components/academy/Portfolio';
 import { mdLite } from '@/lib/doc-theme';
 import { ProgressRing } from '@/components/academy/Delight';
 import { useCallback, useEffect, useState } from 'react';
@@ -184,6 +185,7 @@ function LearnTab({ p, w, tenantId, color, courses }: any) {
   return (
     <div className="space-y-3">
       <MyLearning w={w} tenantId={tenantId} color={color} />
+      <PortfolioCard tenantId={tenantId} color={color} />
       <Practice w={w} tenantId={tenantId} color={color} />
       {p.programs.map((pr: any) => (
         <Card key={pr.id} title={w.program}><p className="text-lg font-semibold">{pr.name}</p>
