@@ -16,6 +16,7 @@ import { SchoolDocs } from '@/components/academy/SchoolDocs';
 import { AssignPanel } from '@/components/academy/AssignPanel';
 import { CourseBoard } from '@/components/academy/CourseBoard';
 import { AddToLesson, LessonPreview, TemplatePicker, LESSON_KINDS, FileToLesson, printStudyGuide, LayoutPicker, layoutOf } from '@/components/academy/LessonCanvas';
+import { SchoolIdentity } from '@/components/academy/SchoolIdentity';
 import { ModuleSettings, GamifySetting, modKey } from '@/components/academy/ModuleSettings';
 import { AiCreditsMeter } from '@/components/academy/AiCreditsMeter';
 import { deviceId } from '@/lib/device';
@@ -184,7 +185,10 @@ export default function AcademyBuilderPage() {
       { key: 'documents', label: 'School documents', hint: 'Handbook, policies, syllabi, labels', icon: FileText },
       { key: 'settings', label: 'Settings', hint: 'Academy type and your links', icon: SettingsIcon } ] },
   ];
-  const docBrand = { name: String((selectedTenant as any)?.name || home?.name || 'Academy'), logoUrl: (selectedTenant as any)?.logoUrl || (selectedTenant as any)?.bookingPageSettings?.logoUrl || null, color: (selectedTenant as any)?.bookingPageSettings?.primaryColor || null };
+  const baseBrand = { name: String((selectedTenant as any)?.name || home?.name || 'Academy'), logoUrl: (selectedTenant as any)?.logoUrl || (selectedTenant as any)?.bookingPageSettings?.logoUrl || null, color: (selectedTenant as any)?.bookingPageSettings?.primaryColor || null };
+  const [identBrand, setIdentBrand] = useState<any>(null);
+  useEffect(() => { if (!tenantId) return; api({ action: 'identity-get', tenantId }).then((r: any) => { if (r?.ok) setIdentBrand(r.brand); }); }, [tenantId]);
+  const docBrand = identBrand ? { ...baseBrand, ...identBrand, color: identBrand.color || baseBrand.color, logoUrl: identBrand.logoUrl || baseBrand.logoUrl } : baseBrand;
   const visible = NAV.map((g) => ({ ...g, items: g.items.filter((i) => !i.school || mode === 'school') })).filter((g) => g.items.length);
   const current = visible.flatMap((g) => g.items).find((i) => i.key === section) || visible[0].items[0];
   const go = (k: Section) => { setSection(k); setHub(null); window.scrollTo({ top: 0, behavior: 'smooth' }); };
@@ -249,7 +253,7 @@ export default function AcademyBuilderPage() {
             {section === 'home' && <AcademyHome tenantId={tenantId} data={home} go={go} />}
             {section === 'programs' && mode === 'school' && <SchoolPrograms tenantId={tenantId} courses={courses || []} brand={docBrand} />}
             {section === 'salon' && mode === 'school' && <StudentSalon tenantId={tenantId} />}
-            {section === 'admissions' && mode === 'school' && <AdmissionsBoard tenantId={tenantId} />}
+            {section === 'admissions' && mode === 'school' && <AdmissionsBoard tenantId={tenantId} brand={docBrand} />}
             {section === 'students' && mode === 'school' && <StudentJourney tenantId={tenantId} brand={docBrand} />}
             {section === 'attendance' && mode === 'school' && <AttendancePanel tenantId={tenantId} />}
             {section === 'live' && <LiveClass tenantId={tenantId} />}
@@ -260,6 +264,7 @@ export default function AcademyBuilderPage() {
             {section === 'reports' && mode === 'school' && <AcademyReports tenantId={tenantId} />}
             {section === 'settings' && (
               <div className="space-y-4">
+                <SchoolIdentity tenantId={tenantId} onSaved={(b) => setIdentBrand(b)} />
                 <section className="space-y-2 rounded-2xl bg-muted/40 p-4">
                   <p className="font-black">What kind of academy is this?</p>
                   <div className="grid gap-2 sm:grid-cols-2">
