@@ -47,7 +47,11 @@ function cleanPlan(p: any) {
 }
 /** Interactive activities: match pairs, put steps in order, or a client scenario. */
 function cleanActivity(a: any) {
-  if (!a || !['match', 'order', 'scenario', 'label'].includes(a.type)) return null;
+  if (!a || !['match', 'order', 'scenario', 'label', 'wordsearch', 'crossword', 'cloze'].includes(a.type)) return null;
+  // Online puzzles published from worksheets (built the same way as the printed ones, from the seed).
+  if (a.type === 'wordsearch') { const words = (a.words || []).map((w: any) => str(w, 30)).filter(Boolean).slice(0, 15); return words.length >= 4 ? { type: 'wordsearch', prompt: str(a.prompt, 200) || 'Find the words', words, seed: Number(a.seed) || 1 } : null; }
+  if (a.type === 'crossword') { const entries = (a.entries || []).map((e: any) => ({ answer: str(e.answer, 20), clue: str(e.clue, 200) })).filter((e: any) => e.answer && e.clue).slice(0, 16); return entries.length >= 4 ? { type: 'crossword', prompt: str(a.prompt, 200) || 'Crossword', entries, seed: Number(a.seed) || 1 } : null; }
+  if (a.type === 'cloze') { const items = (a.items || []).map((x: any) => ({ sentence: str(x.sentence, 400), answer: str(x.answer, 60) })).filter((x: any) => x.sentence.includes('____') && x.answer).slice(0, 20); return items.length >= 2 ? { type: 'cloze', prompt: str(a.prompt, 200) || 'Fill in the blanks', items } : null; }
   if (a.type === 'label') { const points = (a.points || []).map((p: any) => ({ x: Math.max(0, Math.min(100, Number(p.x) || 0)), y: Math.max(0, Math.min(100, Number(p.y) || 0)), label: str(p.label, 80) })).filter((p: any) => p.label).slice(0, 15);
     return /^https:\/\//.test(String(a.imageUrl || '')) && points.length >= 2 ? { type: 'label', prompt: str(a.prompt, 200) || 'Label the diagram', imageUrl: str(a.imageUrl, 600), points } : null; }
   if (a.type === 'match') { const pairs = (a.pairs || []).map((p: any) => ({ left: str(p.left, 160), right: str(p.right, 160) })).filter((p: any) => p.left && p.right).slice(0, 10); return pairs.length >= 2 ? { type: 'match', prompt: str(a.prompt, 200) || 'Match the pairs', pairs } : null; }
@@ -288,6 +292,22 @@ async function handle(req: NextRequest) {
       await ref.set({ id: ref.id, courseId, kind: m.kind, type: String(m.type || '').slice(0, 30), title: String(m.title || 'Untitled').slice(0, 160), lessonId: m.lessonId || null, seed: Number(m.seed) || 1, data: m.data || {}, by: who, at: now }, { merge: true });
       return NextResponse.json({ ok: true, id: ref.id });
     }
+    // 📲 Publish a worksheet as an online activity: a new "Practice" lesson in the course.
+    if (b.action === 'material-publish') {
+      const type = String(b.type || ''), items = Array.isArray(b.items) ? b.items : [], title = str(b.title, 140) || 'Practice';
+      let activity: any = null, assignment: any = null;
+      if (type === 'matching') activity = cleanActivity({ type: 'match', prompt: 'Match each term to its meaning', pairs: items.slice(0, 10).map((x: any) => ({ left: x.term, right: x.definition })) });
+      if (type === 'wordsearch') activity = cleanActivity({ type: 'wordsearch', words: items.map((x: any) => x.term), seed: b.seed });
+      if (type === 'crossword') activity = cleanActivity({ type: 'crossword', entries: items.map((x: any) => ({ answer: x.term, clue: x.definition })), seed: b.seed });
+      if (type === 'cloze') activity = cleanActivity({ type: 'cloze', items });
+      if (type === 'short') assignment = { prompt: `Answer each question in your own words.\n\n${items.map((x: any, i: number) => `${i + 1}. ${x.question}`).join('\n')}`, type: 'written', rubric: [{ criterion: 'Accuracy', points: 60 }, { criterion: 'Completeness', points: 25 }, { criterion: 'Clear explanation', points: 15 }], dueDays: 7, resubmit: true };
+      if (!activity && !assignment) return NextResponse.json({ ok: false, error: 'This worksheet type can’t be published online (label worksheets already come from a lesson activity).' }, { status: 400 });
+      const list = await loadLessons(tenantId, courseId);
+      const ref = db.collection(`${base}/${courseId}/lessons`).doc();
+      await ref.set({ id: ref.id, order: list.length, moduleTitle: 'Practice', title, kind: assignment ? 'assignment' : 'text', body: assignment ? '' : 'Try it here — your score is saved.', ...(activity ? { activity } : {}), ...(assignment ? { assignment } : {}), preview: false, updatedAt: now, fromWorksheet: true });
+      await db.doc(`${base}/${courseId}`).set({ lessonCount: list.length + 1, updatedAt: now }, { merge: true });
+      return NextResponse.json({ ok: true, lessonId: ref.id });
+    }
     if (b.action === 'material-delete') { await db.doc(`tenants/${tenantId}/materials/${String(b.id || '')}`).delete(); return NextResponse.json({ ok: true }); }
 
     // ── Assignments: grading queue, AI-suggested feedback, returning grades ──
@@ -335,7 +355,7 @@ async function handle(req: NextRequest) {
       const items = lessons.filter((l: any) => l.quiz?.questions?.length || l.kind === 'assignment').map((l: any) => ({ id: l.id, title: l.title, kind: l.kind === 'assignment' ? 'assignment' : 'quiz' }));
       // Live-class exit tickets saved for this course.
       const liveKeys = new Map<string, string>();
-      enr.docs.forEach((d: any) => Object.entries((d.data() as any).quiz || {}).forEach(([k, v]: any) => { if (k.startsWith('live_')) liveKeys.set(k, v.title || 'Live class'); }));
+      enr.docs.forEach((d: any) => Object.entries((d.data() as any).quiz || {}).forEach(([k, v]: any) => { if (k.startsWith('live_') || k.startsWith('act_')) liveKeys.set(k, v.title || (k.startsWith('live_') ? 'Live class' : 'Practice')); }));
       for (const [id, title] of liveKeys) items.push({ id, title, kind: 'quiz' });
       const S = subs.docs.map((d: any) => d.data() as any);
       const rows = enr.docs.map((d: any) => { const e = d.data() as any;
