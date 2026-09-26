@@ -65,7 +65,7 @@ function Assignment({ tenantId, courseId, lessonId, color }: { tenantId: string;
 }
 
 // ── Lesson content blocks (student view) ────────────────────────────────
-function Blocks({ blocks, accent, hideAt, report, audioFirst, extraTime }: { blocks: any[]; accent?: string | null; hideAt?: (i: number) => string; report?: (blockId: string, pct: number) => void; audioFirst?: boolean; extraTime?: number }) {
+export function Blocks({ blocks, accent, hideAt, report, audioFirst, extraTime }: { blocks: any[]; accent?: string | null; hideAt?: (i: number) => string; report?: (blockId: string, pct: number) => void; audioFirst?: boolean; extraTime?: number }) {
   const tone: Record<string, [string, string]> = { safety: ['🛑 Safety', 'border-red-200 bg-red-50/90 text-red-950'], key: ['⭐ Key point', 'border-amber-200 bg-amber-50/90 text-amber-950'], tip: ['💡 Tip', 'border-sky-200 bg-sky-50/90 text-sky-950'] };
   return (
     <div className="space-y-4">{blocks.map((b: any, i: number) => <div key={i} className={hideAt ? hideAt(i) : ''}>{oneBlock(b, i)}</div>)}</div>
