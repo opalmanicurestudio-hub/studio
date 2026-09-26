@@ -22,7 +22,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { getAuth } from 'firebase/auth';
 import { Loader, X } from 'lucide-react';
 import { PrivateImg, openPrivateFile } from '@/components/shared/private-file';
-import { printDocument, heading, esc } from '@/lib/doc-theme';
+import { printDocument, heading, esc, mdLite } from '@/lib/doc-theme';
 
 async function api(body: any) {
   const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
@@ -35,7 +35,7 @@ const d = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString('en-U
 const hrs = (m: number) => `${(Math.floor((m / 60) * 4) / 4).toFixed(2)} h`;
 const $ = (c?: number | null) => (c == null ? '—' : `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const field = 'h-10 w-full rounded-xl border-2 border-border/60 bg-background px-3 text-sm';
-const SECTIONS = [['overview', 'Overview'], ['documents', 'Documents on file'], ['forms', 'Board forms'], ['hours', 'Hours & records'], ['evaluations', 'Evaluations & performances'], ['grades', 'Grades'], ['tuition', 'Tuition'], ['notes', 'Messages & notes'], ['history', 'History']] as const;
+const SECTIONS = [['overview', 'Overview'], ['documents', 'Documents on file'], ['forms', 'Board forms'], ['hours', 'Hours & records'], ['evaluations', 'Evaluations & performances'], ['grades', 'Grades'], ['tuition', 'Tuition'], ['notes', 'Messages & notes'], ['letters', 'Letters'], ['history', 'History']] as const;
 
 export function StudentFile({ tenantId, studentId, brand, onClose }: { tenantId: string; studentId: string; brand: { name: string; logoUrl?: string | null; color?: string | null }; onClose: () => void }) {
   const [f, setF] = useState<any>(null);
@@ -115,6 +115,7 @@ export function StudentFile({ tenantId, studentId, brand, onClose }: { tenantId:
                     </div>
                   )}
                 </section>
+                <AccommodationsCard value={f.accommodations} canManage={f.canManage} onSave={(acc: any) => act({ action: 'acc-save', accommodations: acc }, 'Accommodations saved — they apply wherever this student signs in.')} />
                 {prog?.risk?.reasons?.length > 0 && <section className="rounded-2xl bg-red-50 p-4 text-sm"><p className="font-black text-red-900">Needs attention ({prog.risk.level})</p>{prog.risk.reasons.map((r: string) => <p key={r}>• {r}</p>)}</section>}
                 {f.admission?.agreement && <section className="rounded-2xl bg-muted/40 p-4 text-sm"><p className="font-black">Enrolment agreement</p><p>Signed by {f.admission.agreement.signedName} on {d(f.admission.agreement.signedAt)}{f.admission.agreement.countersignedBy ? ` · countersigned by ${f.admission.agreement.countersignedBy}` : ' · not countersigned yet'}</p><details><summary className="cursor-pointer text-[12px] font-bold">Read it</summary><pre className="mt-1 whitespace-pre-wrap text-[12px]">{f.admission.agreement.text}</pre></details></section>}
               </>
@@ -186,6 +187,7 @@ export function StudentFile({ tenantId, studentId, brand, onClose }: { tenantId:
               </section>
             )}
 
+            {sec === 'letters' && <Letters f={f} brand={brand} onSend={(body: any) => act({ action: 'letter-send', ...body }, body.email ? 'Letter emailed and saved to the file.' : 'Letter saved to the file.')} />}
             {sec === 'history' && <section className="space-y-1">{f.audit.map((a: any) => <p key={a.seq} className="text-[12px]"><span className="text-muted-foreground">#{a.seq} · {new Date(a.at).toLocaleString()} · {a.by}</span> — {a.summary}</p>)}<p className="pt-2 text-[11px] text-muted-foreground">From the academy’s tamper-evident audit log (Attendance → Verify records checks the whole chain).</p></section>}
           </div>
         </div>
@@ -232,5 +234,73 @@ function FormRow({ x, overdue, canManage, onSave }: { x: any; overdue: boolean; 
         <label className="h-9 cursor-pointer rounded-lg border-2 px-3 text-[12px] font-bold leading-8">{receipt ? '✓ receipt' : 'Receipt / screenshot'}<input type="file" accept="image/*,application/pdf" className="hidden" onChange={async (e) => { const file = e.target.files?.[0]; if (file) setReceipt(file.type === 'application/pdf' ? await readRaw(file) : await shrink(file)); }} /></label>
         <button type="button" onClick={() => { onSave({ status: 'submitted', submittedAt: date, confirmation: conf, receipt }); setOpen(false); }} className="h-9 rounded-lg bg-emerald-600 px-3 text-[12px] font-bold text-white">Save</button></div>}
     </div>
+  );
+}
+
+
+// ── Accommodations ────────────────────────────────────────────────────────
+function AccommodationsCard({ value, canManage, onSave }: any) {
+  const v0 = { extraTime: 1, largeText: false, dyslexia: false, highContrast: false, reducedMotion: false, audioFirst: false, note: '', ...(value || {}) };
+  const [edit, setEdit] = useState(false); const [v, setV] = useState<any>(v0);
+  const on = [v0.extraTime > 1 && `Extra time ×${v0.extraTime}`, v0.largeText && 'Larger text', v0.dyslexia && 'Dyslexia-friendly font', v0.highContrast && 'High contrast', v0.reducedMotion && 'Reduced motion', v0.audioFirst && 'Audio-first'].filter(Boolean) as string[];
+  const T: [string, string, string][] = [['largeText', 'Larger text', 'Everything a size up'], ['dyslexia', 'Dyslexia-friendly', 'Readable font, extra spacing'], ['highContrast', 'High contrast', 'Solid backgrounds, darker text'], ['reducedMotion', 'Reduced motion', 'No animations'], ['audioFirst', 'Audio-first', 'Read-aloud on text and quiz questions']];
+  return (
+    <section className="space-y-2 rounded-2xl border-2 border-sky-200 bg-sky-50/60 p-4">
+      <div className="flex items-center justify-between"><p className="font-black">♿ Accommodations</p>{canManage && !edit && <button type="button" onClick={() => { setV(v0); setEdit(true); }} className="text-sm font-bold underline">{on.length ? 'Edit' : 'Add'}</button>}</div>
+      {!edit ? (on.length ? <div className="flex flex-wrap gap-1.5">{on.map((x) => <span key={x} className="rounded-full bg-white px-2.5 py-1 text-[12px] font-bold text-sky-900">{x}</span>)}</div> : <p className="text-sm text-muted-foreground">None. Accommodations apply automatically wherever the student signs in.</p>)
+        : <div className="space-y-2">
+          <div><p className="text-[12px] font-bold">Extra time on timed work</p><div className="mt-1 flex gap-1.5">{[1, 1.25, 1.5, 2].map((x) => <button key={x} type="button" onClick={() => setV({ ...v, extraTime: x })} className={`rounded-full px-3 py-1.5 text-[12px] font-bold ${v.extraTime === x ? 'bg-foreground text-background' : 'bg-white'}`}>{x === 1 ? 'None' : `×${x}`}</button>)}</div><p className="mt-1 text-[11px] text-muted-foreground">Practice exams and speed-round games. Live-class quiz timers are shared by the room.</p></div>
+          <div className="grid gap-1.5 sm:grid-cols-2">{T.map(([k, l, h]) => <label key={k} className="flex items-start gap-2 rounded-xl bg-white p-2 text-sm"><input type="checkbox" className="mt-1" checked={!!v[k]} onChange={(e) => setV({ ...v, [k]: e.target.checked })} /><span><b className="block">{l}</b><span className="text-[11px] text-muted-foreground">{h}</span></span></label>)}</div>
+          <label className="block text-[12px] font-bold">Notes for instructors (private — the student never sees this)<textarea rows={2} className="mt-1 w-full rounded-xl border-2 bg-white p-2 text-sm" value={v.note || ''} onChange={(e) => setV({ ...v, note: e.target.value })} /></label>
+          <div className="flex gap-2"><button type="button" onClick={async () => { await onSave(v); setEdit(false); }} className="h-10 rounded-xl bg-foreground px-4 text-sm font-bold text-background">Save</button><button type="button" onClick={() => setEdit(false)} className="h-10 px-3 text-sm font-bold text-muted-foreground">Cancel</button></div>
+          <p className="text-[11px] text-muted-foreground">These set the student’s starting point — they can still adjust text size and more from the Aa menu.</p>
+        </div>}
+      {!edit && v0.note && canManage && <p className="text-[12px] text-sky-900"><b>Instructor notes:</b> {v0.note}</p>}
+    </section>
+  );
+}
+
+// ── Letters ───────────────────────────────────────────────────────────────
+function letterTemplates(f: any) {
+  const P = f.profile || {}; const pr = (f.programs || [])[0] || {};
+  const first = String(P.name || 'Student').split(' ')[0]; const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const prog = pr.name || '[[fill in: program]]'; const start = pr.startDate ? new Date(pr.startDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : '[[fill in: start date]]';
+  const hrs = pr.hours ? `${pr.hours.total} of ${pr.totalHours || '—'} hours` : '[[fill in: hours]]';
+  const sign = '\n\nSincerely,\n\n[[fill in: your name and title]]';
+  return [
+    { kind: 'enrolment', title: 'Enrolment confirmation', body: `Dear ${first},\n\nWelcome! This letter confirms your enrolment in **${prog}**, starting ${start}.\n\n# What happens next\n- Your student portal is where you’ll find lessons, hours and your to-do list\n- Please read and sign the student handbook in your portal\n- Bring [[fill in: what to bring on day one]]\n\nWe’re glad to have you.${sign}` },
+    { kind: 'warning', title: 'Progress warning', body: `Dear ${first},\n\nThis letter is a formal notice about your progress in **${prog}** as of ${today}. You have completed ${hrs}.\n\n# What we noticed\n[[fill in: what isn’t meeting the standard — attendance, grades or practicals]]\n\n# What needs to happen\n[[fill in: the improvement plan and the date it will be reviewed]]\n\nWe want you to succeed. Please speak with us if anything is getting in the way — we can help.${sign}` },
+    { kind: 'probation', title: 'Academic probation notice', body: `Dear ${first},\n\nFollowing your progress evaluation, you are placed on **academic probation** in ${prog} from ${today}, in line with the school’s satisfactory academic progress policy.\n\n# Why\n[[fill in: the standard not met]]\n\n# The plan\n[[fill in: the conditions to meet and the review date]]\n\nYou may appeal this decision by [[fill in: how and by when]].${sign}` },
+    { kind: 'leave', title: 'Leave of absence approved', body: `Dear ${first},\n\nYour request for a leave of absence from ${prog} is approved.\n\n- **Leave begins:** [[fill in: start date]]\n- **Expected return:** [[fill in: return date]]\n\nIf your plans change, please tell us before your return date. If you do not return as planned, the school’s leave policy will apply.${sign}` },
+    { kind: 'withdrawal', title: 'Withdrawal confirmation', body: `Dear ${first},\n\nThis letter confirms your withdrawal from ${prog}, effective [[fill in: date]]. Your record shows ${hrs} completed.\n\nAny refund owed is calculated under the school’s refund policy. [[fill in: refund details, if any]]\n\nWe wish you the very best, and you are welcome to talk with us about returning.${sign}` },
+    { kind: 'completion', title: 'Program completion', body: `Dear ${first},\n\nCongratulations! This letter confirms that you have completed **${prog}**, with ${hrs} recorded as of ${today}.\n\n# Next steps\n- [[fill in: licensing exam steps for your state]]\n\nWe’re proud of you.${sign}` },
+    { kind: 'custom', title: 'Letter', body: `Dear ${first},\n\n${sign}` },
+  ];
+}
+function Letters({ f, brand, onSend }: any) {
+  const tpls = letterTemplates(f);
+  const [cur, setCur] = useState<any>(null); const [busy, setBusy] = useState('');
+  const holes = (t: string) => (String(t || '').match(/\[\[[^\]]*\]\]/g) || []).length;
+  const P = f.profile || {};
+  const print = (t: string, b: string, when?: string) => printDocument({ title: t, brand, body: `<p class="muted">${esc(new Date(when || Date.now()).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }))}</p><p><b>${esc(P.name || '')}</b>${P.address ? `<br>${esc(P.address)}` : ''}</p>${heading('', t)}${mdLite(b)}` });
+  return (
+    <section className="space-y-3">
+      {!cur ? <>
+        <p className="text-sm text-muted-foreground">Letters are filled from this file. Anything that needs your decision is marked [[fill in]]. Saved copies stay here; emails go in the student’s language with the English original as the official copy.</p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">{tpls.map((t) => <button key={t.kind} type="button" onClick={() => setCur({ ...t })} className="rounded-2xl border-2 border-border/60 p-3 text-left text-sm font-bold hover:bg-muted/30">✉️ {t.title}</button>)}</div>
+        {(f.letters || []).length > 0 && <div className="space-y-1"><p className="text-[12px] font-black uppercase tracking-widest text-muted-foreground">Sent and saved</p>{f.letters.map((l: any) => <button key={l.id} type="button" onClick={() => print(l.title, l.body, l.at)} className="flex w-full justify-between rounded-xl bg-muted/40 px-3 py-2 text-left text-sm"><span>{l.title}</span><span className="text-[12px] text-muted-foreground">{new Date(l.at).toLocaleDateString()} · {l.emailed ? `emailed${l.lang ? ` (${l.lang} + English)` : ''}` : 'saved'} · {l.by}</span></button>)}</div>}
+      </> : <>
+        <input className="h-11 w-full rounded-xl border-2 border-border/60 bg-background px-3 text-sm font-bold" value={cur.title} onChange={(e) => setCur({ ...cur, title: e.target.value })} />
+        {holes(cur.body) > 0 && <p className="rounded-xl bg-amber-50 p-2 text-sm text-amber-900"><b>{holes(cur.body)} part{holes(cur.body) === 1 ? '' : 's'} to fill in</b> before saving or sending.</p>}
+        <div className="grid gap-3 lg:grid-cols-2"><textarea rows={14} className="w-full rounded-xl border-2 border-border/60 bg-background p-3 text-sm" value={cur.body} onChange={(e) => setCur({ ...cur, body: e.target.value })} />
+          <div className="rounded-xl border-2 border-border/60 bg-white p-4 text-sm [&_h2]:mt-3 [&_h2]:font-black [&_li]:ml-5 [&_li]:list-disc [&_p]:my-1.5" dangerouslySetInnerHTML={{ __html: mdLite(cur.body) }} /></div>
+        {f.canManage ? <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => print(cur.title, cur.body)} className="h-10 rounded-xl border-2 px-4 text-sm font-bold">Print</button>
+          <button type="button" disabled={!!busy || holes(cur.body) > 0} onClick={async () => { setBusy('save'); const r = await onSend({ kind: cur.kind, title: cur.title, body: cur.body, email: false }); setBusy(''); if (r?.ok) setCur(null); }} className="h-10 rounded-xl border-2 px-4 text-sm font-bold disabled:opacity-40">Save to file</button>
+          <button type="button" disabled={!!busy || holes(cur.body) > 0 || !P.email} onClick={async () => { setBusy('email'); const r = await onSend({ kind: cur.kind, title: cur.title, body: cur.body, email: true }); setBusy(''); if (r?.ok) setCur(null); }} className="h-10 rounded-xl bg-foreground px-4 text-sm font-bold text-background disabled:opacity-40">{busy === 'email' ? 'Sending…' : `Email to ${String(P.name || '').split(' ')[0] || 'student'}`}</button>
+          <button type="button" onClick={() => setCur(null)} className="h-10 px-3 text-sm font-bold text-muted-foreground">Cancel</button></div>
+          : <p className="text-[12px] text-muted-foreground">Owners and managers send letters.</p>}
+      </>}
+    </section>
   );
 }
