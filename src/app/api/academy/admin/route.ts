@@ -7,6 +7,7 @@
 //   video-status   (is Mux done processing? saves the playback id)
 //   students       (who's enrolled, and how far they've got)
 
+import { modKey, notifyModuleOpen } from '@/lib/academy-modules';
 import { KIT_GUIDE, KIT_EXAMPLE, extractHtml, scriptError } from '@/lib/interactive-kit';
 import { AI_WEIGHTS, takeCredits, refundCredits, creditStatus } from '@/lib/ai-credits';
 import { deviceAllowed } from '@/lib/approved-devices';
@@ -297,6 +298,24 @@ async function handle(req: NextRequest) {
       const j: any = r.ok ? parseJson(r.text) : null;
       if (!j?.prompt) return NextResponse.json({ ok: false, error: 'The draft didn’t come back usable — try again.' }, { status: 502 });
       return NextResponse.json({ ok: true, assignment: { prompt: String(j.prompt).slice(0, 4000), type: kind, rubric: (j.rubric || []).slice(0, 10).map((x: any) => ({ criterion: String(x.criterion || '').slice(0, 200), points: Math.max(1, Math.min(100, Math.round(Number(x.points) || 10))) })).filter((x: any) => x.criterion), dueDays: Math.max(0, Math.min(60, Number(j.dueDays) || 7)), resubmit: true } });
+    }
+
+    // ── Module settings: when each module opens, its intro and badge ──
+    if (b.action === 'module-settings' || b.action === 'module-release-now') {
+      const key = modKey(String(b.title || b.key || ''));
+      const title = String(b.title || '').slice(0, 120);
+      const ref = db.doc(`${base}/${courseId}`);
+      if (b.action === 'module-release-now') {
+        await ref.set({ modules: { [key]: { title, release: 'manual', releasedAt: now, releasedBy: who } } }, { merge: true });
+        await appendAudit(tenantId, { type: 'module.released', courseId, by: who, summary: `Released module “${title}”`, data: { key } });
+        const sent = await notifyModuleOpen(tenantId, courseId, title).catch(() => 0);
+        return NextResponse.json({ ok: true, sent });
+      }
+      const m = b.settings || {};
+      const release = ['open', 'previous', 'date', 'manual'].includes(m.release) ? m.release : 'open';
+      await ref.set({ modules: { [key]: { title, release, date: release === 'date' && m.date ? new Date(m.date).toISOString() : null, intro: str(m.intro, 600) || null,
+        badge: m.badge?.name ? { name: str(m.badge.name, 40), emoji: str(m.badge.emoji, 4) || '🏅' } : null, ...(release === 'date' ? { notifiedAt: null } : {}) } }, updatedAt: now }, { merge: true });
+      return NextResponse.json({ ok: true });
     }
 
     // ── ✨ Make an interactive: AI builds animated, self-contained HTML (sealed frame for students) ──
