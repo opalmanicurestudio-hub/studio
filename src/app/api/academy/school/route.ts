@@ -12,6 +12,7 @@
 //   checkoff        { appointmentId, scores[], notes, photoBefore?, photoAfter?, redo? }
 // Instructors can use roster, progress, clinic-queue and checkoff.
 
+import { homeCounts } from '@/lib/academy-decisions';
 import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -76,7 +77,7 @@ export async function POST(req: NextRequest) {
           programs: progs.size, activeStudents: R.length,
           newInquiries: A.filter((a: any) => a.stage === 'inquiry').length,
           docsToCheck: A.reduce((n: number, a: any) => n + Object.values(a.documents || {}).filter((x: any) => x.status === 'submitted').length, 0),
-          toCountersign: A.filter((a: any) => a.agreement?.signedAt && !a.agreement?.countersignedBy).length,
+          toCountersign: A.filter((a: any) => a.agreement?.signedAt && !a.agreement?.countersignedBy).length, ...homeCounts(A),
           checkoffsToday: appts.docs.map((d: any) => d.data() as any).filter((a: any) => studentIds.has(a.staffId) && !a.clinicCheckoff?.signedOff && !['cancelled', 'declined', 'no_show'].includes(a.status)).length,
           onFloor: P.filter((p: any) => p.status === 'open').length, attendanceToFix: P.filter((p: any) => p.status === 'flagged' || p.status === 'pending').length,
           atRisk: R.filter((e: any) => e.risk?.level === 'high').length, watch: R.filter((e: any) => e.risk?.level === 'watch').length,
