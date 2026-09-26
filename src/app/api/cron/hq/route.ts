@@ -8,6 +8,7 @@
 // after two nudges are listed in a short daily digest to you (with open help
 // requests), so a person steps in exactly when automation hasn't worked.
 
+import { admissionsDaily } from '@/lib/academy-decisions';
 import { remindDueSoon } from '@/lib/academy-assign';
 import { announceDateReleases } from '@/lib/academy-modules';
 import { sweepJourney } from '@/lib/academy-journey';
@@ -89,6 +90,8 @@ export async function GET(req: NextRequest) {
   try { await sweepAcademy(); } catch { /* retried tomorrow */ }
   try { await announceDateReleases(); } catch { /* retried tomorrow */ }
   try { await remindDueSoon(); } catch { /* retried tomorrow */ }
+  // Admissions: offer reminders and expiry (seats go to the waitlist), missing-document nudges.
+  try { await admissionsDaily((t) => linkOrigin(t, req.nextUrl.origin)); } catch { /* retried tomorrow */ }
   // Student journey: risk scores, progress checks, Monday digest to schools.
   try { await sweepJourney(); } catch { /* retried tomorrow */ }
   // Tuition instalments due today (autopay on the card saved at the down payment).
