@@ -160,6 +160,7 @@ export default function AcademyBuilderPage() {
       { key: 'programs', label: 'Programs', hint: 'Hours, services, tuition rules', icon: GraduationCap, school: true },
       { key: 'settings', label: 'Settings', hint: 'Academy type and your links', icon: SettingsIcon } ] },
   ];
+  const docBrand = { name: String((selectedTenant as any)?.name || home?.name || 'Academy'), logoUrl: (selectedTenant as any)?.logoUrl || (selectedTenant as any)?.bookingPageSettings?.logoUrl || null, color: (selectedTenant as any)?.bookingPageSettings?.primaryColor || null };
   const visible = NAV.map((g) => ({ ...g, items: g.items.filter((i) => !i.school || mode === 'school') })).filter((g) => g.items.length);
   const current = visible.flatMap((g) => g.items).find((i) => i.key === section) || visible[0].items[0];
   const go = (k: Section) => { setSection(k); window.scrollTo({ top: 0, behavior: 'smooth' }); };
@@ -200,10 +201,10 @@ export default function AcademyBuilderPage() {
             )}
             {msg && <p className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{msg}</p>}
             {section === 'home' && <AcademyHome tenantId={tenantId} data={home} go={go} />}
-            {section === 'programs' && mode === 'school' && <SchoolPrograms tenantId={tenantId} courses={courses || []} />}
+            {section === 'programs' && mode === 'school' && <SchoolPrograms tenantId={tenantId} courses={courses || []} brand={docBrand} />}
             {section === 'salon' && mode === 'school' && <StudentSalon tenantId={tenantId} />}
             {section === 'admissions' && mode === 'school' && <AdmissionsBoard tenantId={tenantId} />}
-            {section === 'students' && mode === 'school' && <StudentJourney tenantId={tenantId} />}
+            {section === 'students' && mode === 'school' && <StudentJourney tenantId={tenantId} brand={docBrand} />}
             {section === 'attendance' && mode === 'school' && <AttendancePanel tenantId={tenantId} />}
             {section === 'live' && <LiveClass tenantId={tenantId} />}
             {section === 'reports' && mode === 'school' && <AcademyReports tenantId={tenantId} />}
