@@ -16,6 +16,7 @@
 // Language: the portal's words and all content are shown in the student's
 // language (AI translation, cached); originals are always one tap away.
 
+import { ProgressRing } from '@/components/academy/Delight';
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -35,11 +36,11 @@ const S = {
   cardSaved: 'Card updated.', retried: 'We tried your payment again:', success: 'it went through', failed: 'it didn’t go through — please try another card',
   write: 'Write to your school', send: 'Send', showOriginal: 'Show original', showTranslation: 'Show translation', translatedNote: 'Translated automatically',
   agreement: 'Enrolment agreement', signedOn: 'Signed on', readingAid: 'Translation to help you understand — the English original is the version you signed.',
-  certificates: 'Certificates', letters: 'Hours letters', uploads: 'Your documents', nothingYet: 'Nothing here yet.', signOut: 'Sign out', joinLive: 'Join a live class',
+  toGo: 'to go', certificates: 'Certificates', letters: 'Hours letters', uploads: 'Your documents', nothingYet: 'Nothing here yet.', signOut: 'Sign out', joinLive: 'Join a live class',
   statusApproved: 'approved', statusOpen: 'on the floor', statusFlagged: 'needs your instructor', statusPending: 'waiting for approval', statusClosed: 'recorded',
 };
 type Str = typeof S;
-const UI_V = 'v1';
+const UI_V = 'v2';   // bump when words are added, so phones fetch the new translations
 
 /** The portal's words in the student's language (translated once, remembered on this device). */
 function useWords(tenantId: string, lang: string): Str {
@@ -175,7 +176,8 @@ function LearnTab({ p, w, tenantId, color, courses }: any) {
     <div className="space-y-3">
       {p.programs.map((pr: any) => (
         <Card key={pr.id} title={w.program}><p className="text-lg font-semibold">{pr.name}</p>
-          {pr.totalHours && <div className="mt-2"><div className="flex justify-between text-sm"><span>{w.hours}</span><span><b>{pr.hours.total}</b> {w.of} {pr.totalHours}</span></div><div className="mt-1 h-2 rounded-full bg-white/80"><div className="h-2 rounded-full" style={{ width: `${pr.hours.pct || 0}%`, background: color }} /></div></div>}
+          {pr.totalHours && <div className="mt-3 flex items-center gap-4"><ProgressRing value={pr.hours.total} max={pr.totalHours} color={color} label={`${pr.hours.total}`} sub={`${w.of} ${pr.totalHours} h`} />
+            <div className="min-w-0 flex-1 space-y-1 text-sm"><p>{w.inPerson} <b>{pr.hours.inPerson}</b></p><p>{w.online} <b>{pr.hours.online}</b></p><p className="text-stone-500">{Math.max(0, Math.round((pr.totalHours - pr.hours.total) * 4) / 4)} h {w.toGo}</p></div></div>}
           {pr.requirements.length > 0 && <><p className="mt-3 text-[12px] font-semibold text-stone-500">{w.servicesDone}</p><div className="mt-1 grid gap-1.5 sm:grid-cols-2">{pr.requirements.map((r: any) => <div key={r.key} className="rounded-xl bg-white/70 px-3 py-2 text-sm"><div className="flex justify-between"><span>{r.label}</span><b>{r.done}/{r.required}</b></div><div className="mt-1 h-1.5 rounded-full bg-stone-100"><div className="h-1.5 rounded-full" style={{ width: `${Math.min(100, (r.done / Math.max(1, r.required)) * 100)}%`, background: color }} /></div></div>)}</div></>}
         </Card>
       ))}
@@ -199,7 +201,7 @@ function HoursTab({ w, lang, tenantId, color }: any) {
   return (
     <div className="space-y-3">
       {d.programs.map((pr: any, i: number) => (
-        <Card key={i} title={pr.name}><div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{[[w.total, pr.hours.total], [w.online, pr.hours.online], [w.live, pr.hours.live || 0], [w.inPerson, pr.hours.inPerson]].map(([l, v]) => <div key={l as string} className="rounded-xl bg-white/70 p-2 text-center"><p className="text-xl font-semibold">{v}</p><p className="text-[11px] text-stone-500">{l}</p></div>)}</div>
+        <Card key={i} title={pr.name}>{pr.totalHours && <div className="mb-3 flex justify-center"><ProgressRing value={pr.hours.total} max={pr.totalHours} size={150} color={color} label={`${pr.hours.total} h`} sub={`${w.of} ${pr.totalHours}`} /></div>}<div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{[[w.total, pr.hours.total], [w.online, pr.hours.online], [w.live, pr.hours.live || 0], [w.inPerson, pr.hours.inPerson]].map(([l, v]) => <div key={l as string} className="rounded-xl bg-white/70 p-2 text-center"><p className="text-xl font-semibold">{v}</p><p className="text-[11px] text-stone-500">{l}</p></div>)}</div>
           {pr.totalHours && <p className="mt-2 text-sm text-stone-600">{pr.hours.total} {w.of} {pr.totalHours} {w.hours.toLowerCase()}</p>}
           {pr.sap.length > 0 && <><p className="mt-3 text-[12px] font-semibold text-stone-500">{w.progressChecks}</p>{pr.sap.map((s: any, k: number) => <p key={k} className="text-sm">{s.checkpoint} h · <b className={s.result === 'satisfactory' ? 'text-emerald-700' : s.result === 'warning' ? 'text-amber-700' : 'text-red-700'}>{s.result}</b> · {fmt(s.at, lang)}</p>)}</>}
         </Card>
