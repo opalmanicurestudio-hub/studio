@@ -23,6 +23,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { resolveFromAddress } from '@/lib/notify';
 import { linkOrigin } from '@/lib/app-origin';
 import { payLaterCheckoutParams } from '@/lib/pay-later';
+import { mediaUrl } from '@/lib/academy';
 import { loadCourseBySlug, loadLessons, studentFromToken, enroll, enrollFromCheckout, createStudentSession, createLoginLink, studentIdFor, sha, muxPlaybackToken, embedUrl } from '@/lib/academy';
 import { applyBeat, appendAudit, jitterMin, lessonMet, qrValid, metersBetween, mergeRanges, watchedSeconds, DEFAULT_RULES, type Range } from '@/lib/academy-compliance';
 import { randomBytes } from 'crypto';
@@ -40,6 +41,23 @@ const publicCourse = (c: any) => ({ id: c.id, slug: c.slug, title: c.title, subt
 async function sendEmail(to: string, subject: string, text: string) {
   if (!process.env.RESEND_API_KEY) return false;
   try { const r = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: resolveFromAddress(), to, subject, text }) }); return r.ok; } catch { return false; }
+}
+
+/** Lesson blocks with short-lived private links for their images and files (only for someone allowed to see the lesson). */
+async function resolveBlocks(tenantId: string, courseId: string, blocks: any[]) {
+  const db = getAdminDb(); const cache = new Map<string, any>();
+  const link = async (id?: string | null) => {
+    if (!id) return null; if (cache.has(id)) return cache.get(id);
+    const m = ((await db.doc(`tenants/${tenantId}/courses/${courseId}/media/${id}`).get()).data() as any) || null;
+    const v = m ? { url: await mediaUrl(m.path, 120), name: m.name, kind: m.kind } : null; cache.set(id, v); return v;
+  };
+  const out = [];
+  for (const b of blocks) {
+    if (b.type === 'image' || b.type === 'file') out.push({ ...b, media: await link(b.mediaId) });
+    else if (b.type === 'steps') out.push({ ...b, steps: await Promise.all((b.steps || []).map(async (x: any) => ({ ...x, media: await link(x.mediaId) }))) });
+    else out.push(b);
+  }
+  return out;
 }
 
 export async function POST(req: NextRequest) {
@@ -176,7 +194,7 @@ export async function POST(req: NextRequest) {
       const quiz = l.quiz?.questions?.length ? { passPct: l.quiz.passPct || 80, questions: l.quiz.questions.map((q: any) => ({ q: q.q, options: q.options })), attempts: (enr.quiz?.[lessonId]?.attempts || []).slice(-5), passed: !!enr.quiz?.[lessonId]?.passed } : null;
       const studentLang = student ? ((((await db.doc(`tenants/${tenantId}/students/${student.id}`).get()).data() as any) || {}).language || 'en') : 'en';
       return NextResponse.json({ ok: true, enrolled, studentLang, aiTutor: enrolled && c.aiTutor !== false && aiConfigured(), lesson: { id: lessonId, title: l.title, moduleTitle: l.moduleTitle, kind: l.kind, body: l.body || '', downloadUrl: l.downloadUrl || null, downloadName: l.downloadName || null, preview: !!l.preview, video, durationSec: l.durationSec || null, minMinutes: l.minMinutes || 0, quiz,
-        flashcards: l.flashcards || [], activity: l.activity || null, transcript: l.transcript || null },
+        flashcards: l.flashcards || [], activity: l.activity || null, transcript: l.transcript || null, blocks: await resolveBlocks(tenantId, courseId, l.blocks || []) },
         tracking: { compliance: !!c.compliance, checkEveryMin: c.compliance ? (c.attentionCheckMinutes ?? DEFAULT_RULES.attentionCheckMinutes) : 0, minEngagementPct: c.minEngagementPct ?? DEFAULT_RULES.minEngagementPct, minWatchPct: c.minWatchPct ?? DEFAULT_RULES.minWatchPct,
           engagedSec: stat.engagedSec || 0, watchedSec: stat.watchedSec || 0 } });
     }
