@@ -7,6 +7,7 @@
 import type { Metadata } from 'next';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { PrintButton } from '@/components/academy/PrintButton';
+import { getIdentity } from '@/lib/school-identity';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Certificate verification', robots: { index: false } };
@@ -16,9 +17,13 @@ export default async function VerifyPage({ params }: { params: Promise<{ code: s
   const c = code ? (((await getAdminDb().doc(`platformCertificates/${code}`).get()).data() as any) || null) : null;
   // Not a certificate? It may be an hours certification letter.
   const letter = !c && code ? (((await getAdminDb().doc(`platformDocuments/${code}`).get()).data() as any) || null) : null;
+  const tid = String((c || letter)?.tenantId || '');
+  const id = tid ? await getIdentity(tid, undefined, { forPublic: true }).catch(() => null) : null;
+  const schoolName = id?.displayName || (c || letter)?.tenantName || '';
   if (letter) return (
     <div className="min-h-dvh bg-[#f7f5f2] px-5 py-10 text-stone-900">
       <div className="mx-auto max-w-lg space-y-4 rounded-[2rem] bg-white p-8 shadow-sm">
+        {id?.logoUrl && <img src={id.logoUrl} alt={schoolName} className="h-12 max-w-[160px] object-contain" />}
         <p className={`inline-block rounded-full px-4 py-2 text-sm font-semibold ${letter.status === 'valid' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>{letter.status === 'valid' ? '✓ Verified — this letter is genuine' : '✕ This letter has been withdrawn'}</p>
         <p className="text-[11px] uppercase tracking-[0.3em] text-stone-400">Certification of hours</p>
         <p className="text-2xl font-light">{letter.studentName}</p>
@@ -46,14 +51,22 @@ export default async function VerifyPage({ params }: { params: Promise<{ code: s
             <PrintButton />
           </div>
           <div className="mx-auto max-w-3xl rounded-[2rem] border-[10px] border-double border-stone-300 bg-white px-8 py-14 text-center shadow-sm print:shadow-none">
+            {id?.logoUrl && <img src={id.logoUrl} alt={schoolName} className="mx-auto mb-6 h-16 max-w-[200px] object-contain" />}
             <p className="text-[11px] uppercase tracking-[0.4em] text-stone-400">Certificate of completion</p>
             <p className="mt-8 text-stone-500">This certifies that</p>
             <p className="mt-2 text-4xl font-light tracking-tight sm:text-5xl">{c.studentName}</p>
             <p className="mt-6 text-stone-500">has successfully completed</p>
             <p className="mt-2 text-2xl font-semibold">{c.courseTitle}</p>
-            <p className="mt-1 text-stone-600">with {c.tenantName}</p>
+            <p className="mt-1 text-stone-600">with {schoolName}</p>
+            {(id?.legalName || id?.licenseNumber) && <p className="mt-1 text-[12px] text-stone-500">{[id?.legalName && id.legalName !== schoolName ? id.legalName : '', id?.licenseNumber ? `${id?.licensingBoard ? `${id.licensingBoard} · ` : ''}School licence #${id.licenseNumber}` : ''].filter(Boolean).join(' · ')}</p>}
             {(c.requiredOnlineHours || c.onlineHours) ? <p className="mt-4 text-sm text-stone-600">Verified online learning: {c.onlineHours} hours{c.requiredInPersonHours ? ` · in-person hours requirement met (${c.requiredInPersonHours} h)` : ''}</p> : null}
-            <p className="mt-10 text-sm text-stone-500">Issued {date}</p>
+            {(() => { const sig = id?.signatureOnCertificates !== false && id?.signatureUrl; const seal = id?.sealOnCertificates !== false && id?.sealUrl; const who = [id?.signerName, id?.signerTitle].filter(Boolean).join(', ');
+              return (sig || seal || who) ? (
+                <div className="mx-auto mt-10 flex max-w-xl items-end justify-between gap-6 text-left">
+                  <div className="min-w-0 flex-1">{sig ? <img src={sig} alt="Signature" className="-mb-1 h-16 max-w-[240px] object-contain" /> : <div className="h-16" />}<p className="border-t border-stone-800 pt-1.5 text-[12px] text-stone-600">{who || 'Authorised school official'}</p></div>
+                  <p className="pb-2 text-sm text-stone-500">Issued {date}</p>
+                  {seal ? <img src={seal} alt="Official seal" className="h-28 w-28 -rotate-6 object-contain" /> : <div className="w-28" />}
+                </div>) : <p className="mt-10 text-sm text-stone-500">Issued {date}</p>; })()}
             <p className="mt-6 font-mono text-[12px] tracking-widest text-stone-500">Verification code {c.code}</p>
             <p className="text-[11px] text-stone-400">Verify at /verify/{c.code}</p>
           </div>
