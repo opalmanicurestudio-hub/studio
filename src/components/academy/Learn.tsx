@@ -632,6 +632,7 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
   const [recap, setRecap] = useState<any>(null); const [gained, setGained] = useState(0);
   // One step at a time: which step is on screen, and whether the student chose "Show all".
   const [stepAt, setStepAt] = useState(0); const [showAll, setShowAll] = useState(false);
+  const studyRef = useRef<HTMLDivElement>(null);   // highlights & notes live over this area
   useEffect(() => { setStepAt(0); }, [lessonId]);
   // Video pop-up questions: pause at each time; scrubbing past one still asks it.
   const playerEl = useRef<any>(null);
@@ -739,11 +740,14 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
                   {trk.compliance && <span className="w-full text-[11px] text-stone-400">This course records verified learning time for your school. Time counts while this page is open and you’re actively learning.</span>}
                 </div>
               )}
+              <div ref={studyRef} className="contents">
               {L.body && <Glass className={`space-y-3 ${hide('body')}`}><div className="flex justify-end"><Listen text={L.body} /></div><Prose text={L.body} /></Glass>}
               <Celebrate show={cheer > 0} color={color} key={cheer} />
               {gained > 0 && <p key={`g${cheer}`} className="cf-pop fixed left-1/2 top-20 z-40 -translate-x-1/2 rounded-full bg-white px-4 py-2 text-sm font-semibold shadow-lg" style={{ color }}>+{gained} points</p>}
               {recap && <ModuleRecap r={recap} color={color} onDone={() => { window.location.href = `/learn/${tenantId}/${slug}`; }} />}
               {(L.blocks || []).length > 0 && <Blocks blocks={L.blocks} accent={color} audioFirst={!!lesson.audioFirst} extraTime={Number(lesson.extraTime) || 1} hideAt={(i: number) => hide(`block:${i}`)} report={lesson.enrolled ? (blockId, pct) => void api({ action: 'activity-score', part: 'game', blockId, tenantId, token, courseId: course.course.id, lessonId, pct }) : undefined} />}
+              </div>
+              {lesson.enrolled && <StudyLayer tenantId={tenantId} token={token} courseId={course.course.id} lessonId={lessonId} containerRef={studyRef} color={color} />}
               {lesson.enrolled && L.kind === 'assignment' && <div className={hide('assignment')}><Assignment tenantId={tenantId} courseId={course.course.id} lessonId={lessonId} color={color} /></div>}
               {L.transcript && <details className="glass rounded-2xl border border-white/70 px-4 py-3"><summary className="cursor-pointer text-sm font-semibold">📄 Transcript</summary><p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap text-[15px] leading-relaxed text-stone-700">{L.transcript}</p></details>}
               {lesson.enrolled && L.cases?.cases?.length > 0 && <div className={hide('cases')}><Cases c={L.cases} color={color} report={(pct) => void api({ action: 'activity-score', part: 'cases', tenantId, token, courseId: course.course.id, lessonId, pct })} /></div>}
@@ -1329,3 +1333,64 @@ export function GameChips({ g, color }: { g: any; color: string }) {
     </div>
   );
 }
+
+
+// ── Highlights, notes and own flashcards while learning ───────────────────
+// Highlights are drawn with the browser's CSS Custom Highlight API: the lesson's
+// own markup is never changed, so videos, step mode and time tracking are safe.
+const HL_CSS = `::highlight(cf-yellow){background-color:#fde68a}::highlight(cf-green){background-color:#bbf7d0}::highlight(cf-pink){background-color:#fbcfe8}::highlight(cf-note){background-color:#e9d5ff;text-decoration:underline dotted #7c3aed}`;
+function rangesFor(root: HTMLElement, quote: string): Range[] {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT); const nodes: Text[] = []; let full = '';
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) { nodes.push(n as Text); full += (n as Text).data; }
+  const q = quote.replace(/\s+/g, ' ').trim(); if (!q) return [];
+  const norm = full.replace(/\s/g, ' '); const at = norm.indexOf(q); if (at < 0) return [];
+  const pos = (off: number) => { let acc = 0; for (const t of nodes) { if (off <= acc + t.data.length) return { node: t, off: off - acc }; acc += t.data.length; } return null; };
+  const a = pos(at), z = pos(at + q.length); if (!a || !z) return [];
+  const r = document.createRange(); r.setStart(a.node, a.off); r.setEnd(z.node, z.off); return [r];
+}
+function StudyLayer({ tenantId, token, courseId, lessonId, containerRef, color }: any) {
+  const [notes, setNotes] = useState<any[]>([]); const [sel, setSel] = useState(''); const [sheet, setSheet] = useState<null | 'note' | 'card'>(null); const [note, setNote] = useState(''); const [back, setBack] = useState(''); const [front, setFront] = useState(''); const [msg, setMsg] = useState('');
+  const load = useCallback(async () => { const r = await api({ action: 'notes-list', tenantId, token, lessonId }); if (r.ok) setNotes(r.notes); }, [tenantId, token, lessonId]);
+  useEffect(() => { void load(); }, [load]);
+  // Draw highlights (re-drawn when notes or the page change).
+  useEffect(() => {
+    const root = containerRef.current; const H = (window as any).Highlight; const reg = (CSS as any).highlights;
+    if (!root || !H || !reg) return;
+    const draw = () => { const by: Record<string, Range[]> = { 'cf-yellow': [], 'cf-green': [], 'cf-pink': [], 'cf-note': [] };
+      for (const n of notes) { if (n.kind === 'card' || !n.text) continue; const k = n.kind === 'note' ? 'cf-note' : `cf-${n.color || 'yellow'}`; by[k].push(...rangesFor(root, n.text)); }
+      for (const [k, rs] of Object.entries(by)) reg.set(k, new H(...rs)); };
+    draw(); const t = setTimeout(draw, 800);
+    return () => { clearTimeout(t); for (const k of ['cf-yellow', 'cf-green', 'cf-pink', 'cf-note']) reg.delete(k); };
+  }, [notes, containerRef]);
+  // Watch selections inside the lesson.
+  useEffect(() => {
+    const on = () => { if (sheet) return; const s = window.getSelection(); const root = containerRef.current; const t = s?.toString().replace(/\s+/g, ' ').trim() || '';
+      if (!s || !root || s.rangeCount === 0 || t.length < 2 || t.length > 600 || !root.contains(s.getRangeAt(0).commonAncestorContainer)) { setSel(''); return; } setSel(t); };
+    document.addEventListener('selectionchange', on); return () => document.removeEventListener('selectionchange', on);
+  }, [containerRef, sheet]);
+  const save = async (n: any) => { const r = await api({ action: 'note-save', tenantId, token, note: { courseId, lessonId, ...n } }); if (r.ok) { setMsg(n.kind === 'card' ? 'Flashcard added to your review deck.' : n.kind === 'note' ? 'Note saved.' : 'Highlighted.'); setTimeout(() => setMsg(''), 2200); try { window.getSelection()?.removeAllRanges(); } catch { /* */ } setSel(''); setSheet(null); setNote(''); setBack(''); await load(); } else setMsg(r.error); };
+  const mine = notes.filter((n) => n.kind !== 'card' || n.lessonId === lessonId);
+  return (<>
+    <style>{HL_CSS}</style>
+    {sel && !sheet && <div className="cf-rise fixed inset-x-3 bottom-4 z-40 mx-auto flex max-w-md items-center gap-1.5 rounded-full bg-stone-900 p-1.5 text-white shadow-2xl" onMouseDown={(e) => e.preventDefault()}>
+      {COLORS_UI.map(([k, bg]) => <button key={k} type="button" aria-label={`Highlight ${k}`} onClick={() => save({ kind: 'highlight', text: sel, color: k })} className="h-10 w-10 shrink-0 rounded-full ring-2 ring-white/30" style={{ background: bg }} />)}
+      <button type="button" onClick={() => setSheet('note')} className="h-10 flex-1 rounded-full bg-white/10 text-sm">📝 Note</button>
+      <button type="button" onClick={() => { setFront(sel); setSheet('card'); }} className="h-10 flex-1 rounded-full bg-white/10 text-sm">🃏 Card</button></div>}
+    {sheet && <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-3 sm:items-center" onClick={() => setSheet(null)}>
+      <div onClick={(e) => e.stopPropagation()} className="cf-land w-full max-w-md space-y-3 rounded-3xl bg-white p-5">
+        {sheet === 'note' ? <><p className="rounded-2xl bg-violet-50 p-3 text-sm italic">“{sel}”</p><textarea autoFocus rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Your note — in your own words" className="w-full rounded-2xl border p-3 text-[16px]" />
+          <button type="button" disabled={!note.trim()} onClick={() => save({ kind: 'note', text: sel, note })} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>Save note</button></>
+        : <><label className="block text-[12px] font-semibold text-stone-500">Front<textarea rows={2} value={front} onChange={(e) => setFront(e.target.value)} className="mt-1 w-full rounded-2xl border p-3 text-[16px] text-stone-900" /></label>
+          <label className="block text-[12px] font-semibold text-stone-500">Back (the answer)<textarea autoFocus rows={2} value={back} onChange={(e) => setBack(e.target.value)} className="mt-1 w-full rounded-2xl border p-3 text-[16px] text-stone-900" /></label>
+          <button type="button" disabled={!front.trim() || !back.trim()} onClick={() => save({ kind: 'card', text: sel, front, back })} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>Add to my flashcards</button></>}
+      </div></div>}
+    {msg && <p className="cf-pop fixed left-1/2 top-20 z-50 -translate-x-1/2 rounded-full bg-stone-900 px-4 py-2 text-sm text-white shadow-lg">{msg}</p>}
+    {mine.length === 0 && <p className="text-center text-[12px] text-stone-400">✨ Tip: select any text to highlight it, add a note, or make a flashcard.</p>}
+    {mine.length > 0 && <Glass className="space-y-2"><p className="text-[11px] uppercase tracking-[0.25em] text-stone-400">My notes · this lesson</p>
+      {mine.map((n) => <div key={n.id} className="flex items-start gap-2 rounded-2xl bg-white/70 p-3 text-[14px]"><span className="mt-1 h-3 w-3 shrink-0 rounded-full" style={{ background: n.kind === 'card' ? '#c4b5fd' : n.kind === 'note' ? '#e9d5ff' : (COLORS_UI.find(([k]) => k === n.color)?.[1] || '#fde68a') }} />
+        <div className="min-w-0 flex-1">{n.kind === 'card' ? <p>🃏 <b>{n.front}</b> — {n.back}</p> : <p className="italic">“{n.text}”</p>}{n.note && <p className="mt-1 text-stone-700">{n.note}</p>}</div>
+        <button type="button" onClick={async () => { await api({ action: 'note-delete', tenantId, token, id: n.id }); await load(); }} aria-label="Delete" className="text-stone-400">✕</button></div>)}
+      <p className="text-[11px] text-stone-400">Select any text in this lesson to highlight it, add a note, or make a flashcard.</p></Glass>}
+  </>);
+}
+const COLORS_UI: [string, string][] = [['yellow', '#fde68a'], ['green', '#bbf7d0'], ['pink', '#fbcfe8']];
