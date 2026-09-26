@@ -8,6 +8,7 @@
 // after two nudges are listed in a short daily digest to you (with open help
 // requests), so a person steps in exactly when automation hasn't worked.
 
+import { announceDateReleases } from '@/lib/academy-modules';
 import { sweepJourney } from '@/lib/academy-journey';
 import { chargeDueInstallments } from '@/lib/academy-admissions';
 import { NextRequest, NextResponse } from 'next/server';
@@ -85,6 +86,7 @@ export async function GET(req: NextRequest) {
   }
   // Academy records: close abandoned online sessions, flag missing clock-outs.
   try { await sweepAcademy(); } catch { /* retried tomorrow */ }
+  try { await announceDateReleases(); } catch { /* retried tomorrow */ }
   // Student journey: risk scores, progress checks, Monday digest to schools.
   try { await sweepJourney(); } catch { /* retried tomorrow */ }
   // Tuition instalments due today (autopay on the card saved at the down payment).
