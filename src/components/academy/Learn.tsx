@@ -65,13 +65,13 @@ function Assignment({ tenantId, courseId, lessonId, color }: { tenantId: string;
 }
 
 // ── Lesson content blocks (student view) ────────────────────────────────
-function Blocks({ blocks, accent, hideAt, report }: { blocks: any[]; accent?: string | null; hideAt?: (i: number) => string; report?: (blockId: string, pct: number) => void }) {
+function Blocks({ blocks, accent, hideAt, report, audioFirst, extraTime }: { blocks: any[]; accent?: string | null; hideAt?: (i: number) => string; report?: (blockId: string, pct: number) => void; audioFirst?: boolean; extraTime?: number }) {
   const tone: Record<string, [string, string]> = { safety: ['🛑 Safety', 'border-red-200 bg-red-50/90 text-red-950'], key: ['⭐ Key point', 'border-amber-200 bg-amber-50/90 text-amber-950'], tip: ['💡 Tip', 'border-sky-200 bg-sky-50/90 text-sky-950'] };
   return (
     <div className="space-y-4">{blocks.map((b: any, i: number) => <div key={i} className={hideAt ? hideAt(i) : ''}>{oneBlock(b, i)}</div>)}</div>
   );
   function oneBlock(b: any, i: number) {
-      if (b.type === 'text') return <Glass key={i}><Prose text={b.text} /></Glass>;
+      if (b.type === 'text') return <Glass key={i} className="space-y-2">{audioFirst && <div className="flex justify-end"><Listen text={b.text} /></div>}<Prose text={b.text} /></Glass>;
       if (b.type === 'callout') return <div key={i} className={`rounded-[1.25rem] border-2 p-4 ${tone[b.tone]?.[1] || ''}`}><p className="text-[12px] font-semibold uppercase tracking-widest">{tone[b.tone]?.[0]}</p><p className="mt-1 whitespace-pre-wrap text-[15px]">{b.text}</p></div>;
       if (b.type === 'image') return b.media?.url ? <figure key={i}><img src={b.media.url} alt={b.caption || ''} className="w-full rounded-[1.25rem]" />{b.caption && <figcaption className="mt-1 text-center text-[13px] text-stone-500">{b.caption}</figcaption>}</figure> : null;
       if (b.type === 'file') return b.media?.url ? <a key={i} href={b.media.url} target="_blank" rel="noreferrer" className="glass flex items-center justify-between rounded-2xl border border-white/70 px-4 py-3 text-sm"><span>{b.media.kind === 'audio' ? '🎧' : '📄'} {b.label || b.media.name}</span><span className="text-stone-500">Open</span></a> : null;
@@ -83,7 +83,7 @@ function Blocks({ blocks, accent, hideAt, report }: { blocks: any[]; accent?: st
       if (b.type === 'divider') return <hr key={i} className="border-white/70" />;
       // The interactive has its own heading inside the frame — nothing extra above it.
       if (b.type === 'interactive') return <div key={i}><InteractiveFrame html={b.html} title={b.title} accent={accent} onScore={b.game ? (pct) => report?.(b.id, pct) : undefined} /></div>;
-      if (b.type === 'game' && b.data) return <GameBlock key={i} b={b} color={accent || '#7c3aed'} report={(pct) => report?.(b.id, pct)} />;
+      if (b.type === 'game' && b.data) return <GameBlock key={i} b={b} color={accent || '#7c3aed'} extraTime={extraTime} report={(pct) => report?.(b.id, pct)} />;
       if (b.type === 'hotspots') return b.media?.url ? <Hotspots key={i} b={b} /> : null;
       if (b.type === 'stages') return <Stages key={i} b={b} />;
       return null;
@@ -94,16 +94,18 @@ function Blocks({ blocks, accent, hideAt, report }: { blocks: any[]; accent?: st
 const A11Y_KEY = 'cf_a11y';
 type A11y = { size: 0 | 1 | 2 | 3; contrast: boolean; readable: boolean; still: boolean };
 const A11Y_DEFAULT: A11y = { size: 0, contrast: false, readable: false, still: false };
-function useA11y() {
+function useA11y(tenantId?: string) {
   const [a, setA] = useState<A11y>(A11Y_DEFAULT);
   useEffect(() => { try { const v = JSON.parse(localStorage.getItem(A11Y_KEY) || 'null'); if (v) setA({ ...A11Y_DEFAULT, ...v }); } catch { /* none */ } }, []);
+  // Signed-in students: accommodations + their own choices, the same on every device.
+  useEffect(() => { const tok = tenantId ? getToken(tenantId) : null; if (!tok) return; api({ action: 'a11y-get', tenantId, token: tok }).then((r) => { if (r?.ok && r.prefs) { const v = { ...A11Y_DEFAULT, ...r.prefs }; setA(v); try { localStorage.setItem(A11Y_KEY, JSON.stringify(v)); } catch { /* */ } } }); }, [tenantId]);
   useEffect(() => {
     const html = document.documentElement; const prev = html.style.fontSize;
     html.style.fontSize = ['100%', '112.5%', '125%', '140%'][a.size];
     if (a.readable && !document.querySelector('link[data-cf-font]')) { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = 'https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap'; l.dataset.cfFont = '1'; document.head.appendChild(l); }
     return () => { html.style.fontSize = prev; };
   }, [a.size, a.readable]);
-  const save = (next: A11y) => { setA(next); try { localStorage.setItem(A11Y_KEY, JSON.stringify(next)); } catch { /* private mode */ } };
+  const save = (next: A11y) => { setA(next); try { localStorage.setItem(A11Y_KEY, JSON.stringify(next)); } catch { /* private mode */ } const tok = tenantId ? getToken(tenantId) : null; if (tok) void api({ action: 'a11y-set', tenantId, token: tok, prefs: next }); };
   return [a, save] as const;
 }
 const A11Y_CSS = `
@@ -416,7 +418,7 @@ export const MOTION_CSS = `
 `;
 
 export function Shell({ brand, tenantId, children }: { brand?: any; tenantId: string; children: React.ReactNode }) {
-  const [a, save] = useA11y();
+  const [a, save] = useA11y(tenantId);
   return (
     <div className="relative min-h-dvh text-stone-900" data-cf-contrast={a.contrast ? '1' : undefined} data-cf-readable={a.readable ? '1' : undefined} data-cf-still={a.still ? '1' : undefined}>
       <style>{A11Y_CSS + MOTION_CSS}</style>
@@ -741,7 +743,7 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
               <Celebrate show={cheer > 0} color={color} key={cheer} />
               {gained > 0 && <p key={`g${cheer}`} className="cf-pop fixed left-1/2 top-20 z-40 -translate-x-1/2 rounded-full bg-white px-4 py-2 text-sm font-semibold shadow-lg" style={{ color }}>+{gained} points</p>}
               {recap && <ModuleRecap r={recap} color={color} onDone={() => { window.location.href = `/learn/${tenantId}/${slug}`; }} />}
-              {(L.blocks || []).length > 0 && <Blocks blocks={L.blocks} accent={color} hideAt={(i: number) => hide(`block:${i}`)} report={lesson.enrolled ? (blockId, pct) => void api({ action: 'activity-score', part: 'game', blockId, tenantId, token, courseId: course.course.id, lessonId, pct }) : undefined} />}
+              {(L.blocks || []).length > 0 && <Blocks blocks={L.blocks} accent={color} audioFirst={!!lesson.audioFirst} extraTime={Number(lesson.extraTime) || 1} hideAt={(i: number) => hide(`block:${i}`)} report={lesson.enrolled ? (blockId, pct) => void api({ action: 'activity-score', part: 'game', blockId, tenantId, token, courseId: course.course.id, lessonId, pct }) : undefined} />}
               {lesson.enrolled && L.kind === 'assignment' && <div className={hide('assignment')}><Assignment tenantId={tenantId} courseId={course.course.id} lessonId={lessonId} color={color} /></div>}
               {L.transcript && <details className="glass rounded-2xl border border-white/70 px-4 py-3"><summary className="cursor-pointer text-sm font-semibold">📄 Transcript</summary><p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap text-[15px] leading-relaxed text-stone-700">{L.transcript}</p></details>}
               {lesson.enrolled && L.cases?.cases?.length > 0 && <div className={hide('cases')}><Cases c={L.cases} color={color} report={(pct) => void api({ action: 'activity-score', part: 'cases', tenantId, token, courseId: course.course.id, lessonId, pct })} /></div>}
@@ -753,7 +755,7 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
                   <div className="flex items-baseline justify-between"><p className="text-lg font-semibold">Quiz</p><p className="text-[12px] text-stone-500">Pass mark {L.quiz.passPct}%{L.quiz.passed ? ' · ✓ passed' : ''}</p></div>
                   {L.quiz.questions.map((q: any, k: number) => (
                     <div key={k} className={`rounded-2xl p-3 ${quizResult?.wrong?.includes(k) ? 'bg-red-50' : 'bg-white/60'}`}>
-                      <p className="font-medium">{k + 1}. {q.q}</p>
+                      <p className="flex items-start justify-between gap-2 font-medium"><span>{k + 1}. {q.q}</span>{lesson.audioFirst && <Listen text={`${q.q}. ${q.options.map((o: string, j: number) => `${'ABCD'[j]}: ${o}`).join('. ')}`} />}</p>
                       <div className="mt-2 space-y-1">{q.options.map((o: string, j: number) => (
                         <label key={j} className="flex cursor-pointer items-center gap-2 text-[15px]"><input type="radio" name={`q${k}`} checked={answers[k] === j} onChange={() => setAnswers({ ...answers, [k]: j })} />{o}</label>
                       ))}</div>
