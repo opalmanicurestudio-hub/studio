@@ -27,7 +27,8 @@ const WS: [string, string, string][] = [['matching', 'Matching', 'Terms and defi
 
 export function CourseMaterials({ tenantId, courses, brand }: { tenantId: string; courses: any[]; brand: any }) {
   const [courseId, setCourseId] = useState<string>(courses[0]?.id || '');
-  const [tab, setTab] = useState<'bank' | 'test' | 'sheets'>('bank');
+  const [tab, setTab] = useState<'bank' | 'test' | 'sheets' | 'saved'>('bank');
+  const [saved, setSaved] = useState<any[]>([]);
   const [lessons, setLessons] = useState<any[]>([]);
   const [bank, setBank] = useState<any[] | null>(null);
   const [msg, setMsg] = useState(''); const [busy, setBusy] = useState('');
@@ -36,6 +37,7 @@ export function CourseMaterials({ tenantId, courses, brand }: { tenantId: string
     if (!courseId) return; setBank(null);
     const [c, q] = await Promise.all([api({ action: 'course-get', tenantId, courseId }), api({ action: 'qbank-list', tenantId, courseId })]);
     if (c.ok) setLessons(c.lessons); if (q.ok) setBank(q.questions);
+    const m = await api({ action: 'materials-list', tenantId, courseId }); if (m.ok) setSaved(m.materials);
   }, [tenantId, courseId]);
   useEffect(() => { void load(); }, [load]);
   if (!courses.length) return <p className="rounded-2xl border-2 border-dashed p-6 text-center text-sm text-muted-foreground">Create a course first — tests and worksheets are made from its lessons.</p>;
@@ -44,14 +46,15 @@ export function CourseMaterials({ tenantId, courses, brand }: { tenantId: string
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <select className={field} value={courseId} onChange={(e) => setCourseId(e.target.value)}>{courses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}</select>
-        <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">{([['bank', 'Question bank'], ['test', 'Build a test'], ['sheets', 'Worksheets']] as const).map(([k, l]) => <button key={k} type="button" onClick={() => setTab(k)} className={`h-9 shrink-0 whitespace-nowrap rounded-full px-4 text-sm font-bold ${tab === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{l}</button>)}</div>
+        <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">{([['bank', 'Question bank'], ['test', 'Build a test'], ['sheets', 'Worksheets'], ['saved', `Saved · ${saved.length}`]] as const).map(([k, l]) => <button key={k} type="button" onClick={() => setTab(k)} className={`h-9 shrink-0 whitespace-nowrap rounded-full px-4 text-sm font-bold ${tab === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{l}</button>)}</div>
       </div>
       {msg && <p className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900" onClick={() => setMsg('')}>{msg}</p>}
       {!bank ? <Loader className="h-5 w-5 animate-spin" /> : (
         <>
           {tab === 'bank' && <Bank tenantId={tenantId} courseId={courseId} lessons={lessons} bank={bank} reload={load} setMsg={setMsg} busy={busy} setBusy={setBusy} />}
-          {tab === 'test' && <TestBuilder bank={bank} lessons={lessons} course={course} brand={brand} />}
-          {tab === 'sheets' && <Worksheets tenantId={tenantId} courseId={courseId} lessons={lessons} course={course} brand={brand} setMsg={setMsg} />}
+          {tab === 'test' && <TestBuilder bank={bank} lessons={lessons} course={course} brand={brand} onSave={async (m: any) => { const r = await api({ action: 'material-save', tenantId, courseId, material: m }); setMsg(r.ok ? 'Test saved — reprint it any time from Saved.' : r.error); await load(); }} />}
+          {tab === 'sheets' && <Worksheets tenantId={tenantId} courseId={courseId} lessons={lessons} course={course} brand={brand} setMsg={setMsg} onSave={async (m: any) => { const r = await api({ action: 'material-save', tenantId, courseId, material: m }); setMsg(r.ok ? 'Worksheet saved — reprint it any time from Saved, no AI needed.' : r.error); await load(); }} />}
+          {tab === 'saved' && <Saved items={saved} course={course} brand={brand} onDelete={async (id: string) => { if (!window.confirm('Delete this saved item?')) return; await api({ action: 'material-delete', tenantId, courseId, id }); await load(); }} />}
         </>
       )}
     </div>
@@ -101,7 +104,8 @@ function Bank({ tenantId, courseId, lessons, bank, reload, setMsg, busy, setBusy
   );
 }
 
-function TestBuilder({ bank, lessons, course, brand }: any) {
+function TestBuilder({ bank, lessons, course, brand, onSave }: any) {
+  const [last, setLast] = useState<any>(null);
   const [sel, setSel] = useState<Record<string, boolean>>({});
   const [o, setO] = useState({ title: `${course?.title || 'Unit'} test`, count: 20, versions: 2, minutes: 30 });
   const pool = bank.filter((q: any) => !Object.values(sel).some(Boolean) || sel[q.lessonId || q.topic || 'general']);
@@ -113,6 +117,7 @@ function TestBuilder({ bank, lessons, course, brand }: any) {
     const body = vs.map((v, i) => `${i ? '<div class="break"></div>' : ''}${testHtml({ title: o.title, course: course?.title || '', version: v.label, items: v.items, minutes: o.minutes, scale: GRADE_SCALE })}`).join('')
       + vs.map((v) => `<div class="break"></div>${keyHtml({ title: o.title, version: v.label, items: v.items })}`).join('');
     printDocument({ title: o.title, brand, body, footerNote: `Test set ${seed} · keep answer keys separate from student copies` });
+    setLast({ kind: 'test', type: 'test', title: o.title, seed, data: { questions: chosen.map((q: any) => ({ q: q.q, options: q.options, answer: q.answer, topic: q.topic })), versions: o.versions, minutes: o.minutes } });
   };
   return (
     <div className="space-y-3">
@@ -125,12 +130,13 @@ function TestBuilder({ bank, lessons, course, brand }: any) {
       <div className="rounded-2xl bg-muted/40 p-3"><p className="text-sm font-black">Cover these lessons <span className="font-normal text-muted-foreground">(none ticked = whole bank)</span></p>
         <div className="mt-1 flex flex-wrap gap-1.5">{groups.map(([k, l]) => <label key={k} className={`cursor-pointer rounded-full px-3 py-1 text-[12px] font-bold ${sel[k] ? 'bg-foreground text-background' : 'bg-background'}`}><input type="checkbox" className="hidden" checked={!!sel[k]} onChange={(e) => setSel({ ...sel, [k]: e.target.checked })} />{l}</label>)}</div></div>
       <p className="text-sm">{pool.length} questions available{pool.length < o.count ? ` — the test will have ${pool.length}` : ''}. Each version shuffles questions and answer choices; answer keys print after the tests. Grading: {GRADE_SCALE}.</p>
-      <button type="button" disabled={!pool.length} onClick={print} className="h-11 rounded-xl bg-foreground px-5 text-sm font-bold text-background disabled:opacity-40">Print test{o.versions > 1 ? 's' : ''} + answer keys</button>
+      <div className="flex flex-wrap gap-2"><button type="button" disabled={!pool.length} onClick={print} className="h-11 rounded-xl bg-foreground px-5 text-sm font-bold text-background disabled:opacity-40">Print test{o.versions > 1 ? 's' : ''} + answer keys</button>
+        {last && <button type="button" onClick={() => { onSave(last); setLast(null); }} className="h-11 rounded-xl border-2 px-5 text-sm font-bold">💾 Save this exact test</button>}</div>
     </div>
   );
 }
 
-function Worksheets({ tenantId, courseId, lessons, course, brand, setMsg }: any) {
+function Worksheets({ tenantId, courseId, lessons, course, brand, setMsg, onSave }: any) {
   const [kind, setKind] = useState('matching'); const [lessonId, setLessonId] = useState(lessons[0]?.id || '');
   const [items, setItems] = useState<any>(null); const [busy, setBusy] = useState(false);
   const lesson = lessons.find((l: any) => l.id === lessonId);
@@ -165,9 +171,41 @@ function Worksheets({ tenantId, courseId, lessons, course, brand, setMsg }: any)
         <div className="space-y-2 rounded-2xl border-2 border-foreground/30 p-3">
           {kind !== 'label' ? (items as any[]).map((x: any, i: number) => <p key={i} className="text-sm"><b>{i + 1}.</b> {x.term ? `${x.term} — ${x.definition}` : x.sentence ? `${x.sentence} (${x.answer})` : `${x.question} → ${x.answer}`}</p>) : <p className="text-sm">{items.points.length} labels on the diagram.</p>}
           <div className="flex gap-2"><button type="button" onClick={() => printDocument({ title: `${title} — worksheet`, brand, body: nameLine + html(false) })} className="h-10 rounded-xl bg-foreground px-4 text-sm font-bold text-background">Print worksheet</button>
-            <button type="button" onClick={() => printDocument({ title: `${title} — answer key`, brand, body: html(true), footerNote: 'Answer key — keep separate from student copies' })} className="h-10 rounded-xl border-2 px-4 text-sm font-bold">Print answer key</button></div>
+            <button type="button" onClick={() => printDocument({ title: `${title} — answer key`, brand, body: html(true), footerNote: 'Answer key — keep separate from student copies' })} className="h-10 rounded-xl border-2 px-4 text-sm font-bold">Print answer key</button>
+            <button type="button" onClick={() => onSave({ kind: 'worksheet', type: kind, title: `${title} — ${WS.find(([k]) => k === kind)?.[1]}`, lessonId: lessonId || null, seed: [...String(lessonId || courseId)].reduce((n, c) => n + c.charCodeAt(0), 0), data: { items } })} className="h-10 rounded-xl border-2 px-4 text-sm font-bold">💾 Save</button></div>
         </div>
       )}
     </div>
+  );
+}
+
+function Saved({ items, course, brand, onDelete }: any) {
+  const render = (m: any, key: boolean) => {
+    const t = m.title; const d = m.data || {};
+    if (m.kind === 'test') {
+      const vs = testVersions(d.questions || [], d.versions || 1, m.seed);
+      return key ? vs.map((v, i) => `${i ? '<div class="break"></div>' : ''}${keyHtml({ title: t, version: v.label, items: v.items })}`).join('')
+        : vs.map((v, i) => `${i ? '<div class="break"></div>' : ''}${testHtml({ title: t, course: course?.title || '', version: v.label, items: v.items, minutes: d.minutes, scale: GRADE_SCALE })}`).join('');
+    }
+    const it = d.items;
+    if (m.type === 'matching') return matchingHtml(t, it, m.seed, key);
+    if (m.type === 'wordsearch') return wordSearchHtml(t, wordSearch(it.map((x: any) => x.term), 15, m.seed), key);
+    if (m.type === 'crossword') return crosswordHtml(t, crossword(it.map((x: any) => ({ answer: x.term, clue: x.definition })), m.seed), key);
+    if (m.type === 'cloze') return clozeHtml(t, it, key);
+    if (m.type === 'short') return shortAnswerHtml(t, it, key);
+    return labelHtml(t, it, key);
+  };
+  const nameLine = '<div class="grid grid3" style="margin-bottom:10px"><div class="panel">Name<div class="answer-line"></div></div><div class="panel">Date<div class="answer-line"></div></div><div class="panel">Score<div class="answer-line"></div></div></div>';
+  if (!items.length) return <p className="rounded-2xl border-2 border-dashed p-6 text-center text-sm text-muted-foreground">Nothing saved yet. Build a test or prepare a worksheet, then tap 💾 Save — it reprints exactly the same, any time, without using AI credits.</p>;
+  return (
+    <div className="space-y-1.5">{items.map((m: any) => (
+      <div key={m.id} className="flex flex-wrap items-center gap-2 rounded-2xl bg-muted/40 px-3 py-2.5 text-sm">
+        <span className="text-lg">{m.kind === 'test' ? '📝' : m.type === 'crossword' ? '✏️' : m.type === 'wordsearch' ? '🔎' : '📄'}</span>
+        <span className="min-w-0 flex-1"><b className="block truncate">{m.title}</b><span className="text-[11px] text-muted-foreground">{m.kind === 'test' ? `${(m.data?.questions || []).length} questions · ${m.data?.versions || 1} version${(m.data?.versions || 1) > 1 ? 's' : ''}` : `${(m.data?.items?.length ?? m.data?.items?.points?.length) || 0} items`} · saved {new Date(m.at).toLocaleDateString()} by {m.by}</span></span>
+        <button type="button" onClick={() => printDocument({ title: m.title, brand, body: (m.kind === 'worksheet' ? nameLine : '') + render(m, false) })} className="h-9 rounded-lg bg-foreground px-3 text-[12px] font-bold text-background">Print</button>
+        <button type="button" onClick={() => printDocument({ title: `${m.title} — key`, brand, body: render(m, true), footerNote: 'Answer key — keep separate from student copies' })} className="h-9 rounded-lg border-2 px-3 text-[12px] font-bold">Key</button>
+        <button type="button" onClick={() => onDelete(m.id)} className="h-9 rounded-lg px-2 text-red-600" aria-label="Delete"><Trash2 className="h-4 w-4" /></button>
+      </div>
+    ))}</div>
   );
 }
