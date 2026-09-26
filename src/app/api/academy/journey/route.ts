@@ -5,6 +5,7 @@
 //   students · refresh · journey-save · outcomes
 //   threads · thread · reply · announce · announcements
 
+import { deviceAllowed } from '@/lib/approved-devices';
 import { translateTexts } from '@/lib/translate';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -25,6 +26,7 @@ export async function POST(req: NextRequest) {
   const isLead = auth.actor.isManager || auth.actor.isTenantOwner;
   if (!isLead && !isInstructor) return NextResponse.json({ ok: false, error: 'Owners, managers and instructors only.' }, { status: 403 });
   if (!isLead && b.action === 'journey-save') return NextResponse.json({ ok: false, error: 'Owners and managers only.' }, { status: 403 });
+  { const dv = await deviceAllowed(tenantId, req); if (!dv.ok) return NextResponse.json({ ok: false, error: dv.error, deviceBlocked: true }, { status: 403 }); }
   const db = getAdminDb();
   const who = auth.actor.name || auth.actor.uid;
   const t = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
