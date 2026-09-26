@@ -12,6 +12,7 @@
 //
 // A student's sign-in is a token kept in this browser (30 days).
 
+import { GameBlock } from '@/components/academy/Games';
 import { InteractiveFrame } from '@/components/academy/InteractiveFrame';
 import { wordSearch as wordSearchGrid, crossword as crosswordGrid } from '@/lib/printables';
 import { Celebrate, Skeleton } from '@/components/academy/Delight';
@@ -64,7 +65,7 @@ function Assignment({ tenantId, courseId, lessonId, color }: { tenantId: string;
 }
 
 // ── Lesson content blocks (student view) ────────────────────────────────
-function Blocks({ blocks, accent, hideAt }: { blocks: any[]; accent?: string | null; hideAt?: (i: number) => string }) {
+function Blocks({ blocks, accent, hideAt, report }: { blocks: any[]; accent?: string | null; hideAt?: (i: number) => string; report?: (blockId: string, pct: number) => void }) {
   const tone: Record<string, [string, string]> = { safety: ['🛑 Safety', 'border-red-200 bg-red-50/90 text-red-950'], key: ['⭐ Key point', 'border-amber-200 bg-amber-50/90 text-amber-950'], tip: ['💡 Tip', 'border-sky-200 bg-sky-50/90 text-sky-950'] };
   return (
     <div className="space-y-4">{blocks.map((b: any, i: number) => <div key={i} className={hideAt ? hideAt(i) : ''}>{oneBlock(b, i)}</div>)}</div>
@@ -80,7 +81,9 @@ function Blocks({ blocks, accent, hideAt }: { blocks: any[]; accent?: string | n
             <div className="space-y-2">{s.text && <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{s.text}</p>}{s.media?.url && <img src={s.media.url} alt={`Step ${k + 1}`} className="w-full max-w-md rounded-2xl" />}</div></div>)}</Glass>
       );
       if (b.type === 'divider') return <hr key={i} className="border-white/70" />;
-      if (b.type === 'interactive') return <div key={i} className="space-y-1">{b.title && <p className="px-1 text-lg font-semibold">✨ {b.title}</p>}<InteractiveFrame html={b.html} title={b.title} accent={accent} /></div>;
+      // The interactive has its own heading inside the frame — nothing extra above it.
+      if (b.type === 'interactive') return <div key={i}><InteractiveFrame html={b.html} title={b.title} accent={accent} onScore={b.game ? (pct) => report?.(b.id, pct) : undefined} /></div>;
+      if (b.type === 'game' && b.data) return <GameBlock key={i} b={b} color={accent || '#7c3aed'} report={(pct) => report?.(b.id, pct)} />;
       if (b.type === 'hotspots') return b.media?.url ? <Hotspots key={i} b={b} /> : null;
       if (b.type === 'stages') return <Stages key={i} b={b} />;
       return null;
@@ -738,7 +741,7 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
               <Celebrate show={cheer > 0} color={color} key={cheer} />
               {gained > 0 && <p key={`g${cheer}`} className="cf-pop fixed left-1/2 top-20 z-40 -translate-x-1/2 rounded-full bg-white px-4 py-2 text-sm font-semibold shadow-lg" style={{ color }}>+{gained} points</p>}
               {recap && <ModuleRecap r={recap} color={color} onDone={() => { window.location.href = `/learn/${tenantId}/${slug}`; }} />}
-              {(L.blocks || []).length > 0 && <Blocks blocks={L.blocks} accent={color} hideAt={(i: number) => hide(`block:${i}`)} />}
+              {(L.blocks || []).length > 0 && <Blocks blocks={L.blocks} accent={color} hideAt={(i: number) => hide(`block:${i}`)} report={lesson.enrolled ? (blockId, pct) => void api({ action: 'activity-score', part: 'game', blockId, tenantId, token, courseId: course.course.id, lessonId, pct }) : undefined} />}
               {lesson.enrolled && L.kind === 'assignment' && <div className={hide('assignment')}><Assignment tenantId={tenantId} courseId={course.course.id} lessonId={lessonId} color={color} /></div>}
               {L.transcript && <details className="glass rounded-2xl border border-white/70 px-4 py-3"><summary className="cursor-pointer text-sm font-semibold">📄 Transcript</summary><p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap text-[15px] leading-relaxed text-stone-700">{L.transcript}</p></details>}
               {lesson.enrolled && L.cases?.cases?.length > 0 && <div className={hide('cases')}><Cases c={L.cases} color={color} report={(pct) => void api({ action: 'activity-score', part: 'cases', tenantId, token, courseId: course.course.id, lessonId, pct })} /></div>}
