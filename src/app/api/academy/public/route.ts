@@ -12,6 +12,7 @@
 //   lesson    { tenantId, courseId, lessonId, token? }  content; video token if allowed
 //   progress  { tenantId, token, courseId, lessonId, done }
 
+import { COLORS, reviewDeck, recordReview, glossary } from '@/lib/academy-study';
 import { effectiveA11y } from '@/lib/accommodations';
 import { fingerprint } from '@/lib/school-docs';
 import { todoFor } from '@/lib/academy-assign';
@@ -238,6 +239,43 @@ export async function POST(req: NextRequest) {
       await db.doc(`${T}/docAcks/${String(b.id)}_${d.version}_${student.id}`).set({ docId: String(b.id), version: d.version, studentId: student.id, email: student.email, title: pubTitle, signedName: name, at: new Date().toISOString(), hash: fingerprint(pubBody), agent: String(req.headers.get('user-agent') || '').slice(0, 200) });
       await appendAudit(tenantId, { type: 'doc.signed', studentId: student.id, by: student.email, summary: `Signed “${pubTitle}” (version ${d.version}) as “${name}”`, data: { docId: String(b.id), version: d.version } });
       return NextResponse.json({ ok: true });
+    }
+
+    // ── My learning: highlights, notes, own flashcards · spaced review · glossary ──
+    if (['notes-list', 'note-save', 'note-delete', 'study-deck', 'study-review', 'glossary'].includes(b.action)) {
+      if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+      const T = `tenants/${tenantId}`; const col = db.collection(`${T}/studyNotes`);
+      if (b.action === 'notes-list') {
+        const q = await col.where('studentId', '==', student.id).limit(2000).get();
+        let notes = q.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+        if (b.lessonId) notes = notes.filter((n: any) => n.lessonId === String(b.lessonId));
+        return NextResponse.json({ ok: true, notes: notes.sort((x: any, y: any) => String(y.at).localeCompare(String(x.at))) });
+      }
+      if (b.action === 'note-save') {
+        const n = b.note || {}; const kind = ['highlight', 'note', 'card'].includes(n.kind) ? n.kind : 'highlight';
+        const courseId = String(n.courseId || ''), lessonId = String(n.lessonId || '');
+        const en = courseId ? ((await db.doc(`${T}/enrollments/${courseId}_${student.id}`).get()).data() as any) : null;
+        if (courseId && !en) return NextResponse.json({ ok: false, error: 'Not enrolled.' }, { status: 403 });
+        const [c, l] = courseId ? await Promise.all([db.doc(`${T}/courses/${courseId}`).get(), lessonId ? db.doc(`${T}/courses/${courseId}/lessons/${lessonId}`).get() : Promise.resolve(null)]) : [null, null];
+        const text = String(n.text || '').trim().slice(0, 600);
+        if (kind !== 'card' && text.length < 2) return NextResponse.json({ ok: false, error: 'Select some text first.' }, { status: 400 });
+        const front = String(n.front || text).trim().slice(0, 300), back = String(n.back || '').trim().slice(0, 600);
+        if (kind === 'card' && (!front || !back)) return NextResponse.json({ ok: false, error: 'Add both sides of the card.' }, { status: 400 });
+        const ref = n.id ? col.doc(String(n.id)) : col.doc();
+        if (n.id) { const prev = ((await ref.get()).data() as any) || null; if (!prev || prev.studentId !== student.id) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 }); }
+        await ref.set({ id: ref.id, studentId: student.id, kind, courseId: courseId || null, lessonId: lessonId || null, courseSlug: (c?.data() as any)?.slug || null, courseTitle: (c?.data() as any)?.title || null, lessonTitle: (l?.data() as any)?.title || null,
+          text, color: COLORS.includes(n.color) ? n.color : 'yellow', note: String(n.note || '').slice(0, 2000) || null, ...(kind === 'card' ? { front, back } : {}), at: new Date().toISOString() }, { merge: true });
+        return NextResponse.json({ ok: true, id: ref.id });
+      }
+      if (b.action === 'note-delete') {
+        const ref = col.doc(String(b.id || '')); const prev = ((await ref.get()).data() as any) || null;
+        if (!prev || prev.studentId !== student.id) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
+        await ref.delete(); return NextResponse.json({ ok: true });
+      }
+      if (b.action === 'study-deck') return NextResponse.json({ ok: true, ...(await reviewDeck(tenantId, student.id)) });
+      if (b.action === 'study-review') return NextResponse.json({ ok: true, next: await recordReview(tenantId, student.id, String(b.key || '').slice(0, 200), Number(b.grade)) });
+      const st = ((await db.doc(`${T}/students/${student.id}`).get()).data() as any) || {};
+      return NextResponse.json({ ok: true, lang: st.language || 'en', terms: await glossary(tenantId, student.id, st.language || null) });
     }
 
     // ── The student's to-do list (assigned work, automatic reviews) ──
