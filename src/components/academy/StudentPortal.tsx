@@ -36,11 +36,13 @@ const S = {
   cardSaved: 'Card updated.', retried: 'We tried your payment again:', success: 'it went through', failed: 'it didn’t go through — please try another card',
   write: 'Write to your school', send: 'Send', showOriginal: 'Show original', showTranslation: 'Show translation', translatedNote: 'Translated automatically',
   agreement: 'Enrolment agreement', signedOn: 'Signed on', readingAid: 'Translation to help you understand — the English original is the version you signed.',
-  toGo: 'to go', certificates: 'Certificates', letters: 'Hours letters', uploads: 'Your documents', nothingYet: 'Nothing here yet.', signOut: 'Sign out', joinLive: 'Join a live class',
+  toGo: 'to go', certificates: 'Certificates',
+  practice: 'State-board practice', practiceHint: 'Timed, mixed questions from your courses — see which topics to study.', questionsWord: 'questions', startPractice: 'Start', handIn: 'Hand in', timeLeft: 'left', unanswered: 'unanswered',
+  yourScore: 'Your score', byTopic: 'By topic', studyNext: 'Study these next', review: 'Questions you missed', rightAnswer: 'Right answer', recent: 'Recent attempts', prev: 'Back', nextQ: 'Next', close: 'Close', notEnough: 'Your school hasn’t added practice questions yet.', letters: 'Hours letters', uploads: 'Your documents', nothingYet: 'Nothing here yet.', signOut: 'Sign out', joinLive: 'Join a live class',
   statusApproved: 'approved', statusOpen: 'on the floor', statusFlagged: 'needs your instructor', statusPending: 'waiting for approval', statusClosed: 'recorded',
 };
 type Str = typeof S;
-const UI_V = 'v2';   // bump when words are added, so phones fetch the new translations
+const UI_V = 'v3';   // bump when words are added, so phones fetch the new translations
 
 /** The portal's words in the student's language (translated once, remembered on this device). */
 function useWords(tenantId: string, lang: string): Str {
@@ -174,6 +176,7 @@ function Today({ p, w, lang, tenantId, color, go }: any) {
 function LearnTab({ p, w, tenantId, color, courses }: any) {
   return (
     <div className="space-y-3">
+      <Practice w={w} tenantId={tenantId} color={color} />
       {p.programs.map((pr: any) => (
         <Card key={pr.id} title={w.program}><p className="text-lg font-semibold">{pr.name}</p>
           {pr.totalHours && <div className="mt-3 flex items-center gap-4"><ProgressRing value={pr.hours.total} max={pr.totalHours} color={color} label={`${pr.hours.total}`} sub={`${w.of} ${pr.totalHours} h`} />
@@ -285,5 +288,56 @@ function DocsTab({ w, lang, tenantId }: any) {
       <Card title={w.letters}>{d.letters.length === 0 ? <p className="text-sm text-stone-500">{w.nothingYet}</p> : d.letters.map((c: any) => <Link key={c.code} href={`/verify/${c.code}`} className="block py-1 text-[15px] underline">📄 {c.program} · {c.hours} h · {fmt(c.at, lang)}</Link>)}</Card>
       {d.uploads.length > 0 && <Card title={w.uploads}>{d.uploads.map((u: any) => <p key={u.doc} className="text-sm">{u.doc} · <b>{u.status}</b>{u.reason ? ` — ${u.reason}` : ''}</p>)}</Card>}
     </div>
+  );
+}
+
+
+// ── State-board practice ─────────────────────────────────────────────────
+function Practice({ w, tenantId, color }: any) {
+  const [info, setInfo] = useState<any>(null); const [run, setRun] = useState<any>(null); const [res, setRes] = useState<any>(null);
+  const [count, setCount] = useState(25); const [i, setI] = useState(0); const [ans, setAns] = useState<(number | null)[]>([]);
+  const [now, setNow] = useState(Date.now()); const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
+  const load = useCallback(async () => { const r = await api({ action: 'practice-info', tenantId, token: getToken(tenantId) }); if (r.ok) setInfo(r); }, [tenantId]);
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (!run) return; const t = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(t); }, [run]);
+  const handIn = useCallback(async () => { if (!run || busy) return; setBusy(true); const r = await api({ action: 'practice-submit', tenantId, token: getToken(tenantId), attemptId: run.attemptId, answers: ans }); setBusy(false); if (r.ok) { setRes(r); setRun(null); void load(); } else setErr(r.error); }, [run, busy, ans, tenantId, load]);
+  const left = run ? Math.max(0, Math.round((new Date(run.endsAt).getTime() - now) / 1000)) : 0;
+  useEffect(() => { if (run && left === 0) void handIn(); }, [run, left, handIn]);
+  if (!info) return null;
+  if (run) { const q = run.questions[i]; const miss = ans.filter((x) => x == null).length; return (
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-[#f7f5f2] p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <div className="mx-auto max-w-lg space-y-4">
+        <div className="flex items-center justify-between text-sm"><span className="font-semibold">{i + 1} / {run.questions.length}</span><span className={`rounded-full px-3 py-1 font-semibold ${left < 60 ? 'bg-red-500 text-white' : 'bg-white'}`}>⏱ {Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')} {w.timeLeft}</span></div>
+        <div className="h-1.5 rounded-full bg-white"><div className="h-1.5 rounded-full" style={{ width: `${((i + 1) / run.questions.length) * 100}%`, background: color }} /></div>
+        <p className="text-[11px] uppercase tracking-widest text-stone-500">{q.topic}</p>
+        <p className="text-xl font-semibold leading-snug">{q.q}</p>
+        <div className="grid gap-2">{q.options.map((o: string, k: number) => <button key={k} type="button" onClick={() => { const a = [...ans]; a[i] = k; setAns(a); }} className={`min-h-14 rounded-2xl px-4 py-3 text-left text-[16px] shadow-sm ${ans[i] === k ? 'text-white' : 'bg-white'}`} style={ans[i] === k ? { background: color } : undefined}>{o}</button>)}</div>
+        <div className="flex gap-2"><button type="button" disabled={i === 0} onClick={() => setI(i - 1)} className="h-12 flex-1 rounded-full bg-white text-sm disabled:opacity-40">{w.prev}</button>
+          {i + 1 < run.questions.length ? <button type="button" onClick={() => setI(i + 1)} className="h-12 flex-1 rounded-full text-sm font-medium text-white" style={{ background: color }}>{w.nextQ}</button>
+            : <button type="button" disabled={busy} onClick={() => { if (miss && !window.confirm(`${miss} ${w.unanswered}. ${w.handIn}?`)) return; void handIn(); }} className="h-12 flex-1 rounded-full text-sm font-medium text-white" style={{ background: color }}>{busy ? '…' : w.handIn}</button>}</div>
+        {miss > 0 && <p className="text-center text-[12px] text-stone-500">{miss} {w.unanswered}</p>}
+        {err && <p className="text-center text-sm text-red-700">{err}</p>}
+      </div>
+    </div>
+  ); }
+  if (res) return (
+    <section className="glass space-y-3 rounded-[1.5rem] border border-white/70 p-4">
+      <div className="flex items-center justify-between"><p className="text-[11px] uppercase tracking-[0.2em] text-stone-500">{w.yourScore}</p><button type="button" onClick={() => setRes(null)} className="text-sm underline">{w.close}</button></div>
+      <p className="text-4xl font-light">{res.pct}% <span className="text-base text-stone-500">· {res.right}/{res.total}</span></p>
+      <p className="text-[12px] font-semibold text-stone-500">{w.byTopic}</p>
+      {res.byTopic.map((t: any) => <div key={t.topic}><div className="flex justify-between text-sm"><span>{t.topic}</span><b className={t.pct < 70 ? 'text-red-700' : 'text-emerald-700'}>{t.pct}%</b></div><div className="mt-0.5 h-1.5 rounded-full bg-white/80"><div className="h-1.5 rounded-full" style={{ width: `${t.pct}%`, background: t.pct < 70 ? '#ef4444' : '#10b981' }} /></div></div>)}
+      {res.byTopic.some((t: any) => t.pct < 70) && <p className="rounded-2xl bg-amber-50 p-3 text-sm"><b>{w.studyNext}:</b> {res.byTopic.filter((t: any) => t.pct < 70).slice(0, 3).map((t: any) => t.topic).join(', ')}</p>}
+      <details><summary className="cursor-pointer text-sm font-semibold">{w.review} ({res.review.filter((r: any) => !r.ok).length})</summary>
+        <div className="mt-2 space-y-2">{res.review.filter((r: any) => !r.ok).map((r: any, k: number) => <div key={k} className="rounded-2xl bg-white/85 p-3 text-sm"><p className="font-semibold">{r.q}</p><p className="text-emerald-800">✓ {w.rightAnswer}: {r.options[r.answer]}</p>{r.chose != null && <p className="text-red-700">✗ {r.options[r.chose]}</p>}{r.explanation && <p className="text-stone-600">{r.explanation}</p>}</div>)}</div></details>
+    </section>
+  );
+  return (
+    <section className="glass space-y-2 rounded-[1.5rem] border border-white/70 p-4">
+      <p className="text-lg font-semibold">📝 {w.practice}</p><p className="text-sm text-stone-600">{w.practiceHint}</p>
+      {info.available < 5 ? <p className="text-sm text-stone-500">{w.notEnough}</p> : <div className="flex flex-wrap items-center gap-2">{[10, 25, 50].filter((n) => n <= Math.max(10, info.available)).map((n) => <button key={n} type="button" onClick={() => setCount(n)} className={`h-10 rounded-full px-4 text-sm ${count === n ? 'text-white' : 'bg-white/80'}`} style={count === n ? { background: color } : undefined}>{Math.min(n, info.available)} {w.questionsWord}</button>)}
+        <button type="button" disabled={busy} onClick={async () => { setBusy(true); setErr(''); const r = await api({ action: 'practice-start', tenantId, token: getToken(tenantId), count }); setBusy(false); if (r.ok) { setRun(r); setAns(r.questions.map(() => null)); setI(0); setRes(null); } else setErr(r.error); }} className="ml-auto h-10 rounded-full px-5 text-sm font-medium text-white" style={{ background: color }}>{w.startPractice} →</button></div>}
+      {err && <p className="text-sm text-red-700">{err}</p>}
+      {info.history.length > 0 && <p className="text-[12px] text-stone-500">{w.recent}: {info.history.slice(0, 4).map((h: any) => `${h.pct}%`).join(' · ')}</p>}
+    </section>
   );
 }
