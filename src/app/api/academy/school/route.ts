@@ -137,6 +137,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── Points, streaks and badges: optional per academy ──
+    if (b.action === 'academy-prefs') { const t2 = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {}; return NextResponse.json({ ok: true, gamify: !!t2.academy?.gamify, canChange: isLead }); }
+    if (b.action === 'gamify-setting') {
+      if (!isLead) return NextResponse.json({ ok: false, error: 'Owners and managers only.' }, { status: 403 });
+      await db.doc(`tenants/${tenantId}`).set({ academy: { gamify: !!b.on } }, { merge: true });
+      await appendAudit(tenantId, { type: 'settings.changed', by: who, summary: `Points, streaks and badges ${b.on ? 'switched on' : 'switched off'}` });
+      return NextResponse.json({ ok: true });
+    }
+
     if (b.action === 'mode') {
       const mode = b.mode === 'school' ? 'school' : 'courses';
       await db.doc(`tenants/${tenantId}`).set({ academy: { mode } }, { merge: true });
