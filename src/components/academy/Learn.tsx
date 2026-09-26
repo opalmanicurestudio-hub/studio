@@ -556,6 +556,8 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
   const [quizResult, setQuizResult] = useState<any>(null);
   const [tr, setTr] = useState<any>(null);          // this lesson in the student's language
   const [trBusy, setTrBusy] = useState(false);
+  // Must be set up before the loading return below (React needs the same order every render).
+  const [cheer, setCheer] = useState(0);
   const token = typeof window !== 'undefined' ? getToken(tenantId) : null;
   const load = useCallback(async () => {
     const c = await api({ action: 'course', tenantId, slug, token }); setCourse(c);
@@ -579,7 +581,6 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
   const trk = lesson.tracking || {};
   const engaged = Math.max(eng.engagedSec, trk.engagedSec || 0), watched = Math.max(eng.watchedSec, trk.watchedSec || 0);
   const dur = L?.durationSec || 0;
-  const [cheer, setCheer] = useState(0);
   const complete = async () => {
     setBusy(true); setNote('');
     const r = await api({ action: 'progress', tenantId, token, courseId: course.course.id, lessonId, done: !done });
