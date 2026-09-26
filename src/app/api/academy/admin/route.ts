@@ -304,7 +304,8 @@ async function handle(req: NextRequest) {
       let material = '';
       if (b.useLesson && b.lessonId) { const lx = ((await db.doc(`${base}/${courseId}/lessons/${String(b.lessonId)}`).get()).data() as any) || {}; material = `${lx.title || ''}\n${lx.body || ''}\n${lx.transcript ? String(lx.transcript).slice(0, 4000) : ''}`.slice(0, 8000); }
       const current = typeof b.currentHtml === 'string' && b.currentHtml.length < 150_000 ? b.currentHtml : '';
-      const r = await askClaude({ tier: 'smart', maxTokens: 9000, purpose: 'academy-interactive', tenantId,
+      // Interactives are built on Claude Opus (AI_MODEL_INTERACTIVE); if the account can't use that model, fall back to Sonnet.
+      const ask = (tier: 'interactive' | 'smart') => askClaude({ tier, maxTokens: 9000, purpose: 'academy-interactive', tenantId,
         system: `You build small interactive, animated teaching visuals for a beauty / nail school, as ONE self-contained HTML fragment (inline <style>, inline SVG or <canvas>, inline <script>).
 Rules:
 - No external anything: no <script src>, no <link>, no images/fonts/URLs from the internet, no fetch/XMLHttpRequest/WebSocket. Draw with SVG/canvas/CSS only.
@@ -317,11 +318,13 @@ Rules:
 - No alert/confirm/prompt, no forms that submit, no navigation.
 Reply with the HTML only, inside one \`\`\`html code block.`,
         prompt: `${current ? `Here is the current interactive:\n\`\`\`html\n${current}\n\`\`\`\n\nChange requested: ${String(b.change || '').slice(0, 800)}\nReturn the full updated HTML.` : `Build an interactive that shows: ${request}`}${material ? `\n\nInstructor's lesson material (follow it):\n${material}` : ''}` });
+      let r = await ask('interactive'); let usedFallback = false;
+      if (!r.ok && /model/i.test(String(r.error || ''))) { r = await ask('smart'); usedFallback = true; }
       const m = r.ok ? r.text.match(/```html\s*([\s\S]*?)```/) || r.text.match(/(<(?:div|style|svg|section|main)[\s\S]*)/) : null;
       const html = m ? m[1].trim() : '';
       if (!html || html.length > 150_000) return NextResponse.json({ ok: false, error: 'The interactive didn’t come back usable — try again, or simplify the request.' }, { status: 502 });
       if (/<script[^>]+src=|<link\b|@import|(?:src|href)\s*=\s*["']?https?:|\bfetch\s*\(|XMLHttpRequest|WebSocket/i.test(html)) return NextResponse.json({ ok: false, error: 'The draft tried to load something from the internet, which isn’t allowed — try again.' }, { status: 502 });
-      return NextResponse.json({ ok: true, html });
+      return NextResponse.json({ ok: true, html, model: usedFallback ? 'sonnet' : 'opus', ...(usedFallback ? { note: 'Built with Claude Sonnet — your Anthropic account couldn’t use Claude Opus just now.' } : {}) });
     }
     if (b.action === 'interactive-save') {
       const html = cleanHtml(b.html); if (!html) return NextResponse.json({ ok: false, error: 'Nothing to save.' }, { status: 400 });
