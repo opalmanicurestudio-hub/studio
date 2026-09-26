@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react';
 import { getAuth } from 'firebase/auth';
 import { Loader } from 'lucide-react';
 
-export type Section = 'home' | 'courses' | 'live' | 'materials' | 'assign' | 'documents' | 'salon' | 'students' | 'attendance' | 'reports' | 'admissions' | 'programs' | 'settings';
+export type Section = 'home' | 'courses' | 'live' | 'materials' | 'assign' | 'documents' | 'toolkit' | 'salon' | 'students' | 'attendance' | 'reports' | 'admissions' | 'programs' | 'settings';
 
 export async function academyHome(tenantId: string) {
   const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
