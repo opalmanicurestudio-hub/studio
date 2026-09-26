@@ -51,14 +51,13 @@ export function AcademyReports({ tenantId }: { tenantId: string }) {
   const print = () => {
     if (out?.letter) {
       const L = out.letter;
-      printDocument({ title: `Hours certification — ${L.studentName}`, brand: out.brand, footerNote: `Verification code ${L.code} · confirm at ${L.verifyUrl}`, body: `
+      printDocument({ title: `Hours certification — ${L.studentName}`, brand: out.brand, official: { date: new Date(L.issuedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) }, footerNote: `Verification code ${L.code} · confirm at ${L.verifyUrl}`, body: `
         <p class="muted">${esc(new Date(L.issuedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }))}</p>
-        ${heading('Certification of', 'hours')}<p class="sub">To the North Carolina Board of Cosmetic Art Examiners, or whom it may concern</p>
+        ${heading('Certification of', 'hours')}<p class="sub">To ${esc(out.brand?.licensingBoard || 'the North Carolina Board of Cosmetic Art Examiners')}, or whom it may concern</p>
         <p>This certifies that <b>${esc(L.studentName)}</b> (${esc(L.email)}) was enrolled in <b>${esc(L.programName)}</b>${L.programHours ? ` (${esc(L.programHours)} hours)` : ''}${L.startDate ? `, starting ${esc(new Date(L.startDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }))}` : ''}, and as of this date has completed the following, as recorded by the school’s attendance and learning records:</p>
         <div class="grid grid3"><div class="stat"><div class="v">${esc(L.hours.online)} h</div><div class="l">Online (verified${L.hours.live ? `, incl. ${esc(L.hours.live)} h live` : ''})</div></div><div class="stat"><div class="v">${esc(L.hours.inPerson)} h</div><div class="l">In school (approved)</div></div><div class="stat"><div class="v accent">${esc(L.hours.total)} h</div><div class="l">Total${L.programHours ? ` of ${esc(L.programHours)}` : ''}</div></div></div>
         ${(L.hours.notes || []).length ? `<p class="muted">${L.hours.notes.map(esc).join(' · ')}</p>` : ''}
         ${L.requirements?.length ? `<h2>Performances signed off</h2><table><thead><tr><th>Performance</th><th>Completed</th><th>Required</th></tr></thead>${L.requirements.map((r: any) => `<tr><td>${esc(r.label)}</td><td>${esc(r.done)}</td><td>${esc(r.required)}</td></tr>`).join('')}</table>` : ''}
-        <div class="sig"><div>Authorised school official — signature</div><div>Printed name & title<br>${esc(L.issuedBy)}</div><div>Date · School seal</div></div>
         <p class="muted" style="margin-top:14px">Hours are rounded down to the quarter hour and measured by the school’s systems (server time). Every record is kept in a tamper-evident audit log.</p>` });
       return;
     }
