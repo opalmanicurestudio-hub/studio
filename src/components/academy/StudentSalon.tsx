@@ -23,7 +23,68 @@ const shrink = (file: File) => new Promise<string>((resolve, reject) => {
   r.onerror = reject; r.readAsDataURL(file);
 });
 
+const DAYS: [string, string][] = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
+const mondayOf = (d: Date) => { const x = new Date(d); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x.toISOString().slice(0, 10); };
+
+/** Weekly duty rota: stations × days. "Fill fairly" rotates everyone evenly. */
+function Rotation({ tenantId }: { tenantId: string }) {
+  const [week, setWeek] = useState(mondayOf(new Date()));
+  const [d, setD] = useState<any>(null);
+  const [r, setR] = useState<any>(null);
+  const [pick, setPick] = useState<{ day: string; st: string } | null>(null);
+  const [msg, setMsg] = useState('');
+  useEffect(() => { api({ action: 'rotation-get', tenantId, week }).then((x) => { if (!x.ok) return setMsg(x.error); setD(x); setR(x.rotation || { stations: x.defaults.stations, days: x.defaults.days, assignments: {}, published: false }); }); }, [tenantId, week]);
+  if (!d || !r) return <Loader className="h-5 w-5 animate-spin" />;
+  const name = (id: string) => d.students.find((s: any) => s.id === id)?.name || '—';
+  const cell = (day: string, st: string): string[] => r.assignments?.[day]?.[st] || [];
+  const setCell = (day: string, st: string, ids: string[]) => setR({ ...r, published: false, assignments: { ...r.assignments, [day]: { ...(r.assignments?.[day] || {}), [st]: ids } } });
+  const fill = () => {
+    // Everyone gets a station each day; stations rotate so nobody is stuck on one.
+    const people = d.students.map((s: any) => s.id); const a: any = {};
+    r.days.forEach((day: string, di: number) => { a[day] = {}; r.stations.forEach((st: string) => { a[day][st] = []; });
+      people.forEach((pid: string, pi: number) => { const st = r.stations[(pi + di) % r.stations.length]; a[day][st].push(pid); }); });
+    setR({ ...r, assignments: a, published: false });
+  };
+  const save = async (publish: boolean) => { const x = await api({ action: 'rotation-save', tenantId, week, stations: r.stations, days: r.days, assignments: r.assignments, publish }); setMsg(x.ok ? (publish ? 'Published — students see their duty in their portal.' : 'Saved as draft.') : x.error); if (x.ok) setR({ ...r, published: publish }); };
+  const print = () => { const w = window.open('', '_blank'); if (!w) return; w.document.write(`<html><head><title>Rotation ${week}</title><style>body{font-family:system-ui;padding:24px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:6px;font-size:12px;vertical-align:top;text-align:left}</style></head><body><h2>Rotation — week of ${week}</h2><table><tr><th></th>${r.days.map((x: string) => `<th>${x.toUpperCase()}</th>`).join('')}</tr>${r.stations.map((st: string) => `<tr><th>${st}</th>${r.days.map((day: string) => `<td>${cell(day, st).map(name).join('<br>')}</td>`).join('')}</tr>`).join('')}</table><script>print()</script></body></html>`); w.document.close(); };
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={() => { const x = new Date(week); x.setDate(x.getDate() - 7); setWeek(x.toISOString().slice(0, 10)); }} className="h-9 rounded-xl border-2 px-3 text-sm font-bold">←</button>
+        <p className="font-black">Week of {new Date(week + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}</p>
+        <button type="button" onClick={() => { const x = new Date(week); x.setDate(x.getDate() + 7); setWeek(x.toISOString().slice(0, 10)); }} className="h-9 rounded-xl border-2 px-3 text-sm font-bold">→</button>
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${r.published ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{r.published ? 'published' : 'draft'}</span>
+        <div className="ml-auto flex flex-wrap gap-2">
+          <button type="button" onClick={fill} className="h-9 rounded-xl border-2 px-3 text-sm font-bold">Fill fairly</button>
+          <button type="button" onClick={print} className="h-9 rounded-xl border-2 px-3 text-sm font-bold">Print</button>
+          <button type="button" onClick={() => save(false)} className="h-9 rounded-xl border-2 px-3 text-sm font-bold">Save draft</button>
+          <button type="button" onClick={() => save(true)} className="h-9 rounded-xl bg-foreground px-4 text-sm font-bold text-background">Publish</button>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-1 text-[12px]"><span className="font-bold text-muted-foreground">Days:</span>{DAYS.map(([k, l]) => <button key={k} type="button" onClick={() => setR({ ...r, days: r.days.includes(k) ? r.days.filter((x: string) => x !== k) : DAYS.map(([x]) => x).filter((x) => x === k || r.days.includes(x)) })} className={`rounded-full px-2.5 py-1 font-bold ${r.days.includes(k) ? 'bg-foreground text-background' : 'bg-muted'}`}>{l}</button>)}
+        <span className="ml-3 font-bold text-muted-foreground">Stations:</span><input className="h-8 w-80 rounded-lg border px-2" value={r.stations.join(', ')} onChange={(e) => setR({ ...r, stations: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })} /></div>
+      {msg && <p className="rounded-2xl bg-emerald-50 p-2 text-sm text-emerald-900">{msg}</p>}
+      {d.students.length === 0 ? <p className="text-sm text-muted-foreground">No active students yet.</p> : (
+        <div className="overflow-x-auto rounded-2xl border-2 border-border/60"><table className="w-full text-sm"><thead className="bg-muted/50"><tr><th className="p-2 text-left">Station</th>{r.days.map((x: string) => <th key={x} className="p-2 text-left uppercase">{x}</th>)}</tr></thead>
+          <tbody>{r.stations.map((st: string) => <tr key={st} className="border-t align-top"><th className="p-2 text-left">{st}</th>{r.days.map((day: string) => (
+            <td key={day} className="p-1.5"><button type="button" onClick={() => setPick({ day, st })} className="min-h-12 w-full rounded-lg bg-muted/40 p-1.5 text-left text-[12px] hover:bg-muted">{cell(day, st).length ? cell(day, st).map((id) => <span key={id} className="block truncate">{name(id)}</span>) : <span className="text-muted-foreground">+ add</span>}</button></td>
+          ))}</tr>)}</tbody></table></div>
+      )}
+      {pick && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-3 sm:items-center" onClick={() => setPick(null)}>
+          <div onClick={(e) => e.stopPropagation()} className="max-h-[80dvh] w-full max-w-sm space-y-2 overflow-y-auto rounded-3xl bg-background p-4">
+            <p className="font-black">{pick.st} · {pick.day.toUpperCase()}</p>
+            {d.students.map((s: any) => { const on = cell(pick.day, pick.st).includes(s.id); return <label key={s.id} className="flex items-center gap-2 rounded-xl px-2 py-1.5 text-sm hover:bg-muted/40"><input type="checkbox" checked={on} onChange={() => setCell(pick.day, pick.st, on ? cell(pick.day, pick.st).filter((x) => x !== s.id) : [...cell(pick.day, pick.st), s.id])} />{s.name}</label>; })}
+            <button type="button" onClick={() => setPick(null)} className="h-10 w-full rounded-xl bg-foreground text-sm font-bold text-background">Done</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function StudentSalon({ tenantId }: { tenantId: string }) {
+  const [view, setView] = useState<'today' | 'rotation'>('today');
   const [day, setDay] = useState(new Date().toISOString().slice(0, 10));
   const [q, setQ] = useState<any[] | null>(null);
   const [programs, setPrograms] = useState<any[]>([]);
@@ -49,8 +110,11 @@ export function StudentSalon({ tenantId }: { tenantId: string }) {
     setOpen(null); void load();
   };
 
+  const tabs = <div className="flex gap-1">{([['today', 'Today’s clinic'], ['rotation', 'Rotation']] as const).map(([k, l]) => <button key={k} type="button" onClick={() => setView(k)} className={`h-9 rounded-full px-4 text-sm font-bold ${view === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{l}</button>)}</div>;
+  if (view === 'rotation') return <div className="space-y-4">{tabs}<Rotation tenantId={tenantId} /></div>;
   return (
     <div className="space-y-4">
+      {tabs}
       <div className="flex flex-wrap items-center gap-2">
         <input type="date" value={day} onChange={(e) => setDay(e.target.value)} className="h-10 rounded-xl border-2 px-3 text-sm" />
         <button type="button" onClick={() => void load()} className="h-10 rounded-xl px-3 text-sm font-bold text-muted-foreground">Refresh</button>
