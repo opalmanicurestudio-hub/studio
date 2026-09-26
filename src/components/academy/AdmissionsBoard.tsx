@@ -10,6 +10,7 @@
 //   Tuition    every plan: balance, next payment, autopay, failures
 //   Cohorts    start dates and capacity (full → new applicants waitlisted)
 
+import { deviceId } from '@/lib/device';
 import { useCallback, useEffect, useState } from 'react';
 import { getAuth } from 'firebase/auth';
 import { Loader, Plus, X } from 'lucide-react';
@@ -17,7 +18,7 @@ import { PrivateImg, openPrivateFile } from '@/components/shared/private-file';
 
 async function api(body: any) {
   const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
-  const r = await fetch('/api/academy/admissions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify(body) });
+  const r = await fetch('/api/academy/admissions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}`, 'x-cf-device': deviceId() }, body: JSON.stringify(body) });
   return r.json().catch(() => ({ ok: false, error: 'No response' }));
 }
 const $ = (c?: number | null) => (c == null ? '—' : `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
@@ -48,7 +49,7 @@ export function AdmissionsBoard({ tenantId }: { tenantId: string }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex gap-1">{([['pipeline', 'Pipeline'], ['tuition', 'Tuition'], ['cohorts', 'Cohorts']] as const).map(([k, l]) => <button key={k} type="button" onClick={() => setTab(k)} className={`h-9 rounded-full px-4 text-sm font-bold ${tab === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{l}</button>)}</div>
+        <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">{([['pipeline', 'Pipeline'], ['tuition', 'Tuition'], ['cohorts', 'Cohorts']] as const).map(([k, l]) => <button key={k} type="button" onClick={() => setTab(k)} className={`h-9 shrink-0 whitespace-nowrap rounded-full px-4 text-sm font-bold ${tab === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{l}</button>)}</div>
         <div className="flex gap-2">
           <a href={`/learn/${tenantId}/apply`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center rounded-full border-2 px-3 text-[13px] font-bold">Your apply page ↗</a>
           {tab === 'pipeline' && <button type="button" onClick={() => setAdd({ name: '', email: '', phone: '', programId: d.programs[0]?.id || '', note: '' })} className="inline-flex h-9 items-center gap-1 rounded-full bg-foreground px-4 text-[13px] font-bold text-background"><Plus className="h-4 w-4" />Add inquiry</button>}
