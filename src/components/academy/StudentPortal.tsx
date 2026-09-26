@@ -20,7 +20,7 @@ import { ProgressRing } from '@/components/academy/Delight';
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { api, getToken, Shell, Loading } from '@/components/academy/Learn';
+import { api, getToken, Shell, Loading, GameChips } from '@/components/academy/Learn';
 
 // ── The portal's words (English) — translated for other languages ─────────
 const S = {
@@ -147,7 +147,8 @@ function Today({ p, w, lang, tenantId, color, go }: any) {
   const late = p.tuition.find((x: any) => x.status === 'past_due');
   const next = p.tuition.find((x: any) => x.status === 'active' && x.nextDueAt);
   return (
-    <div className="space-y-3">
+    <div className="cf-stagger space-y-3">
+      {p.game && <Card><GameChips g={p.game} color={color} /></Card>}
       {late && <Card tone="alert"><p className="font-semibold text-red-900">{w.paymentFailed}</p><p className="text-sm text-red-800">{usd(late.balanceCents)} · {late.lastError}</p><button type="button" onClick={() => go('tuition')} className="mt-2 rounded-full bg-red-600 px-4 py-2 text-sm font-medium text-white">{w.updateCard} / {w.payNow}</button></Card>}
       {p.needs.length > 0 && <Card tone="alert"><p className="font-semibold text-red-900">{w.redo}</p>{p.needs.map((n: any) => <p key={n.doc} className="text-sm text-red-800">{n.doc}{n.reason ? ` — ${n.reason}` : ''}</p>)}</Card>}
       {p.isSchool && (
