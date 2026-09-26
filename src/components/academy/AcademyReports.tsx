@@ -6,6 +6,7 @@
 // the table. Hours certification letters carry a verification code anyone
 // can check at /verify/CODE.
 
+import { deviceId } from '@/lib/device';
 import { useEffect, useState } from 'react';
 import { getAuth } from 'firebase/auth';
 import { Loader } from 'lucide-react';
@@ -13,7 +14,7 @@ import { printDocument, heading, esc } from '@/lib/doc-theme';
 
 async function call(path: string, body: any) {
   const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
-  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify(body) });
+  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}`, 'x-cf-device': deviceId() }, body: JSON.stringify(body) });
   return r.json().catch(() => ({ ok: false, error: 'No response' }));
 }
 const field = 'h-10 rounded-xl border-2 border-border/60 bg-background px-3 text-sm';
