@@ -10,6 +10,8 @@
 //                download; free-preview switch; reorder; edit; delete
 //   Students     who's enrolled, since when, how far they've got
 
+import { PresentMode } from '@/components/academy/PresentMode';
+import { ClassroomToolkit } from '@/components/academy/ClassroomToolkit';
 import { SchoolDocs } from '@/components/academy/SchoolDocs';
 import { AssignPanel } from '@/components/academy/AssignPanel';
 import { CourseBoard } from '@/components/academy/CourseBoard';
@@ -19,7 +21,7 @@ import { AiCreditsMeter } from '@/components/academy/AiCreditsMeter';
 import { deviceId } from '@/lib/device';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAuth } from 'firebase/auth';
-import { Loader, ArrowUp, ArrowDown, Pencil, Trash2, ExternalLink, Video, FileText, Download, Plus, Home as HomeIcon, BookOpen, Sparkles, Users, Clock, ClipboardList, GraduationCap, Settings as SettingsIcon, Radio, Printer, ClipboardCheck } from 'lucide-react';
+import { Loader, ArrowUp, ArrowDown, Pencil, Trash2, ExternalLink, Video, FileText, Download, Plus, Home as HomeIcon, BookOpen, Sparkles, Users, Clock, ClipboardList, GraduationCap, Settings as SettingsIcon, Radio, Printer, ClipboardCheck, Timer } from 'lucide-react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { PrivateImg } from '@/components/shared/private-file';
 import { SchoolPrograms } from '@/components/academy/SchoolPrograms';
@@ -81,7 +83,7 @@ export default function AcademyBuilderPage() {
   const [form, setForm] = useState<any>(null);
   const [lesson, setLesson] = useState<any>(null);   // the lesson being edited
   // The lesson canvas: ＋ picker, settings drawer, phone preview (phones), template picker.
-  const [addOpen, setAddOpen] = useState(false); const [drawer, setDrawer] = useState(false); const [showPrev, setShowPrev] = useState(false); const [pickTpl, setPickTpl] = useState<string | boolean>(false); const [fromFile, setFromFile] = useState<string | null>(null);
+  const [presenting, setPresenting] = useState<string | null>(null); const [addOpen, setAddOpen] = useState(false); const [drawer, setDrawer] = useState(false); const [showPrev, setShowPrev] = useState(false); const [pickTpl, setPickTpl] = useState<string | boolean>(false); const [fromFile, setFromFile] = useState<string | null>(null);
   const [students, setStudents] = useState<any[] | null>(null);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState('');
@@ -169,6 +171,7 @@ export default function AcademyBuilderPage() {
       { key: 'live', label: 'Live class', hint: 'Join code, questions, minutes', icon: Radio },
       { key: 'materials', label: 'Tests & worksheets', hint: 'Question bank, printables', icon: Printer },
       { key: 'assign', label: 'Assign work', hint: 'Due dates, groups, reviews', icon: ClipboardCheck },
+      { key: 'toolkit', label: 'Toolkit', hint: 'Timer, picker, groups, practical exams', icon: Timer },
       { key: 'salon', label: 'Student salon', hint: 'Sign off students’ services', icon: Sparkles, school: true, badge: home?.school?.checkoffsToday } ] },
     { group: 'Students', items: [
       { key: 'students', label: 'Students', hint: 'Progress, risk, messages', icon: Users, school: true, badge: (home?.school?.atRisk || 0) + (home?.school?.unread || 0) },
@@ -251,6 +254,7 @@ export default function AcademyBuilderPage() {
             {section === 'attendance' && mode === 'school' && <AttendancePanel tenantId={tenantId} />}
             {section === 'live' && <LiveClass tenantId={tenantId} />}
             {section === 'assign' && <AssignPanel tenantId={tenantId} />}
+            {section === 'toolkit' && <ClassroomToolkit tenantId={tenantId} courses={courses || []} />}
             {section === 'documents' && <SchoolDocs tenantId={tenantId} brand={docBrand} courses={courses || []} />}
             {section === 'materials' && <CourseMaterials tenantId={tenantId} courses={courses || []} brand={docBrand} />}
             {section === 'reports' && mode === 'school' && <AcademyReports tenantId={tenantId} />}
@@ -366,6 +370,7 @@ export default function AcademyBuilderPage() {
                       <div className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background/95 px-3 py-2.5 backdrop-blur sm:px-4">
                         <button type="button" onClick={() => setLesson(null)} className="h-10 shrink-0 rounded-xl px-2 text-sm font-bold text-muted-foreground">‹ <span className="hidden sm:inline">{d.course.title}</span><span className="sm:hidden">Back</span></button>
                         <p className="min-w-0 flex-1 truncate text-base font-black">{lesson.title || (lesson.id ? 'Edit lesson' : 'New lesson')}</p>
+                        {lesson.id && <button type="button" onClick={() => setPresenting(lesson.id)} className="h-10 rounded-xl border-2 px-3 text-sm font-bold" title="Show this lesson on the classroom screen">▶ <span className="hidden sm:inline">Present</span></button>}
                         <button type="button" onClick={() => setShowPrev(true)} className="h-10 rounded-xl border-2 px-3 text-sm font-bold lg:hidden">Preview</button>
                         <button type="button" onClick={() => setDrawer(true)} aria-label="Lesson settings" className="h-10 w-10 rounded-xl border-2 text-base">⚙</button>
                         <button type="button" disabled={!!busy || !lesson.title.trim()} onClick={async () => { const id = await saveLesson(); if (id) { setLesson(null); setMsg('Lesson saved.'); } }} className="h-10 rounded-xl bg-foreground px-4 text-sm font-bold text-background disabled:opacity-50">{busy === 'lesson' ? 'Saving…' : 'Save'}</button>
@@ -491,7 +496,8 @@ export default function AcademyBuilderPage() {
                       </div>
                       <aside className="hidden lg:block"><div className="sticky top-20 space-y-2"><p className="text-center text-[11px] font-black uppercase tracking-widest text-muted-foreground">As a student sees it</p><LessonPreview lesson={lesson} color={docBrand.color} stepMode={lesson.stepMode === true} /></div></aside>
                       </div>
-                      {addOpen && <AddToLesson lesson={lesson} setLesson={setLesson} draft={draft} drafting={drafting} onClose={() => setAddOpen(false)} />}
+                      {presenting && <PresentMode tenantId={tenantId} courseId={sel!} lessonId={presenting} color={docBrand.color} onClose={() => setPresenting(null)} />}
+                  {addOpen && <AddToLesson lesson={lesson} setLesson={setLesson} draft={draft} drafting={drafting} onClose={() => setAddOpen(false)} />}
                       {showPrev && <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black/70 p-4" onClick={() => setShowPrev(false)}><div onClick={(e) => e.stopPropagation()}><LessonPreview lesson={lesson} color={docBrand.color} stepMode={lesson.stepMode === true} /></div><button type="button" className="h-10 rounded-full bg-white px-5 text-sm font-bold">Close preview</button></div>}
                       {drawer && (
                         <div className="fixed inset-0 z-[60] flex justify-end bg-black/30" onClick={() => setDrawer(false)}>
