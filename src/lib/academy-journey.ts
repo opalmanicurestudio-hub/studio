@@ -166,14 +166,14 @@ export async function outcomes(tenantId: string, programId?: string | null) {
 }
 
 // ── Messages & announcements ─────────────────────────────────────────────
-export async function postMessage(opts: { tenantId: string; studentId: string; from: 'student' | 'school'; by: string; text: string; studentEmail?: string | null; studentName?: string | null }) {
+export async function postMessage(opts: { tenantId: string; studentId: string; from: 'student' | 'school'; by: string; text: string; studentEmail?: string | null; studentName?: string | null; translated?: string | null; lang?: string | null }) {
   const db = getAdminDb();
   const text = String(opts.text || '').trim().slice(0, 4000);
   if (!text) throw new Error('Write a message first.');
   const tRef = db.doc(`tenants/${opts.tenantId}/academyThreads/${opts.studentId}`);
   const cur = ((await tRef.get()).data() as any) || {};
   const at = new Date().toISOString();
-  await tRef.collection('messages').add({ from: opts.from, by: opts.by, text, at });
+  await tRef.collection('messages').add({ from: opts.from, by: opts.by, text, at, ...(opts.translated ? { translated: opts.translated, lang: opts.lang || null } : {}) });
   await tRef.set({ studentId: opts.studentId, email: opts.studentEmail || cur.email || null, name: opts.studentName || cur.name || null, lastAt: at, lastText: text.slice(0, 140), lastFrom: opts.from,
     unreadSchool: opts.from === 'student' ? (cur.unreadSchool || 0) + 1 : 0, unreadStudent: opts.from === 'school' ? (cur.unreadStudent || 0) + 1 : cur.unreadStudent || 0 }, { merge: true });
   return { at };
