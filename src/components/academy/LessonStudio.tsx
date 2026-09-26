@@ -61,7 +61,7 @@ export function MediaPicker({ tenantId, courseId, kind, onPick, onClose }: { ten
 
 // ── Content blocks ────────────────────────────────────────────────────────
 const TONE: Record<string, [string, string]> = { safety: ['🛑 Safety', 'bg-red-50 border-red-200'], key: ['⭐ Key point', 'bg-amber-50 border-amber-200'], tip: ['💡 Tip', 'bg-sky-50 border-sky-200'] };
-export function BlocksEditor({ tenantId, courseId, value, onChange, lessonId }: { tenantId: string; courseId: string; value: any[]; onChange: (v: any[]) => void; lessonId?: string | null }) {
+export function BlocksEditor({ tenantId, courseId, value, onChange, lessonId, accent }: { tenantId: string; courseId: string; value: any[]; onChange: (v: any[]) => void; lessonId?: string | null; accent?: string | null }) {
   const [pick, setPick] = useState<{ index: number; step?: number; kind: 'image' | 'any' } | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
   const blocks = value || [];
@@ -90,7 +90,7 @@ export function BlocksEditor({ tenantId, courseId, value, onChange, lessonId }: 
               <button type="button" onClick={() => set(i, { steps: b.steps.filter((_: any, x: number) => x !== k) })} aria-label="Remove step" className="mt-2 text-red-600"><Trash2 className="h-4 w-4" /></button></div>)}
             <button type="button" onClick={() => set(i, { steps: [...b.steps, { text: '', mediaId: null }] })} className="rounded-full bg-muted px-3 py-1 text-[12px] font-bold">+ Step</button></>}
           {b.type === 'divider' && <hr className="border-dashed" />}
-          {b.type === 'interactive' && <InteractiveEditor tenantId={tenantId} courseId={courseId} lessonId={lessonId} b={b} onChange={(patch: any) => set(i, patch)} />}
+          {b.type === 'interactive' && <InteractiveEditor tenantId={tenantId} courseId={courseId} lessonId={lessonId} accent={accent} b={b} onChange={(patch: any) => set(i, patch)} />}
           {b.type === 'hotspots' && <HotspotsEditor tenantId={tenantId} courseId={courseId} lessonId={lessonId} b={b} onChange={(patch: any) => set(i, patch)} onPick={() => setPick({ index: i, kind: 'image' })} />}
           {b.type === 'stages' && <>
             <input className={field} value={b.title} onChange={(e) => set(i, { title: e.target.value })} placeholder="e.g. How a nail grows out — month by month" />
@@ -158,19 +158,21 @@ export function PlanEditor({ tenantId, courseId, lesson, value, onChange, brand,
 
 
 // ── ✨ Make an interactive (animated HTML, sealed frame) ──────────────────
-function InteractiveEditor({ tenantId, courseId, lessonId, b, onChange }: any) {
+function InteractiveEditor({ tenantId, courseId, lessonId, accent, b, onChange }: any) {
   const [busy, setBusy] = useState(''); const [err, setErr] = useState(''); const [change, setChange] = useState('');
+  const [problem, setProblem] = useState('');
   const [useLesson, setUseLesson] = useState(true); const [lib, setLib] = useState<any[] | null>(null); const [saved, setSaved] = useState(false);
-  const build = async (revise: boolean) => {
-    setBusy(revise ? 'revise' : 'build'); setErr('');
-    const r = await api({ action: 'ai-interactive', tenantId, courseId, lessonId, useLesson: useLesson && !!lessonId, request: b.request, ...(revise ? { currentHtml: b.html, change } : {}) });
-    setBusy(''); if (r.ok) { onChange({ html: r.html, title: b.title || b.request.slice(0, 60) }); setChange(''); setSaved(false); if (r.note) setErr(r.note); } else setErr(r.error);
+  const build = async (revise: boolean, fixProblem?: string) => {
+    setBusy(fixProblem ? 'fix' : revise ? 'revise' : 'build'); setErr(''); setProblem('');
+    const ask = fixProblem ? `Fix this problem so it works: ${fixProblem}` : change;
+    const r = await api({ action: 'ai-interactive', tenantId, courseId, lessonId, useLesson: useLesson && !!lessonId, request: b.request, ...(revise || fixProblem ? { currentHtml: b.html, change: ask } : {}) });
+    setBusy(''); if (r.ok) { onChange({ html: r.html, title: b.title || b.request.slice(0, 60) }); setChange(''); setSaved(false); if (r.problem) setProblem(r.problem); if (r.note) setErr(r.note); } else setErr(r.error);
   };
   return (
     <div className="space-y-2">
       <textarea rows={2} className={area} value={b.request} onChange={(e) => onChange({ request: e.target.value })} placeholder="What should it show? e.g. How UV gel cures from the top down, and why thick or dark coats stay liquid underneath — with a time slider" />
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" disabled={!!busy || !b.request.trim()} onClick={() => build(false)} className="h-10 rounded-xl bg-violet-700 px-4 text-sm font-bold text-white disabled:opacity-40">{busy === 'build' ? 'Building… (up to a minute)' : b.html ? '✨ Build again' : '✨ Build it'}</button>
+        <button type="button" disabled={!!busy || !b.request.trim()} onClick={() => build(false)} className="h-10 rounded-xl bg-violet-700 px-4 text-sm font-bold text-white disabled:opacity-40">{busy === 'build' ? 'Building… (up to 2 minutes)' : b.html ? '✨ Build again' : '✨ Build it'}</button>
         <label className="flex items-center gap-1.5 text-[12px] font-bold"><input type="checkbox" checked={useLesson} onChange={(e) => setUseLesson(e.target.checked)} disabled={!lessonId} />Use this lesson’s text{!lessonId ? ' (save the lesson first)' : ''}</label>
         <button type="button" onClick={async () => { const r = await api({ action: 'interactive-list', tenantId, courseId }); setLib(r.ok ? r.items : []); }} className="h-10 rounded-xl border-2 px-3 text-[12px] font-bold">Use one from the library</button>
         <span className="text-[11px] text-muted-foreground">Built with Claude Opus · about 8 AI credits per build or change.</span>
@@ -180,8 +182,10 @@ function InteractiveEditor({ tenantId, courseId, lessonId, b, onChange }: any) {
       {b.html && (
         <div className="space-y-2">
           <input className={field} value={b.title} onChange={(e) => onChange({ title: e.target.value })} placeholder="Title students see" />
-          <div className="rounded-2xl border-2 border-violet-200 p-1"><InteractiveFrame html={b.html} title={b.title} /></div>
-          <div className="flex flex-wrap gap-2"><input className={`${field} flex-1`} value={change} onChange={(e) => setChange(e.target.value)} placeholder="Ask for changes — e.g. add a heat indicator, make the labels bigger, slow the animation" />
+          {problem && <div className="flex flex-wrap items-center gap-2 rounded-2xl border-2 border-red-200 bg-red-50 p-3 text-sm"><span className="min-w-0 flex-1 text-red-900"><b>This interactive has a problem:</b> {problem}</span>
+            <button type="button" disabled={!!busy} onClick={() => build(true, problem)} className="h-9 rounded-xl bg-red-600 px-4 text-[12px] font-bold text-white disabled:opacity-50">{busy === 'fix' ? 'Fixing…' : '✨ Fix it'}</button></div>}
+          <div className="rounded-3xl bg-[#f7f5f2] p-2"><InteractiveFrame key={b.html.length + (b.html.charCodeAt(40) || 0)} html={b.html} title={b.title} accent={accent} onProblem={(p) => setProblem((x) => x || p)} /></div>
+          <div className="flex flex-wrap gap-2"><input className={`${field} w-full sm:w-auto sm:flex-1`} value={change} onChange={(e) => setChange(e.target.value)} placeholder="Ask for changes — e.g. add a heat indicator, make the labels bigger, slow the animation" />
             <button type="button" disabled={!!busy || !change.trim()} onClick={() => build(true)} className="h-10 rounded-xl border-2 px-4 text-sm font-bold disabled:opacity-40">{busy === 'revise' ? 'Changing…' : 'Change it'}</button>
             <button type="button" disabled={saved} onClick={async () => { const r = await api({ action: 'interactive-save', tenantId, courseId, html: b.html, title: b.title, request: b.request }); if (r.ok) setSaved(true); else setErr(r.error); }} className="h-10 rounded-xl border-2 px-4 text-sm font-bold disabled:opacity-50">{saved ? '✓ In library' : 'Save to library'}</button></div>
           <p className="text-[11px] text-muted-foreground">Check it’s accurate before saving the lesson — students see exactly this. It runs in a sealed frame with no internet access.</p>
