@@ -6,6 +6,7 @@
 //   countersign · cohort-save · cohort-assign
 //   tuition · ledger-add · refund-quote · withdraw
 
+import { deviceAllowed } from '@/lib/approved-devices';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
@@ -30,6 +31,7 @@ export async function POST(req: NextRequest) {
   const auth = await verifyStaffActor(req, tenantId);
   if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
   if (!auth.actor.isManager && !auth.actor.isTenantOwner) return NextResponse.json({ ok: false, error: 'Admissions and tuition are for owners and managers.' }, { status: 403 });
+  { const dv = await deviceAllowed(tenantId, req); if (!dv.ok) return NextResponse.json({ ok: false, error: dv.error, deviceBlocked: true }, { status: 403 }); }
   const db = getAdminDb();
   const who = auth.actor.name || auth.actor.uid;
   const now = new Date().toISOString();
