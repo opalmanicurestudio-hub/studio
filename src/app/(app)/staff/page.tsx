@@ -567,7 +567,7 @@ export default function StaffPage() {
   const [onboardingStaff, setOnboardingStaff] = useState<Staff | null>(null);
   const [reviewFor, setReviewFor] = useState<(Staff & { stats: any }) | null>(null);
   const [rosterQuery, setRosterQuery] = useState('');
-  const [rosterFilter, setRosterFilter] = useState<'all' | 'employees' | 'renters' | 'unbookable' | 'in' | 'break' | 'off' | 'archived'>('all');
+  const [rosterFilter, setRosterFilter] = useState<'all' | 'employees' | 'renters' | 'students' | 'unbookable' | 'in' | 'break' | 'off' | 'archived'>('all');
 
   const { firestore, user } = useFirebase();
   const isMobile = useIsMobile();
@@ -819,6 +819,9 @@ export default function StaffPage() {
         else if (archived) return false;
         if (rosterFilter === 'employees' && (m as any).isRenter === true) return false;
         if (rosterFilter === 'renters' && (m as any).isRenter !== true) return false;
+        // Academy students are student-salon providers, not the team: only under "Students".
+        if (rosterFilter === 'students') { if ((m as any).isStudent !== true) return false; }
+        else if ((m as any).isStudent === true) return false;
         if (rosterFilter === 'unbookable' && (m.bookable?.ok || m.bookable?.byDesign)) return false;
         if (rosterFilter === 'in' && !(m.active && !m.onBreak)) return false;
         if (rosterFilter === 'break' && !m.onBreak) return false;
@@ -1200,7 +1203,7 @@ export default function StaffPage() {
                                     )}
                                 </div>
                                 <div className="flex flex-wrap items-center gap-1.5">
-                                    {([['all','Everyone'],['employees','Employees'],['renters','Renters'],['unbookable','Not bookable'],['in','Clocked in'],['break','On break'],['off','Off'],['archived','Archived']] as const).map(([key, label]) => (
+                                    {([['all','Everyone'],['employees','Employees'],['renters','Renters'],...(staffWithBookable.some((m: any) => m.isStudent) ? [['students','Students']] as const : []),['unbookable','Not bookable'],['in','Clocked in'],['break','On break'],['off','Off'],['archived','Archived']] as const).map(([key, label]) => (
                                         <button
                                             key={key}
                                             type="button"
