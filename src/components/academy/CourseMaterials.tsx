@@ -10,6 +10,7 @@
 //                  short answer · label the diagram → Print sheet / Print key
 // Everything prints in the ClarityFlow document look.
 
+import { deviceId } from '@/lib/device';
 import { useCallback, useEffect, useState } from 'react';
 import { getAuth } from 'firebase/auth';
 import { Loader, Trash2 } from 'lucide-react';
@@ -18,7 +19,7 @@ import { testVersions, testHtml, keyHtml, wordSearch, wordSearchHtml, crossword,
 
 async function api(body: any) {
   const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
-  const r = await fetch('/api/academy/admin', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify(body) });
+  const r = await fetch('/api/academy/admin', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}`, 'x-cf-device': deviceId() }, body: JSON.stringify(body) });
   return r.json().catch(() => ({ ok: false, error: 'No response' }));
 }
 const field = 'h-10 rounded-xl border-2 border-border/60 bg-background px-3 text-sm';
@@ -43,7 +44,7 @@ export function CourseMaterials({ tenantId, courses, brand }: { tenantId: string
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <select className={field} value={courseId} onChange={(e) => setCourseId(e.target.value)}>{courses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}</select>
-        <div className="flex gap-1">{([['bank', 'Question bank'], ['test', 'Build a test'], ['sheets', 'Worksheets']] as const).map(([k, l]) => <button key={k} type="button" onClick={() => setTab(k)} className={`h-9 rounded-full px-4 text-sm font-bold ${tab === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{l}</button>)}</div>
+        <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">{([['bank', 'Question bank'], ['test', 'Build a test'], ['sheets', 'Worksheets']] as const).map(([k, l]) => <button key={k} type="button" onClick={() => setTab(k)} className={`h-9 shrink-0 whitespace-nowrap rounded-full px-4 text-sm font-bold ${tab === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{l}</button>)}</div>
       </div>
       {msg && <p className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900" onClick={() => setMsg('')}>{msg}</p>}
       {!bank ? <Loader className="h-5 w-5 animate-spin" /> : (
