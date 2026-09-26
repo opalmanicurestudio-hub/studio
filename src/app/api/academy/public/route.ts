@@ -61,6 +61,7 @@ async function resolveBlocks(tenantId: string, courseId: string, blocks: any[]) 
   for (const b of blocks) {
     if (b.type === 'image' || b.type === 'file' || b.type === 'hotspots') out.push({ ...b, media: await link(b.mediaId) });
     else if (b.type === 'stages') out.push({ ...b, stages: await Promise.all((b.stages || []).map(async (x: any) => ({ ...x, media: await link(x.mediaId) }))) });
+    else if (b.type === 'timeline') out.push({ ...b, events: await Promise.all((b.events || []).map(async (x: any) => ({ ...x, media: await link(x.mediaId) }))) });
     else if (b.type === 'steps') out.push({ ...b, steps: await Promise.all((b.steps || []).map(async (x: any) => ({ ...x, media: await link(x.mediaId) }))) });
     else out.push(b);
   }
@@ -212,7 +213,7 @@ export async function POST(req: NextRequest) {
       const quiz = l.quiz?.questions?.length ? { passPct: l.quiz.passPct || 80, questions: l.quiz.questions.map((q: any) => ({ q: q.q, options: q.options })), attempts: (enr.quiz?.[lessonId]?.attempts || []).slice(-5), passed: !!enr.quiz?.[lessonId]?.passed } : null;
       const studentLang = student ? ((((await db.doc(`tenants/${tenantId}/students/${student.id}`).get()).data() as any) || {}).language || 'en') : 'en';
       const accView = student ? effectiveA11y(((await db.doc(`tenants/${tenantId}/students/${student.id}`).get()).data() as any) || {}) : null;
-      return NextResponse.json({ ok: true, enrolled, studentLang, extraTime: accView?.extraTime || 1, audioFirst: !!accView?.audioFirst, aiTutor: enrolled && c.aiTutor !== false && aiConfigured(), lesson: { id: lessonId, stepMode: l.stepMode === true, title: l.title, moduleTitle: l.moduleTitle, kind: l.kind, body: l.body || '', downloadUrl: l.downloadUrl || null, downloadName: l.downloadName || null, preview: !!l.preview, video, durationSec: l.durationSec || null, minMinutes: l.minMinutes || 0, quiz,
+      return NextResponse.json({ ok: true, enrolled, studentLang, extraTime: accView?.extraTime || 1, audioFirst: !!accView?.audioFirst, readable: !!accView?.prefs?.readable, aiTutor: enrolled && c.aiTutor !== false && aiConfigured(), lesson: { id: lessonId, stepMode: l.stepMode === true, layout: l.layout || (l.stepMode === true ? 'steps' : 'article'), title: l.title, moduleTitle: l.moduleTitle, kind: l.kind, body: l.body || '', downloadUrl: l.downloadUrl || null, downloadName: l.downloadName || null, preview: !!l.preview, video, durationSec: l.durationSec || null, minMinutes: l.minMinutes || 0, quiz,
         flashcards: l.flashcards || [], activity: l.activity || null, transcript: l.transcript || null, blocks: await resolveBlocks(tenantId, courseId, l.blocks || []),
           cases: l.cases ? { ...l.cases, cases: await Promise.all(l.cases.cases.map(async (x: any) => ({ ...x, media: x.mediaId ? (await resolveBlocks(tenantId, courseId, [{ type: 'image', mediaId: x.mediaId }]))[0]?.media || null : null }))) } : null,
           videoQuestions: l.kind === 'video' ? l.videoQuestions || [] : [] },
