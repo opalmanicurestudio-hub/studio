@@ -10,6 +10,7 @@
 //                download; free-preview switch; reorder; edit; delete
 //   Students     who's enrolled, since when, how far they've got
 
+import { AiCreditsMeter } from '@/components/academy/AiCreditsMeter';
 import { deviceId } from '@/lib/device';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAuth } from 'firebase/auth';
@@ -240,6 +241,7 @@ export default function AcademyBuilderPage() {
                     </div>
                   ))}
                 </section>
+                <AiCreditsMeter tenantId={tenantId} />
                 {mode === 'school' && <DevicesPanel tenantId={tenantId} />}
                 {mode === 'school' && (
                   <section className="space-y-1 rounded-2xl bg-muted/40 p-4 text-sm">
@@ -375,7 +377,8 @@ export default function AcademyBuilderPage() {
                       </div>
                       {lesson.kind === 'assignment' && lesson.assignment && (
                         <div className="space-y-2 rounded-2xl border-2 border-amber-200 bg-amber-50/60 p-3">
-                          <p className="text-sm font-black">Assignment</p>
+                          <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-black">Assignment</p>
+                            <button type="button" onClick={async () => { const focus = window.prompt('Anything to focus on? (optional — e.g. “photograph each stage of a basic manicure”)') ?? ''; setMsg('Drafting the assignment…'); const r = await api({ action: 'ai-assignment', tenantId, courseId: sel, lessonId: lesson.id || null, type: lesson.assignment.type, focus }); if (r.ok) { setLesson({ ...lesson, assignment: r.assignment }); setMsg('Assignment drafted — read it through, adjust, then Save lesson.'); } else setMsg(r.error); }} className="h-8 rounded-full bg-violet-100 px-3 text-[12px] font-bold text-violet-900">✨ Draft assignment</button></div>
                           <textarea rows={4} className={field + ' h-auto py-2'} value={lesson.assignment.prompt} onChange={(e) => setLesson({ ...lesson, assignment: { ...lesson.assignment, prompt: e.target.value } })} placeholder="What should the student do and hand in? e.g. Perform a basic manicure on a mannequin hand; photograph each stage; explain your infection-control steps." />
                           <div className="grid gap-2 sm:grid-cols-3">
                             <label className="text-[12px] font-bold">They hand in<select className={field} value={lesson.assignment.type} onChange={(e) => setLesson({ ...lesson, assignment: { ...lesson.assignment, type: e.target.value } })}><option value="any">Writing and/or photos & files</option><option value="written">Writing</option><option value="photo">Photos</option><option value="file">A file</option></select></label>
