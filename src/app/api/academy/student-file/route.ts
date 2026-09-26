@@ -14,6 +14,8 @@
 //   form-update   Board form: submitted date, confirmation #, receipt  (owners/managers)
 // Nothing in the file can be deleted: a replacement keeps the earlier version.
 
+import { translateTexts } from '@/lib/translate';
+import { cleanAcc } from '@/lib/accommodations';
 import { deviceAllowed } from '@/lib/approved-devices';
 import { NextRequest, NextResponse } from 'next/server';
 import { PDFDocument } from 'pdf-lib';
@@ -98,6 +100,8 @@ export async function POST(req: NextRequest) {
       const grades = ce.docs.flatMap((d: any) => { const e = d.data() as any; return Object.entries(e.quiz || {}).map(([lessonId, q]: any) => ({ courseId: e.courseId, lessonId, best: q.best, passed: q.passed, attempts: (q.attempts || []).length })); });
       const a0 = adm.docs[0]?.data() as any;
       return NextResponse.json({ ok: true,
+        accommodations: st.accommodations || null,
+        letters: (await db.collection(`${T}/studentLetters`).where('studentId', '==', studentId).limit(100).get()).docs.map((d: any) => d.data()).sort((x: any, y: any) => String(y.at).localeCompare(String(x.at))),
         profile: { id: studentId, name: st.name, email: st.email, dob: st.dob || null, phone: st.phone || a0?.phone || null, address: st.address || null, emergency: st.emergency || null, language: st.language || 'en', photo: st.referencePhoto?.ref || null, createdAt: st.createdAt },
         programs, admission: a0 ? { stage: a0.stage, source: a0.source, cohortId: a0.cohortId || null, agreement: a0.agreement ? { signedAt: a0.agreement.signedAt, signedName: a0.agreement.signedName, sha256: a0.agreement.sha256, countersignedBy: a0.agreement.countersignedBy || null, text: a0.agreement.text } : null, documents: a0.documents || {} } : null,
         files: files.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).sort((x: any, y: any) => String(y.at).localeCompare(String(x.at))),
@@ -117,6 +121,38 @@ export async function POST(req: NextRequest) {
       await appendAudit(tenantId, { type: 'student.profile', studentId, by: who, summary: 'Student details updated', data: { fields: Object.keys(clean) } });
       return NextResponse.json({ ok: true });
     }
+    // ── Letters: saved to the file; emailed in the student's language with the English original ──
+    if (b.action === 'letter-send') {
+      if (!isLead) return NextResponse.json({ ok: false, error: 'Owners and managers only.' }, { status: 403 });
+      const st = ((await sRef.get()).data() as any) || null; if (!st) return NextResponse.json({ ok: false, error: 'Student not found.' }, { status: 404 });
+      const title = String(b.title || 'Letter').slice(0, 160), body = String(b.body || '').slice(0, 20000);
+      if (body.trim().length < 20) return NextResponse.json({ ok: false, error: 'Write the letter first.' }, { status: 400 });
+      if (/\[\[/.test(body)) return NextResponse.json({ ok: false, error: 'Fill in the highlighted [[…]] parts first.' }, { status: 400 });
+      let emailed = false, lang: string | null = null;
+      if (b.email && st.email) {
+        const school = ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.name || 'Your school';
+        const plain = body.replace(/^#+\s*/gm, '').replace(/\*\*/g, '');
+        let text = plain, subject = title;
+        if (st.language && st.language !== 'en') { try { const [tt, ts] = await translateTexts(tenantId, [plain, title], st.language); text = `${tt}\n\n———\nEnglish (official copy):\n\n${plain}`; subject = `${ts} / ${title}`; lang = st.language; } catch { /* English only */ } }
+        const { sendEmail } = await import('@/lib/academy-journey');
+        await sendEmail(st.email, `${subject} — ${school}`, text); emailed = true;
+      }
+      const ref = db.collection(`${T}/studentLetters`).doc();
+      await ref.set({ id: ref.id, studentId, kind: String(b.kind || 'custom').slice(0, 30), title, body, emailed, lang, by: who, at: now });
+      await appendAudit(tenantId, { type: 'student.letter', studentId, by: who, summary: `Letter “${title}”${emailed ? ` emailed${lang ? ` (in ${lang} with English original)` : ''}` : ' saved'}`, data: { letterId: ref.id } });
+      return NextResponse.json({ ok: true, emailed });
+    }
+
+    // ── Accommodations (owners/managers) ──
+    if (b.action === 'acc-save') {
+      if (!isLead) return NextResponse.json({ ok: false, error: 'Owners and managers only.' }, { status: 403 });
+      const acc = cleanAcc(b.accommodations);
+      await sRef.set({ accommodations: { ...acc, updatedAt: now, updatedBy: who } }, { merge: true });
+      const on = [acc.extraTime > 1 ? `extra time ×${acc.extraTime}` : '', acc.largeText ? 'larger text' : '', acc.dyslexia ? 'dyslexia-friendly font' : '', acc.highContrast ? 'high contrast' : '', acc.reducedMotion ? 'reduced motion' : '', acc.audioFirst ? 'audio-first' : ''].filter(Boolean);
+      await appendAudit(tenantId, { type: 'student.accommodations', studentId, by: who, summary: on.length ? `Accommodations set: ${on.join(', ')}` : 'Accommodations cleared' });
+      return NextResponse.json({ ok: true });
+    }
+
     if (b.action === 'note-add') {
       const text = String(b.text || '').trim().slice(0, 2000); if (!text) return NextResponse.json({ ok: false, error: 'Write a note.' }, { status: 400 });
       const st = ((await sRef.get()).data() as any) || {};
