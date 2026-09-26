@@ -27,11 +27,12 @@ export const LESSON_TEMPLATES: { key: string; icon: string; name: string; hint: 
   { key: 'exam', icon: '📝', name: 'Exam prep', hint: 'A longer quiz and client cases', make: () => ({ kind: 'text', quiz: { passPct: 70, questions: [{ q: '', options: ['', '', '', ''], answer: 0 }] }, cases: { prompt: 'What would you do?', cases: [{ story: '', mediaId: null, options: [{ text: 'Proceed with the service as planned', correct: false, feedback: '' }, { text: 'Adapt the service', correct: false, feedback: '' }, { text: 'Refer the client to a doctor', correct: true, feedback: '' }] }] } }) },
 ];
 
-export function TemplatePicker({ onPick, onClose }: { onPick: (t: any) => void; onClose: () => void }) {
+export function TemplatePicker({ onPick, onClose, onFromFile }: { onPick: (t: any) => void; onClose: () => void; onFromFile?: () => void }) {
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} className="w-full max-w-xl space-y-3 rounded-t-3xl bg-background p-5 sm:rounded-3xl">
         <p className="text-xl font-black">New lesson</p><p className="-mt-2 text-sm text-muted-foreground">Pick a starting point — you can change everything.</p>
+        {onFromFile && <button type="button" onClick={onFromFile} className="flex w-full items-center gap-3 rounded-2xl border-2 border-violet-300 bg-violet-50 p-3 text-left active:scale-[0.99]"><span className="text-3xl">📄</span><span><span className="block font-black">From a file or PDF ✨</span><span className="block text-[12px] text-muted-foreground">Turn your handout, notes or curriculum into a lesson with notes, key points, flashcards and a quiz</span></span></button>}
         <div className="grid grid-cols-2 gap-2">{LESSON_TEMPLATES.map((t) => (
           <button key={t.key} type="button" onClick={() => onPick(t.make())} className="flex min-h-28 flex-col justify-between rounded-2xl border-2 border-border/60 bg-muted/30 p-3 text-left active:scale-[0.98]">
             <span className="text-2xl">{t.icon}</span><span><span className="block font-black">{t.name}</span><span className="block text-[12px] text-muted-foreground">{t.hint}</span></span>
@@ -43,11 +44,11 @@ export function TemplatePicker({ onPick, onClose }: { onPick: (t: any) => void; 
 }
 
 const CONTENT: [string, string, string, string][] = [
-  ['text', '¶', 'Text', 'A paragraph or two'], ['steps', '🔢', 'Photo steps', 'Numbered steps, a photo each'], ['interactive', '✨', 'Interactive', 'AI builds an animated demo'],
+  ['game', '🎮', 'Game', 'Sort it, speed round, memory, sequence'], ['text', '¶', 'Text', 'A paragraph or two'], ['steps', '🔢', 'Photo steps', 'Numbered steps, a photo each'], ['interactive', '✨', 'Interactive', 'AI builds an animated demo'],
   ['hotspots', '📍', 'Hotspots', 'Tap parts of your image'], ['stages', '🎚', 'Stages', 'Slide through a process'], ['callout', '🛑', 'Safety / key point', 'A highlighted note'],
   ['image', '🖼', 'Image', 'A photo or diagram'], ['file', '📄', 'File', 'A PDF or audio'],
 ];
-const newBlock = (type: string) => type === 'interactive' ? { id: uid(), type, title: '', request: '', html: '' } : type === 'hotspots' ? { id: uid(), type, title: '', mediaId: null, points: [] } : type === 'stages' ? { id: uid(), type, title: '', stages: [{ label: '', text: '', mediaId: null }, { label: '', text: '', mediaId: null }] } : type === 'steps' ? { id: uid(), type, title: '', steps: [{ text: '', mediaId: null }] } : type === 'callout' ? { id: uid(), type, tone: 'safety', text: '' } : { id: uid(), type, text: '' };
+const newBlock = (type: string) => type === 'game' ? { id: uid(), type, template: 'sort', title: '', data: null } : type === 'interactive' ? { id: uid(), type, title: '', request: '', html: '' } : type === 'hotspots' ? { id: uid(), type, title: '', mediaId: null, points: [] } : type === 'stages' ? { id: uid(), type, title: '', stages: [{ label: '', text: '', mediaId: null }, { label: '', text: '', mediaId: null }] } : type === 'steps' ? { id: uid(), type, title: '', steps: [{ text: '', mediaId: null }] } : type === 'callout' ? { id: uid(), type, tone: 'safety', text: '' } : { id: uid(), type, text: '' };
 
 /** The ＋ picker: add a content card, or switch on a lesson extra. */
 export function AddToLesson({ lesson, setLesson, draft, drafting, onClose }: { lesson: any; setLesson: (l: any) => void; draft: (k: any) => void; drafting: string; onClose: () => void }) {
@@ -93,6 +94,7 @@ export function LessonPreview({ lesson, color, stepMode }: { lesson: any; color?
     if (b.type === 'text' && b.text) pieces.push({ key: b.id, node: <div className="whitespace-pre-wrap rounded-2xl bg-white/80 p-3 text-[13px]">{b.text}</div> });
     else if (b.type === 'callout') pieces.push({ key: b.id, node: <div className={`rounded-2xl border-2 p-3 text-[13px] ${b.tone === 'safety' ? 'border-red-200 bg-red-50' : b.tone === 'tip' ? 'border-sky-200 bg-sky-50' : 'border-amber-200 bg-amber-50'}`}><b className="text-[10px] uppercase tracking-widest">{b.tone === 'safety' ? '🛑 Safety' : b.tone === 'tip' ? '💡 Tip' : '⭐ Key point'}</b><p>{b.text || '…'}</p></div> });
     else if (b.type === 'steps') pieces.push({ key: b.id, node: <div className="space-y-1.5 rounded-2xl bg-white/80 p-3 text-[13px]">{b.title && <b>{b.title}</b>}{(b.steps || []).map((s: any, i: number) => <p key={i} className="flex gap-2"><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-stone-900 text-[10px] text-white">{i + 1}</span>{s.text || '…'}{s.mediaId ? ' 📷' : ''}</p>)}</div> });
+    else if (b.type === 'game') pieces.push({ key: b.id, node: <div className="rounded-2xl bg-white/80 p-3 text-center text-[13px]">🎮 <b>{b.title || ({ sort: 'Sort it', speed: 'Speed round', memory: 'Memory match', sequence: 'Sequence' } as any)[b.template]}</b><p className="text-[11px] text-stone-500">{b.data ? 'Ready to play' : 'Add items to finish it'}</p></div> });
     else if (b.type === 'interactive' && b.html) pieces.push({ key: b.id, node: <InteractiveFrame html={b.html} title={b.title} accent={c} minHeight={200} /> });
     else if (b.type === 'interactive') pieces.push({ key: b.id, node: <div className="rounded-2xl border-2 border-dashed border-violet-300 p-4 text-center text-[12px] text-violet-800">✨ Interactive — build it to preview</div> });
     else if (['image', 'hotspots', 'stages', 'file'].includes(b.type)) pieces.push({ key: b.id, node: <div className="rounded-2xl bg-white/80 p-3 text-center text-[12px] text-stone-500">{b.type === 'image' ? '🖼 Image' : b.type === 'hotspots' ? `📍 ${b.title || 'Hotspots'} · ${(b.points || []).length} points` : b.type === 'stages' ? `🎚 ${b.title || 'Stages'} · ${(b.stages || []).length} stages` : `📄 ${b.label || 'File'}`}</div> });
@@ -115,4 +117,43 @@ export function LessonPreview({ lesson, color, stepMode }: { lesson: any; color?
       </div>
     </div>
   );
+}
+
+
+/** 📄 From a file or PDF — Claude drafts the lesson; it opens in the canvas to check before saving. */
+export function FileToLesson({ call, onDraft, onClose }: { call: (body: any) => Promise<any>; onDraft: (d: any) => void; onClose: () => void }) {
+  const [pdf, setPdf] = useState<{ name: string; data: string } | null>(null); const [text, setText] = useState(''); const [focus, setFocus] = useState('');
+  const [want, setWant] = useState({ keyPoints: true, flashcards: true, quiz: true }); const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" onClick={busy ? undefined : onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="max-h-[92dvh] w-full max-w-xl space-y-3 overflow-y-auto rounded-t-3xl bg-background p-5 sm:rounded-3xl">
+        <p className="text-xl font-black">📄 Lesson from a file</p><p className="-mt-2 text-sm text-muted-foreground">Claude reads it and drafts the lesson from what it says — you check everything before saving.</p>
+        <label className="flex cursor-pointer items-center justify-between rounded-2xl border-2 border-dashed p-4 text-sm"><span>{pdf ? `📄 ${pdf.name}` : 'Attach a PDF (handout, notes, curriculum — up to 3 MB)'}</span><span className="font-bold">{pdf ? 'Change' : 'Choose'}</span>
+          <input type="file" accept="application/pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (!f) return; if (f.size > 3_000_000) { setErr('That PDF is over 3 MB — split it, or paste the text below.'); return; } const r = new FileReader(); r.onload = () => { setPdf({ name: f.name, data: String(r.result) }); setErr(''); }; r.readAsDataURL(f); }} /></label>
+        {!pdf && <textarea rows={5} value={text} onChange={(e) => setText(e.target.value)} className="w-full rounded-2xl border-2 p-3 text-sm" placeholder="…or paste the text here" />}
+        <input value={focus} onChange={(e) => setFocus(e.target.value)} className="h-11 w-full rounded-xl border-2 px-3 text-sm" placeholder="Anything to focus on? (optional) — e.g. only the disinfection section" />
+        <div className="flex flex-wrap gap-2 text-sm"><span className="rounded-full bg-muted px-3 py-1.5 font-bold">✓ Study notes</span>{([['keyPoints', 'Key points'], ['flashcards', 'Flashcards'], ['quiz', 'Quiz']] as const).map(([k, l]) => <label key={k} className={`cursor-pointer rounded-full px-3 py-1.5 font-bold ${want[k] ? 'bg-foreground text-background' : 'bg-muted/50'}`}><input type="checkbox" className="hidden" checked={want[k]} onChange={(e) => setWant({ ...want, [k]: e.target.checked })} />{want[k] ? '✓ ' : ''}{l}</label>)}</div>
+        {err && <p className="text-sm text-red-700">{err}</p>}
+        <button type="button" disabled={busy || (!pdf && text.trim().length < 200)} onClick={async () => { setBusy(true); setErr(''); const r = await call({ action: 'ai-file-lesson', pdf: pdf?.data, text, focus, want }); setBusy(false); if (r.ok) onDraft(r.draft); else setErr(r.error); }} className="h-12 w-full rounded-xl bg-violet-700 text-sm font-bold text-white disabled:opacity-40">{busy ? 'Reading and writing… (up to a minute)' : '✨ Make the lesson'}</button>
+        <p className="text-[11px] text-muted-foreground">Uses about 4 AI credits. Only what’s in your file is used — nothing is added.</p>
+      </div>
+    </div>
+  );
+}
+
+/** 🖨 A printable study guide from a lesson (answers on a separate page). */
+export async function printStudyGuide(lesson: any, brand: any) {
+  const { printDocument, heading, esc } = await import('@/lib/doc-theme');
+  const md = (t: string) => esc(t).split('\n').map((l) => /^#\s+/.test(l) ? `<h2>${l.replace(/^#\s+/, '')}</h2>` : l.trim() ? `<p>${l}</p>` : '').join('');
+  const keys = (lesson.blocks || []).filter((b: any) => b.type === 'callout').map((b: any) => b.text).filter(Boolean);
+  const steps = (lesson.blocks || []).filter((b: any) => b.type === 'steps');
+  const qs = lesson.quiz?.questions || [];
+  const body = `${heading('Study', 'guide')}<p class="sub">${esc(lesson.title || '')}${lesson.moduleTitle ? ` · ${esc(lesson.moduleTitle)}` : ''}</p>
+    ${keys.length ? `<div class="panel"><b>Remember</b>${keys.map((k: string) => md(k)).join('')}</div>` : ''}
+    ${lesson.body ? md(lesson.body) : ''}
+    ${steps.map((b: any) => `<h2>${esc(b.title || 'Steps')}</h2><ol>${(b.steps || []).map((s: any) => `<li>${esc(s.text)}</li>`).join('')}</ol>`).join('')}
+    ${(lesson.flashcards || []).length ? `<h2>Key terms</h2><table><thead><tr><th>Term</th><th>Meaning</th></tr></thead>${lesson.flashcards.map((f: any) => `<tr><td><b>${esc(f.front)}</b></td><td>${esc(f.back)}</td></tr>`).join('')}</table>` : ''}
+    ${qs.length ? `<h2>Check yourself</h2>${qs.map((q: any, i: number) => `<div style="break-inside:avoid;margin:10px 0"><b>${i + 1}.</b> ${esc(q.q)}<div style="margin:4px 0 0 18px">${(q.options || []).map((o: string, j: number) => `<div>${'ABCD'[j]}. ${esc(o)}</div>`).join('')}</div></div>`).join('')}
+      <div class="break"></div><h2>Answers</h2><p>${qs.map((q: any, i: number) => `${i + 1}. ${'ABCD'[q.answer] || '?'}`).join(' · ')}</p>` : ''}`;
+  printDocument({ title: `Study guide — ${lesson.title || 'Lesson'}`, brand, body });
 }
