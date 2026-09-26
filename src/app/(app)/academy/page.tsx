@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAuth } from 'firebase/auth';
-import { Loader, ArrowUp, ArrowDown, Pencil, Trash2, ExternalLink, Video, FileText, Download, Plus, Home as HomeIcon, BookOpen, Sparkles, Users, Clock, ClipboardList, GraduationCap, Settings as SettingsIcon } from 'lucide-react';
+import { Loader, ArrowUp, ArrowDown, Pencil, Trash2, ExternalLink, Video, FileText, Download, Plus, Home as HomeIcon, BookOpen, Sparkles, Users, Clock, ClipboardList, GraduationCap, Settings as SettingsIcon, Radio } from 'lucide-react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { PrivateImg } from '@/components/shared/private-file';
 import { SchoolPrograms } from '@/components/academy/SchoolPrograms';
@@ -20,6 +20,8 @@ import { StudentSalon } from '@/components/academy/StudentSalon';
 import { AdmissionsBoard } from '@/components/academy/AdmissionsBoard';
 import { StudentJourney } from '@/components/academy/StudentJourney';
 import { AttendancePanel } from '@/components/academy/AttendancePanel';
+import { LiveClass } from '@/components/academy/LiveClass';
+import { AcademyReports } from '@/components/academy/AcademyReports';
 import { AcademyHome, academyHome, type Section } from '@/components/academy/AcademyHome';
 import { useTenant } from '@/context/TenantContext';
 
@@ -52,7 +54,7 @@ export default function AcademyBuilderPage() {
   /** Ask AI for a draft from the lesson's own text; it fills the editor — nothing is saved until you press Save. */
   const draft = async (kind: 'quiz' | 'flashcards' | 'match' | 'order' | 'scenario') => {
     setDrafting(kind); setMsg('');
-    const r = await api({ action: 'ai-draft', tenantId, courseId: sel, kind, title: lesson.title, text: lesson.body });
+    const r = await api({ action: 'ai-draft', tenantId, courseId: sel, lessonId: lesson.id || undefined, kind, title: lesson.title, text: lesson.body });
     setDrafting('');
     if (!r.ok) { setMsg(r.error); return; }
     if (kind === 'quiz' && r.draft.questions) setLesson({ ...lesson, quiz: { passPct: lesson.quiz?.passPct || 80, questions: r.draft.questions } });
@@ -82,7 +84,7 @@ export default function AcademyBuilderPage() {
     setD(r);
     const c = r.course;
     setForm({ id: c.id, title: c.title, subtitle: c.subtitle || '', priceDollars: (c.priceCents || 0) / 100, level: c.level || '', instructorName: c.instructorName || '', coverUrl: c.coverUrl || '', whatYouLearn: (c.whatYouLearn || []).join('\n'), description: c.description || '', status: c.status || 'draft',
-      aiTutor: c.aiTutor !== false, compliance: !!c.compliance, requiredOnlineHours: c.requiredOnlineHours || '', requiredInPersonHours: c.requiredInPersonHours || '', minEngagementPct: c.minEngagementPct ?? 80, minWatchPct: c.minWatchPct ?? 90, attentionCheckMinutes: c.attentionCheckMinutes ?? 10 });
+      aiTutor: c.aiTutor !== false, captionLanguage: c.captionLanguage || 'en', compliance: !!c.compliance, requiredOnlineHours: c.requiredOnlineHours || '', requiredInPersonHours: c.requiredInPersonHours || '', minEngagementPct: c.minEngagementPct ?? 80, minWatchPct: c.minWatchPct ?? 90, attentionCheckMinutes: c.attentionCheckMinutes ?? 10 });
   }, [tenantId]);
   useEffect(() => { void loadList(); }, [loadList]);
   useEffect(() => { if (sel) { void loadCourse(sel); setStudents(null); setLesson(null); setTutorLog(null); } }, [sel, loadCourse]);
@@ -146,10 +148,12 @@ export default function AcademyBuilderPage() {
     { group: '', items: [{ key: 'home', label: 'Home', hint: 'What needs you today', icon: HomeIcon }] },
     { group: 'Teach', items: [
       { key: 'courses', label: 'Courses', hint: 'Lessons, videos, quizzes', icon: BookOpen },
+      { key: 'live', label: 'Live class', hint: 'Join code, questions, minutes', icon: Radio },
       { key: 'salon', label: 'Student salon', hint: 'Sign off students’ services', icon: Sparkles, school: true, badge: home?.school?.checkoffsToday } ] },
     { group: 'Students', items: [
       { key: 'students', label: 'Students', hint: 'Progress, risk, messages', icon: Users, school: true, badge: (home?.school?.atRisk || 0) + (home?.school?.unread || 0) },
-      { key: 'attendance', label: 'Attendance', hint: 'Clock-ins, photos, fixes', icon: Clock, school: true, badge: home?.school?.attendanceToFix } ] },
+      { key: 'attendance', label: 'Attendance', hint: 'Clock-ins, photos, fixes', icon: Clock, school: true, badge: home?.school?.attendanceToFix },
+      { key: 'reports', label: 'Reports', hint: 'Hours letters, attendance, outcomes', icon: FileText, school: true } ] },
     { group: 'Enrol', items: [
       { key: 'admissions', label: 'Admissions', hint: 'Applicants, tuition, cohorts', icon: ClipboardList, school: true, badge: (home?.school?.docsToCheck || 0) + (home?.school?.toCountersign || 0) + (home?.school?.newInquiries || 0) } ] },
     { group: 'Set up', items: [
@@ -201,6 +205,8 @@ export default function AcademyBuilderPage() {
             {section === 'admissions' && mode === 'school' && <AdmissionsBoard tenantId={tenantId} />}
             {section === 'students' && mode === 'school' && <StudentJourney tenantId={tenantId} />}
             {section === 'attendance' && mode === 'school' && <AttendancePanel tenantId={tenantId} />}
+            {section === 'live' && <LiveClass tenantId={tenantId} />}
+            {section === 'reports' && mode === 'school' && <AcademyReports tenantId={tenantId} />}
             {section === 'settings' && (
               <div className="space-y-4">
                 <section className="space-y-2 rounded-2xl bg-muted/40 p-4">
@@ -266,6 +272,7 @@ export default function AcademyBuilderPage() {
                   <label className="text-sm font-bold">Cover image link<input className={field} value={form.coverUrl} onChange={(e) => setForm({ ...form, coverUrl: e.target.value })} placeholder="https://…" /></label>
                   <label className="text-sm font-bold md:col-span-2">What they’ll learn (one per line)<textarea className={field + ' h-28 py-2'} value={form.whatYouLearn} onChange={(e) => setForm({ ...form, whatYouLearn: e.target.value })} /></label>
                   <label className="text-sm font-bold md:col-span-2">Description<textarea className={field + ' h-40 py-2'} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
+                  <label className="text-sm font-bold">Language spoken in the videos (for automatic captions)<select className={field} value={form.captionLanguage || 'en'} onChange={(e) => setForm({ ...form, captionLanguage: e.target.value })}>{Object.entries({ en: 'English', es: 'Spanish', pt: 'Portuguese', fr: 'French', it: 'Italian', de: 'German', auto: 'Detect automatically' }).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
                   <label className="flex items-start gap-3 rounded-2xl bg-muted/40 p-4 md:col-span-2"><input type="checkbox" className="mt-1" checked={form.aiTutor !== false} onChange={(e) => setForm({ ...form, aiTutor: e.target.checked })} />
                     <span><span className="block font-black">✨ AI tutor for students</span><span className="text-[12px] text-muted-foreground">Students can ask questions on any lesson. Answers come only from this course’s written lessons; anything else is sent back to you. You can read every question in Students.</span></span></label>
                   <div className="space-y-3 rounded-2xl border-2 border-dashed border-border/60 p-4 md:col-span-2">
@@ -327,6 +334,14 @@ export default function AcademyBuilderPage() {
                               {upload && <div className="mt-2"><div className="h-2 rounded-full bg-background"><div className="h-2 rounded-full bg-foreground transition-all" style={{ width: `${upload.pct}%` }} /></div><p className="mt-1 text-[12px]">{upload.status === 'uploading' ? `Uploading… ${upload.pct}%` : 'Processing on Mux — you can keep working; it finishes on its own.'}</p></div>}
                             </div>
                           ) : null}
+                          {lesson.id && (d.lessons || []).find((x: any) => x.id === lesson.id)?.muxAssetId && (() => { const lx = (d.lessons || []).find((x: any) => x.id === lesson.id); return (
+                            <div className="flex flex-wrap items-center gap-2 rounded-xl bg-background px-3 py-2 text-[12px]">
+                              <span className="font-bold">Captions: {lx.transcript ? '✓ ready (transcript saved)' : lx.captions?.status === 'ready' ? '✓ ready' : lx.captions ? 'being made — usually a few minutes' : 'none yet'}</span>
+                              {!lx.captions && <button type="button" onClick={async () => { const r = await api({ action: 'captions-add', tenantId, courseId: sel, lessonId: lesson.id }); setMsg(r.ok ? 'Captions requested — check back in a few minutes.' : r.error); await loadCourse(sel!); }} className="rounded-full border-2 px-2 py-0.5 font-bold">Add captions</button>}
+                              {lx.captions && !lx.transcript && <button type="button" onClick={async () => { await api({ action: 'video-status', tenantId, courseId: sel, lessonId: lesson.id }); await loadCourse(sel!); }} className="rounded-full border-2 px-2 py-0.5 font-bold">Check again</button>}
+                              {lx.transcript && <details className="w-full"><summary className="cursor-pointer font-bold">Read the transcript</summary><p className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap">{lx.transcript}</p></details>}
+                            </div>
+                          ); })()}
                           <label className="text-sm font-bold">{d.mux ? '…or a video link' : 'Video link (private Vimeo or unlisted YouTube)'}<input className={field} value={lesson.videoUrl} onChange={(e) => setLesson({ ...lesson, videoUrl: e.target.value })} placeholder="https://vimeo.com/…" /></label>
                         </div>
                       )}
@@ -344,9 +359,9 @@ export default function AcademyBuilderPage() {
                       <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border-2 border-dashed border-violet-200 bg-violet-50/60 p-3">
                         <span className="mr-1 text-sm font-black">✨ Draft with AI from this lesson’s text:</span>
                         {([['quiz', 'Quiz'], ['flashcards', 'Flashcards'], ['match', 'Matching'], ['order', 'Put in order'], ['scenario', 'Client scenario']] as const).map(([k, l]) => (
-                          <button key={k} type="button" disabled={!!drafting || String(lesson.body || '').length < 120} onClick={() => draft(k)} className="h-8 rounded-full bg-background px-3 text-[12px] font-bold disabled:opacity-40">{drafting === k ? 'Drafting…' : l}</button>
+                          <button key={k} type="button" disabled={!!drafting || (String(lesson.body || '').length < 120 && !lesson.transcript)} onClick={() => draft(k)} className="h-8 rounded-full bg-background px-3 text-[12px] font-bold disabled:opacity-40">{drafting === k ? 'Drafting…' : l}</button>
                         ))}
-                        {String(lesson.body || '').length < 120 && <span className="w-full text-[11px] text-muted-foreground">Write a few paragraphs of lesson text first — drafts use only what you’ve written.</span>}
+                        {String(lesson.body || '').length < 120 && !lesson.transcript && <span className="w-full text-[11px] text-muted-foreground">Write a few paragraphs of lesson text first — drafts use only what you’ve written.</span>}
                       </div>
                       <div className="space-y-2 rounded-2xl bg-muted/40 p-3">
                         <div className="flex items-center justify-between"><p className="text-sm font-black">Flashcards {lesson.flashcards?.length ? `· ${lesson.flashcards.length}` : '(optional)'}</p>
@@ -357,13 +372,28 @@ export default function AcademyBuilderPage() {
                       </div>
                       <div className="space-y-2 rounded-2xl bg-muted/40 p-3">
                         <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-black">Activity (optional)</p>
-                          <select className="h-8 rounded-lg border px-2 text-[12px]" value={lesson.activity?.type || ''} onChange={(e) => { const t = e.target.value; setLesson({ ...lesson, activity: !t ? null : t === 'match' ? { type: 'match', prompt: 'Match each item to its pair', pairs: [{ left: '', right: '' }, { left: '', right: '' }] } : t === 'order' ? { type: 'order', prompt: 'Put these steps in order', steps: ['', ''] } : { type: 'scenario', prompt: '', options: [{ text: '', correct: true, feedback: '' }, { text: '', correct: false, feedback: '' }] } }); }}>
-                            <option value="">None</option><option value="match">Match the pairs</option><option value="order">Put in order</option><option value="scenario">Client scenario</option></select></div>
+                          <select className="h-8 rounded-lg border px-2 text-[12px]" value={lesson.activity?.type || ''} onChange={(e) => { const t = e.target.value; setLesson({ ...lesson, activity: !t ? null : t === 'label' ? { type: 'label', prompt: 'Label the diagram', imageUrl: '', points: [] } : t === 'match' ? { type: 'match', prompt: 'Match each item to its pair', pairs: [{ left: '', right: '' }, { left: '', right: '' }] } : t === 'order' ? { type: 'order', prompt: 'Put these steps in order', steps: ['', ''] } : { type: 'scenario', prompt: '', options: [{ text: '', correct: true, feedback: '' }, { text: '', correct: false, feedback: '' }] } }); }}>
+                            <option value="">None</option><option value="match">Match the pairs</option><option value="order">Put in order</option><option value="scenario">Client scenario</option><option value="label">Label the diagram</option></select></div>
                         {lesson.activity && <input className={field} value={lesson.activity.prompt} placeholder={lesson.activity.type === 'scenario' ? 'Describe the client situation…' : 'Instruction'} onChange={(e) => setLesson({ ...lesson, activity: { ...lesson.activity, prompt: e.target.value } })} />}
+                        {lesson.activity?.type === 'label' && (
+                          <div className="space-y-2">
+                            <input className={field} value={lesson.activity.imageUrl} placeholder="Image link (https://…) — e.g. a nail anatomy diagram" onChange={(e) => setLesson({ ...lesson, activity: { ...lesson.activity, imageUrl: e.target.value } })} />
+                            {/^https:\/\//.test(lesson.activity.imageUrl) && (
+                              <>
+                                <p className="text-[12px] text-muted-foreground">Click on the picture where each label belongs.</p>
+                                <div className="relative inline-block max-w-full cursor-crosshair" onClick={(e) => { const r = (e.currentTarget as HTMLDivElement).getBoundingClientRect(); const label = window.prompt('Label for this spot:'); if (!label) return; setLesson({ ...lesson, activity: { ...lesson.activity, points: [...lesson.activity.points, { x: Math.round(((e.clientX - r.left) / r.width) * 1000) / 10, y: Math.round(((e.clientY - r.top) / r.height) * 1000) / 10, label }] } }); }}>
+                                  <img src={lesson.activity.imageUrl} alt="Diagram" className="max-h-96 rounded-xl" />
+                                  {lesson.activity.points.map((p: any, i: number) => <span key={i} className="absolute flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-foreground text-[11px] font-black text-background ring-2 ring-white" style={{ left: `${p.x}%`, top: `${p.y}%` }}>{i + 1}</span>)}
+                                </div>
+                                {lesson.activity.points.map((p: any, i: number) => <div key={i} className="flex items-center gap-2 text-sm"><span className="w-6 font-bold">{i + 1}</span><span className="flex-1">{p.label}</span><button type="button" onClick={() => setLesson({ ...lesson, activity: { ...lesson.activity, points: lesson.activity.points.filter((_: any, k: number) => k !== i) } })} className="text-red-600" aria-label="Remove point"><Trash2 className="h-4 w-4" /></button></div>)}
+                              </>
+                            )}
+                          </div>
+                        )}
                         {lesson.activity?.type === 'match' && lesson.activity.pairs.map((p: any, i: number) => <div key={i} className="flex gap-2"><input className={field} value={p.left} placeholder="Item" onChange={(e) => { const ps = [...lesson.activity.pairs]; ps[i] = { ...ps[i], left: e.target.value }; setLesson({ ...lesson, activity: { ...lesson.activity, pairs: ps } }); }} /><input className={field} value={p.right} placeholder="Its match" onChange={(e) => { const ps = [...lesson.activity.pairs]; ps[i] = { ...ps[i], right: e.target.value }; setLesson({ ...lesson, activity: { ...lesson.activity, pairs: ps } }); }} /></div>)}
                         {lesson.activity?.type === 'order' && lesson.activity.steps.map((x: string, i: number) => <div key={i} className="flex items-center gap-2"><span className="w-5 text-sm font-bold">{i + 1}</span><input className={field} value={x} placeholder={`Step ${i + 1} (in the correct order)`} onChange={(e) => { const st = [...lesson.activity.steps]; st[i] = e.target.value; setLesson({ ...lesson, activity: { ...lesson.activity, steps: st } }); }} /></div>)}
                         {lesson.activity?.type === 'scenario' && lesson.activity.options.map((o: any, i: number) => <div key={i} className="space-y-1 rounded-xl bg-background p-2"><div className="flex items-center gap-2"><input type="radio" name="scn-correct" checked={o.correct} onChange={() => setLesson({ ...lesson, activity: { ...lesson.activity, options: lesson.activity.options.map((x: any, k: number) => ({ ...x, correct: k === i })) } })} title="The right answer" /><input className={field} value={o.text} placeholder={`Choice ${i + 1}`} onChange={(e) => { const os = [...lesson.activity.options]; os[i] = { ...os[i], text: e.target.value }; setLesson({ ...lesson, activity: { ...lesson.activity, options: os } }); }} /></div><input className={field} value={o.feedback} placeholder="Feedback when chosen (why it’s right or wrong)" onChange={(e) => { const os = [...lesson.activity.options]; os[i] = { ...os[i], feedback: e.target.value }; setLesson({ ...lesson, activity: { ...lesson.activity, options: os } }); }} /></div>)}
-                        {lesson.activity && lesson.activity.type !== 'scenario' && <button type="button" onClick={() => setLesson({ ...lesson, activity: lesson.activity.type === 'match' ? { ...lesson.activity, pairs: [...lesson.activity.pairs, { left: '', right: '' }] } : { ...lesson.activity, steps: [...lesson.activity.steps, ''] } })} className="rounded-full bg-background px-3 py-1 text-[12px] font-bold">+ Add</button>}
+                        {lesson.activity && !['scenario', 'label'].includes(lesson.activity.type) && <button type="button" onClick={() => setLesson({ ...lesson, activity: lesson.activity.type === 'match' ? { ...lesson.activity, pairs: [...lesson.activity.pairs, { left: '', right: '' }] } : { ...lesson.activity, steps: [...lesson.activity.steps, ''] } })} className="rounded-full bg-background px-3 py-1 text-[12px] font-bold">+ Add</button>}
                         {lesson.activity?.type === 'scenario' && <button type="button" onClick={() => setLesson({ ...lesson, activity: { ...lesson.activity, options: [...lesson.activity.options, { text: '', correct: false, feedback: '' }] } })} className="rounded-full bg-background px-3 py-1 text-[12px] font-bold">+ Choice</button>}
                       </div>
                       <div className="space-y-2 rounded-2xl bg-muted/40 p-3">
