@@ -133,7 +133,9 @@ export async function sessionState(tenantId: string, sessionId: string) {
   const A = (answers?.docs || []).map((d: any) => d.data() as any);
   const kind = q?.kind || 'quiz';
   const results: any = { answered: A.length };
-  if (['quiz', 'poll'].includes(kind)) results.counts = (q.options || []).map((_: any, i: number) => A.filter((x: any) => x.choice === i).length);
+  // No activity sent yet (a class that has just started): nothing to tally.
+  if (!q) { /* results stay empty */ }
+  else if (['quiz', 'poll'].includes(kind)) results.counts = (q.options || []).map((_: any, i: number) => A.filter((x: any) => x.choice === i).length);
   if (kind === 'confidence') results.counts = [0, 1, 2].map((i) => A.filter((x: any) => x.choice === i).length);
   if (kind === 'word') { const f: Record<string, number> = {}; A.forEach((x: any) => { f[x.text] = (f[x.text] || 0) + 1; }); results.words = Object.entries(f).sort((a, b) => b[1] - a[1]).slice(0, 40).map(([w, n]) => ({ w, n })); }
   if (kind === 'rate') { const r = A.map((x: any) => x.rating); results.avg = r.length ? Math.round((r.reduce((a: number, b: number) => a + b, 0) / r.length) * 10) / 10 : null; results.dist = [1, 2, 3, 4, 5].map((n) => r.filter((x: number) => x === n).length); }
