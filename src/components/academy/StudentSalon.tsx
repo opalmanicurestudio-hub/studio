@@ -110,7 +110,7 @@ export function StudentSalon({ tenantId }: { tenantId: string }) {
     setOpen(null); void load();
   };
 
-  const tabs = <div className="flex gap-1">{([['today', 'Today’s clinic'], ['rotation', 'Rotation']] as const).map(([k, l]) => <button key={k} type="button" onClick={() => setView(k)} className={`h-9 rounded-full px-4 text-sm font-bold ${view === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{l}</button>)}</div>;
+  const tabs = <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">{([['today', 'Today’s clinic'], ['rotation', 'Rotation']] as const).map(([k, l]) => <button key={k} type="button" onClick={() => setView(k)} className={`h-9 shrink-0 whitespace-nowrap rounded-full px-4 text-sm font-bold ${view === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{l}</button>)}</div>;
   if (view === 'rotation') return <div className="space-y-4">{tabs}<Rotation tenantId={tenantId} /></div>;
   return (
     <div className="space-y-4">
