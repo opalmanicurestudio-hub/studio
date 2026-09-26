@@ -29,6 +29,37 @@ export async function api(body: any) {
 export const money = (c: number) => (c ? `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: c % 100 ? 2 : 0 })}` : 'Free');
 const mins = (s?: number | null) => (s ? `${Math.max(1, Math.round(s / 60))} min` : '');
 
+// ── Assignment (student) — submit writing and/or photos; see grade + feedback ─
+function Assignment({ tenantId, courseId, lessonId, color }: { tenantId: string; courseId: string; lessonId: string; color: string }) {
+  const [d, setD] = useState<any>(null); const [text, setText] = useState(''); const [files, setFiles] = useState<{ name: string; data: string; preview?: string }[]>([]);
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
+  const load = useCallback(async () => { const r = await api({ action: 'assignment', tenantId, token: getToken(tenantId), courseId, lessonId }); setD(r); if (r.ok && r.submission) setText(r.submission.text || ''); }, [tenantId, courseId, lessonId]);
+  useEffect(() => { void load(); }, [load]);
+  if (!d?.ok) return null;
+  const s = d.submission; const canSubmit = !s || s.status === 'resubmit' || (s.status === 'submitted');
+  const add = async (fl: FileList | null) => { if (!fl) return; for (const f of Array.from(fl).slice(0, 8)) { if (f.type.startsWith('image/')) { const url = await new Promise<string>((res) => { const r = new FileReader(); const img = new Image(); r.onload = () => { img.onload = () => { const k = Math.min(1, 1600 / Math.max(img.width, img.height)); const c = document.createElement('canvas'); c.width = img.width * k; c.height = img.height * k; c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height); res(c.toDataURL('image/jpeg', 0.8)); }; img.src = String(r.result); }; r.readAsDataURL(f); }); setFiles((x) => [...x, { name: f.name, data: url, preview: url }]); }
+    else { const data = await new Promise<string>((res) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.readAsDataURL(f); }); setFiles((x) => [...x, { name: f.name, data }]); } } };
+  return (
+    <Glass className="space-y-3">
+      <div className="flex items-center justify-between"><p className="text-lg font-semibold">📎 Your submission</p>{d.due && <p className="text-[12px] text-stone-500">Due {new Date(d.due).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</p>}</div>
+      {s?.grade && s.status !== 'submitted' && (
+        <div className={`rounded-2xl p-4 ${s.status === 'resubmit' ? 'bg-sky-50' : 'bg-emerald-50'}`}><p className="text-2xl font-semibold">{s.grade.pct}% <span className="text-lg">· {s.grade.letter}</span></p>{s.status === 'resubmit' && <p className="text-sm font-semibold text-sky-900">Your instructor has asked you to try again.</p>}<p className="mt-1 whitespace-pre-wrap text-[15px]">{s.grade.feedback}</p><p className="mt-1 text-[11px] text-stone-500">{s.grade.by} · {new Date(s.grade.at).toLocaleDateString()}</p></div>
+      )}
+      {s?.status === 'submitted' && <p className="rounded-2xl bg-amber-50 p-3 text-sm">✓ Submitted {new Date(s.submittedAt).toLocaleString()} — waiting for your instructor. You can still update it.</p>}
+      {(s?.files || []).length > 0 && <div className="flex flex-wrap gap-2">{s.files.map((f: any, i: number) => f.type?.startsWith('image/') ? <img key={i} src={f.url} alt={f.name} className="h-20 w-20 rounded-xl object-cover" /> : <a key={i} href={f.url} target="_blank" rel="noreferrer" className="rounded-xl bg-white/80 px-3 py-2 text-sm">📄 {f.name}</a>)}</div>}
+      {canSubmit && (
+        <>
+          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={6} placeholder="Write your answer here" className="w-full rounded-2xl border border-white/80 bg-white/80 p-3 text-[15px]" />
+          <div className="flex flex-wrap gap-2">{files.map((f, i) => <div key={i} className="relative">{f.preview ? <img src={f.preview} alt="" className="h-20 w-20 rounded-xl object-cover" /> : <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-white/80 text-center text-[11px]">📄 {f.name}</div>}<button type="button" onClick={() => setFiles(files.filter((_, k) => k !== i))} className="absolute -right-1 -top-1 h-6 w-6 rounded-full bg-black/70 text-[11px] text-white" aria-label="Remove">✕</button></div>)}
+            <label className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed text-[12px]">📷<span>Add</span><input type="file" accept="image/*,application/pdf" multiple className="hidden" onChange={(e) => void add(e.target.files)} /></label></div>
+          {err && <p className="text-sm text-red-700">{err}</p>}
+          <button type="button" disabled={busy || (!text.trim() && !files.length)} onClick={async () => { setBusy(true); setErr(''); const r = await api({ action: 'assignment-submit', tenantId, token: getToken(tenantId), courseId, lessonId, text, files: files.map((f) => ({ name: f.name, data: f.data })) }); setBusy(false); if (r.ok) { setFiles([]); void load(); } else setErr(r.error); }} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>{busy ? 'Sending…' : s ? 'Submit again' : 'Submit'}</button>
+        </>
+      )}
+    </Glass>
+  );
+}
+
 // ── Lesson content blocks (student view) ────────────────────────────────
 function Blocks({ blocks }: { blocks: any[] }) {
   const tone: Record<string, [string, string]> = { safety: ['🛑 Safety', 'border-red-200 bg-red-50/90 text-red-950'], key: ['⭐ Key point', 'border-amber-200 bg-amber-50/90 text-amber-950'], tip: ['💡 Tip', 'border-sky-200 bg-sky-50/90 text-sky-950'] };
@@ -498,6 +529,7 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
               )}
               {L.body && <Glass className="space-y-3"><div className="flex justify-end"><Listen text={L.body} /></div><Prose text={L.body} /></Glass>}
               {(L.blocks || []).length > 0 && <Blocks blocks={L.blocks} />}
+              {lesson.enrolled && L.kind === 'assignment' && <Assignment tenantId={tenantId} courseId={course.course.id} lessonId={lessonId} color={color} />}
               {L.transcript && <details className="glass rounded-2xl border border-white/70 px-4 py-3"><summary className="cursor-pointer text-sm font-semibold">📄 Transcript</summary><p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap text-[15px] leading-relaxed text-stone-700">{L.transcript}</p></details>}
               {lesson.enrolled && L.activity && <Activity a={L.activity} color={color} />}
               {lesson.enrolled && L.flashcards?.length > 0 && <Flashcards cards={L.flashcards} color={color} />}
