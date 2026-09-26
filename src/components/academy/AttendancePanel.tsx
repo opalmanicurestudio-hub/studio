@@ -7,6 +7,7 @@
 // floor now, missing clock-outs, punches awaiting approval, photo checks,
 // corrections (reason required — never overwritten).
 
+import { deviceId } from '@/lib/device';
 import { useEffect, useState } from 'react';
 import { getAuth } from 'firebase/auth';
 import { Loader, ExternalLink } from 'lucide-react';
@@ -14,7 +15,7 @@ import { PrivateImg } from '@/components/shared/private-file';
 
 async function api(body: any) {
   const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
-  const r = await fetch('/api/academy/admin', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify(body) });
+  const r = await fetch('/api/academy/admin', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}`, 'x-cf-device': deviceId() }, body: JSON.stringify(body) });
   return r.json().catch(() => ({ ok: false, error: 'No response' }));
 }
 const hm = (min: number) => `${Math.floor((min || 0) / 60)}h ${(min || 0) % 60}m`;
