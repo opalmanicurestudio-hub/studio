@@ -1126,7 +1126,7 @@ const usd = (c: number) => `$${(Math.round(c || 0) / 100).toLocaleString('en-US'
 export function Apply({ tenantId }: { tenantId: string }) {
   const sp = useSearchParams();
   const [d, setD] = useState<any>(null);
-  const [f, setF] = useState({ programId: sp?.get('program') || '', name: '', email: '', phone: '', message: '' });
+  const [f, setF] = useState({ programId: sp?.get('program') || '', name: '', email: '', phone: '', message: '', language: 'en' });
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<any>(null);
   const [err, setErr] = useState('');
@@ -1159,6 +1159,8 @@ export function Apply({ tenantId }: { tenantId: string }) {
           <Glass className="space-y-3 lg:sticky lg:top-24 lg:self-start">
             {(['name', 'email', 'phone'] as const).map((k) => <input key={k} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} type={k === 'email' ? 'email' : 'text'} placeholder={k === 'name' ? 'Full legal name' : k === 'email' ? 'Email' : 'Phone (optional)'} className="h-11 w-full rounded-2xl border border-white/80 bg-white/75 px-4" />)}
             <textarea value={f.message} onChange={(e) => setF({ ...f, message: e.target.value })} rows={3} placeholder="Anything we should know? (optional)" className="w-full rounded-2xl border border-white/80 bg-white/75 p-4" />
+            {d.languages && <label className="block text-[13px] text-stone-600">Letters and emails in<select value={f.language} onChange={(e) => setF({ ...f, language: e.target.value })} className="mt-1 h-11 w-full rounded-2xl border border-white/80 bg-white/75 px-3 text-sm">{Object.entries(d.languages).map(([k, v]: any) => <option key={k} value={k}>{v.native}</option>)}</select></label>}
+            <p className="text-[12px] text-stone-500">Applying doesn’t guarantee a place — the school reviews every application and emails you its decision.</p>
             {err && <p className="text-sm text-red-700">{err}</p>}
             <button type="button" disabled={busy || !f.programId || !f.name || !f.email.includes('@')} onClick={() => go('apply')} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-50" style={{ background: color }}>{busy ? 'One moment…' : 'Apply now'}</button>
             <button type="button" disabled={busy || !f.programId || !f.name || !f.email.includes('@')} onClick={() => go('info')} className="h-11 w-full rounded-full bg-white/70 text-sm disabled:opacity-50">Just ask a question</button>
@@ -1186,6 +1188,7 @@ export function Application({ tenantId, appToken }: { tenantId: string; appToken
   if (!d.ok) return <Shell tenantId={tenantId}><Glass className="mx-auto max-w-md text-center"><p>{d.error}</p></Glass></Shell>;
   const color = d.brand.color;
   const docsIn = d.docs.every((x: any) => x.status !== 'missing' && x.status !== 'rejected');
+  const stage: string = d.applicant.stage; const closed = stage === 'declined' || stage === 'withdrawn';
   const upload = async (key: string, file: File) => {
     setBusy(key); setErr('');
     let data: string;
@@ -1194,17 +1197,18 @@ export function Application({ tenantId, appToken }: { tenantId: string; appToken
     const r = await api({ action: 'app-upload', tenantId, appToken, docKey: key, file: data });
     setBusy(''); if (!r.ok) setErr(r.error); void load();
   };
-  const Step = ({ n, title, done, children }: { n: number; title: string; done: boolean; children: React.ReactNode }) => (
-    <Glass className="space-y-3"><div className="flex items-center gap-3"><span className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold ${done ? 'text-white' : 'bg-white/80'}`} style={done ? { background: color } : undefined}>{done ? '✓' : n}</span><p className="text-lg font-semibold">{title}</p></div>{children}</Glass>
-  );
   return (
     <Shell brand={d.brand} tenantId={tenantId}>
       <h1 className="text-4xl font-light tracking-tight">Your application, <span className="font-semibold">{d.applicant.name.split(' ')[0]}</span></h1>
       <p className="mt-2 text-stone-600">{d.program.name}{d.program.totalHours ? ` · ${d.program.totalHours} hours` : ''}{d.applicant.startDate ? ` · starts ${new Date(d.applicant.startDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}` : ''}{d.applicant.waitlisted ? ' · on the waitlist' : ''}</p>
       {busy === 'confirm' && <Glass className="mt-6"><p>Confirming your payment…</p></Glass>}
       {err && <p className="mt-4 rounded-2xl bg-red-50 p-3 text-sm text-red-800">{err}</p>}
-      <div className="mt-6 space-y-4">
-        <Step n={1} title="Upload your documents" done={docsIn}>
+      <StatusTracker d={d} color={color} />
+      {closed ? <ClosedCard d={d} color={color} /> : <div className="mt-6 space-y-4">
+        {stage === 'offer' && d.offer && <OfferCard d={d} color={color} busy={busy} onAnswer={async (accept, reason) => { setBusy('offer'); setErr(''); const r = await api({ action: 'app-offer', tenantId, appToken, accept, reason }); setBusy(''); if (!r.ok) setErr(r.error); void load(); }} />}
+        {stage === 'waitlist' && <Glass className="space-y-1"><p className="text-lg font-semibold">⏳ You’re on the waitlist{d.applicant.position ? ` — number ${d.applicant.position}` : ''}</p><p className="text-sm text-stone-600">Your application meets our requirements, but the program is full right now. If a place opens, we’ll email you an offer and you’ll have a few days to accept it. You don’t need to do anything.</p></Glass>}
+        {d.interview && <Glass className="space-y-1"><p className="text-lg font-semibold">🗓 Your interview</p><p className="text-sm">{new Date(d.interview.at).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}{d.interview.where ? ` · ${d.interview.where}` : ''}{d.interview.with ? ` · with ${d.interview.with}` : ''}</p></Glass>}
+        <AppStep color={color} n={1} title="Upload your documents" done={docsIn}>
           {d.docs.map((x: any) => (
             <div key={x.key} className="flex flex-wrap items-center gap-2 rounded-2xl bg-white/60 px-4 py-3 text-sm">
               <span className="min-w-0 flex-1">{x.key} · <span className={x.status === 'verified' ? 'text-emerald-700' : x.status === 'rejected' ? 'text-red-700' : 'text-stone-500'}>{x.status === 'missing' ? 'needed' : x.status === 'submitted' ? 'received — being checked' : x.status}</span>{x.reason ? <span className="block text-[12px] text-red-700">{x.reason}</span> : null}</span>
@@ -1212,20 +1216,20 @@ export function Application({ tenantId, appToken }: { tenantId: string; appToken
             </div>
           ))}
           <p className="text-[12px] text-stone-500">A clear photo or a PDF. Your documents are private to the school’s admissions team.</p>
-        </Step>
-        <Step n={2} title="Read and sign your enrolment agreement" done={d.agreement.signed}>
+        </AppStep>
+        <AppStep color={color} n={2} title="Read and sign your enrolment agreement" done={d.agreement.signed} locked={!d.canSign} lockedText={stage === 'offer' ? 'Opens when you accept your offer above.' : 'Opens once the school has reviewed your application and offered you a place. Applying doesn’t guarantee a place.'}>
           <pre className="max-h-80 overflow-y-auto whitespace-pre-wrap rounded-2xl bg-white/70 p-4 text-[13px] leading-relaxed">{d.agreement.text}</pre>
           {d.agreement.signed ? <p className="text-sm text-emerald-700">✓ Signed by {d.agreement.signedName} on {new Date(d.agreement.signedAt).toLocaleString()}</p> : (
             <>
               <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={sign.agree} onChange={(e) => setSign({ ...sign, agree: e.target.checked })} />I have read and understood this agreement, and I agree to it.</label>
               <input value={sign.typedName} onChange={(e) => setSign({ ...sign, typedName: e.target.value })} placeholder={`Type your full name: ${d.applicant.name}`} className="h-11 w-full rounded-2xl border border-white/80 bg-white/75 px-4 font-serif text-lg italic" />
-              <button type="button" disabled={!docsIn || !sign.agree || !sign.typedName || !!busy} onClick={async () => { setBusy('sign'); setErr(''); const r = await api({ action: 'app-sign', tenantId, appToken, ...sign }); setBusy(''); if (!r.ok) setErr(r.error); void load(); }} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>{busy === 'sign' ? 'Signing…' : 'Sign agreement'}</button>
+              <button type="button" disabled={!d.canSign || !docsIn || !sign.agree || !sign.typedName || !!busy} onClick={async () => { setBusy('sign'); setErr(''); const r = await api({ action: 'app-sign', tenantId, appToken, ...sign }); setBusy(''); if (!r.ok) setErr(r.error); void load(); }} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>{busy === 'sign' ? 'Signing…' : 'Sign agreement'}</button>
               {!docsIn && <p className="text-[12px] text-stone-500">Upload your documents first.</p>}
               <p className="text-[11px] text-stone-500">Your typed name is your electronic signature. We record the exact text, the time, and your device.</p>
             </>
           )}
-        </Step>
-        <Step n={3} title={d.payment?.installmentsTotal ? 'Make your down payment' : 'Pay your tuition'} done={!!d.payment?.paid}>
+        </AppStep>
+        <AppStep color={color} n={3} title={d.payment?.installmentsTotal ? 'Make your down payment' : 'Pay your tuition'} done={!!d.payment?.paid} locked={!d.canSign} lockedText="Opens after you sign your agreement.">
           {!d.payment ? <p className="text-sm text-stone-600">Available once you’ve signed.</p> : d.payment.paid ? (
             <p className="text-sm">✓ Paid. {d.payment.installmentsTotal ? `Your remaining ${d.payment.installmentsTotal} payments of about ${usd(d.payment.installmentCents)} are on autopay${d.payment.nextDueAt ? ` — next on ${new Date(d.payment.nextDueAt).toLocaleDateString()}` : ''}.` : ''} Balance: {usd(d.payment.balanceCents || 0)}.</p>
           ) : (
@@ -1234,15 +1238,94 @@ export function Application({ tenantId, appToken }: { tenantId: string; appToken
               <button type="button" disabled={!!busy} onClick={async () => { setBusy('pay'); const r = await api({ action: 'app-pay', tenantId, appToken }); if (r.ok && r.url) window.location.href = r.url; else { setBusy(''); setErr(r.error || 'Couldn’t start payment.'); } }} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>{busy === 'pay' ? 'One moment…' : `Pay ${usd(d.payment.downPaymentCents)}`}</button>
             </>
           )}
-        </Step>
-        <Step n={4} title="You’re enrolled" done={d.applicant.stage === 'enrolled'}>
+        </AppStep>
+        <AppStep color={color} n={4} title="You’re enrolled" done={d.applicant.stage === 'enrolled'}>
           {d.applicant.stage === 'enrolled' ? <p className="text-sm">Welcome! Sign in to <Link href={`/learn/${tenantId}/my`} className="underline">My courses</Link> with {d.applicant.email} to start your theory lessons and track your hours.</p> : <p className="text-sm text-stone-600">Happens automatically when your payment goes through.</p>}
-        </Step>
-      </div>
+        </AppStep>
+      </div>}
     </Shell>
   );
 }
 
+
+// ── Application pieces (outside the page so inputs keep focus) ───────────
+function AppStep({ n, title, done, color, locked, lockedText, children }: { n: number; title: string; done: boolean; color: string; locked?: boolean; lockedText?: string; children: React.ReactNode }) {
+  return (
+    <Glass className={`space-y-3 ${locked && !done ? 'opacity-70' : ''}`}>
+      <div className="flex items-center gap-3"><span className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold ${done ? 'text-white' : 'bg-white/80'}`} style={done ? { background: color } : undefined}>{done ? '✓' : locked ? '🔒' : n}</span><p className="text-lg font-semibold">{title}</p></div>
+      {locked && !done ? <p className="text-sm text-stone-600">{lockedText}</p> : children}
+    </Glass>
+  );
+}
+const TRACK: [string, string][] = [['applied', 'Applied'], ['review', 'Review'], ['decision', 'Decision'], ['accepted', 'Accepted'], ['agreement', 'Signed'], ['enrolled', 'Enrolled']];
+function trackIndex(stage: string, paid: boolean) {
+  if (stage === 'enrolled') return 5; if (stage === 'agreement') return paid ? 5 : 4; if (stage === 'accepted') return 3;
+  if (stage === 'offer' || stage === 'waitlist') return 2; if (stage === 'review' || stage === 'documents') return 1; return 0;
+}
+const NEXT: Record<string, string> = {
+  inquiry: 'Upload your documents to complete your application.', tour: 'Upload your documents to complete your application.', applied: 'Upload your documents below — then our admissions team reviews your application.',
+  review: 'Our admissions team is reviewing your application. We’ll email you our decision — you don’t need to do anything right now.',
+  offer: 'You’ve been offered a place! Accept it below before the deadline.', waitlist: 'You’re on the waitlist. We’ll email you if a place opens.',
+  accepted: 'Read and sign your enrolment agreement below.', agreement: 'Make your down payment below to finish enrolling.', enrolled: 'You’re enrolled — welcome!',
+};
+function StatusTracker({ d, color }: { d: any; color: string }) {
+  const stage = d.applicant.stage; if (stage === 'declined' || stage === 'withdrawn') return null;
+  const at = trackIndex(stage, !!d.payment?.paid);
+  return (
+    <Glass className="mt-6 space-y-3">
+      <ol className="flex items-start gap-1" aria-label="Your application status">
+        {TRACK.map(([k, l], i) => (
+          <li key={k} className="flex min-w-0 flex-1 flex-col items-center gap-1 text-center" aria-current={i === at ? 'step' : undefined}>
+            <span className="flex w-full items-center"><span className={`h-0.5 flex-1 ${i === 0 ? 'opacity-0' : ''}`} style={{ background: i <= at ? color : '#e7e5e4' }} /><span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold ${i === at ? 'cf-pulse' : ''}`} style={i <= at ? { background: color, color: '#fff' } : { background: '#f5f5f4', color: '#a8a29e' }}>{i < at ? '✓' : i + 1}</span><span className={`h-0.5 flex-1 ${i === TRACK.length - 1 ? 'opacity-0' : ''}`} style={{ background: i < at ? color : '#e7e5e4' }} /></span>
+            <span className={`whitespace-nowrap text-[11px] leading-tight ${i === at ? 'font-semibold text-stone-900' : 'sr-only text-stone-500 sm:not-sr-only'}`}>{l}</span>
+          </li>
+        ))}
+      </ol>
+      <p className="text-sm"><b>What’s next:</b> {NEXT[stage === 'documents' ? 'review' : stage] || ''}</p>
+      {['inquiry', 'tour', 'applied', 'review', 'documents'].includes(stage) && <p className="text-[12px] text-stone-500">Applying doesn’t guarantee a place. Every application is reviewed by the school’s admissions team.</p>}
+    </Glass>
+  );
+}
+function OfferCard({ d, color, busy, onAnswer }: { d: any; color: string; busy: string; onAnswer: (accept: boolean, reason?: string) => void }) {
+  const [declining, setDeclining] = useState(false); const [why, setWhy] = useState('');
+  const o = d.offer; const until = o.expiresAt ? new Date(o.expiresAt).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }) : '';
+  return (
+    <div className="cf-land rounded-[1.75rem]" style={{ boxShadow: `0 0 0 2px ${color}` }}><Glass className="space-y-3">
+      <p className="text-2xl font-light tracking-tight">🎉 {o.fromWaitlist ? 'A place has opened for you' : 'You’ve been offered a place'}</p>
+      <p className="text-sm text-stone-700">in <b>{d.program.name}</b>{d.applicant.startDate ? `, starting ${new Date(d.applicant.startDate).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}` : ''}. Please answer by <b>{until}</b>.</p>
+      {d.outcome?.message && <p className="rounded-2xl bg-white/70 p-3 text-sm">{d.outcome.message}</p>}
+      {o.conditions?.length > 0 && <div className="space-y-1 rounded-2xl bg-white/70 p-3 text-sm"><p className="font-semibold">Your offer has conditions:</p>{o.conditions.map((c: any, i: number) => <p key={i}>{c.met ? '✓' : '•'} {c.text}</p>)}</div>}
+      {!declining ? (
+        <div className="flex flex-wrap gap-2">
+          <button type="button" disabled={!!busy} onClick={() => onAnswer(true)} className="h-12 flex-1 rounded-full px-6 text-sm font-medium text-white disabled:opacity-50" style={{ background: color }}>{busy === 'offer' ? 'Saving…' : 'Accept my place'}</button>
+          <button type="button" disabled={!!busy} onClick={() => setDeclining(true)} className="h-12 rounded-full bg-white/80 px-5 text-sm">I won’t be joining</button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <textarea value={why} onChange={(e) => setWhy(e.target.value)} rows={2} placeholder="Would you tell us why? (optional)" className="w-full rounded-2xl border border-white/80 bg-white/80 p-3 text-sm" />
+          <div className="flex gap-2"><button type="button" disabled={!!busy} onClick={() => onAnswer(false, why)} className="h-11 rounded-full bg-stone-900 px-5 text-sm text-white">Decline the offer</button><button type="button" onClick={() => setDeclining(false)} className="h-11 rounded-full px-4 text-sm">Go back</button></div>
+          <p className="text-[12px] text-stone-500">Declining releases your place to someone on the waitlist.</p>
+        </div>
+      )}
+      <p className="text-[12px] text-stone-500">After you accept, you’ll sign your enrolment agreement and make your down payment below.</p>
+    </Glass></div>
+  );
+}
+function ClosedCard({ d, color }: { d: any; color: string }) {
+  const o = d.outcome; const notAccepted = d.applicant.stage === 'declined';
+  return (
+    <Glass className="mt-6 space-y-3">
+      <p className="text-2xl font-light tracking-tight">{notAccepted ? 'Thank you for applying' : 'This application is closed'}</p>
+      {notAccepted ? <>
+        <p className="text-sm text-stone-700">After careful review, the school isn’t able to offer you a place at this time.</p>
+        {o?.reason && <p className="rounded-2xl bg-white/70 p-3 text-sm">{o.reason}</p>}
+        {o?.reapplyAfter && <p className="text-sm">You’re welcome to apply again from <b>{new Date(o.reapplyAfter).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}</b>.</p>}
+        {o?.message && <p className="text-sm text-stone-700">{o.message}</p>}
+      </> : <p className="text-sm text-stone-700">If you’d like to join after all, please contact the school — they’ll be glad to help.</p>}
+      <span className="block h-1 w-16 rounded-full" style={{ background: color }} />
+    </Glass>
+  );
+}
 
 // ── The journey: modules along a path ─────────────────────────────────────
 function Journey({ d, tenantId, slug, color }: any) {
