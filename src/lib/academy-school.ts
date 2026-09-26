@@ -94,18 +94,20 @@ export async function programProgress(tenantId: string, enrollmentId: string) {
   const e = ((await db.doc(`tenants/${tenantId}/programEnrollments/${enrollmentId}`).get()).data() as any) || null;
   if (!e) return null;
   const p = ((await db.doc(`tenants/${tenantId}/programs/${e.programId}`).get()).data() as any) || {};
-  const [courseEnr, att] = await Promise.all([
+  const [courseEnr, att, live] = await Promise.all([
     db.collection(`tenants/${tenantId}/enrollments`).where('studentId', '==', e.studentId).limit(200).get(),
     db.collection(`tenants/${tenantId}/attendance`).where('studentId', '==', e.studentId).limit(5000).get(),
+    db.collection(`tenants/${tenantId}/liveAttendance`).where('studentId', '==', e.studentId).limit(2000).get(),
   ]);
+  const liveMin = live.docs.map((d: any) => d.data() as any).filter((x: any) => !x.programId || x.programId === e.programId).reduce((n: number, x: any) => n + (x.minutes || 0), 0);
   const onlineSec = courseEnr.docs.map((d: any) => d.data() as any).filter((x: any) => !p.courseIds?.length || p.courseIds.includes(x.courseId)).reduce((n: number, x: any) => n + (x.onlineSec || 0), 0);
   const inMin = att.docs.map((d: any) => d.data() as any).filter((x: any) => ['closed', 'approved'].includes(x.status)).reduce((n: number, x: any) => n + (x.minutes || 0), 0);
   const reqs = (p.requirements || []).map((r: Requirement) => ({ key: r.key, label: r.label, required: r.count, done: e.serviceCounts?.[r.key] || 0 }));
-  const onlineH = Math.round((onlineSec / 3600) * 10) / 10, inH = Math.round((inMin / 60) * 10) / 10;
+  const onlineH = Math.round((onlineSec / 3600 + liveMin / 60) * 10) / 10, inH = Math.round((inMin / 60) * 10) / 10;
   const hoursDone = onlineH + inH;
   return {
     enrollment: e, program: { id: e.programId, name: p.name, totalHours: p.totalHours || null, requiredOnlineHours: p.requiredOnlineHours || null, requiredInPersonHours: p.requiredInPersonHours || null },
-    hours: { online: onlineH, inPerson: inH, total: Math.round(hoursDone * 10) / 10, pct: p.totalHours ? Math.min(100, Math.round((hoursDone / p.totalHours) * 100)) : null },
+    hours: { online: onlineH, live: Math.round((liveMin / 60) * 10) / 10, inPerson: inH, total: Math.round(hoursDone * 10) / 10, pct: p.totalHours ? Math.min(100, Math.round((hoursDone / p.totalHours) * 100)) : null },
     requirements: reqs, requirementsPct: reqs.length ? Math.round((reqs.reduce((n: number, r: any) => n + Math.min(r.done, r.required), 0) / Math.max(1, reqs.reduce((n: number, r: any) => n + r.required, 0))) * 100) : null,
   };
 }
