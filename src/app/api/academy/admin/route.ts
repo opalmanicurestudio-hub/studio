@@ -7,6 +7,7 @@
 //   video-status   (is Mux done processing? saves the playback id)
 //   students       (who's enrolled, and how far they've got)
 
+import { progressFor, nudge } from '@/lib/academy-assign';
 import { modKey, notifyModuleOpen } from '@/lib/academy-modules';
 import { KIT_GUIDE, KIT_EXAMPLE, extractHtml, scriptError } from '@/lib/interactive-kit';
 import { AI_WEIGHTS, takeCredits, refundCredits, creditStatus } from '@/lib/ai-credits';
@@ -114,7 +115,7 @@ async function handle(req: NextRequest) {
   // Owners, managers and instructors. Only owners/managers change courses and settings.
   const isInstructor = String(auth.actor.role || '').toLowerCase() === 'instructor';
   if (!auth.actor.isManager && !auth.actor.isTenantOwner && !isInstructor) return NextResponse.json({ ok: false, error: 'Only owners, managers and instructors can use the academy tools.' }, { status: 403 });
-  const INSTRUCTOR_OK = ['interactive-list', 'ai-credits', 'materials-list', 'material-save', 'submissions', 'submission-ai', 'submission-grade', 'gradebook', 'media-list', 'media-url', 'qbank-list', 'worksheet-ai', 'tutor-log', 'list', 'course-get', 'students', 'attendance', 'attendance-approve', 'attendance-resolve', 'attendance-code', 'attendance-photo-check', 'transcript', 'audit-verify'];
+  const INSTRUCTOR_OK = ['assign-options', 'assign-list', 'assign-save', 'assign-delete', 'assign-progress', 'assign-nudge', 'group-save', 'group-delete', 'interactive-list', 'ai-credits', 'materials-list', 'material-save', 'submissions', 'submission-ai', 'submission-grade', 'gradebook', 'media-list', 'media-url', 'qbank-list', 'worksheet-ai', 'tutor-log', 'list', 'course-get', 'students', 'attendance', 'attendance-approve', 'attendance-resolve', 'attendance-code', 'attendance-photo-check', 'transcript', 'audit-verify'];
   if (isInstructor && !auth.actor.isManager && !INSTRUCTOR_OK.includes(String(b.action))) return NextResponse.json({ ok: false, error: 'Instructors can review attendance and students, not change courses.' }, { status: 403 });
   const who = auth.actor.name || auth.actor.uid;
   if (['attendance', 'attendance-approve', 'attendance-resolve', 'attendance-photo-check', 'transcript', 'students', 'submissions', 'gradebook'].includes(String(b.action))) {
@@ -320,6 +321,57 @@ async function handle(req: NextRequest) {
       if (!j?.prompt) return NextResponse.json({ ok: false, error: 'The draft didn’t come back usable — try again.' }, { status: 502 });
       return NextResponse.json({ ok: true, assignment: { prompt: String(j.prompt).slice(0, 4000), type: kind, rubric: (j.rubric || []).slice(0, 10).map((x: any) => ({ criterion: String(x.criterion || '').slice(0, 200), points: Math.max(1, Math.min(100, Math.round(Number(x.points) || 10))) })).filter((x: any) => x.criterion), dueDays: Math.max(0, Math.min(60, Number(j.dueDays) || 7)), resubmit: true } });
     }
+
+    // ── Assign work: what, who, when, automatic review ──
+    if (b.action === 'assign-options') {
+      const T = `tenants/${tenantId}`;
+      const [courses, progs, cohorts, groups] = await Promise.all([db.collection(base).limit(200).get(), db.collection(`${T}/programs`).limit(100).get(), db.collection(`${T}/cohorts`).limit(200).get(), db.collection(`${T}/studentGroups`).limit(200).get()]);
+      let lessons: any[] = [], students: any[] = [];
+      if (courseId) {
+        lessons = (await loadLessons(tenantId, courseId)).map((l: any) => ({ id: l.id, title: l.title, moduleTitle: l.moduleTitle, kind: l.kind, hasQuiz: !!l.quiz?.questions?.length }));
+        const enr = await db.collection(`${T}/enrollments`).where('courseId', '==', courseId).limit(2000).get();
+        const names = new Map((await db.collection(`${T}/students`).limit(3000).get()).docs.map((d: any) => [d.id, (d.data() as any).name]));
+        students = enr.docs.map((d: any) => { const e = d.data() as any; return { id: e.studentId, name: names.get(e.studentId) || e.email, email: e.email }; }).filter((x: any) => x.id).sort((x: any, y: any) => String(x.name).localeCompare(String(y.name)));
+      }
+      return NextResponse.json({ ok: true, courses: courses.docs.map((d: any) => ({ id: d.id, title: (d.data() as any).title })), lessons, students,
+        programs: progs.docs.map((d: any) => ({ id: d.id, name: (d.data() as any).name })), cohorts: cohorts.docs.map((d: any) => ({ id: d.id, name: (d.data() as any).name })), groups: groups.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })) });
+    }
+    if (b.action === 'assign-list') {
+      const q = await db.collection(`tenants/${tenantId}/assigned`).orderBy('createdAt', 'desc').limit(200).get();
+      const titles = new Map((await db.collection(base).limit(200).get()).docs.map((d: any) => [d.id, (d.data() as any).title]));
+      return NextResponse.json({ ok: true, items: q.docs.map((d: any) => ({ id: d.id, ...(d.data() as any), courseTitle: titles.get((d.data() as any).courseId) || '' })) });
+    }
+    if (b.action === 'assign-save') {
+      const a = b.assignment || {};
+      const lessons = await loadLessons(tenantId, String(a.courseId || ''));
+      const ids = (a.lessonIds || []).map(String).filter((id: string) => lessons.some((l: any) => l.id === id)).slice(0, 30);
+      if (!ids.length) return NextResponse.json({ ok: false, error: 'Choose at least one lesson.' }, { status: 400 });
+      const type = ['course', 'program', 'cohort', 'group', 'students'].includes(a.audience?.type) ? a.audience.type : 'course';
+      const aud = { type, ids: type === 'course' ? [] : (a.audience?.ids || []).map(String).slice(0, 500) };
+      if (type !== 'course' && !aud.ids.length) return NextResponse.json({ ok: false, error: 'Choose who it’s for.' }, { status: 400 });
+      const cond = a.condition?.lessonId && lessons.some((l: any) => l.id === a.condition.lessonId) ? { lessonId: String(a.condition.lessonId), below: Math.max(1, Math.min(100, Number(a.condition.below) || 70)) } : null;
+      const ref = a.id ? db.doc(`tenants/${tenantId}/assigned/${String(a.id)}`) : db.collection(`tenants/${tenantId}/assigned`).doc();
+      const due = a.dueAt ? new Date(a.dueAt).toISOString() : null;
+      const prev = a.id ? (((await ref.get()).data() as any) || {}) : {};
+      await ref.set({ id: ref.id, title: str(a.title, 140) || lessons.filter((l: any) => ids.includes(l.id)).map((l: any) => l.title).slice(0, 2).join(' + '), courseId: String(a.courseId), lessonIds: ids, audience: aud, dueAt: due, note: str(a.note, 600) || null, condition: cond,
+        createdAt: prev.createdAt || now, createdBy: prev.createdBy || who, updatedAt: now, remindedAt: prev.dueAt === due ? prev.remindedAt || null : null });
+      await appendAudit(tenantId, { type: 'work.assigned', courseId: String(a.courseId), by: who, summary: `Assigned “${str(a.title, 140) || 'work'}” to ${type === 'course' ? 'everyone in the course' : `${aud.ids.length} ${type === 'students' ? 'student' : type}${aud.ids.length === 1 ? '' : 's'}`}${cond ? ` (review for scores under ${cond.below}%)` : ''}`, data: { id: ref.id } });
+      return NextResponse.json({ ok: true, id: ref.id });
+    }
+    if (b.action === 'assign-delete') { await db.doc(`tenants/${tenantId}/assigned/${String(b.id || '')}`).delete(); return NextResponse.json({ ok: true }); }
+    if (b.action === 'assign-progress' || b.action === 'assign-nudge') {
+      const d = await db.doc(`tenants/${tenantId}/assigned/${String(b.id || '')}`).get(); if (!d.exists) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
+      const a = { id: d.id, ...(d.data() as any) };
+      if (b.action === 'assign-nudge') return NextResponse.json({ ok: true, sent: await nudge(tenantId, a, Array.isArray(b.studentIds) ? b.studentIds.map(String) : undefined) });
+      return NextResponse.json({ ok: true, rows: await progressFor(tenantId, a) });
+    }
+    if (b.action === 'group-save') {
+      const ref = b.id ? db.doc(`tenants/${tenantId}/studentGroups/${String(b.id)}`) : db.collection(`tenants/${tenantId}/studentGroups`).doc();
+      const name = str(b.name, 80); if (!name) return NextResponse.json({ ok: false, error: 'Name the group.' }, { status: 400 });
+      await ref.set({ name, studentIds: (b.studentIds || []).map(String).slice(0, 500), updatedAt: now, by: who }, { merge: true });
+      return NextResponse.json({ ok: true, id: ref.id });
+    }
+    if (b.action === 'group-delete') { await db.doc(`tenants/${tenantId}/studentGroups/${String(b.id || '')}`).delete(); return NextResponse.json({ ok: true }); }
 
     // ── Module settings: when each module opens, its intro and badge ──
     if (b.action === 'module-settings' || b.action === 'module-release-now') {
