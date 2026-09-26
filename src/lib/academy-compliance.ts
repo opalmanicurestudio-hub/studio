@@ -171,12 +171,15 @@ export function lessonMet(course: CourseRules, lesson: any, agg: { engagedSec: n
 // ── Transcript ───────────────────────────────────────────────────────────
 export async function transcript(tenantId: string, studentId: string, courseId?: string | null) {
   const db = getAdminDb();
-  const [stu, sess, att, enr] = await Promise.all([
+  const [stu, sess, att, enr, live] = await Promise.all([
     db.doc(`tenants/${tenantId}/students/${studentId}`).get(),
     db.collection(`tenants/${tenantId}/learningSessions`).where('studentId', '==', studentId).limit(5000).get(),
     db.collection(`tenants/${tenantId}/attendance`).where('studentId', '==', studentId).limit(5000).get(),
     db.collection(`tenants/${tenantId}/enrollments`).where('studentId', '==', studentId).limit(100).get(),
+    db.collection(`tenants/${tenantId}/liveAttendance`).where('studentId', '==', studentId).limit(2000).get(),
   ]);
+  const liveClasses = live.docs.map((d: any) => d.data() as any).sort((a: any, b: any) => String(a.joinedAt).localeCompare(String(b.joinedAt)));
+  const liveMin = liveClasses.reduce((n: number, x: any) => n + (x.minutes || 0), 0);
   const sessions = sess.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((s: any) => !courseId || s.courseId === courseId).sort((a: any, b: any) => String(a.startedAt).localeCompare(String(b.startedAt)));
   const punches = att.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((p: any) => !courseId || !p.courseId || p.courseId === courseId).sort((a: any, b: any) => String(a.clockInAt).localeCompare(String(b.clockInAt)));
   const onlineSec = sessions.reduce((n: number, s: any) => n + (s.engagedSec || 0), 0);
@@ -185,8 +188,8 @@ export async function transcript(tenantId: string, studentId: string, courseId?:
   return {
     student: stu.exists ? { id: studentId, ...(stu.data() as any) } : { id: studentId },
     enrollments: enr.docs.map((d: any) => d.data()).filter((e: any) => !courseId || e.courseId === courseId),
-    sessions, punches,
-    totals: { onlineHours: Math.round((onlineSec / 3600) * 100) / 100, inPersonHours: Math.round((approvedMin / 60) * 100) / 100, flaggedPunches: flagged,
+    sessions, punches, liveClasses,
+    totals: { liveHours: Math.round((liveMin / 60) * 100) / 100, onlineHours: Math.round(((onlineSec / 3600) + liveMin / 60) * 100) / 100, inPersonHours: Math.round((approvedMin / 60) * 100) / 100, flaggedPunches: flagged,
       checksIssued: sessions.reduce((n: number, s: any) => n + (s.checksIssued || 0), 0), checksMissed: sessions.reduce((n: number, s: any) => n + (s.checksMissed || 0), 0) },
   };
 }
