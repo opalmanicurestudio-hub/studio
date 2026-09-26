@@ -7,6 +7,7 @@
 //   video-status   (is Mux done processing? saves the playback id)
 //   students       (who's enrolled, and how far they've got)
 
+import { KIT_GUIDE, KIT_EXAMPLE, extractHtml, scriptError } from '@/lib/interactive-kit';
 import { AI_WEIGHTS, takeCredits, refundCredits, creditStatus } from '@/lib/ai-credits';
 import { deviceAllowed } from '@/lib/approved-devices';
 import { letter } from '@/lib/grades';
@@ -20,6 +21,8 @@ import { appendAudit, verifyAudit, transcript, qrWindow, qrCode, QR_WINDOW_SEC }
 import { linkOrigin } from '@/lib/app-origin';
 
 export const dynamic = 'force-dynamic';
+// AI builds (interactives on Claude Opus at high effort) can take a couple of minutes.
+export const maxDuration = 300;
 const KINDS = ['video', 'text', 'download', 'assignment'];
 const str = (v: any, n: number) => String(v ?? '').slice(0, n);
 const BLOCK_TYPES = ['text', 'image', 'steps', 'callout', 'file', 'divider', 'interactive', 'hotspots', 'stages'];
@@ -301,30 +304,49 @@ async function handle(req: NextRequest) {
       if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
       const request = String(b.request || '').trim().slice(0, 1000);
       if (!request) return NextResponse.json({ ok: false, error: 'Describe what the interactive should show.' }, { status: 400 });
+      const course = ((await db.doc(`${base}/${courseId}`).get()).data() as any) || {};
       let material = '';
       if (b.useLesson && b.lessonId) { const lx = ((await db.doc(`${base}/${courseId}/lessons/${String(b.lessonId)}`).get()).data() as any) || {}; material = `${lx.title || ''}\n${lx.body || ''}\n${lx.transcript ? String(lx.transcript).slice(0, 4000) : ''}`.slice(0, 8000); }
       const current = typeof b.currentHtml === 'string' && b.currentHtml.length < 150_000 ? b.currentHtml : '';
-      // Interactives are built on Claude Opus (AI_MODEL_INTERACTIVE); if the account can't use that model, fall back to Sonnet.
-      const ask = (tier: 'interactive' | 'smart') => askClaude({ tier, maxTokens: 9000, purpose: 'academy-interactive', tenantId,
-        system: `You build small interactive, animated teaching visuals for a beauty / nail school, as ONE self-contained HTML fragment (inline <style>, inline SVG or <canvas>, inline <script>).
+      const system = `You build interactive, animated teaching visuals for students at a state-licensed beauty / nail school, as ONE self-contained HTML fragment: markup, then one inline <script>. It runs inside a sealed frame that already contains the ClarityFlow style kit described below.
+
+${KIT_GUIDE}
+
 Rules:
-- No external anything: no <script src>, no <link>, no images/fonts/URLs from the internet, no fetch/XMLHttpRequest/WebSocket. Draw with SVG/canvas/CSS only.
-- Explain a process or cause-and-effect with motion: CSS @keyframes or requestAnimationFrame, and controls (range sliders, buttons, toggles) with visible labels and live readouts.
-- Wrap animations so they pause when (prefers-reduced-motion: reduce).
-- Mobile first: fits 320–720px wide (width:100%, SVG viewBox), large touch targets, readable 14px+ text, high contrast, works in light backgrounds.
-- A short title line and one-sentence live explanation that updates with the controls; no long paragraphs.
-- Be accurate. Use only well-established, general facts; if the instructor's material is given, follow it and do not contradict it. Keep it a simplified teaching model; do not invent brand names, numbers or regulations.
-- Do not draw detailed human anatomy; use simple schematic shapes.
-- No alert/confirm/prompt, no forms that submit, no navigation.
-Reply with the HTML only, inside one \`\`\`html code block.`,
-        prompt: `${current ? `Here is the current interactive:\n\`\`\`html\n${current}\n\`\`\`\n\nChange requested: ${String(b.change || '').slice(0, 800)}\nReturn the full updated HTML.` : `Build an interactive that shows: ${request}`}${material ? `\n\nInstructor's lesson material (follow it):\n${material}` : ''}` });
-      let r = await ask('interactive'); let usedFallback = false;
-      if (!r.ok && /model/i.test(String(r.error || ''))) { r = await ask('smart'); usedFallback = true; }
-      const m = r.ok ? r.text.match(/```html\s*([\s\S]*?)```/) || r.text.match(/(<(?:div|style|svg|section|main)[\s\S]*)/) : null;
-      const html = m ? m[1].trim() : '';
-      if (!html || html.length > 150_000) return NextResponse.json({ ok: false, error: 'The interactive didn’t come back usable — try again, or simplify the request.' }, { status: 502 });
+- Teach one idea clearly through cause and effect: controls the student changes (sliders, toggles, Play/Reset), a drawing that responds with smooth motion (CSS transitions, requestAnimationFrame), and a one-sentence explanation in .cf-note that updates with every change.
+- Mobile first: it must work at 320px wide. SVG uses a viewBox and width="100%". Big touch targets.
+- Accurate and honest: use only well-established facts; follow the instructor's material when given and never contradict it. It's a simplified teaching model — no invented brand names, figures or regulations. Draw anatomy only as simple schematic shapes.
+- Self-contained: no external scripts, fonts, images or URLs; no fetch/XMLHttpRequest/WebSocket; no alert/confirm/prompt; no forms; no top-level await; no import/export. Wrap the script in (function(){ … })().
+- It must work the moment it loads: call your draw/update function once at the end of the script. Check every getElementById target exists in your markup.
+- Keep it focused: about 60–200 lines total.
+
+Here is an example of the expected quality and use of the kit:
+\`\`\`html
+${KIT_EXAMPLE}
+\`\`\`
+
+Reply with the complete HTML only, inside one \`\`\`html code block.`;
+      const context = `Course: ${course.title || '—'}${course.subtitle ? ` — ${course.subtitle}` : ''}${material ? `\n\nInstructor's lesson material (follow it):\n${material}` : ''}`;
+      const prompt = current
+        ? `Here is the current interactive:\n\`\`\`html\n${current}\n\`\`\`\n\nChange requested: ${String(b.change || '').slice(0, 800)}\nReturn the complete updated HTML.\n\n${context}`
+        : `Build an interactive that shows: ${request}\n\n${context}`;
+      // Built on Claude Opus with room to think and write; falls back to Sonnet if the account can't use Opus.
+      const ask = (tier: 'interactive' | 'smart', p: string) => askClaude({ tier, maxTokens: 32000, effort: 'high', purpose: 'academy-interactive', tenantId, system, prompt: p });
+      let r = await ask('interactive', prompt); let usedFallback = false;
+      if (!r.ok && /model/i.test(String(r.error || ''))) { r = await ask('smart', prompt); usedFallback = true; }
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error || 'The AI didn’t respond — try again.' }, { status: 502 });
+      let got = extractHtml(r.text, r.stopReason);
+      if (!got.html) return NextResponse.json({ ok: false, error: got.error }, { status: 502 });
+      let html = got.html;
       if (/<script[^>]+src=|<link\b|@import|(?:src|href)\s*=\s*["']?https?:|\bfetch\s*\(|XMLHttpRequest|WebSocket/i.test(html)) return NextResponse.json({ ok: false, error: 'The draft tried to load something from the internet, which isn’t allowed — try again.' }, { status: 502 });
-      return NextResponse.json({ ok: true, html, model: usedFallback ? 'sonnet' : 'opus', ...(usedFallback ? { note: 'Built with Claude Sonnet — your Anthropic account couldn’t use Claude Opus just now.' } : {}) });
+      // Catch script errors before anyone sees them; one automatic fix attempt.
+      let problem = scriptError(html);
+      if (problem) {
+        const fix = await ask(usedFallback ? 'smart' : 'interactive', `This interactive has a JavaScript error: ${problem}\nFix it and return the complete corrected HTML.\n\`\`\`html\n${html}\n\`\`\``);
+        const g2 = fix.ok ? extractHtml(fix.text, fix.stopReason) : { html: null };
+        if (g2.html && !scriptError(g2.html)) { html = g2.html; problem = null; }
+      }
+      return NextResponse.json({ ok: true, html, model: usedFallback ? 'sonnet' : 'opus', ...(problem ? { problem } : {}), ...(usedFallback ? { note: 'Built with Claude Sonnet — your Anthropic account couldn’t use Claude Opus just now.' } : {}) });
     }
     if (b.action === 'interactive-save') {
       const html = cleanHtml(b.html); if (!html) return NextResponse.json({ ok: false, error: 'Nothing to save.' }, { status: 400 });
