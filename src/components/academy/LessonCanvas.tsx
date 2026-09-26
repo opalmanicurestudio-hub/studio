@@ -21,10 +21,10 @@ export const LESSON_KINDS: [string, string, string][] = [['video', '🎬', 'Vide
 const ASSIGNMENT = { prompt: '', type: 'any', rubric: [{ criterion: 'Accuracy', points: 40 }, { criterion: 'Infection control & safety', points: 30 }, { criterion: 'Presentation', points: 30 }], dueDays: 7, resubmit: true };
 export const LESSON_TEMPLATES: { key: string; icon: string; name: string; hint: string; make: () => any }[] = [
   { key: 'blank', icon: '✦', name: 'Start blank', hint: 'An empty lesson', make: () => ({ kind: 'text' }) },
-  { key: 'theory', icon: '📖', name: 'Theory lesson', hint: 'Notes, a key point, and a quick check', make: () => ({ kind: 'text', blocks: [{ id: uid(), type: 'callout', tone: 'key', text: '' }], quiz: { passPct: 80, questions: [{ q: '', options: ['', '', ''], answer: 0 }] } }) },
-  { key: 'skill', icon: '🖐', name: 'Hands-on skill', hint: 'Photo steps, safety, then hand in photos', make: () => ({ kind: 'assignment', assignment: { ...ASSIGNMENT, type: 'photo' }, blocks: [{ id: uid(), type: 'callout', tone: 'safety', text: '' }, { id: uid(), type: 'steps', title: '', steps: [{ text: '', mediaId: null }, { text: '', mediaId: null }, { text: '', mediaId: null }] }] }) },
-  { key: 'game', icon: '🎮', name: 'Review game', hint: 'An interactive, flashcards and a matching game', make: () => ({ kind: 'text', blocks: [{ id: uid(), type: 'interactive', title: '', request: '', html: '' }], flashcards: [{ front: '', back: '' }], activity: { type: 'match', prompt: 'Match each term to its meaning', pairs: [{ left: '', right: '' }, { left: '', right: '' }] } }) },
-  { key: 'exam', icon: '📝', name: 'Exam prep', hint: 'A longer quiz and client cases', make: () => ({ kind: 'text', quiz: { passPct: 70, questions: [{ q: '', options: ['', '', '', ''], answer: 0 }] }, cases: { prompt: 'What would you do?', cases: [{ story: '', mediaId: null, options: [{ text: 'Proceed with the service as planned', correct: false, feedback: '' }, { text: 'Adapt the service', correct: false, feedback: '' }, { text: 'Refer the client to a doctor', correct: true, feedback: '' }] }] } }) },
+  { key: 'theory', icon: '📖', name: 'Theory lesson', hint: 'Notes, a key point, and a quick check', make: () => ({ kind: 'text', layout: 'article', blocks: [{ id: uid(), type: 'callout', tone: 'key', text: '' }], quiz: { passPct: 80, questions: [{ q: '', options: ['', '', ''], answer: 0 }] } }) },
+  { key: 'skill', icon: '🖐', name: 'Hands-on skill', hint: 'Photo steps, safety, then hand in photos', make: () => ({ kind: 'assignment', layout: 'steps', assignment: { ...ASSIGNMENT, type: 'photo' }, blocks: [{ id: uid(), type: 'callout', tone: 'safety', text: '' }, { id: uid(), type: 'steps', title: '', steps: [{ text: '', mediaId: null }, { text: '', mediaId: null }, { text: '', mediaId: null }] }] }) },
+  { key: 'game', icon: '🎮', name: 'Review game', hint: 'An interactive, flashcards and a matching game', make: () => ({ kind: 'text', layout: 'cards', blocks: [{ id: uid(), type: 'interactive', title: '', request: '', html: '' }], flashcards: [{ front: '', back: '' }], activity: { type: 'match', prompt: 'Match each term to its meaning', pairs: [{ left: '', right: '' }, { left: '', right: '' }] } }) },
+  { key: 'exam', icon: '📝', name: 'Exam prep', hint: 'A longer quiz and client cases', make: () => ({ kind: 'text', layout: 'article', quiz: { passPct: 70, questions: [{ q: '', options: ['', '', '', ''], answer: 0 }] }, cases: { prompt: 'What would you do?', cases: [{ story: '', mediaId: null, options: [{ text: 'Proceed with the service as planned', correct: false, feedback: '' }, { text: 'Adapt the service', correct: false, feedback: '' }, { text: 'Refer the client to a doctor', correct: true, feedback: '' }] }] } }) },
 ];
 
 export function TemplatePicker({ onPick, onClose, onFromFile }: { onPick: (t: any) => void; onClose: () => void; onFromFile?: () => void }) {
@@ -44,11 +44,11 @@ export function TemplatePicker({ onPick, onClose, onFromFile }: { onPick: (t: an
 }
 
 const CONTENT: [string, string, string, string][] = [
-  ['game', '🎮', 'Game', 'Sort it, speed round, memory, sequence'], ['text', '¶', 'Text', 'A paragraph or two'], ['steps', '🔢', 'Photo steps', 'Numbered steps, a photo each'], ['interactive', '✨', 'Interactive', 'AI builds an animated demo'],
+  ['game', '🎮', 'Game', 'Sort it, speed round, memory, sequence'], ['timeline', '🕰', 'Timeline', 'Events that animate in, in order'], ['text', '¶', 'Text', 'A paragraph or two'], ['steps', '🔢', 'Photo steps', 'Numbered steps, a photo each'], ['interactive', '✨', 'Interactive', 'AI builds an animated demo'],
   ['hotspots', '📍', 'Hotspots', 'Tap parts of your image'], ['stages', '🎚', 'Stages', 'Slide through a process'], ['callout', '🛑', 'Safety / key point', 'A highlighted note'],
   ['image', '🖼', 'Image', 'A photo or diagram'], ['file', '📄', 'File', 'A PDF or audio'],
 ];
-const newBlock = (type: string) => type === 'game' ? { id: uid(), type, template: 'sort', title: '', data: null } : type === 'interactive' ? { id: uid(), type, title: '', request: '', html: '' } : type === 'hotspots' ? { id: uid(), type, title: '', mediaId: null, points: [] } : type === 'stages' ? { id: uid(), type, title: '', stages: [{ label: '', text: '', mediaId: null }, { label: '', text: '', mediaId: null }] } : type === 'steps' ? { id: uid(), type, title: '', steps: [{ text: '', mediaId: null }] } : type === 'callout' ? { id: uid(), type, tone: 'safety', text: '' } : { id: uid(), type, text: '' };
+const newBlock = (type: string) => type === 'timeline' ? { id: uid(), type, title: '', events: [{ when: '', title: '', text: '', mediaId: null }, { when: '', title: '', text: '', mediaId: null }] } : type === 'game' ? { id: uid(), type, template: 'sort', title: '', data: null } : type === 'interactive' ? { id: uid(), type, title: '', request: '', html: '' } : type === 'hotspots' ? { id: uid(), type, title: '', mediaId: null, points: [] } : type === 'stages' ? { id: uid(), type, title: '', stages: [{ label: '', text: '', mediaId: null }, { label: '', text: '', mediaId: null }] } : type === 'steps' ? { id: uid(), type, title: '', steps: [{ text: '', mediaId: null }] } : type === 'callout' ? { id: uid(), type, tone: 'safety', text: '' } : { id: uid(), type, text: '' };
 
 /** The ＋ picker: add a content card, or switch on a lesson extra. */
 export function AddToLesson({ lesson, setLesson, draft, drafting, onClose }: { lesson: any; setLesson: (l: any) => void; draft: (k: any) => void; drafting: string; onClose: () => void }) {
@@ -94,6 +94,7 @@ export function LessonPreview({ lesson, color, stepMode }: { lesson: any; color?
     if (b.type === 'text' && b.text) pieces.push({ key: b.id, node: <div className="whitespace-pre-wrap rounded-2xl bg-white/80 p-3 text-[13px]">{b.text}</div> });
     else if (b.type === 'callout') pieces.push({ key: b.id, node: <div className={`rounded-2xl border-2 p-3 text-[13px] ${b.tone === 'safety' ? 'border-red-200 bg-red-50' : b.tone === 'tip' ? 'border-sky-200 bg-sky-50' : 'border-amber-200 bg-amber-50'}`}><b className="text-[10px] uppercase tracking-widest">{b.tone === 'safety' ? '🛑 Safety' : b.tone === 'tip' ? '💡 Tip' : '⭐ Key point'}</b><p>{b.text || '…'}</p></div> });
     else if (b.type === 'steps') pieces.push({ key: b.id, node: <div className="space-y-1.5 rounded-2xl bg-white/80 p-3 text-[13px]">{b.title && <b>{b.title}</b>}{(b.steps || []).map((s: any, i: number) => <p key={i} className="flex gap-2"><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-stone-900 text-[10px] text-white">{i + 1}</span>{s.text || '…'}{s.mediaId ? ' 📷' : ''}</p>)}</div> });
+    else if (b.type === 'timeline') pieces.push({ key: b.id, node: <div className="rounded-2xl bg-white/80 p-3 text-[13px]"><b>🕰 {b.title || 'Timeline'}</b>{(b.events || []).filter((e: any) => e.title).slice(0, 4).map((e: any, i: number) => <p key={i} className="mt-1 border-l-2 border-violet-400 pl-2"><span className="text-[10px] font-bold uppercase text-violet-700">{e.when}</span> {e.title}</p>)}</div> });
     else if (b.type === 'game') pieces.push({ key: b.id, node: <div className="rounded-2xl bg-white/80 p-3 text-center text-[13px]">🎮 <b>{b.title || ({ sort: 'Sort it', speed: 'Speed round', memory: 'Memory match', sequence: 'Sequence' } as any)[b.template]}</b><p className="text-[11px] text-stone-500">{b.data ? 'Ready to play' : 'Add items to finish it'}</p></div> });
     else if (b.type === 'interactive' && b.html) pieces.push({ key: b.id, node: <InteractiveFrame html={b.html} title={b.title} accent={c} minHeight={200} /> });
     else if (b.type === 'interactive') pieces.push({ key: b.id, node: <div className="rounded-2xl border-2 border-dashed border-violet-300 p-4 text-center text-[12px] text-violet-800">✨ Interactive — build it to preview</div> });
@@ -147,13 +148,38 @@ export async function printStudyGuide(lesson: any, brand: any) {
   const md = (t: string) => esc(t).split('\n').map((l) => /^#\s+/.test(l) ? `<h2>${l.replace(/^#\s+/, '')}</h2>` : l.trim() ? `<p>${l}</p>` : '').join('');
   const keys = (lesson.blocks || []).filter((b: any) => b.type === 'callout').map((b: any) => b.text).filter(Boolean);
   const steps = (lesson.blocks || []).filter((b: any) => b.type === 'steps');
+  const times = (lesson.blocks || []).filter((b: any) => b.type === 'timeline');
   const qs = lesson.quiz?.questions || [];
   const body = `${heading('Study', 'guide')}<p class="sub">${esc(lesson.title || '')}${lesson.moduleTitle ? ` · ${esc(lesson.moduleTitle)}` : ''}</p>
     ${keys.length ? `<div class="panel"><b>Remember</b>${keys.map((k: string) => md(k)).join('')}</div>` : ''}
     ${lesson.body ? md(lesson.body) : ''}
     ${steps.map((b: any) => `<h2>${esc(b.title || 'Steps')}</h2><ol>${(b.steps || []).map((s: any) => `<li>${esc(s.text)}</li>`).join('')}</ol>`).join('')}
+    ${times.map((b: any) => `<h2>${esc(b.title || 'Timeline')}</h2>${(b.events || []).map((e: any) => `<p><b>${esc(e.when)}</b> — <b>${esc(e.title)}</b>${e.text ? `: ${esc(e.text)}` : ''}</p>`).join('')}`).join('')}
     ${(lesson.flashcards || []).length ? `<h2>Key terms</h2><table><thead><tr><th>Term</th><th>Meaning</th></tr></thead>${lesson.flashcards.map((f: any) => `<tr><td><b>${esc(f.front)}</b></td><td>${esc(f.back)}</td></tr>`).join('')}</table>` : ''}
     ${qs.length ? `<h2>Check yourself</h2>${qs.map((q: any, i: number) => `<div style="break-inside:avoid;margin:10px 0"><b>${i + 1}.</b> ${esc(q.q)}<div style="margin:4px 0 0 18px">${(q.options || []).map((o: string, j: number) => `<div>${'ABCD'[j]}. ${esc(o)}</div>`).join('')}</div></div>`).join('')}
       <div class="break"></div><h2>Answers</h2><p>${qs.map((q: any, i: number) => `${i + 1}. ${'ABCD'[q.answer] || '?'}`).join(' · ')}</p>` : ''}`;
   printDocument({ title: `Study guide — ${lesson.title || 'Lesson'}`, brand, body });
+}
+
+
+/** Lesson layout — how students see this lesson. */
+export const LAYOUT_TILES: [string, string, string, string][] = [
+  ['steps', '📱', 'Steps', 'One screen at a time — best on phones and for hands-on skills'],
+  ['article', '📖', 'Article', 'Section cards with contents, read ticks and reading progress'],
+  ['split', '🎬', 'Split', 'Video stays pinned while the notes scroll'],
+  ['cards', '🗂', 'Cards', 'Sections as cards to open one by one — great for review'],
+  ['focus', '🔍', 'Focus', 'Narrow column, large type, nothing else on screen'],
+];
+export const layoutOf = (l: any) => l?.layout || (l?.stepMode === true ? 'steps' : 'article');
+export function LayoutPicker({ lesson, setLesson, onApplyAll }: { lesson: any; setLesson: (l: any) => void; onApplyAll?: (layout: string) => Promise<string | null> }) {
+  const cur = layoutOf(lesson); const [msg, setMsg] = useState('');
+  return (
+    <div className="space-y-2 rounded-2xl bg-muted/40 p-3">
+      <p className="text-sm font-black">Layout <span className="font-normal text-muted-foreground">— how students see this lesson</span></p>
+      <div className="grid grid-cols-2 gap-1.5">{LAYOUT_TILES.filter(([k]) => k !== 'split' || lesson.kind === 'video').map(([k, i, n, h]) => <button key={k} type="button" onClick={() => setLesson({ ...lesson, layout: k, stepMode: k === 'steps' })} className={`rounded-xl p-2 text-left ${cur === k ? 'bg-foreground text-background' : 'bg-background'}`}><span className="text-lg">{i}</span> <b className="text-sm">{n}</b><span className={`block text-[11px] ${cur === k ? 'opacity-80' : 'text-muted-foreground'}`}>{h}</span></button>)}</div>
+      {onApplyAll && <button type="button" onClick={async () => { const e = await onApplyAll(cur); setMsg(e || 'Applied to every lesson in this course.'); }} className="text-[12px] font-bold underline">Apply “{LAYOUT_TILES.find(([k]) => k === cur)?.[2]}” to all lessons in this course</button>}
+      {msg && <p className="text-[12px] text-emerald-800">{msg}</p>}
+      <p className="text-[11px] text-muted-foreground">Students can always choose “Show all”. Anyone with the dyslexia-friendly accommodation gets Focus for Article lessons.</p>
+    </div>
+  );
 }
