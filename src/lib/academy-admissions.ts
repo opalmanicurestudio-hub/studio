@@ -4,8 +4,11 @@
 //
 //   admissions/{id}        one applicant: stage, program, cohort, documents,
 //                          agreement, tuition, notes, full history
-//                          stages: inquiry → tour → applied → documents →
-//                                  agreement → enrolled   (or declined / withdrawn)
+//                          stages: inquiry → tour → applied → review → (a person
+//                                  decides) offer → accepted → agreement → enrolled
+//                                  (or waitlist / declined = not accepted / withdrawn)
+//                                  — see academy-decisions.ts. 'documents' is the
+//                                  older name for review.
 //   cohorts/{id}           a program's start: date, capacity, waitlist
 //   tuitionPlans/{pid_sid} the student's plan: totals, down payment,
 //                          instalments, autopay card, next due, status
@@ -27,7 +30,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { appendAudit } from '@/lib/academy-compliance';
 import { enrollInProgram } from '@/lib/academy-school';
 
-export const STAGES = ['inquiry', 'tour', 'applied', 'documents', 'agreement', 'enrolled', 'declined', 'withdrawn'] as const;
+export const STAGES = ['inquiry', 'tour', 'applied', 'documents', 'review', 'offer', 'accepted', 'waitlist', 'agreement', 'enrolled', 'declined', 'withdrawn'] as const;
 export type Stage = typeof STAGES[number];
 export const DEFAULT_DOCS = ['Photo ID', 'High school diploma or GED', 'Proof of age'];
 export const sha = (v: string) => createHash('sha256').update(v).digest('hex');
@@ -41,13 +44,19 @@ export const DEFAULT_REFUND: RefundPolicy = { cancelDays: 3, registrationNonRefu
 
 /** A new private application link for an applicant. */
 export async function issueApplicationLink(tenantId: string, admissionId: string) {
+  // A new link is ADDED to the last few, so links already emailed keep working.
   const token = randomBytes(24).toString('base64url');
-  await getAdminDb().doc(`tenants/${tenantId}/admissions/${admissionId}`).set({ appTokenHash: sha(token), appTokenAt: new Date().toISOString() }, { merge: true });
+  const ref = getAdminDb().doc(`tenants/${tenantId}/admissions/${admissionId}`);
+  const a = ((await ref.get()).data() as any) || {};
+  const hashes = [...(a.appTokenHashes || (a.appTokenHash ? [a.appTokenHash] : [])), sha(token)].slice(-5);
+  await ref.set({ appTokenHash: sha(token), appTokenHashes: hashes, appTokenAt: new Date().toISOString() }, { merge: true });
   return token;
 }
 export async function admissionByToken(tenantId: string, token: string) {
   if (!token) return null;
-  const s = await getAdminDb().collection(`tenants/${tenantId}/admissions`).where('appTokenHash', '==', sha(token)).limit(1).get();
+  const col = getAdminDb().collection(`tenants/${tenantId}/admissions`);
+  let s = await col.where('appTokenHashes', 'array-contains', sha(token)).limit(1).get();
+  if (s.empty) s = await col.where('appTokenHash', '==', sha(token)).limit(1).get();   // links issued before multi-link
   return s.empty ? null : { id: s.docs[0].id, ref: s.docs[0].ref, ...(s.docs[0].data() as any) };
 }
 
