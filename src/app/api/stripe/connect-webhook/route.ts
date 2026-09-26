@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { enrollFromCheckout } from '@/lib/academy';
-import { completeDownPayment } from '@/lib/academy-admissions';
+import { completeDownPayment, completeStudentPayment, completeCardUpdate } from '@/lib/academy-admissions';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
 
@@ -99,6 +99,14 @@ export async function POST(req: NextRequest) {
         // first; both are safe to run twice).
         if (sessionType === 'academy_course') {
           try { await enrollFromCheckout(tenant.id, session); } catch (e: any) { console.error('[connect-webhook] academy enrol failed', e?.message); }
+          break;
+        }
+        if (sessionType === 'academy_tuition_payment') {
+          try { await completeStudentPayment(tenant.id, session); } catch (e: any) { console.error('[connect-webhook] tuition payment failed', e?.message); }
+          break;
+        }
+        if (sessionType === 'academy_card_update') {
+          try { await completeCardUpdate(tenant.id, connAcct, session); } catch (e: any) { console.error('[connect-webhook] card update failed', e?.message); }
           break;
         }
         if (sessionType === 'academy_tuition') {
