@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getAuth } from 'firebase/auth';
 import { Loader, X } from 'lucide-react';
+import { StudentFile } from '@/components/academy/StudentFile';
 
 async function api(path: string, body: any) {
   const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
@@ -24,7 +25,8 @@ const RISK: Record<string, string> = { high: 'bg-red-100 text-red-800', watch: '
 const SAP: Record<string, string> = { satisfactory: 'text-emerald-700', warning: 'text-amber-700', probation: 'text-red-700' };
 const dt = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—');
 
-export function StudentJourney({ tenantId }: { tenantId: string }) {
+export function StudentJourney({ tenantId, brand }: { tenantId: string; brand: { name: string; logoUrl?: string | null; color?: string | null } }) {
+  const [fileFor, setFileFor] = useState<string | null>(null);
   const [tab, setTab] = useState<'students' | 'messages' | 'announcements' | 'outcomes'>('students');
   const [list, setList] = useState<any[] | null>(null);
   const [open, setOpen] = useState<any>(null);
@@ -47,6 +49,7 @@ export function StudentJourney({ tenantId }: { tenantId: string }) {
   }, [tab, threads, anns, out, tenantId]);
   const openThread = async (studentId: string, name: string) => { setTab('messages'); const r = await J(tenantId, { action: 'thread', studentId }); if (r.ok) setThread({ studentId, name, messages: r.messages }); };
 
+  if (fileFor) return <StudentFile tenantId={tenantId} studentId={fileFor} brand={brand} onClose={() => { setFileFor(null); void loadList(); }} />;
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-1">{([['students', 'Students'], ['messages', 'Messages'], ['announcements', 'Announcements'], ['outcomes', 'Outcomes']] as const).map(([k, l]) => <button key={k} type="button" onClick={() => setTab(k)} className={`h-9 rounded-full px-4 text-sm font-bold ${tab === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{l}{k === 'messages' && threads?.some((x) => x.unreadSchool) ? ' •' : ''}</button>)}</div>
@@ -119,6 +122,7 @@ export function StudentJourney({ tenantId }: { tenantId: string }) {
         <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onClick={() => setOpen(null)}>
           <div onClick={(e) => e.stopPropagation()} className="h-full w-full max-w-lg space-y-4 overflow-y-auto bg-background p-5 shadow-2xl">
             <div className="flex items-start justify-between"><div><p className="text-xl font-black">{open.name}</p><p className="text-sm text-muted-foreground">{open.email} · {open.program} · started {dt(open.startDate)}</p></div><button type="button" onClick={() => setOpen(null)} aria-label="Close"><X className="h-5 w-5" /></button></div>
+            <button type="button" onClick={() => { setFileFor(open.studentId); setOpen(null); }} className="h-11 w-full rounded-xl bg-foreground text-sm font-bold text-background">Open student file →</button>
             <div className="flex gap-2">
               <button type="button" onClick={() => { setOpen(null); void openThread(open.studentId, open.name); }} className="h-9 rounded-xl bg-foreground px-4 text-sm font-bold text-background">Message</button>
               <button type="button" disabled={busy} onClick={async () => { setBusy(true); const r = await J(tenantId, { action: 'refresh', enrollmentId: open.id }); setBusy(false); if (r.ok) { setOpen({ ...open, risk: r.risk, sapHistory: [...(open.sapHistory || []), ...r.newChecks] }); void loadList(); } else setMsg(r.error); }} className="h-9 rounded-xl border-2 px-4 text-sm font-bold">{busy ? 'Checking…' : 'Recheck now'}</button>
