@@ -5,6 +5,7 @@
 //   students · refresh · journey-save · outcomes
 //   threads · thread · reply · announce · announcements
 
+import { translateTexts } from '@/lib/translate';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
@@ -79,8 +80,11 @@ export async function POST(req: NextRequest) {
     if (b.action === 'reply') {
       const st = ((await db.doc(`tenants/${tenantId}/students/${String(b.studentId || '')}`).get()).data() as any) || null;
       if (!st) return NextResponse.json({ ok: false, error: 'Student not found.' }, { status: 404 });
-      await postMessage({ tenantId, studentId: String(b.studentId), from: 'school', by: who, text: b.text, studentEmail: st.email, studentName: st.name });
-      await sendEmail(st.email, `New message from ${t.name || 'your academy'}`, `${String(b.text).slice(0, 1500)}\n\n— ${who}, ${t.name || ''}\n\nReply in your student portal: ${origin}/learn/${tenantId}/my`);
+      // In the student's language (the original is kept alongside).
+      const lang = st.language && st.language !== 'en' ? st.language : null;
+      const translated = lang ? (await translateTexts(tenantId, [String(b.text)], lang))[0] : null;
+      await postMessage({ tenantId, studentId: String(b.studentId), from: 'school', by: who, text: b.text, studentEmail: st.email, studentName: st.name, translated, lang });
+      await sendEmail(st.email, `New message from ${t.name || 'your academy'}`, `${translated ? `${translated}\n\n———\n` : ''}${String(b.text).slice(0, 1500)}\n\n— ${who}, ${t.name || ''}\n\n${origin}/learn/${tenantId}/my`);
       return NextResponse.json({ ok: true });
     }
 
