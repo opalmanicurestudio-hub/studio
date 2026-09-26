@@ -51,7 +51,9 @@ function SortGame({ d, color, report }: any) {
   );
 }
 
-function SpeedGame({ d, color, report }: any) {
+function SpeedGame({ d: d0, color, report, extraTime = 1 }: any) {
+  // Extra time (an accommodation) stretches the countdown.
+  const d = useMemo(() => ({ ...d0, seconds: Math.round((Number(d0.seconds) || 8) * (Number(extraTime) || 1)) }), [d0, extraTime]);
   const [order, setOrder] = useState<number[]>(() => shuffle<number>(d.items.map((_: any, i: number) => i)));
   const [k, setK] = useState(0); const [right, setRight] = useState(0); const [streak, setStreak] = useState(0); const [ans, setAns] = useState<null | { ok: boolean; timeUp?: boolean }>(null); const [left, setLeft] = useState(d.seconds);
   const done = k >= order.length; const it = d.items[order[k]];
@@ -114,14 +116,14 @@ function SequenceGame({ d, color, report }: any) {
 }
 
 /** A game block for students. */
-export function GameBlock({ b, color, report }: { b: any; color: string; report?: (pct: number) => void }) {
+export function GameBlock({ b, color, report, extraTime }: { b: any; color: string; report?: (pct: number) => void; extraTime?: number }) {
   const G = b.template === 'speed' ? SpeedGame : b.template === 'memory' ? MemoryGame : b.template === 'sequence' ? SequenceGame : SortGame;
   const t = GAME_TEMPLATES.find(([k]) => k === b.template);
   return (
     <div className="glass space-y-3 rounded-[1.5rem] border border-white/70 p-4 sm:p-5">
       <style>{GAME_CSS}</style>
       <div className="flex items-center gap-2"><span className="text-2xl">{t?.[1]}</span><div><p className="text-lg font-semibold leading-tight">{b.title || t?.[2]}</p><p className="text-[12px] text-stone-500">{t?.[3]}</p></div></div>
-      <G d={b.data} color={color} report={report} />
+      <G d={b.data} color={color} report={report} extraTime={extraTime} />
     </div>
   );
 }
