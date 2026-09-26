@@ -28,14 +28,15 @@ function price(model: string): [number, number] {
 
 export interface AiResult { ok: boolean; text: string; costUsd: number; error?: string }
 
-export async function askClaude(opts: { system: string; prompt: string; tier?: 'fast' | 'smart'; maxTokens?: number; purpose: string; tenantId?: string | null }): Promise<AiResult> {
+/** `pdfBase64` (optional): a PDF sent alongside the prompt — e.g. a school's curriculum. */
+export async function askClaude(opts: { system: string; prompt: string; tier?: 'fast' | 'smart'; maxTokens?: number; purpose: string; tenantId?: string | null; pdfBase64?: string | null }): Promise<AiResult> {
   if (!aiConfigured()) return { ok: false, text: '', costUsd: 0, error: 'AI isn’t connected — add ANTHROPIC_API_KEY in Vercel.' };
   const model = MODELS[opts.tier || 'fast'];
   try {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-api-key': String(process.env.ANTHROPIC_API_KEY), 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model, max_tokens: opts.maxTokens || 800, system: opts.system, messages: [{ role: 'user', content: opts.prompt }] }),
+      body: JSON.stringify({ model, max_tokens: opts.maxTokens || 800, system: opts.system, messages: [{ role: 'user', content: opts.pdfBase64 ? [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: opts.pdfBase64 } }, { type: 'text', text: opts.prompt }] : opts.prompt }] }),
     });
     const d: any = await r.json().catch(() => ({}));
     if (!r.ok) return { ok: false, text: '', costUsd: 0, error: String(d?.error?.message || `AI error ${r.status}`) };
