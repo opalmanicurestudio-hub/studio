@@ -86,6 +86,7 @@ export function Blocks({ blocks, accent, hideAt, report, audioFirst, extraTime }
       if (b.type === 'game' && b.data) return <GameBlock key={i} b={b} color={accent || '#7c3aed'} extraTime={extraTime} report={(pct) => report?.(b.id, pct)} />;
       if (b.type === 'hotspots') return b.media?.url ? <Hotspots key={i} b={b} /> : null;
       if (b.type === 'stages') return <Stages key={i} b={b} />;
+      if (b.type === 'timeline') return <TimelineBlock key={i} b={b} color={accent || '#7c3aed'} />;
       return null;
   }
 }
@@ -669,10 +670,13 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
   const engaged = Math.max(eng.engagedSec, trk.engagedSec || 0), watched = Math.max(eng.watchedSec, trk.watchedSec || 0);
   const dur = L?.durationSec || 0;
   // The lesson's steps (only used when the lesson has step mode on and there's more than one).
+  // How the lesson is laid out; long notes are split into digestible sections.
+  const layout: string = (L?.layout === 'article' && lesson?.readable) ? 'focus' : (L?.layout || (L?.stepMode ? 'steps' : 'article'));
+  const sections = L?.body ? splitSections(L.body) : [];
   const stepIds: string[] = [];
   if (L) {
     if (L.kind === 'video') stepIds.push('video');
-    if (L.body) stepIds.push('body');
+    if (L.body) (layout === 'steps' ? sections : [null]).forEach((_: any, i: number) => stepIds.push(layout === 'steps' ? `body:${i}` : 'body'));
     (L.blocks || []).forEach((_: any, i: number) => stepIds.push(`block:${i}`));
     if (lesson.enrolled && L.kind === 'assignment') stepIds.push('assignment');
     if (lesson.enrolled && L.cases?.cases?.length > 0) stepIds.push('cases');
@@ -681,7 +685,7 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
     if (L.downloadUrl) stepIds.push('download');
     if (L.quiz && lesson.enrolled) stepIds.push('quiz');
   }
-  const stepping = !!L?.stepMode && !showAll && stepIds.length > 1;
+  const stepping = layout === 'steps' && !showAll && stepIds.length > 1;
   const cur = Math.min(stepAt, Math.max(0, stepIds.length - 1));
   const hide = (id: string) => (stepping && stepIds[cur] !== id ? 'hidden' : '');
   const lastStep = !stepping || cur >= stepIds.length - 1;
@@ -727,7 +731,7 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
                 </div></div>}
               {stepping && <div className="cf-rise space-y-1"><div className="flex gap-1">{stepIds.map((id, i) => <button key={id} type="button" aria-label={`Step ${i + 1}`} onClick={() => goStep(i)} className="h-1.5 flex-1 rounded-full transition-colors" style={{ background: i <= cur ? color : 'rgba(120,113,108,.2)' }} />)}</div>
                 <p className="flex justify-between text-[12px] text-stone-500"><span>Step {cur + 1} of {stepIds.length}</span><button type="button" onClick={() => setShowAll(true)} className="underline">Show all</button></p></div>}
-              <div className={hide('video')}>
+              <div className={`${hide('video')} ${layout === 'split' ? 'sticky top-2 z-20 rounded-[1.25rem] shadow-lg' : ''}`}>
               {mode === 'mux' && <MuxPlayer playbackId={L.video.playbackId} token={L.video.token} color={color} title={L.title} bind={(el: any) => { eng.bindPlayer(el); playerEl.current = el; }} />}
               {mode === 'embed' && L.video.url && <iframe src={L.video.url} title={L.title} className="aspect-video w-full rounded-[1.25rem]" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen />}
               {L.kind === 'video' && !L.video && <Glass><p className="text-stone-600">This video is being prepared — check back shortly.</p></Glass>}
@@ -741,7 +745,8 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
                 </div>
               )}
               <div ref={studyRef} className="contents">
-              {L.body && <Glass className={`space-y-3 ${hide('body')}`}><div className="flex justify-end"><Listen text={L.body} /></div><Prose text={L.body} /></Glass>}
+              {L.body && (stepping ? sections.map((sec: any, si: number) => <Glass key={si} className={`space-y-3 ${hide(`body:${si}`)}`}>{sec.title && <h2 className="text-2xl font-light tracking-tight">{sec.title}</h2>}<div className="flex justify-end"><Listen text={sec.text} /></div><Prose text={sec.text} /></Glass>)
+                : <SectionedNotes sections={sections} layout={layout === 'steps' ? 'article' : layout} color={color} />)}
               <Celebrate show={cheer > 0} color={color} key={cheer} />
               {gained > 0 && <p key={`g${cheer}`} className="cf-pop fixed left-1/2 top-20 z-40 -translate-x-1/2 rounded-full bg-white px-4 py-2 text-sm font-semibold shadow-lg" style={{ color }}>+{gained} points</p>}
               {recap && <ModuleRecap r={recap} color={color} onDone={() => { window.location.href = `/learn/${tenantId}/${slug}`; }} />}
@@ -1394,3 +1399,103 @@ function StudyLayer({ tenantId, token, courseId, lessonId, containerRef, color }
   </>);
 }
 const COLORS_UI: [string, string][] = [['yellow', '#fde68a'], ['green', '#bbf7d0'], ['pink', '#fbcfe8']];
+
+
+// ── Digestible notes: sections, contents, reading progress, read ticks ─────
+export function splitSections(body: string): { title: string | null; text: string; minutes: number }[] {
+  const out: { title: string | null; text: string }[] = []; let cur: { title: string | null; lines: string[] } = { title: null, lines: [] };
+  for (const line of String(body || '').split('\n')) {
+    const m = line.match(/^#\s+(.+)$/);
+    if (m) { if (cur.lines.join('').trim() || cur.title) out.push({ title: cur.title, text: cur.lines.join('\n').trim() }); cur = { title: m[1].trim(), lines: [] }; }
+    else cur.lines.push(line);
+  }
+  if (cur.lines.join('').trim() || cur.title) out.push({ title: cur.title, text: cur.lines.join('\n').trim() });
+  // No headings and a long read? Break it into parts of a few paragraphs.
+  let secs = out;
+  if (secs.length === 1 && !secs[0].title && secs[0].text.split(/\s+/).length > 350) {
+    const paras = secs[0].text.split(/\n\s*\n/).filter((x) => x.trim()); const parts: string[] = [];
+    let acc: string[] = [], words = 0; for (const p of paras) { acc.push(p); words += p.split(/\s+/).length; if (words >= 180) { parts.push(acc.join('\n\n')); acc = []; words = 0; } }
+    if (acc.length) parts.push(acc.join('\n\n'));
+    if (parts.length > 1) secs = parts.map((t, i) => ({ title: `Part ${i + 1}`, text: t }));
+  }
+  return secs.map((x) => ({ ...x, minutes: Math.max(1, Math.round(x.text.split(/\s+/).filter(Boolean).length / 200)) }));
+}
+
+const FOCUS_CSS = `.cf-focus{max-width:62ch;margin-inline:auto}.cf-focus p,.cf-focus li{font-size:1.15rem!important;line-height:1.85!important}.cf-focus h2{font-size:1.7rem}`;
+function SectionedNotes({ sections, layout, color }: { sections: any[]; layout: string; color: string }) {
+  const [read, setRead] = useState<Set<number>>(new Set()); const [open, setOpen] = useState<number | null>(null); const [toc, setToc] = useState(false); const [prog, setProg] = useState(0);
+  const refs = useRef<(HTMLElement | null)[]>([]); const wrap = useRef<HTMLDivElement>(null);
+  const many = sections.length > 1;
+  // Tick a section once its end has been scrolled past; show reading progress.
+  useEffect(() => {
+    if (layout === 'cards') return;
+    const io = new IntersectionObserver((es) => es.forEach((e) => { const i = Number((e.target as HTMLElement).dataset.end); if (e.isIntersecting) setRead((r) => (r.has(i) ? r : new Set(r).add(i))); }), { rootMargin: '0px 0px -20% 0px' });
+    wrap.current?.querySelectorAll('[data-end]').forEach((el) => io.observe(el));
+    const onScroll = () => { const el = wrap.current; if (!el) return; const r = el.getBoundingClientRect(); const total = r.height - window.innerHeight * 0.6; setProg(Math.max(0, Math.min(1, total > 0 ? -r.top / total : 1))); };
+    window.addEventListener('scroll', onScroll, { passive: true }); onScroll();
+    return () => { io.disconnect(); window.removeEventListener('scroll', onScroll); };
+  }, [layout, sections.length]);
+  const go = (i: number) => { setToc(false); refs.current[i]?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+  if (!sections.length) return null;
+  if (layout === 'cards') return (
+    <div ref={wrap} className="space-y-3">
+      <p className="text-[12px] text-stone-500">{read.size} of {sections.length} read · tap a card to open it</p>
+      <div className="grid gap-3 sm:grid-cols-2">{sections.map((sec, i) => open === i ? (
+        <Glass key={i} className="cf-land space-y-3 sm:col-span-2"><div className="flex items-baseline justify-between gap-2"><h2 className="text-2xl font-light tracking-tight">{sec.title || 'Notes'}</h2><span className="text-[12px] text-stone-500">{sec.minutes} min</span></div><Prose text={sec.text} />
+          <button type="button" onClick={() => { setRead((r) => new Set(r).add(i)); setOpen(null); }} className="h-11 rounded-full px-5 text-sm font-medium text-white" style={{ background: color }}>Done ✓</button></Glass>
+      ) : (
+        <button key={i} type="button" onClick={() => setOpen(i)} className="glass cf-rise flex min-h-32 flex-col justify-between rounded-[1.5rem] border border-white/70 p-4 text-left transition active:scale-[0.99]">
+          <span className="flex items-start justify-between gap-2"><span className="text-lg font-semibold leading-tight">{sec.title || 'Notes'}</span>{read.has(i) && <span className="rounded-full bg-emerald-100 px-2 text-[12px] text-emerald-800">✓</span>}</span>
+          <span className="line-clamp-2 text-[13px] text-stone-600">{sec.text.replace(/[#*_-]/g, '').slice(0, 160)}</span><span className="text-[11px] text-stone-400">{sec.minutes} min read</span></button>
+      ))}</div>
+    </div>
+  );
+  const focus = layout === 'focus';
+  return (
+    <div ref={wrap} className={`space-y-4 ${focus ? 'cf-focus' : ''}`}>
+      {focus && <style>{FOCUS_CSS}</style>}
+      <div className="pointer-events-none fixed inset-x-0 top-0 z-40 h-1"><div className="h-1 transition-[width] duration-150" style={{ width: `${prog * 100}%`, background: color }} /></div>
+      {many && <div className="sticky top-2 z-20"><button type="button" onClick={() => setToc(!toc)} className="flex h-10 items-center gap-2 rounded-full bg-white/90 px-4 text-sm shadow-sm backdrop-blur">☰ Contents <span className="text-stone-500">· {read.size}/{sections.length} read</span></button>
+        {toc && <div className="cf-rise mt-2 max-w-sm space-y-1 rounded-2xl bg-white p-2 shadow-lg">{sections.map((sec, i) => <button key={i} type="button" onClick={() => go(i)} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm hover:bg-stone-50"><span className={read.has(i) ? 'text-emerald-600' : 'text-stone-300'}>{read.has(i) ? '✓' : '○'}</span><span className="min-w-0 flex-1 truncate">{sec.title || 'Introduction'}</span><span className="text-[11px] text-stone-400">{sec.minutes}m</span></button>)}</div>}</div>}
+      {sections.map((sec, i) => {
+        const inner = <><div className="flex items-baseline justify-between gap-2">{sec.title ? <h2 className="text-2xl font-light tracking-tight">{sec.title}</h2> : <span />}{many && <span className="shrink-0 text-[12px] text-stone-500">{sec.minutes} min</span>}</div><div className="flex justify-end"><Listen text={sec.text} /></div><Prose text={sec.text} /><span data-end={i} className="block h-px" /></>;
+        return focus ? <section key={i} ref={(el) => { refs.current[i] = el; }} className="scroll-mt-16 space-y-3 py-2">{inner}</section>
+          : <Glass key={i} className="scroll-mt-16 space-y-3"><div ref={(el) => { refs.current[i] = el; }} />{inner}</Glass>;
+      })}
+    </div>
+  );
+}
+
+// ── Timeline: the line draws as you scroll; events land in turn; ▶ Play ────
+function TimelineBlock({ b, color }: { b: any; color: string }) {
+  const evs: any[] = b.events || []; const [shown, setShown] = useState(0); const [playing, setPlaying] = useState(false); const [active, setActive] = useState<number | null>(null);
+  const refs = useRef<(HTMLLIElement | null)[]>([]);
+  useEffect(() => {
+    const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { const i = Number((e.target as HTMLElement).dataset.i); setShown((n) => Math.max(n, i + 1)); } }), { rootMargin: '0px 0px -15% 0px' });
+    refs.current.forEach((el) => el && io.observe(el)); return () => io.disconnect();
+  }, [evs.length]);
+  useEffect(() => {
+    if (!playing) return; let i = 0; setActive(0); setShown(1); refs.current[0]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const iv = setInterval(() => { i++; if (i >= evs.length) { clearInterval(iv); setPlaying(false); setActive(null); return; } setActive(i); setShown((n) => Math.max(n, i + 1)); refs.current[i]?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 1800);
+    return () => clearInterval(iv);
+  }, [playing, evs.length]);
+  if (!evs.length) return null;
+  return (
+    <Glass className="space-y-4">
+      <div className="flex items-center justify-between gap-2"><p className="text-lg font-semibold">🕰 {b.title || 'Timeline'}</p><button type="button" onClick={() => setPlaying(!playing)} className="rounded-full px-4 py-2 text-sm font-medium text-white" style={{ background: color }}>{playing ? '■ Stop' : '▶ Play'}</button></div>
+      <ol className="relative ml-3">
+        <span className="absolute left-0 top-2 w-0.5 bg-stone-200" style={{ height: 'calc(100% - 1rem)' }} aria-hidden />
+        <span className="absolute left-0 top-2 w-0.5 transition-[height] duration-700 ease-out" style={{ height: `calc(${(shown / evs.length) * 100}% - 1rem)`, background: color }} aria-hidden />
+        {evs.map((e, i) => { const on = i < shown; return (
+          <li key={i} ref={(el) => { refs.current[i] = el; }} data-i={i} className={`relative pb-6 pl-7 transition-all duration-500 ${on ? 'translate-y-0 opacity-100' : 'translate-y-3 opacity-0'}`}>
+            <span className={`absolute -left-[7px] top-1.5 h-4 w-4 rounded-full ring-4 ring-white transition-transform duration-300 ${active === i ? 'scale-150' : ''}`} style={{ background: on ? color : '#d6d3d1' }} aria-hidden />
+            <p className="text-[12px] font-semibold uppercase tracking-widest" style={{ color }}>{e.when}</p>
+            <p className="text-lg font-semibold leading-snug">{e.title}</p>
+            {e.text && <p className="text-[15px] text-stone-700">{e.text}</p>}
+            {e.media?.url && <img src={e.media.url} alt={e.title} className="mt-2 max-h-60 rounded-2xl object-cover" />}
+          </li>
+        ); })}
+      </ol>
+    </Glass>
+  );
+}
