@@ -8,8 +8,9 @@
 //
 //   Fast & cheap (sorting tickets):   claude-haiku-4-5-20251001
 //   Careful (drafts, insights):       claude-sonnet-5
-// Both can be changed with AI_MODEL_FAST / AI_MODEL_SMART. Prices are per
-// million tokens and adjustable (AI_PRICE_*), since list prices change.
+//   Interactives (animated HTML):     claude-opus-5-5 — Anthropic's most capable
+// Change with AI_MODEL_FAST / AI_MODEL_SMART / AI_MODEL_INTERACTIVE. Prices are
+// per million tokens and adjustable (AI_PRICE_*), since list prices change.
 
 import { getAdminDb } from '@/lib/firebase-admin';
 
@@ -17,19 +18,22 @@ export const aiConfigured = () => !!process.env.ANTHROPIC_API_KEY;
 export const MODELS = {
   fast: process.env.AI_MODEL_FAST || 'claude-haiku-4-5-20251001',
   smart: process.env.AI_MODEL_SMART || 'claude-sonnet-5',
+  interactive: process.env.AI_MODEL_INTERACTIVE || 'claude-opus-5-5',
 };
 // USD per million tokens [input, output]. Sonnet defaults to the higher
 // published rate so estimates never under-count.
 function price(model: string): [number, number] {
   const n = (k: string, d: number) => Number(process.env[k]) || d;
   if (/haiku/i.test(model)) return [n('AI_PRICE_FAST_IN', 1), n('AI_PRICE_FAST_OUT', 5)];
+  // Opus 5.5 list price (Sept 2026): $4 in / $20 out per million tokens.
+  if (/opus/i.test(model)) return [n('AI_PRICE_OPUS_IN', 4), n('AI_PRICE_OPUS_OUT', 20)];
   return [n('AI_PRICE_SMART_IN', 3), n('AI_PRICE_SMART_OUT', 15)];
 }
 
 export interface AiResult { ok: boolean; text: string; costUsd: number; error?: string }
 
 /** `pdfBase64` (optional): a PDF sent alongside the prompt — e.g. a school's curriculum. */
-export async function askClaude(opts: { system: string; prompt: string; tier?: 'fast' | 'smart'; maxTokens?: number; purpose: string; tenantId?: string | null; pdfBase64?: string | null }): Promise<AiResult> {
+export async function askClaude(opts: { system: string; prompt: string; tier?: 'fast' | 'smart' | 'interactive'; maxTokens?: number; purpose: string; tenantId?: string | null; pdfBase64?: string | null }): Promise<AiResult> {
   if (!aiConfigured()) return { ok: false, text: '', costUsd: 0, error: 'AI isn’t connected — add ANTHROPIC_API_KEY in Vercel.' };
   const model = MODELS[opts.tier || 'fast'];
   try {
