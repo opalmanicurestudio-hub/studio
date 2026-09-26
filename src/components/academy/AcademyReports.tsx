@@ -9,13 +9,13 @@
 import { useEffect, useState } from 'react';
 import { getAuth } from 'firebase/auth';
 import { Loader } from 'lucide-react';
+import { printDocument, heading, esc } from '@/lib/doc-theme';
 
 async function call(path: string, body: any) {
   const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
   const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify(body) });
   return r.json().catch(() => ({ ok: false, error: 'No response' }));
 }
-const esc = (v: any) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 const field = 'h-10 rounded-xl border-2 border-border/60 bg-background px-3 text-sm';
 const REPORTS = [
   { k: 'hours-letter', t: 'Hours certification letter', h: 'For the licensing board — one student’s verified hours and services, with a verification code' },
@@ -23,19 +23,6 @@ const REPORTS = [
   { k: 'sap', t: 'Progress checks (SAP)', h: 'Every student’s satisfactory-academic-progress checks' },
   { k: 'outcomes', t: 'Outcomes', h: 'Completion, licensure and placement — with the graduates behind them' },
 ] as const;
-
-function printHtml(title: string, body: string) {
-  const w = window.open('', '_blank'); if (!w) return;
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>
-    body{font-family:Georgia,'Times New Roman',serif;color:#1c1917;max-width:900px;margin:32px auto;padding:0 28px;line-height:1.5}
-    h1{font-weight:400;font-size:26px;margin:0 0 4px} .sub{color:#57534e;margin:0 0 20px} table{width:100%;border-collapse:collapse;font-family:system-ui,sans-serif;font-size:12px}
-    th,td{border-bottom:1px solid #d6d3d1;text-align:left;padding:6px 8px;vertical-align:top} th{background:#f5f5f4} .notes{font-family:system-ui,sans-serif;font-size:11px;color:#57534e;margin-top:16px}
-    .head{border-bottom:2px solid #1c1917;padding-bottom:10px;margin-bottom:24px} .school{font-size:22px} .small{font-size:12px;color:#57534e;font-family:system-ui,sans-serif}
-    .sig{margin-top:56px;display:flex;gap:48px} .sig div{flex:1;border-top:1px solid #1c1917;padding-top:6px;font-size:12px;font-family:system-ui,sans-serif}
-    .summary{display:flex;gap:12px;margin:12px 0 20px} .summary div{flex:1;border:1px solid #d6d3d1;border-radius:10px;padding:10px;font-family:system-ui,sans-serif} .summary b{font-size:22px;display:block}
-    @media print{body{margin:0}}</style></head><body>${body}<script>setTimeout(()=>print(),300)</script></body></html>`);
-  w.document.close();
-}
 
 export function AcademyReports({ tenantId }: { tenantId: string }) {
   const [kind, setKind] = useState<string>('hours-letter');
@@ -63,25 +50,22 @@ export function AcademyReports({ tenantId }: { tenantId: string }) {
   const print = () => {
     if (out?.letter) {
       const L = out.letter;
-      printHtml(`Hours certification — ${L.studentName}`, `
-        <div class="head"><div class="school">${esc(L.school.name)}</div><div class="small">${esc([L.school.address, L.school.phone, L.school.email].filter(Boolean).join(' · '))}</div></div>
-        <p class="small">${esc(new Date(L.issuedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }))}</p>
-        <h1>Certification of hours</h1><p class="sub">To the state licensing board, or whom it may concern</p>
-        <p>This certifies that <b>${esc(L.studentName)}</b> (${esc(L.email)}) was enrolled in <b>${esc(L.programName)}</b>${L.programHours ? ` (${esc(L.programHours)} hours)` : ''} at ${esc(L.school.name)}${L.startDate ? `, starting ${esc(new Date(L.startDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }))}` : ''}, and as of this date has completed the following, as recorded by the school’s attendance and learning records:</p>
-        <table><tr><th>Hours</th><th></th></tr>
-          <tr><td>Online learning (verified active time${L.hours.live ? `, including ${esc(L.hours.live)} h of live classes` : ''})</td><td>${esc(L.hours.online)} h</td></tr>
-          <tr><td>In person (clocked in and out; approved)</td><td>${esc(L.hours.inPerson)} h</td></tr>
-          <tr><td><b>Total</b></td><td><b>${esc(L.hours.total)} h</b>${L.programHours ? ` of ${esc(L.programHours)}` : ''}</td></tr></table>
-        ${L.requirements?.length ? `<br><table><tr><th>Practical services (instructor signed off as passed)</th><th>Completed</th><th>Required</th></tr>${L.requirements.map((r: any) => `<tr><td>${esc(r.label)}</td><td>${esc(r.done)}</td><td>${esc(r.required)}</td></tr>`).join('')}</table>` : ''}
-        <div class="sig"><div>Authorised school official — signature</div><div>Printed name & title<br>${esc(L.issuedBy)}</div><div>Date</div></div>
-        <p class="notes">Verification code <b>${esc(L.code)}</b> — confirm this letter is genuine at ${esc(L.verifyUrl)}. Hours are measured by the school’s systems (server time), and every record is kept in a tamper-evident audit log.</p>`);
+      printDocument({ title: `Hours certification — ${L.studentName}`, brand: out.brand, footerNote: `Verification code ${L.code} · confirm at ${L.verifyUrl}`, body: `
+        <p class="muted">${esc(new Date(L.issuedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }))}</p>
+        ${heading('Certification of', 'hours')}<p class="sub">To the North Carolina Board of Cosmetic Art Examiners, or whom it may concern</p>
+        <p>This certifies that <b>${esc(L.studentName)}</b> (${esc(L.email)}) was enrolled in <b>${esc(L.programName)}</b>${L.programHours ? ` (${esc(L.programHours)} hours)` : ''}${L.startDate ? `, starting ${esc(new Date(L.startDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }))}` : ''}, and as of this date has completed the following, as recorded by the school’s attendance and learning records:</p>
+        <div class="grid grid3"><div class="stat"><div class="v">${esc(L.hours.online)} h</div><div class="l">Online (verified${L.hours.live ? `, incl. ${esc(L.hours.live)} h live` : ''})</div></div><div class="stat"><div class="v">${esc(L.hours.inPerson)} h</div><div class="l">In school (approved)</div></div><div class="stat"><div class="v accent">${esc(L.hours.total)} h</div><div class="l">Total${L.programHours ? ` of ${esc(L.programHours)}` : ''}</div></div></div>
+        ${(L.hours.notes || []).length ? `<p class="muted">${L.hours.notes.map(esc).join(' · ')}</p>` : ''}
+        ${L.requirements?.length ? `<h2>Performances signed off</h2><table><thead><tr><th>Performance</th><th>Completed</th><th>Required</th></tr></thead>${L.requirements.map((r: any) => `<tr><td>${esc(r.label)}</td><td>${esc(r.done)}</td><td>${esc(r.required)}</td></tr>`).join('')}</table>` : ''}
+        <div class="sig"><div>Authorised school official — signature</div><div>Printed name & title<br>${esc(L.issuedBy)}</div><div>Date · School seal</div></div>
+        <p class="muted" style="margin-top:14px">Hours are rounded down to the quarter hour and measured by the school’s systems (server time). Every record is kept in a tamper-evident audit log.</p>` });
       return;
     }
     const rep = out?.report; if (!rep) return;
-    printHtml(rep.title, `<h1>${esc(rep.title)}</h1><p class="sub">${esc(rep.subtitle)} · generated ${esc(new Date().toLocaleString())}</p>
-      ${rep.summary ? `<div class="summary">${rep.summary.map((s: any[]) => `<div><b>${esc(s[1])}</b>${esc(s[0])}<br><span class="small">${esc(s[2])}</span></div>`).join('')}</div>` : ''}
-      <table><tr>${rep.columns.map((c: string) => `<th>${esc(c)}</th>`).join('')}</tr>${rep.rows.map((r: any[]) => `<tr>${r.map((v) => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</table>
-      <div class="notes">${(rep.notes || []).map((n: string) => `<p>${esc(n)}</p>`).join('')}</div>`);
+    printDocument({ title: rep.title, brand: out.brand, body: `${heading(rep.title.split(' ').slice(0, -1).join(' ') || rep.title, rep.title.split(' ').slice(-1)[0])}<p class="sub">${esc(rep.subtitle)}</p>
+      ${rep.summary ? `<div class="grid grid3">${rep.summary.map((s: any[]) => `<div class="stat"><div class="v">${esc(s[1])}</div><div class="l">${esc(s[0])} · ${esc(s[2])}</div></div>`).join('')}</div>` : ''}
+      <table><thead><tr>${rep.columns.map((c: string) => `<th>${esc(c)}</th>`).join('')}</tr></thead>${rep.rows.map((r: any[]) => `<tr>${r.map((v) => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</table>
+      ${(rep.notes || []).map((n: string) => `<p class="muted">${esc(n)}</p>`).join('')}` });
   };
 
   return (
