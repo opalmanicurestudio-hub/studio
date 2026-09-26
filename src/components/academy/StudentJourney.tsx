@@ -78,7 +78,9 @@ export function StudentJourney({ tenantId }: { tenantId: string }) {
           {thread ? (
             <div className="space-y-2 rounded-2xl border-2 border-border/60 p-3">
               <p className="font-black">{thread.name}</p>
-              <div className="max-h-[50vh] space-y-1.5 overflow-y-auto">{thread.messages.map((m, i) => <div key={i} className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${m.from === 'school' ? 'ml-auto bg-foreground text-background' : 'bg-muted'}`}><p className="whitespace-pre-wrap">{m.text}</p><p className="mt-0.5 text-[10px] opacity-60">{m.by} · {new Date(m.at).toLocaleString()}</p></div>)}</div>
+              <div className="max-h-[50vh] space-y-1.5 overflow-y-auto">{thread.messages.map((m, i) => <div key={i} className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${m.from === 'school' ? 'ml-auto bg-foreground text-background' : 'bg-muted'}`}><p className="whitespace-pre-wrap">{m.text}</p>
+                {m.translated && <p className={`mt-1 whitespace-pre-wrap border-t pt-1 text-[12px] ${m.from === 'school' ? 'border-white/30 opacity-80' : 'border-black/10 italic'}`}>{m.from === 'student' ? `English: ${m.translated}` : `Sent in their language: ${m.translated}`}</p>}
+                <p className="mt-0.5 text-[10px] opacity-60">{m.by} · {new Date(m.at).toLocaleString()}</p></div>)}</div>
               <div className="flex gap-2"><textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={2} className="flex-1 rounded-xl border-2 p-2 text-sm" placeholder="Reply (they’ll get an email too)" />
                 <button type="button" disabled={busy || !reply.trim()} onClick={async () => { setBusy(true); const r = await J(tenantId, { action: 'reply', studentId: thread.studentId, text: reply }); setBusy(false); if (r.ok) { setReply(''); await openThread(thread.studentId, thread.name); setThreads(null); } else setMsg(r.error); }} className="rounded-xl bg-foreground px-4 text-sm font-bold text-background disabled:opacity-50">Send</button></div>
             </div>
