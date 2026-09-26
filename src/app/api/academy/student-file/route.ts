@@ -14,6 +14,7 @@
 //   form-update   Board form: submitted date, confirmation #, receipt  (owners/managers)
 // Nothing in the file can be deleted: a replacement keeps the earlier version.
 
+import { deviceAllowed } from '@/lib/approved-devices';
 import { NextRequest, NextResponse } from 'next/server';
 import { PDFDocument } from 'pdf-lib';
 import { createHash } from 'crypto';
@@ -49,6 +50,7 @@ export async function POST(req: NextRequest) {
   const isInstructor = String(auth.actor.role || '').toLowerCase() === 'instructor';
   const isLead = auth.actor.isManager || auth.actor.isTenantOwner;
   if (!isLead && !isInstructor) return NextResponse.json({ ok: false, error: 'Owners, managers and instructors only.' }, { status: 403 });
+  { const dv = await deviceAllowed(tenantId, req); if (!dv.ok) return NextResponse.json({ ok: false, error: dv.error, deviceBlocked: true }, { status: 403 }); }
   if (!isLead && ['profile-save', 'file-upload', 'file-verify', 'form-update'].includes(b.action)) return NextResponse.json({ ok: false, error: 'Owners and managers only.' }, { status: 403 });
   const db = getAdminDb(); const T = `tenants/${tenantId}`; const who = auth.actor.name || auth.actor.uid; const now = new Date().toISOString();
   const studentId = String(b.studentId || '');
