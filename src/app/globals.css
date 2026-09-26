@@ -366,10 +366,16 @@ body {
     }
   }
 
-  /* Never scroll sideways: one over-wide element shouldn't drag the page. */
+  /* Never scroll sideways: one over-wide element shouldn't drag the page.
+     "clip" does this WITHOUT turning the page into its own scroll box, so
+     sticky headers, contents bars and pinned videos keep working; older
+     browsers fall back to "hidden". */
   html, body {
     overflow-x: hidden;
     overscroll-behavior-y: none;
+  }
+  @supports (overflow: clip) {
+    html, body { overflow-x: clip; }
   }
 }
 
