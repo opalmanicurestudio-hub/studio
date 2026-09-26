@@ -37,6 +37,7 @@ const S = {
   cardSaved: 'Card updated.', retried: 'We tried your payment again:', success: 'it went through', failed: 'it didn’t go through — please try another card',
   write: 'Write to your school', send: 'Send', showOriginal: 'Show original', showTranslation: 'Show translation', translatedNote: 'Translated automatically',
   agreement: 'Enrolment agreement', signedOn: 'Signed on', readingAid: 'Translation to help you understand — the English original is the version you signed.',
+  myLearning: 'My learning', cardsDue: 'cards due', notesWord: 'notes', reviewTab: 'Review', notesTab: 'Notes', glossaryTab: 'Glossary', showAnswer: 'Tap to see the answer', again: 'Again', hard: 'Hard', good: 'Good', easy: 'Easy', allReviewed: 'All caught up for today', comeBack: 'Come back tomorrow — spacing it out is what makes it stick.', searchWord: 'Search', noNotes: 'Highlights and notes you make in lessons appear here.', newWord: 'New', learnedWord: 'learned',
   readSign: 'Please read and sign', signBtn: 'Read and sign', typeName: 'Type your full name', agreeLine: 'I have read and understood this document.', signNow: 'Sign', signedWord: 'Signed', schoolDocs: 'School documents', readWord: 'Read',
   todo: 'To do', dueWord: 'Due', overdueWord: 'Overdue', reviewWord: 'Review', allDone: 'All caught up', lessonsWord: 'lessons', goWord: 'Start',
   toGo: 'to go', certificates: 'Certificates',
@@ -45,7 +46,7 @@ const S = {
   statusApproved: 'approved', statusOpen: 'on the floor', statusFlagged: 'needs your instructor', statusPending: 'waiting for approval', statusClosed: 'recorded',
 };
 type Str = typeof S;
-const UI_V = 'v5';   // bump when words are added, so phones fetch the new translations
+const UI_V = 'v6';   // bump when words are added, so phones fetch the new translations
 
 /** The portal's words in the student's language (translated once, remembered on this device). */
 function useWords(tenantId: string, lang: string): Str {
@@ -56,7 +57,7 @@ function useWords(tenantId: string, lang: string): Str {
     try { const c = localStorage.getItem(k); if (c) { setW({ ...S, ...JSON.parse(c) }); return; } } catch { /* none */ }
     const keys = Object.keys(S) as (keyof Str)[];
     api({ action: 'translate', tenantId, token: getToken(tenantId), lang, texts: keys.map((x) => S[x]) }).then((r) => {
-      if (!r.ok) return; const out: any = {}; keys.forEach((x, i) => { out[x] = r.texts[i] || S[x]; });
+      if (!r.ok || !Array.isArray(r.texts)) return; const out: any = {}; keys.forEach((x, i) => { out[x] = r.texts[i] || S[x]; });
       setW(out); try { localStorage.setItem(k, JSON.stringify(out)); } catch { /* private mode */ }
     });
   }, [tenantId, lang]);
@@ -182,6 +183,7 @@ function Today({ p, w, lang, tenantId, color, go }: any) {
 function LearnTab({ p, w, tenantId, color, courses }: any) {
   return (
     <div className="space-y-3">
+      <MyLearning w={w} tenantId={tenantId} color={color} />
       <Practice w={w} tenantId={tenantId} color={color} />
       {p.programs.map((pr: any) => (
         <Card key={pr.id} title={w.program}><p className="text-lg font-semibold">{pr.name}</p>
@@ -413,4 +415,88 @@ function SchoolDocsList({ w, tenantId, color }: any) {
     <Card title={w.schoolDocs}>{docs.map((x) => <button key={x.id} type="button" onClick={() => setOpen(x.id)} className="flex w-full items-center justify-between gap-3 py-2 text-left text-[15px]"><span>📄 {x.title}</span><span className={`shrink-0 text-[12px] ${x.signed ? 'text-emerald-700' : x.requireAck ? 'font-semibold text-red-700' : 'text-stone-500'}`}>{x.signed ? `✓ ${w.signedWord}` : x.requireAck ? w.signBtn : w.readWord}</span></button>)}</Card>
     {open && <DocReader id={open} w={w} tenantId={tenantId} color={color} onDone={async () => { setOpen(null); await load(); }} />}
   </>);
+}
+
+
+// ── My learning: review (spaced flashcards) · notes · glossary ────────────
+function MyLearning({ w, tenantId, color }: any) {
+  const [sum, setSum] = useState<any>(null); const [open, setOpen] = useState(false);
+  const load = useCallback(async () => { const [d, n] = await Promise.all([api({ action: 'study-deck', tenantId, token: getToken(tenantId) }), api({ action: 'notes-list', tenantId, token: getToken(tenantId) })]); setSum({ due: d.ok ? d.dueCount + d.newCount : 0, total: d.ok ? d.total : 0, notes: n.ok ? n.notes.filter((x: any) => x.kind !== 'card').length : 0 }); }, [tenantId]);
+  useEffect(() => { void load(); }, [load]);
+  if (!sum || (!sum.total && !sum.notes)) return null;
+  return (<>
+    <button type="button" onClick={() => setOpen(true)} className="glass flex w-full items-center gap-4 rounded-[1.5rem] border border-white/70 p-4 text-left">
+      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-2xl" style={{ background: `${color}1a` }}>📚</span>
+      <span className="min-w-0 flex-1"><span className="block text-lg font-semibold">{w.myLearning}</span><span className="text-sm text-stone-600">{sum.due > 0 ? <b style={{ color }}>{sum.due} {w.cardsDue}</b> : `✓ ${w.allReviewed}`} · {sum.notes} {w.notesWord}</span></span><span className="text-stone-400">›</span>
+    </button>
+    {open && <LearningHub w={w} tenantId={tenantId} color={color} onClose={() => { setOpen(false); void load(); }} />}
+  </>);
+}
+function LearningHub({ w, tenantId, color, onClose }: any) {
+  const [tab, setTab] = useState<'review' | 'notes' | 'glossary'>('review');
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-[#f7f5f2]">
+      <div className="mx-auto max-w-xl space-y-4 p-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        <div className="flex items-center justify-between"><p className="text-2xl font-light">📚 {w.myLearning}</p><button type="button" onClick={onClose} className="rounded-full bg-white px-4 py-2 text-sm">{w.close}</button></div>
+        <div className="flex gap-1 rounded-full bg-white p-1">{([['review', w.reviewTab], ['notes', w.notesTab], ['glossary', w.glossaryTab]] as const).map(([k, l]) => <button key={k} type="button" onClick={() => setTab(k)} className={`h-10 flex-1 rounded-full text-sm ${tab === k ? 'font-semibold text-white' : ''}`} style={tab === k ? { background: color } : undefined}>{l}</button>)}</div>
+        {tab === 'review' && <Review w={w} tenantId={tenantId} color={color} />}
+        {tab === 'notes' && <NotesList w={w} tenantId={tenantId} />}
+        {tab === 'glossary' && <Glossary w={w} tenantId={tenantId} />}
+      </div>
+    </div>
+  );
+}
+function Review({ w, tenantId, color }: any) {
+  const [deck, setDeck] = useState<any>(null); const [i, setI] = useState(0); const [flip, setFlip] = useState(false); const [done, setDone] = useState(0);
+  useEffect(() => { api({ action: 'study-deck', tenantId, token: getToken(tenantId) }).then((r) => setDeck(r.ok ? r : { cards: [] })); }, [tenantId]);
+  if (!deck) return <Loading />;
+  const c = deck.cards[i];
+  if (!c) return <div className="cf-land space-y-2 rounded-3xl bg-white p-8 text-center"><p className="text-5xl">🌱</p><p className="text-xl font-semibold">{w.allReviewed}</p><p className="text-sm text-stone-600">{w.comeBack}</p>{deck.total > 0 && <p className="text-[12px] text-stone-500">{deck.learned} / {deck.total} {w.learnedWord}{done ? ` · +${done} today` : ''}</p>}</div>;
+  const grade = async (g: number) => { void api({ action: 'study-review', tenantId, token: getToken(tenantId), key: c.key, grade: g }); setFlip(false); setDone((n) => n + 1); if (g === 0) setDeck({ ...deck, cards: [...deck.cards, c] }); setI(i + 1); };
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-between text-[12px] text-stone-500"><span>{i + 1} / {deck.cards.length}</span>{c.isNew && <span className="rounded-full bg-white px-2 font-semibold" style={{ color }}>{w.newWord}</span>}</div>
+      <button key={`${c.key}${i}`} type="button" onClick={() => setFlip(!flip)} className="cf-land block min-h-[16rem] w-full rounded-3xl bg-white p-6 text-center shadow-sm">
+        <p className="text-[11px] uppercase tracking-[0.2em] text-stone-400">{c.from}</p>
+        <p className="mt-4 text-2xl font-semibold leading-snug">{c.front}</p>
+        {flip ? <p className="cf-rise mt-5 border-t pt-5 text-lg text-stone-700">{c.back}</p> : <p className="mt-8 text-sm text-stone-400">{w.showAnswer}</p>}
+      </button>
+      {flip && <div className="cf-rise grid grid-cols-4 gap-2">{([[0, w.again, '#ef4444'], [1, w.hard, '#f59e0b'], [2, w.good, color], [3, w.easy, '#10b981']] as const).map(([g, l, bg]) => <button key={g} type="button" onClick={() => grade(g)} className="h-14 rounded-2xl text-sm font-semibold text-white active:scale-95" style={{ background: bg }}>{l}</button>)}</div>}
+    </div>
+  );
+}
+function NotesList({ w, tenantId }: any) {
+  const [notes, setNotes] = useState<any[] | null>(null); const [q, setQ] = useState('');
+  const load = useCallback(async () => { const r = await api({ action: 'notes-list', tenantId, token: getToken(tenantId) }); setNotes(r.ok ? r.notes : []); }, [tenantId]);
+  useEffect(() => { void load(); }, [load]);
+  if (!notes) return <Loading />;
+  const f = notes.filter((n) => !q || `${n.text} ${n.note || ''} ${n.front || ''} ${n.back || ''} ${n.lessonTitle || ''}`.toLowerCase().includes(q.toLowerCase()));
+  const groups = new Map<string, any[]>(); for (const n of f) { const k = `${n.courseSlug || ''}|${n.lessonId || ''}|${n.courseTitle || ''} · ${n.lessonTitle || ''}`; groups.set(k, [...(groups.get(k) || []), n]); }
+  const dot: Record<string, string> = { yellow: '#fde68a', green: '#bbf7d0', pink: '#fbcfe8' };
+  return (
+    <div className="space-y-3">
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={w.searchWord} className="h-12 w-full rounded-2xl border bg-white px-4 text-[16px]" />
+      {notes.length === 0 && <p className="rounded-3xl bg-white p-6 text-center text-sm text-stone-600">{w.noNotes}</p>}
+      {[...groups.entries()].map(([k, ns]) => { const [slug, lid, label] = k.split('|'); return (
+        <div key={k} className="space-y-1.5 rounded-3xl bg-white p-4">
+          {slug && lid ? <Link href={`/learn/${tenantId}/${slug}/${lid}`} className="text-[13px] font-semibold text-stone-500">{label} ›</Link> : <p className="text-[13px] font-semibold text-stone-500">{label}</p>}
+          {ns.map((n) => <div key={n.id} className="flex gap-2 text-[14px]"><span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: n.kind === 'highlight' ? dot[n.color] || dot.yellow : '#e9d5ff' }} /><div className="min-w-0 flex-1">{n.kind === 'card' ? <p>🃏 <b>{n.front}</b> — {n.back}</p> : <p className="italic">“{n.text}”</p>}{n.note && <p className="text-stone-700">{n.note}</p>}</div><button type="button" onClick={async () => { await api({ action: 'note-delete', tenantId, token: getToken(tenantId), id: n.id }); await load(); }} aria-label="Delete" className="text-stone-300">✕</button></div>)}
+        </div>
+      ); })}
+    </div>
+  );
+}
+function Glossary({ w, tenantId }: any) {
+  const [d, setD] = useState<any>(null); const [q, setQ] = useState('');
+  useEffect(() => { api({ action: 'glossary', tenantId, token: getToken(tenantId) }).then((r) => setD(r.ok ? r : { terms: [] })); }, [tenantId]);
+  if (!d) return <Loading />;
+  const say = (t: string) => { try { const u = new SpeechSynthesisUtterance(t); u.lang = 'en-US'; u.rate = 0.9; window.speechSynthesis.cancel(); window.speechSynthesis.speak(u); } catch { /* no speech */ } };
+  const f = d.terms.filter((t: any) => !q || `${t.term} ${t.meaning} ${t.termTr || ''} ${t.meaningTr || ''}`.toLowerCase().includes(q.toLowerCase()));
+  return (
+    <div className="space-y-3">
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={w.searchWord} className="h-12 w-full rounded-2xl border bg-white px-4 text-[16px]" />
+      {f.map((t: any) => <div key={t.term} className="flex gap-3 rounded-2xl bg-white p-4"><div className="min-w-0 flex-1"><p className="text-lg font-semibold">{t.term}{t.termTr && t.termTr !== t.term && <span className="ml-2 text-sm font-normal text-stone-500">· {t.termTr}</span>}</p><p className="text-[15px] text-stone-700">{t.meaning}</p>{t.meaningTr && <p className="mt-1 text-[14px] text-stone-500">{t.meaningTr}</p>}<p className="mt-1 text-[11px] text-stone-400">{t.from}</p></div>
+        <button type="button" onClick={() => say(t.term)} aria-label={`Say ${t.term}`} className="h-11 w-11 shrink-0 rounded-full bg-stone-100 text-lg">🔊</button></div>)}
+    </div>
+  );
 }
