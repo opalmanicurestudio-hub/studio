@@ -16,7 +16,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
 
 export const AI_WEIGHTS: Record<string, number> = {
-  'ai-interactive': 8, 'doc-ai': 4, 'ai-game': 2, 'ai-file-lesson': 4, 'ai-cases': 2, 'ai-video-questions': 2, 'ai-hotspots': 1,
+  'ai-interactive': 8, 'doc-ai': 4, 'ai-timeline': 1, 'ai-game': 2, 'ai-file-lesson': 4, 'ai-cases': 2, 'ai-video-questions': 2, 'ai-hotspots': 1,
   'ai-course': 10, 'qbank-ai': 3, 'ai-plan': 2, 'worksheet-ai': 2, 'ai-assignment': 2, 'ai-draft': 2, 'submission-ai': 1,
 };
 export const PLAN_CREDITS = { none: 50, solo: 300, studio: 800 };
