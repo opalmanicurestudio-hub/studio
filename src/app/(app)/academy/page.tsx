@@ -54,6 +54,9 @@ export default function AcademyBuilderPage() {
   const [d, setD] = useState<any>(null);            // { course, lessons, mux, muxSigning }
   const [tab, setTab] = useState<'details' | 'curriculum' | 'grading' | 'students' | 'attendance'>('details');
   const [aiBuild, setAiBuild] = useState(false);
+  // Phones: bottom tabs open a hub of big tiles; courses open one at a time.
+  const [hub, setHub] = useState<string | null>(null);
+  const [picked, setPicked] = useState(false);
   const [att, setAtt] = useState<any>(null);
   const [trx, setTrx] = useState<any>(null);
   const [audit, setAudit] = useState<any>(null);
@@ -110,7 +113,7 @@ export default function AcademyBuilderPage() {
   const newCourse = async () => {
     const title = window.prompt('Course title'); if (!title) return;
     const r = await api({ action: 'course-save', tenantId, course: { title, priceDollars: 0, status: 'draft' } });
-    if (r.ok) { await loadList(); setSel(r.id); setTab('details'); } else setMsg(r.error);
+    if (r.ok) { await loadList(); setSel(r.id); setTab('details'); setPicked(true); } else setMsg(r.error);
   };
   const saveLesson = async () => {
     setBusy('lesson'); setMsg('');
@@ -172,16 +175,21 @@ export default function AcademyBuilderPage() {
   const docBrand = { name: String((selectedTenant as any)?.name || home?.name || 'Academy'), logoUrl: (selectedTenant as any)?.logoUrl || (selectedTenant as any)?.bookingPageSettings?.logoUrl || null, color: (selectedTenant as any)?.bookingPageSettings?.primaryColor || null };
   const visible = NAV.map((g) => ({ ...g, items: g.items.filter((i) => !i.school || mode === 'school') })).filter((g) => g.items.length);
   const current = visible.flatMap((g) => g.items).find((i) => i.key === section) || visible[0].items[0];
-  const go = (k: Section) => { setSection(k); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  const go = (k: Section) => { setSection(k); setHub(null); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  // Phone tabs: Today + the groups (Set up becomes “More”, with your links).
+  const TABS = [{ key: 'today', label: 'Today', icon: HomeIcon, items: [] as any[] }, ...visible.filter((g) => g.group).map((g) => ({ key: g.group === 'Set up' ? 'More' : g.group, label: g.group === 'Set up' ? 'More' : g.group, icon: g.group === 'Teach' ? BookOpen : g.group === 'Students' ? Users : g.group === 'Enrol' ? ClipboardList : SettingsIcon, items: g.items }))];
+  const groupOf = (k: Section) => TABS.find((t) => t.items.some((i: any) => i.key === k));
+  const activeTab = hub || (section === 'home' ? 'today' : groupOf(section)?.key || 'today');
+  const badgeOf = (t: any) => t.items.reduce((n: number, i: any) => n + (i.badge || 0), 0);
   const links = tenantId ? [['Your academy page', `/learn/${tenantId}`, 'Where people browse and buy your courses'], ...(mode === 'school' ? [['Apply page', `/learn/${tenantId}/apply`, 'Share this with future students'], ['Clock-in screen', '/academy-screen', 'Open on a tablet at the front desk'], ['Student portal', `/learn/${tenantId}/my`, 'Where students sign in']] : [])] : [];
 
   return (
     <div className="min-h-screen bg-background">
       <AppHeader title="Academy" />
-      <main className="mx-auto max-w-7xl px-4 pb-24 pt-4">
+      <main className="mx-auto max-w-7xl px-3 pb-32 pt-4 sm:px-4 lg:pb-24">
         <div className="grid gap-6 lg:grid-cols-[230px_1fr]">
           {/* The menu: grouped by job, in plain words. A strip of buttons on phones. */}
-          <nav aria-label="Academy" className="lg:sticky lg:top-20 lg:self-start">
+          <nav aria-label="Academy" className="hidden lg:sticky lg:top-20 lg:block lg:self-start">
             <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-2 lg:mx-0 lg:block lg:space-y-4 lg:overflow-visible lg:px-0">
               {visible.map((g) => (
                 <div key={g.group || 'top'} className="contents lg:block lg:space-y-1">
@@ -199,15 +207,30 @@ export default function AcademyBuilderPage() {
           </nav>
 
           <div className="min-w-0 space-y-4">
+            {hub && (() => { const t = TABS.find((x) => x.key === hub)!; return (
+              <div className="space-y-3 lg:hidden">
+                <h1 className="text-2xl font-black tracking-tight">{t.label}</h1>
+                <div className="grid grid-cols-2 gap-3">{t.items.map((i: any) => { const I = i.icon; return (
+                  <button key={i.key} type="button" onClick={() => go(i.key)} className="relative flex min-h-32 flex-col justify-between rounded-3xl border-2 border-border/60 bg-muted/30 p-4 text-left active:scale-[0.98]">
+                    <I className="h-7 w-7" />
+                    <span><span className="block text-base font-black leading-tight">{i.label}</span><span className="mt-0.5 block text-[12px] leading-snug text-muted-foreground">{i.hint}</span></span>
+                    {!!i.badge && <span className="absolute right-3 top-3 rounded-full bg-red-500 px-2 py-0.5 text-[12px] font-black text-white">{i.badge}</span>}
+                  </button>
+                ); })}</div>
+                {hub === 'More' && links.length > 0 && <div className="space-y-1.5 pt-2"><p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Your links</p>{links.map(([l, href, h]) => <a key={href} href={href} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-2xl bg-muted/40 px-4 py-3 text-sm"><span><b className="block">{l}</b><span className="text-[12px] text-muted-foreground">{h}</span></span><ExternalLink className="h-4 w-4 shrink-0" /></a>)}</div>}
+              </div>
+            ); })()}
+            <div className={hub ? 'hidden space-y-4 lg:block' : 'space-y-4'}>
+            {section !== 'home' && groupOf(section) && <button type="button" onClick={() => { setHub(groupOf(section)!.key); setPicked(false); }} className="-mb-2 text-sm font-bold text-muted-foreground lg:hidden">‹ {groupOf(section)!.label}</button>}
             {section !== 'home' && (
               <div className="flex flex-wrap items-end justify-between gap-2">
                 <div><h1 className="text-2xl font-black tracking-tight">{current.label}</h1><p className="text-sm text-muted-foreground">{current.hint}</p></div>
-                {section === 'courses' && <div className="flex gap-2">
+                {section === 'courses' && <div className="flex flex-wrap gap-2">
                   {tenantId && <a href={`/learn/${tenantId}`} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-1.5 rounded-xl border-2 px-3 text-sm font-bold">Your academy page <ExternalLink className="h-3.5 w-3.5" /></a>}
                   <button type="button" onClick={() => setAiBuild(true)} className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-violet-700 px-4 text-sm font-bold text-white">✨ Build with AI</button>
                   <button type="button" onClick={newCourse} className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-foreground px-4 text-sm font-bold text-background"><Plus className="h-4 w-4" />New course</button>
                 </div>}
-                {aiBuild && <AiCourseBuilder tenantId={tenantId} onClose={() => setAiBuild(false)} onCreated={async (id: string) => { setAiBuild(false); await loadList(); setSel(id); setTab('curriculum'); setMsg('Course drafted — open each lesson to add content, or use ✨ Draft with AI inside it. It stays a draft until you publish.'); }} />}
+                {aiBuild && <AiCourseBuilder tenantId={tenantId} onClose={() => setAiBuild(false)} onCreated={async (id: string) => { setAiBuild(false); await loadList(); setSel(id); setTab('curriculum'); setPicked(true); setMsg('Course drafted — open each lesson to add content, or use ✨ Draft with AI inside it. It stays a draft until you publish.'); }} />}
               </div>
             )}
             {msg && <p className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{msg}</p>}
@@ -256,11 +279,11 @@ export default function AcademyBuilderPage() {
             {section === 'courses' && d && !d.mux && <p className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Video hosting isn’t connected yet — you can paste a private Vimeo or unlisted YouTube link for now. Add MUX_TOKEN_ID, MUX_TOKEN_SECRET, MUX_SIGNING_KEY_ID and MUX_SIGNING_KEY_PRIVATE in Vercel to upload protected videos.</p>}
 
         {section === 'courses' && <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-          <div className="space-y-2">
+          <div className={`space-y-2 ${picked ? 'hidden lg:block' : ''}`}>
             {!courses && <Loader className="h-5 w-5 animate-spin" />}
             {courses?.length === 0 && <p className="rounded-2xl border-2 border-dashed p-6 text-center text-sm text-muted-foreground">No courses yet. Start with the one you teach most.</p>}
             {courses?.map((c) => (
-              <button key={c.id} type="button" onClick={() => setSel(c.id)} className={`flex w-full items-center gap-3 rounded-2xl border-2 p-2 text-left transition ${sel === c.id ? 'border-foreground bg-muted/40' : 'border-border/60 hover:bg-muted/30'}`}>
+              <button key={c.id} type="button" onClick={() => { setSel(c.id); setPicked(true); window.scrollTo({ top: 0 }); }} className={`flex w-full items-center gap-3 rounded-2xl border-2 p-2 text-left transition ${sel === c.id ? 'border-foreground bg-muted/40' : 'border-border/60 hover:bg-muted/30'}`}>
                 {c.coverUrl ? <img src={c.coverUrl} alt="" className="h-14 w-14 shrink-0 rounded-xl object-cover" /> : <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl text-xl font-black text-white" style={{ background: `linear-gradient(135deg, ${docBrand.color || '#1c1917'}, ${docBrand.color || '#1c1917'}99)` }}>{String(c.title || '?').trim()[0]}</span>}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-bold">{c.title}</span>
@@ -270,8 +293,9 @@ export default function AcademyBuilderPage() {
             ))}
           </div>
 
-          {!d || !form ? <div className="rounded-3xl border-2 border-dashed p-10 text-center text-muted-foreground">Choose a course, or create your first one.</div> : (
-            <div className="space-y-4 rounded-3xl border-2 border-border/60 p-4">
+          {!d || !form ? <div className={`rounded-3xl border-2 border-dashed p-10 text-center text-muted-foreground ${picked ? '' : 'hidden lg:block'}`}>Choose a course, or create your first one.</div> : (
+            <div className={`space-y-4 rounded-3xl border-2 border-border/60 p-3 sm:p-4 ${picked ? '' : 'hidden lg:block'}`}>
+              <button type="button" onClick={() => setPicked(false)} className="text-sm font-bold text-muted-foreground lg:hidden">‹ All courses</button>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap gap-1">{(['details', 'curriculum', 'grading', 'students'] as const).map((k) => <button key={k} type="button" onClick={() => { setTab(k); if (k === 'students' && !students) api({ action: 'students', tenantId, courseId: sel }).then((r) => r.ok && setStudents(r.students)); }} className={`h-9 rounded-full px-4 text-sm font-bold capitalize ${tab === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{k}</button>)}</div>
                 <div className="flex items-center gap-2">
@@ -505,9 +529,21 @@ export default function AcademyBuilderPage() {
             </div>
           )}
         </div>}
+            </div>
           </div>
         </div>
       </main>
+
+      {/* Phones: the Academy's tab bar — every section is two taps away. */}
+      <nav aria-label="Academy sections" className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
+        <div className="mx-auto flex max-w-lg">{TABS.map((t) => { const I = t.icon; const on = activeTab === t.key; const n = badgeOf(t); return (
+          <button key={t.key} type="button" onClick={() => { if (t.key === 'today') go('home'); else { setHub(t.key); setPicked(false); window.scrollTo({ top: 0 }); } }} aria-current={on ? 'page' : undefined}
+            className={`relative flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[11px] font-bold ${on ? 'text-foreground' : 'text-muted-foreground'}`}>
+            <span className={`flex h-8 w-12 items-center justify-center rounded-full ${on ? 'bg-foreground text-background' : ''}`}><I className="h-5 w-5" /></span>{t.label}
+            {n > 0 && <span className="absolute right-[18%] top-1.5 min-w-[18px] rounded-full bg-red-500 px-1 text-[10px] font-black leading-[18px] text-white">{n > 99 ? '99+' : n}</span>}
+          </button>
+        ); })}</div>
+      </nav>
     </div>
   );
 }
