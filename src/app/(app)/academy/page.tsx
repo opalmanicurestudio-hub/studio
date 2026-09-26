@@ -10,6 +10,7 @@
 //                download; free-preview switch; reorder; edit; delete
 //   Students     who's enrolled, since when, how far they've got
 
+import { deviceId } from '@/lib/device';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAuth } from 'firebase/auth';
 import { Loader, ArrowUp, ArrowDown, Pencil, Trash2, ExternalLink, Video, FileText, Download, Plus, Home as HomeIcon, BookOpen, Sparkles, Users, Clock, ClipboardList, GraduationCap, Settings as SettingsIcon, Radio, Printer } from 'lucide-react';
@@ -24,12 +25,15 @@ import { LiveClass } from '@/components/academy/LiveClass';
 import { AcademyReports } from '@/components/academy/AcademyReports';
 import { BlocksEditor, PlanEditor } from '@/components/academy/LessonStudio';
 import { CourseMaterials } from '@/components/academy/CourseMaterials';
+import { Grading } from '@/components/academy/Grading';
+import { AiCourseBuilder } from '@/components/academy/AiCourseBuilder';
+import { DevicesPanel } from '@/components/academy/DevicesPanel';
 import { AcademyHome, academyHome, type Section } from '@/components/academy/AcademyHome';
 import { useTenant } from '@/context/TenantContext';
 
 async function api(body: any) {
   const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
-  const r = await fetch('/api/academy/admin', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify(body) });
+  const r = await fetch('/api/academy/admin', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}`, 'x-cf-device': deviceId() }, body: JSON.stringify(body) });
   return r.json().catch(() => ({ ok: false, error: 'No response' }));
 }
 const money = (c: number) => (c ? `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: c % 100 ? 2 : 0 })}` : 'Free');
@@ -47,7 +51,8 @@ export default function AcademyBuilderPage() {
   const [courses, setCourses] = useState<any[] | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const [d, setD] = useState<any>(null);            // { course, lessons, mux, muxSigning }
-  const [tab, setTab] = useState<'details' | 'curriculum' | 'students' | 'attendance'>('details');
+  const [tab, setTab] = useState<'details' | 'curriculum' | 'grading' | 'students' | 'attendance'>('details');
+  const [aiBuild, setAiBuild] = useState(false);
   const [att, setAtt] = useState<any>(null);
   const [trx, setTrx] = useState<any>(null);
   const [audit, setAudit] = useState<any>(null);
@@ -76,8 +81,8 @@ export default function AcademyBuilderPage() {
   const [section, setSection] = useState<Section>('home');
   const [home, setHome] = useState<any>(null);
   useEffect(() => { if (tenantId) academyHome(tenantId).then((r) => r?.ok && setHome(r)); }, [tenantId, section]);
-  useEffect(() => { if (!tenantId) return; (async () => { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : ''; const r = await fetch('/api/academy/school', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify({ action: 'overview', tenantId }) }).then((x) => x.json()).catch(() => null); setMode(r?.mode || 'courses'); })(); }, [tenantId]);
-  const changeMode = async (m: 'courses' | 'school') => { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : ''; const r = await fetch('/api/academy/school', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify({ action: 'mode', tenantId, mode: m }) }).then((x) => x.json()).catch(() => null); if (r?.ok) { setMode(m); academyHome(tenantId).then((h) => h?.ok && setHome(h)); } else setMsg(r?.error || 'Couldn’t change the mode.'); };
+  useEffect(() => { if (!tenantId) return; (async () => { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : ''; const r = await fetch('/api/academy/school', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}`, 'x-cf-device': deviceId() }, body: JSON.stringify({ action: 'overview', tenantId }) }).then((x) => x.json()).catch(() => null); setMode(r?.mode || 'courses'); })(); }, [tenantId]);
+  const changeMode = async (m: 'courses' | 'school') => { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : ''; const r = await fetch('/api/academy/school', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}`, 'x-cf-device': deviceId() }, body: JSON.stringify({ action: 'mode', tenantId, mode: m }) }).then((x) => x.json()).catch(() => null); if (r?.ok) { setMode(m); academyHome(tenantId).then((h) => h?.ok && setHome(h)); } else setMsg(r?.error || 'Couldn’t change the mode.'); };
 
   const loadList = useCallback(async () => { if (!tenantId) return; const r = await api({ action: 'list', tenantId }); if (r.ok) setCourses(r.courses); else setMsg(r.error); }, [tenantId]);
   const loadCourse = useCallback(async (id: string) => {
@@ -198,8 +203,10 @@ export default function AcademyBuilderPage() {
                 <div><h1 className="text-2xl font-black tracking-tight">{current.label}</h1><p className="text-sm text-muted-foreground">{current.hint}</p></div>
                 {section === 'courses' && <div className="flex gap-2">
                   {tenantId && <a href={`/learn/${tenantId}`} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-1.5 rounded-xl border-2 px-3 text-sm font-bold">Your academy page <ExternalLink className="h-3.5 w-3.5" /></a>}
+                  <button type="button" onClick={() => setAiBuild(true)} className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-violet-700 px-4 text-sm font-bold text-white">✨ Build with AI</button>
                   <button type="button" onClick={newCourse} className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-foreground px-4 text-sm font-bold text-background"><Plus className="h-4 w-4" />New course</button>
                 </div>}
+                {aiBuild && <AiCourseBuilder tenantId={tenantId} onClose={() => setAiBuild(false)} onCreated={async (id: string) => { setAiBuild(false); await loadList(); setSel(id); setTab('curriculum'); setMsg('Course drafted — open each lesson to add content, or use ✨ Draft with AI inside it. It stays a draft until you publish.'); }} />}
               </div>
             )}
             {msg && <p className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{msg}</p>}
@@ -233,6 +240,7 @@ export default function AcademyBuilderPage() {
                     </div>
                   ))}
                 </section>
+                {mode === 'school' && <DevicesPanel tenantId={tenantId} />}
                 {mode === 'school' && (
                   <section className="space-y-1 rounded-2xl bg-muted/40 p-4 text-sm">
                     <p className="font-black">Who can do what</p>
@@ -250,9 +258,12 @@ export default function AcademyBuilderPage() {
             {!courses && <Loader className="h-5 w-5 animate-spin" />}
             {courses?.length === 0 && <p className="rounded-2xl border-2 border-dashed p-6 text-center text-sm text-muted-foreground">No courses yet. Start with the one you teach most.</p>}
             {courses?.map((c) => (
-              <button key={c.id} type="button" onClick={() => setSel(c.id)} className={`block w-full rounded-2xl border-2 p-3 text-left ${sel === c.id ? 'border-foreground' : 'border-border/60'}`}>
-                <p className="truncate font-bold">{c.title}</p>
-                <p className="text-[12px] text-muted-foreground">{c.status === 'published' ? '● Live' : '○ Draft'} · {money(c.priceCents || 0)} · {c.lessonCount || 0} lessons · {c.enrolledCount || 0} students</p>
+              <button key={c.id} type="button" onClick={() => setSel(c.id)} className={`flex w-full items-center gap-3 rounded-2xl border-2 p-2 text-left transition ${sel === c.id ? 'border-foreground bg-muted/40' : 'border-border/60 hover:bg-muted/30'}`}>
+                {c.coverUrl ? <img src={c.coverUrl} alt="" className="h-14 w-14 shrink-0 rounded-xl object-cover" /> : <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl text-xl font-black text-white" style={{ background: `linear-gradient(135deg, ${docBrand.color || '#1c1917'}, ${docBrand.color || '#1c1917'}99)` }}>{String(c.title || '?').trim()[0]}</span>}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-bold">{c.title}</span>
+                  <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground"><span className={`rounded-full px-2 py-0.5 font-bold ${c.status === 'published' ? 'bg-emerald-100 text-emerald-800' : 'bg-stone-200 text-stone-700'}`}>{c.status === 'published' ? 'Live' : 'Draft'}</span>{money(c.priceCents || 0)} · {c.lessonCount || 0} lessons · {c.enrolledCount || 0} students</span>
+                </span>
               </button>
             ))}
           </div>
@@ -260,7 +271,7 @@ export default function AcademyBuilderPage() {
           {!d || !form ? <div className="rounded-3xl border-2 border-dashed p-10 text-center text-muted-foreground">Choose a course, or create your first one.</div> : (
             <div className="space-y-4 rounded-3xl border-2 border-border/60 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap gap-1">{(['details', 'curriculum', 'students'] as const).map((k) => <button key={k} type="button" onClick={() => { setTab(k); if (k === 'students' && !students) api({ action: 'students', tenantId, courseId: sel }).then((r) => r.ok && setStudents(r.students)); }} className={`h-9 rounded-full px-4 text-sm font-bold capitalize ${tab === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{k}</button>)}</div>
+                <div className="flex flex-wrap gap-1">{(['details', 'curriculum', 'grading', 'students'] as const).map((k) => <button key={k} type="button" onClick={() => { setTab(k); if (k === 'students' && !students) api({ action: 'students', tenantId, courseId: sel }).then((r) => r.ok && setStudents(r.students)); }} className={`h-9 rounded-full px-4 text-sm font-bold capitalize ${tab === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{k}</button>)}</div>
                 <div className="flex items-center gap-2">
                   {d.course.status === 'published' && <a href={publicUrl} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1 rounded-full border-2 px-3 text-[13px] font-bold">View page <ExternalLink className="h-3.5 w-3.5" /></a>}
                   <button type="button" disabled={!!busy} onClick={() => saveCourse({ status: d.course.status === 'published' ? 'draft' : 'published' })} className={`h-9 rounded-full px-4 text-[13px] font-bold ${d.course.status === 'published' ? 'border-2' : 'bg-emerald-600 text-white'}`}>{d.course.status === 'published' ? 'Unpublish' : 'Publish'}</button>
@@ -297,6 +308,7 @@ export default function AcademyBuilderPage() {
                 </div>
               )}
 
+              {tab === 'grading' && <Grading tenantId={tenantId} courseId={sel!} courseTitle={d.course.title} brand={docBrand} />}
               {tab === 'curriculum' && (
                 <div className="space-y-4">
                   {modules.map((m) => (
@@ -309,7 +321,7 @@ export default function AcademyBuilderPage() {
                             {l.kind === 'video' && <span className="ml-2 text-[11px] text-muted-foreground">{l.muxStatus === 'ready' ? `✓ video${l.durationSec ? ` · ${Math.round(l.durationSec / 60)} min` : ''}` : l.muxStatus ? l.muxStatus : l.videoUrl ? '✓ link' : '⚠ no video yet'}</span>}</span>
                           <button type="button" aria-label="Move up" onClick={async () => { await api({ action: 'lesson-move', tenantId, courseId: sel, lessonId: l.id, direction: 'up' }); await loadCourse(sel!); }} className="p-1"><ArrowUp className="h-4 w-4" /></button>
                           <button type="button" aria-label="Move down" onClick={async () => { await api({ action: 'lesson-move', tenantId, courseId: sel, lessonId: l.id, direction: 'down' }); await loadCourse(sel!); }} className="p-1"><ArrowDown className="h-4 w-4" /></button>
-                          <button type="button" aria-label="Edit" onClick={() => setLesson({ ...blankLesson(), ...l, videoUrl: l.videoUrl || '', downloadUrl: l.downloadUrl || '', downloadName: l.downloadName || '', minMinutes: l.minMinutes || 0, releaseAfterDays: l.releaseAfterDays || 0, quiz: l.quiz || null, flashcards: l.flashcards || [], activity: l.activity || null, blocks: l.blocks || [], plan: l.plan || null })} className="p-1"><Pencil className="h-4 w-4" /></button>
+                          <button type="button" aria-label="Edit" onClick={() => setLesson({ ...blankLesson(), ...l, videoUrl: l.videoUrl || '', downloadUrl: l.downloadUrl || '', downloadName: l.downloadName || '', minMinutes: l.minMinutes || 0, releaseAfterDays: l.releaseAfterDays || 0, quiz: l.quiz || null, flashcards: l.flashcards || [], activity: l.activity || null, blocks: l.blocks || [], plan: l.plan || null, assignment: l.assignment || null })} className="p-1"><Pencil className="h-4 w-4" /></button>
                           <button type="button" aria-label="Delete" onClick={async () => { if (window.confirm(`Delete “${l.title}”?`)) { await api({ action: 'lesson-delete', tenantId, courseId: sel, lessonId: l.id }); await loadCourse(sel!); } }} className="p-1 text-red-600"><Trash2 className="h-4 w-4" /></button>
                         </div>
                       ); })}
@@ -326,7 +338,7 @@ export default function AcademyBuilderPage() {
                         <label className="text-sm font-bold">Lesson title<input className={field} value={lesson.title} onChange={(e) => setLesson({ ...lesson, title: e.target.value })} /></label>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {(['video', 'text', 'download'] as const).map((k) => <button key={k} type="button" onClick={() => setLesson({ ...lesson, kind: k })} className={`h-9 rounded-full px-4 text-sm font-bold capitalize ${lesson.kind === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{k}</button>)}
+                        {(['video', 'text', 'download', 'assignment'] as const).map((k) => <button key={k} type="button" onClick={() => setLesson({ ...lesson, kind: k, ...(k === 'assignment' && !lesson.assignment ? { assignment: { prompt: '', type: 'any', rubric: [{ criterion: 'Accuracy', points: 40 }, { criterion: 'Infection control & safety', points: 30 }, { criterion: 'Presentation', points: 30 }], dueDays: 7, resubmit: true } } : {}) })} className={`h-9 rounded-full px-4 text-sm font-bold capitalize ${lesson.kind === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{k}</button>)}
                         <label className="ml-auto inline-flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={lesson.preview} onChange={(e) => setLesson({ ...lesson, preview: e.target.checked })} />Free preview</label>
                       </div>
                       {lesson.kind === 'video' && (
@@ -361,6 +373,20 @@ export default function AcademyBuilderPage() {
                         <label className="text-sm font-bold">Minimum active minutes (optional — e.g. for reading lessons)<input className={field} type="number" min={0} value={lesson.minMinutes || 0} onChange={(e) => setLesson({ ...lesson, minMinutes: Number(e.target.value) || 0 })} /></label>
                         <label className="text-sm font-bold">Unlocks after (days from the student’s start — 0 = straight away)<input className={field} type="number" min={0} value={lesson.releaseAfterDays || 0} onChange={(e) => setLesson({ ...lesson, releaseAfterDays: Number(e.target.value) || 0 })} /></label>
                       </div>
+                      {lesson.kind === 'assignment' && lesson.assignment && (
+                        <div className="space-y-2 rounded-2xl border-2 border-amber-200 bg-amber-50/60 p-3">
+                          <p className="text-sm font-black">Assignment</p>
+                          <textarea rows={4} className={field + ' h-auto py-2'} value={lesson.assignment.prompt} onChange={(e) => setLesson({ ...lesson, assignment: { ...lesson.assignment, prompt: e.target.value } })} placeholder="What should the student do and hand in? e.g. Perform a basic manicure on a mannequin hand; photograph each stage; explain your infection-control steps." />
+                          <div className="grid gap-2 sm:grid-cols-3">
+                            <label className="text-[12px] font-bold">They hand in<select className={field} value={lesson.assignment.type} onChange={(e) => setLesson({ ...lesson, assignment: { ...lesson.assignment, type: e.target.value } })}><option value="any">Writing and/or photos & files</option><option value="written">Writing</option><option value="photo">Photos</option><option value="file">A file</option></select></label>
+                            <label className="text-[12px] font-bold">Due (days after starting — blank = none)<input type="number" className={field} value={lesson.assignment.dueDays || ''} onChange={(e) => setLesson({ ...lesson, assignment: { ...lesson.assignment, dueDays: e.target.value } })} /></label>
+                            <label className="flex items-center gap-2 text-[12px] font-bold"><input type="checkbox" checked={lesson.assignment.resubmit !== false} onChange={(e) => setLesson({ ...lesson, assignment: { ...lesson.assignment, resubmit: e.target.checked } })} />Can be resubmitted after grading</label>
+                          </div>
+                          <p className="text-[12px] font-black">Rubric <span className="font-normal text-muted-foreground">· {(lesson.assignment.rubric || []).reduce((n: number, r: any) => n + (Number(r.points) || 0), 0)} points</span></p>
+                          {(lesson.assignment.rubric || []).map((r: any, i: number) => <div key={i} className="flex gap-2"><input className={field} value={r.criterion} onChange={(e) => { const rb = [...lesson.assignment.rubric]; rb[i] = { ...r, criterion: e.target.value }; setLesson({ ...lesson, assignment: { ...lesson.assignment, rubric: rb } }); }} placeholder="Criterion" /><input type="number" className={`${field} w-24`} value={r.points} onChange={(e) => { const rb = [...lesson.assignment.rubric]; rb[i] = { ...r, points: e.target.value }; setLesson({ ...lesson, assignment: { ...lesson.assignment, rubric: rb } }); }} title="Points" /><button type="button" onClick={() => setLesson({ ...lesson, assignment: { ...lesson.assignment, rubric: lesson.assignment.rubric.filter((_: any, k: number) => k !== i) } })} className="text-red-600" aria-label="Remove"><Trash2 className="h-4 w-4" /></button></div>)}
+                          <button type="button" onClick={() => setLesson({ ...lesson, assignment: { ...lesson.assignment, rubric: [...(lesson.assignment.rubric || []), { criterion: '', points: 10 }] } })} className="rounded-full bg-background px-3 py-1 text-[12px] font-bold">+ Criterion</button>
+                        </div>
+                      )}
                       <BlocksEditor tenantId={tenantId} courseId={sel!} value={lesson.blocks || []} onChange={(blocks) => setLesson({ ...lesson, blocks })} />
                       <PlanEditor tenantId={tenantId} courseId={sel!} lesson={lesson} value={lesson.plan} onChange={(plan) => setLesson({ ...lesson, plan })} brand={docBrand} courseTitle={d.course.title} />
                       <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border-2 border-dashed border-violet-200 bg-violet-50/60 p-3">
