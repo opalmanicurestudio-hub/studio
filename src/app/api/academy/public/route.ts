@@ -12,6 +12,7 @@
 //   lesson    { tenantId, courseId, lessonId, token? }  content; video token if allowed
 //   progress  { tenantId, token, courseId, lessonId, done }
 
+import { respondOffer } from '@/lib/academy-decisions';
 import { getIdentity } from '@/lib/school-identity';
 import { itemsFor, publicPortfolio, newToken } from '@/lib/academy-portfolio';
 import { COLORS, reviewDeck, recordReview, glossary } from '@/lib/academy-study';
@@ -384,7 +385,7 @@ export async function POST(req: NextRequest) {
     // ── Admissions: apply, then a private application page ──
     if (b.action === 'programs') {
       const s = await db.collection(`tenants/${tenantId}/programs`).where('status', '==', 'active').limit(50).get();
-      return NextResponse.json({ ok: true, brand, programs: s.docs.map((d: any) => { const p = d.data() as any; return { id: d.id, name: p.name, totalHours: p.totalHours || null, description: p.description || null,
+      return NextResponse.json({ ok: true, brand, languages: LANGUAGES, programs: s.docs.map((d: any) => { const p = d.data() as any; return { id: d.id, name: p.name, totalHours: p.totalHours || null, description: p.description || null,
         tuitionCents: p.tuition ? p.tuition.tuitionCents + p.tuition.registrationFeeCents + p.tuition.kitCents : null, installments: p.tuition?.installments || 0 }; }) });
     }
     if (b.action === 'apply') {
@@ -399,7 +400,7 @@ export async function POST(req: NextRequest) {
       let id = open?.id;
       if (!id) {
         const ref = db.collection(`tenants/${tenantId}/admissions`).doc(); id = ref.id;
-        await ref.set({ id, name, email: mail, phone: String(b.phone || '').slice(0, 30) || null, programId: b.programId, stage: wantsToApply ? 'applied' : 'inquiry', source: String(b.source || 'website').slice(0, 80),
+        await ref.set({ id, name, email: mail, phone: String(b.phone || '').slice(0, 30) || null, language: LANGUAGES[b.language] ? b.language : 'en', programId: b.programId, stage: wantsToApply ? 'applied' : 'inquiry', source: String(b.source || 'website').slice(0, 80),
           message: String(b.message || '').slice(0, 1000) || null, requiredDocs: p.requiredDocs?.length ? p.requiredDocs : DEFAULT_DOCS, documents: {}, notes: [], createdAt: at, updatedAt: at, history: [{ stage: wantsToApply ? 'applied' : 'inquiry', at, by: 'applicant' }] });
         await appendAudit(tenantId, { type: 'admissions.created', by: mail, summary: `${wantsToApply ? 'Application' : 'Inquiry'} from ${name} for ${p.name}`, data: { admissionId: id } });
       }
@@ -408,11 +409,17 @@ export async function POST(req: NextRequest) {
         const link = `${origin}/learn/${tenantId}/application/${token}`;
         await sendEmail(mail, `Your application — ${brand.name}`, `Hi ${name.split(' ')[0]},
 
-Thanks for applying to ${p.name}! Your private application page is here — upload your documents, read and sign your enrolment agreement, and make your down payment:
+Thanks for applying to ${p.name}! Your private application page is here:
 
 ${link}
 
-Keep this link private.
+What happens next:
+1. Upload your documents on that page.
+2. Our admissions team reviews your application (we may invite you to a short interview).
+3. We email you our decision. Applying doesn’t guarantee a place.
+4. If you’re offered a place, you accept it on the same page, then sign your enrolment agreement and make your down payment.
+
+Keep this link private — you can use it any time to check your status.
 
 — ${brand.name}`);
         return NextResponse.json({ ok: true, applied: true, link });
@@ -431,7 +438,15 @@ Keep this link private.
         const plan = ((await db.doc(`tenants/${tenantId}/tuitionPlans/${planId}`).get()).data() as any) || null;
         const bal = plan ? await planBalance(tenantId, planId) : null;
         const docs = (a.requiredDocs || DEFAULT_DOCS).map((k: string) => ({ key: k, status: a.documents?.[k]?.status || 'missing', reason: a.documents?.[k]?.reason || null }));
-        return NextResponse.json({ ok: true, brand, applicant: { name: a.name, email: a.email, stage: a.stage, startDate: a.startDate || null, waitlisted: !!a.waitlisted },
+        const stage = a.stage === 'documents' ? 'review' : a.stage;
+        const offer = a.offer ? { expiresAt: a.offer.expiresAt || null, conditions: (a.offer.conditions || []).map((c: any) => ({ text: c.text, met: !!c.met })), fromWaitlist: !!a.offer.fromWaitlist, response: a.offer.response || null } : null;
+        // What the applicant sees about a decision — never staff notes or rubric scores.
+        const outcome = a.decision ? { outcome: a.decision.outcome, message: a.decision.message || null, reason: a.decision.outcome === 'not_accepted' ? a.decision.reason : null, reapplyAfter: a.decision.reapplyAfter || null } : null;
+        const interview = a.interview?.status === 'scheduled' ? { at: a.interview.at, where: a.interview.where || null, with: a.interview.with || null } : null;
+        let position: number | null = null;
+        if (stage === 'waitlist') { const w = await db.collection(`tenants/${tenantId}/admissions`).where('stage', '==', 'waitlist').limit(2000).get(); const q = w.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((x: any) => x.programId === a.programId && (x.cohortId || null) === (a.cohortId || null)).sort((x: any, y: any) => String(x.waitlistedAt || '').localeCompare(String(y.waitlistedAt || ''))); const i = q.findIndex((x: any) => x.id === a.id); position = i >= 0 ? i + 1 : null; }
+        const canSign = ['accepted', 'agreement', 'enrolled'].includes(stage) || !!a.agreement?.signedAt;
+        return NextResponse.json({ ok: true, brand, applicant: { name: a.name, email: a.email, stage, startDate: a.startDate || null, waitlisted: stage === 'waitlist', position }, offer, outcome, interview, canSign,
           program: { name: p.name, totalHours: p.totalHours || null, tuition }, docs,
           agreement: a.agreement?.signedAt ? { signed: true, signedAt: a.agreement.signedAt, signedName: a.agreement.signedName, text: a.agreement.text } : { signed: false, text: agreementText() },
           payment: plan ? { downPaymentCents: plan.downPaymentCents, paid: !!plan.downPaidAt, balanceCents: bal?.balanceCents ?? null, installmentCents: plan.installmentCents, installmentsTotal: plan.installmentsTotal, nextDueAt: plan.nextDueAt, autopay: !!plan.autopay } : null });
@@ -445,11 +460,17 @@ Keep this link private.
         const allIn = (a.requiredDocs || DEFAULT_DOCS).every((k: string) => docs[k]);
         await a.ref.set({ documents: docs, updatedAt: new Date().toISOString() }, { merge: true });
         await appendAudit(tenantId, { type: 'admissions.doc_uploaded', by: a.email, summary: `${a.name} uploaded ${key}`, data: { admissionId: a.id, sha256: f.sha256 } });
-        if (allIn && ['inquiry', 'tour', 'applied'].includes(a.stage)) await setStage(tenantId, a.id, 'documents', 'applicant', 'All documents uploaded');
+        if (allIn && ['inquiry', 'tour', 'applied'].includes(a.stage)) await setStage(tenantId, a.id, 'review', 'applicant', 'All documents uploaded — ready for review');
         return NextResponse.json({ ok: true });
+      }
+      if (b.action === 'app-offer') {
+        try { await respondOffer(tenantId, a, !!b.accept, origin, b.reason); return NextResponse.json({ ok: true }); }
+        catch (e: any) { return NextResponse.json({ ok: false, error: e?.message || 'Couldn’t record your answer.' }, { status: 400 }); }
       }
       if (b.action === 'app-sign') {
         if (a.agreement?.signedAt) return NextResponse.json({ ok: true, already: true });
+        // Applying isn't acceptance: the agreement opens only after the school offers a place and it's accepted.
+        if (a.stage !== 'accepted') return NextResponse.json({ ok: false, error: a.stage === 'offer' ? 'Accept your offer first — then you can sign your agreement.' : 'Your agreement opens once the school has offered you a place and you’ve accepted it.' }, { status: 400 });
         const missing = (a.requiredDocs || DEFAULT_DOCS).filter((k: string) => !a.documents?.[k]);
         if (missing.length) return NextResponse.json({ ok: false, error: `Upload ${missing.join(', ')} first.` }, { status: 400 });
         const typed = String(b.typedName || '').trim().replace(/\s+/g, ' ');
