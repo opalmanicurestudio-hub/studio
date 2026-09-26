@@ -9,6 +9,7 @@
 //   Announcements  to everyone, a program or a cohort; optionally emailed.
 //   Outcomes       completion · licensure · placement; applicants by source.
 
+import { deviceId } from '@/lib/device';
 import { useCallback, useEffect, useState } from 'react';
 import { getAuth } from 'firebase/auth';
 import { Loader, X } from 'lucide-react';
@@ -16,7 +17,7 @@ import { StudentFile } from '@/components/academy/StudentFile';
 
 async function api(path: string, body: any) {
   const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
-  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify(body) });
+  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}`, 'x-cf-device': deviceId() }, body: JSON.stringify(body) });
   return r.json().catch(() => ({ ok: false, error: 'No response' }));
 }
 const J = (tenantId: string, body: any) => api('/api/academy/journey', { tenantId, ...body });
@@ -52,7 +53,7 @@ export function StudentJourney({ tenantId, brand }: { tenantId: string; brand: {
   if (fileFor) return <StudentFile tenantId={tenantId} studentId={fileFor} brand={brand} onClose={() => { setFileFor(null); void loadList(); }} />;
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-1">{([['students', 'Students'], ['messages', 'Messages'], ['announcements', 'Announcements'], ['outcomes', 'Outcomes']] as const).map(([k, l]) => <button key={k} type="button" onClick={() => setTab(k)} className={`h-9 rounded-full px-4 text-sm font-bold ${tab === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{l}{k === 'messages' && threads?.some((x) => x.unreadSchool) ? ' •' : ''}</button>)}</div>
+      <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">{([['students', 'Students'], ['messages', 'Messages'], ['announcements', 'Announcements'], ['outcomes', 'Outcomes']] as const).map(([k, l]) => <button key={k} type="button" onClick={() => setTab(k)} className={`h-9 shrink-0 whitespace-nowrap rounded-full px-4 text-sm font-bold ${tab === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{l}{k === 'messages' && threads?.some((x) => x.unreadSchool) ? ' •' : ''}</button>)}</div>
       {msg && <p className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{msg}</p>}
 
       {tab === 'students' && (!list ? <Loader className="h-5 w-5 animate-spin" /> : list.length === 0 ? <p className="text-sm text-muted-foreground">No students yet — enrol them in Programs or through Admissions.</p> : (
