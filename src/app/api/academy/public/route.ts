@@ -12,6 +12,7 @@
 //   lesson    { tenantId, courseId, lessonId, token? }  content; video token if allowed
 //   progress  { tenantId, token, courseId, lessonId, done }
 
+import { todoFor } from '@/lib/academy-assign';
 import { moduleStates, whatChanged, award, gameView } from '@/lib/academy-modules';
 import { upcomingPayments, studentPaySession, completeStudentPayment, cardUpdateSession, completeCardUpdate } from '@/lib/academy-admissions';
 import { translateTexts, translateLong, LANGUAGES } from '@/lib/translate';
@@ -212,6 +213,12 @@ export async function POST(req: NextRequest) {
           videoQuestions: l.kind === 'video' ? l.videoQuestions || [] : [] },
         tracking: { compliance: !!c.compliance, checkEveryMin: c.compliance ? (c.attentionCheckMinutes ?? DEFAULT_RULES.attentionCheckMinutes) : 0, minEngagementPct: c.minEngagementPct ?? DEFAULT_RULES.minEngagementPct, minWatchPct: c.minWatchPct ?? DEFAULT_RULES.minWatchPct,
           engagedSec: stat.engagedSec || 0, watchedSec: stat.watchedSec || 0 } });
+    }
+
+    // ── The student's to-do list (assigned work, automatic reviews) ──
+    if (b.action === 'todo') {
+      if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+      return NextResponse.json({ ok: true, items: await todoFor(tenantId, student.id) });
     }
 
     if (b.action === 'seen-unlock') {
