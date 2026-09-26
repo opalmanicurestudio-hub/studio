@@ -29,6 +29,7 @@ export function AcademyHome({ tenantId, data, go }: { tenantId: string; data: an
     { n: s.atRisk, title: 'Students who need you', hint: 'High risk — the reasons are listed for each', to: 'students' as Section, tone: 'red' },
     { n: s.unread, title: 'Unread messages', hint: 'From students', to: 'students' as Section, tone: 'sky' },
     ...(s.isLead ? [
+      { n: s.formsDue, title: 'Board forms due', hint: 'Due within 5 days or overdue — open the student’s file', to: 'students' as Section, tone: 'red' },
       { n: s.docsToCheck, title: 'Documents to check', hint: 'Uploaded by applicants — verify or send back', to: 'admissions' as Section, tone: 'amber' },
       { n: s.toCountersign, title: 'Agreements to countersign', hint: 'Signed by new students', to: 'admissions' as Section, tone: 'violet' },
       { n: s.newInquiries, title: 'New inquiries', hint: 'People asking about your programs', to: 'admissions' as Section, tone: 'sky' },
