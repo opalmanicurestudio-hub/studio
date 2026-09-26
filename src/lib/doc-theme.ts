@@ -54,3 +54,23 @@ export function printDocument(opts: { title: string; brand: DocBrand; body: stri
 
 /** "Hours <b>report</b>" — a light heading with one semibold word, like the landing page. */
 export const heading = (light: string, bold: string) => `<h1>${esc(light)} <b>${esc(bold)}</b></h1>`;
+
+/**
+ * Simple text → HTML for school documents: "# Heading", "## Subheading",
+ * "- bullet", "**bold**", blank line = new paragraph. Everything is escaped
+ * first, so nothing in a document can run as code.
+ */
+export function mdLite(text: string) {
+  const out: string[] = []; let list = false;
+  for (const raw of String(text || '').split('\n')) {
+    const line = esc(raw).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\[\[(.+?)\]\]/g, '<mark style="background:#fef3c7;padding:0 3px;border-radius:4px">[$1]</mark>');
+    const t = line.trim();
+    if (/^-\s+/.test(t)) { if (!list) { out.push('<ul>'); list = true; } out.push(`<li>${t.replace(/^-\s+/, '')}</li>`); continue; }
+    if (list) { out.push('</ul>'); list = false; }
+    if (/^##\s+/.test(t)) out.push(`<h3>${t.replace(/^##\s+/, '')}</h3>`);
+    else if (/^#\s+/.test(t)) out.push(`<h2>${t.replace(/^#\s+/, '')}</h2>`);
+    else if (t) out.push(`<p>${t}</p>`);
+  }
+  if (list) out.push('</ul>');
+  return out.join('');
+}
