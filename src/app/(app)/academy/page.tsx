@@ -10,6 +10,7 @@
 //                download; free-preview switch; reorder; edit; delete
 //   Students     who's enrolled, since when, how far they've got
 
+import { AssignPanel } from '@/components/academy/AssignPanel';
 import { CourseBoard } from '@/components/academy/CourseBoard';
 import { AddToLesson, LessonPreview, TemplatePicker, LESSON_KINDS, FileToLesson, printStudyGuide } from '@/components/academy/LessonCanvas';
 import { ModuleSettings, GamifySetting, modKey } from '@/components/academy/ModuleSettings';
@@ -17,7 +18,7 @@ import { AiCreditsMeter } from '@/components/academy/AiCreditsMeter';
 import { deviceId } from '@/lib/device';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAuth } from 'firebase/auth';
-import { Loader, ArrowUp, ArrowDown, Pencil, Trash2, ExternalLink, Video, FileText, Download, Plus, Home as HomeIcon, BookOpen, Sparkles, Users, Clock, ClipboardList, GraduationCap, Settings as SettingsIcon, Radio, Printer } from 'lucide-react';
+import { Loader, ArrowUp, ArrowDown, Pencil, Trash2, ExternalLink, Video, FileText, Download, Plus, Home as HomeIcon, BookOpen, Sparkles, Users, Clock, ClipboardList, GraduationCap, Settings as SettingsIcon, Radio, Printer, ClipboardCheck } from 'lucide-react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { PrivateImg } from '@/components/shared/private-file';
 import { SchoolPrograms } from '@/components/academy/SchoolPrograms';
@@ -166,6 +167,7 @@ export default function AcademyBuilderPage() {
       { key: 'courses', label: 'Courses', hint: 'Lessons, videos, quizzes', icon: BookOpen },
       { key: 'live', label: 'Live class', hint: 'Join code, questions, minutes', icon: Radio },
       { key: 'materials', label: 'Tests & worksheets', hint: 'Question bank, printables', icon: Printer },
+      { key: 'assign', label: 'Assign work', hint: 'Due dates, groups, reviews', icon: ClipboardCheck },
       { key: 'salon', label: 'Student salon', hint: 'Sign off students’ services', icon: Sparkles, school: true, badge: home?.school?.checkoffsToday } ] },
     { group: 'Students', items: [
       { key: 'students', label: 'Students', hint: 'Progress, risk, messages', icon: Users, school: true, badge: (home?.school?.atRisk || 0) + (home?.school?.unread || 0) },
@@ -246,6 +248,7 @@ export default function AcademyBuilderPage() {
             {section === 'students' && mode === 'school' && <StudentJourney tenantId={tenantId} brand={docBrand} />}
             {section === 'attendance' && mode === 'school' && <AttendancePanel tenantId={tenantId} />}
             {section === 'live' && <LiveClass tenantId={tenantId} />}
+            {section === 'assign' && <AssignPanel tenantId={tenantId} />}
             {section === 'materials' && <CourseMaterials tenantId={tenantId} courses={courses || []} brand={docBrand} />}
             {section === 'reports' && mode === 'school' && <AcademyReports tenantId={tenantId} />}
             {section === 'settings' && (
