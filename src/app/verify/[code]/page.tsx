@@ -14,6 +14,26 @@ export const metadata: Metadata = { title: 'Certificate verification', robots: {
 export default async function VerifyPage({ params }: { params: Promise<{ code: string }> }) {
   const code = String((await params).code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20);
   const c = code ? (((await getAdminDb().doc(`platformCertificates/${code}`).get()).data() as any) || null) : null;
+  // Not a certificate? It may be an hours certification letter.
+  const letter = !c && code ? (((await getAdminDb().doc(`platformDocuments/${code}`).get()).data() as any) || null) : null;
+  if (letter) return (
+    <div className="min-h-dvh bg-[#f7f5f2] px-5 py-10 text-stone-900">
+      <div className="mx-auto max-w-lg space-y-4 rounded-[2rem] bg-white p-8 shadow-sm">
+        <p className={`inline-block rounded-full px-4 py-2 text-sm font-semibold ${letter.status === 'valid' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>{letter.status === 'valid' ? '✓ Verified — this letter is genuine' : '✕ This letter has been withdrawn'}</p>
+        <p className="text-[11px] uppercase tracking-[0.3em] text-stone-400">Certification of hours</p>
+        <p className="text-2xl font-light">{letter.studentName}</p>
+        <p className="text-stone-600">{letter.programName}{letter.programHours ? ` (${letter.programHours} hours)` : ''} · {letter.tenantName}</p>
+        <div className="rounded-2xl bg-stone-50 p-4 text-sm">
+          <p>Online (verified): <b>{letter.hours?.online} h</b>{letter.hours?.live ? ` (incl. ${letter.hours.live} h live classes)` : ''}</p>
+          <p>In person (approved): <b>{letter.hours?.inPerson} h</b></p>
+          <p>Total: <b>{letter.hours?.total} h</b></p>
+          {(letter.requirements || []).length > 0 && <p className="mt-2 text-[13px] text-stone-600">{letter.requirements.map((r: any) => `${r.label} ${r.done}/${r.required}`).join(' · ')}</p>}
+        </div>
+        <p className="text-sm text-stone-600">Issued {new Date(letter.issuedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })} by {letter.issuedBy} · code <span className="font-mono">{letter.code}</span></p>
+        <p className="text-[11px] text-stone-400">These figures are exactly as issued on that date. Contact the school for a current letter.</p>
+      </div>
+    </div>
+  );
   const date = c ? new Date(c.issuedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : '';
   return (
     <div className="min-h-dvh bg-[#f7f5f2] px-5 py-10 text-stone-900 print:bg-white print:p-0">
