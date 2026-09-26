@@ -11,7 +11,7 @@ import { askClaude, aiConfigured, parseJson } from '@/lib/ai';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
-import { slugify, RESERVED_SLUGS, loadLessons, muxConfigured, muxSigningReady, muxCreateUpload, muxUploadStatus } from '@/lib/academy';
+import { slugify, RESERVED_SLUGS, loadLessons, muxConfigured, muxSigningReady, muxCreateUpload, muxUploadStatus, muxAddCaptions, muxTranscript, CAPTION_LANGUAGES } from '@/lib/academy';
 import { appendAudit, verifyAudit, transcript, qrWindow, qrCode, QR_WINDOW_SEC } from '@/lib/academy-compliance';
 import { linkOrigin } from '@/lib/app-origin';
 
@@ -20,7 +20,9 @@ const KINDS = ['video', 'text', 'download'];
 const str = (v: any, n: number) => String(v ?? '').slice(0, n);
 /** Interactive activities: match pairs, put steps in order, or a client scenario. */
 function cleanActivity(a: any) {
-  if (!a || !['match', 'order', 'scenario'].includes(a.type)) return null;
+  if (!a || !['match', 'order', 'scenario', 'label'].includes(a.type)) return null;
+  if (a.type === 'label') { const points = (a.points || []).map((p: any) => ({ x: Math.max(0, Math.min(100, Number(p.x) || 0)), y: Math.max(0, Math.min(100, Number(p.y) || 0)), label: str(p.label, 80) })).filter((p: any) => p.label).slice(0, 15);
+    return /^https:\/\//.test(String(a.imageUrl || '')) && points.length >= 2 ? { type: 'label', prompt: str(a.prompt, 200) || 'Label the diagram', imageUrl: str(a.imageUrl, 600), points } : null; }
   if (a.type === 'match') { const pairs = (a.pairs || []).map((p: any) => ({ left: str(p.left, 160), right: str(p.right, 160) })).filter((p: any) => p.left && p.right).slice(0, 10); return pairs.length >= 2 ? { type: 'match', prompt: str(a.prompt, 200) || 'Match the pairs', pairs } : null; }
   if (a.type === 'order') { const steps = (a.steps || []).map((x: any) => str(x, 200)).filter(Boolean).slice(0, 12); return steps.length >= 2 ? { type: 'order', prompt: str(a.prompt, 200) || 'Put these in order', steps } : null; }
   const options = (a.options || []).map((o: any) => ({ text: str(o.text, 300), correct: !!o.correct, feedback: str(o.feedback, 500) })).filter((o: any) => o.text).slice(0, 6);
@@ -75,6 +77,7 @@ export async function POST(req: NextRequest) {
         coverUrl: /^https:\/\//.test(String(c.coverUrl || '')) ? String(c.coverUrl) : null,
         // Hours tracking for state-licensed schools (all optional).
         aiTutor: c.aiTutor !== false,
+        captionLanguage: CAPTION_LANGUAGES[c.captionLanguage] ? c.captionLanguage : (cur.captionLanguage || 'en'),
         compliance: !!c.compliance, requiredOnlineHours: Math.max(0, Number(c.requiredOnlineHours) || 0) || null, requiredInPersonHours: Math.max(0, Number(c.requiredInPersonHours) || 0) || null,
         minEngagementPct: Math.min(100, Math.max(0, Number(c.minEngagementPct ?? 80))), minWatchPct: Math.min(100, Math.max(0, Number(c.minWatchPct ?? 90))),
         attentionCheckMinutes: Math.min(60, Math.max(0, Number(c.attentionCheckMinutes ?? 10))),
@@ -138,7 +141,8 @@ export async function POST(req: NextRequest) {
     if (b.action === 'upload-create') {
       if (!muxConfigured()) return NextResponse.json({ ok: false, error: 'Video hosting isn’t connected yet (MUX_TOKEN_ID / MUX_TOKEN_SECRET). Paste a video link for now.' }, { status: 400 });
       const origin = req.headers.get('origin') || req.nextUrl.origin;
-      const up = await muxCreateUpload(origin);
+      const course = ((await db.doc(`${base}/${courseId}`).get()).data() as any) || {};
+      const up = await muxCreateUpload(origin, course.captionLanguage || 'en');
       await db.doc(`${base}/${courseId}/lessons/${String(b.lessonId)}`).set({ muxUploadId: up.uploadId, muxStatus: 'uploading', muxPlaybackId: null, updatedAt: now }, { merge: true });
       return NextResponse.json({ ok: true, url: up.url });
     }
@@ -148,8 +152,22 @@ export async function POST(req: NextRequest) {
       const l = ((await ref.get()).data() as any) || {};
       if (!l.muxUploadId) return NextResponse.json({ ok: true, status: 'none' });
       const st = await muxUploadStatus(l.muxUploadId);
-      await ref.set({ muxStatus: st.status, ...(st.assetId ? { muxAssetId: st.assetId } : {}), ...(st.playbackId ? { muxPlaybackId: st.playbackId } : {}), ...(st.durationSec ? { durationSec: st.durationSec } : {}) }, { merge: true });
-      return NextResponse.json({ ok: true, ...st });
+      const patch: any = { muxStatus: st.status, ...(st.assetId ? { muxAssetId: st.assetId } : {}), ...(st.playbackId ? { muxPlaybackId: st.playbackId } : {}), ...(st.durationSec ? { durationSec: st.durationSec } : {}) };
+      if (st.captions) patch.captions = { trackId: st.captions.trackId, status: st.captions.status };
+      // Captions ready → keep the transcript on the lesson (students, the tutor, AI drafts).
+      if (st.captions?.status === 'ready' && st.playbackId && !l.transcript) { const tx = await muxTranscript(st.playbackId, st.captions.trackId); if (tx) patch.transcript = tx; }
+      await ref.set(patch, { merge: true });
+      return NextResponse.json({ ok: true, ...st, transcript: !!(patch.transcript || l.transcript) });
+    }
+
+    if (b.action === 'captions-add') {
+      const ref = db.doc(`${base}/${courseId}/lessons/${String(b.lessonId)}`);
+      const l = ((await ref.get()).data() as any) || {};
+      if (!l.muxAssetId) return NextResponse.json({ ok: false, error: 'Upload the video first.' }, { status: 400 });
+      const course = ((await db.doc(`${base}/${courseId}`).get()).data() as any) || {};
+      const r = await muxAddCaptions(l.muxAssetId, course.captionLanguage || 'en');
+      await ref.set({ captions: { ...(l.captions || {}), status: 'preparing' } }, { merge: true });
+      return NextResponse.json({ ok: true, already: r.already });
     }
 
     if (b.action === 'students') {
@@ -164,8 +182,10 @@ export async function POST(req: NextRequest) {
     // ── AI drafts for instructors (they review and save — nothing goes to students unapproved) ──
     if (b.action === 'ai-draft') {
       if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on for ClarityFlow yet (ANTHROPIC_API_KEY).' }, { status: 400 });
-      const src = String(b.text || '').trim().slice(0, 12000);
-      if (src.length < 120) return NextResponse.json({ ok: false, error: 'Write the lesson text first (a few paragraphs) — drafts are made from it.' }, { status: 400 });
+      let src = String(b.text || '').trim();
+      if (b.lessonId) { const lx = ((await db.doc(`${base}/${courseId}/lessons/${String(b.lessonId)}`).get()).data() as any) || {}; if (lx.transcript) src = `${src}\n\nVideo transcript:\n${lx.transcript}`.trim(); }
+      src = src.slice(0, 14000);
+      if (src.length < 120) return NextResponse.json({ ok: false, error: 'Write the lesson text first (a few paragraphs), or add captions to its video — drafts are made from them.' }, { status: 400 });
       const kind = String(b.kind || 'quiz');
       const shape: Record<string, string> = {
         quiz: '{"questions":[{"q":"question","options":["a","b","c","d"],"answer":0}]} — 5 multiple-choice questions, one correct option each (answer = index), plausible wrong options, no "all of the above".',
