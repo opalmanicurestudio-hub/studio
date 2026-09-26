@@ -16,6 +16,7 @@
 // Language: the portal's words and all content are shown in the student's
 // language (AI translation, cached); originals are always one tap away.
 
+import { mdLite } from '@/lib/doc-theme';
 import { ProgressRing } from '@/components/academy/Delight';
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -36,6 +37,7 @@ const S = {
   cardSaved: 'Card updated.', retried: 'We tried your payment again:', success: 'it went through', failed: 'it didn’t go through — please try another card',
   write: 'Write to your school', send: 'Send', showOriginal: 'Show original', showTranslation: 'Show translation', translatedNote: 'Translated automatically',
   agreement: 'Enrolment agreement', signedOn: 'Signed on', readingAid: 'Translation to help you understand — the English original is the version you signed.',
+  readSign: 'Please read and sign', signBtn: 'Read and sign', typeName: 'Type your full name', agreeLine: 'I have read and understood this document.', signNow: 'Sign', signedWord: 'Signed', schoolDocs: 'School documents', readWord: 'Read',
   todo: 'To do', dueWord: 'Due', overdueWord: 'Overdue', reviewWord: 'Review', allDone: 'All caught up', lessonsWord: 'lessons', goWord: 'Start',
   toGo: 'to go', certificates: 'Certificates',
   practice: 'State-board practice', practiceHint: 'Timed, mixed questions from your courses — see which topics to study.', questionsWord: 'questions', startPractice: 'Start', handIn: 'Hand in', timeLeft: 'left', unanswered: 'unanswered',
@@ -43,7 +45,7 @@ const S = {
   statusApproved: 'approved', statusOpen: 'on the floor', statusFlagged: 'needs your instructor', statusPending: 'waiting for approval', statusClosed: 'recorded',
 };
 type Str = typeof S;
-const UI_V = 'v4';   // bump when words are added, so phones fetch the new translations
+const UI_V = 'v5';   // bump when words are added, so phones fetch the new translations
 
 /** The portal's words in the student's language (translated once, remembered on this device). */
 function useWords(tenantId: string, lang: string): Str {
@@ -119,7 +121,7 @@ export function StudentPortal({ tenantId, courses, onSignOut }: { tenantId: stri
         {tab === 'hours' && <HoursTab w={w} lang={lang} tenantId={tenantId} color={color} />}
         {tab === 'tuition' && <TuitionTab w={w} lang={lang} tenantId={tenantId} color={color} />}
         {tab === 'inbox' && <InboxTab w={w} lang={lang} tenantId={tenantId} color={color} announcements={p.announcements} onRead={load} />}
-        {tab === 'docs' && <DocsTab w={w} lang={lang} tenantId={tenantId} />}
+        {tab === 'docs' && <DocsTab w={w} lang={lang} tenantId={tenantId} color={color} />}
 
         <div className="flex items-center justify-center gap-4 pt-2 text-sm">
           <Link href={`/learn/${tenantId}/live`} className="underline">● {w.joinLive}</Link>
@@ -150,6 +152,7 @@ function Today({ p, w, lang, tenantId, color, go }: any) {
   return (
     <div className="cf-stagger space-y-3">
       {p.game && <Card><GameChips g={p.game} color={color} /></Card>}
+      <SignCard w={w} tenantId={tenantId} color={color} />
       <TodoCard w={w} lang={lang} tenantId={tenantId} color={color} />
       {late && <Card tone="alert"><p className="font-semibold text-red-900">{w.paymentFailed}</p><p className="text-sm text-red-800">{usd(late.balanceCents)} · {late.lastError}</p><button type="button" onClick={() => go('tuition')} className="mt-2 rounded-full bg-red-600 px-4 py-2 text-sm font-medium text-white">{w.updateCard} / {w.payNow}</button></Card>}
       {p.needs.length > 0 && <Card tone="alert"><p className="font-semibold text-red-900">{w.redo}</p>{p.needs.map((n: any) => <p key={n.doc} className="text-sm text-red-800">{n.doc}{n.reason ? ` — ${n.reason}` : ''}</p>)}</Card>}
@@ -274,13 +277,14 @@ function InboxTab({ w, lang, tenantId, color, announcements, onRead }: any) {
   );
 }
 
-function DocsTab({ w, lang, tenantId }: any) {
+function DocsTab({ w, lang, tenantId, color }: any) {
   const [d, setD] = useState<any>(null);
   const [trAgreement, setTrAgreement] = useState<string | null>(null);
   useEffect(() => { api({ action: 'documents', tenantId, token: getToken(tenantId) }).then(setD); }, [tenantId]);
   if (!d) return <Loading />;
   return (
     <div className="space-y-3">
+      <SchoolDocsList w={w} tenantId={tenantId} color={color} />
       {d.agreements.map((a: any, i: number) => (
         <Card key={i} title={w.agreement}><p className="text-sm">{w.signedOn} {fmt(a.signedAt, lang, { year: 'numeric', month: 'long', day: 'numeric' })} · {a.signedName}</p>
           <details className="mt-2"><summary className="cursor-pointer text-sm font-semibold">{w.open}</summary><pre className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap rounded-xl bg-white/70 p-3 text-[13px]">{trAgreement ?? a.text}</pre>
@@ -365,4 +369,48 @@ function TodoCard({ w, lang, tenantId, color }: any) {
       ))}
     </Card>
   );
+}
+
+
+/** A school document to read (and sign, if required). */
+function DocReader({ id, w, tenantId, color, onDone }: any) {
+  const [d, setD] = useState<any>(null); const [name, setName] = useState(''); const [agree, setAgree] = useState(false); const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
+  useEffect(() => { api({ action: 'doc-read', tenantId, token: getToken(tenantId), id }).then((r) => r.ok && setD(r.doc)); }, [id, tenantId]);
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-[#f7f5f2]">
+      <div className="mx-auto max-w-2xl space-y-4 p-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        <button type="button" onClick={() => onDone(false)} className="text-sm text-stone-500">‹ {w.close}</button>
+        {!d ? <Loading /> : <>
+          <h1 className="text-3xl font-light tracking-tight">{d.title}</h1>
+          <div className="rounded-3xl bg-white p-5 text-[15px] leading-relaxed [&_h2]:mb-1 [&_h2]:mt-5 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mt-3 [&_h3]:font-semibold [&_li]:ml-5 [&_li]:list-disc [&_p]:my-2" dangerouslySetInnerHTML={{ __html: mdLite(d.body) }} />
+          {d.requireAck && <div className="space-y-3 rounded-3xl bg-white p-5">
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder={w.typeName} className="h-12 w-full rounded-2xl border px-4 text-[16px]" autoComplete="name" />
+            <label className="flex items-start gap-3 text-[15px]"><input type="checkbox" className="mt-1 h-5 w-5" checked={agree} onChange={(e) => setAgree(e.target.checked)} />{w.agreeLine}</label>
+            {err && <p className="text-sm text-red-700">{err}</p>}
+            <button type="button" disabled={busy || name.trim().length < 2 || !agree} onClick={async () => { setBusy(true); setErr(''); const r = await api({ action: 'doc-sign', tenantId, token: getToken(tenantId), id, name, agree }); setBusy(false); if (r.ok) onDone(true); else setErr(r.error); }} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>{busy ? '…' : w.signNow}</button>
+          </div>}
+        </>}
+      </div>
+    </div>
+  );
+}
+function SignCard({ w, tenantId, color }: any) {
+  const [docs, setDocs] = useState<any[]>([]); const [open, setOpen] = useState<string | null>(null);
+  const load = useCallback(async () => { const r = await api({ action: 'docs-to-sign', tenantId, token: getToken(tenantId) }); if (r.ok) setDocs(r.docs); }, [tenantId]);
+  useEffect(() => { void load(); }, [load]);
+  if (!docs.length && !open) return null;
+  return (<>
+    {docs.length > 0 && <Card tone="alert" title={w.readSign}>{docs.map((x) => <button key={x.id} type="button" onClick={() => setOpen(x.id)} className="flex w-full items-center justify-between gap-3 py-2 text-left"><span className="font-semibold text-red-950">📄 {x.title}</span><span className="shrink-0 rounded-full px-3 py-1 text-[12px] font-medium text-white" style={{ background: color }}>{w.signBtn}</span></button>)}</Card>}
+    {open && <DocReader id={open} w={w} tenantId={tenantId} color={color} onDone={async () => { setOpen(null); await load(); }} />}
+  </>);
+}
+function SchoolDocsList({ w, tenantId, color }: any) {
+  const [docs, setDocs] = useState<any[] | null>(null); const [open, setOpen] = useState<string | null>(null);
+  const load = useCallback(async () => { const r = await api({ action: 'docs-mine', tenantId, token: getToken(tenantId) }); setDocs(r.ok ? r.docs : []); }, [tenantId]);
+  useEffect(() => { void load(); }, [load]);
+  if (!docs || !docs.length) return null;
+  return (<>
+    <Card title={w.schoolDocs}>{docs.map((x) => <button key={x.id} type="button" onClick={() => setOpen(x.id)} className="flex w-full items-center justify-between gap-3 py-2 text-left text-[15px]"><span>📄 {x.title}</span><span className={`shrink-0 text-[12px] ${x.signed ? 'text-emerald-700' : x.requireAck ? 'font-semibold text-red-700' : 'text-stone-500'}`}>{x.signed ? `✓ ${w.signedWord}` : x.requireAck ? w.signBtn : w.readWord}</span></button>)}</Card>
+    {open && <DocReader id={open} w={w} tenantId={tenantId} color={color} onDone={async () => { setOpen(null); await load(); }} />}
+  </>);
 }
