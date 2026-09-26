@@ -12,6 +12,7 @@
 //
 // A student's sign-in is a token kept in this browser (30 days).
 
+import { wordSearch as wordSearchGrid, crossword as crosswordGrid } from '@/lib/printables';
 import { Celebrate, Skeleton } from '@/components/academy/Delight';
 import { useCallback, useEffect, useMemo, useRef, useState, createElement } from 'react';
 import Link from 'next/link';
@@ -155,12 +156,100 @@ function Flashcards({ cards, color }: { cards: { front: string; back: string }[]
 
 // ── Activities: match · put in order · client scenario ──────────────────
 function shuffle<T>(xs: T[]) { const a = [...xs]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
-function Activity({ a, color }: { a: any; color: string }) {
+function Activity({ a, color, report }: { a: any; color: string; report?: (pct: number) => void }) {
+  if (a.type === 'wordsearch') return <WordSearchGame a={a} color={color} report={report} />;
+  if (a.type === 'crossword') return <CrosswordGame a={a} color={color} report={report} />;
+  if (a.type === 'cloze') return <ClozeGame a={a} color={color} report={report} />;
   if (a.type === 'match') return <MatchGame a={a} color={color} />;
   if (a.type === 'order') return <OrderGame a={a} color={color} />;
   if (a.type === 'label') return <LabelGame a={a} color={color} />;
   return <Scenario a={a} color={color} />;
 }
+/** Word search: tap the first letter, then the last letter of a word. */
+function WordSearchGame({ a, color, report }: { a: any; color: string; report?: (pct: number) => void }) {
+  const size = Math.min(14, Math.max(10, ...a.words.map((w: string) => w.replace(/[^A-Za-z]/g, '').length)));
+  const ws = useMemo(() => wordSearchGrid(a.words, size, a.seed), [a.words, size, a.seed]);
+  const [start, setStart] = useState<[number, number] | null>(null);
+  const [found, setFound] = useState<string[]>([]);
+  const [miss, setMiss] = useState(false);
+  const cellsOf = (w: string) => ws.placed.find((p: any) => p.word === w)?.cells || [];
+  const lit = new Set(found.flatMap((w) => cellsOf(w).map(([r, c]: any) => `${r},${c}`)));
+  const tap = (r: number, c: number) => {
+    if (!start) { setStart([r, c]); return; }
+    const [r0, c0] = start; setStart(null);
+    const hit = ws.placed.find((p: any) => { const f = p.cells[0], l = p.cells[p.cells.length - 1]; return (f[0] === r0 && f[1] === c0 && l[0] === r && l[1] === c) || (l[0] === r0 && l[1] === c0 && f[0] === r && f[1] === c); });
+    if (hit && !found.includes(hit.word)) { const nf = [...found, hit.word]; setFound(nf); if (nf.length === ws.placed.length) report?.(100); }
+    else if (!hit) { setMiss(true); setTimeout(() => setMiss(false), 600); }
+  };
+  const done = found.length === ws.placed.length;
+  return (
+    <Glass className="space-y-3">
+      <div className="flex items-center justify-between"><p className="text-lg font-semibold">🔎 {a.prompt}</p><span className="text-sm font-semibold">{found.length}/{ws.placed.length}</span></div>
+      <p className="text-[13px] text-stone-500">Tap the first letter of a word, then its last letter.</p>
+      <div className={`mx-auto grid w-full max-w-md select-none gap-0.5 ${miss ? 'animate-pulse' : ''}`} style={{ gridTemplateColumns: `repeat(${size}, minmax(0, 1fr))` }}>
+        {ws.grid.map((row: string[], r: number) => row.map((ch, c) => { const on = lit.has(`${r},${c}`); const st = start && start[0] === r && start[1] === c; return (
+          <button key={`${r},${c}`} type="button" onClick={() => tap(r, c)} className={`aspect-square rounded-md text-[13px] font-semibold sm:text-sm ${st ? 'text-white' : on ? 'bg-emerald-200 text-emerald-900' : 'bg-white/80'}`} style={st ? { background: color } : undefined}>{ch}</button>
+        ); }))}
+      </div>
+      <div className="flex flex-wrap gap-1.5">{ws.placed.map((p: any) => <span key={p.word} className={`rounded-full px-2.5 py-1 text-[12px] font-semibold ${found.includes(p.word) ? 'bg-emerald-100 text-emerald-800 line-through' : 'bg-white/80'}`}>{p.word}</span>)}</div>
+      {done && <p className="rounded-2xl bg-emerald-50 p-3 text-center font-semibold text-emerald-800">🎉 All found — saved!</p>}
+    </Glass>
+  );
+}
+
+/** Crossword: type into the grid, then Check. */
+function CrosswordGame({ a, color, report }: { a: any; color: string; report?: (pct: number) => void }) {
+  const cw = useMemo(() => crosswordGrid(a.entries, a.seed), [a.entries, a.seed]);
+  const [v, setV] = useState<Record<string, string>>({});
+  const [checked, setChecked] = useState(false);
+  const refs = useRef<Record<string, HTMLInputElement | null>>({});
+  const dirRef = useRef<boolean>(false);
+  const wordOk = (p: any) => [...p.word].every((ch: string, i: number) => (v[`${p.row + (p.down ? i : 0)},${p.col + (p.down ? 0 : i)}`] || '') === ch);
+  const right = cw.placed.filter(wordOk).length;
+  const clues = (down: boolean) => cw.placed.filter((p: any) => p.down === down).map((p: any) => ({ ...p, n: cw.numbers.get(`${p.row},${p.col}`) })).sort((x: any, y: any) => x.n - y.n);
+  const type = (r: number, c: number, ch: string) => {
+    const L = ch.toUpperCase().replace(/[^A-Z]/g, '').slice(-1); setV((x) => ({ ...x, [`${r},${c}`]: L })); setChecked(false);
+    if (!L) return;
+    const across = cw.grid[r]?.[c + 1], down = cw.grid[r + 1]?.[c];
+    const next = dirRef.current ? (down ? `${r + 1},${c}` : across ? `${r},${c + 1}` : null) : (across ? `${r},${c + 1}` : down ? `${r + 1},${c}` : null);
+    if (next) refs.current[next]?.focus();
+  };
+  return (
+    <Glass className="space-y-3">
+      <p className="text-lg font-semibold">✏️ {a.prompt}</p>
+      <div className="overflow-x-auto"><div className="mx-auto grid w-max gap-0" style={{ gridTemplateColumns: `repeat(${cw.cols}, 1.9rem)` }}>
+        {cw.grid.map((row: string[], r: number) => row.map((sol, c) => { const k = `${r},${c}`; if (!sol) return <span key={k} className="h-[1.9rem] w-[1.9rem]" />; const bad = checked && v[k] !== sol; const good = checked && v[k] === sol; return (
+          <label key={k} className={`relative h-[1.9rem] w-[1.9rem] border border-stone-800 ${good ? 'bg-emerald-100' : bad ? 'bg-red-100' : 'bg-white'}`}>
+            {cw.numbers.has(k) && <span className="absolute left-0.5 top-0 text-[8px] font-semibold leading-none">{cw.numbers.get(k)}</span>}
+            <input ref={(el) => { refs.current[k] = el; }} value={v[k] || ''} onFocus={() => { dirRef.current = !cw.grid[r]?.[c + 1] && !cw.grid[r]?.[c - 1]; }} onChange={(e) => type(r, c, e.target.value)} maxLength={2} inputMode="text" autoCapitalize="characters" autoCorrect="off" spellCheck={false} aria-label={`Row ${r + 1} column ${c + 1}`} className="h-full w-full bg-transparent text-center text-[15px] font-semibold uppercase outline-none focus:bg-amber-50" />
+          </label>
+        ); }))}
+      </div></div>
+      <div className="grid gap-3 sm:grid-cols-2">{[false, true].map((down) => <div key={String(down)}><p className="text-[11px] font-semibold uppercase tracking-widest text-stone-500">{down ? 'Down' : 'Across'}</p>{clues(down).map((p: any) => <p key={`${p.n}${down}`} className={`text-[14px] ${checked && wordOk(p) ? 'text-emerald-700' : ''}`}><b>{p.n}.</b> {p.clue} <span className="text-stone-400">({p.word.length})</span></p>)}</div>)}</div>
+      <button type="button" onClick={() => { setChecked(true); report?.(Math.round((right / Math.max(1, cw.placed.length)) * 100)); }} className="h-12 w-full rounded-full text-sm font-medium text-white" style={{ background: color }}>Check · {checked ? `${right} of ${cw.placed.length} right — saved` : 'see how you did'}</button>
+    </Glass>
+  );
+}
+
+/** Fill in the blanks, with the word bank. */
+function ClozeGame({ a, color, report }: { a: any; color: string; report?: (pct: number) => void }) {
+  const [ans, setAns] = useState<string[]>(() => a.items.map(() => ''));
+  const [checked, setChecked] = useState(false);
+  const bank = useMemo<string[]>(() => shuffle<string>(a.items.map((x: any) => String(x.answer))), [a.items]);
+  const norm = (x: string) => x.trim().toLowerCase().replace(/\s+/g, ' ');
+  const right = a.items.filter((x: any, i: number) => norm(ans[i]) === norm(x.answer)).length;
+  return (
+    <Glass className="space-y-3">
+      <p className="text-lg font-semibold">📝 {a.prompt}</p>
+      <div className="flex flex-wrap gap-1.5">{bank.map((w: string, i: number) => <span key={i} className="rounded-full bg-white/80 px-2.5 py-1 text-[12px]">{w}</span>)}</div>
+      {a.items.map((x: any, i: number) => { const [before, after] = String(x.sentence).split('____'); const ok = checked && norm(ans[i]) === norm(x.answer); const bad = checked && !ok; return (
+        <p key={i} className="text-[15px] leading-9">{i + 1}. {before}<input value={ans[i]} onChange={(e) => { const n = [...ans]; n[i] = e.target.value; setAns(n); setChecked(false); }} className={`mx-1 h-9 w-36 rounded-lg border-2 px-2 text-[15px] ${ok ? 'border-emerald-500 bg-emerald-50' : bad ? 'border-red-400 bg-red-50' : 'border-stone-300 bg-white'}`} aria-label={`Blank ${i + 1}`} />{after}{bad && <span className="ml-1 text-[12px] text-red-700">→ {x.answer}</span>}</p>
+      ); })}
+      <button type="button" onClick={() => { setChecked(true); report?.(Math.round((right / Math.max(1, a.items.length)) * 100)); }} className="h-12 w-full rounded-full text-sm font-medium text-white" style={{ background: color }}>{checked ? `${right} of ${a.items.length} right — saved` : 'Check my answers'}</button>
+    </Glass>
+  );
+}
+
 /** Label the diagram: tap a label, then the numbered spot it belongs to. */
 function LabelGame({ a, color }: { a: any; color: string }) {
   const [labels] = useState(() => shuffle(a.points.map((p: any, i: number) => ({ text: p.label, i }))));
@@ -536,7 +625,7 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
               {(L.blocks || []).length > 0 && <Blocks blocks={L.blocks} />}
               {lesson.enrolled && L.kind === 'assignment' && <Assignment tenantId={tenantId} courseId={course.course.id} lessonId={lessonId} color={color} />}
               {L.transcript && <details className="glass rounded-2xl border border-white/70 px-4 py-3"><summary className="cursor-pointer text-sm font-semibold">📄 Transcript</summary><p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap text-[15px] leading-relaxed text-stone-700">{L.transcript}</p></details>}
-              {lesson.enrolled && L.activity && <Activity a={L.activity} color={color} />}
+              {lesson.enrolled && L.activity && <Activity a={L.activity} color={color} report={(pct) => void api({ action: 'activity-score', tenantId, token, courseId: course.course.id, lessonId, pct })} />}
               {lesson.enrolled && L.flashcards?.length > 0 && <Flashcards cards={L.flashcards} color={color} />}
               {L.downloadUrl && <a href={L.downloadUrl} target="_blank" rel="noreferrer" className="glass flex items-center justify-between rounded-2xl border border-white/70 px-4 py-3 text-sm"><span>↓ {L.downloadName || 'Download'}</span><span className="text-stone-500">Open</span></a>}
               {L.quiz && lesson.enrolled && (
