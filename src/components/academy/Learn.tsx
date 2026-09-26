@@ -78,8 +78,7 @@ function Blocks({ blocks, accent }: { blocks: any[]; accent?: string | null }) {
             <div className="space-y-2">{s.text && <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{s.text}</p>}{s.media?.url && <img src={s.media.url} alt={`Step ${k + 1}`} className="w-full max-w-md rounded-2xl" />}</div></div>)}</Glass>
       );
       if (b.type === 'divider') return <hr key={i} className="border-white/70" />;
-      // The interactive has its own heading inside the frame — nothing extra above it.
-      if (b.type === 'interactive') return <div key={i}><InteractiveFrame html={b.html} title={b.title} accent={accent} /></div>;
+      if (b.type === 'interactive') return <div key={i} className="space-y-1">{b.title && <p className="px-1 text-lg font-semibold">✨ {b.title}</p>}<InteractiveFrame html={b.html} title={b.title} accent={accent} /></div>;
       if (b.type === 'hotspots') return b.media?.url ? <Hotspots key={i} b={b} /> : null;
       if (b.type === 'stages') return <Stages key={i} b={b} />;
       return null;
@@ -399,11 +398,24 @@ function Tutor({ tenantId, courseId, lessonId, color }: { tenantId: string; cour
   );
 }
 
+// ── Motion: one shared style — splash landings, staggered reveals, unlock bursts ─
+export const MOTION_CSS = `
+@keyframes cf-land{0%{opacity:0;transform:translateY(22px) scale(.97)}60%{opacity:1;transform:translateY(-3px) scale(1.005)}100%{opacity:1;transform:none}}
+.cf-land{animation:cf-land .62s cubic-bezier(.34,1.56,.64,1) both}
+.cf-stagger>*{animation:cf-land .62s cubic-bezier(.34,1.56,.64,1) both}
+.cf-stagger>*:nth-child(2){animation-delay:.06s}.cf-stagger>*:nth-child(3){animation-delay:.12s}.cf-stagger>*:nth-child(4){animation-delay:.18s}.cf-stagger>*:nth-child(5){animation-delay:.24s}.cf-stagger>*:nth-child(6){animation-delay:.3s}.cf-stagger>*:nth-child(n+7){animation-delay:.36s}
+@keyframes cf-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}.cf-pulse{animation:cf-pulse 2.2s ease-in-out infinite}
+@keyframes cf-ripple{0%{opacity:.85;transform:scale(.8)}100%{opacity:0;transform:scale(2.3)}}.cf-ripple{animation:cf-ripple 1.1s ease-out 3}
+@keyframes cf-pop{0%{transform:scale(.3);opacity:0}70%{transform:scale(1.14);opacity:1}100%{transform:scale(1)}}.cf-pop{animation:cf-pop .6s cubic-bezier(.34,1.56,.64,1) both}
+@keyframes cf-rise{0%{opacity:0;transform:translateY(10px)}100%{opacity:1;transform:none}}.cf-rise{animation:cf-rise .45s ease-out both}
+@media (prefers-reduced-motion: reduce){.cf-land,.cf-stagger>*,.cf-pulse,.cf-ripple,.cf-pop,.cf-rise{animation:none!important}}
+`;
+
 export function Shell({ brand, tenantId, children }: { brand?: any; tenantId: string; children: React.ReactNode }) {
   const [a, save] = useA11y();
   return (
     <div className="relative min-h-dvh text-stone-900" data-cf-contrast={a.contrast ? '1' : undefined} data-cf-readable={a.readable ? '1' : undefined} data-cf-still={a.still ? '1' : undefined}>
-      <style>{A11Y_CSS}</style>
+      <style>{A11Y_CSS + MOTION_CSS}</style>
       <div className="cf-backdrop"><AuthBackdrop /></div>
       <div className="relative z-10">
         <header className="sticky top-0 z-20 border-b border-white/60 bg-white/55 backdrop-blur-2xl">
@@ -473,6 +485,8 @@ export function Course({ tenantId, slug }: { tenantId: string; slug: string }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   useEffect(() => { api({ action: 'course', tenantId, slug, token: getToken(tenantId) }).then(setD); }, [tenantId, slug]);
+  const [celebrate, setCelebrate] = useState<any[] | null>(null);
+  useEffect(() => { if (d?.justUnlocked?.length) setCelebrate(d.justUnlocked); }, [d]);
   const modules = useMemo(() => { const out: { title: string; lessons: any[] }[] = []; for (const l of d?.lessons || []) { const m = out.find((x) => x.title === l.moduleTitle); if (m) m.lessons.push(l); else out.push({ title: l.moduleTitle, lessons: [l] }); } return out; }, [d]);
   if (!d) return <Shell tenantId={tenantId}><Loading /></Shell>;
   if (!d.ok) return <Shell tenantId={tenantId}><Glass><p className="text-center">{d.error}</p></Glass></Shell>;
@@ -489,6 +503,7 @@ export function Course({ tenantId, slug }: { tenantId: string; slug: string }) {
   };
   return (
     <Shell brand={d.brand} tenantId={tenantId}>
+      {celebrate && <UnlockMoment items={celebrate} color={color} onClose={() => { void api({ action: 'seen-unlock', tenantId, token: getToken(tenantId), courseId: c.id, keys: celebrate.map((x) => x.key) }); setCelebrate(null); }} />}
       <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
         <div className="space-y-5">
           {c.coverUrl && <img src={c.coverUrl} alt="" className="aspect-video w-full rounded-[1.75rem] object-cover" />}
@@ -498,7 +513,7 @@ export function Course({ tenantId, slug }: { tenantId: string; slug: string }) {
             <p className="mt-2 text-sm text-stone-500">{c.instructorName ? `With ${c.instructorName} · ` : ''}{d.lessons.length} lessons{c.level ? ` · ${c.level}` : ''}</p>
           </div>
           {c.whatYouLearn?.length > 0 && <Glass><p className="text-[11px] uppercase tracking-[0.25em] text-stone-400">What you’ll learn</p><ul className="mt-3 grid gap-2 sm:grid-cols-2">{c.whatYouLearn.map((w: string) => <li key={w} className="flex gap-2 text-[15px]"><span style={{ color }}>✓</span>{w}</li>)}</ul></Glass>}
-          <Glass>
+          {d.enrolled && d.modules?.length > 0 ? <Journey d={d} tenantId={tenantId} slug={slug} color={color} /> : <Glass>
             <p className="text-[11px] uppercase tracking-[0.25em] text-stone-400">Curriculum</p>
             <div className="mt-3 space-y-4">
               {modules.map((m) => (
@@ -513,7 +528,7 @@ export function Course({ tenantId, slug }: { tenantId: string; slug: string }) {
                 </div>
               ))}
             </div>
-          </Glass>
+          </Glass>}
           {c.description && <Glass><Prose text={c.description} /></Glass>}
         </div>
 
@@ -522,6 +537,7 @@ export function Course({ tenantId, slug }: { tenantId: string; slug: string }) {
             {d.enrolled ? (
               <>
                 <p className="text-lg font-semibold">You’re enrolled</p>
+                {d.game && <GameChips g={d.game} color={color} />}
                 <div><div className="h-2 rounded-full bg-white/70"><div className="h-2 rounded-full" style={{ width: `${pct}%`, background: color }} /></div><p className="mt-1 text-[12px] text-stone-500">{done} of {d.lessons.length} lessons · {pct}%</p></div>
                 {cont && <Link href={`/learn/${tenantId}/${slug}/${cont}`} className="block h-12 rounded-full text-center text-sm font-medium leading-[3rem] text-white" style={{ background: color }}>{done ? 'Continue' : 'Start the course'}</Link>}
               </>
@@ -607,6 +623,7 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
   const [trBusy, setTrBusy] = useState(false);
   // Must be set up before the loading return below (React needs the same order every render).
   const [cheer, setCheer] = useState(0);
+  const [recap, setRecap] = useState<any>(null); const [gained, setGained] = useState(0);
   // Video pop-up questions: pause at each time; scrubbing past one still asks it.
   const playerEl = useRef<any>(null);
   const [vq, setVq] = useState<any>(null); const [vqPick, setVqPick] = useState<number | null>(null);
@@ -647,7 +664,9 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
     setBusy(false);
     if (!r.ok) { setNote(r.error || 'Not yet.'); return; }
     // A little celebration on completing a lesson, then on to the next one.
-    if (!done) { setCheer((n) => n + 1); await new Promise((res) => setTimeout(res, 900)); }
+    if (!done) { setCheer((n) => n + 1); if (r.game?.gained) setGained(r.game.gained); await new Promise((res) => setTimeout(res, 900)); }
+    // Finished a module: celebrate it, then back to the journey (where any unlock plays).
+    if (!done && (r.completedModule || r.courseDone)) { setRecap({ ...r.completedModule, courseDone: r.courseDone, nextModule: r.nextModule, game: r.game }); return; }
     if (!done && next) window.location.href = `/learn/${tenantId}/${slug}/${next.id}`; else void load();
   };
   const submitQuiz = async () => {
@@ -691,6 +710,8 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
               )}
               {L.body && <Glass className="space-y-3"><div className="flex justify-end"><Listen text={L.body} /></div><Prose text={L.body} /></Glass>}
               <Celebrate show={cheer > 0} color={color} key={cheer} />
+              {gained > 0 && <p key={`g${cheer}`} className="cf-pop fixed left-1/2 top-20 z-40 -translate-x-1/2 rounded-full bg-white px-4 py-2 text-sm font-semibold shadow-lg" style={{ color }}>+{gained} points</p>}
+              {recap && <ModuleRecap r={recap} color={color} onDone={() => { window.location.href = `/learn/${tenantId}/${slug}`; }} />}
               {(L.blocks || []).length > 0 && <Blocks blocks={L.blocks} accent={color} />}
               {lesson.enrolled && L.kind === 'assignment' && <Assignment tenantId={tenantId} courseId={course.course.id} lessonId={lessonId} color={color} />}
               {L.transcript && <details className="glass rounded-2xl border border-white/70 px-4 py-3"><summary className="cursor-pointer text-sm font-semibold">📄 Transcript</summary><p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap text-[15px] leading-relaxed text-stone-700">{L.transcript}</p></details>}
@@ -1177,5 +1198,101 @@ export function Application({ tenantId, appToken }: { tenantId: string; appToken
         </Step>
       </div>
     </Shell>
+  );
+}
+
+
+// ── The journey: modules along a path ─────────────────────────────────────
+function Journey({ d, tenantId, slug, color }: any) {
+  const mods: any[] = d.modules;
+  const current = mods.findIndex((m) => m.open && !m.complete);
+  const [openKey, setOpenKey] = useState<string | null>(mods[current]?.key || null);
+  const lessonsById = new Map((d.lessons || []).map((l: any) => [l.id, l]));
+  return (
+    <Glass className="space-y-1">
+      <p className="text-[11px] uppercase tracking-[0.25em] text-stone-400">Your journey</p>
+      <div className="cf-stagger relative mt-3">
+        {mods.map((m, i) => {
+          const here = i === current; const expanded = openKey === m.key && m.open;
+          const icon = m.complete ? '✓' : !m.open ? '🔒' : here ? '★' : '○';
+          return (
+            <div key={m.key} className="relative pb-5 pl-[4.5rem]">
+              {i < mods.length - 1 && <span className="absolute left-[1.95rem] top-16 h-[calc(100%-3.5rem)] w-0 border-l-[3px] border-dotted border-stone-300" aria-hidden />}
+              <button type="button" disabled={!m.open} onClick={() => setOpenKey(expanded ? null : m.key)} aria-expanded={expanded} className="absolute left-0 top-0 flex h-16 w-16 items-center justify-center rounded-full text-2xl font-semibold disabled:cursor-default"
+                style={m.complete ? { background: '#d1fae5', color: '#047857' } : here ? { background: `${color}1f`, color, border: `3px solid ${color}` } : m.open ? { background: 'white', color } : { background: 'rgba(255,255,255,.6)', color: '#a8a29e' }}>
+                {here && <span className="cf-pulse absolute inset-0 rounded-full" style={{ boxShadow: `0 0 0 3px ${color}40` }} aria-hidden />}{icon}</button>
+              <button type="button" disabled={!m.open} onClick={() => setOpenKey(expanded ? null : m.key)} className="block min-h-16 w-full text-left disabled:cursor-default">
+                <span className="flex items-center gap-2"><span className="text-lg font-semibold leading-tight">{m.title}</span>{here && <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold text-white" style={{ background: color }}>You’re here</span>}{m.complete && d.game && m.badge && <span title={m.badge.name}>{m.badge.emoji}</span>}</span>
+                <span className="block text-[13px] text-stone-500">{m.open ? `${m.done} of ${m.total} lessons${m.minutes ? ` · about ${m.minutes} min` : ''}` : m.reason}</span>
+                {m.open && m.total > 0 && <span className="mt-1.5 block h-1.5 max-w-xs rounded-full bg-white/80"><span className="block h-1.5 rounded-full transition-all duration-700" style={{ width: `${(m.done / m.total) * 100}%`, background: m.complete ? '#10b981' : color }} /></span>}
+              </button>
+              {expanded && (
+                <div className="cf-rise mt-3 space-y-2">
+                  {m.done === 0 && (m.intro || m.lessonTitles.length > 1) && (
+                    <div className="rounded-2xl bg-white/85 p-4">
+                      <p className="text-[11px] uppercase tracking-[0.2em] text-stone-500">Welcome to this module</p>
+                      {m.intro && <p className="mt-1 text-[15px]">{m.intro}</p>}
+                      <p className="mt-2 text-[13px] text-stone-600">You’ll cover: {m.lessonTitles.join(' · ')}</p>
+                      {d.game && m.badge && <p className="mt-1 text-[13px]">Finish it to earn <b>{m.badge.emoji} {m.badge.name}</b></p>}
+                    </div>
+                  )}
+                  {m.lessonIds.map((id: string) => { const l: any = lessonsById.get(id); if (!l) return null; const fin = !!d.progress?.[id]; return (
+                    <Link key={id} href={`/learn/${tenantId}/${slug}/${id}`} className="flex items-center gap-3 rounded-2xl bg-white/70 px-3 py-2.5 text-[15px] transition active:scale-[0.99]">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[13px]" style={fin ? { background: '#d1fae5', color: '#047857' } : { background: `${color}1a`, color }}>{fin ? '✓' : l.kind === 'video' ? '▶' : l.kind === 'assignment' ? '✎' : '≡'}</span>
+                      <span className="min-w-0 flex-1 truncate">{l.title}</span><span className="text-stone-400">›</span>
+                    </Link>
+                  ); })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Glass>
+  );
+}
+
+/** The moment a new module opens — shown once, when the student comes back. */
+function UnlockMoment({ items, color, onClose }: { items: any[]; color: string; onClose: () => void }) {
+  const m = items[0];
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-900/40 p-4 backdrop-blur-sm sm:items-center" role="dialog" aria-label="New module unlocked">
+      <div className="cf-land w-full max-w-sm space-y-4 rounded-[2rem] bg-white p-6 text-center shadow-2xl">
+        <div className="relative mx-auto flex h-24 w-24 items-center justify-center">
+          <span className="cf-ripple absolute inset-0 rounded-full" style={{ border: `3px solid ${color}` }} aria-hidden />
+          <span className="cf-pop flex h-20 w-20 items-center justify-center rounded-full text-4xl text-white" style={{ background: color }}>🔓</span>
+        </div>
+        <div><p className="text-[11px] uppercase tracking-[0.25em] text-stone-500">New module unlocked</p><p className="mt-1 text-2xl font-semibold">{m.title}</p>{m.intro && <p className="mt-2 text-[15px] text-stone-600">{m.intro}</p>}
+          {items.length > 1 && <p className="mt-1 text-[13px] text-stone-500">and {items.length - 1} more</p>}</div>
+        <button type="button" onClick={onClose} className="h-12 w-full rounded-full text-sm font-medium text-white" style={{ background: color }}>Let’s go</button>
+      </div>
+    </div>
+  );
+}
+
+/** Finished a module (or the whole course): recap, badge, what's next. */
+function ModuleRecap({ r, color, onDone }: { r: any; color: string; onDone: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-900/40 p-4 backdrop-blur-sm sm:items-center" role="dialog" aria-label="Module complete">
+      <div className="cf-land w-full max-w-sm space-y-4 rounded-[2rem] bg-white p-6 shadow-2xl">
+        <div className="text-center"><span className="cf-pop inline-flex h-20 w-20 items-center justify-center rounded-full text-4xl" style={{ background: '#d1fae5' }}>{r.courseDone ? '🎓' : r.badge?.emoji || '✓'}</span>
+          <p className="mt-3 text-[11px] uppercase tracking-[0.25em] text-stone-500">{r.courseDone ? 'Course complete' : 'Module complete'}</p>
+          <p className="text-2xl font-semibold">{r.courseDone ? 'You did it!' : r.title}</p></div>
+        {!r.courseDone && r.lessonTitles?.length > 0 && <div className="rounded-2xl bg-stone-50 p-3"><p className="text-[12px] font-semibold text-stone-500">What you covered</p><ul className="cf-stagger mt-1 space-y-1">{r.lessonTitles.map((t: string) => <li key={t} className="text-[14px]">✓ {t}</li>)}</ul></div>}
+        {r.game && <div className="flex justify-center gap-2">{r.badge && <span className="cf-pop rounded-full px-3 py-1 text-sm font-semibold" style={{ background: `${color}1a`, color }}>{r.badge.emoji} {r.badge.name}</span>}<span className="cf-pop rounded-full bg-amber-50 px-3 py-1 text-sm font-semibold text-amber-800">⭐ {r.game.points} points</span>{r.game.streak > 1 && <span className="cf-pop rounded-full bg-orange-50 px-3 py-1 text-sm font-semibold text-orange-700">🔥 {r.game.streak}-day streak</span>}</div>}
+        {r.nextModule && <p className="text-center text-[14px] text-stone-600">Up next: <b>{r.nextModule.title}</b></p>}
+        <button type="button" onClick={onDone} className="h-12 w-full rounded-full text-sm font-medium text-white" style={{ background: color }}>{r.nextModule ? 'See what’s unlocked' : 'Back to my course'}</button>
+      </div>
+    </div>
+  );
+}
+
+/** Points · streak · badges (only when the academy switches them on). */
+export function GameChips({ g, color }: { g: any; color: string }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2"><span className="rounded-full bg-amber-50 px-3 py-1 text-sm font-semibold text-amber-800">⭐ {g.points} points</span>{g.streak > 0 && <span className="rounded-full bg-orange-50 px-3 py-1 text-sm font-semibold text-orange-700">🔥 {g.streak}-day streak</span>}</div>
+      {g.badges?.length > 0 && <div className="flex flex-wrap gap-1.5">{g.badges.map((b: any) => <span key={b.id} title={b.name} className="rounded-full px-2.5 py-1 text-[12px] font-semibold" style={{ background: `${color}14`, color }}>{b.emoji} {b.name}</span>)}</div>}
+    </div>
   );
 }
