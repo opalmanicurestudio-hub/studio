@@ -5,6 +5,9 @@
 //   board · create · get · stage · note · send-link · doc-verify · set-start
 //   countersign · cohort-save · cohort-assign
 //   tuition · ledger-add · refund-quote · withdraw
+//   decisions (academy-decisions.ts): start-review · check-set · interview-set ·
+//   interview-result · rubric-score · decide · condition-met · offer-extend ·
+//   admission-setup · admission-setup-save · set-language
 
 import { deviceAllowed } from '@/lib/approved-devices';
 import { NextRequest, NextResponse } from 'next/server';
@@ -16,6 +19,8 @@ import { studentIdFor } from '@/lib/academy';
 import { STAGES, DEFAULT_DOCS, DEFAULT_REFUND, issueApplicationLink, setStage, ledger, planBalance, refundCalc, money, type Stage } from '@/lib/academy-admissions';
 import { resolveFromAddress } from '@/lib/notify';
 import { linkOrigin } from '@/lib/app-origin';
+import { decide, reviewState, setupOf, seatsTaken, promoteWaitlist, OUTCOMES, NOT_ACCEPTED_REASONS, SEAT_STAGES } from '@/lib/academy-decisions';
+import { LANGUAGES } from '@/lib/translate';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -45,8 +50,8 @@ export async function POST(req: NextRequest) {
       const [adm, cohorts, progs] = await Promise.all([db.collection(`tenants/${tenantId}/admissions`).limit(2000).get(), db.collection(`tenants/${tenantId}/cohorts`).limit(200).get(), db.collection(`tenants/${tenantId}/programs`).limit(100).get()]);
       const cs = cohorts.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
       const all = adm.docs.map((d: any) => { const a = d.data() as any; return { id: d.id, name: a.name, email: a.email, phone: a.phone || null, programId: a.programId, cohortId: a.cohortId || null, stage: a.stage, source: a.source || null, createdAt: a.createdAt, updatedAt: a.updatedAt || a.createdAt, waitlisted: !!a.waitlisted,
-        docsDone: Object.values(a.documents || {}).filter((x: any) => x.status === 'verified').length, docsTotal: (a.requiredDocs || []).length, signed: !!a.agreement?.signedAt }; });
-      for (const c of cs) (c as any).enrolled = all.filter((a: any) => a.cohortId === c.id && a.stage === 'enrolled').length;
+        docsDone: Object.values(a.documents || {}).filter((x: any) => x.status === 'verified').length, docsTotal: (a.requiredDocs || []).length, signed: !!a.agreement?.signedAt, offerExpiresAt: a.stage === 'offer' ? a.offer?.expiresAt || null : null, waitlistedAt: a.waitlistedAt || null, interviewAt: a.interview?.status === 'scheduled' ? a.interview.at : null }; });
+      for (const c of cs) { (c as any).enrolled = all.filter((a: any) => a.cohortId === c.id && a.stage === 'enrolled').length; (c as any).seatsTaken = all.filter((a: any) => a.cohortId === c.id && SEAT_STAGES.includes(a.stage)).length; }
       return NextResponse.json({ ok: true, stages: STAGES, admissions: all, cohorts: cs, programs: progs.docs.map((d: any) => { const p = d.data() as any; return { id: d.id, name: p.name, tuition: p.tuition || null }; }) });
     }
 
@@ -69,15 +74,91 @@ export async function POST(req: NextRequest) {
       const planId = `${a.programId}_${studentIdFor(a.email)}`;
       const plan = ((await db.doc(`tenants/${tenantId}/tuitionPlans/${planId}`).get()).data() as any) || null;
       const bal = plan ? await planBalance(tenantId, planId) : null;
-      const { appTokenHash, ...safe } = a;
-      return NextResponse.json({ ok: true, admission: { id: b.id, ...safe, hasLink: !!appTokenHash }, program: { id: a.programId, name: p.name, tuition: p.tuition || null, refundPolicy: p.refundPolicy || DEFAULT_REFUND, totalHours: p.totalHours || null }, plan, balance: bal });
+      const { appTokenHash, appTokenHashes, ...safe } = a;
+      const cohorts = (await db.collection(`tenants/${tenantId}/cohorts`).where('programId', '==', a.programId).limit(50).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+      for (const c of cohorts) (c as any).seatsTaken = await seatsTaken(tenantId, c.id);
+      return NextResponse.json({ ok: true, admission: { id: b.id, ...safe, hasLink: !!(appTokenHash || appTokenHashes?.length) }, program: { id: a.programId, name: p.name, tuition: p.tuition || null, refundPolicy: p.refundPolicy || DEFAULT_REFUND, totalHours: p.totalHours || null },
+        plan, balance: bal, review: reviewState(a, p), setup: setupOf(p), cohorts, outcomes: OUTCOMES, reasons: NOT_ACCEPTED_REASONS, languages: LANGUAGES, me: who });
     }
 
     if (b.action === 'stage') {
       if (!STAGES.includes(b.stage)) return NextResponse.json({ ok: false, error: 'Unknown stage.' }, { status: 400 });
       if (b.stage === 'enrolled') return NextResponse.json({ ok: false, error: 'Students become enrolled when their agreement is signed and down payment made (or use Programs → Enrol to enrol directly).' }, { status: 400 });
+      if (['offer', 'accepted', 'waitlist', 'declined', 'agreement'].includes(b.stage)) return NextResponse.json({ ok: false, error: 'Use “Decision” to accept, waitlist or not accept an applicant — they get a letter and it’s recorded. The agreement stage starts when they sign.' }, { status: 400 });
       if (['declined', 'withdrawn'].includes(b.stage) && !String(b.note || '').trim()) return NextResponse.json({ ok: false, error: 'A reason is required — it’s kept on the record.' }, { status: 400 });
+      const before = ((await aRef(b.id).get()).data() as any) || {};
       await setStage(tenantId, String(b.id), b.stage as Stage, who, String(b.note || '').slice(0, 300) || undefined);
+      if (b.stage === 'withdrawn' && before.cohortId && SEAT_STAGES.includes(before.stage)) await promoteWaitlist(tenantId, before.cohortId, origin);
+      return NextResponse.json({ ok: true });
+    }
+
+    // ── Review and decisions ──
+    if (['start-review', 'check-set', 'interview-set', 'interview-result', 'rubric-score', 'condition-met', 'offer-extend', 'set-language'].includes(b.action)) {
+      const a = ((await aRef(b.id).get()).data() as any) || null;
+      if (!a) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
+      if (b.action === 'start-review') {
+        if (!['applied', 'documents'].includes(a.stage)) return NextResponse.json({ ok: false, error: 'Only applications can be moved to review.' }, { status: 400 });
+        await setStage(tenantId, String(b.id), 'review', who, 'Review started'); return NextResponse.json({ ok: true });
+      }
+      if (b.action === 'check-set') {
+        const label = String(b.label || '').slice(0, 160); if (!label) return NextResponse.json({ ok: false, error: 'Which check?' }, { status: 400 });
+        await aRef(b.id).set({ checks: { ...(a.checks || {}), [label]: { done: !!b.done, by: who, at: now, note: String(b.note || '').slice(0, 300) || null } }, updatedAt: now }, { merge: true });
+        await appendAudit(tenantId, { type: 'admissions.check', by: who, summary: `${a.name}: “${label}” ${b.done ? 'met' : 'not met'}`, data: { admissionId: b.id } });
+        return NextResponse.json({ ok: true });
+      }
+      if (b.action === 'interview-set') {
+        const at = String(b.at || ''); if (!at || isNaN(Date.parse(at))) return NextResponse.json({ ok: false, error: 'Choose a date and time.' }, { status: 400 });
+        const interview = { at: new Date(at).toISOString(), where: String(b.where || '').slice(0, 200), with: String(b.with || who).slice(0, 80), status: 'scheduled', by: who };
+        await aRef(b.id).set({ interview, updatedAt: now }, { merge: true });
+        await appendAudit(tenantId, { type: 'admissions.interview', by: who, summary: `${a.name}: interview ${new Date(interview.at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}`, data: { admissionId: b.id } });
+        let emailed = false;
+        if (b.notify) emailed = await email(a.email, `Your admissions interview — ${t.name || 'our school'}`, `Hi ${String(a.name).split(' ')[0]},\n\nYour admissions interview is booked:\n\n${String(b.whenText || new Date(interview.at).toUTCString())}\n${interview.where ? `Where: ${interview.where}\n` : ''}With: ${interview.with}\n\nIf you need a different time, just reply to this email.\n\n— ${t.name || ''}`);
+        return NextResponse.json({ ok: true, emailed });
+      }
+      if (b.action === 'interview-result') {
+        if (!a.interview) return NextResponse.json({ ok: false, error: 'No interview booked.' }, { status: 400 });
+        const status = b.status === 'no_show' ? 'no_show' : 'done';
+        const checks = { ...(a.checks || {}) }; const lbl = setupOf(((await db.doc(`tenants/${tenantId}/programs/${a.programId}`).get()).data() as any) || {}).checks.find((c: string) => /interview/i.test(c));
+        if (status === 'done' && lbl) checks[lbl] = { done: true, by: who, at: now, note: 'Interview held' };
+        await aRef(b.id).set({ interview: { ...a.interview, status, note: String(b.note || '').slice(0, 1000) || null, resultBy: who, resultAt: now }, checks, updatedAt: now }, { merge: true });
+        await appendAudit(tenantId, { type: 'admissions.interview_result', by: who, summary: `${a.name}: interview ${status === 'done' ? 'held' : 'missed'}`, data: { admissionId: b.id } });
+        return NextResponse.json({ ok: true });
+      }
+      if (b.action === 'rubric-score') {
+        const sc: Record<string, number> = {}; for (const [k, v] of Object.entries(b.scores || {})) { const n = Math.round(Number(v)); if (n >= 1 && n <= 5) sc[String(k).slice(0, 80)] = n; }
+        await aRef(b.id).set({ rubric: { ...(a.rubric || {}), [who]: sc }, updatedAt: now }, { merge: true });
+        return NextResponse.json({ ok: true });
+      }
+      if (b.action === 'condition-met') {
+        const list = [...(a.offer?.conditions || [])]; const i = Number(b.index);
+        if (!list[i]) return NextResponse.json({ ok: false, error: 'Condition not found.' }, { status: 400 });
+        list[i] = { ...list[i], met: !!b.met, by: who, at: now };
+        await aRef(b.id).set({ offer: { ...a.offer, conditions: list }, updatedAt: now }, { merge: true });
+        await appendAudit(tenantId, { type: 'admissions.condition', by: who, summary: `${a.name}: condition “${list[i].text}” ${b.met ? 'met' : 'reopened'}`, data: { admissionId: b.id } });
+        return NextResponse.json({ ok: true });
+      }
+      if (b.action === 'offer-extend') {
+        if (a.stage !== 'offer') return NextResponse.json({ ok: false, error: 'No open offer.' }, { status: 400 });
+        const days = Math.min(30, Math.max(1, Number(b.days) || 3)); const base = Math.max(Date.now(), Date.parse(a.offer?.expiresAt || '') || 0);
+        const expiresAt = new Date(base + days * 86400000).toISOString();
+        await aRef(b.id).set({ offer: { ...a.offer, expiresAt, remindedAt: null }, updatedAt: now }, { merge: true });
+        await appendAudit(tenantId, { type: 'admissions.offer_extended', by: who, summary: `${a.name}: offer extended to ${expiresAt.slice(0, 10)}`, data: { admissionId: b.id } });
+        return NextResponse.json({ ok: true, expiresAt });
+      }
+      if (b.action === 'set-language') {
+        const l = LANGUAGES[b.language] ? b.language : 'en'; await aRef(b.id).set({ language: l }, { merge: true }); return NextResponse.json({ ok: true });
+      }
+    }
+    if (b.action === 'decide') {
+      try { const r = await decide(tenantId, String(b.id || ''), b.decision || {}, who, origin); return NextResponse.json({ ok: true, ...r }); }
+      catch (e: any) { return NextResponse.json({ ok: false, error: e?.message || 'Couldn’t record the decision.' }, { status: 400 }); }
+    }
+    if (b.action === 'admission-setup-save') {
+      const clean = (x: any) => (Array.isArray(x) ? x : []).map((v: any) => String(v).trim().slice(0, 160)).filter(Boolean).slice(0, 15);
+      const ref = db.doc(`tenants/${tenantId}/programs/${String(b.programId || '')}`);
+      if (!(await ref.get()).exists) return NextResponse.json({ ok: false, error: 'Program not found.' }, { status: 404 });
+      await ref.set({ admission: { checks: clean(b.checks), rubric: clean(b.rubric) } }, { merge: true });
+      await appendAudit(tenantId, { type: 'admissions.setup', by: who, summary: `Admission checks updated for a program (${clean(b.checks).length} checks, ${clean(b.rubric).length} rubric criteria)` });
       return NextResponse.json({ ok: true });
     }
 
@@ -125,16 +206,20 @@ export async function POST(req: NextRequest) {
       const c = b.cohort || {};
       const ref = c.id ? db.doc(`tenants/${tenantId}/cohorts/${String(c.id)}`) : db.collection(`tenants/${tenantId}/cohorts`).doc();
       await ref.set({ id: ref.id, programId: String(c.programId || ''), name: String(c.name || '').slice(0, 80) || 'Cohort', startDate: String(c.startDate || '').slice(0, 10) || null, capacity: Math.max(0, Number(c.capacity) || 0) || null, schedule: String(c.schedule || '').slice(0, 200) || null, updatedAt: now }, { merge: true });
+      if (c.id) { try { await promoteWaitlist(tenantId, ref.id, origin); } catch { /* ignore */ } }
       return NextResponse.json({ ok: true, id: ref.id });
     }
 
     if (b.action === 'cohort-assign') {
       const c = ((await db.doc(`tenants/${tenantId}/cohorts/${String(b.cohortId || '')}`).get()).data() as any) || null;
       if (!c) return NextResponse.json({ ok: false, error: 'Cohort not found.' }, { status: 404 });
-      const taken = (await db.collection(`tenants/${tenantId}/admissions`).where('cohortId', '==', b.cohortId).limit(1000).get()).docs.filter((d: any) => d.id !== b.id && !['declined', 'withdrawn'].includes((d.data() as any).stage)).length;
-      const waitlisted = !!c.capacity && taken >= c.capacity;
-      await aRef(b.id).set({ cohortId: b.cohortId, startDate: c.startDate || null, waitlisted, updatedAt: now }, { merge: true });
-      return NextResponse.json({ ok: true, waitlisted });
+      const cur = ((await aRef(b.id).get()).data() as any) || {};
+      const taken = await seatsTaken(tenantId, String(b.cohortId), String(b.id));
+      // Holding a place already? Moving into a full cohort isn't allowed.
+      if (SEAT_STAGES.includes(cur.stage) && c.capacity && taken >= c.capacity) return NextResponse.json({ ok: false, error: `${c.name || 'That cohort'} is full (${taken} of ${c.capacity}).` }, { status: 400 });
+      await aRef(b.id).set({ cohortId: b.cohortId, startDate: c.startDate || null, updatedAt: now }, { merge: true });
+      if (cur.cohortId && cur.cohortId !== b.cohortId && SEAT_STAGES.includes(cur.stage)) await promoteWaitlist(tenantId, cur.cohortId, origin);
+      return NextResponse.json({ ok: true, full: !!c.capacity && taken >= c.capacity });
     }
 
     if (b.action === 'tuition') {
@@ -174,6 +259,7 @@ export async function POST(req: NextRequest) {
       if (b.recordRefund && q.refundCents > 0) await ledger(tenantId, planId, p.studentId, 'refund', q.refundCents, `Refund due on withdrawal (issue it from Stripe or by cheque)`, who);
       try { await setProgramStatus({ tenantId, enrollmentId: planId, status: 'withdrawn', reason, by: who }); } catch { /* not enrolled yet */ }
       if (p.admissionId) { try { await setStage(tenantId, p.admissionId, 'withdrawn', who, reason); } catch { /* ignore */ } }
+      if (a.cohortId) { try { await promoteWaitlist(tenantId, a.cohortId, origin); } catch { /* ignore */ } }
       await appendAudit(tenantId, { type: 'tuition.withdrawal', studentId: p.studentId, by: who, summary: `${p.name} withdrew at ${pct}% — school keeps ${money(q.keepCents)}; ${q.refundCents ? `refund due ${money(q.refundCents)}` : q.owedCents ? `student owes ${money(q.owedCents)}` : 'nothing owed either way'}. Reason: ${reason}`, data: { planId, steps: q.steps } });
       return NextResponse.json({ ok: true, quote: q });
     }
