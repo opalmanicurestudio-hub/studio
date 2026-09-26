@@ -22,7 +22,9 @@ import { linkOrigin } from '@/lib/app-origin';
 export const dynamic = 'force-dynamic';
 const KINDS = ['video', 'text', 'download', 'assignment'];
 const str = (v: any, n: number) => String(v ?? '').slice(0, n);
-const BLOCK_TYPES = ['text', 'image', 'steps', 'callout', 'file', 'divider'];
+const BLOCK_TYPES = ['text', 'image', 'steps', 'callout', 'file', 'divider', 'interactive', 'hotspots', 'stages'];
+/** AI-built interactives run in a sealed frame for students; keep them self-contained and a sensible size. */
+function cleanHtml(v: any) { const h = String(v || ''); return h.length > 150_000 ? '' : h; }
 /** Content blocks: text · image · step-by-step (a photo per step) · callout (safety / key point / tip) · file · divider. */
 function cleanBlocks(v: any) {
   return (Array.isArray(v) ? v : []).slice(0, 80).map((b: any) => {
@@ -32,6 +34,9 @@ function cleanBlocks(v: any) {
     if (b.type === 'image') return b.mediaId ? { id, type: 'image', mediaId: str(b.mediaId, 40), caption: str(b.caption, 300) } : null;
     if (b.type === 'file') return b.mediaId ? { id, type: 'file', mediaId: str(b.mediaId, 40), label: str(b.label, 160) } : null;
     if (b.type === 'callout') return { id, type: 'callout', tone: ['safety', 'key', 'tip'].includes(b.tone) ? b.tone : 'key', text: str(b.text, 1500) };
+    if (b.type === 'interactive') { const html = cleanHtml(b.html); return html ? { id, type: 'interactive', title: str(b.title, 120), request: str(b.request, 1000), html, height: Math.max(200, Math.min(1400, Number(b.height) || 480)) } : null; }
+    if (b.type === 'hotspots') return b.mediaId ? { id, type: 'hotspots', mediaId: str(b.mediaId, 40), title: str(b.title, 160), points: (b.points || []).slice(0, 20).map((p: any) => ({ x: Math.max(0, Math.min(100, Number(p.x) || 0)), y: Math.max(0, Math.min(100, Number(p.y) || 0)), label: str(p.label, 80), text: str(p.text, 600) })).filter((p: any) => p.label) } : null;
+    if (b.type === 'stages') return { id, type: 'stages', title: str(b.title, 160), stages: (b.stages || []).slice(0, 12).map((x: any) => ({ label: str(x.label, 80), text: str(x.text, 800), mediaId: x.mediaId ? str(x.mediaId, 40) : null })).filter((x: any) => x.label || x.text) };
     if (b.type === 'steps') return { id, type: 'steps', title: str(b.title, 160), steps: (b.steps || []).slice(0, 40).map((x: any) => ({ text: str(x.text, 800), mediaId: x.mediaId ? str(x.mediaId, 40) : null })).filter((x: any) => x.text || x.mediaId) };
     return { id, type: 'divider' };
   }).filter(Boolean);
@@ -45,6 +50,15 @@ function cleanPlan(p: any) {
     agenda: (Array.isArray(p.agenda) ? p.agenda : []).slice(0, 30).map((a: any) => ({ minutes: Math.max(0, Math.min(600, Number(a.minutes) || 0)), type: PLAN_TYPES.includes(a.type) ? a.type : 'guided_theory', activity: str(a.activity, 800) })),
     notes: str(p.notes, 4000), differentiation: str(p.differentiation, 2000), assessment: str(p.assessment, 2000), subjects: list(p.subjects, 12), updatedAt: new Date().toISOString() };
 }
+/** Refer-or-treat cases: a client story (optional photo), choices with feedback. */
+function cleanCases(c: any) {
+  if (!c || !Array.isArray(c.cases)) return null;
+  const cases = c.cases.slice(0, 15).map((x: any) => ({ story: str(x.story, 1200), mediaId: x.mediaId ? str(x.mediaId, 40) : null,
+    options: (x.options || []).slice(0, 4).map((o: any) => ({ text: str(o.text, 200), correct: !!o.correct, feedback: str(o.feedback, 600) })).filter((o: any) => o.text) }))
+    .filter((x: any) => x.story && x.options.length >= 2 && x.options.some((o: any) => o.correct));
+  return cases.length ? { prompt: str(c.prompt, 200) || 'What would you do?', cases } : null;
+}
+
 /** Interactive activities: match pairs, put steps in order, or a client scenario. */
 function cleanActivity(a: any) {
   if (!a || !['match', 'order', 'scenario', 'label', 'wordsearch', 'crossword', 'cloze'].includes(a.type)) return null;
@@ -86,7 +100,7 @@ async function handle(req: NextRequest) {
   // Owners, managers and instructors. Only owners/managers change courses and settings.
   const isInstructor = String(auth.actor.role || '').toLowerCase() === 'instructor';
   if (!auth.actor.isManager && !auth.actor.isTenantOwner && !isInstructor) return NextResponse.json({ ok: false, error: 'Only owners, managers and instructors can use the academy tools.' }, { status: 403 });
-  const INSTRUCTOR_OK = ['ai-credits', 'materials-list', 'material-save', 'submissions', 'submission-ai', 'submission-grade', 'gradebook', 'media-list', 'media-url', 'qbank-list', 'worksheet-ai', 'tutor-log', 'list', 'course-get', 'students', 'attendance', 'attendance-approve', 'attendance-resolve', 'attendance-code', 'attendance-photo-check', 'transcript', 'audit-verify'];
+  const INSTRUCTOR_OK = ['interactive-list', 'ai-credits', 'materials-list', 'material-save', 'submissions', 'submission-ai', 'submission-grade', 'gradebook', 'media-list', 'media-url', 'qbank-list', 'worksheet-ai', 'tutor-log', 'list', 'course-get', 'students', 'attendance', 'attendance-approve', 'attendance-resolve', 'attendance-code', 'attendance-photo-check', 'transcript', 'audit-verify'];
   if (isInstructor && !auth.actor.isManager && !INSTRUCTOR_OK.includes(String(b.action))) return NextResponse.json({ ok: false, error: 'Instructors can review attendance and students, not change courses.' }, { status: 403 });
   const who = auth.actor.name || auth.actor.uid;
   if (['attendance', 'attendance-approve', 'attendance-resolve', 'attendance-photo-check', 'transcript', 'students', 'submissions', 'gradebook'].includes(String(b.action))) {
@@ -167,6 +181,9 @@ async function handle(req: NextRequest) {
         flashcards: (Array.isArray(l.flashcards) ? l.flashcards : []).map((f: any) => ({ front: String(f.front || '').slice(0, 300), back: String(f.back || '').slice(0, 600) })).filter((f: any) => f.front && f.back).slice(0, 60),
         activity: cleanActivity(l.activity),
         ...('blocks' in l ? { blocks: cleanBlocks(l.blocks) } : {}),
+        // Refer-or-treat client cases, and questions that pop up during the video.
+        ...('cases' in l ? { cases: cleanCases(l.cases) } : {}),
+        ...('videoQuestions' in l ? { videoQuestions: (Array.isArray(l.videoQuestions) ? l.videoQuestions : []).slice(0, 20).map((q: any) => ({ at: Math.max(1, Math.round(Number(q.at) || 0)), q: str(q.q, 300), options: (q.options || []).map((o: any) => str(o, 160)).filter(Boolean).slice(0, 4), answer: Math.max(0, Number(q.answer) || 0), explain: str(q.explain, 400) })).filter((q: any) => q.q && q.options.length >= 2).sort((a: any, b: any) => a.at - b.at) } : {}),
         ...('assignment' in l ? { assignment: l.assignment ? { prompt: str(l.assignment.prompt, 4000), type: ['written', 'photo', 'file', 'any'].includes(l.assignment.type) ? l.assignment.type : 'any',
           rubric: (l.assignment.rubric || []).slice(0, 12).map((r: any) => ({ criterion: str(r.criterion, 200), points: Math.max(1, Math.min(100, Number(r.points) || 1)) })).filter((r: any) => r.criterion),
           dueDays: Math.max(0, Math.min(365, Number(l.assignment.dueDays) || 0)) || null, resubmit: l.assignment.resubmit !== false } : null } : {}),
@@ -279,6 +296,66 @@ async function handle(req: NextRequest) {
       return NextResponse.json({ ok: true, assignment: { prompt: String(j.prompt).slice(0, 4000), type: kind, rubric: (j.rubric || []).slice(0, 10).map((x: any) => ({ criterion: String(x.criterion || '').slice(0, 200), points: Math.max(1, Math.min(100, Math.round(Number(x.points) || 10))) })).filter((x: any) => x.criterion), dueDays: Math.max(0, Math.min(60, Number(j.dueDays) || 7)), resubmit: true } });
     }
 
+    // ── ✨ Make an interactive: AI builds animated, self-contained HTML (sealed frame for students) ──
+    if (b.action === 'ai-interactive') {
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
+      const request = String(b.request || '').trim().slice(0, 1000);
+      if (!request) return NextResponse.json({ ok: false, error: 'Describe what the interactive should show.' }, { status: 400 });
+      let material = '';
+      if (b.useLesson && b.lessonId) { const lx = ((await db.doc(`${base}/${courseId}/lessons/${String(b.lessonId)}`).get()).data() as any) || {}; material = `${lx.title || ''}\n${lx.body || ''}\n${lx.transcript ? String(lx.transcript).slice(0, 4000) : ''}`.slice(0, 8000); }
+      const current = typeof b.currentHtml === 'string' && b.currentHtml.length < 150_000 ? b.currentHtml : '';
+      const r = await askClaude({ tier: 'smart', maxTokens: 9000, purpose: 'academy-interactive', tenantId,
+        system: `You build small interactive, animated teaching visuals for a beauty / nail school, as ONE self-contained HTML fragment (inline <style>, inline SVG or <canvas>, inline <script>).
+Rules:
+- No external anything: no <script src>, no <link>, no images/fonts/URLs from the internet, no fetch/XMLHttpRequest/WebSocket. Draw with SVG/canvas/CSS only.
+- Explain a process or cause-and-effect with motion: CSS @keyframes or requestAnimationFrame, and controls (range sliders, buttons, toggles) with visible labels and live readouts.
+- Wrap animations so they pause when (prefers-reduced-motion: reduce).
+- Mobile first: fits 320–720px wide (width:100%, SVG viewBox), large touch targets, readable 14px+ text, high contrast, works in light backgrounds.
+- A short title line and one-sentence live explanation that updates with the controls; no long paragraphs.
+- Be accurate. Use only well-established, general facts; if the instructor's material is given, follow it and do not contradict it. Keep it a simplified teaching model; do not invent brand names, numbers or regulations.
+- Do not draw detailed human anatomy; use simple schematic shapes.
+- No alert/confirm/prompt, no forms that submit, no navigation.
+Reply with the HTML only, inside one \`\`\`html code block.`,
+        prompt: `${current ? `Here is the current interactive:\n\`\`\`html\n${current}\n\`\`\`\n\nChange requested: ${String(b.change || '').slice(0, 800)}\nReturn the full updated HTML.` : `Build an interactive that shows: ${request}`}${material ? `\n\nInstructor's lesson material (follow it):\n${material}` : ''}` });
+      const m = r.ok ? r.text.match(/```html\s*([\s\S]*?)```/) || r.text.match(/(<(?:div|style|svg|section|main)[\s\S]*)/) : null;
+      const html = m ? m[1].trim() : '';
+      if (!html || html.length > 150_000) return NextResponse.json({ ok: false, error: 'The interactive didn’t come back usable — try again, or simplify the request.' }, { status: 502 });
+      if (/<script[^>]+src=|<link\b|@import|(?:src|href)\s*=\s*["']?https?:|\bfetch\s*\(|XMLHttpRequest|WebSocket/i.test(html)) return NextResponse.json({ ok: false, error: 'The draft tried to load something from the internet, which isn’t allowed — try again.' }, { status: 502 });
+      return NextResponse.json({ ok: true, html });
+    }
+    if (b.action === 'interactive-save') {
+      const html = cleanHtml(b.html); if (!html) return NextResponse.json({ ok: false, error: 'Nothing to save.' }, { status: 400 });
+      const ref = db.collection(`tenants/${tenantId}/interactives`).doc();
+      await ref.set({ id: ref.id, title: str(b.title, 120) || 'Interactive', request: str(b.request, 1000), html, by: who, at: now });
+      return NextResponse.json({ ok: true, id: ref.id });
+    }
+    if (b.action === 'interactive-list') {
+      const q = await db.collection(`tenants/${tenantId}/interactives`).orderBy('at', 'desc').limit(100).get();
+      return NextResponse.json({ ok: true, items: q.docs.map((d: any) => d.data()) });
+    }
+    // ✨ Hotspot explanations, client cases, video questions — drafts from the lesson material.
+    if (b.action === 'ai-hotspots' || b.action === 'ai-cases' || b.action === 'ai-video-questions') {
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
+      const lx = ((await db.doc(`${base}/${courseId}/lessons/${String(b.lessonId || '')}`).get()).data() as any) || {};
+      const material = `${lx.title || ''}\n${lx.body || ''}\n${lx.transcript ? String(lx.transcript).slice(0, 9000) : ''}\n${(lx.blocks || []).map((k: any) => k.text || '').join('\n')}`.slice(0, 14000);
+      if (b.action !== 'ai-hotspots' && material.trim().length < 150) return NextResponse.json({ ok: false, error: 'Add lesson text or captions first — drafts use only what’s in the lesson.' }, { status: 400 });
+      const n = Math.max(2, Math.min(10, Number(b.count) || 5));
+      const spec: Record<string, string> = {
+        'ai-hotspots': `For each labelled part, write a short (1–2 sentence) plain-language explanation for students, using the lesson material where it covers it and only well-established facts otherwise. Parts: ${JSON.stringify((b.labels || []).slice(0, 20))}. Return JSON {"texts":["…"]} in the same order.`,
+        'ai-cases': `Write ${n} realistic client cases for "refer or treat" practice, based only on the lesson material: a short client story (what the client says, what the technician sees) and 3 choices — proceed as planned, adapt the service, or refer the client to a doctor — with exactly one correct choice and one sentence of feedback for every choice. Never diagnose; referral cases say to refer. Return JSON {"cases":[{"story":"…","options":[{"text":"…","correct":true,"feedback":"…"}]}]}.`,
+        'ai-video-questions': `Write ${n} multiple-choice questions to pop up during this lesson video, in the order the topics come up in the transcript. For each, estimate where the topic is discussed as a fraction of the video (0.05–0.95). Return JSON {"questions":[{"pos":0.2,"q":"…","options":["…","…","…"],"answer":0,"explain":"one sentence"}]}.`,
+      };
+      const r = await askClaude({ tier: 'smart', maxTokens: 3500, purpose: `academy-${b.action}`, tenantId,
+        system: 'You write teaching material for a state-licensed beauty / nail school. Use only the lesson material and well-established general facts; never invent products, numbers, regulations or medical claims. Reply with JSON only.',
+        prompt: `Lesson material:\n${material || '(none)'}\n\n${spec[b.action]}` });
+      const j: any = r.ok ? parseJson(r.text) : null;
+      if (!j) return NextResponse.json({ ok: false, error: 'The draft didn’t come back usable — try again.' }, { status: 502 });
+      if (b.action === 'ai-hotspots') return NextResponse.json({ ok: true, texts: (j.texts || []).map((x: any) => String(x).slice(0, 600)) });
+      if (b.action === 'ai-cases') { const c = cleanCases({ prompt: 'What would you do?', cases: j.cases }); return c ? NextResponse.json({ ok: true, cases: c }) : NextResponse.json({ ok: false, error: 'The draft didn’t come back usable — try again.' }, { status: 502 }); }
+      const dur = Number(lx.durationSec) || 0;
+      return NextResponse.json({ ok: true, questions: (j.questions || []).slice(0, 10).map((q: any) => ({ at: dur ? Math.round(Math.max(0.03, Math.min(0.97, Number(q.pos) || 0.5)) * dur) : 60, q: String(q.q || '').slice(0, 300), options: (q.options || []).map((o: any) => String(o).slice(0, 160)).slice(0, 4), answer: Math.max(0, Number(q.answer) || 0), explain: String(q.explain || '').slice(0, 400) })).filter((q: any) => q.q && q.options.length >= 2), durationKnown: !!dur });
+    }
+
     // ── Saved materials: generate once, save, reprint without AI ──
     if (b.action === 'materials-list') {
       const q = await db.collection(`tenants/${tenantId}/materials`).where('courseId', '==', courseId).limit(500).get();
@@ -355,7 +432,7 @@ async function handle(req: NextRequest) {
       const items = lessons.filter((l: any) => l.quiz?.questions?.length || l.kind === 'assignment').map((l: any) => ({ id: l.id, title: l.title, kind: l.kind === 'assignment' ? 'assignment' : 'quiz' }));
       // Live-class exit tickets saved for this course.
       const liveKeys = new Map<string, string>();
-      enr.docs.forEach((d: any) => Object.entries((d.data() as any).quiz || {}).forEach(([k, v]: any) => { if (k.startsWith('live_') || k.startsWith('act_')) liveKeys.set(k, v.title || (k.startsWith('live_') ? 'Live class' : 'Practice')); }));
+      enr.docs.forEach((d: any) => Object.entries((d.data() as any).quiz || {}).forEach(([k, v]: any) => { if (/^(live|act|cases|vq)_/.test(k)) liveKeys.set(k, v.title || (k.startsWith('live_') ? 'Live class' : 'Practice')); }));
       for (const [id, title] of liveKeys) items.push({ id, title, kind: 'quiz' });
       const S = subs.docs.map((d: any) => d.data() as any);
       const rows = enr.docs.map((d: any) => { const e = d.data() as any;
