@@ -7,6 +7,7 @@
 //   video-status   (is Mux done processing? saves the playback id)
 //   students       (who's enrolled, and how far they've got)
 
+import { getIdentity, saveIdentity, brandFromIdentity } from '@/lib/school-identity';
 import { DOC_KINDS, schoolFacts, syllabusFrom, fingerprint } from '@/lib/school-docs';
 import { progressFor, nudge } from '@/lib/academy-assign';
 import { modKey, notifyModuleOpen } from '@/lib/academy-modules';
@@ -118,7 +119,7 @@ async function handle(req: NextRequest) {
   // Owners, managers and instructors. Only owners/managers change courses and settings.
   const isInstructor = String(auth.actor.role || '').toLowerCase() === 'instructor';
   if (!auth.actor.isManager && !auth.actor.isTenantOwner && !isInstructor) return NextResponse.json({ ok: false, error: 'Only owners, managers and instructors can use the academy tools.' }, { status: 403 });
-  const INSTRUCTOR_OK = ['present-start', 'present-state', 'present-set', 'present-lesson', 'docs-list', 'doc-get', 'doc-syllabus', 'assign-options', 'assign-list', 'assign-save', 'assign-delete', 'assign-progress', 'assign-nudge', 'group-save', 'group-delete', 'interactive-list', 'ai-credits', 'materials-list', 'material-save', 'submissions', 'submission-ai', 'submission-grade', 'gradebook', 'media-list', 'media-url', 'qbank-list', 'worksheet-ai', 'tutor-log', 'list', 'course-get', 'students', 'attendance', 'attendance-approve', 'attendance-resolve', 'attendance-code', 'attendance-photo-check', 'transcript', 'audit-verify'];
+  const INSTRUCTOR_OK = ['identity-get', 'present-start', 'present-state', 'present-set', 'present-lesson', 'docs-list', 'doc-get', 'doc-syllabus', 'assign-options', 'assign-list', 'assign-save', 'assign-delete', 'assign-progress', 'assign-nudge', 'group-save', 'group-delete', 'interactive-list', 'ai-credits', 'materials-list', 'material-save', 'submissions', 'submission-ai', 'submission-grade', 'gradebook', 'media-list', 'media-url', 'qbank-list', 'worksheet-ai', 'tutor-log', 'list', 'course-get', 'students', 'attendance', 'attendance-approve', 'attendance-resolve', 'attendance-code', 'attendance-photo-check', 'transcript', 'audit-verify'];
   if (isInstructor && !auth.actor.isManager && !INSTRUCTOR_OK.includes(String(b.action))) return NextResponse.json({ ok: false, error: 'Instructors can review attendance and students, not change courses.' }, { status: 403 });
   const who = auth.actor.name || auth.actor.uid;
   if (['attendance', 'attendance-approve', 'attendance-resolve', 'attendance-photo-check', 'transcript', 'students', 'submissions', 'gradebook'].includes(String(b.action))) {
@@ -234,6 +235,19 @@ async function handle(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
     // One layout for every lesson in the course.
+    // ── School identity: logo, seal, signature, licence ──
+    if (b.action === 'identity-get' || b.action === 'identity-save') {
+      const t = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      if (b.action === 'identity-save') {
+        try {
+          const r = await saveIdentity(tenantId, b.identity || {}, who);
+          const parts = [...r.changed, ...(r.textChanged.length ? [`details: ${r.textChanged.join(', ')}`] : [])];
+          if (parts.length) await appendAudit(tenantId, { type: 'identity.updated', by: who, summary: `School identity updated — ${parts.join('; ')}` });
+        } catch (e: any) { return NextResponse.json({ ok: false, error: e?.message || 'Couldn’t save.' }, { status: 400 }); }
+      }
+      const id = await getIdentity(tenantId, t);
+      return NextResponse.json({ ok: true, identity: id, brand: brandFromIdentity(id, t), canEdit: !isInstructor || !!auth.actor.isManager });
+    }
     if (b.action === 'lessons-layout') {
       const layout = LAYOUTS.includes(b.layout) ? b.layout : null; if (!layout) return NextResponse.json({ ok: false, error: 'Choose a layout.' }, { status: 400 });
       const all = await loadLessons(tenantId, courseId); const batch = db.batch();
