@@ -52,21 +52,45 @@ function getStripe() {
 // ─────────────────────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
-    const {
+    const body = await req.json();
+    let {
       tenantId,
       bookingRequestId,
-      depositAmount,        // dollars
+      depositAmount,        // dollars (legacy mode only — ignored in appointment mode)
       clientName,
       clientEmail,
       serviceName,
       renterProviderId,     // present when this is an independent provider's booking
-    } = await req.json();
+    } = body;
+    const appointmentId: string | null = body.appointmentId ? String(body.appointmentId) : null;
 
-    if (!tenantId || !bookingRequestId || !clientEmail || !depositAmount) {
+    const db = getAdminDb();
+    /* APPOINTMENT MODE (5a) — the booking already exists (created by
+     * /api/appointments/book, holding the slot). Everything that matters is
+     * read from THAT appointment on the server: the amount (never trusted from
+     * the browser — a client could otherwise pay $1), who it's for, whose
+     * account collects it. The webhook then confirms this same appointment. */
+    if (appointmentId) {
+      const aSnap = await db.doc(`tenants/${tenantId}/appointments/${appointmentId}`).get();
+      const ap = aSnap.exists ? (aSnap.data() as any) : null;
+      if (!ap) return NextResponse.json({ error: 'We couldn’t find that booking.' }, { status: 404 });
+      if (ap.depositStatus === 'paid') return NextResponse.json({ error: 'This deposit is already paid.' }, { status: 409 });
+      if (ap.status !== 'pending_payment') return NextResponse.json({ error: ap.status === 'cancelled' ? 'This hold has ended — please pick a time again.' : 'No deposit is due for this booking.' }, { status: 409 });
+      const cents = Math.round(Number(ap.depositAmountCents) || 0);
+      if (cents <= 0) return NextResponse.json({ error: 'No deposit is due for this booking.' }, { status: 409 });
+      depositAmount = cents / 100;
+      // Appointments link to the client record rather than copying the email.
+      const cl = ap.clientId ? (((await db.doc(`tenants/${tenantId}/clients/${ap.clientId}`).get()).data() as any) || {}) : {};
+      clientName = ap.clientName || cl.name || clientName; clientEmail = ap.clientEmail || cl.email || clientEmail;
+      serviceName = ap.serviceName || ap.renterServiceName || (ap.serviceId ? ((((await db.doc(`tenants/${tenantId}/services/${ap.serviceId}`).get()).data() as any) || {}).name) : null) || serviceName;
+      renterProviderId = ap.isRenterBooking && ap.renterProviderId ? ap.renterProviderId : undefined;
+    } else if (!bookingRequestId) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    }
+    if (!tenantId || !clientEmail || !depositAmount) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    const db = getAdminDb();
     const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
     if (!tenantSnap.exists) {
       return NextResponse.json({ error: 'Studio not found' }, { status: 404 });
@@ -133,7 +157,7 @@ export async function POST(req: NextRequest) {
         },
         metadata: {
           tenantId,
-          bookingRequestId,
+          ...(appointmentId ? { appointmentId } : { bookingRequestId }),
           type:        'deposit',
           // Tagged so the webhook and any later reconciliation can tell a
           // renter's deposit from the studio's at a glance.
