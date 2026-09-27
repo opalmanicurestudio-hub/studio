@@ -1143,6 +1143,7 @@ export default function ClientPortalPage() {
 
             {selectedServiceForBooking && (
                 <BookingSheet
+          tenantId={tenantId}
                     open={isBookingSheetOpen}
                     onOpenChange={setIsBookingSheetOpen}
                     service={selectedServiceForBooking}
