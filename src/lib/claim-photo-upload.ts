@@ -23,6 +23,8 @@ export async function uploadClaimPhotoFromDataUrl(
   tenantId: string,
   claimId: string,
   dataUrl: any,
+  /** Storage folder under the tenant — claims by default; booking photos use 'booking-inspiration'. */
+  folder: 'retail-claims' | 'booking-inspiration' = 'retail-claims',
 ): Promise<ClaimPhotoResult> {
   try {
     const s = String(dataUrl || '');
@@ -35,7 +37,7 @@ export async function uploadClaimPhotoFromDataUrl(
     if (buf.length > MAX_PHOTO_BYTES) return { url: null, error: 'Keep photos under 3 MB.' };
 
     const ext = mime === 'image/jpeg' ? 'jpg' : mime.split('/')[1];
-    const path = `tenants/${tenantId}/retail-claims/${claimId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const path = `tenants/${tenantId}/${folder}/${claimId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
     const token = (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
     // Bucket ground truth first (the tenant doc self-records it from the
