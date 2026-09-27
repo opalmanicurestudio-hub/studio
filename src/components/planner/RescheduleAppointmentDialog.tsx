@@ -2,31 +2,29 @@
 /**
  * components/planner/RescheduleAppointmentDialog.tsx
  *
- * A reschedule MOVES the same appointment to a new time (not a cancel +
- * rebook — no cancellation count, no refund/re-collect of the deposit).
+ * A reschedule MOVES the same appointment (not a cancel + rebook — no
+ * cancellation count, no refund/re-collect of the deposit). Every step goes
+ * through /api/appointments/reschedule, which uses the same availability
+ * engine and time frame as online booking.
  *
- * v2 (5c) — CHECKED LIKE A BOOKING. The dialog used to write any time straight
- * to the database: outside hours, on a day off, on top of another booking.
- * Now every step goes through /api/appointments/reschedule, which uses the
- * same availability engine and time frame as online booking:
- *   • pick a day → that day's open times for the provider
- *   • "Another time" → checked live, with a plain reason if it won't work
- *     ("Clashes with Maria Lopez's Gel manicure at 2:00 pm", "Outside
- *     Jessica's hours that day (9:00 am – 5:00 pm)", "Jessica has the day off")
- *   • managers can "Move anyway" — recorded with the reason it broke the rules
- * The server keeps what this dialog used to do (reschedule fee inside the
- * window, reschedule counts, history) and adds: the check-in copy is updated,
- * the move is in the activity log, and the client is told by email + text.
- * The "fill the freed slot" follow-up still runs from here afterwards.
+ * v3 — built for moving clients out quickly and calmly:
+ *   • Provider chips — keep the same person or move to anyone who offers it
+ *   • "Same time, later" — next week / in 2 weeks / in 4 weeks / next month,
+ *     each ✓ when the usual time is free, else the nearest free time that day
+ *   • A month calendar with availability dots (fuller dot = more room)
+ *   • The chosen day's times, grouped Morning · Afternoon · Evening
+ *   • Another time — checked live, with a plain reason if it won't work
+ *   • Managers can "Move anyway" (recorded). Fee inside the window, "Tell the
+ *     client" (email + text), history and the activity log — all server-side.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { format, differenceInHours, parseISO } from 'date-fns';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { addDays, addMonths, endOfMonth, format, isBefore, isSameDay, isSameMonth, parseISO, startOfDay, startOfMonth, differenceInHours, differenceInCalendarDays } from 'date-fns';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { CalendarClock, Loader } from 'lucide-react';
+import { CalendarClock, ChevronLeft, ChevronRight, Loader } from 'lucide-react';
 import { getAuth } from 'firebase/auth';
 import { deviceId } from '@/lib/device';
 import { useToast } from '@/hooks/use-toast';
@@ -39,18 +37,12 @@ const safeDate = (val: any): Date => {
   return new Date(val);
 };
 const clock = (t: string) => { const [h, m] = t.split(':').map(Number); return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'pm' : 'am'}`; };
+const key = (d: Date) => format(d, 'yyyy-MM-dd');
+const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 
-interface RescheduleAppointmentDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  appointment: any;
-  client?: any;
-  tenant?: any;
-  tenantId?: string;
-  actorName?: string;
-  actorId?: string;
-  isMobile?: boolean;
-  onRescheduled?: (newStartIso: string) => void;
+interface Props {
+  open: boolean; onOpenChange: (open: boolean) => void; appointment: any; client?: any; tenant?: any; tenantId?: string;
+  actorName?: string; actorId?: string; isMobile?: boolean; onRescheduled?: (newStartIso: string) => void;
 }
 
 async function api(body: any) {
@@ -60,92 +52,161 @@ async function api(body: any) {
   return { status: r.status, ...(d || {}) };
 }
 
-export const RescheduleAppointmentDialog: React.FC<RescheduleAppointmentDialogProps> = ({
-  open, onOpenChange, appointment, client, tenant, tenantId, isMobile = false, onRescheduled,
-}) => {
+export const RescheduleAppointmentDialog: React.FC<Props> = ({ open, onOpenChange, appointment, client, tenant, tenantId, isMobile = false, onRescheduled }) => {
   const { toast } = useToast();
-  const originalStart = useMemo(() => safeDate(appointment?.startTime), [appointment]);
-  const [day, setDay] = useState(''); const [times, setTimes] = useState<string[]>([]); const [loadingTimes, setLoadingTimes] = useState(false);
-  const [time, setTime] = useState(''); const [custom, setCustom] = useState(''); const [reason, setReason] = useState<string | null>(null);
-  const [applyFee, setApplyFee] = useState(true); const [notify, setNotify] = useState(true);
-  const [busy, setBusy] = useState(false); const [override, setOverride] = useState<{ reason: string } | null>(null);
-  const rescheduleFee = Number(tenant?.rescheduleFee || 0), windowH = Number(tenant?.rescheduleFeeWindowHours || 0);
-  const feeEligible = rescheduleFee > 0 && windowH > 0 && differenceInHours(originalStart, new Date()) < windowH;
+  const original = useMemo(() => safeDate(appointment?.startTime), [appointment]);
+  const usualTime = format(original, 'HH:mm');
+  const today = startOfDay(new Date());
+  const [staffId, setStaffId] = useState<string>(appointment?.staffId || '');
+  const [providers, setProviders] = useState<{ id: string; name: string; avatarUrl: string | null }[]>([]);
+  const [slots, setSlots] = useState<Record<string, string[]>>({}); // `${staffId}|yyyy-MM-dd` → times
+  const [loading, setLoading] = useState(false); const fetched = useRef(new Set<string>());
+  const [month, setMonth] = useState(() => startOfMonth(original < today ? today : original));
+  const [day, setDay] = useState(''); const [time, setTime] = useState(''); const [custom, setCustom] = useState('');
+  const [reason, setReason] = useState<string | null>(null); const [override, setOverride] = useState(false);
+  const [applyFee, setApplyFee] = useState(true); const [notify, setNotify] = useState(true); const [busy, setBusy] = useState(false);
+  const fee = Number(tenant?.rescheduleFee || 0), windowH = Number(tenant?.rescheduleFeeWindowHours || 0);
+  const feeEligible = fee > 0 && windowH > 0 && differenceInHours(original, new Date()) < windowH;
   const base = { tenantId, appointmentId: appointment?.id };
+  const first = String(appointment?.clientName || client?.name || 'client').split(' ')[0];
 
-  useEffect(() => { if (open) { setDay(format(originalStart, 'yyyy-MM-dd')); setTime(''); setCustom(''); setReason(null); setOverride(null); setApplyFee(true); setNotify(true); } }, [open, originalStart]);
-  useEffect(() => { // that day's open times
-    if (!open || !day || !tenantId || !appointment?.id) return; let stale = false;
-    setLoadingTimes(true); setTime(''); setReason(null); setOverride(null);
-    api({ ...base, action: 'check', date: day }).then((d) => { if (!stale) setTimes(d.ok ? d.times || [] : []); }).finally(() => { if (!stale) setLoadingTimes(false); });
-    return () => { stale = true; };
-  }, [open, day]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { // "Another time" — checked live
-    if (!custom || !/^\d{2}:\d{2}$/.test(custom)) return; let stale = false;
-    const h = setTimeout(() => api({ ...base, action: 'check', date: day, time: custom }).then((d) => { if (!stale) { setTime(custom); setReason(d.ok ? d.reason || null : d.error || 'Couldn’t check that time.'); setOverride(null); } }), 300);
-    return () => { stale = true; clearTimeout(h); };
-  }, [custom, day]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const move = async (force = false) => {
-    if (!time || busy) return; setBusy(true);
+  /** Load open times for a stretch of days (cached per provider). */
+  const ensure = useCallback(async (from: Date, days: number, sid = staffId) => {
+    const start = from < today ? today : from; const k = `${sid}|${key(start)}|${days}`;
+    if (!tenantId || !appointment?.id || fetched.current.has(k)) return; fetched.current.add(k);
+    setLoading(true);
     try {
-      const d = await api({ ...base, action: 'move', date: day, time, applyFee: feeEligible && applyFee, notify, override: force });
-      if (!d.ok) {
-        if (d.canOverride) { setOverride({ reason: d.error }); setReason(d.error); }
-        else toast({ variant: 'destructive', title: 'Couldn’t move it', description: d.error || 'Please try another time.' });
-        return;
-      }
+      const d = await api({ ...base, action: 'range', date: key(start), days, staffId: sid });
+      if (d.ok) { setSlots((s) => { const n = { ...s }; for (const x of d.days || []) n[`${sid}|${x.date}`] = x.times || []; return n; }); if (d.providers?.length) setProviders(d.providers); }
+    } finally { setLoading(false); }
+  }, [tenantId, appointment?.id, staffId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { if (!open) return; setStaffId(appointment?.staffId || ''); setDay(''); setTime(''); setCustom(''); setReason(null); setOverride(false); setApplyFee(true); setNotify(true); setMonth(startOfMonth(original < today ? today : original)); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open && staffId) void ensure(original, 42, staffId); }, [open, staffId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open && staffId) void ensure(startOfMonth(month), differenceInCalendarDays(endOfMonth(month), startOfMonth(month)) + 1, staffId); }, [open, month, staffId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { // "Another time" — checked live
+    if (!custom || !day) return; let stale = false;
+    const h = setTimeout(() => api({ ...base, action: 'check', date: day, time: custom, staffId }).then((d) => { if (!stale) { setTime(custom); setReason(d.ok ? d.reason || null : d.error || 'Couldn’t check that time.'); setOverride(false); } }), 300);
+    return () => { stale = true; clearTimeout(h); };
+  }, [custom, day, staffId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const timesFor = (d: string) => slots[`${staffId}|${d}`];
+  const suggestions = useMemo(() => {
+    const nextMonth = (() => { const t = addMonths(original, 1); return addDays(t, (original.getDay() - t.getDay() + 7) % 7); })(); // same weekday, next month
+    return ([['Next week', addDays(original, 7)], ['In 2 weeks', addDays(original, 14)], ['In 4 weeks', addDays(original, 28)], ['Next month', nextMonth]] as [string, Date][]).map(([label, d]) => {
+      const list = timesFor(key(d));
+      if (!list) return { label, d, state: 'loading' as const };
+      if (list.includes(usualTime)) return { label, d, state: 'same' as const, t: usualTime };
+      if (!list.length) return { label, d, state: 'none' as const };
+      const near = [...list].sort((a, b) => Math.abs(mins(a) - mins(usualTime)) - Math.abs(mins(b) - mins(usualTime)))[0];
+      return { label, d, state: 'near' as const, t: near };
+    });
+  }, [slots, staffId, original]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const choose = (d: string, t: string) => { setDay(d); setTime(t); setCustom(''); setReason(null); setOverride(false); };
+  const move = async (force = false) => {
+    if (!time || !day || busy) return; setBusy(true);
+    try {
+      const d = await api({ ...base, action: 'move', date: day, time, staffId, applyFee: feeEligible && applyFee, notify, override: force });
+      if (!d.ok) { if (d.canOverride) { setOverride(true); setReason(d.error); } else toast({ variant: 'destructive', title: 'Couldn’t move it', description: d.error || 'Please try another time.' }); return; }
       fetch('/api/opal/recovery-spawn', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, appointmentId: appointment.id, resolutionTicketId: d.auditId, clientId: client?.id || appointment.clientId, eventType: 'reschedule', vacatedSlotStart: appointment.startTime, vacatedSlotEnd: appointment.endTime, locationId: appointment.locationId || null }) }).catch(() => {});
       const told = [d.told?.email && 'email', d.told?.sms && 'text'].filter(Boolean).join(' + ');
-      toast({ title: 'Appointment moved', description: `${format(safeDate(d.startTime), 'EEE MMM d, h:mm a')}${d.feeApplied ? ` · $${Number(d.feeApplied).toFixed(2)} fee added` : ''}${notify ? (told ? ` · client told by ${told}` : ' · client couldn’t be messaged (no contact details or messaging off)') : ''}${d.overrode ? ' · moved outside the rules (recorded)' : ''}` });
+      toast({ title: `${first} moved`, description: `${format(safeDate(d.startTime), 'EEE MMM d, h:mm a')}${d.feeApplied ? ` · $${Number(d.feeApplied).toFixed(2)} fee added` : ''}${notify ? (told ? ` · told by ${told}` : ' · couldn’t be messaged') : ''}${d.overrode ? ' · outside the rules (recorded)' : ''}` });
       onRescheduled?.(d.startTime); onOpenChange(false);
     } finally { setBusy(false); }
   };
 
-  const chip = (on: boolean) => `h-11 rounded-xl border-2 text-sm font-bold transition ${on ? 'border-primary bg-primary text-primary-foreground' : 'bg-background hover:bg-muted/40'}`;
+  // ── Calendar ────────────────────────────────────────────────────────────
+  const cells = useMemo(() => { const f = startOfMonth(month); return [...Array(f.getDay()).fill(null), ...Array.from({ length: endOfMonth(month).getDate() }, (_, i) => addDays(f, i))]; }, [month]);
+  const dayTimes = day ? timesFor(day) : undefined;
+  const groups: [string, string[]][] = dayTimes ? [['Morning', dayTimes.filter((t) => mins(t) < 720)], ['Afternoon', dayTimes.filter((t) => mins(t) >= 720 && mins(t) < 1020)], ['Evening', dayTimes.filter((t) => mins(t) >= 1020)]] : [];
+  const who = providers.find((p) => p.id === staffId)?.name || appointment?.staffName || '';
+
   const body = (
     <div className="space-y-5 px-1">
-      <div className="flex items-center gap-3 rounded-2xl border-2 bg-muted/5 p-4">
+      <div className="flex items-center gap-3 rounded-2xl border bg-muted/20 p-4">
         <CalendarClock className="h-5 w-5 shrink-0 text-primary" />
-        <div className="min-w-0"><p className="text-xs text-muted-foreground">Currently</p><p className="truncate text-sm font-black">{format(originalStart, 'EEE MMM d, h:mm a')}</p><p className="text-xs text-muted-foreground">{appointment?.serviceName || 'Service'}{appointment?.staffName ? ` · ${appointment.staffName}` : ''}</p></div>
+        <div className="min-w-0 flex-1"><p className="text-xs text-muted-foreground">Currently</p><p className="truncate text-[15px] font-bold">{format(original, 'EEEE, MMM d · h:mm a')}</p><p className="truncate text-xs text-muted-foreground">{appointment?.serviceName || 'Service'}{appointment?.staffName ? ` with ${appointment.staffName}` : ''}</p></div>
       </div>
-      <label className="block space-y-1.5"><span className="text-sm font-bold">Day</span>
-        <input type="date" value={day} min={format(new Date(), 'yyyy-MM-dd')} onChange={(e) => { setDay(e.target.value); setCustom(''); }} className="h-12 w-full rounded-xl border-2 px-3 text-base" /></label>
-      <div className="space-y-2" aria-live="polite">
-        <p className="text-sm font-bold">Open times</p>
-        {loadingTimes ? <p className="text-sm text-muted-foreground">Checking…</p>
-          : times.length === 0 ? <p className="rounded-xl bg-muted/30 p-3 text-sm">No open times for {appointment?.staffName?.split(' ')[0] || 'this provider'} that day — try another day, or choose another time below to see why.</p>
-          : <div className="grid grid-cols-3 gap-2">{times.map((t) => <button key={t} type="button" onClick={() => { setTime(t); setCustom(''); setReason(null); setOverride(null); }} aria-pressed={time === t && !custom} className={chip(time === t && !custom)}>{clock(t)}</button>)}</div>}
-      </div>
-      <label className="block space-y-1.5"><span className="text-sm font-bold">Another time</span>
-        <input type="time" step={300} value={custom} onChange={(e) => setCustom(e.target.value)} className="h-12 w-full rounded-xl border-2 px-3 text-base" /></label>
-      {reason && <p className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3 text-sm text-amber-900" role="alert">{reason}</p>}
-      {feeEligible && <label className="flex items-center justify-between gap-3 rounded-xl border-2 p-3"><span className="text-sm"><b>Reschedule fee</b> — ${rescheduleFee.toFixed(2)} (moved within {windowH} hours)</span><Switch checked={applyFee} onCheckedChange={setApplyFee} /></label>}
-      <label className="flex items-center justify-between gap-3 rounded-xl border-2 p-3"><span className="text-sm"><b>Tell the client</b> — email + text with the new time</span><Switch checked={notify} onCheckedChange={setNotify} /></label>
+
+      {providers.length > 1 && <section className="space-y-2" aria-label="Provider">
+        <p className="text-sm font-bold">With</p>
+        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">{providers.map((p) => { const on = p.id === staffId; return (
+          <button key={p.id} type="button" onClick={() => { setStaffId(p.id); setTime(''); setReason(null); setOverride(false); }} aria-pressed={on} className={`flex shrink-0 items-center gap-2 rounded-full border py-1 pl-1 pr-3.5 text-sm transition active:scale-95 ${on ? 'border-primary bg-primary text-primary-foreground shadow' : 'bg-background hover:bg-muted/40'}`}>
+            {p.avatarUrl ? <img src={p.avatarUrl} alt="" className="h-7 w-7 rounded-full object-cover" /> : <span className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${on ? 'bg-white/25' : 'bg-muted'}`}>{p.name.charAt(0)}</span>}
+            {p.name.split(' ')[0]}{p.id === appointment?.staffId && <span className={`text-[10px] ${on ? 'opacity-80' : 'text-muted-foreground'}`}>· now</span>}
+          </button>
+        ); })}</div>
+      </section>}
+
+      <section className="space-y-2" aria-label="Same time, later">
+        <p className="text-sm font-bold">Same time, later <span className="font-normal text-muted-foreground">· usually {clock(usualTime)}</span></p>
+        <div className="grid grid-cols-2 gap-2">{suggestions.map((s) => { const on = day === key(s.d) && time === (s as any).t; const off = s.state === 'none' || s.state === 'loading'; return (
+          <button key={s.label} type="button" disabled={off} onClick={() => choose(key(s.d), (s as any).t)} aria-pressed={on}
+            className={`rounded-2xl border p-3 text-left transition active:scale-[.98] disabled:opacity-50 ${on ? 'border-primary bg-primary/10 ring-2 ring-primary' : 'bg-background hover:bg-muted/30'}`}>
+            <p className="text-xs text-muted-foreground">{s.label}</p><p className="text-sm font-bold">{format(s.d, 'EEE, MMM d')}</p>
+            <p className={`text-xs ${s.state === 'same' ? 'text-emerald-700' : s.state === 'near' ? 'text-amber-700' : 'text-muted-foreground'}`}>
+              {s.state === 'loading' ? 'Checking…' : s.state === 'none' ? 'No times that day' : s.state === 'same' ? `✓ ${clock(s.t!)} — same time` : `${clock(s.t!)} — nearest free`}</p>
+          </button>
+        ); })}</div>
+      </section>
+
+      <section className="space-y-2 rounded-2xl border p-3" aria-label="Pick a day">
+        <div className="flex items-center justify-between">
+          <button type="button" onClick={() => setMonth((m) => addMonths(m, -1))} disabled={isSameMonth(month, today)} aria-label="Previous month" className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted disabled:opacity-30"><ChevronLeft className="h-4 w-4" /></button>
+          <p className="text-sm font-bold">{format(month, 'MMMM yyyy')} {loading && <Loader className="ml-1 inline h-3 w-3 animate-spin" />}</p>
+          <button type="button" onClick={() => setMonth((m) => addMonths(m, 1))} aria-label="Next month" className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted"><ChevronRight className="h-4 w-4" /></button>
+        </div>
+        <div className="grid grid-cols-7 text-center text-[11px] text-muted-foreground">{['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((x, i) => <span key={i}>{x}</span>)}</div>
+        <div className="grid grid-cols-7 gap-1">{cells.map((d, i) => { if (!d) return <span key={i} />;
+          const k = key(d); const past = isBefore(d, today); const list = timesFor(k); const n = list?.length ?? -1; const on = day === k; const isOrig = isSameDay(d, original);
+          const dot = n <= 0 ? null : n >= 8 ? 'w-4 opacity-100' : n >= 4 ? 'w-3 opacity-80' : 'w-1.5 opacity-60';
+          return (
+            <button key={k} type="button" disabled={past} onClick={() => { setDay(k); setTime(''); setCustom(''); setReason(null); setOverride(false); }} aria-pressed={on} aria-label={`${format(d, 'EEEE, MMMM d')}${n >= 0 ? ` — ${n} open time${n === 1 ? '' : 's'}` : ''}`}
+              className={`relative flex h-11 flex-col items-center justify-center rounded-xl text-sm transition active:scale-95 ${on ? 'bg-primary font-bold text-primary-foreground shadow' : past ? 'text-muted-foreground/40' : n === 0 ? 'text-muted-foreground/60' : 'hover:bg-muted/50'} ${isOrig && !on ? 'ring-1 ring-primary/40' : ''}`}>
+              {format(d, 'd')}{dot && <span className={`mt-0.5 h-1 rounded-full ${dot} ${on ? 'bg-white' : 'bg-emerald-600'}`} />}
+            </button>
+          ); })}</div>
+        <p className="text-[11px] text-muted-foreground">Fuller dot = more open times · ringed = current day</p>
+      </section>
+
+      {day && <section className="space-y-3" aria-live="polite" aria-label="Times">
+        <p className="text-sm font-bold">{format(parseISO(day), 'EEEE, MMMM d')}{who ? <span className="font-normal text-muted-foreground"> · {who.split(' ')[0]}</span> : null}</p>
+        {!dayTimes ? <p className="text-sm text-muted-foreground">Checking…</p> : dayTimes.length === 0 ? <p className="rounded-xl bg-muted/30 p-3 text-sm">No open times that day — try another day, or enter another time below to see why.</p>
+          : groups.filter(([, l]) => l.length).map(([label, list]) => (
+            <div key={label} className="space-y-1.5"><p className="text-xs text-muted-foreground">{label}</p>
+              <div className="grid grid-cols-3 gap-2">{list.map((t) => <button key={t} type="button" onClick={() => choose(day, t)} aria-pressed={time === t && !custom} className={`h-10 rounded-xl border text-sm font-semibold transition active:scale-95 ${time === t && !custom ? 'border-primary bg-primary text-primary-foreground shadow' : 'bg-background hover:bg-muted/40'}`}>{clock(t)}{t === usualTime && <span className="ml-1 text-[10px] opacity-70">usual</span>}</button>)}</div></div>))}
+        <label className="block space-y-1"><span className="text-xs text-muted-foreground">Another time</span>
+          <input type="time" step={300} value={custom} onChange={(e) => setCustom(e.target.value)} className="h-11 w-full rounded-xl border px-3 text-base" /></label>
+      </section>}
+
+      {reason && <p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900" role="alert">{reason}</p>}
+      {feeEligible && <label className="flex items-center justify-between gap-3 rounded-xl border p-3"><span className="text-sm"><b>Reschedule fee</b> — ${fee.toFixed(2)} (moved within {windowH} hours)</span><Switch checked={applyFee} onCheckedChange={setApplyFee} /></label>}
+      <label className="flex items-center justify-between gap-3 rounded-xl border p-3"><span className="text-sm"><b>Tell {first}</b> — email + text with the new time</span><Switch checked={notify} onCheckedChange={setNotify} /></label>
     </div>
   );
+
   const footer = (
     <div className="flex w-full flex-col gap-2">
+      {time && day && !override && <p className="text-center text-sm"><span className="text-muted-foreground">{format(original, 'EEE MMM d, h:mm a')} → </span><b>{format(parseISO(day), 'EEE MMM d')} · {clock(time)}</b>{who ? ` with ${who.split(' ')[0]}` : ''}</p>}
       {override ? <>
         <p className="text-center text-xs text-muted-foreground">As a manager you can move it anyway — it will be recorded.</p>
-        <Button onClick={() => move(true)} disabled={busy} variant="destructive" className="h-12 w-full rounded-2xl font-black">{busy ? <Loader className="h-5 w-5 animate-spin" /> : 'Move anyway'}</Button>
-        <Button onClick={() => { setOverride(null); setReason(null); setTime(''); setCustom(''); }} variant="outline" className="h-11 w-full rounded-2xl">Pick another time</Button>
-      </> : (
-        <Button onClick={() => move(false)} disabled={busy || !time || (!!reason && !custom)} className="h-12 w-full rounded-2xl text-base font-black">
-          {busy ? <Loader className="h-5 w-5 animate-spin" /> : time ? `Move to ${format(parseISO(`${day}T${time}`), 'EEE MMM d')} at ${clock(time)}` : 'Pick a time'}
-        </Button>
-      )}
+        <Button onClick={() => move(true)} disabled={busy} variant="destructive" className="h-12 w-full rounded-2xl font-bold">{busy ? <Loader className="h-5 w-5 animate-spin" /> : 'Move anyway'}</Button>
+        <Button onClick={() => { setOverride(false); setReason(null); setTime(''); setCustom(''); }} variant="outline" className="h-11 w-full rounded-2xl">Pick another time</Button>
+      </> : <Button onClick={() => move(false)} disabled={busy || !time || !day} className="h-12 w-full rounded-2xl text-base font-bold">{busy ? <Loader className="h-5 w-5 animate-spin" /> : time && day ? `Move ${first}` : 'Pick a day and time'}</Button>}
     </div>
   );
+
   if (isMobile) return (
-    <Sheet open={open} onOpenChange={onOpenChange}><SheetContent side="bottom" className="max-h-[92vh] overflow-y-auto rounded-t-[2rem] p-6">
-      <SheetHeader className="mb-4 text-left"><SheetTitle className="text-xl font-black">Reschedule</SheetTitle></SheetHeader>{body}<SheetFooter className="mt-6">{footer}</SheetFooter>
+    <Sheet open={open} onOpenChange={onOpenChange}><SheetContent side="bottom" className="max-h-[94vh] overflow-y-auto rounded-t-[2rem] p-5">
+      <SheetHeader className="mb-3 text-left"><SheetTitle className="text-xl font-black">Reschedule {first}</SheetTitle></SheetHeader>{body}<SheetFooter className="sticky bottom-0 mt-5 bg-background pb-2 pt-3">{footer}</SheetFooter>
     </SheetContent></Sheet>
   );
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="rounded-[2rem] p-8 sm:max-w-md">
-      <DialogHeader className="mb-2"><DialogTitle className="text-2xl font-black">Reschedule</DialogTitle></DialogHeader>{body}<DialogFooter className="mt-6">{footer}</DialogFooter>
+    <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[92vh] overflow-y-auto rounded-[2rem] p-7 sm:max-w-lg">
+      <DialogHeader className="mb-1"><DialogTitle className="text-2xl font-black">Reschedule {first}</DialogTitle></DialogHeader>{body}<DialogFooter className="mt-5">{footer}</DialogFooter>
     </DialogContent></Dialog>
   );
 };
+
 export default RescheduleAppointmentDialog;
