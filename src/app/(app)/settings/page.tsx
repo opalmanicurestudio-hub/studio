@@ -675,10 +675,17 @@ function SettingsPageImpl() {
             <TabsContent value="experience" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                 <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                  <SectionHeader icon={Coffee} title="Hospitality Concierge" />
+                  <SectionHeader icon={Coffee} title="Guest extras" />
                   <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Configure the in-service refreshment and amenity module.</CardDescription>
                 </CardHeader>
                 <CardContent className="p-6 md:p-8 space-y-10 text-left">
+                  <div className="flex items-center justify-between gap-6 rounded-[2rem] border-2 p-6">
+                    <div className="space-y-1">
+                      <Label className="text-base font-bold text-slate-900">Show the guest experience after check-in</Label>
+                      <p className="text-sm text-muted-foreground">Once a guest checks in, their link shows refreshments, services to explore and a help button. Leave this off unless someone is available to respond — guests then see a simple “You’re checked in”.</p>
+                    </div>
+                    <Switch checked={(tenantData as any).guestExperienceEnabled === true} onCheckedChange={(val) => setTenantData(prev => ({ ...prev, guestExperienceEnabled: val } as any))} disabled={!isEditing} />
+                  </div>
                   <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-primary/5 shadow-inner border-primary/10 gap-6">
                     <div className="space-y-1">
                       <Label className="text-base font-black uppercase tracking-tight text-slate-900">Activate Refreshment Menu</Label>
@@ -1556,3 +1563,4 @@ function ReconnectTally({ tenantId }: { tenantId: string | null | undefined }) {
     </div>
   );
 }
+                  
