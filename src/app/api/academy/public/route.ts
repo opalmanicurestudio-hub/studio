@@ -12,6 +12,7 @@
 //   lesson    { tenantId, courseId, lessonId, token? }  content; video token if allowed
 //   progress  { tenantId, token, courseId, lessonId, done }
 
+import { notifyApplicant, pickOfferedTime, requestReschedule } from '@/lib/academy-applicant-comms';
 import { respondOffer } from '@/lib/academy-decisions';
 import { getIdentity } from '@/lib/school-identity';
 import { itemsFor, publicPortfolio, newToken } from '@/lib/academy-portfolio';
@@ -393,13 +394,19 @@ export async function POST(req: NextRequest) {
     if (b.action === 'programs') {
       const s = await db.collection(`tenants/${tenantId}/programs`).where('status', '==', 'active').limit(50).get();
       return NextResponse.json({ ok: true, brand, languages: LANGUAGES, programs: s.docs.map((d: any) => { const p = d.data() as any; return { id: d.id, name: p.name, totalHours: p.totalHours || null, description: p.description || null,
-        tuitionCents: p.tuition ? p.tuition.tuitionCents + p.tuition.registrationFeeCents + p.tuition.kitCents : null, installments: p.tuition?.installments || 0 }; }) });
+        tuitionCents: p.tuition ? p.tuition.tuitionCents + p.tuition.registrationFeeCents + p.tuition.kitCents : null, installments: p.tuition?.installments || 0,
+        questions: p.admission?.questions || [], docs: (p.requiredDocs?.length ? p.requiredDocs : DEFAULT_DOCS).map((k: string) => ({ name: k, note: p.docNotes?.[k] || null })) }; }) });
     }
     if (b.action === 'apply') {
       const name = String(b.name || '').trim().slice(0, 80), mail = String(b.email || '').trim().toLowerCase();
       if (!name || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) return NextResponse.json({ ok: false, error: 'Add your name and email.' }, { status: 400 });
       const p = ((await db.doc(`tenants/${tenantId}/programs/${String(b.programId || '')}`).get()).data() as any) || null;
       if (!p || p.status === 'archived') return NextResponse.json({ ok: false, error: 'Choose a program.' }, { status: 400 });
+      const qs: any[] = p.admission?.questions || [];
+      const answers = qs.map((q: any) => { const raw = (b.answers || {})[q.id]; const v = q.type === 'yesno' ? (raw === 'yes' || raw === true ? 'Yes' : raw === 'no' || raw === false ? 'No' : '') : String(raw ?? '').trim().slice(0, q.type === 'paragraph' ? 2000 : 300);
+        return { id: q.id, label: q.label, value: q.type === 'choice' && v && !q.options.includes(v) ? '' : v }; });
+      if (b.intent !== 'info') { const miss = qs.filter((q: any, i: number) => q.required && !answers[i].value); if (miss.length) return NextResponse.json({ ok: false, error: `Please answer: ${miss.map((q: any) => q.label).join('; ')}` }, { status: 400 }); }
+      const textOk = !!b.textOk && !!String(b.phone || '').trim();
       const dupe = await db.collection(`tenants/${tenantId}/admissions`).where('email', '==', mail).limit(20).get();
       const open = dupe.docs.find((d: any) => (d.data() as any).programId === b.programId && !['declined', 'withdrawn'].includes((d.data() as any).stage));
       const at = new Date().toISOString();
@@ -407,7 +414,7 @@ export async function POST(req: NextRequest) {
       let id = open?.id;
       if (!id) {
         const ref = db.collection(`tenants/${tenantId}/admissions`).doc(); id = ref.id;
-        await ref.set({ id, name, email: mail, phone: String(b.phone || '').slice(0, 30) || null, language: LANGUAGES[b.language] ? b.language : 'en', programId: b.programId, stage: wantsToApply ? 'applied' : 'inquiry', source: String(b.source || 'website').slice(0, 80),
+        await ref.set({ id, name, email: mail, phone: String(b.phone || '').slice(0, 30) || null, textOk, answers: answers.filter((x: any) => x.value), language: LANGUAGES[b.language] ? b.language : 'en', programId: b.programId, stage: wantsToApply ? 'applied' : 'inquiry', source: String(b.source || 'website').slice(0, 80),
           message: String(b.message || '').slice(0, 1000) || null, requiredDocs: p.requiredDocs?.length ? p.requiredDocs : DEFAULT_DOCS, documents: {}, notes: [], createdAt: at, updatedAt: at, history: [{ stage: wantsToApply ? 'applied' : 'inquiry', at, by: 'applicant' }] });
         await appendAudit(tenantId, { type: 'admissions.created', by: mail, summary: `${wantsToApply ? 'Application' : 'Inquiry'} from ${name} for ${p.name}`, data: { admissionId: id } });
       }
@@ -444,12 +451,12 @@ Keep this link private — you can use it any time to check your status.
       if (b.action === 'application') {
         const plan = ((await db.doc(`tenants/${tenantId}/tuitionPlans/${planId}`).get()).data() as any) || null;
         const bal = plan ? await planBalance(tenantId, planId) : null;
-        const docs = (a.requiredDocs || DEFAULT_DOCS).map((k: string) => ({ key: k, status: a.documents?.[k]?.status || 'missing', reason: a.documents?.[k]?.reason || null }));
+        const docs = (a.requiredDocs || DEFAULT_DOCS).map((k: string) => ({ key: k, note: p.docNotes?.[k] || null, status: a.documents?.[k]?.status || 'missing', reason: a.documents?.[k]?.reason || null }));
         const stage = a.stage === 'documents' ? 'review' : a.stage;
         const offer = a.offer ? { expiresAt: a.offer.expiresAt || null, conditions: (a.offer.conditions || []).map((c: any) => ({ text: c.text, met: !!c.met })), fromWaitlist: !!a.offer.fromWaitlist, response: a.offer.response || null } : null;
         // What the applicant sees about a decision — never staff notes or rubric scores.
         const outcome = a.decision ? { outcome: a.decision.outcome, message: a.decision.message || null, reason: a.decision.outcome === 'not_accepted' ? a.decision.reason : null, reapplyAfter: a.decision.reapplyAfter || null } : null;
-        const interview = a.interview?.status === 'scheduled' ? { at: a.interview.at, where: a.interview.where || null, with: a.interview.with || null } : null;
+        const iv = a.interview; const interview = iv && ['scheduled', 'offered', 'reschedule_requested'].includes(iv.status) ? { status: iv.status, at: iv.at || null, where: iv.where || null, with: iv.with || null, offers: (iv.offers || []).filter((x: string) => Date.parse(x) > Date.now()), proposals: iv.proposals || [] } : null;
         let position: number | null = null;
         if (stage === 'waitlist') { const w = await db.collection(`tenants/${tenantId}/admissions`).where('stage', '==', 'waitlist').limit(2000).get(); const q = w.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((x: any) => x.programId === a.programId && (x.cohortId || null) === (a.cohortId || null)).sort((x: any, y: any) => String(x.waitlistedAt || '').localeCompare(String(y.waitlistedAt || ''))); const i = q.findIndex((x: any) => x.id === a.id); position = i >= 0 ? i + 1 : null; }
         const canSign = ['accepted', 'agreement', 'enrolled'].includes(stage) || !!a.agreement?.signedAt;
@@ -467,8 +474,18 @@ Keep this link private — you can use it any time to check your status.
         const allIn = (a.requiredDocs || DEFAULT_DOCS).every((k: string) => docs[k]);
         await a.ref.set({ documents: docs, updatedAt: new Date().toISOString() }, { merge: true });
         await appendAudit(tenantId, { type: 'admissions.doc_uploaded', by: a.email, summary: `${a.name} uploaded ${key}`, data: { admissionId: a.id, sha256: f.sha256 } });
-        if (allIn && ['inquiry', 'tour', 'applied'].includes(a.stage)) await setStage(tenantId, a.id, 'review', 'applicant', 'All documents uploaded — ready for review');
+        if (allIn && ['inquiry', 'tour', 'applied'].includes(a.stage)) {
+          await setStage(tenantId, a.id, 'review', 'applicant', 'All documents uploaded — ready for review');
+          await notifyApplicant(tenantId, a, { kind: 'docs_received', origin, subject: 'We have your documents', body: 'Thanks — we’ve received all your documents. Our admissions team will check them and review your application, and we’ll keep you posted by email' + (a.textOk ? ' and text' : '') + '.', sms: 'we have all your documents — your application is now being reviewed.' }).catch(() => null);
+        }
         return NextResponse.json({ ok: true });
+      }
+      if (b.action === 'app-interview-pick' || b.action === 'app-interview-change') {
+        try {
+          if (b.action === 'app-interview-pick') await pickOfferedTime(tenantId, a, String(b.slot || ''), origin);
+          else await requestReschedule(tenantId, a, { proposals: b.proposals, note: b.note, cantAttend: !!b.cantAttend }, origin);
+          return NextResponse.json({ ok: true });
+        } catch (e: any) { return NextResponse.json({ ok: false, error: e?.message || 'Couldn’t update your interview.' }, { status: 400 }); }
       }
       if (b.action === 'app-offer') {
         try { await respondOffer(tenantId, a, !!b.accept, origin, b.reason); return NextResponse.json({ ok: true }); }
