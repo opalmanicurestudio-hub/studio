@@ -268,7 +268,7 @@ export default function AcademyBuilderPage() {
             {section === 'assign' && <AssignPanel tenantId={tenantId} />}
             {section === 'toolkit' && <ClassroomToolkit tenantId={tenantId} courses={courses || []} />}
             {section === 'website' && mode === 'school' && <SchoolWebsite tenantId={tenantId} />}
-            {section === 'funding' && mode === 'school' && <SchoolFunding tenantId={tenantId} />}
+            {section === 'funding' && mode === 'school' && <SchoolFunding tenantId={tenantId} brand={docBrand} />}
             {section === 'documents' && <SchoolDocs tenantId={tenantId} brand={docBrand} courses={courses || []} />}
             {section === 'materials' && <CourseMaterials tenantId={tenantId} courses={courses || []} brand={docBrand} />}
             {section === 'reports' && mode === 'school' && <AcademyReports tenantId={tenantId} />}
