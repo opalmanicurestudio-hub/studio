@@ -1128,7 +1128,8 @@ const usd = (c: number) => `$${(Math.round(c || 0) / 100).toLocaleString('en-US'
 export function Apply({ tenantId }: { tenantId: string }) {
   const sp = useSearchParams();
   const [d, setD] = useState<any>(null);
-  const [f, setF] = useState({ programId: sp?.get('program') || '', name: '', email: '', phone: '', message: '', language: 'en' });
+  const [f, setF] = useState({ programId: sp?.get('program') || '', name: '', email: '', phone: '', message: '', language: 'en', textOk: false });
+  const [answers, setAnswers] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<any>(null);
   const [err, setErr] = useState('');
@@ -1137,7 +1138,7 @@ export function Apply({ tenantId }: { tenantId: string }) {
   const color = d.brand?.color || '#1c1917';
   const go = async (intent: 'apply' | 'info') => {
     setBusy(true); setErr('');
-    const r = await api({ action: 'apply', tenantId, ...f, intent, source: sp?.get('utm_source') || sp?.get('source') || (document.referrer ? new URL(document.referrer).hostname : 'website') });
+    const r = await api({ action: 'apply', tenantId, ...f, answers, intent, source: sp?.get('utm_source') || sp?.get('source') || (document.referrer ? new URL(document.referrer).hostname : 'website') });
     setBusy(false); if (r.ok) setDone(r); else setErr(r.error || 'Something went wrong.');
   };
   return (
@@ -1160,6 +1161,8 @@ export function Apply({ tenantId }: { tenantId: string }) {
           </div>
           <Glass className="space-y-3 lg:sticky lg:top-24 lg:self-start">
             {(['name', 'email', 'phone'] as const).map((k) => <input key={k} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} type={k === 'email' ? 'email' : 'text'} placeholder={k === 'name' ? 'Full legal name' : k === 'email' ? 'Email' : 'Phone (optional)'} className="h-11 w-full rounded-2xl border border-white/80 bg-white/75 px-4" />)}
+            {f.phone.trim() && <label className="flex items-center gap-2 text-[13px] text-stone-700"><input type="checkbox" checked={f.textOk} onChange={(e) => setF({ ...f, textOk: e.target.checked })} /> Text me updates about my application</label>}
+            {(() => { const prog = d.programs.find((x: any) => x.id === f.programId); return prog ? <ApplyQuestions prog={prog} answers={answers} setAnswers={setAnswers} color={color} /> : null; })()}
             <textarea value={f.message} onChange={(e) => setF({ ...f, message: e.target.value })} rows={3} placeholder="Anything we should know? (optional)" className="w-full rounded-2xl border border-white/80 bg-white/75 p-4" />
             {d.languages && <label className="block text-[13px] text-stone-600">Letters and emails in<select value={f.language} onChange={(e) => setF({ ...f, language: e.target.value })} className="mt-1 h-11 w-full rounded-2xl border border-white/80 bg-white/75 px-3 text-sm">{Object.entries(d.languages).map(([k, v]: any) => <option key={k} value={k}>{v.native}</option>)}</select></label>}
             <p className="text-[12px] text-stone-500">Applying doesn’t guarantee a place — the school reviews every application and emails you its decision.</p>
@@ -1209,11 +1212,11 @@ export function Application({ tenantId, appToken }: { tenantId: string; appToken
       {closed ? <ClosedCard d={d} color={color} /> : <div className="mt-6 space-y-4">
         {stage === 'offer' && d.offer && <OfferCard d={d} color={color} busy={busy} onAnswer={async (accept, reason) => { setBusy('offer'); setErr(''); const r = await api({ action: 'app-offer', tenantId, appToken, accept, reason }); setBusy(''); if (!r.ok) setErr(r.error); void load(); }} />}
         {stage === 'waitlist' && <Glass className="space-y-1"><p className="text-lg font-semibold">⏳ You’re on the waitlist{d.applicant.position ? ` — number ${d.applicant.position}` : ''}</p><p className="text-sm text-stone-600">Your application meets our requirements, but the program is full right now. If a place opens, we’ll email you an offer and you’ll have a few days to accept it. You don’t need to do anything.</p></Glass>}
-        {d.interview && <Glass className="space-y-1"><p className="text-lg font-semibold">🗓 Your interview</p><p className="text-sm">{new Date(d.interview.at).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}{d.interview.where ? ` · ${d.interview.where}` : ''}{d.interview.with ? ` · with ${d.interview.with}` : ''}</p></Glass>}
+        {d.interview && <InterviewCard iv={d.interview} color={color} busy={busy} onPick={async (slot) => { setBusy('iv'); setErr(''); const r = await api({ action: 'app-interview-pick', tenantId, appToken, slot }); setBusy(''); if (!r.ok) setErr(r.error); void load(); }} onChange={async (v) => { setBusy('iv'); setErr(''); const r = await api({ action: 'app-interview-change', tenantId, appToken, ...v }); setBusy(''); if (!r.ok) { setErr(r.error); return false; } void load(); return true; }} />}
         <AppStep color={color} n={1} title="Upload your documents" done={docsIn}>
           {d.docs.map((x: any) => (
             <div key={x.key} className="flex flex-wrap items-center gap-2 rounded-2xl bg-white/60 px-4 py-3 text-sm">
-              <span className="min-w-0 flex-1">{x.key} · <span className={x.status === 'verified' ? 'text-emerald-700' : x.status === 'rejected' ? 'text-red-700' : 'text-stone-500'}>{x.status === 'missing' ? 'needed' : x.status === 'submitted' ? 'received — being checked' : x.status}</span>{x.reason ? <span className="block text-[12px] text-red-700">{x.reason}</span> : null}</span>
+              <span className="min-w-0 flex-1">{x.key} · <span className={x.status === 'verified' ? 'text-emerald-700' : x.status === 'rejected' ? 'text-red-700' : 'text-stone-500'}>{x.status === 'missing' ? 'needed' : x.status === 'submitted' ? 'received — being checked' : x.status === 'rejected' ? 'please upload again' : x.status}</span>{x.note && x.status !== 'verified' ? <span className="block text-[12px] text-stone-500">{x.note}</span> : null}{x.reason ? <span className="block text-[12px] text-red-700">{x.reason}</span> : null}</span>
               {x.status !== 'verified' && <label className="cursor-pointer rounded-full bg-white px-4 py-2 text-[13px] shadow-sm">{busy === x.key ? 'Uploading…' : x.status === 'missing' ? 'Upload' : 'Replace'}<input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) void upload(x.key, file); }} /></label>}
             </div>
           ))}
@@ -1325,6 +1328,58 @@ function ClosedCard({ d, color }: { d: any; color: string }) {
         {o?.message && <p className="text-sm text-stone-700">{o.message}</p>}
       </> : <p className="text-sm text-stone-700">If you’d like to join after all, please contact the school — they’ll be glad to help.</p>}
       <span className="block h-1 w-16 rounded-full" style={{ background: color }} />
+    </Glass>
+  );
+}
+
+// Program questions on the apply form (outside Apply so typing keeps focus).
+function ApplyQuestions({ prog, answers, setAnswers, color }: { prog: any; answers: Record<string, string>; setAnswers: (a: Record<string, string>) => void; color: string }) {
+  const qs: any[] = prog.questions || []; const docs: any[] = prog.docs || [];
+  const set = (id: string, v: string) => setAnswers({ ...answers, [id]: v });
+  return (
+    <div className="space-y-3">
+      {qs.map((q) => (
+        <label key={q.id} className="block space-y-1 text-[14px] text-stone-800"><span>{q.label}{q.required ? <span className="text-red-600"> *</span> : null}</span>
+          {q.type === 'paragraph' ? <textarea rows={3} value={answers[q.id] || ''} onChange={(e) => set(q.id, e.target.value)} className="w-full rounded-2xl border border-white/80 bg-white/75 p-3 text-[15px]" />
+            : q.type === 'short' ? <input value={answers[q.id] || ''} onChange={(e) => set(q.id, e.target.value)} className="h-12 w-full rounded-2xl border border-white/80 bg-white/75 px-4 text-[15px]" />
+            : <span className="flex flex-wrap gap-2">{(q.type === 'yesno' ? [['yes', 'Yes'], ['no', 'No']] : (q.options || []).map((o: string) => [o, o])).map(([v, l]: string[]) => <button key={v} type="button" aria-pressed={answers[q.id] === v} onClick={() => set(q.id, v)} className={`h-10 rounded-full px-4 text-sm ${answers[q.id] === v ? 'text-white' : 'bg-white/80'}`} style={answers[q.id] === v ? { background: color } : undefined}>{l}</button>)}</span>}
+        </label>
+      ))}
+      {docs.length > 0 && <div className="rounded-2xl bg-white/60 p-3 text-[13px] text-stone-700"><p className="font-semibold">You’ll upload after applying:</p><ul className="mt-1 space-y-0.5">{docs.map((x: any) => <li key={x.name}>• {x.name}{x.note ? <span className="text-stone-500"> — {x.note}</span> : null}</li>)}</ul></div>}
+    </div>
+  );
+}
+
+// The applicant's interview: choose an offered time, or ask for a different one.
+function InterviewCard({ iv, color, busy, onPick, onChange }: { iv: any; color: string; busy: string; onPick: (slot: string) => void; onChange: (v: any) => Promise<boolean> }) {
+  const [asking, setAsking] = useState(false); const [times, setTimes] = useState(['', '', '']); const [note, setNote] = useState('');
+  const fmtT = (x: string) => new Date(x).toLocaleString(undefined, { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const ask = (
+    <div className="space-y-2 pt-1">
+      <p className="text-sm text-stone-700">Suggest up to three times that work for you:</p>
+      {times.map((t, i) => <input key={i} type="datetime-local" value={t} onChange={(e) => setTimes(times.map((x, j) => (j === i ? e.target.value : x)))} className="h-11 w-full rounded-2xl border border-white/80 bg-white/80 px-3 text-sm" aria-label={`Time ${i + 1}`} />)}
+      <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="A note for the school (optional)" className="w-full rounded-2xl border border-white/80 bg-white/80 p-3 text-sm" />
+      <div className="flex flex-wrap gap-2">
+        <button type="button" disabled={!!busy || !times.some(Boolean)} onClick={async () => { if (await onChange({ proposals: times.filter(Boolean).map((x) => new Date(x).toISOString()), note })) setAsking(false); }} className="h-11 rounded-full px-5 text-sm font-medium text-white disabled:opacity-50" style={{ background: color }}>Send my times</button>
+        <button type="button" disabled={!!busy} onClick={async () => { if (window.confirm('Let the school know you can’t attend right now?')) { if (await onChange({ cantAttend: true, note })) setAsking(false); } }} className="h-11 rounded-full bg-white/80 px-4 text-sm">I can’t attend right now</button>
+        <button type="button" onClick={() => setAsking(false)} className="h-11 rounded-full px-3 text-sm">Back</button>
+      </div>
+    </div>
+  );
+  return (
+    <Glass className="space-y-2">
+      <p className="text-lg font-semibold">🗓 Your interview</p>
+      {iv.status === 'offered' && (!asking ? <>
+        <p className="text-sm text-stone-700">Please choose a time{iv.where ? ` (${iv.where})` : ''}:</p>
+        <div className="grid gap-2">{(iv.offers || []).map((x: string) => <button key={x} type="button" disabled={!!busy} onClick={() => onPick(x)} className="h-12 rounded-2xl bg-white/85 px-4 text-left text-[15px] shadow-sm disabled:opacity-50">{fmtT(x)}</button>)}</div>
+        {(iv.offers || []).length === 0 && <p className="text-sm text-stone-600">These times have passed — please suggest new ones.</p>}
+        <button type="button" onClick={() => setAsking(true)} className="text-sm underline">None of these work</button>
+      </> : ask)}
+      {iv.status === 'scheduled' && (!asking ? <>
+        <p className="text-[15px]"><b>{fmtT(iv.at)}</b>{iv.where ? ` · ${iv.where}` : ''}{iv.with ? ` · with ${iv.with}` : ''}</p>
+        <button type="button" onClick={() => setAsking(true)} className="text-sm underline">Need a different time?</button>
+      </> : ask)}
+      {iv.status === 'reschedule_requested' && <p className="text-sm text-stone-700">Thanks — we’ve asked the school for a new time{(iv.proposals || []).length ? ` (you suggested ${iv.proposals.map(fmtT).join('; ')})` : ''}. You’ll hear back by email.</p>}
     </Glass>
   );
 }
