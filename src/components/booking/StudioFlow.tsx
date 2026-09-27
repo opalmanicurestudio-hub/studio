@@ -11,7 +11,7 @@
 //   Pay    only when a deposit is due — the secure card form
 //   Done   the server's own words · who/when/where · calendar · directions
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controller, FormProvider } from 'react-hook-form';
 import { addDays, addMonths, endOfMonth, format, isBefore, isSameDay, isSameMonth, isToday, startOfDay, startOfMonth } from 'date-fns';
 import { PhoneInput } from '../ui/phone-input';
@@ -40,6 +40,18 @@ export function StudioFlow({ c }: { c: any }) {
   const monthDays = useMemo(() => { const first = startOfMonth(cursor); const lead = first.getDay(); const n = endOfMonth(cursor).getDate(); return [...Array(lead).fill(null), ...Array.from({ length: n }, (_, i) => addDays(first, i))]; }, [cursor]);
   const today0 = startOfDay(new Date());
   const JUMPS: [string, () => Date][] = [['Next week', () => addDays(today0, 7)], ['In 2 weeks', () => addDays(today0, 14)], ['In 4 weeks', () => addDays(today0, 28)], ['Next month', () => startOfMonth(addMonths(today0, 1))]];
+  // Availability dots: HOW MANY open times each day has (counts only, from the
+  // server). Loaded for the visible week/month; full days are dimmed.
+  const [counts, setCounts] = useState<Record<string, number>>({}); const loadedRef = useRef(new Set<string>());
+  useEffect(() => {
+    const from = monthOpen ? startOfMonth(cursor) : c.weekStart; const start = from < today0 ? today0 : from;
+    const k = `${c.selectedStaffId}|${c.selectedTierId}|${service?.id}|${format(start, 'yyyy-MM-dd')}`;
+    if (!c.tenantId || !service?.id || loadedRef.current.has(k)) return; loadedRef.current.add(k);
+    fetch('/api/booking/public-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: c.tenantId, action: 'days', from: format(start, 'yyyy-MM-dd'), days: 35, serviceId: service.id, staffId: c.selectedStaffId, tierId: c.selectedTierId !== 'any' ? c.selectedTierId : undefined, providerId: c.providerId || undefined }) })
+      .then((r) => r.json()).then((d) => { if (d?.ok) setCounts((p) => ({ ...p, ...Object.fromEntries((d.days || []).map((x: any) => [`${c.selectedStaffId}|${x.date}`, x.count])) })); }).catch(() => { /* dots are a nicety */ });
+  }, [c.weekStart, cursor, monthOpen, c.selectedStaffId, c.selectedTierId, service?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const countFor = (d: Date): number | undefined => counts[`${c.selectedStaffId}|${format(d, 'yyyy-MM-dd')}`];
+  const Dot = ({ n, on }: { n: number | undefined; on: boolean }) => (n && n > 0 ? <span className="mt-0.5 h-1 rounded-full" style={{ width: n >= 8 ? 14 : n >= 4 ? 10 : 5, background: on ? '#fff' : accent, opacity: n >= 4 ? 1 : 0.6 }} /> : <span className="mt-0.5 h-1" />);
   const priceLabel = c.price ? `$${Number(c.price).toFixed(Number(c.price) % 1 ? 2 : 0)}` : '';
 
   const header = currentStep !== 'confirmation' && (
@@ -56,6 +68,10 @@ export function StudioFlow({ c }: { c: any }) {
   // ── When ───────────────────────────────────────────────────────────────
   const whenStep = (
     <div className="space-y-5">
+      {c.rescheduleOf && <div className="rounded-3xl p-4 text-[14px] text-white shadow" style={{ background: accent }} role="status">
+        <p className="font-semibold">Moving your {c.rescheduleOf.serviceName || 'appointment'}</p>
+        {c.rescheduleOf.startTime && <p className="opacity-90">Currently {format(new Date(c.rescheduleOf.startTime), 'EEEE, MMMM d')} at {format(new Date(c.rescheduleOf.startTime), 'h:mm a')}. Your current time is kept until the new one is booked.</p>}
+      </div>}
       {!c.lockedStaffId && c.qualifiedStaff.length > 1 && <section className="space-y-2" aria-label="Who">
         <p className="text-[13px] text-stone-500">With</p>
         <div className="-mx-5 flex gap-2 overflow-x-auto px-5 pb-1">{[{ id: 'any', name: 'Anyone' }, ...c.qualifiedStaff].map((m: any) => { const on = c.selectedStaffId === m.id; return (
@@ -79,14 +95,14 @@ export function StudioFlow({ c }: { c: any }) {
             <button type="button" onClick={() => setCursor((m: Date) => addMonths(m, 1))} aria-label="Next month" className="flex h-9 w-9 items-center justify-center rounded-full bg-white shadow-sm">›</button></div>
           <div className="grid grid-cols-7 gap-1 text-center text-[11px] text-stone-400">{['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((x, i) => <span key={i}>{x}</span>)}</div>
           <div className="grid grid-cols-7 gap-1">{monthDays.map((d, i) => d === null ? <span key={i} /> : (() => { const past = isBefore(d, today0); const on = isSameDay(d, c.date); return (
-            <button key={i} type="button" disabled={past} onClick={() => pickDay(d)} aria-pressed={on} aria-label={format(d, 'EEEE, MMMM d')} className={`h-10 rounded-xl text-[14px] transition active:scale-95 ${on ? 'font-semibold text-white' : past ? 'text-stone-300' : isToday(d) ? 'bg-white font-semibold shadow-sm' : 'bg-white/70'}`} style={on ? { background: accent } : undefined}>{format(d, 'd')}</button>
+            <button key={i} type="button" disabled={past} onClick={() => pickDay(d)} aria-pressed={on} aria-label={format(d, 'EEEE, MMMM d')} className={`flex h-11 flex-col items-center justify-center rounded-xl text-[14px] transition active:scale-95 ${on ? 'font-semibold text-white' : past ? 'text-stone-300' : countFor(d) === 0 ? 'bg-white/40 text-stone-400' : isToday(d) ? 'bg-white font-semibold shadow-sm' : 'bg-white/80'}`} style={on ? { background: accent } : undefined}>{format(d, 'd')}{!past && <Dot n={countFor(d)} on={on} />}</button>
           ); })())}</div>
           {!isSameMonth(cursor, today0) && <button type="button" onClick={() => setCursor(startOfMonth(today0))} className="text-[13px] underline underline-offset-2">Back to this month</button>}
         </div>}
         <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1" aria-label="Jump ahead">{JUMPS.map(([l, f]) => <button key={l} type="button" onClick={() => pickDay(f())} className="shrink-0 rounded-full bg-stone-100 px-3 py-1.5 text-[13px] transition active:scale-95">{l}</button>)}</div>
         <div className="grid grid-cols-7 gap-1.5">{weekDays.map((d) => { const past = isBefore(d, startOfDay(new Date())) && !isToday(d); const on = isSameDay(d, c.date); return (
           <button key={d.toISOString()} type="button" disabled={past} onClick={() => { c.setDate(d); c.setSelectedTime(null); }} aria-pressed={on} aria-label={format(d, 'EEEE, MMMM d')} className={`flex aspect-[4/5] flex-col items-center justify-center rounded-2xl transition active:scale-95 ${on ? 'text-white shadow' : past ? 'opacity-25' : 'bg-stone-50'}`} style={on ? { background: accent } : undefined}>
-            <span className="text-[11px] opacity-70">{format(d, 'EEE')}</span><span className="text-[17px] font-semibold">{format(d, 'd')}</span>{isToday(d) && <span className="mt-0.5 h-1 w-1 rounded-full" style={{ background: on ? '#fff' : accent }} />}
+            <span className="text-[11px] opacity-70">{format(d, 'EEE')}</span><span className={`text-[17px] font-semibold ${countFor(d) === 0 && !on ? 'opacity-35' : ''}`}>{format(d, 'd')}</span><Dot n={countFor(d)} on={on} />
           </button>
         ); })}</div>
       </section>
