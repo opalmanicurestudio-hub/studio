@@ -13,6 +13,7 @@
 // A student's sign-in is a token kept in this browser (30 days).
 
 import { AnnouncementItem } from '@/components/academy/Announcement';
+import { SignatureField } from '@/components/academy/SignatureField';
 import { GameBlock } from '@/components/academy/Games';
 import { InteractiveFrame } from '@/components/academy/InteractiveFrame';
 import { wordSearch as wordSearchGrid, crossword as crosswordGrid } from '@/lib/printables';
@@ -1182,7 +1183,7 @@ export function Application({ tenantId, appToken }: { tenantId: string; appToken
   const [d, setD] = useState<any>(null);
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
-  const [sign, setSign] = useState({ typedName: '', agree: false });
+  const [sign, setSign] = useState<{ typedName: string; agree: boolean; signature: string | null }>({ typedName: '', agree: false, signature: null });
   const load = useCallback(async () => setD(await api({ action: 'application', tenantId, appToken })), [tenantId, appToken]);
   useEffect(() => {
     const sid = sp?.get('session_id');
@@ -1224,11 +1225,14 @@ export function Application({ tenantId, appToken }: { tenantId: string; appToken
         </AppStep>
         <AppStep color={color} n={2} title="Read and sign your enrolment agreement" done={d.agreement.signed} locked={!d.canSign} lockedText={stage === 'offer' ? 'Opens when you accept your offer above.' : 'Opens once the school has reviewed your application and offered you a place. Applying doesn’t guarantee a place.'}>
           <pre className="max-h-80 overflow-y-auto whitespace-pre-wrap rounded-2xl bg-white/70 p-4 text-[13px] leading-relaxed">{d.agreement.text}</pre>
-          {d.agreement.signed ? <p className="text-sm text-emerald-700">✓ Signed by {d.agreement.signedName} on {new Date(d.agreement.signedAt).toLocaleString()}</p> : (
+          {d.agreement.signed ? <div className="space-y-2"><p className="text-sm text-emerald-700">✓ Signed by {d.agreement.signedName} on {new Date(d.agreement.signedAt).toLocaleString()}</p>
+            {d.agreement.hasPdf && <button type="button" disabled={!!busy} onClick={async () => { setBusy('pdf'); const r = await api({ action: 'app-agreement-pdf', tenantId, appToken }); setBusy(''); if (r.ok && r.url) window.open(r.url, '_blank'); else setErr(r.error || 'Couldn’t open your copy.'); }} className="h-11 rounded-full bg-white/85 px-5 text-sm shadow-sm">📄 {busy === 'pdf' ? 'Opening…' : 'Download signed copy'}</button>}
+            {d.agreement.hasPdf && <p className="text-[12px] text-stone-500">{d.agreement.countersigned ? 'Signed by you and the school.' : 'The school countersigns next — your copy updates when they do.'}</p>}</div> : (
             <>
               <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={sign.agree} onChange={(e) => setSign({ ...sign, agree: e.target.checked })} />I have read and understood this agreement, and I agree to it.</label>
               <input value={sign.typedName} onChange={(e) => setSign({ ...sign, typedName: e.target.value })} placeholder={`Type your full name: ${d.applicant.name}`} className="h-11 w-full rounded-2xl border border-white/80 bg-white/75 px-4 font-serif text-lg italic" />
-              <button type="button" disabled={!d.canSign || !docsIn || !sign.agree || !sign.typedName || !!busy} onClick={async () => { setBusy('sign'); setErr(''); const r = await api({ action: 'app-sign', tenantId, appToken, ...sign }); setBusy(''); if (!r.ok) setErr(r.error); void load(); }} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>{busy === 'sign' ? 'Signing…' : 'Sign agreement'}</button>
+              <SignatureField color={color} label="Draw your signature" onChange={(png) => setSign((x) => ({ ...x, signature: png }))} />
+              <button type="button" disabled={!d.canSign || !docsIn || !sign.agree || !sign.typedName || !sign.signature || !!busy} onClick={async () => { setBusy('sign'); setErr(''); const r = await api({ action: 'app-sign', tenantId, appToken, ...sign }); setBusy(''); if (!r.ok) setErr(r.error); void load(); }} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>{busy === 'sign' ? 'Signing…' : 'Sign agreement'}</button>
               {!docsIn && <p className="text-[12px] text-stone-500">Upload your documents first.</p>}
               <p className="text-[11px] text-stone-500">Your typed name is your electronic signature. We record the exact text, the time, and your device.</p>
             </>
