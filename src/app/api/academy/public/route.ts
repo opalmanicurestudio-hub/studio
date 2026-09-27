@@ -46,9 +46,9 @@ const stripe = () => new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersio
 const publicCourse = (c: any) => ({ id: c.id, slug: c.slug, title: c.title, subtitle: c.subtitle || '', description: c.description || '', priceCents: c.priceCents || 0, level: c.level || null,
   instructorName: c.instructorName || null, coverUrl: c.coverUrl || null, whatYouLearn: c.whatYouLearn || [], lessonCount: c.lessonCount || 0 });
 
-async function sendEmail(to: string, subject: string, text: string) {
-  if (!process.env.RESEND_API_KEY) return false;
-  try { const r = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: resolveFromAddress(), to, subject, text }) }); return r.ok; } catch { return false; }
+// Branded when the school is known (every call below passes it).
+async function sendEmail(to: string, subject: string, text: string, tenantId?: string) {
+  return sendJourneyEmail(to, subject, text, tenantId);
 }
 
 /** Lesson blocks with short-lived private links for their images and files (only for someone allowed to see the lesson). */
@@ -68,6 +68,13 @@ async function resolveBlocks(tenantId: string, courseId: string, blocks: any[]) 
     else out.push(b);
   }
   return out;
+}
+
+/** What a student sees of each announcement, and whether they've said "Got it". */
+async function withAcks(tenantId: string, studentId: string, list: any[]) {
+  const db = getAdminDb();
+  return Promise.all(list.map(async (a: any) => ({ id: a.id, title: a.title, body: a.body, at: a.at, eventAt: a.eventAt || null, eventEndAt: a.eventEndAt || null, location: a.location || null,
+    acked: (await db.doc(`tenants/${tenantId}/academyAnnouncements/${a.id}/acks/${studentId}`).get()).exists })));
 }
 
 export async function POST(req: NextRequest) {
@@ -143,7 +150,7 @@ export async function POST(req: NextRequest) {
       const course = ((await db.doc(`tenants/${tenantId}/courses/${s.metadata?.courseId}`).get()).data() as any) || {};
       if (r.created) {
         const link = `${origin}/learn/${tenantId}/my?login=${await createLoginLink(tenantId, r.studentId)}`;
-        await sendEmail(String(s.metadata?.email), `You’re in — ${course.title || 'your course'}`, `Welcome to ${course.title || 'your course'} with ${brand.name}!\n\nStart learning any time:\n${origin}/learn/${tenantId}/${course.slug || ''}\n\nOn another device? Sign in here (link works for 30 minutes):\n${link}\n\nOr visit ${origin}/learn/${tenantId}/my and enter this email for a fresh link.`);
+        await sendEmail(String(s.metadata?.email), `You’re in — ${course.title || 'your course'}`, `Welcome to ${course.title || 'your course'} with ${brand.name}!\n\nStart learning any time:\n${origin}/learn/${tenantId}/${course.slug || ''}\n\nOn another device? Sign in here (link works for 30 minutes):\n${link}\n\nOr visit ${origin}/learn/${tenantId}/my and enter this email for a fresh link.`, tenantId);
       }
       return NextResponse.json({ ok: true, token: await createStudentSession(tenantId, r.studentId), slug: course.slug || null, title: course.title || null });
     }
@@ -154,7 +161,7 @@ export async function POST(req: NextRequest) {
         const sid = studentIdFor(email);
         if ((await db.doc(`tenants/${tenantId}/students/${sid}`).get()).exists) {
           const link = `${origin}/learn/${tenantId}/my?login=${await createLoginLink(tenantId, sid)}`;
-          await sendEmail(email, `Your sign-in link — ${brand.name}`, `Here’s your link to continue learning with ${brand.name} (works for 30 minutes):\n\n${link}\n\nIf you didn’t ask for this, you can ignore it.`);
+          await sendEmail(email, `Your sign-in link — ${brand.name}`, `Here’s your link to continue learning with ${brand.name} (works for 30 minutes):\n\n${link}\n\nIf you didn’t ask for this, you can ignore it.`, tenantId);
         }
       }
       return NextResponse.json({ ok: true });   // same answer either way — no one can probe for students
@@ -421,7 +428,7 @@ What happens next:
 
 Keep this link private — you can use it any time to check your status.
 
-— ${brand.name}`);
+— ${brand.name}`, tenantId);
         return NextResponse.json({ ok: true, applied: true, link });
       }
       return NextResponse.json({ ok: true, applied: false });
@@ -587,7 +594,7 @@ Keep this link private — you can use it any time to check your status.
         return NextResponse.json({ ok: true, brand, lang, languages: LANGUAGES, student: { name: student.name, email: student.email },
           clock: open.empty ? null : { since: (open.docs[0].data() as any).clockInAt }, duty, week, clinic, next, needs, programs,
           tuition: plans.map((x: any) => ({ id: x.id, status: x.p.status, balanceCents: x.bal.balanceCents, nextDueAt: x.p.nextDueAt || null, installmentCents: x.p.installmentCents, autopay: !!x.p.autopay, lastError: x.p.status === 'past_due' ? (x.p.lastError || 'Payment failed') : null })),
-          announcements: anns.docs.map((d: any) => d.data() as any).filter((a: any) => (!a.programId || progIds.has(a.programId)) && (!a.cohortId || cohortIds.has(a.cohortId))).slice(0, 3).map((a: any) => ({ title: a.title, body: a.body, at: a.at })),
+          announcements: (await withAcks(tenantId, student.id, anns.docs.map((d: any) => d.data() as any).filter((a: any) => (!a.programId || progIds.has(a.programId)) && (!a.cohortId || cohortIds.has(a.cohortId))))).filter((a: any) => !a.acked).slice(0, 3),
           unread: ((thread.data() as any) || {}).unreadStudent || 0, isSchool: progEnr.length > 0, game: gameView(t, sDoc) });
       }
 
@@ -769,6 +776,15 @@ Keep this link private — you can use it any time to check your status.
     }
 
     // ── Messages & announcements (students) ──
+    // A student says "Got it" — the announcement is hidden for them from then on.
+    if (b.action === 'announcement-ack') {
+      if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.', needsSignIn: true }, { status: 401 });
+      const aRef = db.doc(`tenants/${tenantId}/academyAnnouncements/${String(b.id || '').replace(/[^A-Za-z0-9_-]/g, '')}`);
+      if (!(await aRef.get()).exists) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
+      const ack = aRef.collection('acks').doc(student.id);
+      if (!(await ack.get()).exists) await ack.set({ studentId: student.id, name: student.name || student.email || '', at: new Date().toISOString() });
+      return NextResponse.json({ ok: true });
+    }
     if (b.action === 'inbox' || b.action === 'message') {
       if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
       const ref = db.doc(`tenants/${tenantId}/academyThreads/${student.id}`);
@@ -786,7 +802,7 @@ Keep this link private — you can use it any time to check your status.
       const cohortIds = new Set(adm.docs.map((d: any) => (d.data() as any).cohortId).filter(Boolean));
       await ref.set({ unreadStudent: 0 }, { merge: true });
       return NextResponse.json({ ok: true, messages: m.docs.map((d: any) => d.data()),
-        announcements: anns.docs.map((d: any) => d.data() as any).filter((a: any) => (!a.programId || progIds.has(a.programId)) && (!a.cohortId || cohortIds.has(a.cohortId))) });
+        announcements: await withAcks(tenantId, student.id, anns.docs.map((d: any) => d.data() as any).filter((a: any) => (!a.programId || progIds.has(a.programId)) && (!a.cohortId || cohortIds.has(a.cohortId)))) });
     }
 
     // ── Verified online time ──
