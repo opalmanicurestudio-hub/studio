@@ -28,6 +28,8 @@ import { resourceDowntime } from '@/lib/availability';
 import type { ReactNode } from 'react';
 import { Counter } from './Counter';
 import { DeskDelay } from './DeskDelay';
+import { DeskReschedule } from './DeskReschedule';
+import { query, where } from 'firebase/firestore';
 
 type Stage = 'arriving' | 'waiting' | 'service' | 'ready' | 'done';
 type View = 'timeline' | 'lanes' | 'stations' | 'mix';
@@ -51,6 +53,12 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const [mode, setMode] = useState<'desk' | 'counter'>('desk');
   const [about, setAbout] = useState<Guest | null>(null);
   const [lateFor, setLateFor] = useState<Guest | null>(null);
+  const [moveAppt, setMoveAppt] = useState<any | null>(null);
+  // "Also today" — interviews and tours, each only if the business uses that tool.
+  const hiringOn = moduleEnabled(tenant, 'team'), rentalsOn = moduleEnabled(tenant, 'booth_rental'), academyOn = moduleEnabled(tenant, 'academy');
+  const ivQ = useMemoFirebase(() => (hiringOn && e.firestore && e.tenantId ? query(collection(e.firestore, 'tenants', e.tenantId, 'interviewInvites'), where('status', '==', 'accepted')) : null), [hiringOn, e.firestore, e.tenantId]);
+  const toursQ = useMemoFirebase(() => ((rentalsOn || academyOn) && e.firestore && e.tenantId ? query(collection(e.firestore, 'tenants', e.tenantId, 'tours'), where('date', '==', format(new Date(), 'yyyy-MM-dd'))) : null), [rentalsOn, academyOn, e.firestore, e.tenantId]);
+  const { data: interviews } = useCollection<any>(ivQ); const { data: tours } = useCollection<any>(toursQ);
   const [moreOpen, setMoreOpen] = useState(false); const [moreTab, setMoreTab] = useState<'team' | 'waitlist' | 'spaces'>('waitlist');
   // Maintenance & disruptions — only for businesses with the maintenance tool.
   const maintOn = moduleEnabled(tenant, 'maintenance');
@@ -186,7 +194,8 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const setWalkIn = (g: Guest, patch: any) => { if (e.firestore && e.tenantId) updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId, 'walkIns', g.walkIn.id), patch); };
   const menuFor = (g: Guest) => { const ph = phoneOf(g); const aboutItem = { label: 'About this entry…', hint: 'What it is, where it came from — and remove it', onSelect: () => setAbout(g) }; return g.kind === 'appt' ? [
       aboutItem,
-      { label: 'Details & reschedule', onSelect: () => open(g) },
+      { label: 'Reschedule…', onSelect: () => setMoveAppt(g.appt) },
+      { label: 'Details', onSelect: () => open(g) },
       g.stage === 'arriving' && { label: 'Running late…', hint: 'See what it affects and choose — nothing is charged automatically', onSelect: () => setLateFor(g) },
       ph && { label: 'Call', onSelect: () => { window.location.href = `tel:${ph}`; } },
       ph && { label: 'Text', onSelect: () => { window.location.href = `sms:${ph}`; } },
@@ -294,9 +303,20 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
           {shown === 'stations' && stations}
           {shown === 'mix' && <div className="space-y-6">{stations}<div><p className="mb-2 text-[14px] font-semibold">The day</p>{timeline}</div></div>}
         </LayoutGroup>}
+        {mode === 'desk' && (() => {
+          const items = [
+            ...((interviews || []).filter((iv: any) => { const d = toDate(iv.chosenSlot); return d && isToday(d); }).map((iv: any) => ({ id: `iv-${iv.id}`, at: toDate(iv.chosenSlot)!, kind: 'Interview', who: iv.applicantName || iv.name || 'Applicant', what: iv.listingTitle || iv.roleTitle || iv.role || 'Job interview', href: '/applicants', phone: iv.applicantPhone || iv.phone || '' }))),
+            ...((tours || []).filter((t: any) => !['cancelled', 'canceled', 'declined'].includes(String(t.status)) && (t.purpose === 'school' ? academyOn : rentalsOn)).map((t: any) => ({ id: `t-${t.id}`, at: new Date(`${t.date}T${t.time || '00:00'}`), kind: t.purpose === 'school' ? 'Academy tour' : 'Rental tour', who: t.name || 'Visitor', what: t.status === 'requested' ? 'Requested — needs confirming' : `${t.durationMins || 30} min visit`, href: t.purpose === 'school' ? '/academy?section=admissions' : '/pipeline', phone: t.phone || '' }))),
+          ].sort((a, b) => a.at.getTime() - b.at.getTime());
+          return items.length > 0 && <section aria-label="Also today" className="mt-6"><p className="mb-2 text-[14px] font-semibold">Also today</p>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{items.map((x) => <div key={x.id} className="flex items-center justify-between gap-3 rounded-2xl p-3" style={{ background: 'var(--card)' }}>
+              <a href={x.href} className="min-w-0"><p className="truncate text-[14px] font-semibold">{x.who} <Pill tone="accent">{x.kind}</Pill></p><p className="truncate text-[12px]" style={{ color: 'var(--muted)' }}>{format(x.at, 'h:mm a')} · {x.what}</p></a>
+              {x.phone && <Btn quiet onClick={() => { window.location.href = `tel:${String(x.phone).replace(/[^\d+]/g, '')}`; }}>Call</Btn>}</div>)}</div></section>;
+        })()}
         {mode === 'desk' && <p className="mt-6 text-center text-[12px]" style={{ color: 'var(--muted)' }}>★ recommended for {solo ? 'a solo business' : 'your team'} · this device remembers your view</p>}
       </main>
-      <DeskDelay e={e} appt={lateFor?.appt || null} accent={accent} onClose={() => setLateFor(null)} />
+      <DeskDelay e={e} appt={lateFor?.appt || null} accent={accent} onClose={() => setLateFor(null)} onReschedule={(a) => setMoveAppt(a)} />
+      <DeskReschedule e={e} appt={moveAppt} accent={accent} onClose={() => setMoveAppt(null)} />
       <Drawer accent={accent} open={!!about} onClose={() => setAbout(null)} title="About this entry">
         {about && (() => { const r = about.appt || about.walkIn || {}; const created = toDate(r.createdAt || r.checkInTime); const paid = r.depositStatus === 'paid' || Number(r.amountPaid) > 0;
           const rows: [string, string][] = [['What it is', about.kind === 'appt' ? 'A booking' : 'A walk-in'], ['Name on it', r.clientName || r.customerName || '— none —'], ['Service', about.service], ['With', about.staffName || '— anyone —'],
