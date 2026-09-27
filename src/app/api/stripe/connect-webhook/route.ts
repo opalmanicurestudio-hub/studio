@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { tenantTimeZone } from '@/lib/tenant-time';
 import { logAuditAdmin } from '@/lib/audit';
 import { completeDonation } from '@/lib/academy-funding';
 import { enrollFromCheckout } from '@/lib/academy';
@@ -145,6 +146,69 @@ export async function POST(req: NextRequest) {
         // exist yet; it lives as a pending bookingRequest. Convert it now.
         // ───────────────────────────────────────────────────────────────────
         if (sessionType === 'deposit') {
+          /* ── 5a: the APPOINTMENT already exists (created by /api/appointments/book,
+           * holding the slot with status 'pending_payment'). Confirm THAT
+           * appointment — no second booking, no clash risk. Ledger + deposit
+           * credit are written exactly as before so POS checkout nets it off. */
+          const payApptId = session.metadata?.appointmentId;
+          if (payApptId) {
+            const aRef = db.doc(`tenants/${tenant.id}/appointments/${payApptId}`);
+            const aSnap = await aRef.get();
+            if (!aSnap.exists) { console.warn('[connect-webhook] deposit for missing appointment', payApptId); break; }
+            const ap = aSnap.data() as any;
+            if (ap.depositStatus === 'paid') break; // retried event — already done
+            // The email lives on the client record (appointments link to it), the
+            // service name on the service, and getTenant() returns only the id —
+            // so load the business's details (name, time zone, alert email).
+            if (!ap.clientEmail && ap.clientId) { const cl = ((await db.doc(`tenants/${tenant.id}/clients/${ap.clientId}`).get()).data() as any) || {}; ap.clientEmail = cl.email || null; }
+            if (!ap.serviceName && ap.serviceId) { ap.serviceName = ((((await db.doc(`tenants/${tenant.id}/services/${ap.serviceId}`).get()).data() as any) || {}).name) || ap.renterServiceName || null; }
+            const biz: any = ((await db.doc(`tenants/${tenant.id}`).get()).data()) || {};
+            const cents = session.amount_total ?? Number(ap.depositAmountCents) ?? 0;
+            const nowIso = new Date().toISOString();
+            // Paid after the hold ran out and the slot was released: don't quietly
+            // revive it (someone else may have the time) — flag it for the studio.
+            const lateAfterRelease = ap.status === 'cancelled';
+            const nextStatus = lateAfterRelease ? 'cancelled' : (ap.status === 'pending_payment' ? 'confirmed' : ap.status);
+            const batch = db.batch();
+            batch.set(aRef, { status: nextStatus, depositStatus: 'paid', depositPaidAt: nowIso, depositAmountCents: cents, paymentDueAt: null,
+              stripeCheckoutSessionId: session.id, stripeChargeId: chargeId || null,
+              ...(lateAfterRelease ? { needsAttention: 'deposit_paid_after_hold_released', needsAttentionAt: nowIso } : {}) }, { merge: true });
+            if (ap.checkInToken) batch.set(db.collection('appointmentCheckIns').doc(String(ap.checkInToken)), { status: nextStatus, depositStatus: 'paid' }, { merge: true });
+            const txnRef = db.collection(`tenants/${tenant.id}/transactions`).doc();
+            batch.set(txnRef, { id: txnRef.id, date: nowIso, description: `Deposit — ${ap.serviceName || ap.renterServiceName || 'Appointment'}`, clientOrVendor: ap.clientName || 'Guest', clientId: ap.clientId || null,
+              type: 'income', context: 'Business', category: 'Retainers', taxBucket: 'revenue', amount: cents / 100, paymentMethod: 'Online Checkout', hasReceipt: false,
+              appointmentId: payApptId, staffId: ap.staffId || null, checkoutSessionId: session.id, stripeChargeId: chargeId || null, tenantId: tenant.id });
+            const creditRef = db.collection(`tenants/${tenant.id}/depositCredits`).doc();
+            batch.set(creditRef, { id: creditRef.id, tenantId: tenant.id, clientId: ap.clientId || null, clientEmail: String(ap.clientEmail || '').toLowerCase().trim(), clientName: ap.clientName || 'Guest',
+              amountCents: cents, status: 'available', sourceAppointmentId: payApptId, createdAt: nowIso, stripeChargeId: chargeId || null, checkoutSessionId: session.id });
+            await batch.commit();
+            await logAuditAdmin(db, tenant.id, { action: 'deposit.paid', targetType: 'appointment', targetId: payApptId, amount: cents / 100,
+              summary: lateAfterRelease ? `Deposit paid AFTER the hold ran out — ${ap.clientName || 'Guest'} (needs your attention: re-confirm or refund)` : `Online booking deposit paid — ${ap.clientName || 'Guest'}, booking confirmed`,
+              actor: { type: 'user', name: ap.clientName || 'Guest', role: 'client', via: 'online booking' } }).catch(() => {});
+            // Tell the client (or, if late, tell the studio).
+            try {
+              const { sendNotification } = await import('@/lib/notify');
+              const { brandedEmailHtml } = await import('@/lib/email-template');
+              const studioName = biz.name || 'Your studio';
+              const when = ap.startTime ? new Date(ap.startTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tenantTimeZone(biz) }) : '';
+              if (!lateAfterRelease && ap.clientEmail) {
+                const base = process.env.NEXT_PUBLIC_APP_URL || 'https://clarityflow.app';
+                await sendNotification(db, { tenantId: tenant.id, channel: 'email', to: String(ap.clientEmail), kind: 'booking_confirmation',
+                  subject: `You're booked — ${ap.serviceName || 'your appointment'}${when ? `, ${when}` : ''}`,
+                  html: brandedEmailHtml({ studioName, title: 'You’re booked', bodyLines: [`Thank you — your $${(cents / 100).toFixed(2)} deposit went through and your ${ap.serviceName || 'appointment'}${when ? ` on ${when}` : ''} is confirmed.`, 'The deposit comes off your total at your visit.'],
+                    cta: ap.checkInToken ? { label: 'View my appointment', url: `${base}/check-in/${ap.checkInToken}` } : undefined }),
+                  recipientType: 'client', recipientId: ap.clientId || null, recipientName: ap.clientName || null, appointmentId: payApptId } as any);
+              }
+              if (lateAfterRelease && (biz.notificationEmail || biz.email)) {
+                await sendNotification(db, { tenantId: tenant.id, channel: 'email', to: String(biz.notificationEmail || biz.email), kind: 'staff_new_request',
+                  subject: `Deposit paid after a hold ran out — ${ap.clientName || 'a client'}`,
+                  html: brandedEmailHtml({ studioName, title: 'A deposit needs your attention', bodyLines: [`${ap.clientName || 'A client'} paid a $${(cents / 100).toFixed(2)} deposit for ${ap.serviceName || 'an appointment'}${when ? ` on ${when}` : ''}, but their 30-minute hold had already ended and the time was released.`, 'Open the appointment to re-confirm it (if the time is still free) or refund the deposit.'] }),
+                  recipientType: 'staff', recipientName: 'Studio', appointmentId: payApptId } as any);
+              }
+            } catch (e) { console.error('[connect-webhook] deposit message failed (payment is recorded)', e); }
+            break;
+          }
+
           const bookingRequestId = session.metadata?.bookingRequestId;
           if (!bookingRequestId) break;
 
