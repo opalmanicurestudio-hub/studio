@@ -600,14 +600,17 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
    * scroll past the end of the booking form into the studio's hero section,
    * which reads as the form having ended prematurely. */
   if (dialogOpen && dialogService) {
+    // Reschedules always use the Studio flow (clear, calm, month calendar) — whatever the page design.
+    const flowStudio = studioDesign || (!!reschedule && !providerId);
     return (
-      <div className={`w-full min-h-dvh overflow-x-hidden ${studioDesign ? 'pub-flow' : ''}`}
-           style={studioDesign ? { background: '#faf8f5', ['--accent' as any]: resolvedStyle.accentColor } : { background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
-        {studioDesign && <><style>{PUBLIC_CSS}</style><link rel="stylesheet" href={PUBLIC_FONT_HREF} /></>}
+      <div className={`w-full min-h-dvh overflow-x-hidden ${flowStudio ? 'pub-flow' : ''}`}
+           style={flowStudio ? { background: '#faf8f5', ['--accent' as any]: resolvedStyle.accentColor } : { background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
+        {flowStudio && <><style>{PUBLIC_CSS}</style><link rel="stylesheet" href={PUBLIC_FONT_HREF} /></>}
         <BookingSheet
           tenantId={tenantId}
           initialStaffId={studioDesign ? studioStaffId : undefined}
-          simple={studioDesign}
+          rescheduleOf={reschedule ? { serviceName: reschedule.serviceName, startTime: reschedule.startTime } : null}
+          simple={flowStudio}
           lockedStaffId={providerId && staff.some((m: any) => m.id === providerId && m.isRenter) ? providerId : undefined}
           prefillClient={reschedule ? { clientName: reschedule.clientName, clientEmail: reschedule.clientEmail, clientPhone: reschedule.clientPhone } : null}
           open
