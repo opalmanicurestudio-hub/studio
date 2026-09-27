@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from 'react';
 import { getAuth } from 'firebase/auth';
+import { DEFAULT_THANK_YOU } from '@/lib/donor-letters';
 import { deviceId } from '@/lib/device';
 
 async function api(body: any) {
@@ -131,6 +132,16 @@ export function SchoolWebsite({ tenantId }: { tenantId: string }) {
           <Card title="What gifts support"><ListEditor items={s.donors.funds} onChange={(v) => set({ donors: { ...s.donors, funds: v } })} blank={{ name: '', text: '' }} fields={[['name', 'Fund', 'text'], ['text', 'What it does', 'area']]} addLabel="Fund" max={8} /></Card>
           <Card title="How awards are decided"><textarea className={area} value={s.donors.howAwarded} onChange={(e) => set({ donors: { ...s.donors, howAwarded: e.target.value } })} placeholder="e.g. A committee of two instructors and the director reviews requests monthly, using published criteria…" /></Card>
           <Card title="How gifts have been used" hint="Share totals and outcomes — never students’ names without permission."><textarea className={area} value={s.donors.useReport} onChange={(e) => set({ donors: { ...s.donors, useReport: e.target.value } })} /></Card>
+          <Card title="Thank-you letter" hint="Emailed with the receipt after every gift, signed by your director with the school seal. Use {first}, {name}, {business}, {amount}, {fund}, {date} and {school} — they’re filled in for each donor.">
+            <textarea className={`${area} min-h-48`} value={s.donors.thankYou || DEFAULT_THANK_YOU} onChange={(e) => set({ donors: { ...s.donors, thankYou: e.target.value } })} aria-label="Thank-you letter" />
+            <button type="button" onClick={() => set({ donors: { ...s.donors, thankYou: '' } })} className="text-[12px] font-bold underline">Use the standard letter</button>
+          </Card>
+          <Card title="Sponsor wall" hint="Business donors can add their logo after giving; it appears once you approve it (Academy → Funding → Sponsors). Bigger supporters appear first and larger.">
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={s.donors.logoOffer} onChange={(e) => set({ donors: { ...s.donors, logoOffer: e.target.checked } })} /> Offer business donors a place on the sponsor wall</label>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={s.donors.sponsorStrip} onChange={(e) => set({ donors: { ...s.donors, sponsorStrip: e.target.checked } })} /> Show a “Supported by” strip on the home page</label>
+            <p className="text-[12px] font-bold">Tiers <span className="font-normal text-muted-foreground">— by total given</span></p>
+            <ListEditor items={s.donors.tiers} onChange={(v) => set({ donors: { ...s.donors, tiers: v } })} blank={{ name: '', minCents: 0 }} fields={[['name', 'Tier name', 'text'], ['minCents', 'From ($)', 'money']]} addLabel="Tier" max={5} />
+          </Card>
           <Card title="Tax status" hint="Gifts are only described as tax-deductible if the receiving organisation qualifies.">
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={s.donors.nonprofit} onChange={(e) => set({ donors: { ...s.donors, nonprofit: e.target.checked } })} /> The organisation receiving gifts is a tax-exempt nonprofit (e.g. 501(c)(3))</label>
             {s.donors.nonprofit && <input className={field} value={s.donors.ein} onChange={(e) => set({ donors: { ...s.donors, ein: e.target.value } })} placeholder="EIN (e.g. 12-3456789)" aria-label="EIN" />}
