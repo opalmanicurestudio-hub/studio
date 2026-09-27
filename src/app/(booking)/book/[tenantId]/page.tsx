@@ -13,6 +13,8 @@ import { X as XIcon, ArrowRight } from 'lucide-react';
 import { linkHref, LINK_KINDS, livePageSections, cleanBrand, onAccent } from '@/lib/renter-identity';
 import { policyText } from '@/lib/package-credits';
 import { horizonDaysFor, releaseSentence } from '@/lib/booking-release';
+import { StudioBookingPage } from '@/components/booking/StudioBookingPage';
+import { PUBLIC_CSS, PUBLIC_FONT_HREF } from '@/components/public/kit';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import {
   ANIM_CSS, STACKS, GFONTS,
@@ -102,6 +104,11 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     } catch { if (!quiet) setOfferErr('Couldn’t check that code right now.'); }
   };
   useEffect(() => { if (campaignRef?.code && !offerShown) void checkOffer(campaignRef.code, true); }, [campaignRef?.code]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Page design: the business's choice (Settings → Booking → Page design), or
+  // ?design=studio / ?design=classic to preview either before switching.
+  const [designParam, setDesignParam] = useState('');
+  const [studioStaffId, setStudioStaffId] = useState<string | undefined>(undefined);
+  useEffect(() => { try { setDesignParam(new URLSearchParams(window.location.search).get('design') || ''); } catch { /* no preview */ } }, []);
   useEffect(() => {
     if (!reschedule || rescheduleOpened || services.length === 0) return;
     const svc = services.find((x: any) => x.id === reschedule.serviceId) || services.find((x: any) => x.name === reschedule.serviceName);
@@ -317,6 +324,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
 
   // Derive resolved config and style
   const sections: PageSection[] = savedConfig?.sections ?? buildDefaults();
+  const studioDesign = !providerId && designParam !== 'classic' && (designParam === 'studio' || (tenant as any)?.bookingPageSettings?.design === 'studio');
   const resolvedStyle: StyleConfig = {
     accentColor:  savedConfig?.accentColor  ?? DS.accentColor,
     bgColor:      savedConfig?.bgColor      ?? DS.bgColor,
@@ -696,14 +704,16 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
    * which reads as the form having ended prematurely. */
   if (dialogOpen && dialogService) {
     return (
-      <div className="w-full min-h-dvh overflow-x-hidden"
-           style={{ background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
+      <div className={`w-full min-h-dvh overflow-x-hidden ${studioDesign ? 'pub-flow' : ''}`}
+           style={studioDesign ? { background: '#faf8f5' } : { background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
+        {studioDesign && <><style>{PUBLIC_CSS}</style><link rel="stylesheet" href={PUBLIC_FONT_HREF} /></>}
         <BookingSheet
           tenantId={tenantId}
+          initialStaffId={studioDesign ? studioStaffId : undefined}
           lockedStaffId={providerId && staff.some((m: any) => m.id === providerId && m.isRenter) ? providerId : undefined}
           prefillClient={reschedule ? { clientName: reschedule.clientName, clientEmail: reschedule.clientEmail, clientPhone: reschedule.clientPhone } : null}
           open
-          onOpenChange={o => { if (!o) { setDialogOpen(false); setDialogService(null); } }}
+          onOpenChange={o => { if (!o) { setDialogOpen(false); setDialogService(null); setStudioStaffId(undefined); } }}
           service={dialogService}
           staff={staff}
           pricingTiers={pricingTiers}
@@ -1148,6 +1158,14 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           </a>
         </div>
       </div>
+    );
+  }
+
+  if (studioDesign) {
+    return (
+      <StudioBookingPage tenant={tenant} accent={resolvedStyle.accentColor}
+        services={services.filter((sv: any) => sv.membersOnly !== true || studioMemberOk === true)} staff={staff} sections={sections}
+        onBook={(svc, staffId) => { setStudioStaffId(staffId); setDialogService(svc); setDialogOpen(true); }} />
     );
   }
 
