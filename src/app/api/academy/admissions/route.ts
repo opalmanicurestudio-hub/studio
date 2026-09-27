@@ -9,6 +9,7 @@
 //   interview-result · rubric-score · decide · condition-met · offer-extend ·
 //   admission-setup · admission-setup-save · set-language
 
+import { saveSignedPdf } from '@/lib/signed-pdf';
 import { notifyApplicant, bookInterview, offerInterviewTimes, acceptProposal, cancelInterview } from '@/lib/academy-applicant-comms';
 import { sendAcademyEmail } from '@/lib/academy-email';
 import { deviceAllowed } from '@/lib/approved-devices';
@@ -205,10 +206,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    if (b.action === 'agreement-pdf') {
+      const a = ((await aRef(b.id).get()).data() as any) || null; if (!a?.agreement?.signedAt) return NextResponse.json({ ok: false, error: 'Not signed yet.' }, { status: 400 });
+      const g: any = a.agreement; const prog = ((await db.doc(`tenants/${tenantId}/programs/${a.programId}`).get()).data() as any) || {};
+      const pdf = await saveSignedPdf({ tenantId, title: `Enrolment agreement — ${prog.name || 'Program'}`, kindLabel: 'Enrolment agreement', text: g.text, signer: { typedName: g.signedName, signature: g.signatureImage || null, at: g.signedAt, ip: g.ip, userAgent: g.userAgent, email: a.email }, school: g.countersignedAt ? { countersign: { by: g.countersignedBy, at: g.countersignedAt } } : { pending: true } }, `agreement-${b.id}${g.countersignedAt ? '-final' : ''}`);
+      await aRef(b.id).set({ agreement: { ...g, pdf, pdfHistory: [...(g.pdfHistory || []), ...(g.pdf ? [g.pdf] : [])], pdfError: null } }, { merge: true });
+      await appendAudit(tenantId, { type: 'admissions.agreement_pdf', by: who, summary: `Signed PDF made for ${a.name}’s enrolment agreement`, data: { admissionId: b.id } });
+      return NextResponse.json({ ok: true, ref: pdf.ref });
+    }
     if (b.action === 'countersign') {
       const a = ((await aRef(b.id).get()).data() as any) || null;
       if (!a?.agreement?.signedAt) return NextResponse.json({ ok: false, error: 'The student hasn’t signed yet.' }, { status: 400 });
-      await aRef(b.id).set({ agreement: { ...a.agreement, countersignedBy: who, countersignedAt: now } }, { merge: true });
+      const g: any = { ...a.agreement, countersignedBy: who, countersignedAt: now };
+      const prog = ((await db.doc(`tenants/${tenantId}/programs/${a.programId}`).get()).data() as any) || {};
+      try { const pdf = await saveSignedPdf({ tenantId, title: `Enrolment agreement — ${prog.name || 'Program'}`, kindLabel: 'Enrolment agreement', text: g.text, signer: { typedName: g.signedName, signature: g.signatureImage || null, at: g.signedAt, ip: g.ip, userAgent: g.userAgent, email: a.email }, school: { countersign: { by: who, at: now } } }, `agreement-${b.id}-final`);
+        g.pdfHistory = [...(g.pdfHistory || []), ...(g.pdf ? [g.pdf] : [])]; g.pdf = pdf; g.pdfError = null; } catch (e: any) { g.pdfError = String(e?.message || e).slice(0, 200); }
+      await aRef(b.id).set({ agreement: g }, { merge: true });
       await appendAudit(tenantId, { type: 'admissions.countersigned', by: who, summary: `Enrolment agreement for ${a.name} countersigned`, data: { admissionId: b.id, sha256: a.agreement.sha256 } });
       return NextResponse.json({ ok: true });
     }
