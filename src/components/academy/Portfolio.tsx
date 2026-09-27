@@ -76,11 +76,19 @@ function PortfolioHub({ tenantId, color, onClose }: any) {
 }
 
 function PhotoPick({ label, value, onPick }: { label: string; value: string | null; onPick: (d: string) => void }) {
+  // Two choices: the camera, or a photo already in the camera roll / files.
+  // (A single "capture" input forces the camera on phones — no library.)
+  const take = async (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onPick(await shrink(f)); };
   return (
-    <label className="relative flex aspect-square cursor-pointer items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50 text-sm text-stone-500">
-      {value ? <img src={value} alt={label} className="h-full w-full object-cover" /> : <span className="text-center">📷<br />{label}</span>}
-      <input type="file" accept="image/*" capture="environment" className="hidden" onChange={async (e) => { const f = e.target.files?.[0]; if (f) onPick(await shrink(f)); }} />
-    </label>
+    <div className="space-y-1.5">
+      <div className="relative flex aspect-square items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50 text-sm text-stone-500">
+        {value ? <img src={value} alt={label} className="h-full w-full object-cover" /> : <span className="text-center">🖼<br />{label}</span>}
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        <label className="flex h-10 cursor-pointer items-center justify-center rounded-full bg-white whitespace-nowrap text-[12px] font-medium shadow-sm">📷 Camera<input type="file" accept="image/*" capture="environment" className="hidden" onChange={take} aria-label={`${label}: take a photo`} /></label>
+        <label className="flex h-10 cursor-pointer items-center justify-center rounded-full bg-white whitespace-nowrap text-[12px] font-medium shadow-sm">🖼 Library<input type="file" accept="image/*" className="hidden" onChange={take} aria-label={`${label}: choose from your photos`} /></label>
+      </div>
+    </div>
   );
 }
 function AddWork({ tenantId, color, onClose }: any) {
