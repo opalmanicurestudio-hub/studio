@@ -11,9 +11,9 @@
 //   Pay    only when a deposit is due — the secure card form
 //   Done   the server's own words · who/when/where · calendar · directions
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Controller, FormProvider } from 'react-hook-form';
-import { addDays, format, isBefore, isSameDay, isToday, startOfDay } from 'date-fns';
+import { addDays, addMonths, endOfMonth, format, isBefore, isSameDay, isSameMonth, isToday, startOfDay, startOfMonth } from 'date-fns';
 import { PhoneInput } from '../ui/phone-input';
 import { FormFieldRenderer } from '../consents/FormFieldRenderer';
 import { PhotoMarkup } from './PhotoMarkup';
@@ -34,6 +34,12 @@ export function StudioFlow({ c }: { c: any }) {
   const errors = c.methods.formState.errors || {};
   const whenLabel = c.selectedTime ? `${format(c.date, 'EEEE, MMMM d')} at ${clock(c.selectedTime)}` : '';
   const who = c.selectedStaffId === 'any' ? (c.bookedStaff?.name || 'First available') : (c.selectedStaff?.name || '');
+  // Jump anywhere: a full month calendar (tap the month) and quick jumps.
+  const [monthOpen, setMonthOpen] = useState(false); const [cursor, setCursor] = useState(() => startOfMonth(c.date));
+  const pickDay = (d: Date) => { c.setDate(d); c.setSelectedTime(null); setMonthOpen(false); };
+  const monthDays = useMemo(() => { const first = startOfMonth(cursor); const lead = first.getDay(); const n = endOfMonth(cursor).getDate(); return [...Array(lead).fill(null), ...Array.from({ length: n }, (_, i) => addDays(first, i))]; }, [cursor]);
+  const today0 = startOfDay(new Date());
+  const JUMPS: [string, () => Date][] = [['Next week', () => addDays(today0, 7)], ['In 2 weeks', () => addDays(today0, 14)], ['In 4 weeks', () => addDays(today0, 28)], ['Next month', () => startOfMonth(addMonths(today0, 1))]];
   const priceLabel = c.price ? `$${Number(c.price).toFixed(Number(c.price) % 1 ? 2 : 0)}` : '';
 
   const header = currentStep !== 'confirmation' && (
@@ -65,8 +71,19 @@ export function StudioFlow({ c }: { c: any }) {
       </section>}
       <section className={`${card} space-y-4`} aria-label="Day">
         <div className="flex items-center justify-between"><button type="button" onClick={() => c.setDate((d: Date) => addDays(d, -7))} disabled={isBefore(addDays(c.weekStart, -1), startOfDay(new Date()))} aria-label="Previous week" className="flex h-9 w-9 items-center justify-center rounded-full bg-stone-100 disabled:opacity-30">‹</button>
-          <p className="text-[15px] font-semibold">{format(c.weekStart, 'MMMM yyyy')}</p>
+          <button type="button" onClick={() => { setCursor(startOfMonth(c.date)); setMonthOpen((o) => !o); }} aria-expanded={monthOpen} className="rounded-full px-3 py-1 text-[15px] font-semibold transition hover:bg-stone-100">{format(c.date, 'MMMM yyyy')} <span aria-hidden className="text-stone-400">{monthOpen ? '▴' : '▾'}</span></button>
           <button type="button" onClick={() => c.setDate((d: Date) => addDays(d, 7))} aria-label="Next week" className="flex h-9 w-9 items-center justify-center rounded-full bg-stone-100">›</button></div>
+        {monthOpen && <div className="space-y-2 rounded-2xl bg-stone-50 p-3" role="dialog" aria-label="Pick a date">
+          <div className="flex items-center justify-between"><button type="button" onClick={() => setCursor((m: Date) => addMonths(m, -1))} disabled={isBefore(endOfMonth(addMonths(cursor, -1)), today0)} aria-label="Previous month" className="flex h-9 w-9 items-center justify-center rounded-full bg-white shadow-sm disabled:opacity-30">‹</button>
+            <p className="text-[15px] font-semibold">{format(cursor, 'MMMM yyyy')}</p>
+            <button type="button" onClick={() => setCursor((m: Date) => addMonths(m, 1))} aria-label="Next month" className="flex h-9 w-9 items-center justify-center rounded-full bg-white shadow-sm">›</button></div>
+          <div className="grid grid-cols-7 gap-1 text-center text-[11px] text-stone-400">{['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((x, i) => <span key={i}>{x}</span>)}</div>
+          <div className="grid grid-cols-7 gap-1">{monthDays.map((d, i) => d === null ? <span key={i} /> : (() => { const past = isBefore(d, today0); const on = isSameDay(d, c.date); return (
+            <button key={i} type="button" disabled={past} onClick={() => pickDay(d)} aria-pressed={on} aria-label={format(d, 'EEEE, MMMM d')} className={`h-10 rounded-xl text-[14px] transition active:scale-95 ${on ? 'font-semibold text-white' : past ? 'text-stone-300' : isToday(d) ? 'bg-white font-semibold shadow-sm' : 'bg-white/70'}`} style={on ? { background: accent } : undefined}>{format(d, 'd')}</button>
+          ); })())}</div>
+          {!isSameMonth(cursor, today0) && <button type="button" onClick={() => setCursor(startOfMonth(today0))} className="text-[13px] underline underline-offset-2">Back to this month</button>}
+        </div>}
+        <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1" aria-label="Jump ahead">{JUMPS.map(([l, f]) => <button key={l} type="button" onClick={() => pickDay(f())} className="shrink-0 rounded-full bg-stone-100 px-3 py-1.5 text-[13px] transition active:scale-95">{l}</button>)}</div>
         <div className="grid grid-cols-7 gap-1.5">{weekDays.map((d) => { const past = isBefore(d, startOfDay(new Date())) && !isToday(d); const on = isSameDay(d, c.date); return (
           <button key={d.toISOString()} type="button" disabled={past} onClick={() => { c.setDate(d); c.setSelectedTime(null); }} aria-pressed={on} aria-label={format(d, 'EEEE, MMMM d')} className={`flex aspect-[4/5] flex-col items-center justify-center rounded-2xl transition active:scale-95 ${on ? 'text-white shadow' : past ? 'opacity-25' : 'bg-stone-50'}`} style={on ? { background: accent } : undefined}>
             <span className="text-[11px] opacity-70">{format(d, 'EEE')}</span><span className="text-[17px] font-semibold">{format(d, 'd')}</span>{isToday(d) && <span className="mt-0.5 h-1 w-1 rounded-full" style={{ background: on ? '#fff' : accent }} />}
@@ -144,7 +161,7 @@ export function StudioFlow({ c }: { c: any }) {
     <div className="space-y-4">
       <section className={`${card} space-y-1`}><p className="text-[15px] text-stone-600">A deposit holds your time and comes off your total at your visit.</p>{c.depositAmount > 0 && <p className="text-3xl font-light">${Number(c.depositAmount).toFixed(2)}</p>}</section>
       <section className={`${card} min-h-[320px]`} aria-label="Secure payment">
-        {c.depositError ? <div className="space-y-3 text-center"><p className="text-[15px] text-red-800" role="alert">{c.depositError}</p><button type="button" onClick={() => c.initiateCheckout()} className="rounded-full px-5 py-2.5 text-[15px] text-white" style={{ background: accent }}>Try again</button></div>
+        {c.depositError ? <div className="space-y-3 text-center"><p className="text-[15px] text-red-800" role="alert">{c.depositError}</p><button type="button" onClick={() => c.retryPayment()} className="rounded-full px-5 py-2.5 text-[15px] text-white" style={{ background: accent }}>Try again</button></div>
           : <>{(c.depositLoading || !c.depositClientSecret) && <p className="py-10 text-center text-[14px] text-stone-500" role="status">Opening secure payment…</p>}<div ref={c.embeddedMountRef} /></>}
       </section>
       <p className="text-center text-[12px] text-stone-500">Payments are handled securely by Stripe.</p>
