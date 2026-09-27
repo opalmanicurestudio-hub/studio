@@ -15,6 +15,7 @@
  *     kiosk consent-reconfirmation timestamp. Notifies the owner.
  */
 
+import { logAuditAdmin } from '@/lib/audit';
 import { NextRequest, NextResponse } from 'next/server';
 import { brandedEmailHtml } from '@/lib/email-template';
 import { sendNotification } from '@/lib/notify';
@@ -750,6 +751,8 @@ export async function POST(req: NextRequest) {
           await nRef.set({ id: nRef.id, type: 'booth_tour', read: false, createdAt: nowIso, link: '/pipeline',
             message: `${tour.name || 'A visitor'} cancelled their tour for ${tour.date} at ${tour.time}.` });
         }
+        await logAuditAdmin(db, tenantId, { action: 'tour.cancel', targetType: 'tour', targetId: tourId, summary: `Tour on ${tour.date} at ${tour.time} cancelled by the visitor${tour.name ? ` (${tour.name})` : ''}`,
+          actor: { type: 'user', name: tour.name || 'Visitor', role: 'visitor', via: 'tour link' } }).catch(() => {});
         return NextResponse.json({ ok: true, tour: { ...summary, status: 'cancelled', changeable: false } });
       }
 
@@ -777,6 +780,8 @@ export async function POST(req: NextRequest) {
           await nRef.set({ id: nRef.id, type: 'booth_tour', read: false, createdAt: nowIso, link: '/pipeline',
             message: `${tour.name || 'A visitor'} moved their tour from ${previous.date} ${previous.time} to ${date} ${time}.` });
         }
+        await logAuditAdmin(db, tenantId, { action: 'tour.move', targetType: 'tour', targetId: tourId, summary: `Tour moved by the visitor${tour.name ? ` (${tour.name})` : ''} from ${previous.date} ${previous.time} to ${date} ${time}`,
+          before: previous, after: { date, time }, actor: { type: 'user', name: tour.name || 'Visitor', role: 'visitor', via: 'tour link' } }).catch(() => {});
         return NextResponse.json({ ok: true, tour: { ...summary, date, time } });
       }
     }
@@ -939,6 +944,9 @@ export async function POST(req: NextRequest) {
 
       // tourId so a caller that booked on someone's behalf can follow up on
       // this exact tour (the pipeline's confirm-an-accepted-invite path does).
+      await logAuditAdmin(db, tenantId, { action: 'tour.book', targetType: 'tour', targetId: tourRef.id,
+        summary: `Tour ${status === 'confirmed' ? 'booked' : 'requested'} for ${date} at ${time}${name ? ` — ${name}` : ''}${emailed ? ' (confirmation emailed)' : ''}`,
+        actor: { type: 'user', name: name || 'Visitor', role: 'visitor', via: 'tour booking' } }).catch(() => {});
       return NextResponse.json({ ok: true, status, autoConfirmed: status === 'confirmed', tourId: tourRef.id, emailed });
     }
 
