@@ -3,15 +3,17 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getSite } from '../data';
-import { Section, base } from '@/components/school/Site';
+import { Section, base, SponsorWall } from '@/components/school/Site';
 import { GiveForm, GiftThanks } from '@/components/school/Forms';
 import { sponsorsList } from '@/lib/school-site';
-import { GENERAL } from '@/lib/academy-funding';
+import { GENERAL, sponsorWall } from '@/lib/academy-funding';
 export const metadata: Metadata = { title: 'Support our students' };
 export default async function Support({ params, searchParams }: { params: Promise<{ tenantId: string }>; searchParams: Promise<Record<string, string>> }) {
   const { tenantId } = await params; const q = await searchParams; const site = (await getSite(tenantId))!; const D = site.settings.donors; const b = base(tenantId);
   if (!D.enabled) notFound();
-  const sponsors = await sponsorsList(tenantId).catch(() => [] as string[]);
+  const wall = await sponsorWall(tenantId, D.tiers).catch(() => []);
+  const onWall = new Set(wall.filter((s) => s.hasLogo).map((s) => s.name.toLowerCase()));
+  const sponsors = (await sponsorsList(tenantId).catch(() => [] as string[])).filter((n) => !onWall.has(n.toLowerCase()));
   const funds = [...D.funds.map((f) => f.name), GENERAL];
   return (
     <>
@@ -21,7 +23,10 @@ export default async function Support({ params, searchParams }: { params: Promis
         {site.canGive && <div id="give" className="mt-8 grid gap-6 lg:grid-cols-2 lg:items-start"><div className="space-y-2"><h2 className="text-2xl">Give <b>online</b></h2><p className="text-stone-600">Choose an amount and where it goes. Every gift is receipted by email.</p></div>{q.gift ? <GiftThanks tenantId={tenantId} sessionId={q.gift} /> : <GiveForm tenantId={tenantId} funds={funds} nonprofit={D.nonprofit && !!D.ein} />}</div>}
         <div className="mt-6 flex flex-wrap gap-3"><Link href={`${b}/contact?topic=donate`} className="rounded-full px-6 py-3.5 text-[15px] font-medium text-white" style={{ background: 'var(--accent)' }}>Talk to us about giving</Link><Link href={`${b}/contact?topic=sponsor`} className="rounded-full bg-white px-6 py-3.5 text-[15px] shadow-sm">Business sponsorship</Link></div>
       </Section>
-      {sponsors.length > 0 && <Section eyebrow="Thank you" title={<>Our <b>supporters</b></>}><ul className="flex flex-wrap gap-2">{sponsors.map((n) => <li key={n} className="rounded-full bg-white px-4 py-2 text-[15px] shadow-sm">{n}</li>)}</ul></Section>}
+      {(wall.some((s) => s.hasLogo) || sponsors.length > 0) && <Section eyebrow="Thank you" title={<>Our <b>sponsors & supporters</b></>}>
+        <SponsorWall tenantId={tenantId} wall={wall} />
+        {sponsors.length > 0 && <div className="mt-5 space-y-2"><p className="text-[12px] font-semibold uppercase tracking-[0.2em] text-stone-500">{wall.some((s) => s.hasLogo) ? 'Also thanks to' : 'Thank you to'}</p><ul className="flex flex-wrap gap-2">{sponsors.map((n) => <li key={n} className="rounded-full bg-white px-4 py-2 text-[15px] shadow-sm">{n}</li>)}</ul></div>}
+      </Section>}
       {D.howAwarded && <Section eyebrow="How awards work" title={<>How gifts reach <b>students</b></>}><p className="max-w-3xl whitespace-pre-line text-stone-700">{D.howAwarded}</p></Section>}
       {D.useReport && <Section eyebrow="Where it went" title={<>How gifts have been <b>used</b></>}><p className="max-w-3xl whitespace-pre-line text-stone-700">{D.useReport}</p></Section>}
       <Section><p className="sch-card max-w-3xl p-5 text-[14px] text-stone-700">{D.nonprofit && D.ein
