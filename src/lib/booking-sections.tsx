@@ -2493,11 +2493,15 @@ function ReviewsSection({ config, style, data, isPreview, sectionId, onFieldTap 
     </div>
   ) : null;
  
+  // Sample reviews are a DESIGN placeholder — shown only in the builder
+  // preview. On the live page only reviews the owner actually entered appear:
+  // invented reviews shown to real clients can count as fake reviews.
   const reviews = [
-    { name: config.rev1Name || 'Sarah M.',   rating: config.rev1Rating ?? 5, text: config.rev1Text || 'Absolutely incredible experience.' },
-    { name: config.rev2Name || 'Jessica T.', rating: config.rev2Rating ?? 5, text: config.rev2Text || 'Every visit exceeds my expectations.' },
-    { name: config.rev3Name || 'Priya K.',   rating: config.rev3Rating ?? 5, text: config.rev3Text || 'Luxurious yet so welcoming.' },
+    { name: config.rev1Name || (isPreview ? 'Sarah M.' : ''),   rating: config.rev1Rating ?? 5, text: config.rev1Text || (isPreview ? 'Absolutely incredible experience.' : '') },
+    { name: config.rev2Name || (isPreview ? 'Jessica T.' : ''), rating: config.rev2Rating ?? 5, text: config.rev2Text || (isPreview ? 'Every visit exceeds my expectations.' : '') },
+    { name: config.rev3Name || (isPreview ? 'Priya K.' : ''),   rating: config.rev3Rating ?? 5, text: config.rev3Text || (isPreview ? 'Luxurious yet so welcoming.' : '') },
   ].filter(r => r.text);
+  if (!reviews.length) return null; // nothing real to show on the live page
  
   const Stars = ({ count, light = false }: { count: number; light?: boolean }) => (
     <div className="flex gap-0.5">
