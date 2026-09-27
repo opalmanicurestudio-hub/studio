@@ -206,6 +206,20 @@ export async function POST(req: NextRequest) {
                   recipientType: 'staff', recipientName: 'Studio', appointmentId: payApptId } as any);
               }
             } catch (e) { console.error('[connect-webhook] deposit message failed (payment is recorded)', e); }
+            // A reschedule: now that the new visit is paid for, release the OLD one —
+            // only if it belongs to the same client (a booking can never cancel
+            // someone else's appointment).
+            if (!lateAfterRelease && ap.replacesAppointmentId) {
+              try {
+                const old = ((await db.doc(`tenants/${tenant.id}/appointments/${ap.replacesAppointmentId}`).get()).data() as any) || null;
+                if (old && !['cancelled', 'canceled'].includes(String(old.status || '')) && old.clientId && old.clientId === ap.clientId) {
+                  const { internalOrigin, internalPost } = await import('@/lib/message-policy');
+                  await internalPost(internalOrigin(biz, req.nextUrl.origin), '/api/appointments/self-cancel', { tenantId: tenant.id, appointmentId: ap.replacesAppointmentId, clientReason: 'Rescheduled online', rescheduledToId: payApptId });
+                } else if (old && old.clientId !== ap.clientId) {
+                  console.warn('[connect-webhook] replacesAppointmentId belongs to a different client — left alone', ap.replacesAppointmentId);
+                }
+              } catch (e) { console.error('[connect-webhook] releasing the old visit failed — it can be cancelled from its own link', e); }
+            }
             break;
           }
 
