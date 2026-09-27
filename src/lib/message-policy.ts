@@ -120,6 +120,20 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     timing: 'immediate',
   },
   {
+    /* An ACCEPTED request whose card declined and whose payment deadline
+     * (Settings → Booking: "You accept but their card does not go through")
+     * passed. The time is released; the client had it in their calendar. */
+    id: 'payment_not_received', group: 'Booking', label: 'Time released — payment not received',
+    when: 'You accepted a request, the card on file declined, and the deposit wasn’t paid by your deadline — so the time is released.',
+    channels: ['email', 'sms'], canDisable: false,
+    mandatoryNote: 'They were expecting this appointment. Releasing it without telling them means they arrive to no booking.',
+    tokens: ['{{client_first}}', '{{service}}', '{{when}}', '{{link}}', '{{studio}}'],
+    requiredTokens: ['{{when}}'],
+    defaultSubject: 'Your {{service}} time was released',
+    defaultBody: '{{client_first}}, we didn’t receive the deposit for your {{service}} on {{when}}, so the time has been released. Nothing was charged.\n\nBook again: {{link}}',
+    timing: 'immediate',
+  },
+  {
     id: 'appointment_cancelled_closure', group: 'Booking', label: 'Cancelled — the studio is closed',
     when: 'A flood, fire, power loss or forced closure means the studio cannot open, and bookings on those days are cancelled from the interruption record.',
     channels: ['email', 'sms'], canDisable: false,
