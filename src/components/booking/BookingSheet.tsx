@@ -48,8 +48,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { ImageUpload } from '../shared/ImageUpload';
 import { Textarea } from '../ui/textarea';
 import { Checkbox } from '../ui/checkbox';
-import { useSmartAvailability } from '@/hooks/useSmartAvailability';
-import { pickStaffForSlot } from '@/lib/availability';
+import { useServerAvailability, pickProvider } from '@/hooks/useServerAvailability';
 import { resolveBookingPlan } from '@/lib/deposit-policy';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -172,6 +171,8 @@ interface BookingSheetProps {
   lockedStaffId?: string;
   /** Client details to start the form with — a returning client rescheduling from their email. */
   prefillClient?: { clientName?: string | null; clientEmail?: string | null; clientPhone?: string | null } | null;
+  /** The business — from the page's web address (sturdier than the loaded record). */
+  tenantId?: string;
   appointments:   Appointment[];
   /**
    * The studio's MARKETING events, rendered on the public page. This is NOT
@@ -232,7 +233,7 @@ const STEP_TITLES: Record<string, string> = {
 
 export const BookingSheet: React.FC<BookingSheetProps> = ({
   open, onOpenChange, service, staff, pricingTiers, initialStaffId, lockedStaffId, prefillClient,
-  appointments, events, scheduleProfiles, services, consentForms, tenant, onConfirm,
+  appointments, events, scheduleProfiles, services, consentForms, tenant, onConfirm, tenantId: tenantIdProp,
   shifts, staffBlocks, dayOffBlocks, resources, tickets, maintenancePlans, calendarEvents,
   bookingOutcome,
   variant = 'overlay',
@@ -329,25 +330,30 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   // published shift roster, approved days off, chair capacity, urgent
   // maintenance or staff holds, all of which the route enforces. That gap is
   // why guests could tap a time and get refused.
-  const availability = useSmartAvailability({
+  // Open times come from the SERVER, worked out with the same engine the
+  // booking route verifies with — the browser never receives other people's
+  // appointments, shifts or days off. (Was: useSmartAvailability in the
+  // browser, fed with busy-time data sent to every visitor.)
+  const availability = useServerAvailability({
+    tenantId: tenantIdProp || (tenant as any)?.id,
     date: dateKey,
     serviceId: service?.id || '',
     staffId: selectedStaffId,
     tierId: selectedStaffId === 'any' && selectedTierId !== 'any' ? selectedTierId : undefined,
-    allAppointments: appointments || [],
-    allServices: services || [],
-    allStaff: qualifiedStaff,
-    // The engine's `events` means calendar occupancy. `events` on this
-    // component is the studio's MARKETING events shown on the page, which is a
-    // different thing entirely — passing those would be meaningless at best.
-    events: calendarEvents || [],
-    scheduleProfiles,
-    tenant,
-    shifts, staffBlocks, dayOffBlocks, resources, tickets, maintenancePlans,
-    // Deliberately NOT set: ignoreHeuristics, ignoreShifts, ignoreResources.
-    // Those are front-desk overrides. A guest booking themselves gets the
-    // studio's real rules, including lead time from the tenant doc.
+    providerId: (service as any)?.renterProviderId || null,
   });
+  // "Any available": ask the server who takes the chosen time, as soon as it's tapped.
+  const [anyPick, setAnyPick] = useState<{ key: string; staffId?: string; error?: string } | null>(null);
+  const pickKey = `${dateKey}|${selectedTime}|${service?.id || ''}|${selectedTierId}`;
+  useEffect(() => {
+    const tid = tenantIdProp || (tenant as any)?.id;
+    if (selectedStaffId !== 'any' || !selectedTime || !service?.id || !tid) { setAnyPick(null); return; }
+    let live = true; setAnyPick({ key: pickKey });
+    void pickProvider({ tenantId: tid, date: dateKey, time: selectedTime, serviceId: service.id, tierId: selectedTierId !== 'any' ? selectedTierId : undefined, providerId: (service as any)?.renterProviderId || null })
+      .then((r) => { if (live) setAnyPick(r.ok ? { key: pickKey, staffId: r.staffId } : { key: pickKey, error: r.error }); });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickKey, selectedStaffId]);
 
   const timeSlots = availability.times;
 
@@ -516,24 +522,13 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       // `lastServedTimestamp` — a field nothing in the codebase ever writes —
       // so every candidate compared equal and 'Any Available' silently handed
       // every online booking to whoever happened to be first in the array.
-      const pick = pickStaffForSlot({
-        date: dateKey,
-        time: selectedTime,
-        serviceId: service.id,
-        staffId: 'any',
-        tierId: selectedTierId !== 'any' ? selectedTierId : undefined,
-        services: services || [],
-        staff: qualifiedStaff,
-        appointments: appointments || [],
-        events: calendarEvents || [],
-        scheduleProfiles,
-        tenant,
-        shifts, staffBlocks, dayOffBlocks, resources, tickets, maintenancePlans,
-      });
-      if (!pick.ok) {
-        return { error: pick.error || 'No professionals are available for this window. Please pick another time.' };
+      // Chosen by the server when the time was tapped (same rotation rules);
+      // the booking route re-checks it when the booking is made.
+      if (!anyPick || anyPick.key !== pickKey || (!anyPick.staffId && !anyPick.error)) {
+        return { error: 'Still matching you with a professional for that time — tap again in a moment.' };
       }
-      finalStaffId = pick.staffId;
+      if (!anyPick.staffId) return { error: anyPick.error || 'No professionals are available for this window. Please pick another time.' };
+      finalStaffId = anyPick.staffId;
     }
 
     const formValues   = methods.getValues();
@@ -1161,7 +1156,13 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                               </Button>
                             );
                           })}
-                          {timeSlots.length === 0 && (
+                          {availability.loading && timeSlots.length === 0 && (
+                            <div style={{ borderRadius: r2 }} className="col-span-full text-center py-8 px-4 border-2 border-dashed" role="status">
+                              <Clock className="w-6 h-6 text-muted-foreground/30 mx-auto mb-1.5 animate-pulse" />
+                              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">Finding open times…</p>
+                            </div>
+                          )}
+                          {!availability.loading && timeSlots.length === 0 && (
                             <div style={{ borderRadius: r2 }} className="col-span-full text-center py-8 px-4 border-2 border-dashed">
                               <Clock className="w-6 h-6 text-muted-foreground/30 mx-auto mb-1.5" />
                               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">No availability for this preference</p>
