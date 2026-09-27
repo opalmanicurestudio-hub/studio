@@ -37,9 +37,9 @@ const safeDate = (val: any): Date => {
   if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
   return new Date(val);
 };
-const clock = (t: string) => { const [h, m] = t.split(':').map(Number); return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'pm' : 'am'}`; };
-const key = (d: Date) => format(d, 'yyyy-MM-dd');
-const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+export const clock = (t: string) => { const [h, m] = t.split(':').map(Number); return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'pm' : 'am'}`; };
+export const key = (d: Date) => format(d, 'yyyy-MM-dd');
+export const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 
 interface Props {
   open: boolean; onOpenChange: (open: boolean) => void; appointment: any; client?: any; tenant?: any; tenantId?: string;
@@ -53,7 +53,9 @@ async function api(body: any) {
   return { status: r.status, ...(d || {}) };
 }
 
-export const RescheduleAppointmentDialog: React.FC<Props> = ({ open, onOpenChange, appointment, client, tenant, tenantId, isMobile = false, onRescheduled }) => {
+/** The reschedule dialog's logic, shared by the planner dialog and the front desk (same behaviour, two layouts). */
+export function useReschedule(props: Props) {
+  const { open, onOpenChange, appointment, client, tenant, tenantId, isMobile = false, onRescheduled } = props;
   const { toast } = useToast();
   const original = useMemo(() => safeDate(appointment?.startTime), [appointment]);
   const usualTime = format(original, 'HH:mm');
@@ -196,6 +198,26 @@ export const RescheduleAppointmentDialog: React.FC<Props> = ({ open, onOpenChang
     </div>
   );
 
+  return {
+    toast, original, usualTime, today, staffId, setStaffId, providers, setProviders,
+    slots, setSlots, loading, setLoading, fetched, month, setMonth, day,
+    setDay, time, setTime, custom, setCustom, reason, setReason, override,
+    setOverride, applyFee, setApplyFee, notify, setNotify, busy, setBusy, fee,
+    windowH, feeEligible, base, first, ensure, timesFor, suggestions, choose,
+    move, cells, dayTimes, groups, who, body, footer,
+  };
+}
+
+export const RescheduleAppointmentDialog: React.FC<Props> = (props) => {
+  const { open, onOpenChange, appointment, client, tenant, tenantId, isMobile = false, onRescheduled } = props;
+  const {
+    toast, original, usualTime, today, staffId, setStaffId, providers, setProviders,
+    slots, setSlots, loading, setLoading, fetched, month, setMonth, day,
+    setDay, time, setTime, custom, setCustom, reason, setReason, override,
+    setOverride, applyFee, setApplyFee, notify, setNotify, busy, setBusy, fee,
+    windowH, feeEligible, base, first, ensure, timesFor, suggestions, choose,
+    move, cells, dayTimes, groups, who, body, footer,
+  } = useReschedule(props);
   if (isMobile) return (
     <Sheet open={open} onOpenChange={onOpenChange}><SheetContent side="bottom" className="max-h-[94vh] overflow-y-auto rounded-t-[2rem] p-5">
       <SheetHeader className="mb-3 text-left"><SheetTitle className="text-xl font-black">Reschedule {first}</SheetTitle></SheetHeader>{body}<SheetFooter className="sticky bottom-0 mt-5 bg-background pb-2 pt-3">{footer}</SheetFooter>
