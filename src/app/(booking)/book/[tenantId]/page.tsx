@@ -225,29 +225,17 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       const fromDay = todayIn(tenantTimeZone(tenant));
       const eventsFromDay = todayIn(tenantTimeZone(tenant), new Date(Date.now() - 31 * 86400000));
       try {
-        const [svSnap,stSnap,evSnap,aptSnap,spSnap,ptSnap,cfSnap,shSnap,sbSnap,doSnap,rsSnap,tkSnap,mpSnap,ceSnap,rsvSnap] = await Promise.all([
-          getDocs(collection(db, `tenants/${tenantId}/services`)),
-          getDocs(collection(db, `tenants/${tenantId}/staff`)),
-          getDocs(query(collection(db, `tenants/${tenantId}/studioEvents`), orderBy('date','asc'))).catch(() => getDocs(collection(db, `tenants/${tenantId}/studioEvents`))),
-          getDocs(query(collection(db, `tenants/${tenantId}/appointments`), where('startTime','>=',fromDay))).catch(() => ({ docs: [] })),
-          getDocs(collection(db, `tenants/${tenantId}/scheduleProfiles`)).catch(() => ({ docs: [] })),
-          getDocs(collection(db, `tenants/${tenantId}/pricingTiers`)).catch(() => ({ docs: [] })),
-          getDocs(collection(db, `tenants/${tenantId}/consentForms`)).catch(() => ({ docs: [] })),
-          // v21 — the other seven blocking sources. Without these the public
-          // page only knew about other appointments, so it happily offered a
-          // slot on an approved day off, outside the published roster, or in a
-          // pedicure chair with an urgent maintenance ticket on it. The booking
-          // route checks all of them, so every one of those offers came back
-          // refused at the last step. Same inputs on both sides, same answer.
-          getDocs(query(collection(db, `tenants/${tenantId}/shifts`), where('date', '>=', fromDay))).catch(() => ({ docs: [] })),
-          getDocs(query(collection(db, `tenants/${tenantId}/staffBlocks`), where('startTime', '>=', fromDay))).catch(() => ({ docs: [] })),
-          getDocs(query(collection(db, `tenants/${tenantId}/shiftDayOffBlocks`), where('date', '>=', fromDay))).catch(() => ({ docs: [] })),
-          getDocs(collection(db, `tenants/${tenantId}/resources`)).catch(() => ({ docs: [] })),
-          getDocs(query(collection(db, `tenants/${tenantId}/tickets`), where('status', 'in', ['open', 'in_progress']))).catch(() => ({ docs: [] })),
-          getDocs(collection(db, `tenants/${tenantId}/maintenancePlans`)).catch(() => ({ docs: [] })),
-          getDocs(query(collection(db, `tenants/${tenantId}/events`), where('startTime', '>=', eventsFromDay))).catch(() => ({ docs: [] })),
-          getDocs(collection(db, `tenants/${tenantId}/renterServices`)).catch(() => ({ docs: [] })),
-        ]);
+        // Loaded on the SERVER (/api/booking/public-data): visitors who aren't
+        // signed in may not read the team, appointments, shifts or days off
+        // directly — the route returns only what they may see (busy times,
+        // never other clients' details). Same shape as before, so the page's
+        // availability logic is unchanged.
+        const res = await fetch('/api/booking/public-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId }) });
+        const pd: any = await res.json().catch(() => null);
+        if (!pd?.ok) throw new Error(pd?.error || 'Could not load the booking page.');
+        const asSnap = (arr: any[]) => ({ docs: (arr || []).map((x: any) => { const { id, ...rest } = x || {}; return { id, data: () => rest }; }) });
+        const [svSnap, stSnap, evSnap, aptSnap, spSnap, ptSnap, cfSnap, shSnap, sbSnap, doSnap, rsSnap, tkSnap, mpSnap, ceSnap, rsvSnap] =
+          [pd.services, pd.staff, pd.studioEvents, pd.appointments, pd.scheduleProfiles, pd.pricingTiers, pd.consentForms, pd.shifts, pd.staffBlocks, pd.dayOffBlocks, pd.resources, pd.tickets, pd.maintenancePlans, pd.events, pd.renterServices].map(asSnap);
         if (!cancelled) {
           const everyStaff = stSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false);
           // A renter running their own booking system is not bookable here.
@@ -384,9 +372,9 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     const e = memberEmail.trim().toLowerCase(); if (!e || !providerId) return;
     setMemberChecking(true);
     try {
-      const db = getDb(); if (!db) return;
-      const snap = await getDocs(query(collection(db, `tenants/${tenantId}/renterMemberSubscriptions`), where('staffId', '==', providerId), where('clientEmail', '==', e)));
-      setMemberOk(snap.docs.some((d) => (d.data() as any)?.status === 'active'));
+      const r = await fetch('/api/booking/public-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, action: 'renter-member', providerId, email: e }) });
+      const d = await r.json().catch(() => ({}));
+      setMemberOk(!!d?.member);
     } catch { setMemberOk(false); } finally { setMemberChecking(false); }
   };
   const [pkgBuying, setPkgBuying] = useState('');
@@ -397,13 +385,10 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     try { const q = new URLSearchParams(window.location.search); if (q.get('package') === 'thanks') setPkgThanks(true); if (q.get('member') === 'thanks') setMemberThanks(true); } catch { /* no-op */ }
     (async () => {
       try {
-        const db = getDb(); if (!db) return;
-        const [ps, ms] = await Promise.all([
-          getDocs(query(collection(db, `tenants/${tenantId}/renterPackages`), where('staffId', '==', providerId))),
-          getDocs(query(collection(db, `tenants/${tenantId}/renterMemberships`), where('staffId', '==', providerId))),
-        ]);
-        setProviderPackages(ps.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((p: any) => p.isActive !== false).sort((a: any, b: any) => (a.priceCents || 0) - (b.priceCents || 0)));
-        setProviderMemberships(ms.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((m: any) => m.isActive !== false).sort((a: any, b: any) => (a.priceCents || 0) - (b.priceCents || 0)));
+        const r = await fetch('/api/booking/public-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, action: 'renter-products', providerId }) });
+        const d: any = await r.json().catch(() => ({}));
+        setProviderPackages((d?.packages || []).filter((p: any) => p.isActive !== false).sort((a: any, b: any) => (a.priceCents || 0) - (b.priceCents || 0)));
+        setProviderMemberships((d?.memberships || []).filter((m: any) => m.isActive !== false).sort((a: any, b: any) => (a.priceCents || 0) - (b.priceCents || 0)));
       } catch { setProviderPackages([]); setProviderMemberships([]); }
     })();
   }, [providerId, tenantId, getDb]);
