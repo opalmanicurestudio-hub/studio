@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { getFirestore } from 'firebase/firestore';
 import { getApp } from 'firebase/app';
 import { doc, setDoc, getDoc, getDocs, addDoc, collection, query, orderBy, where } from 'firebase/firestore';
@@ -314,6 +314,17 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     };
     window.addEventListener('cf-book', h);
     return () => window.removeEventListener('cf-book', h);
+  }, [services]);
+  // A link to one service (e.g. the school website's clinic menu:
+  // /book/{t}?service={id}) opens the booking sheet for it — once.
+  const openedServiceLink = useRef(false);
+  useEffect(() => {
+    if (openedServiceLink.current || !services.length) return;
+    try {
+      const want = new URLSearchParams(window.location.search).get('service');
+      const hit = want ? services.find((sv: any) => sv.id === want) : null;
+      if (hit) { openedServiceLink.current = true; setDialogService(hit); setDialogOpen(true); }
+    } catch { /* no-op */ }
   }, [services]);
 
   // Derive resolved config and style
