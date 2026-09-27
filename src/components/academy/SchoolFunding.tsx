@@ -15,6 +15,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getAuth } from 'firebase/auth';
 import { deviceId } from '@/lib/device';
+import { printDocument, mdLite, type DocBrand } from '@/lib/doc-theme';
+import { thankYouLetter, yearStatement } from '@/lib/donor-letters';
 
 async function api(body: any) {
   const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
@@ -40,16 +42,23 @@ function Decision({ a, funds, onDone }: { a: any; funds: string[]; onDone: (body
   );
 }
 
-export function SchoolFunding({ tenantId }: { tenantId: string }) {
+export function SchoolFunding({ tenantId, brand }: { tenantId: string; brand?: DocBrand }) {
   const [d, setD] = useState<any>(null); const [tab, setTab] = useState('overview'); const [open, setOpen] = useState<string | null>(null);
   const [report, setReport] = useState(''); const [msg, setMsg] = useState(''); const [err, setErr] = useState(''); const [note, setNote] = useState('');
   const [direct, setDirect] = useState({ admissionId: '', amount: '', fund: '', reason: '' });
+  const [year, setYear] = useState(new Date().getFullYear()); const [sp, setSp] = useState<any>(null);
   const load = useCallback(async () => { const r = await api({ action: 'funding-summary', tenantId }); if (r.ok) { setD(r); setReport((x) => x || r.useReport || r.draft || ''); } else setErr(r.error || 'Couldn’t load.'); }, [tenantId]);
   useEffect(() => { void load(); }, [load]);
   const act = async (body: any, done: string) => { setErr(''); setMsg(''); const r = await api({ tenantId, ...body }); if (!r.ok) { setErr(r.error || 'Couldn’t save.'); return r; } setMsg(done); await load(); return r; };
   if (!d) return err ? <p className="text-sm text-red-700">{err}</p> : null;
   const y = d.summary.year_; const apps = d.apps.filter((a: any) => a.kind !== 'direct'); const awards = d.apps.filter((a: any) => a.status === 'awarded');
   const cur = d.apps.find((a: any) => a.id === open);
+  const W = d.letter || { school: brand?.name || '', legal: '', nonprofit: false, ein: '', thankYou: '' };
+  const printLetter = (title: string, text: string, date?: string) => brand && printDocument({ title, brand, official: date ? { date: new Date(date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) } : true, body: `<p class="muted">${new Date(date || Date.now()).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>${mdLite(text)}` });
+  // Donors this year, by email, for year-end statements.
+  const donors = Object.values(d.gifts.filter((g: any) => g.email && String(g.createdAt).startsWith(String(year))).reduce((m: any, g: any) => { const k = g.email; m[k] = m[k] || { email: k, name: g.business || g.name, count: 0, cents: 0 }; m[k].count++; m[k].cents += g.amountCents; return m; }, {})) as any[];
+  const years = [...new Set([new Date().getFullYear(), ...d.gifts.map((g: any) => Number(String(g.createdAt).slice(0, 4)))])].sort((a, b) => b - a);
+  const logoPick = (f?: File | null) => new Promise<string>((res, rej) => { if (!f) return rej(new Error('No file')); const img = new Image(); img.onload = () => { const k = Math.min(1, 600 / Math.max(img.width, img.height)); const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k); c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height); let out = c.toDataURL('image/png'); if (out.length > 380_000) out = c.toDataURL('image/jpeg', 0.85); res(out); }; img.onerror = () => rej(new Error('That isn’t an image we can read.')); img.src = URL.createObjectURL(f); });
   const csv = () => {
     const rows = [['Date', 'Receipt', 'Amount', 'Fund', 'Name', 'Email', 'Business', 'Anonymous', 'Thanked by name', 'Message'], ...d.gifts.map((g: any) => [day(g.createdAt), g.receiptNo, (g.amountCents / 100).toFixed(2), g.fund, g.name, g.email || '', g.business || '', g.anonymous ? 'yes' : '', g.showName ? 'yes' : '', g.message || ''])];
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([rows.map((r) => r.map((v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')], { type: 'text/csv' })); a.download = `gifts-${d.summary.year}.csv`; a.click();
@@ -58,7 +67,7 @@ export function SchoolFunding({ tenantId }: { tenantId: string }) {
     <div className="space-y-4">
       {!d.donorsOn && <p className="rounded-2xl bg-amber-50 p-3 text-sm text-amber-900">The Support our students page is off — turn it on in <b>Website → Donors</b> to take gifts online.</p>}
       {d.donorsOn && !d.canGive && <p className="rounded-2xl bg-amber-50 p-3 text-sm text-amber-900">Online giving needs your Stripe account connected (the same one tuition uses). Until then, the Support page asks people to contact you.</p>}
-      <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1" role="tablist">{[['overview', 'Overview'], ['gifts', `Gifts · ${d.gifts.length}`], ['scholarships', `Scholarships · ${apps.filter((a: any) => ['new', 'reviewing'].includes(a.status)).length} to review`], ['awards', `Awards · ${awards.length}`]].map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => { setTab(k); setOpen(null); }} className={`h-9 shrink-0 rounded-full px-3 text-[13px] font-bold ${tab === k ? 'bg-foreground text-background' : 'bg-muted'}`}>{l}</button>)}</div>
+      <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1" role="tablist">{[['overview', 'Overview'], ['gifts', `Gifts · ${d.gifts.length}`], ['sponsors', `Sponsors${d.sponsors.filter((x: any) => x.status === 'pending').length ? ` · ${d.sponsors.filter((x: any) => x.status === 'pending').length} to approve` : ''}`], ['scholarships', `Scholarships · ${apps.filter((a: any) => ['new', 'reviewing'].includes(a.status)).length} to review`], ['awards', `Awards · ${awards.length}`]].map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => { setTab(k); setOpen(null); }} className={`h-9 shrink-0 rounded-full px-3 text-[13px] font-bold ${tab === k ? 'bg-foreground text-background' : 'bg-muted'}`}>{l}</button>)}</div>
 
       {tab === 'overview' && <>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{[[usd(y.raised), `given in ${d.summary.year}`], [String(y.donors), 'supporters'], [usd(y.awarded), 'awarded'], [String(y.students), 'students helped']].map(([v, l]) => <div key={l} className="rounded-2xl bg-muted/40 p-3"><p className="text-xl font-black tabular-nums">{v}</p><p className="text-[12px] text-muted-foreground">{l}</p></div>)}</div>
@@ -77,8 +86,43 @@ export function SchoolFunding({ tenantId }: { tenantId: string }) {
         <div className="flex items-center justify-between"><p className="text-sm text-muted-foreground">{d.nonprofit ? 'Receipts say gifts may be tax-deductible (nonprofit + EIN set).' : 'Receipts say gifts are not tax-deductible.'}</p>{d.gifts.length > 0 && <button type="button" onClick={csv} className="h-9 rounded-full border-2 px-3 text-[12px] font-bold">⬇ CSV</button>}</div>
         {d.gifts.length === 0 ? <p className="text-sm text-muted-foreground">No gifts yet.</p> : d.gifts.map((g: any) => <div key={g.id} className="flex flex-wrap items-center gap-2 rounded-xl bg-muted/40 px-3 py-2 text-sm">
           <span className="min-w-0 flex-1"><b>{usd(g.amountCents)}</b> · {g.fund} · {g.business || g.name}{g.anonymous ? ' (anonymous)' : ''} · {day(g.createdAt)}<span className="block text-[12px] text-muted-foreground">{g.receiptNo}{g.email ? ` · ${g.email}` : ''}{g.message ? ` · “${g.message}”` : ''}</span></span>
-          <button type="button" onClick={() => act({ action: 'funding-receipt', id: g.id }, 'Receipt sent.')} className="h-8 rounded-lg border-2 px-2 text-[12px] font-bold">Resend receipt</button>
+          {brand && <button type="button" onClick={() => printLetter(`Thank you — ${g.business || g.name}`, thankYouLetter(g, W, W.thankYou), g.createdAt)} className="h-8 rounded-lg border-2 px-2 text-[12px] font-bold">🖨 Letter</button>}
+          <button type="button" onClick={() => act({ action: 'funding-receipt', id: g.id }, 'Thank-you letter and receipt sent.')} className="h-8 rounded-lg border-2 px-2 text-[12px] font-bold">Resend</button>
         </div>)}
+      </section>}
+
+      {tab === 'gifts' && <section className="space-y-2 rounded-2xl bg-muted/40 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-black">Year-end giving statements <span className="font-normal text-muted-foreground">— one letter per donor, for their taxes</span></p>
+          <select className="h-9 rounded-lg border-2 px-2 text-sm" value={year} onChange={(e) => setYear(Number(e.target.value))} aria-label="Year">{years.map((y) => <option key={y} value={y}>{y}</option>)}</select></div>
+        {donors.length === 0 ? <p className="text-sm text-muted-foreground">No gifts with an email address in {year}.</p> : donors.map((x) => <div key={x.email} className="flex flex-wrap items-center gap-2 rounded-xl bg-background px-3 py-2 text-sm">
+          <span className="min-w-0 flex-1"><b>{x.name}</b> · {x.count} gift{x.count === 1 ? '' : 's'} · {usd(x.cents)}<span className="block text-[12px] text-muted-foreground">{x.email}</span></span>
+          {brand && <button type="button" onClick={async () => { const r = await api({ action: 'funding-statement', tenantId, email: x.email, year }); if (r.ok) printLetter(`${year} giving statement — ${x.name}`, yearStatement(r.gifts, W, year), `${year}-12-31T12:00:00`); }} className="h-8 rounded-lg border-2 px-2 text-[12px] font-bold">🖨 Print</button>}
+          <button type="button" onClick={() => act({ action: 'funding-statement', email: x.email, year, send: true }, `Statement emailed to ${x.email}.`)} className="h-8 rounded-lg border-2 px-2 text-[12px] font-bold">✉️ Email</button>
+        </div>)}
+      </section>}
+
+      {tab === 'sponsors' && <section className="space-y-3">
+        <p className="text-sm text-muted-foreground">Logos show on your website’s Support page{' '}(and the home page strip, if it’s on) only once approved. Bigger supporters appear first and larger — tiers are set in Website → Donors.</p>
+        {d.sponsors.length === 0 && <p className="text-sm text-muted-foreground">No sponsors yet. Business donors can add their logo after giving, or add one yourself below.</p>}
+        {d.sponsors.map((x: any) => <div key={x.id} className="flex flex-wrap items-center gap-3 rounded-xl bg-muted/40 p-3 text-sm">
+          <div className="flex h-14 w-24 shrink-0 items-center justify-center rounded-lg bg-white">{x.logo ? <img src={x.logo} alt={x.name} className="max-h-12 max-w-20 object-contain" /> : <span className="text-[11px] text-muted-foreground">No logo</span>}</div>
+          <span className="min-w-0 flex-1"><b>{x.name}</b> {x.status === 'pending' ? <span className="rounded-full bg-amber-100 px-2 text-[11px] font-bold text-amber-900">waiting for approval</span> : x.status === 'hidden' ? <span className="rounded-full bg-muted px-2 text-[11px] font-bold">hidden</span> : <span className="rounded-full bg-emerald-100 px-2 text-[11px] font-bold text-emerald-800">on the website</span>}
+            <span className="block text-[12px] text-muted-foreground">{x.totalCents ? `${usd(x.totalCents)} given · ` : ''}{x.tier || 'tier by amount'}{x.url ? ` · ${x.url}` : ''}{x.source === 'gift' ? ' · added by the donor' : ''}</span></span>
+          {x.status !== 'approved' && <button type="button" onClick={() => act({ action: 'funding-sponsor-save', sponsor: { id: x.id, status: 'approved' } }, `${x.name} is now on your website.`)} className="h-8 rounded-lg bg-foreground px-3 text-[12px] font-bold text-background">Approve</button>}
+          {x.status === 'approved' && <button type="button" onClick={() => act({ action: 'funding-sponsor-save', sponsor: { id: x.id, status: 'hidden' } }, 'Hidden from your website.')} className="h-8 rounded-lg border-2 px-3 text-[12px] font-bold">Hide</button>}
+          <button type="button" onClick={() => setSp({ ...x, amount: x.totalCents ? String(x.totalCents / 100) : '' })} className="h-8 rounded-lg border-2 px-3 text-[12px] font-bold">Edit</button>
+        </div>)}
+        {!sp ? <button type="button" onClick={() => setSp({ name: '', url: '', amount: '', tier: '', logo: null, status: 'approved' })} className="h-10 rounded-full bg-foreground px-4 text-sm font-bold text-background">+ Add a sponsor</button> : (
+          <div className="space-y-2 rounded-2xl border-2 p-3">
+            <p className="font-black">{sp.id ? `Edit ${sp.name}` : 'Add a sponsor'} <span className="font-normal text-muted-foreground">— e.g. a cheque, in-kind or long-standing partner</span></p>
+            <div className="grid gap-2 sm:grid-cols-2"><input className={field} value={sp.name} onChange={(e) => setSp({ ...sp, name: e.target.value })} placeholder="Business name" aria-label="Business name" /><input className={field} value={sp.url || ''} onChange={(e) => setSp({ ...sp, url: e.target.value })} placeholder="Website" aria-label="Website" />
+              <input className={field} inputMode="decimal" value={sp.amount} onChange={(e) => setSp({ ...sp, amount: e.target.value })} placeholder="Total given ($) — sets the tier" aria-label="Total given" />
+              <select className={field} value={sp.tier || ''} onChange={(e) => setSp({ ...sp, tier: e.target.value })} aria-label="Tier"><option value="">Tier by amount</option>{(d.tiers || []).map((t: any) => <option key={t.name} value={t.name}>{t.name}</option>)}</select></div>
+            <div className="flex items-center gap-3"><div className="flex h-14 w-24 items-center justify-center rounded-lg bg-muted/40">{sp.logo ? <img src={sp.logo} alt="" className="max-h-12 max-w-20 object-contain" /> : <span className="text-[11px] text-muted-foreground">Logo</span>}</div>
+              <label className="cursor-pointer rounded-full border-2 px-3 py-1.5 text-[12px] font-bold">Upload logo<input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; try { setSp({ ...sp, logo: await logoPick(f) }); } catch (x: any) { setErr(x?.message); } }} /></label></div>
+            <div className="flex gap-2"><button type="button" onClick={async () => { const r = await act({ action: 'funding-sponsor-save', sponsor: { id: sp.id, name: sp.name, url: sp.url, tier: sp.tier, logo: sp.logo, status: sp.id ? undefined : 'approved', totalCents: Math.round((Number(String(sp.amount).replace(/[^0-9.]/g, '')) || 0) * 100) } }, 'Sponsor saved.'); if (r?.ok) setSp(null); }} className="h-10 rounded-full bg-foreground px-5 text-sm font-bold text-background">Save</button><button type="button" onClick={() => setSp(null)} className="h-10 rounded-full px-4 text-sm font-bold">Cancel</button></div>
+          </div>
+        )}
       </section>}
 
       {tab === 'scholarships' && (!cur ? <section className="space-y-2">
