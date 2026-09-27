@@ -278,6 +278,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const [depositStripeAccountId, setDepositStripeAccountId] = useState<string | null>(null);
   const [depositLoading,         setDepositLoading]         = useState(false);
   const [depositError,           setDepositError]           = useState<string | null>(null);
+  // Try again after the card form failed to load → reload the form only (never re-book).
+  const [mountTry,               setMountTry]               = useState(0);
   const embeddedMountRef         = useRef<HTMLDivElement>(null);
   const embeddedCheckoutRef      = useRef<any>(null);
 
@@ -355,6 +357,19 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   });
   // "Any available": ask the server who takes the chosen time, as soon as it's tapped.
   const [anyPick, setAnyPick] = useState<{ key: string; staffId?: string; error?: string } | null>(null);
+  const anyPickRef = useRef<{ key: string; staffId?: string; error?: string } | null>(null);
+  useEffect(() => { anyPickRef.current = anyPick; }, [anyPick]);
+  /** "Anyone": make sure the server's pick for THIS time is in hand before
+   *  confirming — if it hasn't arrived yet (slow connection), ask now and wait,
+   *  instead of telling the client to tap again. */
+  const ensureAnyPick = async () => {
+    if (selectedStaffId !== 'any' || !selectedTime || !service?.id) return;
+    const cur = anyPickRef.current; if (cur && cur.key === pickKey && (cur.staffId || cur.error)) return;
+    const tid = tenantIdProp || (tenant as any)?.id; if (!tid) return;
+    const r = await pickProvider({ tenantId: tid, date: dateKey, time: selectedTime, serviceId: service.id, tierId: selectedTierId !== 'any' ? selectedTierId : undefined, providerId: (service as any)?.renterProviderId || null });
+    const next = r.ok ? { key: pickKey, staffId: r.staffId } : { key: pickKey, error: r.error };
+    anyPickRef.current = next; setAnyPick(next);
+  };
   const pickKey = `${dateKey}|${selectedTime}|${service?.id || ''}|${selectedTierId}`;
   useEffect(() => {
     const tid = tenantIdProp || (tenant as any)?.id;
@@ -542,11 +557,12 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       // every online booking to whoever happened to be first in the array.
       // Chosen by the server when the time was tapped (same rotation rules);
       // the booking route re-checks it when the booking is made.
-      if (!anyPick || anyPick.key !== pickKey || (!anyPick.staffId && !anyPick.error)) {
+      const ap = anyPickRef.current;
+      if (!ap || ap.key !== pickKey || (!ap.staffId && !ap.error)) {
         return { error: 'Still matching you with a professional for that time — tap again in a moment.' };
       }
-      if (!anyPick.staffId) return { error: anyPick.error || 'No professionals are available for this window. Please pick another time.' };
-      finalStaffId = anyPick.staffId;
+      if (!ap.staffId) return { error: ap.error || 'No professionals are available for this window. Please pick another time.' };
+      finalStaffId = ap.staffId;
     }
 
     const formValues   = methods.getValues();
@@ -628,6 +644,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   // ── No-deposit finalize (used at the 'summary' step) ────────────────────────
   const [confirming, setConfirming] = useState(false);
   const handleConfirmBooking = async () => {
+    await ensureAnyPick();
     const payload = resolveBookingPayload();
     if (!payload) return;
     if ('error' in payload) { toast({ variant: 'destructive', title: 'No staff available', description: payload.error }); return; }
@@ -657,6 +674,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const initiateCheckout = useCallback(async () => {
     setDepositLoading(true);
     setDepositError(null);
+    await ensureAnyPick();
     const payload = resolveBookingPayload();
     if (!payload) { setDepositLoading(false); return; }
     if ('error' in payload) { setDepositError(payload.error); setDepositLoading(false); return; }
@@ -695,10 +713,14 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
     const mount = async () => {
       if (!(window as any).Stripe) {
-        await new Promise<void>((resolve) => {
+        // Never wait forever: a blocked or failed script used to leave the client
+        // on "Opening secure payment…" indefinitely.
+        await new Promise<void>((resolve, reject) => {
           const s = document.createElement('script');
           s.src = 'https://js.stripe.com/v3/';
-          s.onload = () => resolve();
+          const t = setTimeout(() => reject(new Error('Stripe’s secure payment took too long to load — check your connection and try again.')), 15000);
+          s.onload = () => { clearTimeout(t); resolve(); };
+          s.onerror = () => { clearTimeout(t); s.remove(); reject(new Error('Stripe’s secure payment script couldn’t load — check your connection or any content blocker, then try again.')); };
           document.head.appendChild(s);
         });
       }
@@ -710,11 +732,14 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         body: JSON.stringify({ tenantId: payTenantId }),
       });
       const { publishableKey, stripeAccountId } = await keyRes.json();
-      if (!publishableKey) throw new Error('Missing Stripe publishable key');
+      if (!publishableKey) throw new Error('Stripe isn’t set up for online payments on this site yet (missing publishable key).');
+      if (!(window as any).Stripe) throw new Error('Stripe’s secure payment script didn’t load — check your connection or any content blocker.');
       if (cancelled) return;
 
       const stripe = (window as any).Stripe(publishableKey, {
-        stripeAccount: stripeAccountId || depositStripeAccountId || undefined,
+        // The account the PAYMENT was created on comes first (a renter's own
+        // account for their deposits); the business's account otherwise.
+        stripeAccount: depositStripeAccountId || stripeAccountId || undefined,
       });
       instance = await stripe.initEmbeddedCheckout({
         clientSecret: depositClientSecret,
@@ -734,7 +759,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
     mount().catch((e) => {
       console.error('[embedded-checkout]', e);
-      if (!cancelled) setDepositError('Could not load secure checkout. Please try again.');
+      // Say WHY, so a screenshot tells the business exactly what went wrong.
+      if (!cancelled) setDepositError(`Could not load secure checkout. ${String(e?.message || e || '').slice(0, 160)}`.trim());
     });
 
     return () => {
@@ -742,7 +768,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       try { embeddedCheckoutRef.current?.destroy(); } catch {}
       embeddedCheckoutRef.current = null;
     };
-  }, [depositClientSecret, depositStripeAccountId, tenant?.id, tenantIdProp, steps]);
+  }, [depositClientSecret, depositStripeAccountId, tenant?.id, tenantIdProp, steps, mountTry]);
 
   const handleNextStep = async () => {
     if (currentStep === 'dateTime' && !selectedTime) { toast({ variant: 'destructive', title: 'Please select a time.' }); return; }
@@ -872,6 +898,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       methods, smsConsentWording, smsMarketingWording, isResolvingIdentity, bannedClient, existingClientWithBalance,
       requiredForms, formAnswers, setFormAnswers, inspoPhotos, setInspoPhotos, accentHex: 'var(--accent, #7c3aed)',
       price, previewLines, bookingPreview, confirming, depositAmount, depositClientSecret, depositLoading, depositError, embeddedMountRef, initiateCheckout, bookingOutcome,
+      retryPayment: () => { setDepositError(null); if (depositClientSecret) setMountTry((n) => n + 1); else void initiateCheckout(); },
     }} />);
   }
 
