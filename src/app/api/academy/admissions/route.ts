@@ -9,6 +9,7 @@
 //   interview-result · rubric-score · decide · condition-met · offer-extend ·
 //   admission-setup · admission-setup-save · set-language
 
+import { sendAcademyEmail } from '@/lib/academy-email';
 import { deviceAllowed } from '@/lib/approved-devices';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -25,9 +26,8 @@ import { LANGUAGES } from '@/lib/translate';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-async function email(to: string, subject: string, text: string) {
-  if (!process.env.RESEND_API_KEY || !to) return false;
-  try { const r = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: resolveFromAddress(), to, subject, text }) }); return r.ok; } catch { return false; }
+async function email(to: string, subject: string, text: string, tenantId: string) {
+  return sendAcademyEmail(tenantId, to, subject, text);
 }
 
 export async function POST(req: NextRequest) {
@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
         await aRef(b.id).set({ interview, updatedAt: now }, { merge: true });
         await appendAudit(tenantId, { type: 'admissions.interview', by: who, summary: `${a.name}: interview ${new Date(interview.at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}`, data: { admissionId: b.id } });
         let emailed = false;
-        if (b.notify) emailed = await email(a.email, `Your admissions interview — ${t.name || 'our school'}`, `Hi ${String(a.name).split(' ')[0]},\n\nYour admissions interview is booked:\n\n${String(b.whenText || new Date(interview.at).toUTCString())}\n${interview.where ? `Where: ${interview.where}\n` : ''}With: ${interview.with}\n\nIf you need a different time, just reply to this email.\n\n— ${t.name || ''}`);
+        if (b.notify) emailed = await email(a.email, `Your admissions interview — ${t.name || 'our school'}`, `Hi ${String(a.name).split(' ')[0]},\n\nYour admissions interview is booked:\n\n${String(b.whenText || new Date(interview.at).toUTCString())}\n${interview.where ? `Where: ${interview.where}\n` : ''}With: ${interview.with}\n\nIf you need a different time, just reply to this email.\n\n— ${t.name || ''}`, tenantId);
         return NextResponse.json({ ok: true, emailed });
       }
       if (b.action === 'interview-result') {
@@ -175,7 +175,7 @@ export async function POST(req: NextRequest) {
       const token = await issueApplicationLink(tenantId, String(b.id));
       const link = `${origin}/learn/${tenantId}/application/${token}`;
       if (['inquiry', 'tour'].includes(a.stage)) await setStage(tenantId, String(b.id), 'applied', who, 'Application link sent');
-      const sent = await email(a.email, `Your application — ${t.name || 'our academy'}`, `Hi ${String(a.name).split(' ')[0]},\n\nHere’s your private application page. You can upload your documents, read and sign your enrolment agreement, and make your down payment there:\n\n${link}\n\nKeep this link private. Any questions, just reply.\n\n— ${t.name || 'The academy'}`);
+      const sent = await email(a.email, `Your application — ${t.name || 'our academy'}`, `Hi ${String(a.name).split(' ')[0]},\n\nHere’s your private application page. You can upload your documents, read and sign your enrolment agreement, and make your down payment there:\n\n${link}\n\nKeep this link private. Any questions, just reply.\n\n— ${t.name || 'The academy'}`, tenantId);
       return NextResponse.json({ ok: true, link, emailed: sent });
     }
 
