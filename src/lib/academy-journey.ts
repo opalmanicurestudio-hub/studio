@@ -31,8 +31,12 @@ export interface SapPolicy { checkpoints: number[]; minAttendancePct: number; mi
 export const DEFAULT_SAP: SapPolicy = { checkpoints: [150, 300, 450], minAttendancePct: 67, minQuizAvg: 70, minPracticalAvg: 3 };
 const DAY = 86400000;
 
-export async function sendEmail(to: string, subject: string, text: string) {
+/** Academy email. With the school's id it's sent in the school's own design
+ * (logo, colour, buttons — see academy-email.ts); official letters add the
+ * seal and signature. Without it, plain text (kept for any older caller). */
+export async function sendEmail(to: string, subject: string, text: string, tenantId?: string, opts?: { official?: boolean }) {
   if (!process.env.RESEND_API_KEY || !to) return false;
+  if (tenantId) { const { sendAcademyEmail } = await import('@/lib/academy-email'); return sendAcademyEmail(tenantId, to, subject, text, opts); }
   try { const r = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: resolveFromAddress(), to, subject, text }) }); return r.ok; } catch { return false; }
 }
 
@@ -138,7 +142,7 @@ export async function sweepJourney() {
       try {
         const { getAdminAuth } = await import('@/lib/firebase-admin');
         const owner = (await getAdminAuth().getUser(tv.userId)).email || '';
-        await sendEmail(owner, `Students who need attention — ${tv.name || 'your academy'}`, `Good morning,\n\nThese students need a check-in this week:\n\n${high.join('\n')}\n\nSee everyone in Academy → Students.\n\n— ClarityFlow`);
+        await sendEmail(owner, `Students who need attention — ${tv.name || 'your academy'}`, `Good morning,\n\nThese students need a check-in this week:\n\n${high.join('\n')}\n\nSee everyone in Academy → Students.\n\n— ClarityFlow`, t.id);
       } catch { /* no owner email */ }
     }
   }
