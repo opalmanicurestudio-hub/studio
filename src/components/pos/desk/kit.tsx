@@ -113,6 +113,7 @@ export function Drawer({ open, onClose, title, children, wide, accent }: { open:
   return createPortal(
     <AnimatePresence>{open && (
       <div className="desk fixed inset-0 z-[80]" style={{ background: 'transparent', ...(accent ? { ['--accent' as any]: accent } : {}) }}>
+        <style>{DESK_CSS}</style>
         <motion.div className="absolute inset-0 bg-black/30" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} aria-hidden />
         <motion.aside role="dialog" aria-label={title} initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', stiffness: 380, damping: 40 }}
           className={`absolute inset-y-0 right-0 flex w-full flex-col ${wide ? 'sm:max-w-3xl' : 'sm:max-w-xl'} sm:rounded-l-[28px]`} style={{ background: 'var(--paper)', boxShadow: '-24px 0 48px -24px rgba(0,0,0,.35)', paddingTop: 'env(safe-area-inset-top,0px)' }}>
