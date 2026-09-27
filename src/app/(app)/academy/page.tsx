@@ -16,6 +16,7 @@ import { SchoolDocs } from '@/components/academy/SchoolDocs';
 import { AssignPanel } from '@/components/academy/AssignPanel';
 import { CourseBoard } from '@/components/academy/CourseBoard';
 import { AddToLesson, LessonPreview, TemplatePicker, LESSON_KINDS, FileToLesson, printStudyGuide, LayoutPicker, layoutOf } from '@/components/academy/LessonCanvas';
+import { CourseShare } from '@/components/academy/CourseShare';
 import { SchoolIdentity } from '@/components/academy/SchoolIdentity';
 import { SchoolWebsite } from '@/components/academy/SchoolWebsite';
 import { SchoolFunding } from '@/components/academy/SchoolFunding';
@@ -168,6 +169,7 @@ export default function AcademyBuilderPage() {
     return out;
   }, [d]);
   const publicUrl = d?.course ? `/learn/${tenantId}/${d.course.slug}` : '';
+  const [sharing, setSharing] = useState(false);
 
   const NAV: { group: string; items: { key: Section; label: string; hint: string; icon: any; school?: boolean; badge?: number }[] }[] = [
     { group: '', items: [{ key: 'home', label: 'Home', hint: 'What needs you today', icon: HomeIcon }] },
@@ -328,6 +330,8 @@ export default function AcademyBuilderPage() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap gap-1">{(['details', 'curriculum', 'grading', 'students'] as const).map((k) => <button key={k} type="button" onClick={() => { setTab(k); if (k === 'students' && !students) api({ action: 'students', tenantId, courseId: sel }).then((r) => r.ok && setStudents(r.students)); }} className={`h-9 rounded-full px-4 text-sm font-bold capitalize ${tab === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{k}</button>)}</div>
                 <div className="flex items-center gap-2">
+                  {d.course.status === 'published' && <button type="button" onClick={() => setSharing(true)} className="inline-flex h-9 items-center gap-1 rounded-full bg-foreground px-3 text-[13px] font-bold text-background">Share</button>}
+                  {sharing && d.course.status === 'published' && <CourseShare url={`${typeof window !== 'undefined' ? window.location.origin : ''}${publicUrl}`} title={d.course.title} price={d.course.priceCents ? `$${(d.course.priceCents / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}` : 'free'} school={docBrand.name} onClose={() => setSharing(false)} />}
                   {d.course.status === 'published' && <a href={publicUrl} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1 rounded-full border-2 px-3 text-[13px] font-bold">View page <ExternalLink className="h-3.5 w-3.5" /></a>}
                   <button type="button" disabled={!!busy} onClick={() => saveCourse({ status: d.course.status === 'published' ? 'draft' : 'published' })} className={`h-9 rounded-full px-4 text-[13px] font-bold ${d.course.status === 'published' ? 'border-2' : 'bg-emerald-600 text-white'}`}>{d.course.status === 'published' ? 'Unpublish' : 'Publish'}</button>
                 </div>
