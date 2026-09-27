@@ -26,6 +26,8 @@ import { studentIdFor } from '@/lib/academy';
 import { getSettings, usd } from '@/lib/school-site';
 import { getIdentity } from '@/lib/school-identity';
 import { brandedEmailHtml } from '@/lib/email-template';
+import { sendAcademyEmail } from '@/lib/academy-email';
+import { thankYouLetter, yearStatement, taxLine, type DonorWho } from '@/lib/donor-letters';
 import { sendNotification } from '@/lib/notify';
 
 const stripe = () => new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2025-04-30.basil' as any });
@@ -81,16 +83,64 @@ export async function completeDonation(tenantId: string, session: any) {
   return { ok: true, gift: made };
 }
 
-export function receiptLines(g: any, w: { school: string; legal: string; nonprofit: boolean; ein: string }) {
-  const lines = [`Thank you${g.name ? `, ${String(g.name).split(' ')[0]}` : ''}! Your gift of ${usd(g.amountCents)} to ${w.school} (${g.fund}) was received on ${niceDay(g.createdAt)}.`, `Receipt number: ${g.receiptNo}`];
-  lines.push(w.nonprofit
-    ? `${w.legal} is a tax-exempt organisation (EIN ${w.ein}). No goods or services were provided in exchange for this contribution. Please keep this receipt for your records; gifts may be tax-deductible to the extent allowed by law.`
-    : `${w.school} is not a tax-exempt charity, so this gift is not tax-deductible. Thank you for supporting our students all the same.`);
-  return lines;
+export function receiptLines(g: any, w: DonorWho) {
+  // Kept for the thank-you screen and older callers: the plain receipt lines.
+  return [`Thank you${g.name ? `, ${String(g.name).split(' ')[0]}` : ''}! Your gift of ${usd(g.amountCents)} to ${w.school} (${g.fund}) was received on ${niceDay(g.createdAt)}.`, `Receipt number: ${g.receiptNo}`, taxLine(w)];
 }
+/** The thank-you letter with the receipt — branded, signed, with the seal. */
 export async function sendReceipt(tenantId: string, g: any) {
   if (!g.email) return false; const w = await who(tenantId);
-  return mail(tenantId, g.email, `Your gift receipt — ${w.school}`, w.school, 'Thank you for your gift', receiptLines(g, w), 'donation_receipt', `${w.legal}. Keep this email as your receipt.`);
+  return sendAcademyEmail(tenantId, g.email, `Thank you for your gift — ${w.school}`, thankYouLetter(g, w, w.settings.donors.thankYou), { official: true });
+}
+/** A donor's gifts for one year (matched by email). */
+export async function giftsFor(tenantId: string, email: string, year: number) {
+  const q = await getAdminDb().collection(`tenants/${tenantId}/donations`).where('email', '==', String(email || '').toLowerCase()).limit(500).get();
+  return q.docs.map((d: any) => d.data() as any).filter((g: any) => g.status === 'paid' && String(g.createdAt).startsWith(String(year)));
+}
+export async function sendStatement(tenantId: string, email: string, year: number) {
+  const gifts = await giftsFor(tenantId, email, year); if (!gifts.length) throw new Error('No gifts from that donor that year.');
+  const w = await who(tenantId);
+  return sendAcademyEmail(tenantId, email, `Your ${year} giving statement — ${w.school}`, yearStatement(gifts, w, year), { official: true });
+}
+export async function letterWho(tenantId: string) { const w = await who(tenantId); return { school: w.school, legal: w.legal, nonprofit: w.nonprofit, ein: w.ein, thankYou: w.settings.donors.thankYou || '' }; }
+
+// ── Sponsor logos ────────────────────────────────────────────────────────
+//   sponsors/{id}  { name, url, logo (data URL), status pending|approved|hidden,
+//                    source gift|manual, email, totalCents, giftIds }
+// A business donor can add a logo after giving; it shows only once approved.
+const LOGO_OK = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
+const cleanUrl = (u: any) => { const v = String(u || '').trim().slice(0, 300); if (!v) return ''; const w = /^https?:\/\//.test(v) ? v : `https://${v}`; try { const x = new URL(w); return /^https?:$/.test(x.protocol) && x.hostname.includes('.') ? x.toString() : ''; } catch { return ''; } };
+export async function sponsorFromGift(tenantId: string, sessionId: string, logo: string, url: string) {
+  const db = getAdminDb(); const g = ((await db.doc(`tenants/${tenantId}/donations/${sessionId}`).get()).data() as any) || null;
+  if (!g || g.status !== 'paid') throw new Error('We couldn’t find that gift.');
+  if (!g.business || g.anonymous || !g.showName) throw new Error('Logos are for business gifts that asked to be thanked by name.');
+  if (!LOGO_OK.test(logo) || logo.length > 400_000) throw new Error('Please use a PNG, JPG or WebP logo under 300 KB.');
+  const q = await db.collection(`tenants/${tenantId}/sponsors`).where('email', '==', g.email || '').limit(5).get();
+  const ref = q.docs[0]?.ref || db.collection(`tenants/${tenantId}/sponsors`).doc(); const cur = q.docs[0] ? (q.docs[0].data() as any) : null;
+  const giftIds = [...new Set([...(cur?.giftIds || []), g.id])];
+  const all = await Promise.all(giftIds.map(async (id) => ((await db.doc(`tenants/${tenantId}/donations/${id}`).get()).data() as any)?.amountCents || 0));
+  await ref.set({ id: ref.id, name: g.business, url: cleanUrl(url), logo, email: g.email || null, source: 'gift', giftIds, totalCents: all.reduce((n: number, c: number) => n + c, 0), status: cur?.status === 'approved' ? 'pending' : 'pending', updatedAt: new Date().toISOString(), createdAt: cur?.createdAt || new Date().toISOString() }, { merge: true });
+  await appendAudit(tenantId, { type: 'funding.sponsor_logo', by: g.email || 'donor', summary: `${g.business} added a logo for the sponsor wall (waiting for approval)` });
+  return ref.id;
+}
+export async function saveSponsor(tenantId: string, v: any, by: string) {
+  const db = getAdminDb(); const ref = v.id ? db.doc(`tenants/${tenantId}/sponsors/${String(v.id)}`) : db.collection(`tenants/${tenantId}/sponsors`).doc();
+  const cur = ((await ref.get()).data() as any) || {};
+  const name = String(v.name ?? cur.name ?? '').trim().slice(0, 100); if (!name) throw new Error('Add the sponsor’s name.');
+  const logo = v.logo === undefined ? cur.logo : v.logo;
+  if (logo && (!LOGO_OK.test(logo) || logo.length > 400_000)) throw new Error('Please use a PNG, JPG or WebP logo under 300 KB.');
+  const status = ['pending', 'approved', 'hidden'].includes(v.status) ? v.status : (cur.status || 'approved');
+  await ref.set({ id: ref.id, name, url: v.url === undefined ? (cur.url || '') : cleanUrl(v.url), logo: logo || null, status, source: cur.source || 'manual', email: cur.email || null,
+    totalCents: v.totalCents !== undefined ? Math.max(0, Math.round(Number(v.totalCents) || 0)) : (cur.totalCents || 0), tier: String(v.tier ?? cur.tier ?? '').slice(0, 40) || null, updatedAt: new Date().toISOString(), createdAt: cur.createdAt || new Date().toISOString() }, { merge: true });
+  if (cur.status !== status || !cur.name) await appendAudit(tenantId, { type: 'funding.sponsor', by, summary: `Sponsor “${name}” ${status === 'approved' ? 'shown on the website' : status === 'hidden' ? 'hidden' : 'saved'}` });
+  return ref.id;
+}
+/** The approved sponsor wall, biggest supporters first, with tiers. */
+export async function sponsorWall(tenantId: string, tiers: { name: string; minCents: number }[]) {
+  const q = await getAdminDb().collection(`tenants/${tenantId}/sponsors`).where('status', '==', 'approved').limit(200).get().catch(() => ({ docs: [] as any[] }));
+  const tierOf = (s: any) => s.tier || tiers.find((t) => (s.totalCents || 0) >= t.minCents)?.name || tiers[tiers.length - 1]?.name || '';
+  return q.docs.map((d: any) => d.data() as any).sort((a: any, b: any) => (b.totalCents || 0) - (a.totalCents || 0))
+    .map((s: any) => ({ id: s.id, name: s.name, url: s.url || null, hasLogo: !!s.logo, tier: tierOf(s), rank: Math.max(0, tiers.findIndex((t) => t.name === tierOf(s))) }));
 }
 
 // ── Scholarships ─────────────────────────────────────────────────────────
