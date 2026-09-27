@@ -144,6 +144,11 @@ function offsetMinutesForZone(timeZone: string, at: Date): number | null {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+  const signedFormsIn: any[] = (() => {
+    const list = Array.isArray((body as any)?.signedForms) ? (body as any).signedForms.slice(0, 10) : [];
+    const clean = list.filter((f: any) => f && typeof f === 'object' && f.formId).map((f: any) => ({ formId: String(f.formId).slice(0, 80), formTitle: String(f.formTitle || '').slice(0, 200), formData: f.formData && typeof f.formData === 'object' ? f.formData : {}, signedAt: new Date().toISOString() }));
+    return JSON.stringify(clean).length <= 300_000 ? clean : [];
+  })();
     const { tenantId, serviceId, startTime } = body || {};
     const source = String(body.source || 'api').slice(0, 40);
     if (!tenantId || !serviceId || !startTime) {
@@ -642,6 +647,10 @@ export async function POST(req: NextRequest) {
         } : {}),
         notes: body.notes ? String(body.notes).slice(0, 500) : null,
         inspirationPhotoUrl: body.inspirationPhotoUrl ? String(body.inspirationPhotoUrl).slice(0, 500) : null,
+        // Signed forms travel WITH the booking and are saved here, on the server.
+        // (They used to be attached afterwards from the client's browser, which
+        // the database rules refuse for clients — so they were silently lost.)
+        ...(signedFormsIn.length ? { signedForms: signedFormsIn } : {}),
         createdAt: nowIso,
         reminderSent: false,
         autoCancelledNoShow: false,
