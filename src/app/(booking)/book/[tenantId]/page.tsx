@@ -108,6 +108,9 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   // ?design=studio / ?design=classic to preview either before switching.
   const [designParam, setDesignParam] = useState('');
   const [studioStaffId, setStudioStaffId] = useState<string | undefined>(undefined);
+  // The appointment we're holding for a deposit — a retry pays for THIS one
+  // instead of booking the same time again.
+  const heldPay = useRef<{ key: string; appointmentId: string } | null>(null);
   useEffect(() => { try { setDesignParam(new URLSearchParams(window.location.search).get('design') || ''); } catch { /* no preview */ } }, []);
   useEffect(() => {
     if (!reschedule || rescheduleOpened || services.length === 0) return;
@@ -494,6 +497,15 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       if (!restDetails?.serviceId || !restDetails?.startTime) {
         return { requiresPayment: true, error: 'Please pick a service and a time first.' };
       }
+      const holdKey = `${restDetails.serviceId}|${restDetails.startTime}|${String(formData.clientEmail || '').toLowerCase()}`;
+      const payFor = async (appointmentId: string): Promise<ConfirmResult> => {
+        const dres = await fetch('/api/stripe/deposit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, appointmentId }) }).catch(() => null);
+        const d: any = dres ? await dres.json().catch(() => null) : null;
+        if (d?.clientSecret) return { requiresPayment: true, clientSecret: d.clientSecret, stripeAccountId: d.stripeAccountId };
+        return { requiresPayment: true, error: d?.error || 'Your time is held, but the payment step didn’t open. Please try again — or use the pay link in your email.' };
+      };
+      // Retrying the same booking while its deposit is pending → pay for the held one.
+      if (heldPay.current?.key === holdKey) return payFor(heldPay.current.appointmentId);
       let bookRes: Response;
       try {
         bookRes = await fetch('/api/appointments/book', {
@@ -529,18 +541,15 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
 
       // A deposit is due now → pay against THIS appointment.
       if (out.status === 'pending_payment' && Number(out.depositCents) > 0 && out.appointmentId) {
-        const dres = await fetch('/api/stripe/deposit', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tenantId, appointmentId: out.appointmentId }),
-        }).catch(() => null);
-        const d: any = dres ? await dres.json().catch(() => null) : null;
+        heldPay.current = { key: holdKey, appointmentId: out.appointmentId };
+        const d: any = await payFor(out.appointmentId);
         if (d?.clientSecret) {
           // KNOWN GAP (fix in 5c, reschedule integrity): a reschedule that needs a
           // deposit does not yet release the OLD visit after payment (the old
           // deposit path didn't either). The old visit stays until cancelled.
-          return { requiresPayment: true, clientSecret: d.clientSecret, stripeAccountId: d.stripeAccountId };
+          return d;
         }
-        return { requiresPayment: true, error: d?.error || 'Your time is held, but the payment step didn’t open. Please try again — or use the pay link in your email.' };
+        return d;
       }
 
                 if (out.requiresCardOnFile && out.clientId) {
