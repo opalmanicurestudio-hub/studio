@@ -12,6 +12,7 @@
 //                                             donate / sponsor / general → the website inbox
 // Every visitor gets an instant confirmation; the school gets an alert.
 
+import { logAuditAdmin } from '@/lib/audit';
 import { sponsorFromGift } from '@/lib/academy-funding';
 import { donationSession, completeDonation, scholarshipApply } from '@/lib/academy-funding';
 import Stripe from 'stripe';
@@ -121,6 +122,8 @@ export async function POST(req: NextRequest) {
       const adm = await upsertAdmission(tenantId, { name, email, phone, programId, language, stage: 'tour', source: 'website — tour', note: `Tour ${status === 'confirmed' ? 'booked' : 'requested'} for ${niceDate(date, time)}${b.message ? ` — “${clean(b.message, 300)}”` : ''}`, extra: { tour: { tourId: tourRef.id, date, time, status } } });
       await tourRef.set({ id: tourRef.id, date, time, durationMins: r.tourDurationMins || 30, name, phone, email, message: clean(b.message, 500), status, createdAt: now, tenantId, manageToken,
         purpose: 'school', programId: programId || null, admissionId: adm.id, tourStartIso: `${date}T${time}:00` });
+      await logAuditAdmin(db, tenantId, { action: 'tour.book', targetType: 'tour', targetId: tourRef.id, summary: `School tour ${status === 'confirmed' ? 'booked' : 'requested'} for ${date} at ${time} — ${name}`,
+        actor: { type: 'user', name, role: 'visitor', via: 'school website' } }).catch(() => {});
       const nRef = db.collection(`${T}/notifications`).doc();
       await nRef.set({ id: nRef.id, type: 'school_tour', read: false, createdAt: now, link: '/academy?section=admissions', message: `🎓 School tour ${status === 'confirmed' ? 'booked' : 'requested'}: ${name} — ${date} at ${time}${status === 'requested' ? ' (needs your OK)' : ''}` });
       let emailed = false;
