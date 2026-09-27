@@ -419,6 +419,24 @@ export async function POST(req: NextRequest) {
             await logAuditAdmin(db, tenant.id, { action: 'card.saved', targetType: 'client', targetId: clientId, summary: `Card saved on file — ${pm.card?.brand || 'card'} ending ${pm.card?.last4 || '????'}`, actor: { type: 'user', role: 'client', via: 'online' } }).catch(() => {});
           }
 
+          const completionToken = session.metadata?.completionToken || null;
+          // A CANCELLATION FEE paid through the client's link: record it as a fee,
+          // settle what they owe, mark the link paid — and leave the cancelled
+          // appointment cancelled (it used to be treated as a deposit and revived).
+          if (session.metadata?.purpose === 'fee') {
+            const cents = Number(session.amount_total) || 0; const nowIso = new Date().toISOString();
+            const { FieldValue } = await import('firebase-admin/firestore');
+            if (cents > 0) {
+              const txnRef = db.collection(`tenants/${tenant.id}/transactions`).doc();
+              await txnRef.set({ id: txnRef.id, date: nowIso, description: `Cancellation fee — ${session.metadata?.serviceName || 'Appointment'}`, clientOrVendor: session.metadata?.clientName || 'Guest', clientId,
+                type: 'income', context: 'Business', category: 'Cancellation Fees', taxBucket: 'revenue', amount: cents / 100, paymentMethod: 'Online Checkout', hasReceipt: false,
+                appointmentId: appointmentId || null, checkoutSessionId: session.id, stripeChargeId: chargeId, tenantId: tenant.id });
+              await db.doc(`tenants/${tenant.id}/clients/${clientId}`).set({ outstandingBalance: FieldValue.increment(-(cents / 100)), feePaidViaLinkAt: nowIso }, { merge: true });
+            }
+            if (completionToken) await db.doc(`tenants/${tenant.id}/bookingCompletions/${completionToken}`).set({ status: 'fee_paid', feePaidAt: nowIso }, { merge: true });
+            await logAuditAdmin(db, tenant.id, { action: 'fee.paid', targetType: 'client', targetId: clientId, amount: cents / 100, summary: `Cancellation fee paid by link — ${session.metadata?.clientName || 'client'} ($${(cents / 100).toFixed(2)})`, actor: { type: 'user', name: session.metadata?.clientName || 'Client', role: 'client', via: 'check-in link' } }).catch(() => {});
+            break;
+          }
           if (sessionType === 'completion' && appointmentId && session.amount_total) {
             const depositAmountCents = session.amount_total;
 
@@ -471,6 +489,12 @@ export async function POST(req: NextRequest) {
             }
           }
 
+          // The pre-visit steps are done once the card/deposit is confirmed.
+          if (completionToken) {
+            const nowIso = new Date().toISOString();
+            await db.doc(`tenants/${tenant.id}/bookingCompletions/${completionToken}`).set({ status: 'complete', completedAt: nowIso }, { merge: true });
+            if (appointmentId) await db.doc(`tenants/${tenant.id}/appointments/${appointmentId}`).set({ completionStatus: 'completed', requirementsCompletedAt: nowIso, cardUpdatedViaLinkAt: nowIso }, { merge: true });
+          }
           console.log(`[connect-webhook] Completion processed for client ${clientId} on tenant ${tenant.id}`);
           break;
         }
