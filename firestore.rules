@@ -587,21 +587,47 @@ service cloud.firestore {
                 || (request.resource.data.prospectNote is string && request.resource.data.prospectNote.size() <= 500)));
     }
 
-    // v79 — LEGACY, compatibility window only. /api/checkins now writes
-    // the scoped tenants/{id}/appointmentCheckIns (rules above) and
-    // mirrors here so old readers keep working. TO CLOSE THIS HOLE:
-    // once the kiosk posts to /api/checkins and no page queries this
-    // top-level collection, change both lines to `if false` and remove
-    // the mirror write in the API.
+    // v79 — LEGACY check-in mirror (still used by the planner, POS, host
+    // screen and the client check-in page). It holds a copy of each
+    // appointment, so it must NOT be open to everyone.
+    //   get    by its own link — the id is a 21-character random code
+    //   list   only a business's own team, and only filtered to that business
+    //          (every staff query filters tenantId ==)
+    //   write  only the business's own team (clients' check-in updates go
+    //          through /api/checkins on the server). Older copies missing a
+    //          tenantId stay editable by signed-in, NON-anonymous users so
+    //          planner/POS batches that touch them don't fail; anonymous
+    //          visitors (every booking-page visitor) are never allowed.
+    //   delete never — cancellations are status changes.
+    // TO FINISH CLOSING: move the remaining browser writes to the server, then
+    // drop create/update here.
+    function isRealUser() {
+      return isSignedIn() && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    function teamOf(t) {
+      return t is string && t != '' && (isStaff(t) || isPortalMember(t));
+    }
     match /appointmentCheckIns/{token} {
-      allow read, write: if true;
+      allow get: if true;
+      // (refers to tenantId directly so the database can match it to the
+      //  query's tenantId == filter — every staff query has one)
+      allow list: if isSignedIn() && (isStaff(resource.data.tenantId) || isPortalMember(resource.data.tenantId));
+      allow create: if teamOf(request.resource.data.get('tenantId', ''))
+        || (isRealUser() && request.resource.data.get('tenantId', '') == '');
+      allow update: if teamOf(resource.data.get('tenantId', ''))
+        || (isRealUser() && resource.data.get('tenantId', '') == '');
+      allow delete: if false;
     }
     match /users/{userId} {
       allow read, write: if isSignedIn() && request.auth.uid == userId;
     }
+    // Who works where. Each person reads only their OWN entry (that's all
+    // the app does); entries are written by the server when someone joins.
+    // (Was: anyone could read every entry, and any signed-in visitor —
+    // including anonymous booking-page visitors — could write any entry.)
     match /staffDirectory/{userId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow get: if isSignedIn() && request.auth.uid == userId;
+      allow list, write: if false;
     }
   }
 }
