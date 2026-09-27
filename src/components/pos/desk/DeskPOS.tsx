@@ -21,7 +21,10 @@ import { CheckoutHub } from '@/components/pos/CheckoutHub';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { DeskFrame, Btn, Seg, Pill, GuestCard, Empty, Panel, Drawer, Menu } from './kit';
 import { doc } from 'firebase/firestore';
-import { updateDocumentNonBlocking } from '@/firebase';
+import { updateDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
+import { collection } from 'firebase/firestore';
+import { resourceDowntime } from '@/lib/availability';
+import type { ReactNode } from 'react';
 import { Counter } from './Counter';
 
 type Stage = 'arriving' | 'waiting' | 'service' | 'ready' | 'done';
@@ -33,7 +36,7 @@ const STAGES: [Exclude<Stage, 'done'>, string][] = [['arriving', 'Arriving'], ['
 const VIEW_KEY = 'cf.desk.view';
 const lateLabel = (m: number) => (m >= 90 ? `${Math.round(m / 60)} hr late` : `${m} min late`);
 
-export function DeskPOS({ e, onClassic }: { e: any; onClassic: () => void }) {
+export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; waitlist?: ReactNode; spaces?: ReactNode } }) {
   const tenant = e.selectedTenant;
   const accent = tenant?.bookingPageSettings?.cfPageConfig?.accentColor || null;
   const staffList: any[] = (e.staff || []).filter((s: any) => s.isActive !== false && !s.isStudent);
@@ -44,6 +47,13 @@ export function DeskPOS({ e, onClassic }: { e: any; onClassic: () => void }) {
   const pickView = (v: View) => { setView(v); try { localStorage.setItem(VIEW_KEY, v); } catch { /* ignore */ } };
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [mode, setMode] = useState<'desk' | 'counter'>('desk');
+  const [moreOpen, setMoreOpen] = useState(false); const [moreTab, setMoreTab] = useState<'team' | 'waitlist' | 'spaces'>('waitlist');
+  // Maintenance & disruptions — only for businesses with the maintenance tool.
+  const maintOn = moduleEnabled(tenant, 'maintenance');
+  const ticketsQ = useMemoFirebase(() => (maintOn && e.firestore && e.tenantId ? collection(e.firestore, 'tenants', e.tenantId, 'tickets') : null), [maintOn, e.firestore, e.tenantId]);
+  const plansQ = useMemoFirebase(() => (maintOn && e.firestore && e.tenantId ? collection(e.firestore, 'tenants', e.tenantId, 'maintenancePlans') : null), [maintOn, e.firestore, e.tenantId]);
+  const interQ = useMemoFirebase(() => (e.firestore && e.tenantId ? collection(e.firestore, 'tenants', e.tenantId, 'interruptions') : null), [e.firestore, e.tenantId]);
+  const { data: tickets } = useCollection<any>(ticketsQ); const { data: plans } = useCollection<any>(plansQ); const { data: interruptions } = useCollection<any>(interQ);
   const [todayOpen, setTodayOpen] = useState(true);
   useEffect(() => { try { if (localStorage.getItem('cf.desk.today') === 'closed') setTodayOpen(false); } catch { /* ignore */ } }, []);
   const toggleToday = () => { const v = !todayOpen; setTodayOpen(v); try { localStorage.setItem('cf.desk.today', v ? 'open' : 'closed'); } catch { /* ignore */ } };
@@ -94,6 +104,43 @@ export function DeskPOS({ e, onClassic }: { e: any; onClassic: () => void }) {
 
   const active = guests.filter((g) => g.stage !== 'done');
   const requests = (e.appointmentsFromInventory || []).filter((a: any) => a.status === 'requested').length;
+  // ── At-a-glance facts ────────────────────────────────────────────────
+  const staffOf = (id: string | null) => (id ? (e.staff || []).find((s: any) => s.id === id) : null);
+  const minsOf = (g: Guest) => { const a = g.appt || {}; const svc = (e.services || []).find((x: any) => x.id === a.serviceId); const add = (a.addOnIds || []).map((id: string) => (e.services || []).find((x: any) => x.id === id)?.duration || 0).reduce((x: number, y: number) => x + y, 0);
+    const end = toDate(a.endTime), st = toDate(a.startTime); return Number(svc?.duration || 0) + add || (end && st ? Math.round((end.getTime() - st.getTime()) / 60000) : 60); };
+  const startedAt = (g: Guest) => toDate(g.appt?.actualStartTime || g.appt?.serviceStartTime || g.walkIn?.serviceStartTime);
+  const arrivedAt = (g: Guest) => toDate(g.appt?.checkInStatusTimestamp || g.walkIn?.checkInTime || g.walkIn?.createdAt);
+  const endsAt = (g: Guest) => { const s0 = startedAt(g); return s0 ? new Date(s0.getTime() + minsOf(g) * 60000) : null; };
+  /** When each provider is next free: now, or when their current guest finishes. */
+  const freeAt = (sid: string): Date | null => { const cur = active.filter((g) => g.staffId === sid && g.stage === 'service').map(endsAt).filter(Boolean) as Date[]; return cur.length ? new Date(Math.max(...cur.map((d) => d.getTime()))) : null; };
+  const estWait = () => { const t = staffList.map((s) => freeAt(s.id)); if (t.some((x) => !x)) return 0; const soonest = Math.min(...(t as Date[]).map((d) => d.getTime())); return Math.max(0, Math.round((soonest - now.getTime()) / 60000)); };
+  const flagsFor = (g: Guest) => {
+    const a = g.appt || {}; const c = (e.clients || []).find((x: any) => x.id === (a.clientId || g.walkIn?.clientId));
+    const visits = c ? (e.appointmentsFromInventory || []).filter((x: any) => x.clientId === c.id && x.status === 'completed').length : 0;
+    const bd = c?.birthday ? String(c.birthday).slice(5, 10) : null; const soon = bd ? [0, 1, 2, 3, 4, 5, 6].some((i) => { const d = new Date(now.getTime() + i * 864e5); return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` === bd; }) : false;
+    const out: [string, 'soft' | 'warn' | 'ok' | 'accent'][] = [];
+    if (!c || visits === 0) out.push(['New client', 'accent']);
+    if (a.completionStatus && a.completionStatus !== 'completed') out.push(['Forms not done', 'warn']);
+    if ((c?.unpaidFees || []).length) out.push(['Owes', 'warn']);
+    if (c?.activeMembershipId) out.push(['Member', 'ok']);
+    if (a.sensoryNeeds || a.notes || c?.alertNote) out.push(['Note', 'soft']);
+    if ((a.inspirationPhotos || []).length || a.inspirationPhotoUrl) out.push(['Photos', 'soft']);
+    if (soon) out.push(['Birthday this week', 'accent']);
+    return out;
+  };
+  const timerFor = (g: Guest): { text: string; tone?: 'warn' } | null => {
+    if (g.stage === 'arriving' && g.at) { const m = Math.round((g.at.getTime() - now.getTime()) / 60000); return m > 0 ? { text: m < 90 ? `in ${m} min` : `at ${format(g.at, 'h:mm a')}` } : g.lateMin ? { text: lateLabel(g.lateMin), tone: 'warn' } : { text: 'due now' }; }
+    if (g.stage === 'waiting') { const a0 = arrivedAt(g); const w = a0 ? Math.max(0, Math.round((now.getTime() - a0.getTime()) / 60000)) : null; if (g.kind === 'walkin' && !g.staffId) { const est = estWait(); return { text: `${w !== null ? `waiting ${w} min · ` : ''}${est ? `about ${est} min to go` : 'someone’s free'}`, tone: w !== null && w > 15 ? 'warn' : undefined }; } return w !== null ? { text: `waiting ${w} min`, tone: w > 15 ? 'warn' : undefined } : null; }
+    if (g.stage === 'service') { const s0 = startedAt(g); const tot = minsOf(g); if (!s0) return { text: `${tot} min service` }; const done = Math.round((now.getTime() - s0.getTime()) / 60000); const e0 = endsAt(g)!; return { text: `${Math.min(done, tot)} of ${tot} min · done ~${format(e0, 'h:mm')}`, tone: done > tot + 5 ? 'warn' : undefined }; }
+    if (g.stage === 'ready') { const r = toDate(g.appt?.actualEndTime); return r ? { text: `ready ${Math.max(0, Math.round((now.getTime() - r.getTime()) / 60000))} min` } : { text: 'ready to pay' }; }
+    return null;
+  };
+  // Stations/rooms out of service today (same rule the booking engine uses) + business disruptions.
+  const todayStr = format(now, 'yyyy-MM-dd');
+  const down = maintOn ? resourceDowntime(todayStr, tickets || [], plans || []) : {};
+  const outages = Object.entries(down).map(([rid, why]) => { const r = (e.resources || []).find((x: any) => x.id === rid); const affected = active.filter((g) => (g.appt?.requiredResourceIds || []).includes(rid) || g.appt?.resourceId === rid).length; return { rid, name: r?.name || 'A station', why: String(why).replace(/\s+/g, ' '), affected }; });
+  const disruptions = (interruptions || []).filter((r: any) => r.status !== 'resolved' && r.status !== 'closed' && String(r.startDate || '').slice(0, 10) <= todayStr && (!r.endDate || String(r.endDate).slice(0, 10) >= todayStr));
+  const moreTabs = ([['waitlist', 'Waitlist', tools?.waitlist], ['team', 'Team', !solo && moduleEnabled(tenant, 'team') ? tools?.team : null], ['spaces', 'Spaces', moduleEnabled(tenant, 'booth_rental') ? tools?.spaces : null]] as [string, string, ReactNode][]).filter(([, , n]) => !!n);
   const doneCount = guests.length - active.length;
   const takings = useMemo(() => (e.transactions || []).filter((t: any) => t.type === 'income' && !t.voided && toDate(t.date) && isToday(toDate(t.date)!)).reduce((s: number, t: any) => s + (Number(t.amount) || 0), 0), [e.transactions]);
   const next = active.find((g) => g.stage === 'arriving');
@@ -146,12 +193,14 @@ export function DeskPOS({ e, onClassic }: { e: any; onClassic: () => void }) {
       { label: 'Skip for now', hint: 'Leaves the queue; they can be returned later', onSelect: () => setWalkIn(g, { status: 'skipped' }) },
       { label: 'Remove from the queue…', tone: 'danger' as const, onSelect: () => e.handleCancelAction(g.walkIn.id, true) },
     ]; };
-  const card = (g: Guest, compact = false, hideTime = false) => (
+  const Face = ({ sid, size = 22 }: { sid: string | null; size?: number }) => { const s0 = staffOf(sid); if (!s0) return <span className="inline-flex shrink-0 items-center justify-center rounded-full text-[10px]" style={{ width: size, height: size, background: 'var(--soft)', color: 'var(--muted)' }}>?</span>;
+    return s0.avatarUrl || s0.photoUrl ? <img src={s0.avatarUrl || s0.photoUrl} alt="" className="shrink-0 rounded-full object-cover" style={{ width: size, height: size }} /> : <span className="inline-flex shrink-0 items-center justify-center rounded-full text-[10px] font-semibold" style={{ width: size, height: size, background: 'var(--soft)' }}>{String(s0.name || '?').charAt(0)}</span>; };
+  const card = (g: Guest, compact = false, hideTime = false) => { const tm = timerFor(g); const fl = flagsFor(g); return (
     <GuestCard key={g.key} id={g.key} compact={compact} name={g.name} onOpen={() => open(g)}
-      line={`${g.service}${g.staffName ? ` · ${String(g.staffName).split(' ')[0]}` : g.kind === 'walkin' ? ' · anyone' : ''}`}
-      meta={<>{!hideTime && g.at ? format(g.at, 'h:mm a') : ''}{g.lateMin > 0 && <span style={{ color: 'var(--warn)', fontWeight: 600 }}>{!hideTime ? ' · ' : ''}{lateLabel(g.lateMin)}</span>}</>}
+      line={<span className="inline-flex max-w-full items-center gap-1.5"><Face sid={g.staffId} size={18} /><span className="truncate">{g.service}{g.staffName ? ` · ${String(g.staffName).split(' ')[0]}` : g.kind === 'walkin' ? ' · anyone' : ''}</span></span>}
+      meta={<span className="flex flex-col gap-1"><span>{!hideTime && g.at ? `${format(g.at, 'h:mm a')} · ` : ''}{tm && <span style={tm.tone === 'warn' ? { color: 'var(--warn)', fontWeight: 600 } : undefined}>{tm.text}</span>}</span>{fl.length > 0 && <span className="flex flex-wrap gap-1">{fl.map(([l, t]) => <Pill key={l} tone={t}>{l}</Pill>)}</span>}</span>}
       badge={<div className="flex items-center gap-1.5">{g.kind === 'walkin' && <Pill>Walk-in</Pill>}{g.awaitingDeposit && <Pill tone="warn">Awaiting deposit</Pill>}<Menu items={menuFor(g)} label={`More for ${g.name}`} /></div>} action={actionFor(g)} />
-  );
+  ); };
 
   // ── Views ──────────────────────────────────────────────────────────────
   const timeline = (
@@ -209,7 +258,7 @@ export function DeskPOS({ e, onClassic }: { e: any; onClassic: () => void }) {
           <Btn quiet onClick={() => e.setIsQuickBookOpen(true)}>Book</Btn>
           {mode === 'desk' && readyIds.length > 0 && <Btn onClick={() => setCheckoutOpen(true)}>Checkout · {readyIds.length}</Btn>}
           <Btn quiet onClick={() => e.setIsTillManagementOpen(true)}>Till</Btn>
-          <button type="button" onClick={onClassic} className="text-[12px] underline underline-offset-2" style={{ color: 'var(--muted)' }}>Classic POS</button>
+          {moreTabs.length > 0 && <Btn quiet onClick={() => setMoreOpen(true)}>More</Btn>}
         </div>
       </div>
       <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-10 md:px-8">
@@ -223,6 +272,15 @@ export function DeskPOS({ e, onClassic }: { e: any; onClassic: () => void }) {
             ['Walk-ins served', today.walkinsServed === null ? '—' : `${today.walkinsServed}%`],
           ] as [string, string][]).map(([l, v]) => <div key={l} className="rounded-2xl px-4 py-3" style={{ background: 'var(--card)' }}><p className="text-[12px]" style={{ color: 'var(--muted)' }}>{l}</p><p className="text-[20px] font-light tracking-tight">{v}</p></div>)}</div>}
         </section>}
+        {mode === 'desk' && (outages.length > 0 || disruptions.length > 0) && <section aria-label="Disruptions" className="mb-4 space-y-2 rounded-3xl p-4" style={{ background: 'color-mix(in srgb, var(--warn) 9%, var(--card))' }}>
+          <p className="text-[14px] font-semibold" style={{ color: 'var(--warn)' }}>Heads up today</p>
+          {disruptions.map((d: any) => <p key={d.id} className="text-[14px]"><b>{String(d.type || 'Disruption').replace(/_/g, ' ')}</b>{d.title || d.reason ? ` — ${d.title || d.reason}` : ''}{d.endDate ? ` · until ${String(d.endDate).slice(0, 10)}` : ''}</p>)}
+          {outages.map((o) => <p key={o.rid} className="text-[14px]"><b>{o.name}</b> — {o.why}{o.affected ? <> · <span style={{ color: 'var(--warn)', fontWeight: 600 }}>{o.affected} booking{o.affected === 1 ? '' : 's'} today use it</span></> : ' · nothing booked on it today'}</p>)}
+          {maintOn && <a href="/maintenance" className="inline-block text-[13px] underline underline-offset-2">Open maintenance</a>}
+        </section>}
+        {mode === 'desk' && !solo && <section aria-label="Team now" className="-mx-1 mb-4 flex gap-2 overflow-x-auto px-1 pb-1">{staffList.map((s) => { const busy = active.filter((g) => g.staffId === s.id && g.stage === 'service'); const f = freeAt(s.id); const nx = active.filter((g) => g.staffId === s.id && (g.stage === 'arriving' || g.stage === 'waiting'))[0];
+          return <div key={s.id} className="flex shrink-0 items-center gap-2.5 rounded-2xl py-2 pl-2 pr-4" style={{ background: 'var(--card)' }}><Face sid={s.id} size={34} /><div className="text-[12px] leading-tight"><p className="text-[13px] font-semibold">{String(s.name).split(' ')[0]}</p>
+            <p style={{ color: busy.length ? 'var(--ink)' : 'var(--ok)' }}>{busy.length ? `${busy.length > 1 ? `${busy.length} guests at once · ` : ''}free ~${f ? format(f, 'h:mm') : '—'}` : 'Free now'}</p>{nx?.at && <p style={{ color: 'var(--muted)' }}>next {format(nx.at, 'h:mm')}</p>}</div></div>; })}</section>}
         {mode === 'counter' ? <Counter e={e} /> : <LayoutGroup>
           {shown === 'timeline' && timeline}
           {shown === 'lanes' && lanes}
@@ -231,6 +289,10 @@ export function DeskPOS({ e, onClassic }: { e: any; onClassic: () => void }) {
         </LayoutGroup>}
         {mode === 'desk' && <p className="mt-6 text-center text-[12px]" style={{ color: 'var(--muted)' }}>★ recommended for {solo ? 'a solo business' : 'your team'} · this device remembers your view</p>}
       </main>
+      <Drawer wide open={moreOpen} onClose={() => setMoreOpen(false)} title="More">
+        {moreTabs.length > 1 && <div className="mb-4"><Seg label="More" value={(moreTabs.some(([k]) => k === moreTab) ? moreTab : moreTabs[0][0]) as any} onChange={(v) => setMoreTab(v as any)} options={moreTabs.map(([k, l]) => [k, l]) as any} /></div>}
+        {(moreTabs.find(([k]) => k === moreTab) || moreTabs[0])?.[2]}
+      </Drawer>
       <Drawer open={checkoutOpen} onClose={() => setCheckoutOpen(false)} title="Checkout"><CheckoutHub {...e.checkoutHubProps} /></Drawer>
 
     </DeskFrame>
