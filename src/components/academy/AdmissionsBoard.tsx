@@ -88,6 +88,7 @@ export function AdmissionsBoard({ tenantId, brand }: { tenantId: string; brand?:
                       {a.signed && <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-emerald-800">signed</span>}
                       {k === 'waitlist' && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-amber-800">#{items.indexOf(a) + 1}</span>}
                       {a.offerExpiresAt && <span className={`rounded-full px-1.5 py-0.5 ${Date.parse(a.offerExpiresAt) - Date.now() < 2 * 86400000 ? 'bg-red-100 text-red-800' : 'bg-violet-100 text-violet-800'}`}>answer by {new Date(a.offerExpiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
+                      {a.tourAt && <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-emerald-800">tour {new Date(a.tourAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
                       {a.interviewAt && <span className="rounded-full bg-sky-100 px-1.5 py-0.5 text-sky-800">interview {new Date(a.interviewAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
                       {a.source && <span className="rounded-full bg-muted px-1.5 py-0.5">{a.source}</span>}
                     </p>
