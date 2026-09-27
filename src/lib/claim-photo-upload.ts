@@ -48,12 +48,17 @@ export async function uploadClaimPhotoFromDataUrl(
       const tSnap = await getAdminDb().doc(`tenants/${tenantId}`).get();
       tenantBucket = String((tSnap.data() as any)?.storageBucket || '') || null;
     } catch { /* keep hunting */ }
-    let projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    // The server's Firebase app is the NAMED one (getAdminApp → 'admin'). Asking
+    // for storage without it used the default app, which doesn't exist on the
+    // server — so every photo upload failed. Use the real app.
+    const { getAdminApp } = await import('./firebase-admin');
+    const adminApp = getAdminApp();
+    let projectId = process.env.FIREBASE_ADMIN_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
       || process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || '';
     let appBucket: string | null = null;
     try {
       const { getApps } = await import('firebase-admin/app');
-      const opts: any = getApps()[0]?.options || {};
+      const opts: any = adminApp.options || getApps()[0]?.options || {};
       appBucket = opts.storageBucket || null;
       if (!projectId) projectId = opts.projectId || opts.credential?.projectId || '';
     } catch { /* keep hunting */ }
@@ -72,7 +77,7 @@ export async function uploadClaimPhotoFromDataUrl(
       if (name !== null && tried.has(name)) continue;
       if (name !== null) tried.add(name);
       try {
-        const bucket = name === null ? getStorage().bucket() : getStorage().bucket(name);
+        const bucket = name === null ? getStorage(adminApp).bucket() : getStorage(adminApp).bucket(name);
         await bucket.file(path).save(buf, {
           contentType: mime,
           metadata: { metadata: { firebaseStorageDownloadTokens: token } },
