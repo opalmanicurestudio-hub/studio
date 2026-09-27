@@ -710,6 +710,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
         <BookingSheet
           tenantId={tenantId}
           initialStaffId={studioDesign ? studioStaffId : undefined}
+          simple={studioDesign}
           lockedStaffId={providerId && staff.some((m: any) => m.id === providerId && m.isRenter) ? providerId : undefined}
           prefillClient={reschedule ? { clientName: reschedule.clientName, clientEmail: reschedule.clientEmail, clientPhone: reschedule.clientPhone } : null}
           open
