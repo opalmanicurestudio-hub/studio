@@ -19,6 +19,8 @@ import { type Tenant, type ScheduleProfile, type DayHours, type Service, type Pr
 import { DEFAULT_DEPOSIT_POLICY } from '@/lib/deposit-policy';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
+import { SettingsHome } from '@/components/settings/SettingsHome';
+import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn, safeNumber, hexToHSLComponents } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
@@ -426,16 +428,16 @@ function SettingsPageImpl() {
 
   // ── Tab definitions ────────────────────────────────────────────────────────
   const tabs = [
-    { value: 'profile',     label: 'Studio Identity',            icon: <Building className="w-4 h-4" />    },
+    { value: 'profile',     label: 'Your business',            icon: <Building className="w-4 h-4" />    },
     { value: 'locations',   label: 'Locations',                  icon: <MapPin className="w-4 h-4" />      },
-    { value: 'hours',       label: 'Operating Window',           icon: <Clock className="w-4 h-4" />       },
-    { value: 'experience',  label: 'Hospitality & Connectivity', icon: <Coffee className="w-4 h-4" />      },
-    { value: 'policies',    label: 'Operational Protocols',      icon: <ShieldCheck className="w-4 h-4" /> },
+    { value: 'hours',       label: 'Opening hours',           icon: <Clock className="w-4 h-4" />       },
+    { value: 'experience',  label: 'Guest comforts & Wi-Fi', icon: <Coffee className="w-4 h-4" />      },
+    { value: 'policies',    label: 'Policies',      icon: <ShieldCheck className="w-4 h-4" /> },
     { value: 'payments',    label: 'Payments & Payouts',         icon: <DollarSign className="w-4 h-4" />  },
-    { value: 'terminal',    label: 'Terminal Reader',            icon: <Monitor className="w-4 h-4" />     },
+    { value: 'terminal',    label: 'Card reader',            icon: <Monitor className="w-4 h-4" />     },
     { value: 'automations', label: 'Automations',                icon: <Zap className="w-4 h-4" />         },
-    { value: 'builder',     label: 'Booking Architecture',       icon: <Globe className="w-4 h-4" />       },
-    { value: 'kiosk',       label: 'Kiosk Orchestration',        icon: <Fingerprint className="w-4 h-4" /> },
+    { value: 'builder',     label: 'Booking page',       icon: <Globe className="w-4 h-4" />       },
+    { value: 'kiosk',       label: 'Check-in kiosk',        icon: <Fingerprint className="w-4 h-4" /> },
     { value: 'timeclock',   label: 'Time Clock',                 icon: <Timer className="w-4 h-4" />       },
   ];
 
@@ -448,7 +450,7 @@ function SettingsPageImpl() {
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-slate-50/50">
-      <AppHeader title="Studio OS Settings" />
+      <AppHeader title="Settings" />
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto space-y-8 md:space-y-10 p-4 md:p-10 pb-32">
 
@@ -456,7 +458,7 @@ function SettingsPageImpl() {
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 text-left">
             <div className="space-y-1 text-left">
               <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Settings</h1>
-              <p className="text-[10px] md:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Studio Orchestration & Governance</p>
+              <p className="text-[10px] md:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Everything about how your business runs</p>
             </div>
             <div className="flex items-center gap-3 w-full sm:w-auto">
               {!selfManagedTabs.includes(activeTab) && (
@@ -493,7 +495,7 @@ function SettingsPageImpl() {
             <TabsContent value="profile" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                 <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
-                  <SectionHeader icon={Building} title="Studio Identity" />
+                  <SectionHeader icon={Building} title="Your business" />
                   <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Registry identification and internal labeling.</CardDescription>
                 </CardHeader>
                 <CardContent className="p-6 md:p-8 space-y-8 text-left">
@@ -640,7 +642,7 @@ function SettingsPageImpl() {
             <TabsContent value="hours" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                 <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
-                  <SectionHeader icon={Clock} title="Operating Window" />
+                  <SectionHeader icon={Clock} title="Opening hours" />
                   <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Configure your weekly studio availability and access tiers.</CardDescription>
                 </CardHeader>
                 <CardContent className="p-6 md:p-8 space-y-10 text-left">
@@ -692,7 +694,7 @@ function SettingsPageImpl() {
                   <div className="space-y-8">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-1">
                       <div className="space-y-1">
-                        <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2"><QrCode className="w-5 h-5 text-primary" />Station Identity Protocol</h3>
+                        <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2"><QrCode className="w-5 h-5 text-primary" />Name your stations</h3>
                         <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Generate physical place-cards for autonomous ordering.</p>
                       </div>
                       <Button onClick={() => setIsPrintStationsOpen(true)} className="h-12 px-8 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20 w-full md:w-auto">Generate Cards</Button>
@@ -700,7 +702,7 @@ function SettingsPageImpl() {
                   </div>
                   <Separator className="border-dashed" />
                   <div className="space-y-6">
-                    <div className="flex items-center gap-3 px-1"><Wifi className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Studio Connectivity</h3></div>
+                    <div className="flex items-center gap-3 px-1"><Wifi className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Wi-Fi for guests</h3></div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 md:gap-8">
                       <div className="space-y-2">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">WiFi Network SSID</Label>
@@ -732,7 +734,7 @@ function SettingsPageImpl() {
                 </CardHeader>
                 <CardContent className="p-6 md:p-8 space-y-10 text-left">
                   <div className="space-y-8">
-                    <div className="flex items-center gap-3 px-1"><ScaleIcon className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Recovery Governance</h3></div>
+                    <div className="flex items-center gap-3 px-1"><ScaleIcon className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Missed payments</h3></div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                       <div className="space-y-4 p-6 rounded-[2.5rem] border-2 bg-primary/5 border-primary/10 shadow-inner">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Autonomous Comp Limit</Label>
@@ -930,7 +932,7 @@ function SettingsPageImpl() {
                       </div>
                     </div>
                   </div>
-                  <SettingRow icon={Zap} title="Guest Autonomy: Fee Deferral" description="Allow guests to add rescheduling fees to their session bill">
+                  <SettingRow icon={Zap} title="Let clients pay fees later" description="Allow guests to add rescheduling fees to their session bill">
                     <Switch checked={!!tenantData.allowGuestFeeDeferral} onCheckedChange={(val) => setTenantData(prev => ({ ...prev, allowGuestFeeDeferral: val }))} disabled={!isEditing} className="scale-125 data-[state=checked]:bg-primary" />
                   </SettingRow>
                 </CardContent>
@@ -961,7 +963,7 @@ function SettingsPageImpl() {
                   </div>
                   <Separator className="border-dashed" />
                   <div className="space-y-4">
-                    <div className="flex items-center gap-3 px-1"><Scale className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Automatic Outcomes</h3></div>
+                    <div className="flex items-center gap-3 px-1"><Scale className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">What happens automatically</h3></div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {depositOutcomeRules.map(rule => (
                         <div key={rule.key} className="p-5 rounded-[2rem] border-2 bg-slate-50 border-slate-200 space-y-3">
@@ -991,7 +993,7 @@ function SettingsPageImpl() {
               {/* ── CREDIT & RECOVERY LEDGER ── */}
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                 <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                  <SectionHeader icon={Wallet} title="Credit & Recovery Ledger" />
+                  <SectionHeader icon={Wallet} title="Store credit" />
                   <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
                     Controls every source of client credit — cancellation deposit conversions, service recovery, goodwill — through one ledger.
                   </CardDescription>
@@ -1055,7 +1057,7 @@ function SettingsPageImpl() {
               {/* ── ACCOUNTS RECEIVABLE & ARREARS ── */}
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                 <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                  <SectionHeader icon={Ban} title="Accounts Receivable & Arrears" />
+                  <SectionHeader icon={Ban} title="Money owed to you" />
                   <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
                     Controls how unpaid balances get collected — and what happens when they don't.
                   </CardDescription>
@@ -1143,7 +1145,7 @@ function SettingsPageImpl() {
               <div className="space-y-8">
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 px-1">
                   <div className="space-y-1">
-                    <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight text-slate-900 leading-none">Service-Specific Protocols</h2>
+                    <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight text-slate-900 leading-none">Rules for specific services</h2>
                     <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Custom logic guards per treatment unit.</p>
                   </div>
                   <div className="relative w-full md:w-64">
@@ -1179,7 +1181,7 @@ function SettingsPageImpl() {
             <TabsContent value="builder" className="mt-0 animate-in fade-in duration-500 text-left">
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                 <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                  <SectionHeader icon={Globe} title="Booking Architecture" />
+                  <SectionHeader icon={Globe} title="Your booking page" />
                   <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Design and publish your guest-facing booking page.</CardDescription>
                 </CardHeader>
                 <CardContent className="p-6 md:p-8 space-y-6">
@@ -1229,7 +1231,7 @@ function SettingsPageImpl() {
             <TabsContent value="kiosk" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                 <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                  <SectionHeader icon={Fingerprint} title="Kiosk Orchestration" />
+                  <SectionHeader icon={Fingerprint} title="Check-in kiosk" />
                   <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Manage the check-in terminal experience.</CardDescription>
                 </CardHeader>
                 <CardContent className="p-6 md:p-8 space-y-10 text-left">
@@ -1513,12 +1515,23 @@ export default function SettingsPage() {
     <Suspense fallback={
       <div className="flex h-screen items-center justify-center bg-background">
         <Loader className="animate-spin h-10 w-10 text-primary" />
-        <p className="ml-4 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Configuring Terminal...</p>
+        <p className="ml-4 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Loading settings…</p>
       </div>
     }>
-      <SettingsPageImpl />
+      <SettingsGate />
     </Suspense>
   );
+}
+
+/** /settings → the Settings home; /settings?tab=… → that tab of the full page. */
+function SettingsGate() {
+  const tab = useSearchParams().get('tab');
+  const { selectedTenant } = useTenant();
+  if (!tab) return (<><AppHeader title="Settings" /><SettingsHome tenant={selectedTenant} /></>);
+  return (<>
+    <div className="mx-auto w-full max-w-6xl px-4 pt-3 md:px-10"><Link href="/settings" className="text-sm font-bold underline underline-offset-4">← Settings home</Link></div>
+    <SettingsPageImpl />
+  </>);
 }
 
 // ── Reconnect tally: the last 30 days of the studio's own nudges ──────────
