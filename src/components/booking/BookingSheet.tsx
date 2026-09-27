@@ -206,7 +206,7 @@ interface BookingSheetProps {
   calendarEvents?:  any[];
   /** What the SERVER made of the booking. Absent = an older caller, in
    *  which case the sheet keeps its original confirmed wording. */
-  bookingOutcome?: { status: string; notice: string; depositCents: number } | null;
+  bookingOutcome?: { status: string; notice: string; depositCents: number; cardOnFile?: boolean } | null;
   /** 'page' renders the flow as an ordinary page instead of a floating panel.
    *
    * Every mobile failure this component had came from being a floating box:
