@@ -158,7 +158,7 @@ export async function POST(req: NextRequest) {
         let text = plain, subject = title;
         if (st.language && st.language !== 'en') { try { const [tt, ts] = await translateTexts(tenantId, [plain, title], st.language); text = `${tt}\n\n———\nEnglish (official copy):\n\n${plain}`; subject = `${ts} / ${title}`; lang = st.language; } catch { /* English only */ } }
         const { sendEmail } = await import('@/lib/academy-journey');
-        await sendEmail(st.email, `${subject} — ${school}`, text); emailed = true;
+        await sendEmail(st.email, `${subject} — ${school}`, text, tenantId, { official: true }); emailed = true;
       }
       const ref = db.collection(`${T}/studentLetters`).doc();
       await ref.set({ id: ref.id, studentId, kind: String(b.kind || 'custom').slice(0, 30), title, body, emailed, lang, by: who, at: now });
