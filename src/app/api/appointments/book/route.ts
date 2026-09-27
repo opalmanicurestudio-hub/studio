@@ -144,6 +144,9 @@ function offsetMinutesForZone(timeZone: string, at: Date): number | null {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+  const inspoIn: { url: string; note: string }[] = (Array.isArray((body as any)?.inspirationPhotos) ? (body as any).inspirationPhotos : []).slice(0, 4)
+    .filter((x: any) => x && /^https:\/\//.test(String(x.url || '')) && String(x.url).length <= 1000)
+    .map((x: any) => ({ url: String(x.url), note: String(x.note || '').slice(0, 300) }));
   const signedFormsIn: any[] = (() => {
     const list = Array.isArray((body as any)?.signedForms) ? (body as any).signedForms.slice(0, 10) : [];
     const clean = list.filter((f: any) => f && typeof f === 'object' && f.formId).map((f: any) => ({ formId: String(f.formId).slice(0, 80), formTitle: String(f.formTitle || '').slice(0, 200), formData: f.formData && typeof f.formData === 'object' ? f.formData : {}, signedAt: new Date().toISOString() }));
@@ -646,7 +649,10 @@ export async function POST(req: NextRequest) {
             : null,
         } : {}),
         notes: body.notes ? String(body.notes).slice(0, 500) : null,
-        inspirationPhotoUrl: body.inspirationPhotoUrl ? String(body.inspirationPhotoUrl).slice(0, 500) : null,
+        // Up to 4 marked-up inspiration photos with a note each; the first also
+        // fills inspirationPhotoUrl so every existing screen keeps showing it.
+        ...(inspoIn.length ? { inspirationPhotos: inspoIn } : {}),
+        inspirationPhotoUrl: inspoIn[0]?.url || (body.inspirationPhotoUrl ? String(body.inspirationPhotoUrl).slice(0, 500) : null),
         // Signed forms travel WITH the booking and are saved here, on the server.
         // (They used to be attached afterwards from the client's browser, which
         // the database rules refuse for clients — so they were silently lost.)
