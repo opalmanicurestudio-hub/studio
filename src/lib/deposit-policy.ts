@@ -393,6 +393,12 @@ export interface BookingPlan {
  * THE one resolver. Every surface that needs to know "what happens when this
  * person books this service right now" calls exactly this.
  */
+/** Hours a client has to pay after an accepted request's card declines (Settings → Booking). */
+export function graceHoursOf(tenant: any): number {
+  const v = Number((tenant?.bookingMode || {}).paymentGraceHours);
+  return Number.isFinite(v) && v >= 0 ? v : 24;
+}
+
 export function resolveBookingPlan(input: BookingPlanInput): BookingPlan {
   const { tenant, service, price, client, byStaff } = input;
 
@@ -498,10 +504,13 @@ export function resolveBookingPlan(input: BookingPlanInput): BookingPlan {
         requiresCardOnFile: cardRequired,
         holdMinutes: cfg.holdMinutes,
         approvalExpiryHours: cfg.approvalExpiryHours,
-        clientNotice: (depositCents > 0
-          ? `This time is requested, not booked yet. Nothing is charged now — if it is accepted you will be asked for the ${money} deposit to lock it in.`
-          : 'This time is requested, not booked yet. You will hear back shortly.')
-          + (cardRequired ? cardLine : ''),
+        clientNotice: depositCents > 0
+          ? (cardRequired
+            // Card on file: accepting CHARGES it automatically; a decline gets the
+            // business's grace window (Settings → Booking) before the time is released.
+            ? `This time is requested, not booked yet. Your card is saved securely and nothing is charged now. If it is accepted, the ${money} deposit is charged to it automatically and you're booked. If that card declines, you'll get a link to pay within ${graceHoursOf(tenant)} hours — otherwise the time is released.`
+            : `This time is requested, not booked yet. Nothing is charged now — if it is accepted you will be asked for the ${money} deposit to lock it in.`)
+          : ('This time is requested, not booked yet. You will hear back shortly.' + (cardRequired ? cardLine : '')),
         reason,
       };
 
