@@ -1,12 +1,14 @@
 // src/app/school/[tenantId]/page.tsx — the school's home page.
 import Link from 'next/link';
 import { getSite } from './data';
-import { Section, ProgramCard, CTA, Photo, base, when } from '@/components/school/Site';
+import { Section, ProgramCard, CTA, Photo, base, when, SponsorWall } from '@/components/school/Site';
+import { sponsorWall } from '@/lib/academy-funding';
 import { featuredWork } from '@/lib/school-site';
 
 export default async function Home({ params }: { params: Promise<{ tenantId: string }> }) {
   const { tenantId } = await params; const site = (await getSite(tenantId))!; const S = site.settings;
   const work = await featuredWork(tenantId, 6).catch(() => []);
+  const wall = S.donors.enabled && S.donors.sponsorStrip ? await sponsorWall(tenantId, S.donors.tiers).catch(() => []) : [];
   const next = site.cohorts[0]; const nextProg = next ? site.programs.find((p) => p.id === next.programId) : null;
   return (
     <>
@@ -41,6 +43,11 @@ export default async function Home({ params }: { params: Promise<{ tenantId: str
       {S.stories.length > 0 && <Section eyebrow="Graduates" title={<>Where our graduates <b>go</b></>}>
         <div className="grid gap-4 md:grid-cols-2">{S.stories.slice(0, 4).map((st, i) => <blockquote key={i} className="sch-card flex gap-4 p-6">{st.photoId && <Photo site={site} id={st.photoId} alt={st.name} className="h-16 w-16 shrink-0 rounded-full object-cover" />}<div><p className="text-[15px] leading-relaxed text-stone-800">“{st.quote}”</p><footer className="mt-2 text-sm text-stone-600">— <b>{st.name}</b>{st.program ? `, ${st.program}` : ''}{st.year ? ` (${st.year})` : ''}</footer></div></blockquote>)}</div>
         <p className="mt-3"><Link href={`${base(tenantId)}/student-life`} className="text-sm font-medium underline underline-offset-4">More about student life →</Link></p>
+      </Section>}
+
+      {wall.some((s) => s.hasLogo) && <Section eyebrow="Supported by" title={<>Thank you to our <b>sponsors</b></>}>
+        <SponsorWall tenantId={tenantId} wall={wall} compact />
+        <p className="mt-3"><Link href={`${base(tenantId)}/support`} className="text-sm font-medium underline underline-offset-4">Support our students →</Link></p>
       </Section>}
 
       <Section eyebrow="Visit" title={<>Come and <b>see us</b></>}>
