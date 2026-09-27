@@ -652,6 +652,8 @@ export async function POST(req: NextRequest) {
         // Up to 4 marked-up inspiration photos with a note each; the first also
         // fills inspirationPhotoUrl so every existing screen keeps showing it.
         ...(inspoIn.length ? { inspirationPhotos: inspoIn } : {}),
+        // The visit this booking replaces (client reschedule) — released after payment by the webhook.
+        ...(typeof body.replacesAppointmentId === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(body.replacesAppointmentId) ? { replacesAppointmentId: body.replacesAppointmentId } : {}),
         inspirationPhotoUrl: inspoIn[0]?.url || (body.inspirationPhotoUrl ? String(body.inspirationPhotoUrl).slice(0, 500) : null),
         // Signed forms travel WITH the booking and are saved here, on the server.
         // (They used to be attached afterwards from the client's browser, which
