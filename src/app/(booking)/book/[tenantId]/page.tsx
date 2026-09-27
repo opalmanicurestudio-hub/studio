@@ -699,6 +699,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       <div className="w-full min-h-dvh overflow-x-hidden"
            style={{ background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
         <BookingSheet
+          tenantId={tenantId}
           lockedStaffId={providerId && staff.some((m: any) => m.id === providerId && m.isRenter) ? providerId : undefined}
           prefillClient={reschedule ? { clientName: reschedule.clientName, clientEmail: reschedule.clientEmail, clientPhone: reschedule.clientPhone } : null}
           open
