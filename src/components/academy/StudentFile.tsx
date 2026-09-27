@@ -187,7 +187,7 @@ export function StudentFile({ tenantId, studentId, brand, onClose }: { tenantId:
               </section>
             )}
 
-            {sec === 'portfolio' && <PortfolioReview items={f.portfolio || []} onReview={(id: string, status: string) => act({ action: 'portfolio-review', id, status }, status === 'approved' ? 'Approved — it can now appear on the student’s shared portfolio.' : 'Hidden from the shared portfolio.')} />}
+            {sec === 'portfolio' && <PortfolioReview items={f.portfolio || []} sharing={!!f.profile?.portfolioOn} onFeature={(id: string, featured: boolean) => act({ action: 'portfolio-feature', id, featured }, featured ? 'Featured on your school website.' : 'Removed from your school website.')} onReview={(id: string, status: string) => act({ action: 'portfolio-review', id, status }, status === 'approved' ? 'Approved — it can now appear on the student’s shared portfolio.' : 'Hidden from the shared portfolio.')} />}
             {sec === 'letters' && <Letters f={f} brand={brand} onSend={(body: any) => act({ action: 'letter-send', ...body }, body.email ? 'Letter emailed and saved to the file.' : 'Letter saved to the file.')} />}
             {sec === 'history' && <section className="space-y-1">{f.audit.map((a: any) => <p key={a.seq} className="text-[12px]"><span className="text-muted-foreground">#{a.seq} · {new Date(a.at).toLocaleString()} · {a.by}</span> — {a.summary}</p>)}<p className="pt-2 text-[11px] text-muted-foreground">From the academy’s tamper-evident audit log (Attendance → Verify records checks the whole chain).</p></section>}
           </div>
@@ -309,7 +309,7 @@ function Letters({ f, brand, onSend }: any) {
 
 
 // ── Portfolio: approve each piece before it can be shared ──────────────────
-function PortfolioReview({ items, onReview }: { items: any[]; onReview: (id: string, status: string) => void }) {
+function PortfolioReview({ items, onReview, onFeature, sharing }: { items: any[]; onReview: (id: string, status: string) => void; onFeature: (id: string, featured: boolean) => void; sharing: boolean }) {
   if (!items.length) return <p className="text-sm text-muted-foreground">No portfolio work yet. Students add before-and-after photos from their portal; you approve each piece before it can be shared.</p>;
   const pending = items.filter((x) => x.status === 'pending').length;
   return (
@@ -325,6 +325,8 @@ function PortfolioReview({ items, onReview }: { items: any[]; onReview: (id: str
             {x.status !== 'approved' && <button type="button" onClick={() => onReview(x.id, 'approved')} className="ml-auto h-9 rounded-xl bg-emerald-600 px-3 text-[12px] font-bold text-white">Approve</button>}
             {x.status !== 'hidden' && <button type="button" onClick={() => onReview(x.id, 'hidden')} className={`h-9 rounded-xl border-2 px-3 text-[12px] font-bold ${x.status === 'approved' ? 'ml-auto' : ''}`}>Hide</button>}
           </div>
+          {x.status === 'approved' && <button type="button" onClick={() => onFeature(x.id, !x.featured)} className={`h-9 w-full rounded-xl text-[12px] font-bold ${x.featured ? 'bg-violet-100 text-violet-900' : 'border-2'}`}>{x.featured ? '★ On your school website' : '☆ Feature on your school website'}</button>}
+          {x.status === 'approved' && x.featured && !sharing && <p className="text-[11px] text-amber-800">Shows once the student turns sharing on in their portal.</p>}
         </div>
       ))}</div>
     </section>
