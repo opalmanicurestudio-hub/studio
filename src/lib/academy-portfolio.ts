@@ -20,7 +20,7 @@ export async function itemsFor(tenantId: string, studentId: string, opts: { appr
   const db = getAdminDb();
   const q = await db.collection(`tenants/${tenantId}/portfolio`).where('studentId', '==', studentId).limit(200).get();
   const rows = q.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((x: any) => !opts.approvedOnly || x.status === 'approved').sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt)));
-  return Promise.all(rows.map(async (x: any) => ({ id: x.id, service: x.service, note: x.note, status: x.status, createdAt: x.createdAt, reviewedAt: x.reviewedAt || null, reviewNote: x.reviewNote || null,
+  return Promise.all(rows.map(async (x: any) => ({ id: x.id, service: x.service, note: x.note, status: x.status, featured: !!x.featured, createdAt: x.createdAt, reviewedAt: x.reviewedAt || null, reviewNote: x.reviewNote || null,
     consent: opts.approvedOnly ? undefined : x.consent, before: await view(x.before), after: await view(x.after) })));
 }
 
