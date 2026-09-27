@@ -33,6 +33,7 @@ export function AcademyHome({ tenantId, data, go }: { tenantId: string; data: an
       { n: s.docsToCheck, title: 'Documents to check', hint: 'Uploaded by applicants — verify or send back', to: 'admissions' as Section, tone: 'amber' },
       { n: s.toCountersign, title: 'Agreements to countersign', hint: 'Signed by new students', to: 'admissions' as Section, tone: 'violet' },
       { n: s.reviewsWaiting, title: 'Applications to review', hint: 'Documents are in — make a decision', to: 'admissions' as Section, tone: 'violet' },
+      { n: s.interviewChanges, title: 'Interview changes requested', hint: 'Applicants asked for another time — pick one', to: 'admissions' as Section, tone: 'amber' },
       { n: s.offersExpiring, title: 'Offers expiring soon', hint: 'Within 2 days — nudge or extend', to: 'admissions' as Section, tone: 'amber' },
       { n: s.newInquiries, title: 'New inquiries', hint: 'People asking about your programs', to: 'admissions' as Section, tone: 'sky' },
       { n: s.stalledInquiries, title: 'Inquiries waiting 3+ days', hint: 'A quick call or text keeps them warm', to: 'admissions' as Section, tone: 'red' },
