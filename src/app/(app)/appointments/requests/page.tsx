@@ -11,6 +11,7 @@
 // auto-expire (the client's day is on hold), and how soon the appointment
 // itself starts (a request for tomorrow morning cannot wait until tomorrow).
 
+import { StrandedBookings } from '@/components/requests/StrandedBookings';
 import { approveBooking, denyBooking } from '@/lib/booking-approval';
 import { collection, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
 import { ArrowLeft, CalendarClock, Check, Loader, MessageSquare, TriangleAlert, X } from 'lucide-react';
@@ -136,6 +137,7 @@ export default function BookingRequestsPage() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-6 space-y-3">
+        {tenantId && <StrandedBookings tenantId={tenantId} />}
         {loading && (
           <p className="py-20 text-center text-[10px] font-black uppercase tracking-widest opacity-30">Loading…</p>
         )}
