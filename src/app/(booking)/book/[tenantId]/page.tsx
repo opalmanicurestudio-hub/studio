@@ -512,6 +512,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
               smsMarketing: ((restDetails as any).smsMarketing ?? (formData as any).smsMarketing) === true, smsMarketingText: (restDetails as any).smsMarketingText || null },
             notes: formData.notes,
             inspirationPhotoUrl: (restDetails as any).inspirationPhotoUrl || undefined,
+            inspirationPhotos: Array.isArray((restDetails as any).inspirationPhotos) ? (restDetails as any).inspirationPhotos : undefined,
             signedForms: Array.isArray(signedForms) ? signedForms : [],
           }),
         });
@@ -592,7 +593,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   if (dialogOpen && dialogService) {
     return (
       <div className={`w-full min-h-dvh overflow-x-hidden ${studioDesign ? 'pub-flow' : ''}`}
-           style={studioDesign ? { background: '#faf8f5' } : { background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
+           style={studioDesign ? { background: '#faf8f5', ['--accent' as any]: resolvedStyle.accentColor } : { background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
         {studioDesign && <><style>{PUBLIC_CSS}</style><link rel="stylesheet" href={PUBLIC_FONT_HREF} /></>}
         <BookingSheet
           tenantId={tenantId}
