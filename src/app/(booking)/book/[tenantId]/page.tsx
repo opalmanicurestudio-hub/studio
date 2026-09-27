@@ -526,6 +526,8 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
             inspirationPhotoUrl: (restDetails as any).inspirationPhotoUrl || undefined,
             inspirationPhotos: Array.isArray((restDetails as any).inspirationPhotos) ? (restDetails as any).inspirationPhotos : undefined,
             signedForms: Array.isArray(signedForms) ? signedForms : [],
+            // A reschedule: the old visit is released once this one is booked (or, with a deposit, paid for).
+            ...(reschedule?.id ? { replacesAppointmentId: reschedule.id } : {}),
           }),
         });
       } catch {
@@ -544,9 +546,8 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
         heldPay.current = { key: holdKey, appointmentId: out.appointmentId };
         const d: any = await payFor(out.appointmentId);
         if (d?.clientSecret) {
-          // KNOWN GAP (fix in 5c, reschedule integrity): a reschedule that needs a
-          // deposit does not yet release the OLD visit after payment (the old
-          // deposit path didn't either). The old visit stays until cancelled.
+          // A reschedule that needs a deposit: the payment webhook releases the
+          // OLD visit once this one is paid for (same client only).
           return d;
         }
         return d;
