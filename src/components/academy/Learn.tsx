@@ -12,6 +12,7 @@
 //
 // A student's sign-in is a token kept in this browser (30 days).
 
+import { AnnouncementItem } from '@/components/academy/Announcement';
 import { GameBlock } from '@/components/academy/Games';
 import { InteractiveFrame } from '@/components/academy/InteractiveFrame';
 import { wordSearch as wordSearchGrid, crossword as crosswordGrid } from '@/lib/printables';
@@ -981,8 +982,9 @@ function Inbox({ tenantId, color }: { tenantId: string; color: string }) {
   if (!d?.ok) return null;
   return (
     <div className="mt-6 space-y-3">
-      {d.announcements.slice(0, 3).map((a: any, i: number) => (
-        <div key={i} className="rounded-[1.5rem] border border-white/70 p-4" style={{ background: `${color}14` }}><p className="text-[11px] uppercase tracking-[0.2em] text-stone-500">Announcement · {new Date(a.at).toLocaleDateString()}</p><p className="mt-1 font-semibold">{a.title}</p><p className="whitespace-pre-wrap text-[15px] text-stone-700">{a.body}</p></div>
+      {d.announcements.filter((a: any) => !a.acked).slice(0, 3).map((a: any, i: number) => (
+        <div key={a.id || i} className="rounded-[1.5rem] border border-white/70 px-4 py-2" style={{ background: `${color}14` }}><p className="pt-2 text-[11px] uppercase tracking-[0.2em] text-stone-500">Announcement</p>
+          <AnnouncementItem a={a} title={a.title} body={a.body} dateText={new Date(a.at).toLocaleDateString()} school="" color={color} words={{ gotIt: 'Got it', addToCalendar: 'Add to calendar' }} onAck={async (id) => { await api({ action: 'announcement-ack', tenantId, token: getToken(tenantId), id }); await load(); }} /></div>
       ))}
       <Glass className="space-y-2">
         <button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center justify-between text-left"><span className="font-semibold">Messages with your school{d.messages.length ? ` · ${d.messages.length}` : ''}</span><span className="text-sm text-stone-500">{open ? 'Hide' : 'Open'}</span></button>
