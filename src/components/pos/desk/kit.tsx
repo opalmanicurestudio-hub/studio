@@ -13,7 +13,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export const DESK_CSS = `
-.desk{--paper:#faf8f5;--ink:#1c1917;--muted:#57534e;--line:#e7e2dc;--card:#fff;--soft:#f1ece6;--warn:#a15c07;--ok:#1f7a55;
+.desk{--accent:hsl(var(--primary));--accent-ink:#fff;--paper:#faf8f5;--ink:#1c1917;--muted:#57534e;--line:#e7e2dc;--card:#fff;--soft:#f1ece6;--warn:#a15c07;--ok:#1f7a55;
   background:var(--paper);color:var(--ink);font-family:'Plus Jakarta Sans',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
 .dark .desk{--paper:#171412;--ink:#f3eee8;--muted:#b3aaa1;--line:#342e29;--card:#211d1a;--soft:#2a2521}
 .desk :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
@@ -60,21 +60,35 @@ export function Pill({ children, tone = 'soft' }: { children: ReactNode; tone?: 
   return <span className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold" style={s}>{children}</span>;
 }
 
-/** A guest, anywhere in the POS. Glides to its new place (layoutId) when its stage changes. */
-export function GuestCard({ id, name, line, meta, badge, action, onOpen, compact }: {
-  id: string; name: string; line?: ReactNode; meta?: ReactNode; badge?: ReactNode; action?: ReactNode; onOpen?: () => void; compact?: boolean;
+/** A guest, anywhere in the POS. Calm by design: name + time on top, provider
+ *  and service below, a thin progress bar while in service, at most two flags
+ *  (+N reveals the rest), one action. Glides to its new place (layoutId). */
+export function GuestCard({ id, name, line, time, timeTone, progress, flags = [], badge, action, onOpen, compact, meta }: {
+  id: string; name: string; line?: ReactNode; time?: ReactNode; timeTone?: 'warn'; progress?: number | null;
+  flags?: { label: string; tone?: 'soft' | 'warn' | 'ok' | 'accent' }[]; badge?: ReactNode; action?: ReactNode; onOpen?: () => void; compact?: boolean; meta?: ReactNode;
 }) {
+  const [allFlags, setAllFlags] = useState(false);
+  const shown = allFlags ? flags : flags.slice(0, 2);
   return (
     <motion.article layout layoutId={`guest-${id}`} transition={{ type: 'spring', stiffness: 420, damping: 38 }}
-      className={`rounded-2xl ${compact ? 'p-3' : 'p-3.5'}`} style={{ background: 'var(--card)', boxShadow: '0 1px 2px rgba(0,0,0,.05)' }}>
+      className={`relative rounded-2xl ${compact ? 'p-3' : 'p-3.5'}`} style={{ background: 'var(--card)', boxShadow: '0 1px 2px rgba(0,0,0,.05)' }}>
       <div className="flex items-start justify-between gap-2">
-        <button type="button" onClick={onOpen} className="min-w-0 text-left" aria-label={`Open ${name}`}>
-          <p className="truncate text-[15px] font-semibold">{name}</p>
-          {line && <p className="truncate text-[13px]" style={{ color: 'var(--muted)' }}>{line}</p>}
+        <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left" aria-label={`Open ${name}`}>
+          <span className="flex items-baseline justify-between gap-2">
+            <span className="truncate text-[15px] font-semibold">{name}</span>
+            {time && <span className="shrink-0 text-[12px] tabular-nums" style={timeTone === 'warn' ? { color: 'var(--warn)', fontWeight: 600 } : { color: 'var(--muted)' }}>{time}</span>}
+          </span>
+          {line && <span className="mt-0.5 block truncate text-[13px]" style={{ color: 'var(--muted)' }}>{line}</span>}
         </button>
         {badge}
       </div>
-      {(meta || action) && <div className="mt-2 flex items-end justify-between gap-2"><span className="min-w-0 text-[12px] leading-snug" style={{ color: 'var(--muted)' }}>{meta}</span>{action}</div>}
+      {typeof progress === 'number' && <div className="mt-2 h-1 overflow-hidden rounded-full" style={{ background: 'var(--soft)' }} aria-hidden><div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.round(Math.min(1, Math.max(0, progress)) * 100)}%`, background: progress > 1 ? 'var(--warn)' : 'var(--accent)' }} /></div>}
+      {meta && <div className="mt-1.5 text-[12px]" style={{ color: 'var(--muted)' }}>{meta}</div>}
+      {(flags.length > 0 || action) && <div className="mt-2 flex items-end justify-between gap-2">
+        <span className="flex min-w-0 flex-wrap gap-1">{shown.map((f) => <Pill key={f.label} tone={f.tone}>{f.label}</Pill>)}
+          {!allFlags && flags.length > 2 && <button type="button" onClick={() => setAllFlags(true)} className="text-[11px] font-semibold" style={{ color: 'var(--muted)' }} aria-label={`Show ${flags.length - 2} more`}>+{flags.length - 2}</button>}</span>
+        {action}
+      </div>}
     </motion.article>
   );
 }
@@ -93,12 +107,12 @@ export function Panel({ title, count, children, className = '' }: { title: strin
 }
 
 /** Side drawer (checkout, selling). Slides in over the desk; the desk stays where it was. */
-export function Drawer({ open, onClose, title, children, wide }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean }) {
+export function Drawer({ open, onClose, title, children, wide, accent }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean; accent?: string | null }) {
   useEffect(() => { if (!open) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [open, onClose]);
   if (typeof document === 'undefined') return null;
   return createPortal(
     <AnimatePresence>{open && (
-      <div className="desk fixed inset-0 z-[80]" style={{ background: 'transparent' }}>
+      <div className="desk fixed inset-0 z-[80]" style={{ background: 'transparent', ...(accent ? { ['--accent' as any]: accent } : {}) }}>
         <motion.div className="absolute inset-0 bg-black/30" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} aria-hidden />
         <motion.aside role="dialog" aria-label={title} initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', stiffness: 380, damping: 40 }}
           className={`absolute inset-y-0 right-0 flex w-full flex-col ${wide ? 'sm:max-w-3xl' : 'sm:max-w-xl'} sm:rounded-l-[28px]`} style={{ background: 'var(--paper)', boxShadow: '-24px 0 48px -24px rgba(0,0,0,.35)', paddingTop: 'env(safe-area-inset-top,0px)' }}>
