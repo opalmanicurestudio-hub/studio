@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
       const lang = st.language && st.language !== 'en' ? st.language : null;
       const translated = lang ? (await translateTexts(tenantId, [String(b.text)], lang))[0] : null;
       await postMessage({ tenantId, studentId: String(b.studentId), from: 'school', by: who, text: b.text, studentEmail: st.email, studentName: st.name, translated, lang });
-      await sendEmail(st.email, `New message from ${t.name || 'your academy'}`, `${translated ? `${translated}\n\n———\n` : ''}${String(b.text).slice(0, 1500)}\n\n— ${who}, ${t.name || ''}\n\n${origin}/learn/${tenantId}/my`);
+      await sendEmail(st.email, `New message from ${t.name || 'your academy'}`, `${translated ? `${translated}\n\n———\n` : ''}${String(b.text).slice(0, 1500)}\n\n— ${who}, ${t.name || ''}\n\n${origin}/learn/${tenantId}/my`, tenantId);
       return NextResponse.json({ ok: true });
     }
 
@@ -95,18 +95,24 @@ export async function POST(req: NextRequest) {
       if (!title || !body) return NextResponse.json({ ok: false, error: 'A title and message are needed.' }, { status: 400 });
       const ref = db.collection(`tenants/${tenantId}/academyAnnouncements`).doc();
       const target = { programId: b.programId || null, cohortId: b.cohortId || null };
-      await ref.set({ id: ref.id, title, body, ...target, by: who, at: new Date().toISOString() });
+      // Optional event: students get "Add to calendar".
+      const iso = (v: any) => (v && !isNaN(Date.parse(String(v))) ? new Date(String(v)).toISOString() : null);
+      const event = iso(b.eventAt) ? { eventAt: iso(b.eventAt), eventEndAt: iso(b.eventEndAt) && iso(b.eventEndAt)! > iso(b.eventAt)! ? iso(b.eventEndAt) : null, location: String(b.location || '').trim().slice(0, 200) || null } : { eventAt: null, eventEndAt: null, location: null };
+      await ref.set({ id: ref.id, title, body, ...target, ...event, by: who, at: new Date().toISOString() });
       // Who hears it: active students in the program (and cohort, via admissions).
       let recipients = (await db.collection(`tenants/${tenantId}/programEnrollments`).where('status', '==', 'active').limit(3000).get()).docs.map((d: any) => d.data() as any).filter((e: any) => !target.programId || e.programId === target.programId);
       if (target.cohortId) { const inCohort = new Set((await db.collection(`tenants/${tenantId}/admissions`).where('cohortId', '==', target.cohortId).limit(1000).get()).docs.map((d: any) => String((d.data() as any).email).toLowerCase())); recipients = recipients.filter((e: any) => inCohort.has(String(e.email).toLowerCase())); }
       let emailed = 0;
-      if (b.email) for (const r of recipients.slice(0, 500)) { if (await sendEmail(r.email, `${title} — ${t.name || 'your academy'}`, `${body}\n\n— ${who}\n\n${origin}/learn/${tenantId}/my`)) emailed++; }
+      if (b.email) for (const r of recipients.slice(0, 500)) { if (await sendEmail(r.email, `${title} — ${t.name || 'your academy'}`, `${body}\n\n— ${who}\n\n${origin}/learn/${tenantId}/my`, tenantId)) emailed++; }
+      await ref.set({ recipientCount: recipients.length }, { merge: true });
       await appendAudit(tenantId, { type: 'announcement', by: who, summary: `Announcement “${title}” to ${recipients.length} student${recipients.length === 1 ? '' : 's'}${b.email ? ` (${emailed} emailed)` : ''}` });
       return NextResponse.json({ ok: true, recipients: recipients.length, emailed });
     }
     if (b.action === 'announcements') {
       const s = await db.collection(`tenants/${tenantId}/academyAnnouncements`).orderBy('at', 'desc').limit(100).get();
-      return NextResponse.json({ ok: true, announcements: s.docs.map((d: any) => d.data()) });
+      // "12 of 30 got it" — how many students acknowledged each one.
+      const acks = await Promise.all(s.docs.slice(0, 40).map((d: any) => d.ref.collection('acks').limit(3000).get().then((q: any) => q.size).catch(() => 0)));
+      return NextResponse.json({ ok: true, announcements: s.docs.map((d: any, i: number) => ({ ...(d.data() as any), ackCount: i < 40 ? acks[i] : null })) });
     }
 
     return NextResponse.json({ ok: false, error: 'Unknown action' }, { status: 400 });
