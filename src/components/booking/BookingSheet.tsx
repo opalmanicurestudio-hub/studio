@@ -268,6 +268,9 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   // ── Embedded checkout state ───────────────────────────────────────────────
   const [depositClientSecret,    setDepositClientSecret]    = useState<string | null>(null);
+  // The SERVER can require a deposit the page couldn't predict (e.g. a client
+  // with missed visits). Then the payment step is added and shown.
+  const [serverNeedsPayment,     setServerNeedsPayment]     = useState(false);
   const [depositStripeAccountId, setDepositStripeAccountId] = useState<string | null>(null);
   const [depositLoading,         setDepositLoading]         = useState(false);
   const [depositError,           setDepositError]           = useState<string | null>(null);
@@ -456,16 +459,16 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     if (simple) {
       // When (who + time) → You (details + forms + summary) → [Pay] → Done
       const flow = ['dateTime', 'details'];
-      if (chargeDueNow || cardSetupDueNow) flow.push('checkout');
+      if (chargeDueNow || cardSetupDueNow || serverNeedsPayment) flow.push('checkout');
       flow.push('confirmation');
       return flow;
     }
     const flow = lockedStaffId ? ['dateTime', 'details'] : ['staff', 'dateTime', 'details'];
     if (requiredForms.length > 0) flow.push('consents');
-    flow.push(chargeDueNow || cardSetupDueNow ? 'checkout' : 'summary');
+    flow.push(chargeDueNow || cardSetupDueNow || serverNeedsPayment ? 'checkout' : 'summary');
     flow.push('confirmation');
     return flow;
-  }, [requiredForms.length, chargeDueNow, cardSetupDueNow, lockedStaffId, simple]);
+  }, [requiredForms.length, chargeDueNow, cardSetupDueNow, lockedStaffId, simple, serverNeedsPayment]);
 
   /* The pinned bars are measured rather than estimated. Their height changes
    * with the safe-area inset, the step rail, and how long the service name
@@ -631,6 +634,12 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     setConfirming(true);
     try {
       const result = await onConfirm(payload.clientData, payload.appointmentDetails, payload.signedForms, (s: string) => setCurrentStepIndex(steps.indexOf(s)));
+      if (result && 'clientSecret' in result && result.clientSecret) {
+        setDepositClientSecret(result.clientSecret);
+        setDepositStripeAccountId((result as any).stripeAccountId || null);
+        setServerNeedsPayment(true); // the effect below moves to the payment step
+        return;
+      }
       if (result && 'error' in result && result.error) {
         toast({ variant: 'destructive', title: 'Could not book that', description: String(result.error) });
       }
@@ -765,6 +774,13 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     if (currentStep === 'summary' || (simple && currentStep === 'details' && steps[currentStepIndex + 1] !== 'checkout')) { handleConfirmBooking(); return; }
     setCurrentStepIndex(currentStepIndex + 1);
   };
+
+  useEffect(() => {
+    if (!serverNeedsPayment || !depositClientSecret) return;
+    const i = steps.indexOf('checkout');
+    if (i >= 0 && currentStepIndex !== i) setCurrentStepIndex(i);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverNeedsPayment, depositClientSecret, steps]);
 
   const handlePrevStep = () => { if (currentStepIndex > 0) setCurrentStepIndex(currentStepIndex - 1); };
 
