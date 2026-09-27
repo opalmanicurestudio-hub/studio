@@ -473,71 +473,75 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   // mount Stripe's checkout UI directly inside the sheet. The guest never
   // leaves the page. The connect-webhook converts the bookingRequest into a
   // real appointment once Stripe confirms payment.
+  // ── handleConfirm ────────────────────────────────────────────────
+  // ONE PATH (5a). Every online booking goes to the server first; the SERVER
+  // decides what it is — a request awaiting approval, a hold waiting for a
+  // deposit, or confirmed — and creates the appointment right away, so it
+  // always shows in Requests or the planner. Signed forms travel with it.
+  //   • hold for a deposit → Stripe opens for THAT appointment (the amount is
+  //     read on the server); the webhook confirms the same appointment.
+  //   • request (approval mode) → nothing is charged now; the client hears back.
+  // (Was: the page chose its road by the deposit AMOUNT alone — in approval
+  // mode that created a hidden bookingRequest + a payment the client was told
+  // they didn't need, so the booking vanished; and paying skipped approval.)
   const handleConfirm = async (
     formData: { clientName: string; clientEmail: string; clientPhone?: string; notes?: string },
     apptDetails: any, signedForms: any[], setStep: (s: string) => void,
   ): Promise<ConfirmResult> => {
     try {
-      const db = getFirestore(getApp());
+      const { depositAmount, depositStatus, ...restDetails } = apptDetails || {};
+      void depositAmount; void depositStatus; // the server decides deposits now
+      if (!restDetails?.serviceId || !restDetails?.startTime) {
+        return { requiresPayment: true, error: 'Please pick a service and a time first.' };
+      }
+      let bookRes: Response;
+      try {
+        bookRes = await fetch('/api/appointments/book', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tenantId,
+            source: 'booking-page',
+            ...(campaignRef ? { campaignId: campaignRef.campaignId, promoCode: campaignRef.code } : {}),
+            serviceId: restDetails.serviceId,
+            addOnIds: restDetails.addOnIds || [],
+            staffId: restDetails.staffId || 'any',
+            startTime: restDetails.startTime,
+            client: { name: formData.clientName, email: formData.clientEmail, phone: formData.clientPhone,
+              smsConsent: ((restDetails as any).smsConsent ?? (formData as any).smsConsent) === true, smsConsentText: (restDetails as any).smsConsentText || null,
+              smsMarketing: ((restDetails as any).smsMarketing ?? (formData as any).smsMarketing) === true, smsMarketingText: (restDetails as any).smsMarketingText || null },
+            notes: formData.notes,
+            inspirationPhotoUrl: (restDetails as any).inspirationPhotoUrl || undefined,
+            signedForms: Array.isArray(signedForms) ? signedForms : [],
+          }),
+        });
+      } catch {
+        return { requiresPayment: true, error: 'We couldn’t reach the booking system — check your connection and try again. Nothing was booked yet.' };
+      }
+      const out = await bookRes.json().catch(() => null);
+      if (!out?.ok) {
+        return { requiresPayment: true, error: out?.error || (bookRes.status === 409 ? 'That time was just taken — pick another slot.' : 'We could not hold that time. Please pick another slot.') };
+      }
+      /* The SERVER decided what this booking became; the screen, the email
+       * and the text all say the same thing. */
+      setBookingOutcome({ status: String(out.status || 'confirmed'), notice: String(out.clientNotice || ''), depositCents: Number(out.depositCents) || 0 });
 
-      // BookingSheet sends `depositAmount` in dollars, not `depositAmountCents`
-      const depositDollars = Number(apptDetails?.depositAmount) || 0;
-      const depositCents   = Math.round(depositDollars * 100);
+      // A deposit is due now → pay against THIS appointment.
+      if (out.status === 'pending_payment' && Number(out.depositCents) > 0 && out.appointmentId) {
+        const dres = await fetch('/api/stripe/deposit', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenantId, appointmentId: out.appointmentId }),
+        }).catch(() => null);
+        const d: any = dres ? await dres.json().catch(() => null) : null;
+        if (d?.clientSecret) {
+          // KNOWN GAP (fix in 5c, reschedule integrity): a reschedule that needs a
+          // deposit does not yet release the OLD visit after payment (the old
+          // deposit path didn't either). The old visit stays until cancelled.
+          return { requiresPayment: true, clientSecret: d.clientSecret, stripeAccountId: d.stripeAccountId };
+        }
+        return { requiresPayment: true, error: d?.error || 'Your time is held, but the payment step didn’t open. Please try again — or use the pay link in your email.' };
+      }
 
-      // No deposit required → create the real appointment immediately, no payment gate needed
-      if (depositCents <= 0) {
-        const { depositAmount, depositStatus, ...restDetails } = apptDetails || {};
-
-        // v12 — race-proof path: the shared booking engine checks conflicts
-        // server-side inside a transaction, so two guests can't grab the
-        // same slot. Falls back to the legacy direct write while the API
-        // isn't deployed (404) or errors.
-        try {
-          if (restDetails?.serviceId && restDetails?.startTime) {
-            const bookRes = await fetch('/api/appointments/book', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                tenantId,
-                source: 'booking-page',
-                ...(campaignRef ? { campaignId: campaignRef.campaignId, promoCode: campaignRef.code } : {}),
-                serviceId: restDetails.serviceId,
-                addOnIds: restDetails.addOnIds || [],
-                staffId: restDetails.staffId || 'any',
-                startTime: restDetails.startTime,
-                client: { name: formData.clientName, email: formData.clientEmail, phone: formData.clientPhone,
-                  // Consent was captured on the sheet and then dropped here —
-                  // the route never saw it. It now travels with the booking.
-                  smsConsent: ((restDetails as any).smsConsent ?? (formData as any).smsConsent) === true, smsConsentText: (restDetails as any).smsConsentText || null,
-                  smsMarketing: ((restDetails as any).smsMarketing ?? (formData as any).smsMarketing) === true, smsMarketingText: (restDetails as any).smsMarketingText || null },
-                notes: formData.notes,
-              }),
-            });
-            if (bookRes.status !== 404) {
-              const out = await bookRes.json().catch(() => null);
-              if (out?.ok) {
-                if (Array.isArray(signedForms) && signedForms.length > 0) {
-                  try {
-                    await setDoc(doc(db, `tenants/${tenantId}/appointments`, out.appointmentId),
-                      sanitizeForFirestore({ signedForms }), { merge: true });
-                  } catch { /* forms are secondary — the booking already exists */ }
-                }
-                /* The SERVER decides what this booking became — instant,
-                 * held for a deposit, or a request awaiting approval. The
-                 * confirmation screen must say the same thing the server
-                 * wrote and the email repeats, or the shop tells the client
-                 * three different stories about the same booking. */
-                setBookingOutcome({
-                  status: String(out.status || 'confirmed'),
-                  notice: String(out.clientNotice || ''),
-                  depositCents: Number(out.depositCents) || 0,
-                });
-
-                /* THE CARD IS COLLECTED AGAINST A REAL CLIENT RECORD, so the
-                 * booking is written first and the card step runs against the
-                 * clientId the server just returned. The existing connect
-                 * webhook vaults on client_reference_id, so there is no second
-                 * write path to keep in step with this one. */
                 if (out.requiresCardOnFile && out.clientId) {
                   try {
                     const cardRes = await fetch('/api/stripe/booking-card', {
@@ -575,126 +579,9 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
                 }
                 setStep('confirmation');
                 return { requiresPayment: false };
-              }
-              // v21 — ANY answered refusal is final. This used to return only
-              // on 409 and fall through to the unchecked legacy write for
-              // every other status, so when the server said "that's outside
-              // working hours" or "that chair is out of service" the page
-              // wrote the appointment anyway — a booking the studio could not
-              // honour, with no conflict check behind it. The route is the
-              // authority now; the only reason to fall through is that it
-              // isn't there (404) or the network never reached it.
-              return {
-                requiresPayment: true,
-                error: out?.error
-                  || (bookRes.status === 409
-                    ? 'That time was just taken — pick another slot.'
-                    : 'We could not hold that time. Please pick another slot.'),
-              };
-            }
-          }
-        } catch { /* network never reached the route — fall through to the legacy write */ }
-
-        /* ── THE FALLBACK MUST OBEY THE SHOP'S BOOKING MODE ────────────────
-         * This path used to hardcode `status: 'confirmed'`. It runs whenever
-         * the route was unreachable OR the details lacked a serviceId/
-         * startTime — and in that case a studio running approval mode got a
-         * confirmed appointment dropped straight onto the calendar with no
-         * request to answer. The setting was on; the booking ignored it.
-         *
-         * resolveBookingPlan is a pure function, so the same decision the
-         * server makes can be made here. The legacy write is now a slower
-         * road to the same destination rather than a hole in the policy. */
-        const fallbackPlan = resolveBookingPlan({
-          tenant,
-          service: services.find((sv: any) => sv.id === restDetails?.serviceId) || {},
-          price: Number(restDetails?.price ?? 0),
-          client: null,
-          byStaff: false,
-        });
-        const aptRef = doc(collection(db, `tenants/${tenantId}/appointments`));
-        await setDoc(aptRef, sanitizeForFirestore({
-          id: aptRef.id,
-          tenantId,
-          ...formData, ...restDetails, signedForms,
-          status: fallbackPlan.status,
-          bookingMode: fallbackPlan.mode,
-          bookingReason: `${fallbackPlan.reason} (offline path)`,
-          ...(fallbackPlan.status === 'requested' ? {
-            requestedAt: new Date().toISOString(),
-            requestExpiresAt: fallbackPlan.approvalExpiryHours > 0
-              ? new Date(Date.now() + fallbackPlan.approvalExpiryHours * 3600000).toISOString()
-              : null,
-          } : {}),
-          depositAmountCents: 0,
-          depositStatus: 'none',
-          checkInStatus: 'pending',
-          createdAt: new Date().toISOString(),
-        }));
-        setBookingOutcome({
-          status: fallbackPlan.status,
-          notice: fallbackPlan.clientNotice,
-          depositCents: 0,
-        });
-        setStep('confirmation');
-        return { requiresPayment: false };
-      }
-
-      // Deposit required → hold as a pending booking request while the guest pays
-      const ref = await addDoc(collection(db, `tenants/${tenantId}/bookingRequests`), sanitizeForFirestore({
-        ...formData, ...apptDetails, signedForms,
-        status: 'pending', source: 'booking-page', createdAt: new Date(),
-      }));
-
-      // Ask for an EMBEDDED checkout session — mounted inline, no redirect
-      const svc = services.find((s: any) => s.id === apptDetails?.serviceId);
-      const res = await fetch('/api/stripe/deposit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tenantId,
-          bookingRequestId: ref.id,
-          depositAmount: depositDollars,
-          clientName:  formData.clientName,
-          clientEmail: formData.clientEmail,
-          serviceName: svc?.name || '',
-          // Independent-provider bookings collect on THEIR account.
-          ...(svc?.collectsOwnPayment && svc?.renterProviderId
-            ? { renterProviderId: svc.renterProviderId } : {}),
-        }),
-      });
-      const out = await res.json().catch(() => null);
-
-      if (out?.clientSecret) {
-        /* setBookingOutcome lived only in the no-deposit branches, so a
-         * booking that went through checkout reached the confirmation screen
-         * with the outcome still null — and null renders "You're All Set!"
-         * for a request the studio has not answered. Resolved here so the
-         * screen says the same thing the server wrote, whichever way the
-         * client got there. */
-        const paidPlan = resolveBookingPlan({
-          tenant: tenant as any,
-          service: (services || []).find((sv: any) => sv.id === apptDetails?.serviceId) as any,
-          price: Number(apptDetails?.price ?? 0),
-          byStaff: false,
-        });
-        setBookingOutcome({
-          status: paidPlan.status,
-          notice: paidPlan.clientNotice || '',
-          depositCents: paidPlan.depositCents || 0,
-        });
-        return { requiresPayment: true, clientSecret: out.clientSecret, stripeAccountId: out.stripeAccountId };
-      }
-
-      // Payment couldn't be started — the request is already saved as pending,
-      // so the guest isn't lost. Surface the error to the sheet so it can show
-      // a retry option instead of looking unresponsive.
-      console.error('[deposit-checkout]', out?.error || 'No client secret returned');
-      return { requiresPayment: true, error: out?.error || 'Could not start secure checkout. Please try again.' };
     } catch (e: any) {
       console.error('[booking-confirm]', e);
-      const detail = e?.message || e?.code || String(e);
-      return { requiresPayment: true, error: `Booking error: ${detail}` };
+      return { requiresPayment: true, error: `Booking error: ${e?.message || e?.code || String(e)}` };
     }
   };
 
