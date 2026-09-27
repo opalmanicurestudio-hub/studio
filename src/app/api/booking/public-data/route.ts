@@ -27,6 +27,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { computeAvailability, pickStaffForSlot } from '@/lib/availability';
+import { loadBookingData, FALLBACK_HOURS, engineFrame } from '@/lib/booking-data';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,35 +43,6 @@ const GENERAL_DROP = /^(client|customer|guestName|guestEmail|guestPhone|contact|
 const keep = (o: any, list: string[]) => { const out: any = {}; for (const k of list) if (o[k] !== undefined) out[k] = o[k]; return out; };
 const drop = (o: any, re: RegExp) => { const out: any = {}; for (const [k, v] of Object.entries(o || {})) if (!re.test(k)) out[k] = v; return out; };
 const rows = (snap: any, map: (d: any) => any) => (snap?.docs || []).map((d: any) => ({ id: d.id, ...map(d.data() || {}) }));
-
-const FALLBACK_HOURS = { start: '08:00', end: '20:00' }; // same default as the browser hook (useSmartAvailability)
-
-async function loadAll(db: any, T: string) {
-  const tSnap = await db.doc(T).get();
-  if (!tSnap.exists) return null;
-  const t = tSnap.data() as any;
-  const tz = tenantTimeZone(t);
-  const fromDay = todayIn(tz), eventsFromDay = todayIn(tz, new Date(Date.now() - 31 * 86400000));
-  const safe = async (p: Promise<any>) => { try { return await p; } catch { return { docs: [] }; } };
-  const [sv, st, se, ap, sp, pt, cf, sh, sb, dof, rs, tk, mp, ce, rsv] = await Promise.all([
-    safe(db.collection(`${T}/services`).get()),
-    safe(db.collection(`${T}/staff`).get()),
-    safe(db.collection(`${T}/studioEvents`).get()),
-    safe(db.collection(`${T}/appointments`).where('startTime', '>=', fromDay).get()),
-    safe(db.collection(`${T}/scheduleProfiles`).get()),
-    safe(db.collection(`${T}/pricingTiers`).get()),
-    safe(db.collection(`${T}/consentForms`).get()),
-    safe(db.collection(`${T}/shifts`).where('date', '>=', fromDay).get()),
-    safe(db.collection(`${T}/staffBlocks`).where('startTime', '>=', fromDay).get()),
-    safe(db.collection(`${T}/shiftDayOffBlocks`).where('date', '>=', fromDay).get()),
-    safe(db.collection(`${T}/resources`).get()),
-    safe(db.collection(`${T}/tickets`).where('status', 'in', ['open', 'in_progress']).get()),
-    safe(db.collection(`${T}/maintenancePlans`).get()),
-    safe(db.collection(`${T}/events`).where('startTime', '>=', eventsFromDay).get()),
-    safe(db.collection(`${T}/renterServices`).get()),
-  ]);
-  return { t, fromDay, eventsFromDay, sv, st, se, ap, sp, pt, cf, sh, sb, dof, rs, tk, mp, ce, rsv };
-}
 
 export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
@@ -90,7 +62,7 @@ export async function POST(req: NextRequest) {
     const [ps, ms] = await Promise.all([db.collection(`${T}/renterPackages`).where('staffId', '==', providerId).get().catch(() => ({ docs: [] })), db.collection(`${T}/renterMemberships`).where('staffId', '==', providerId).get().catch(() => ({ docs: [] }))]);
     return NextResponse.json({ ok: true, packages: rows(ps, (x) => drop(x, GENERAL_DROP)), memberships: rows(ms, (x) => drop(x, GENERAL_DROP)) }, { headers: { 'Cache-Control': 'no-store' } });
   }
-  const loaded = await loadAll(db, T);
+  const loaded = await loadBookingData(db, T);
   if (!loaded) return NextResponse.json({ ok: false, error: 'Unknown business.' }, { status: 404 });
   const { t, fromDay, eventsFromDay, sv, st, se, ap, sp, pt, cf, sh, sb, dof, rs, tk, mp, ce, rsv } = loaded;
 
@@ -114,8 +86,10 @@ export async function POST(req: NextRequest) {
     const staffId = String(b.staffId || 'any'), tierId = b.tierId ? String(b.tierId) : undefined;
     const input: any = {
       date, serviceId, staffId, tierId: staffId === 'any' ? tierId : undefined, addOnIds: Array.isArray(b.addOnIds) ? b.addOnIds.map(String).slice(0, 20) : [],
-      services, staff: qualified, appointments: raw(ap), events: raw(ce), scheduleProfiles: raw(sp), tenant: { id: tenantId, ...t },
-      shifts: raw(sh), staffBlocks: raw(sb), dayOffBlocks: raw(dof), resources: raw(rs), tickets: raw(tk), maintenancePlans: raw(mp),
+      services, staff: qualified, scheduleProfiles: raw(sp), tenant: { id: tenantId, ...t },
+      // Busy times moved into the business's local frame, exactly like the booking check.
+      ...(() => { const f = engineFrame({ appointments: raw(ap), events: raw(ce), staffBlocks: raw(sb), tickets: raw(tk) }, tenantTimeZone(t), date); return { appointments: f.appointments, events: f.events, staffBlocks: f.staffBlocks, tickets: f.tickets, now: f.now }; })(),
+      shifts: raw(sh), dayOffBlocks: raw(dof), resources: raw(rs), maintenancePlans: raw(mp),
       fallbackHours: FALLBACK_HOURS, includeUnavailable: false,
     };
     try {
