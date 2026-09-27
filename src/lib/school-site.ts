@@ -41,13 +41,14 @@ export interface SiteSettings {
   scholarships: { name: string; amountCents: number; description: string; eligibility: string; deadline: string; fund: string }[];
   outsideScholarships: { name: string; url: string; amount: string; notes: string; lastChecked: string }[];
   workforce: { show: boolean; text: string };
-  donors: { enabled: boolean; nonprofit: boolean; ein: string; funds: { name: string; text: string }[]; howAwarded: string; useReport: string };
+  donors: { enabled: boolean; nonprofit: boolean; ein: string; funds: { name: string; text: string }[]; howAwarded: string; useReport: string; thankYou: string; tiers: { name: string; minCents: number }[]; sponsorStrip: boolean; logoOffer: boolean };
   contact: { respondHours: number; hoursText: string; textOk: boolean };
   location: { directions: string; parking: string };
   social: { instagram: string; facebook: string; tiktok: string };
   disclosures: string;
 }
 
+export const DEFAULT_TIERS = [{ name: 'Champion', minCents: 100000 }, { name: 'Partner', minCents: 25000 }, { name: 'Friend', minCents: 0 }];
 export const DEFAULT_FAQ = [
   { q: 'Does applying mean I’m accepted?', a: 'No. Applying starts the process. Our admissions team reviews every application — documents, requirements and sometimes a short interview — and emails you a decision.' },
   { q: 'Can I visit before I apply?', a: 'Yes — book a tour and see the classroom and student clinic, meet instructors and ask anything.' },
@@ -58,7 +59,7 @@ export function defaults(): SiteSettings {
   return {
     published: false, headline: '', message: '', heroPhotoId: null, photos: [], whyUs: [], stories: [], faq: DEFAULT_FAQ, programExtras: {},
     scholarships: [], outsideScholarships: [], workforce: { show: false, text: 'Some students qualify for workforce funding (for example through your local workforce board). Eligibility varies and funding isn’t guaranteed — we’re happy to help you find out what you may qualify for.' },
-    donors: { enabled: false, nonprofit: false, ein: '', funds: [{ name: 'Tuition help', text: 'Helps a student with tuition.' }, { name: 'Student kits', text: 'Buys the professional kit a student needs.' }, { name: 'Exam fees', text: 'Covers state board exam fees.' }, { name: 'Emergency fund', text: 'Small grants for emergencies that could stop a student finishing.' }], howAwarded: '', useReport: '' },
+    donors: { enabled: false, nonprofit: false, ein: '', funds: [{ name: 'Tuition help', text: 'Helps a student with tuition.' }, { name: 'Student kits', text: 'Buys the professional kit a student needs.' }, { name: 'Exam fees', text: 'Covers state board exam fees.' }, { name: 'Emergency fund', text: 'Small grants for emergencies that could stop a student finishing.' }], howAwarded: '', useReport: '', thankYou: '', tiers: DEFAULT_TIERS, sponsorStrip: true, logoOffer: true },
     contact: { respondHours: 24, hoursText: '', textOk: true }, location: { directions: '', parking: '' }, social: { instagram: '', facebook: '', tiktok: '' }, disclosures: '',
   };
 }
@@ -81,7 +82,9 @@ export function sanitize(b: any): SiteSettings {
     scholarships: (x.scholarships || []).map((w: any) => ({ name: s(w.name, 100), amountCents: cents(w.amountCents), description: s(w.description, 800), eligibility: s(w.eligibility, 600), deadline: s(w.deadline, 10), fund: s(w.fund, 60) })).filter((w: any) => w.name).slice(0, 12),
     outsideScholarships: (x.outsideScholarships || []).map((w: any) => ({ name: s(w.name, 120), url: /^https?:\/\//.test(String(w.url || '')) ? s(w.url, 400) : '', amount: s(w.amount, 60), notes: s(w.notes, 400), lastChecked: s(w.lastChecked, 10) })).filter((w: any) => w.name).slice(0, 20),
     workforce: { show: !!x.workforce?.show, text: s(x.workforce?.text, 1500) || d.workforce.text },
-    donors: { enabled: !!x.donors?.enabled, nonprofit: !!x.donors?.nonprofit, ein: s(x.donors?.ein, 20), funds: (x.donors?.funds || d.donors.funds).map((f: any) => ({ name: s(f.name, 60), text: s(f.text, 300) })).filter((f: any) => f.name).slice(0, 8), howAwarded: s(x.donors?.howAwarded, 1500), useReport: s(x.donors?.useReport, 2000) },
+    donors: { enabled: !!x.donors?.enabled, nonprofit: !!x.donors?.nonprofit, ein: s(x.donors?.ein, 20), funds: (x.donors?.funds || d.donors.funds).map((f: any) => ({ name: s(f.name, 60), text: s(f.text, 300) })).filter((f: any) => f.name).slice(0, 8), howAwarded: s(x.donors?.howAwarded, 1500), useReport: s(x.donors?.useReport, 2000), thankYou: s(x.donors?.thankYou, 3000),
+      tiers: (Array.isArray(x.donors?.tiers) ? x.donors.tiers : DEFAULT_TIERS).map((t: any) => ({ name: s(t.name, 40), minCents: cents(t.minCents) })).filter((t: any) => t.name).sort((a: any, b: any) => b.minCents - a.minCents).slice(0, 5),
+      sponsorStrip: x.donors?.sponsorStrip !== false, logoOffer: x.donors?.logoOffer !== false },
     contact: { respondHours: Math.max(1, Math.min(168, Math.round(Number(x.contact?.respondHours) || 24))), hoursText: s(x.contact?.hoursText, 300), textOk: x.contact?.textOk !== false },
     location: { directions: s(x.location?.directions, 600), parking: s(x.location?.parking, 300) },
     social: { instagram: s(x.social?.instagram, 200), facebook: s(x.social?.facebook, 200), tiktok: s(x.social?.tiktok, 200) },
