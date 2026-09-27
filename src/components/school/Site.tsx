@@ -127,3 +127,18 @@ export function CTA({ site, programId }: { site: SchoolSite; programId?: string 
     </div>
   );
 }
+
+/** Approved sponsors' logos, biggest supporters first (top tier shown larger). */
+export function SponsorWall({ tenantId, wall, compact = false }: { tenantId: string; wall: { id: string; name: string; url: string | null; hasLogo: boolean; tier: string; rank: number }[]; compact?: boolean }) {
+  const withLogo = wall.filter((s) => s.hasLogo); if (!withLogo.length) return null;
+  const tiers = [...new Set(withLogo.map((s) => s.tier))];
+  const Logo = ({ s, big }: { s: (typeof wall)[number]; big: boolean }) => {
+    const img = <img src={`/api/school/sponsor-logo?t=${encodeURIComponent(tenantId)}&id=${encodeURIComponent(s.id)}`} alt={s.name} loading="lazy" className={`${big ? 'max-h-20 max-w-[200px]' : 'max-h-12 max-w-[140px]'} object-contain`} />;
+    return s.url ? <a href={s.url} target="_blank" rel="sponsored noopener" title={s.name} className="sch-card flex items-center justify-center p-4 transition hover:-translate-y-0.5">{img}</a> : <div title={s.name} className="sch-card flex items-center justify-center p-4">{img}</div>;
+  };
+  if (compact) return <div className="flex flex-wrap items-center gap-3">{withLogo.slice(0, 12).map((s) => <Logo key={s.id} s={s} big={false} />)}</div>;
+  return <div className="space-y-5">{tiers.map((t) => { const list = withLogo.filter((s) => s.tier === t); const big = list[0]?.rank === 0; return (
+    <div key={t} className="space-y-2"><p className="text-[12px] font-semibold uppercase tracking-[0.2em] text-stone-500">{t}</p>
+      <div className={`grid gap-3 ${big ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2 sm:grid-cols-4'}`}>{list.map((s) => <Logo key={s.id} s={s} big={big} />)}</div></div>
+  ); })}</div>;
+}
