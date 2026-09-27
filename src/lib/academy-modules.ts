@@ -110,7 +110,7 @@ export async function notifyModuleOpen(tenantId: string, courseId: string, modul
     const st = ((await db.doc(`tenants/${tenantId}/students/${e.studentId}`).get()).data() as any) || {};
     let subject = `New module open: ${moduleTitle}`; let body = `“${moduleTitle}” in ${course.title || 'your course'} is now open. Jump back in:\n${origin}/learn/${tenantId}/${course.slug || ''}\n\n— ${school}`;
     if (st.language && st.language !== 'en') { try { [subject, body] = await translateTexts(tenantId, [subject, body], st.language); } catch { /* English */ } }
-    try { await sendEmail(e.email, subject, body); sent++; } catch { /* skip */ }
+    try { await sendEmail(e.email, subject, body, tenantId); sent++; } catch { /* skip */ }
   }
   return sent;
 }
