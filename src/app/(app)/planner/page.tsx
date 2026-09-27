@@ -143,17 +143,29 @@ function PlannerPageContent() {
   );
   const { data: tourAppsRaw } = useCollection<any>(tourAppsQ);
 
+  // School tours (booked on the school website) share the same tour records
+  // and schedule as booth tours; they're shown here the same way.
+  const schoolToursQ = useMemoFirebase(
+    () => !firestore || !tenantId ? null :
+      query(collection(firestore, `tenants/${tenantId}/tours`), where('purpose', '==', 'school')),
+    [firestore, tenantId]
+  );
+  const { data: schoolToursRaw } = useCollection<any>(schoolToursQ);
   const toursToday = useMemo(() => {
-    if (!tourAppsRaw) return [];
-    return tourAppsRaw.filter((t: any) => {
+    const school = (schoolToursRaw || []).filter((t: any) => ['requested', 'confirmed'].includes(String(t.status || '')) && t.date && t.time).map((t: any) => {
+      const startIso = `${t.date}T${t.time}:00`; const s0 = safeDate(startIso);
+      return { id: `school-${t.id}`, name: t.name, tourStartIso: startIso, tourEndIso: s0 && !isNaN(s0.getTime()) ? addMinutes(s0, t.durationMins || 30).toISOString() : undefined, status: t.status, phone: t.phone, email: t.email, boothName: 'School tour' };
+    }).filter((t: any) => { const d = safeDate(t.tourStartIso); return d && !isNaN(d.getTime()) && isSameDay(d, currentDate); });
+    if (!tourAppsRaw) return school;
+    return [...school, ...tourAppsRaw.filter((t: any) => {
       if (!t || !t.tourStartIso) return false;
       // Hide every resolved state — 'closed' is what the "Resolve" button sets,
       // so without it a handled tour lingered on the planner all day.
       if (['declined', 'cancelled', 'closed', 'completed', 'archived', 'no_show', 'done', 'converted'].includes(String(t.status || ''))) return false;
       const d = safeDate(t.tourStartIso);
       return d && !isNaN(d.getTime()) && isSameDay(d, currentDate);
-    });
-  }, [tourAppsRaw, currentDate]);
+    })];
+  }, [tourAppsRaw, schoolToursRaw, currentDate]);
 
   // Accepted interview slots from the hiring funnel render as calendar items
   // here at the DISPLAY layer only — interviews never touch the appointments
