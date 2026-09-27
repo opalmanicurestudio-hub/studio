@@ -35,7 +35,7 @@ export function StudentJourney({ tenantId, brand }: { tenantId: string; brand: {
   const [thread, setThread] = useState<{ studentId: string; name: string; messages: any[] } | null>(null);
   const [reply, setReply] = useState('');
   const [anns, setAnns] = useState<any[] | null>(null);
-  const [ann, setAnn] = useState({ title: '', body: '', programId: '', cohortId: '', email: true });
+  const [ann, setAnn] = useState({ title: '', body: '', programId: '', cohortId: '', email: true, eventAt: '', eventEndAt: '', location: '' });
   const [meta, setMeta] = useState<any>(null);   // programs + cohorts for targeting
   const [out, setOut] = useState<any>(null);
   const [msg, setMsg] = useState('');
@@ -102,9 +102,15 @@ export function StudentJourney({ tenantId, brand }: { tenantId: string; brand: {
               <select className={field} value={ann.cohortId} onChange={(e) => setAnn({ ...ann, cohortId: e.target.value })} disabled={!ann.programId}><option value="">All cohorts</option>{(meta?.cohorts || []).filter((c: any) => c.programId === ann.programId).map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
               <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={ann.email} onChange={(e) => setAnn({ ...ann, email: e.target.checked })} />Email it too</label>
             </div>
-            <button type="button" disabled={busy || !ann.title || !ann.body} onClick={async () => { setBusy(true); const r = await J(tenantId, { action: 'announce', ...ann }); setBusy(false); if (r.ok) { setMsg(`Sent to ${r.recipients} student${r.recipients === 1 ? '' : 's'}${ann.email ? ` (${r.emailed} emailed)` : ''}.`); setAnn({ title: '', body: '', programId: '', cohortId: '', email: true }); setAnns(null); } else setMsg(r.error); }} className="h-10 rounded-xl bg-foreground px-5 text-sm font-bold text-background disabled:opacity-50">Send announcement</button>
+            <details className="rounded-xl bg-muted/40 p-2 text-sm" open={!!ann.eventAt}><summary className="cursor-pointer font-bold">📅 It’s an event (students can add it to their calendar)</summary>
+              <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                <label className="text-[12px] font-bold">Starts<input type="datetime-local" className={field} value={ann.eventAt} onChange={(e) => setAnn({ ...ann, eventAt: e.target.value })} /></label>
+                <label className="text-[12px] font-bold">Ends (optional)<input type="datetime-local" className={field} value={ann.eventEndAt} onChange={(e) => setAnn({ ...ann, eventEndAt: e.target.value })} /></label>
+                <label className="text-[12px] font-bold">Where (optional)<input className={field} value={ann.location} onChange={(e) => setAnn({ ...ann, location: e.target.value })} placeholder="e.g. Classroom B" /></label>
+              </div></details>
+            <button type="button" disabled={busy || !ann.title || !ann.body} onClick={async () => { setBusy(true); const r = await J(tenantId, { action: 'announce', ...ann, eventAt: ann.eventAt ? new Date(ann.eventAt).toISOString() : null, eventEndAt: ann.eventEndAt ? new Date(ann.eventEndAt).toISOString() : null }); setBusy(false); if (r.ok) { setMsg(`Sent to ${r.recipients} student${r.recipients === 1 ? '' : 's'}${ann.email ? ` (${r.emailed} emailed)` : ''}.`); setAnn({ title: '', body: '', programId: '', cohortId: '', email: true, eventAt: '', eventEndAt: '', location: '' }); setAnns(null); } else setMsg(r.error); }} className="h-10 rounded-xl bg-foreground px-5 text-sm font-bold text-background disabled:opacity-50">Send announcement</button>
           </div>
-          {(anns || []).map((a) => <div key={a.id} className="rounded-2xl bg-muted/40 p-3 text-sm"><p className="font-bold">{a.title}</p><p className="whitespace-pre-wrap">{a.body}</p><p className="mt-1 text-[11px] text-muted-foreground">{a.by} · {dt(a.at)}</p></div>)}
+          {(anns || []).map((a) => <div key={a.id} className="rounded-2xl bg-muted/40 p-3 text-sm"><p className="font-bold">{a.title}</p>{a.eventAt && <p className="text-[12px] font-bold text-violet-800">📅 {new Date(a.eventAt).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}{a.location ? ` · ${a.location}` : ''}</p>}<p className="whitespace-pre-wrap">{a.body}</p><p className="mt-1 text-[11px] text-muted-foreground">{a.by} · {dt(a.at)}{a.ackCount != null ? <> · <b className="text-emerald-800">✓ {a.ackCount}{a.recipientCount ? ` of ${a.recipientCount}` : ''} got it</b></> : null}</p></div>)}
         </div>
       )}
 
