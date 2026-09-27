@@ -27,6 +27,7 @@ import { collection } from 'firebase/firestore';
 import { resourceDowntime } from '@/lib/availability';
 import type { ReactNode } from 'react';
 import { Counter } from './Counter';
+import { DeskDelay } from './DeskDelay';
 
 type Stage = 'arriving' | 'waiting' | 'service' | 'ready' | 'done';
 type View = 'timeline' | 'lanes' | 'stations' | 'mix';
@@ -49,6 +50,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [mode, setMode] = useState<'desk' | 'counter'>('desk');
   const [about, setAbout] = useState<Guest | null>(null);
+  const [lateFor, setLateFor] = useState<Guest | null>(null);
   const [moreOpen, setMoreOpen] = useState(false); const [moreTab, setMoreTab] = useState<'team' | 'waitlist' | 'spaces'>('waitlist');
   // Maintenance & disruptions — only for businesses with the maintenance tool.
   const maintOn = moduleEnabled(tenant, 'maintenance');
@@ -182,12 +184,10 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   };
   const phoneOf = (g: Guest) => { const c = (e.clients || []).find((x: any) => x.id === (g.appt?.clientId || g.walkIn?.clientId)); return (c?.phone || g.walkIn?.phone || g.appt?.clientPhone || '').replace(/[^\d+]/g, ''); };
   const setWalkIn = (g: Guest, patch: any) => { if (e.firestore && e.tenantId) updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId, 'walkIns', g.walkIn.id), patch); };
-  const late = (g: Guest, m: number) => e.handleUpdateStatus(g.appt.id, false, 'running_late', m);
   const menuFor = (g: Guest) => { const ph = phoneOf(g); const aboutItem = { label: 'About this entry…', hint: 'What it is, where it came from — and remove it', onSelect: () => setAbout(g) }; return g.kind === 'appt' ? [
       aboutItem,
       { label: 'Details & reschedule', onSelect: () => open(g) },
-      g.stage === 'arriving' && { label: 'Running 10 min late', hint: 'Your late-arrival policy applies (fee or auto-cancel if set)', onSelect: () => late(g, 10) },
-      g.stage === 'arriving' && { label: 'Running 20 min late', onSelect: () => late(g, 20) },
+      g.stage === 'arriving' && { label: 'Running late…', hint: 'See what it affects and choose — nothing is charged automatically', onSelect: () => setLateFor(g) },
       ph && { label: 'Call', onSelect: () => { window.location.href = `tel:${ph}`; } },
       ph && { label: 'Text', onSelect: () => { window.location.href = `sms:${ph}`; } },
       (g.stage === 'arriving' || g.stage === 'waiting') && { label: 'Cancel or no-show…', tone: 'danger' as const, onSelect: () => e.handleCancelAction(g.appt.id, false) },
@@ -296,6 +296,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
         </LayoutGroup>}
         {mode === 'desk' && <p className="mt-6 text-center text-[12px]" style={{ color: 'var(--muted)' }}>★ recommended for {solo ? 'a solo business' : 'your team'} · this device remembers your view</p>}
       </main>
+      <DeskDelay e={e} appt={lateFor?.appt || null} accent={accent} onClose={() => setLateFor(null)} />
       <Drawer accent={accent} open={!!about} onClose={() => setAbout(null)} title="About this entry">
         {about && (() => { const r = about.appt || about.walkIn || {}; const created = toDate(r.createdAt || r.checkInTime); const paid = r.depositStatus === 'paid' || Number(r.amountPaid) > 0;
           const rows: [string, string][] = [['What it is', about.kind === 'appt' ? 'A booking' : 'A walk-in'], ['Name on it', r.clientName || r.customerName || '— none —'], ['Service', about.service], ['With', about.staffName || '— anyone —'],
