@@ -24,6 +24,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { api, getToken, Shell, Loading, GameChips } from '@/components/academy/Learn';
 import { AnnouncementItem } from '@/components/academy/Announcement';
+import { SignatureField } from '@/components/academy/SignatureField';
 
 // ── The portal's words (English) — translated for other languages ─────────
 const S = {
@@ -40,7 +41,7 @@ const S = {
   write: 'Write to your school', send: 'Send', showOriginal: 'Show original', showTranslation: 'Show translation', translatedNote: 'Translated automatically',
   agreement: 'Enrolment agreement', signedOn: 'Signed on', readingAid: 'Translation to help you understand — the English original is the version you signed.',
   myLearning: 'My learning', cardsDue: 'cards due', notesWord: 'notes', reviewTab: 'Review', notesTab: 'Notes', glossaryTab: 'Glossary', showAnswer: 'Tap to see the answer', again: 'Again', hard: 'Hard', good: 'Good', easy: 'Easy', allReviewed: 'All caught up for today', comeBack: 'Come back tomorrow — spacing it out is what makes it stick.', searchWord: 'Search', noNotes: 'Highlights and notes you make in lessons appear here.', newWord: 'New', learnedWord: 'learned',
-  readSign: 'Please read and sign', signBtn: 'Read and sign', typeName: 'Type your full name', agreeLine: 'I have read and understood this document.', signNow: 'Sign', signedWord: 'Signed', schoolDocs: 'School documents', readWord: 'Read',
+  readSign: 'Please read and sign', drawSign: 'Draw your signature', clearWord: 'Clear', signedCopy: 'Signed copy', signBtn: 'Read and sign', typeName: 'Type your full name', agreeLine: 'I have read and understood this document.', signNow: 'Sign', signedWord: 'Signed', schoolDocs: 'School documents', readWord: 'Read',
   todo: 'To do', dueWord: 'Due', overdueWord: 'Overdue', reviewWord: 'Review', allDone: 'All caught up', lessonsWord: 'lessons', goWord: 'Start',
   toGo: 'to go', certificates: 'Certificates',
   practice: 'State-board practice', practiceHint: 'Timed, mixed questions from your courses — see which topics to study.', questionsWord: 'questions', startPractice: 'Start', handIn: 'Hand in', timeLeft: 'left', unanswered: 'unanswered',
@@ -292,6 +293,7 @@ function DocsTab({ w, lang, tenantId, color }: any) {
       <SchoolDocsList w={w} tenantId={tenantId} color={color} />
       {d.agreements.map((a: any, i: number) => (
         <Card key={i} title={w.agreement}><p className="text-sm">{w.signedOn} {fmt(a.signedAt, lang, { year: 'numeric', month: 'long', day: 'numeric' })} · {a.signedName}</p>
+          {a.hasPdf && <SignedCopy w={w} tenantId={tenantId} kind="agreement" id={a.id} />}
           <details className="mt-2"><summary className="cursor-pointer text-sm font-semibold">{w.open}</summary><pre className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap rounded-xl bg-white/70 p-3 text-[13px]">{trAgreement ?? a.text}</pre>
             {lang !== 'en' && <button type="button" onClick={async () => { if (trAgreement) { setTrAgreement(null); return; } const r = await api({ action: 'translate', tenantId, token: getToken(tenantId), texts: String(a.text).split(/\n{2,}/) }); if (r.ok) setTrAgreement(r.texts.join('\n\n')); }} className="mt-2 text-sm underline">{trAgreement ? w.showOriginal : w.showTranslation}</button>}
             {trAgreement && <p className="mt-1 text-[12px] text-amber-800">{w.readingAid}</p>}</details></Card>
@@ -379,7 +381,7 @@ function TodoCard({ w, lang, tenantId, color }: any) {
 
 /** A school document to read (and sign, if required). */
 function DocReader({ id, w, tenantId, color, onDone }: any) {
-  const [d, setD] = useState<any>(null); const [name, setName] = useState(''); const [agree, setAgree] = useState(false); const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
+  const [d, setD] = useState<any>(null); const [name, setName] = useState(''); const [agree, setAgree] = useState(false); const [busy, setBusy] = useState(false); const [err, setErr] = useState(''); const [sig, setSig] = useState<string | null>(null);
   useEffect(() => { api({ action: 'doc-read', tenantId, token: getToken(tenantId), id }).then((r) => r.ok && setD(r.doc)); }, [id, tenantId]);
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-[#f7f5f2]">
@@ -390,9 +392,10 @@ function DocReader({ id, w, tenantId, color, onDone }: any) {
           <div className="rounded-3xl bg-white p-5 text-[15px] leading-relaxed [&_h2]:mb-1 [&_h2]:mt-5 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mt-3 [&_h3]:font-semibold [&_li]:ml-5 [&_li]:list-disc [&_p]:my-2" dangerouslySetInnerHTML={{ __html: mdLite(d.body) }} />
           {d.requireAck && <div className="space-y-3 rounded-3xl bg-white p-5">
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder={w.typeName} className="h-12 w-full rounded-2xl border px-4 text-[16px]" autoComplete="name" />
+            <SignatureField color={color} label={w.drawSign} clearLabel={w.clearWord} onChange={setSig} />
             <label className="flex items-start gap-3 text-[15px]"><input type="checkbox" className="mt-1 h-5 w-5" checked={agree} onChange={(e) => setAgree(e.target.checked)} />{w.agreeLine}</label>
             {err && <p className="text-sm text-red-700">{err}</p>}
-            <button type="button" disabled={busy || name.trim().length < 2 || !agree} onClick={async () => { setBusy(true); setErr(''); const r = await api({ action: 'doc-sign', tenantId, token: getToken(tenantId), id, name, agree }); setBusy(false); if (r.ok) onDone(true); else setErr(r.error); }} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>{busy ? '…' : w.signNow}</button>
+            <button type="button" disabled={busy || name.trim().length < 2 || !agree || !sig} onClick={async () => { setBusy(true); setErr(''); const r = await api({ action: 'doc-sign', tenantId, token: getToken(tenantId), id, name, agree, signature: sig }); setBusy(false); if (r.ok) onDone(true); else setErr(r.error); }} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>{busy ? '…' : w.signNow}</button>
           </div>}
         </>}
       </div>
@@ -416,10 +419,17 @@ function SchoolDocsList({ w, tenantId, color }: any) {
   if (!docs || !docs.length) return null;
   return (<>
     <Card title={w.schoolDocs}>{docs.map((x) => <button key={x.id} type="button" onClick={() => setOpen(x.id)} className="flex w-full items-center justify-between gap-3 py-2 text-left text-[15px]"><span>📄 {x.title}</span><span className={`shrink-0 text-[12px] ${x.signed ? 'text-emerald-700' : x.requireAck ? 'font-semibold text-red-700' : 'text-stone-500'}`}>{x.signed ? `✓ ${w.signedWord}` : x.requireAck ? w.signBtn : w.readWord}</span></button>)}</Card>
+    {docs.some((x: any) => x.hasPdf) && <Card title={w.signedCopy}>{docs.filter((x: any) => x.hasPdf).map((x: any) => <div key={x.id} className="flex items-center justify-between gap-3 py-1.5 text-[15px]"><span className="min-w-0 truncate">📄 {x.title}</span><SignedCopy w={w} tenantId={tenantId} kind="doc" id={x.id} /></div>)}</Card>}
     {open && <DocReader id={open} w={w} tenantId={tenantId} color={color} onDone={async () => { setOpen(null); await load(); }} />}
   </>);
 }
 
+
+/** The student's own signed PDF — opened through a short-lived link. */
+function SignedCopy({ w, tenantId, kind, id }: { w: any; tenantId: string; kind: 'doc' | 'agreement'; id: string }) {
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
+  return <span className="inline-flex items-center gap-2"><button type="button" disabled={busy} onClick={async () => { setBusy(true); setErr(''); const r = await api({ action: 'my-signed-pdf', tenantId, token: getToken(tenantId), kind, id }); setBusy(false); if (r.ok && r.url) window.open(r.url, '_blank'); else setErr(r.error || '—'); }} className="shrink-0 rounded-full bg-white px-3 py-1.5 text-[13px] shadow-sm disabled:opacity-50">📄 {w.signedCopy}</button>{err && <span className="text-[12px] text-red-700">{err}</span>}</span>;
+}
 
 // ── My learning: review (spaced flashcards) · notes · glossary ────────────
 function MyLearning({ w, tenantId, color }: any) {
