@@ -794,7 +794,7 @@ Reply with the complete HTML only, inside one \`\`\`html code block.${gameRules}
       // A passing grade completes the lesson for the student.
       if (!redo && pct >= passGrade) await db.doc(`tenants/${tenantId}/enrollments/${sub.courseId}_${sub.studentId}`).set({ progress: { [sub.lessonId]: now } }, { merge: true });
       await appendAudit(tenantId, { type: 'assignment.graded', studentId: sub.studentId, courseId: sub.courseId, by: who, summary: `${sub.name || sub.email}: “${lx.title || 'assignment'}” ${pct}% (${grade.letter})${redo ? ' — returned for resubmission' : ''}`, data: { submissionId: ref.id, pct } });
-      try { const { sendEmail } = await import('@/lib/academy-journey'); await sendEmail(sub.email, `Your assignment has been ${redo ? 'returned for another try' : 'graded'}`, `“${lx.title || 'Assignment'}” — ${pct}% (${grade.letter}).\n\n${grade.feedback}\n\nSee it in your student portal.`); } catch { /* no email */ }
+      try { const { sendEmail } = await import('@/lib/academy-journey'); await sendEmail(sub.email, `Your assignment has been ${redo ? 'returned for another try' : 'graded'}`, `“${lx.title || 'Assignment'}” — ${pct}% (${grade.letter}).\n\n${grade.feedback}\n\nSee it in your student portal.`, tenantId); } catch { /* no email */ }
       return NextResponse.json({ ok: true, pct, letter: grade.letter });
     }
     if (b.action === 'gradebook') {
