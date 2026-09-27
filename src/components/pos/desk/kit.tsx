@@ -8,7 +8,7 @@
 // app's primary colour. Motion only follows something the user did, and turns
 // off for "reduce motion".
 
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -111,5 +111,22 @@ export function Drawer({ open, onClose, title, children, wide }: { open: boolean
       </div>
     )}</AnimatePresence>,
     document.body,
+  );
+}
+
+/** "⋯" menu on a card — the less-common actions, one tap away. */
+export function Menu({ items, label = 'More actions' }: { items: ({ label: string; onSelect: () => void; tone?: 'danger'; hint?: string } | null | false)[]; label?: string }) {
+  const [open, setOpen] = useState(false); const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (!open) return; const h = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); }; document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h); }, [open]);
+  const list = items.filter(Boolean) as { label: string; onSelect: () => void; tone?: 'danger'; hint?: string }[];
+  if (!list.length) return null;
+  return (
+    <div ref={ref} className="relative">
+      <button type="button" aria-label={label} aria-expanded={open} onClick={() => setOpen((o) => !o)} className="flex h-9 w-9 items-center justify-center rounded-full text-[18px] leading-none" style={{ background: 'var(--soft)' }}>⋯</button>
+      {open && <div role="menu" className="absolute right-0 top-10 z-30 w-56 overflow-hidden rounded-2xl py-1 shadow-xl" style={{ background: 'var(--card)', border: '1px solid var(--line)' }}>
+        {list.map((it) => <button key={it.label} role="menuitem" type="button" onClick={() => { setOpen(false); it.onSelect(); }} className="block w-full px-4 py-2.5 text-left text-[14px] hover:opacity-80" style={it.tone === 'danger' ? { color: '#b42318' } : undefined}>
+          {it.label}{it.hint && <span className="block text-[11px]" style={{ color: 'var(--muted)' }}>{it.hint}</span>}</button>)}
+      </div>}
+    </div>
   );
 }
