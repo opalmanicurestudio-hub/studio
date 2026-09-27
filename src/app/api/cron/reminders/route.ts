@@ -22,6 +22,7 @@
 // reminder goes out — reruns and overlapping windows can't double-text.
 // Delivery: SMS first, branded-email fallback, per the messaging layer.
 
+import { releaseUnpaidHolds } from '@/lib/release-unpaid';
 import { recordCronRun } from '@/lib/cron-heartbeat';
 import { linkOrigin } from '@/lib/app-origin';
 import { NextRequest, NextResponse } from 'next/server';
@@ -50,6 +51,8 @@ export async function GET(req: NextRequest) {
 
   for (const tDoc of tenants.docs) {
     const tid = tDoc.id;
+    // Daily safety net for payment deadlines (the booking page also runs this while busy).
+    try { await releaseUnpaidHolds(db, tid); } catch (e) { console.error('[cron] release-unpaid', tid, e); }
     try {
       const cfg = ((tDoc.data() as any)?.clientNotify) || {};
       if (cfg.enabled === false) { results[tid] = 'disabled'; continue; }
