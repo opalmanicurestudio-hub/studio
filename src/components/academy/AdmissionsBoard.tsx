@@ -14,6 +14,7 @@
 //              a freed place goes to the waitlist automatically)
 
 import { deviceId } from '@/lib/device';
+import { ApplicationForms } from '@/components/academy/ApplicationForms';
 import { AdmissionReview } from '@/components/academy/AdmissionReview';
 import { printDocument, esc, heading, type DocBrand } from '@/lib/doc-theme';
 import { useCallback, useEffect, useState } from 'react';
@@ -39,6 +40,7 @@ export function AdmissionsBoard({ tenantId, brand }: { tenantId: string; brand?:
   const [x, setX] = useState<any>(null);           // the open applicant
   const [tuition, setTuition] = useState<any>(null);
   const [add, setAdd] = useState<any>(null);
+  const [forms, setForms] = useState(false);
   const [cohort, setCohort] = useState<any>(null);
   const [quote, setQuote] = useState<any>(null);
   const [msg, setMsg] = useState('');
@@ -57,6 +59,7 @@ export function AdmissionsBoard({ tenantId, brand }: { tenantId: string; brand?:
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">{([['pipeline', 'Pipeline'], ['tuition', 'Tuition'], ['cohorts', 'Cohorts']] as const).map(([k, l]) => <button key={k} type="button" onClick={() => setTab(k)} className={`h-9 shrink-0 whitespace-nowrap rounded-full px-4 text-sm font-bold ${tab === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}>{l}</button>)}</div>
         <div className="flex gap-2">
+          <button type="button" onClick={() => setForms(!forms)} className="inline-flex h-9 items-center rounded-full border-2 px-3 text-[13px] font-bold">⚙ Application forms</button>
           <a href={`/learn/${tenantId}/apply`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center rounded-full border-2 px-3 text-[13px] font-bold">Your apply page ↗</a>
           {tab === 'pipeline' && <button type="button" onClick={() => setAdd({ name: '', email: '', phone: '', programId: d.programs[0]?.id || '', note: '' })} className="inline-flex h-9 items-center gap-1 rounded-full bg-foreground px-4 text-[13px] font-bold text-background"><Plus className="h-4 w-4" />Add inquiry</button>}
         </div>
@@ -73,6 +76,8 @@ export function AdmissionsBoard({ tenantId, brand }: { tenantId: string; brand?:
         </div>
       )}
 
+      {forms && <ApplicationForms programs={d.programs} onClose={() => setForms(false)} save={async (programId, form) => { const r = await act({ action: 'admission-setup-save', programId, ...form }, 'Application form saved.'); return !!r?.ok; }} />}
+
       {tab === 'pipeline' && (
         <>
           <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-2">
@@ -88,6 +93,8 @@ export function AdmissionsBoard({ tenantId, brand }: { tenantId: string; brand?:
                       {a.signed && <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-emerald-800">signed</span>}
                       {k === 'waitlist' && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-amber-800">#{items.indexOf(a) + 1}</span>}
                       {a.offerExpiresAt && <span className={`rounded-full px-1.5 py-0.5 ${Date.parse(a.offerExpiresAt) - Date.now() < 2 * 86400000 ? 'bg-red-100 text-red-800' : 'bg-violet-100 text-violet-800'}`}>answer by {new Date(a.offerExpiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
+                      {a.interviewChange && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-amber-900">⚠ interview change</span>}
+                      {a.interviewOffered && <span className="rounded-full bg-sky-100 px-1.5 py-0.5 text-sky-800">times offered</span>}
                       {a.tourAt && <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-emerald-800">tour {new Date(a.tourAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
                       {a.interviewAt && <span className="rounded-full bg-sky-100 px-1.5 py-0.5 text-sky-800">interview {new Date(a.interviewAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
                       {a.source && <span className="rounded-full bg-muted px-1.5 py-0.5">{a.source}</span>}
