@@ -9,6 +9,7 @@
 //   interview-result · rubric-score · decide · condition-met · offer-extend ·
 //   admission-setup · admission-setup-save · set-language
 
+import { notifyApplicant, bookInterview, offerInterviewTimes, acceptProposal, cancelInterview } from '@/lib/academy-applicant-comms';
 import { sendAcademyEmail } from '@/lib/academy-email';
 import { deviceAllowed } from '@/lib/approved-devices';
 import { NextRequest, NextResponse } from 'next/server';
@@ -50,9 +51,9 @@ export async function POST(req: NextRequest) {
       const [adm, cohorts, progs] = await Promise.all([db.collection(`tenants/${tenantId}/admissions`).limit(2000).get(), db.collection(`tenants/${tenantId}/cohorts`).limit(200).get(), db.collection(`tenants/${tenantId}/programs`).limit(100).get()]);
       const cs = cohorts.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
       const all = adm.docs.map((d: any) => { const a = d.data() as any; return { id: d.id, name: a.name, email: a.email, phone: a.phone || null, programId: a.programId, cohortId: a.cohortId || null, stage: a.stage, source: a.source || null, createdAt: a.createdAt, updatedAt: a.updatedAt || a.createdAt, waitlisted: !!a.waitlisted,
-        docsDone: Object.values(a.documents || {}).filter((x: any) => x.status === 'verified').length, docsTotal: (a.requiredDocs || []).length, signed: !!a.agreement?.signedAt, offerExpiresAt: a.stage === 'offer' ? a.offer?.expiresAt || null : null, waitlistedAt: a.waitlistedAt || null, interviewAt: a.interview?.status === 'scheduled' ? a.interview.at : null, tourAt: a.stage === 'tour' && a.tour?.date ? `${a.tour.date}T${a.tour.time || '12:00'}:00` : null }; });
+        docsDone: Object.values(a.documents || {}).filter((x: any) => x.status === 'verified').length, docsTotal: (a.requiredDocs || []).length, signed: !!a.agreement?.signedAt, offerExpiresAt: a.stage === 'offer' ? a.offer?.expiresAt || null : null, waitlistedAt: a.waitlistedAt || null, interviewAt: a.interview?.status === 'scheduled' ? a.interview.at : null, interviewChange: a.interview?.status === 'reschedule_requested', interviewOffered: a.interview?.status === 'offered', tourAt: a.stage === 'tour' && a.tour?.date ? `${a.tour.date}T${a.tour.time || '12:00'}:00` : null }; });
       for (const c of cs) { (c as any).enrolled = all.filter((a: any) => a.cohortId === c.id && a.stage === 'enrolled').length; (c as any).seatsTaken = all.filter((a: any) => a.cohortId === c.id && SEAT_STAGES.includes(a.stage)).length; }
-      return NextResponse.json({ ok: true, stages: STAGES, admissions: all, cohorts: cs, programs: progs.docs.map((d: any) => { const p = d.data() as any; return { id: d.id, name: p.name, tuition: p.tuition || null }; }) });
+      return NextResponse.json({ ok: true, stages: STAGES, admissions: all, cohorts: cs, programs: progs.docs.map((d: any) => { const p = d.data() as any; return { id: d.id, name: p.name, tuition: p.tuition || null, form: { checks: setupOf(p).checks, rubric: setupOf(p).rubric, questions: p.admission?.questions || [], docs: (p.requiredDocs?.length ? p.requiredDocs : DEFAULT_DOCS).map((k: string) => ({ name: k, note: p.docNotes?.[k] || '' })) } }; }) });
     }
 
     if (b.action === 'create') {
@@ -93,7 +94,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Review and decisions ──
-    if (['start-review', 'check-set', 'interview-set', 'interview-result', 'rubric-score', 'condition-met', 'offer-extend', 'set-language'].includes(b.action)) {
+    if (['start-review', 'check-set', 'interview-set', 'interview-result', 'rubric-score', 'condition-met', 'offer-extend', 'set-language', 'interview-offer', 'interview-accept', 'interview-cancel'].includes(b.action)) {
       const a = ((await aRef(b.id).get()).data() as any) || null;
       if (!a) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
       if (b.action === 'start-review') {
@@ -107,13 +108,16 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true });
       }
       if (b.action === 'interview-set') {
-        const at = String(b.at || ''); if (!at || isNaN(Date.parse(at))) return NextResponse.json({ ok: false, error: 'Choose a date and time.' }, { status: 400 });
-        const interview = { at: new Date(at).toISOString(), where: String(b.where || '').slice(0, 200), with: String(b.with || who).slice(0, 80), status: 'scheduled', by: who };
-        await aRef(b.id).set({ interview, updatedAt: now }, { merge: true });
-        await appendAudit(tenantId, { type: 'admissions.interview', by: who, summary: `${a.name}: interview ${new Date(interview.at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}`, data: { admissionId: b.id } });
-        let emailed = false;
-        if (b.notify) emailed = await email(a.email, `Your admissions interview — ${t.name || 'our school'}`, `Hi ${String(a.name).split(' ')[0]},\n\nYour admissions interview is booked:\n\n${String(b.whenText || new Date(interview.at).toUTCString())}\n${interview.where ? `Where: ${interview.where}\n` : ''}With: ${interview.with}\n\nIf you need a different time, just reply to this email.\n\n— ${t.name || ''}`, tenantId);
-        return NextResponse.json({ ok: true, emailed });
+        try { const r = await bookInterview(tenantId, String(b.id), { at: String(b.at || ''), where: b.where, with: b.with, whenText: b.whenText, notify: b.notify !== false }, who, origin); return NextResponse.json({ ok: true, ...r }); }
+        catch (e: any) { return NextResponse.json({ ok: false, error: e?.message || 'Couldn’t book the interview.' }, { status: 400 }); }
+      }
+      if (b.action === 'interview-offer' || b.action === 'interview-accept' || b.action === 'interview-cancel') {
+        try {
+          const r = b.action === 'interview-offer' ? await offerInterviewTimes(tenantId, String(b.id), { slots: b.slots, where: b.where, with: b.with }, who, origin)
+            : b.action === 'interview-accept' ? await acceptProposal(tenantId, String(b.id), Number(b.index), who, origin)
+            : await cancelInterview(tenantId, String(b.id), who, origin, String(b.reason || '').slice(0, 300) || undefined);
+          return NextResponse.json({ ok: true, ...r });
+        } catch (e: any) { return NextResponse.json({ ok: false, error: e?.message || 'Couldn’t update the interview.' }, { status: 400 }); }
       }
       if (b.action === 'interview-result') {
         if (!a.interview) return NextResponse.json({ ok: false, error: 'No interview booked.' }, { status: 400 });
@@ -157,8 +161,12 @@ export async function POST(req: NextRequest) {
       const clean = (x: any) => (Array.isArray(x) ? x : []).map((v: any) => String(v).trim().slice(0, 160)).filter(Boolean).slice(0, 15);
       const ref = db.doc(`tenants/${tenantId}/programs/${String(b.programId || '')}`);
       if (!(await ref.get()).exists) return NextResponse.json({ ok: false, error: 'Program not found.' }, { status: 404 });
-      await ref.set({ admission: { checks: clean(b.checks), rubric: clean(b.rubric) } }, { merge: true });
-      await appendAudit(tenantId, { type: 'admissions.setup', by: who, summary: `Admission checks updated for a program (${clean(b.checks).length} checks, ${clean(b.rubric).length} rubric criteria)` });
+      const questions = (Array.isArray(b.questions) ? b.questions : []).slice(0, 12).map((q: any, i: number) => ({ id: String(q.id || `q${i + 1}`).replace(/[^a-z0-9_-]/gi, '').slice(0, 20) || `q${i + 1}`, label: String(q.label || '').trim().slice(0, 200),
+        type: ['short', 'paragraph', 'choice', 'yesno'].includes(q.type) ? q.type : 'short', options: (Array.isArray(q.options) ? q.options : String(q.options || '').split('\n')).map((o: any) => String(o).trim().slice(0, 80)).filter(Boolean).slice(0, 10), required: !!q.required })).filter((q: any) => q.label && (q.type !== 'choice' || q.options.length >= 2));
+      const docs = (Array.isArray(b.docs) ? b.docs : []).map((d: any) => ({ name: String(d.name || '').trim().slice(0, 80), note: String(d.note || '').trim().slice(0, 200) })).filter((d: any) => d.name).slice(0, 12);
+      // Only what was sent changes (the Checks panel sends checks + rubric; the form editor sends everything).
+      await ref.set({ admission: { ...(Array.isArray(b.checks) ? { checks: clean(b.checks) } : {}), ...(Array.isArray(b.rubric) ? { rubric: clean(b.rubric) } : {}), ...(Array.isArray(b.questions) ? { questions } : {}) }, ...(Array.isArray(b.docs) ? { requiredDocs: docs.map((d: any) => d.name), docNotes: Object.fromEntries(docs.filter((d: any) => d.note).map((d: any) => [d.name, d.note])) } : {}) }, { merge: true });
+      await appendAudit(tenantId, { type: 'admissions.setup', by: who, summary: `Application form updated for a program (${clean(b.checks).length} checks, ${clean(b.rubric).length} rubric criteria)` });
       return NextResponse.json({ ok: true });
     }
 
@@ -185,6 +193,9 @@ export async function POST(req: NextRequest) {
       const verified = !!b.verified, reason = String(b.reason || '').trim().slice(0, 300);
       if (!verified && !reason) return NextResponse.json({ ok: false, error: 'Say why it can’t be accepted — the applicant sees this.' }, { status: 400 });
       await aRef(b.id).set({ documents: { [key]: { ...a.documents[key], status: verified ? 'verified' : 'rejected', reason: verified ? null : reason, checkedBy: who, checkedAt: now } }, updatedAt: now }, { merge: true });
+      const after = { ...a, id: String(b.id), documents: { ...a.documents, [key]: { ...a.documents[key], status: verified ? 'verified' : 'rejected' } } };
+      if (!verified) await notifyApplicant(tenantId, after, { kind: 'doc_rejected', origin, subject: `Please upload your ${key} again`, body: `We couldn’t accept the **${key}** you uploaded:\n\n${reason}\n\nPlease upload a new one on your application page — it only takes a minute.`, sms: `please upload your ${key} again (${reason.slice(0, 80)}).` });
+      else if ((a.requiredDocs || []).every((k: string) => after.documents?.[k]?.status === 'verified')) await notifyApplicant(tenantId, after, { kind: 'docs_verified', origin, subject: 'Your documents are all checked', body: 'Good news — all your documents have been checked and accepted. Your application is with our admissions team.', sms: 'all your documents are checked and accepted.' });
       await appendAudit(tenantId, { type: verified ? 'admissions.doc_verified' : 'admissions.doc_rejected', by: who, summary: `${a.name}: ${key} ${verified ? 'verified' : `rejected — ${reason}`}`, data: { admissionId: b.id, sha256: a.documents[key].sha256 || null } });
       return NextResponse.json({ ok: true });
     }
