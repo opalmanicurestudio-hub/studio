@@ -7,6 +7,7 @@
 //   video-status   (is Mux done processing? saves the playback id)
 //   students       (who's enrolled, and how far they've got)
 
+import { fundSummary, useReportDraft, fundNames, decideScholarship, directAward, applyAward, sendReceipt } from '@/lib/academy-funding';
 import { randomBytes } from 'crypto';
 import { getSettings, sanitize, tourRules } from '@/lib/school-site';
 import { getIdentity, saveIdentity, brandFromIdentity } from '@/lib/school-identity';
@@ -237,6 +238,42 @@ async function handle(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
     // One layout for every lesson in the course.
+    // ── Funding: gifts, scholarships, awards (Academy → Funding) ──
+    if (String(b.action).startsWith('funding-')) {
+      const F = `tenants/${tenantId}`;
+      try {
+        if (b.action === 'funding-summary') {
+          const tt = ((await db.doc(F).get()).data() as any) || {};
+          const [sum, gifts, apps, adm, funds, settings] = await Promise.all([fundSummary(tenantId, Number(b.year) || undefined), db.collection(`${F}/donations`).orderBy('createdAt', 'desc').limit(300).get(), db.collection(`${F}/scholarshipApplications`).orderBy('createdAt', 'desc').limit(300).get(),
+            db.collection(`${F}/admissions`).where('stage', 'in', ['offer', 'accepted', 'agreement', 'enrolled']).limit(1000).get(), fundNames(tenantId), getSettings(tenantId)]);
+          return NextResponse.json({ ok: true, summary: sum, draft: useReportDraft(sum, tt.name || 'our'), funds, canGive: !!tt.stripeAccountId, donorsOn: settings.donors.enabled, nonprofit: settings.donors.nonprofit && !!settings.donors.ein, useReport: settings.donors.useReport,
+            gifts: gifts.docs.map((d: any) => d.data()), apps: apps.docs.map((d: any) => d.data()),
+            students: adm.docs.map((d: any) => { const x = d.data() as any; return { id: d.id, name: x.name, email: x.email, stage: x.stage, programId: x.programId }; }).sort((x: any, y: any) => String(x.name).localeCompare(String(y.name))) });
+        }
+        if (b.action === 'funding-decide') return NextResponse.json({ ok: true, ...(await decideScholarship(tenantId, String(b.id || ''), b.decision || {}, who)) });
+        if (b.action === 'funding-direct') return NextResponse.json({ ok: true, id: await directAward(tenantId, { admissionId: String(b.admissionId || ''), amountCents: Number(b.amountCents), fund: String(b.fund || ''), reason: String(b.reason || '').slice(0, 100) }, who) });
+        if (b.action === 'funding-apply') { const r = await applyAward(tenantId, String(b.id || ''), who); return NextResponse.json({ ok: true, ...r }); }
+        if (['funding-note', 'funding-status'].includes(b.action)) {
+          const ref = db.doc(`${F}/scholarshipApplications/${String(b.id || '')}`); const x = ((await ref.get()).data() as any) || null;
+          if (!x) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
+          if (b.action === 'funding-note') { const text = String(b.text || '').trim().slice(0, 1000); if (!text) return NextResponse.json({ ok: false, error: 'Write a note.' }, { status: 400 }); await ref.set({ notes: [...(x.notes || []), { at: now, by: who, text }], updatedAt: now }, { merge: true }); }
+          else { if (!['reviewing', 'withdrawn', 'new'].includes(b.status) || ['awarded', 'declined'].includes(x.status)) return NextResponse.json({ ok: false, error: 'That can’t be changed now.' }, { status: 400 }); await ref.set({ status: b.status, updatedAt: now }, { merge: true }); }
+          return NextResponse.json({ ok: true });
+        }
+        if (b.action === 'funding-receipt') {
+          const g = ((await db.doc(`${F}/donations/${String(b.id || '')}`).get()).data() as any) || null; if (!g) return NextResponse.json({ ok: false, error: 'Gift not found.' }, { status: 404 });
+          const sent = await sendReceipt(tenantId, g); await db.doc(`${F}/donations/${g.id}`).set({ receiptSent: sent || g.receiptSent || false }, { merge: true });
+          return NextResponse.json({ ok: sent, error: sent ? undefined : 'The receipt couldn’t be emailed (no email on file, or email isn’t set up).' });
+        }
+        if (b.action === 'funding-report-save') {
+          const cur = await getSettings(tenantId); const prev = ((await db.doc(`${F}/schoolSite/main`).get()).data() as any) || {};
+          await db.doc(`${F}/schoolSite/main`).set({ ...cur, published: !!prev.published, donors: { ...cur.donors, useReport: String(b.text || '').slice(0, 2000) }, updatedAt: now, updatedBy: who });
+          await appendAudit(tenantId, { type: 'funding.report', by: who, summary: 'Published “How gifts have been used” on the website' });
+          return NextResponse.json({ ok: true });
+        }
+      } catch (e: any) { return NextResponse.json({ ok: false, error: e?.message || 'Something went wrong.' }, { status: 400 }); }
+    }
+
     // ── School website (Academy → Website) ──
     if (['site-get', 'site-save', 'site-image-add', 'site-image-remove', 'site-messages', 'site-message-status', 'tour-settings-save'].includes(String(b.action))) {
       const S = `tenants/${tenantId}/schoolSite`;
