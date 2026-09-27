@@ -8,6 +8,7 @@
 // task. Everything writes back to the tour record so the planner and CRM stay
 // in sync, and the outcome drives the tour → rental KPIs.
 
+import { logAuditClient } from '@/lib/audit-client';
 import React, { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -103,6 +104,7 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
       if (mirror) {
         try {
           await setDoc(doc(firestore, 'tenants', tenantId, 'tours', tourId as string), mirror, { merge: true });
+          void logAuditClient(firestore, tenantId, { action: 'tour.update', targetType: 'tour', targetId: String(tourId), summary: `Tour details changed by the team${mirror.date ? ` — now ${mirror.date}${mirror.time ? ` at ${mirror.time}` : ''}` : ''}${mirror.status ? ` (${mirror.status})` : ''}`, after: mirror, actor: { type: 'user', via: 'tour manager' } });
         } catch { /* the application write stands; the strip re-syncs on next edit */ }
       }
       onDone?.();
