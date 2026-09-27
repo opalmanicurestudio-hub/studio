@@ -16,6 +16,7 @@
 // Nothing here duplicates the hub's tour scorecard or application detail. This
 // answers one question — who is waiting on me — and hands off for the rest.
 
+import { logAuditClient } from '@/lib/audit-client';
 import React, { useEffect, useMemo, useState } from 'react';
 import { collection, doc, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore';
 import { useFirebase } from '@/firebase';
@@ -362,6 +363,8 @@ export default function PipelinePage() {
         status: decision === 'approve' ? 'confirmed' : 'declined',
         decidedAt: new Date().toISOString(),
       });
+      void logAuditClient(firestore, tenantId, { action: decision === 'approve' ? 'tour.confirm' : 'tour.decline', targetType: 'tour', targetId: tourId,
+        summary: `Tour ${decision === 'approve' ? 'confirmed' : 'declined'}${r.name ? ` — ${r.name}` : ''}`, actor: { type: 'user', name: actorName || undefined, via: 'pipeline' } });
       await updateDoc(doc(firestore, 'tenants', tenantId, 'boothApplications', r.id), {
         status: decision === 'approve' ? 'approved' : 'declined',
         decidedAt: new Date().toISOString(),
@@ -393,6 +396,7 @@ export default function PipelinePage() {
       await updateDoc(doc(firestore, 'tenants', tenantId, 'tours', tourId), {
         status: 'cancelled', cancelledAt: new Date().toISOString(),
       });
+      void logAuditClient(firestore, tenantId, { action: 'tour.cancel', targetType: 'tour', targetId: tourId, summary: `Tour cancelled by the team${r.name ? ` — ${r.name}` : ''}`, actor: { type: 'user', name: actorName || undefined, via: 'pipeline' } });
       let mail: any = null;
       try {
         const res = await fetch('/api/booths/notify', {
@@ -712,7 +716,9 @@ export default function PipelinePage() {
         await updateDoc(doc(firestore, 'tenants', tenantId, 'tours', live.id), {
           status: status === 'no_show' ? 'no_show' : 'cancelled',
           ...(status === 'no_show' ? { decidedAt: now } : { cancelledAt: now }),
-        }).catch(() => { /* the lead change stands */ });
+        }).then(() => logAuditClient(firestore, tenantId, { action: status === 'no_show' ? 'tour.no_show' : 'tour.cancel', targetType: 'tour', targetId: live.id,
+          summary: status === 'no_show' ? `Tour marked as missed${r.name ? ` — ${r.name}` : ''}` : `Tour cancelled because the lead was ${status}${r.name ? ` — ${r.name}` : ''}`, actor: { type: 'user', name: actorName || undefined, via: 'pipeline' } }))
+          .catch(() => { /* the lead change stands */ });
       }
       toast({ title: note, description: r.name });
     } catch {
