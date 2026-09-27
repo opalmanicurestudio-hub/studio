@@ -112,7 +112,31 @@ export function GiftThanks({ tenantId, sessionId }: { tenantId: string; sessionI
   useEffect(() => { let alive = true; (async () => { for (let i = 0; i < 8 && alive; i++) { const x = await post({ action: 'donate-confirm', tenantId, sessionId }); if (x.ok || !x.pending) { if (alive) setR(x); return; } await new Promise((res) => setTimeout(res, 1500)); } if (alive) setR({ ok: false, pending: true }); })(); return () => { alive = false; }; }, [tenantId, sessionId]);
   if (!r) return <div className="sch-card p-6 text-center" role="status">Confirming your gift…</div>;
   if (!r.ok) return <div className="sch-card p-6 text-center" role="status">{r.pending ? 'Your payment is still processing — your receipt will arrive by email shortly.' : 'We couldn’t confirm that payment. If you were charged, your receipt will still arrive by email.'}</div>;
-  return <div className="sch-card sch-rise space-y-2 p-6 text-center" role="status"><p className="text-4xl">💜</p><p className="text-2xl font-semibold">Thank you!</p><p className="text-stone-700">Your gift of ${(r.amountCents / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })} to {r.fund} was received.</p><p className="text-sm text-stone-600">Receipt {r.receiptNo}{r.emailed ? ' — also sent to your email.' : '.'}</p></div>;
+  return (
+    <div className="space-y-3">
+      <div className="sch-card sch-rise space-y-2 p-6 text-center" role="status"><p className="text-4xl">💜</p><p className="text-2xl font-semibold">Thank you!</p><p className="text-stone-700">Your gift of ${(r.amountCents / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })} to {r.fund} was received.</p><p className="text-sm text-stone-600">Receipt {r.receiptNo}{r.emailed ? ' — your thank-you letter and receipt are in your email.' : '.'}</p></div>
+      {r.logoOffer && <SponsorLogo tenantId={tenantId} sessionId={sessionId} />}
+    </div>
+  );
+}
+
+/** After a business gift: add a logo for the sponsor wall (the school approves it first). */
+function SponsorLogo({ tenantId, sessionId }: { tenantId: string; sessionId: string }) {
+  const [logo, setLogo] = useState(''); const [url, setUrl] = useState(''); const [busy, setBusy] = useState(false); const [err, setErr] = useState(''); const [done, setDone] = useState(false);
+  const pick = (f?: File | null) => { if (!f) return; setErr(''); const img = new Image(); img.onload = () => { const k = Math.min(1, 600 / Math.max(img.width, img.height)); const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k); c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height); let out = c.toDataURL('image/png'); if (out.length > 380_000) out = c.toDataURL('image/jpeg', 0.85); if (out.length > 380_000) { setErr('That logo is too large — try a smaller file.'); return; } setLogo(out); }; img.onerror = () => setErr('That file isn’t an image we can read.'); img.src = URL.createObjectURL(f); };
+  if (done) return <p className="sch-card p-5 text-center text-sm text-stone-700" role="status">✓ Thanks! Your logo will appear on our sponsor wall once our team has checked it.</p>;
+  return (
+    <div className="sch-card space-y-3 p-5">
+      <div><p className="text-lg font-semibold">Add your logo to our sponsor wall</p><p className="text-sm text-stone-600">We’d love to thank your business publicly, with a link to your website.</p></div>
+      <div className="flex items-center gap-3">
+        <div className="flex h-20 w-32 shrink-0 items-center justify-center rounded-xl border border-dashed border-stone-300 bg-white">{logo ? <img src={logo} alt="Your logo" className="max-h-16 max-w-28 object-contain" /> : <span className="text-[12px] text-stone-400">Your logo</span>}</div>
+        <label className="cursor-pointer rounded-full bg-white px-4 py-2.5 text-sm shadow-sm">{logo ? 'Change' : 'Upload logo'}<input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ''; }} /></label>
+      </div>
+      <input className={field} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Your website (optional)" inputMode="url" aria-label="Your website" />
+      {err && <p className="text-sm text-red-700" role="alert">{err}</p>}
+      <button type="button" disabled={busy || !logo} onClick={async () => { setBusy(true); setErr(''); const r = await post({ action: 'sponsor-logo', tenantId, sessionId, logo, url }); setBusy(false); if (r.ok) setDone(true); else setErr(r.error || 'Couldn’t save.'); }} className="h-12 w-full rounded-full text-[15px] font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>{busy ? 'Saving…' : 'Send our logo'}</button>
+    </div>
+  );
 }
 
 // ── Scholarship application ──────────────────────────────────────────────
