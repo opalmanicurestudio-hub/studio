@@ -28,6 +28,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { computeAvailability, pickStaffForSlot } from '@/lib/availability';
 import { loadBookingData, FALLBACK_HOURS, engineFrame } from '@/lib/booking-data';
+import { addDays as addDaysStr } from '@/lib/tenant-time';
 
 export const dynamic = 'force-dynamic';
 
@@ -67,8 +68,8 @@ export async function POST(req: NextRequest) {
   const { t, fromDay, eventsFromDay, sv, st, se, ap, sp, pt, cf, sh, sb, dof, rs, tk, mp, ce, rsv } = loaded;
 
   // ── Open times for one day (and the provider for "Any available") ──
-  if (b.action === 'availability' || b.action === 'pick') {
-    const date = String(b.date || ''), serviceId = String(b.serviceId || '');
+  if (b.action === 'availability' || b.action === 'pick' || b.action === 'days') {
+    const date = String(b.date || b.from || ''), serviceId = String(b.serviceId || '');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !serviceId) return NextResponse.json({ ok: false, error: 'Pick a service and a day.' }, { status: 400 });
     const raw = (snap: any) => (snap?.docs || []).map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
     const everyStaff = raw(st).filter((m: any) => m.isActive !== false);
@@ -93,6 +94,19 @@ export async function POST(req: NextRequest) {
       fallbackHours: FALLBACK_HOURS, includeUnavailable: false,
     };
     try {
+      // 'days' — HOW MANY open times each day has (up to 6 weeks), for the
+      // calendar's availability dots. Counts only — never who is booked.
+      if (b.action === 'days') {
+        const n = Math.max(1, Math.min(42, Number(b.days) || 31)); const tz = tenantTimeZone(t);
+        const out: { date: string; count: number }[] = [];
+        for (let i = 0; i < n; i++) {
+          const d = addDaysStr(date, i);
+          const f = engineFrame({ appointments: raw(ap), events: raw(ce), staffBlocks: raw(sb), tickets: raw(tk) }, tz, d);
+          let count = 0; try { count = computeAvailability({ ...input, date: d, appointments: f.appointments, events: f.events, staffBlocks: f.staffBlocks, tickets: f.tickets, now: f.now }).times.length; } catch { /* day unreadable → 0 */ }
+          out.push({ date: d, count });
+        }
+        return NextResponse.json({ ok: true, days: out }, { headers: { 'Cache-Control': 'no-store' } });
+      }
       if (b.action === 'pick') {
         const pick: any = pickStaffForSlot({ ...input, time: String(b.time || ''), staffId: 'any' });
         return NextResponse.json(pick?.ok ? { ok: true, staffId: pick.staffId || pick.staff?.id || null } : { ok: false, error: pick?.error || 'No professionals are available for this time. Please pick another.' }, { headers: { 'Cache-Control': 'no-store' } });
