@@ -95,7 +95,7 @@ export async function nudge(tenantId: string, a: Assignment, onlyIds?: string[])
     let subject = `Reminder: ${a.title}${a.dueAt ? ` — due ${new Date(a.dueAt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}` : ''}`;
     let body = `Hi ${String(r.name || '').split(' ')[0] || 'there'},\n\n“${a.title}” in ${course.title || 'your course'} is waiting for you (${r.finished} of ${a.lessonIds.length} done).${a.note ? `\n\n${a.note}` : ''}\n\n${origin}/learn/${tenantId}/my\n\n— ${school}`;
     if (r.language && r.language !== 'en') { try { [subject, body] = await translateTexts(tenantId, [subject, body], r.language); } catch { /* English */ } }
-    try { await sendEmail(r.email, subject, body); sent++; } catch { /* skip */ }
+    try { await sendEmail(r.email, subject, body, tenantId); sent++; } catch { /* skip */ }
   }
   return sent;
 }
