@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
         accommodations: st.accommodations || null,
         portfolio: await itemsFor(tenantId, studentId),
         letters: (await db.collection(`${T}/studentLetters`).where('studentId', '==', studentId).limit(100).get()).docs.map((d: any) => d.data()).sort((x: any, y: any) => String(y.at).localeCompare(String(x.at))),
-        profile: { id: studentId, name: st.name, email: st.email, dob: st.dob || null, phone: st.phone || a0?.phone || null, address: st.address || null, emergency: st.emergency || null, language: st.language || 'en', photo: st.referencePhoto?.ref || null, createdAt: st.createdAt },
+        profile: { id: studentId, name: st.name, email: st.email, portfolioOn: !!st.portfolio?.on, dob: st.dob || null, phone: st.phone || a0?.phone || null, address: st.address || null, emergency: st.emergency || null, language: st.language || 'en', photo: st.referencePhoto?.ref || null, createdAt: st.createdAt },
         programs, admission: a0 ? { stage: a0.stage, source: a0.source, cohortId: a0.cohortId || null, agreement: a0.agreement ? { signedAt: a0.agreement.signedAt, signedName: a0.agreement.signedName, sha256: a0.agreement.sha256, countersignedBy: a0.agreement.countersignedBy || null, text: a0.agreement.text } : null, documents: a0.documents || {} } : null,
         files: files.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).sort((x: any, y: any) => String(y.at).localeCompare(String(x.at))),
         signed: (await db.collection(`${T}/docAcks`).where('studentId', '==', studentId).limit(200).get()).docs.map((d: any) => { const a = d.data() as any; return { title: a.title, version: a.version, signedName: a.signedName, at: a.at }; }).sort((x: any, y: any) => String(y.at).localeCompare(String(x.at))),
@@ -128,8 +128,19 @@ export async function POST(req: NextRequest) {
       const ref = db.doc(`${T}/portfolio/${String(b.id || '')}`); const x = ((await ref.get()).data() as any) || null;
       if (!x || x.studentId !== studentId) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
       const status = b.status === 'approved' ? 'approved' : 'hidden';
-      await ref.set({ status, reviewedBy: who, reviewedAt: now, reviewNote: String(b.note || '').slice(0, 300) || null }, { merge: true });
+      await ref.set({ status, reviewedBy: who, reviewedAt: now, reviewNote: String(b.note || '').slice(0, 300) || null, ...(status === 'hidden' ? { featured: false } : {}) }, { merge: true });
       await appendAudit(tenantId, { type: 'portfolio.reviewed', studentId, by: who, summary: `Portfolio “${x.service}” ${status === 'approved' ? 'approved' : 'hidden'}` });
+      return NextResponse.json({ ok: true });
+    }
+
+    // Feature an approved piece on the school website (it also needs the student's sharing on).
+    if (b.action === 'portfolio-feature') {
+      if (!isLead) return NextResponse.json({ ok: false, error: 'Owners and managers only.' }, { status: 403 });
+      const ref = db.doc(`${T}/portfolio/${String(b.id || '')}`); const x = ((await ref.get()).data() as any) || null;
+      if (!x || x.studentId !== studentId) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
+      if (b.featured && x.status !== 'approved') return NextResponse.json({ ok: false, error: 'Approve it first.' }, { status: 400 });
+      await ref.set({ featured: !!b.featured, featuredBy: who, featuredAt: now }, { merge: true });
+      await appendAudit(tenantId, { type: 'portfolio.featured', studentId, by: who, summary: `Portfolio “${x.service}” ${b.featured ? 'featured on' : 'removed from'} the school website` });
       return NextResponse.json({ ok: true });
     }
 
