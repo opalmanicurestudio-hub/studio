@@ -38,7 +38,7 @@ export interface SiteSettings {
   stories: { name: string; program: string; year: string; quote: string; photoId: string | null }[];
   faq: { q: string; a: string }[];
   programExtras: Record<string, { examFees: CostLine[]; otherCosts: CostLine[]; licensing: string; schedule: string }>;
-  scholarships: { name: string; amountCents: number; description: string; eligibility: string; deadline: string }[];
+  scholarships: { name: string; amountCents: number; description: string; eligibility: string; deadline: string; fund: string }[];
   outsideScholarships: { name: string; url: string; amount: string; notes: string; lastChecked: string }[];
   workforce: { show: boolean; text: string };
   donors: { enabled: boolean; nonprofit: boolean; ein: string; funds: { name: string; text: string }[]; howAwarded: string; useReport: string };
@@ -78,7 +78,7 @@ export function sanitize(b: any): SiteSettings {
     stories: (x.stories || []).map((w: any) => ({ name: s(w.name, 60), program: s(w.program, 80), year: s(w.year, 10), quote: s(w.quote, 800), photoId: w.photoId ? s(w.photoId, 40) : null })).filter((w: any) => w.name && w.quote).slice(0, 12),
     faq: Array.isArray(x.faq) ? x.faq.map((f: any) => ({ q: s(f.q, 200), a: s(f.a, 1500) })).filter((f: any) => f.q && f.a).slice(0, 20) : d.faq,
     programExtras: pe,
-    scholarships: (x.scholarships || []).map((w: any) => ({ name: s(w.name, 100), amountCents: cents(w.amountCents), description: s(w.description, 800), eligibility: s(w.eligibility, 600), deadline: s(w.deadline, 10) })).filter((w: any) => w.name).slice(0, 12),
+    scholarships: (x.scholarships || []).map((w: any) => ({ name: s(w.name, 100), amountCents: cents(w.amountCents), description: s(w.description, 800), eligibility: s(w.eligibility, 600), deadline: s(w.deadline, 10), fund: s(w.fund, 60) })).filter((w: any) => w.name).slice(0, 12),
     outsideScholarships: (x.outsideScholarships || []).map((w: any) => ({ name: s(w.name, 120), url: /^https?:\/\//.test(String(w.url || '')) ? s(w.url, 400) : '', amount: s(w.amount, 60), notes: s(w.notes, 400), lastChecked: s(w.lastChecked, 10) })).filter((w: any) => w.name).slice(0, 20),
     workforce: { show: !!x.workforce?.show, text: s(x.workforce?.text, 1500) || d.workforce.text },
     donors: { enabled: !!x.donors?.enabled, nonprofit: !!x.donors?.nonprofit, ein: s(x.donors?.ein, 20), funds: (x.donors?.funds || d.donors.funds).map((f: any) => ({ name: s(f.name, 60), text: s(f.text, 300) })).filter((f: any) => f.name).slice(0, 8), howAwarded: s(x.donors?.howAwarded, 1500), useReport: s(x.donors?.useReport, 2000) },
@@ -166,6 +166,7 @@ export async function loadSchoolSite(tenantId: string) {
     name: id.displayName || t.name || 'Our school', color: t.bookingPageSettings?.cfPageConfig?.accentColor || t.bookingPageSettings?.primaryColor || '#7c3aed',
     address: id.address || '', phone: id.phone || '', email: id.email || '', programs, cohorts, instructors, jobs,
     hasOnlineCourses: courseS.docs.length > 0, logoUrl: id.logoUrl,
+    canGive: !!t.stripeAccountId,
   };
 }
 export type SchoolSite = NonNullable<Awaited<ReturnType<typeof loadSchoolSite>>>;
@@ -210,4 +211,11 @@ export async function tourSlots(tenantId: string, date: string) {
     slots.push(hhmm);
   }
   return { slots, durationMins: dur, autoConfirm: r.tourAutoConfirm !== false, off: false };
+}
+
+/** Businesses and people who gave and asked to be thanked by name. */
+export async function sponsorsList(tenantId: string, max = 40) {
+  const q = await getAdminDb().collection(`tenants/${tenantId}/donations`).where('showName', '==', true).limit(300).get().catch(() => ({ docs: [] as any[] }));
+  const names = q.docs.map((d: any) => d.data() as any).filter((g: any) => g.status === 'paid' && !g.anonymous).map((g: any) => String(g.business || g.name || '').trim()).filter(Boolean);
+  return [...new Set(names)].slice(0, max) as string[];
 }
