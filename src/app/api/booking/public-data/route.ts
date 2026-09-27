@@ -28,6 +28,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { computeAvailability, pickStaffForSlot } from '@/lib/availability';
 import { loadBookingData, FALLBACK_HOURS, engineFrame } from '@/lib/booking-data';
+import { maybeReleaseUnpaid } from '@/lib/release-unpaid';
 import { addDays as addDaysStr } from '@/lib/tenant-time';
 
 export const dynamic = 'force-dynamic';
@@ -121,6 +122,8 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Payment deadlines, enforced while the page is busy (at most every 10 min per business).
+  await maybeReleaseUnpaid(db, tenantId, req.nextUrl.origin);
   const studioEvents = rows(se, (x) => drop(x, GENERAL_DROP)).sort((a: any, c: any) => String(a.date || '').localeCompare(String(c.date || '')));
   void ap; void sh; void sb; void dof; void tk; void mp; void ce; void sp; // busy data: used only by 'availability' above, never sent
   return NextResponse.json({
