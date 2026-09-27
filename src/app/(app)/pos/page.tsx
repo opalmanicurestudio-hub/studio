@@ -59,6 +59,7 @@ import { QuickBookForm } from '@/components/pos/QuickBookForm';
 import { WaitlistManager } from '@/components/pos/WaitlistManager';
 import { useWaitlist } from '@/hooks/useWaitlist';
 import { QRScanner } from '@/components/pos/QRScanner';
+import { DeskCheckIn } from '@/components/pos/desk/DeskCheckIn';
 import { DeskPOS } from '@/components/pos/desk/DeskPOS';
 import { usePosEngine, printTicketInNewWindow, sanitizeForFirestore, safeDate, computeServiceCost, KpiCard, RecoveryOverrideDialog, IdentityMatchDialog, VoidAuthForm } from '@/components/pos/usePosEngine';
 
@@ -173,50 +174,8 @@ function POSPage() {
       <OverrideCancellationDialog open={isOverrideOpen} onOpenChange={setIsOverrideOpen} staff={staff || []} onConfirm={async (sid: string, res: string) => { updateDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', selectedAppointment!.id), { status: 'confirmed', checkInStatus: 'pending', checkInStatusTimestamp: new Date().toISOString(), overrideReason: res, overriddenBy: sid }); setIsOverrideOpen(false); setIsDetailsOpen(false); }} />
       {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: (clients || []).find(c => c.id === appointmentToReview.clientId), service: (services || []).find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={handleSendToFrontDesk} />}
       <TillManagement open={isTillManagementOpen} onOpenChange={setIsTillManagementOpen} activeTill={activeTill} staff={staff || []} onOpenTill={handleOpenTill} onCloseTill={handleCloseTill} requireTillWitness={selectedTenant?.requireTillWitness !== false} />
-      <CheckInConfirmationDialog
-        open={!!pendingCheckInItem}
-        onOpenChange={() => setPendingCheckInItem(null)}
-        item={pendingCheckInItem}
-        services={services || []}
-        tenant={selectedTenant}
-        onConfirm={handleResolveCheckInConfirmation}
-        client={clients?.find(c => c.id === (pendingCheckInItem?.clientId)) || null}
-        consentForms={(services || []).flatMap((s: any) => s.requiredFormIds || []).length > 0 ? (selectedTenant as any)?.consentForms || [] : []}
-        tenantId={tenantId}
-        firestore={firestore}
-        appointments={appointmentsFromInventory || []}
-        onPrintTicket={(currentState) => {
-          const item = pendingCheckInItem;
-          if (!item) return;
-          const client = clients?.find(c => c.id === item.clientId);
-          // Use confirmed serviceId from dialog (may differ from original booking)
-          const resolvedServiceId = currentState?.serviceId || item.serviceId || item.serviceIds?.[0];
-          const service = services?.find(s => s.id === resolvedServiceId);
-          const resolvedAddOnIds = currentState?.addOnIds || item.addOnIds || [];
-          const addOnServices = resolvedAddOnIds.map((aid: string) => services?.find(s => s.id === aid)).filter(Boolean);
-          const staffMember = staff?.find(s => s.id === item.staffId);
-          const station = item.stationName || ((item.requiredResourceIds || [])[0]
-            ? (resources || []).find((r: any) => r.id === item.requiredResourceIds[0])?.name
-            : undefined);
-          if (client && service) {
-            // Merge arrival notes from the dialog into the appointment object
-            const enrichedItem = currentState?.notes
-              ? { ...item, notes: currentState.notes, addOnIds: resolvedAddOnIds }
-              : { ...item, addOnIds: resolvedAddOnIds };
-            setTicketToPrint({
-              business: { name: selectedTenant?.name || 'Studio', phone: selectedTenant?.twilioPhoneNumber || '' },
-              client, service,
-              appointment: enrichedItem,
-              addOnServices,
-              staffName: staffMember?.name,
-              previousFormula: getPreviousFormula(client.id, service.id),
-              visitCount: getVisitCount(client.id),
-              stationName: station,
-            });
-            setIsPrintDialogOpen(true);
-          }
-        }}
-      />
+      {/* Check-in — the six-step front-desk check-in (replaces the old confirmation dialog). */}
+      <DeskCheckIn e={__engine} accent={(selectedTenant as any)?.bookingPageSettings?.cfPageConfig?.accentColor || null} />
 
       <IdentityMatchDialog open={!!pendingIdentityMatch} onOpenChange={() => setPendingIdentityMatch(null)} walkIn={pendingIdentityMatch} matchedClient={pendingIdentityMatch?.matchedClient}
         onLinkSession={async (matchedClient: any) => { if (!firestore || !tenantId || !pendingIdentityMatch) return; if (pendingIdentityMatch.type !== 'walk-in') { toast({ title: 'Cannot link', description: 'Identity matching only applies to walk-in guests.' }); setPendingIdentityMatch(null); return; } updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/walkIns`, pendingIdentityMatch.id), { clientId: matchedClient.id, customerName: matchedClient.name }); toast({ title: "Session Linked", description: `Today's visit linked to ${matchedClient.name}.` }); setPendingIdentityMatch(null); }}
