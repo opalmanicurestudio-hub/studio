@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { AutomationsOverview } from '@/components/settings/AutomationsOverview';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -355,6 +356,7 @@ export default function AutomationsSettingsPage() {
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
       <AppHeader title="Automations" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-3xl mx-auto space-y-8">
+        {tenantId && <AutomationsOverview tenantId={tenantId} firestore={firestore as any} />}
 
         {/* Header */}
         <div className="flex flex-col md:flex-row items-start md:items-end justify-between gap-4">
