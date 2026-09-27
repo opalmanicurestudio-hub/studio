@@ -18,6 +18,7 @@ import { PhoneInput } from '../ui/phone-input';
 import { FormFieldRenderer } from '../consents/FormFieldRenderer';
 import { PhotoMarkup } from './PhotoMarkup';
 import { icsHref, googleHref } from '@/lib/ics';
+import { graceHoursOf } from '@/lib/deposit-policy';
 
 const KNOWN = new Set(['heading', 'paragraph', 'short-text', 'long-text', 'multiple-choice', 'checkboxes', 'image-upload', 'signature']);
 const clock = (t: string) => { const [h, m] = t.split(':').map(Number); return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'pm' : 'am'}`; };
@@ -193,7 +194,18 @@ export function StudioFlow({ c }: { c: any }) {
     <div className="space-y-5 pt-6 text-center" style={{ paddingTop: 'calc(env(safe-area-inset-top,0px) + 32px)' }}>
       <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full text-4xl text-white shadow-lg" style={{ background: accent, animation: 'pubRise .6s cubic-bezier(.2,.8,.2,1) both' }} aria-hidden>{isRequest ? '✉' : '✓'}</div>
       <div className="space-y-2"><h2 className="text-3xl font-light">{isRequest ? <>Request <b>sent</b></> : outcome.status === 'pending_payment' ? <>Almost <b>there</b></> : <>You’re <b>booked</b></>}</h2>
-        <p className="mx-auto max-w-sm text-[15px] text-stone-600">{outcome.notice || (isRequest ? 'We’ll look at your request and get back to you shortly.' : 'We’ve emailed your confirmation.')}</p></div>
+        <p className="mx-auto max-w-sm text-[15px] text-stone-600">{isRequest ? 'Your request is in — here’s what happens next.' : (outcome.notice || 'We’ve emailed your confirmation.')}</p></div>
+      {isRequest && <section className={`${card} mx-auto max-w-sm space-y-2 text-left`} aria-label="What happens next">
+        <p className="text-[15px] font-semibold">What happens next</p>
+        <ol className="space-y-2 text-[14px] text-stone-700">
+          {outcome.cardOnFile && <li className="flex gap-2.5"><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] text-white" style={{ background: accent }}>✓</span>Your card is saved securely — nothing is charged now.</li>}
+          <li className="flex gap-2.5"><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-stone-200 text-[11px]">1</span>{tenant?.name || 'The studio'} looks at your request and gets back to you.</li>
+          <li className="flex gap-2.5"><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-stone-200 text-[11px]">2</span>{outcome.depositCents > 0
+            ? (outcome.cardOnFile ? `If it’s accepted, the $${(outcome.depositCents / 100).toFixed(2)} deposit is charged to your card automatically and you’re booked.` : `If it’s accepted, we’ll send a link to pay the $${(outcome.depositCents / 100).toFixed(2)} deposit to lock it in.`)
+            : 'If it’s accepted, you’re booked — we’ll confirm by email.'}</li>
+          {outcome.depositCents > 0 && <li className="flex gap-2.5"><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-stone-200 text-[11px]">3</span>{outcome.cardOnFile ? `If your card declines, you’ll get a link to pay within ${graceHoursOf(tenant)} hours — otherwise the time is released.` : `Pay within ${graceHoursOf(tenant)} hours of acceptance, or the time is released.`}</li>}
+        </ol>
+      </section>}
       <section className={`${card} mx-auto max-w-sm text-left`}><dl className="grid grid-cols-[4.5rem_1fr] gap-y-2 text-[15px]"><dt className="text-stone-500">What</dt><dd>{service?.name}</dd><dt className="text-stone-500">With</dt><dd>{who}</dd><dt className="text-stone-500">When</dt><dd>{whenLabel}</dd>{tenant?.address && <><dt className="text-stone-500">Where</dt><dd>{tenant.address}</dd></>}</dl></section>
       <div className="mx-auto flex max-w-sm flex-wrap justify-center gap-2">
         {ev && !isRequest && <><a href={icsHref(ev)} download="appointment.ics" className="rounded-full bg-white px-4 py-2.5 text-[14px] shadow-sm">Add to Apple / Outlook</a><a href={googleHref(ev)} target="_blank" rel="noreferrer" className="rounded-full bg-white px-4 py-2.5 text-[14px] shadow-sm">Add to Google</a></>}
