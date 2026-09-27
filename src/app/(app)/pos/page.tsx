@@ -59,6 +59,7 @@ import { QuickBookForm } from '@/components/pos/QuickBookForm';
 import { WaitlistManager } from '@/components/pos/WaitlistManager';
 import { useWaitlist } from '@/hooks/useWaitlist';
 import { QRScanner } from '@/components/pos/QRScanner';
+import { DeskPOS } from '@/components/pos/desk/DeskPOS';
 import { usePosEngine, printTicketInNewWindow, sanitizeForFirestore, safeDate, computeServiceCost, KpiCard, RecoveryOverrideDialog, IdentityMatchDialog, VoidAuthForm } from '@/components/pos/usePosEngine';
 
 function POSPage() {
@@ -86,11 +87,20 @@ function POSPage() {
     resolveScanCode, scanTimerRef, handleScanInput, handleScanConfirm, handleOpenTill, handleCloseTill, handleVoidTransaction, resolveRetailScan,
     checkoutHubProps, getPreviousFormula, getVisitCount, waitingNowCount, cartItemCount, walkInGroupSizes,
   } = __engine;
+  // Which layout this device uses: the classic POS, or the new front desk
+  // (same engine, same dialogs). Remembered per device.
+  const [posLayout, setPosLayout] = useState<'classic' | 'desk'>('classic');
+  useEffect(() => { try { if (localStorage.getItem('cf.pos.layout') === 'desk') setPosLayout('desk'); } catch { /* ignore */ } }, []);
+  const chooseLayout = (v: 'classic' | 'desk') => { setPosLayout(v); try { localStorage.setItem('cf.pos.layout', v); } catch { /* ignore */ } };
   if (isInventoryLoading) return <div className="h-screen w-full flex flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Initializing Terminal...</p></div>;
 
   return (
     <div className="h-[100dvh] w-full flex flex-col bg-background text-left">
       <AppHeader title="Studio POS" />
+      {posLayout === 'desk' ? (
+        <DeskPOS e={__engine} onClassic={() => chooseLayout('classic')} />
+      ) : (<>
+      <div className="flex items-center justify-end px-4 pt-2 md:px-8"><button type="button" onClick={() => chooseLayout('desk')} className="rounded-full border px-3 py-1 text-xs font-semibold hover:bg-muted">Try the new front desk →</button></div>
       <div className={cn("flex-1 grid transition-all duration-500 ease-in-out overflow-hidden", isCartCollapsed ? "lg:grid-cols-[1fr,80px]" : "lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px]")}>
         <main className="flex-1 flex flex-col overflow-auto p-4 md:p-10 gap-10 pb-32 lg:pb-10 text-left">
           <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-2">
@@ -282,6 +292,7 @@ function POSPage() {
           </Sheet>
         </div>
       )}
+      </>)}
 
       <AnimatePresence>
         {newWalkInAlert && (
