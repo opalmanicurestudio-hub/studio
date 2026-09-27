@@ -13,7 +13,8 @@
  *     each ✓ when the usual time is free, else the nearest free time that day
  *   • A month calendar with availability dots (fuller dot = more room)
  *   • The chosen day's times, grouped Morning · Afternoon · Evening
- *   • Another time — checked live, with a plain reason if it won't work
+ *   • Only open times can be chosen (no free-typed times); the server still
+ *     re-checks at the moment of moving, with a plain reason if it changed
  *   • Managers can "Move anyway" (recorded). Fee inside the window, "Tell the
  *     client" (email + text), history and the activity log — all server-side.
  */
@@ -172,12 +173,10 @@ export const RescheduleAppointmentDialog: React.FC<Props> = ({ open, onOpenChang
 
       {day && <section className="space-y-3" aria-live="polite" aria-label="Times">
         <p className="text-sm font-bold">{format(parseISO(day), 'EEEE, MMMM d')}{who ? <span className="font-normal text-muted-foreground"> · {who.split(' ')[0]}</span> : null}</p>
-        {!dayTimes ? <p className="text-sm text-muted-foreground">Checking…</p> : dayTimes.length === 0 ? <p className="rounded-xl bg-muted/30 p-3 text-sm">No open times that day — try another day, or enter another time below to see why.</p>
+        {!dayTimes ? <p className="text-sm text-muted-foreground">Checking…</p> : dayTimes.length === 0 ? <p className="rounded-xl bg-muted/30 p-3 text-sm">No open times that day — try another day, or another provider.</p>
           : groups.filter(([, l]) => l.length).map(([label, list]) => (
             <div key={label} className="space-y-1.5"><p className="text-xs text-muted-foreground">{label}</p>
               <div className="grid grid-cols-3 gap-2">{list.map((t) => <button key={t} type="button" onClick={() => choose(day, t)} aria-pressed={time === t && !custom} className={`h-10 rounded-xl border text-sm font-semibold transition active:scale-95 ${time === t && !custom ? 'border-primary bg-primary text-primary-foreground shadow' : 'bg-background hover:bg-muted/40'}`}>{clock(t)}{t === usualTime && <span className="ml-1 text-[10px] opacity-70">usual</span>}</button>)}</div></div>))}
-        <label className="block space-y-1"><span className="text-xs text-muted-foreground">Another time</span>
-          <input type="time" step={300} value={custom} onChange={(e) => setCustom(e.target.value)} className="h-11 w-full rounded-xl border px-3 text-base" /></label>
       </section>}
 
       {reason && <p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900" role="alert">{reason}</p>}
