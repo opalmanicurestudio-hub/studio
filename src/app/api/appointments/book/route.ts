@@ -88,7 +88,7 @@ import { logAuditAdmin } from '@/lib/audit';
 import { generateShortCode } from '@/lib/short-code';
 import { nanoid } from 'nanoid';
 import { verifyBookable } from '@/lib/availability';
-import { resolveBookingPlan, shouldAutoApprove } from '@/lib/deposit-policy';
+import { graceHoursOf, resolveBookingPlan, shouldAutoApprove } from '@/lib/deposit-policy';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -772,7 +772,9 @@ export async function POST(req: NextRequest) {
                 `Hi ${firstName} — we have your request for ${svcLabel}${staffName ? ` with ${staffName}` : ''} on ${whenStr}.`,
                 'This time is not booked yet. We look at every request personally and you will hear back shortly — you do not need to do anything now.',
                 ...(r.plan?.depositCents > 0
-                  ? [`Nothing has been charged. If we accept, we will ask for the $${(r.plan.depositCents / 100).toFixed(2)} deposit to lock it in.`]
+                  ? [r.plan?.requiresCardOnFile
+                    ? `Nothing has been charged. Your card is saved securely — if we accept, the $${(r.plan.depositCents / 100).toFixed(2)} deposit is charged to it automatically and you're booked. If that card declines, we'll send a link to pay within ${graceHoursOf(tenant)} hours; otherwise the time is released.`
+                    : `Nothing has been charged. If we accept, we will ask for the $${(r.plan.depositCents / 100).toFixed(2)} deposit to lock it in.`]
                   : []),
               ],
               cta: { label: 'View my request', url: portalUrl },
