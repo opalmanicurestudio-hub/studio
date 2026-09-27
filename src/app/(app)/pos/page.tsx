@@ -87,141 +87,25 @@ function POSPage() {
     resolveScanCode, scanTimerRef, handleScanInput, handleScanConfirm, handleOpenTill, handleCloseTill, handleVoidTransaction, resolveRetailScan,
     checkoutHubProps, getPreviousFormula, getVisitCount, waitingNowCount, cartItemCount, walkInGroupSizes,
   } = __engine;
-  // Which layout this device uses: the classic POS, or the new front desk
-  // (same engine, same dialogs). Remembered per device.
-  const [posLayout, setPosLayout] = useState<'classic' | 'desk'>('classic');
-  useEffect(() => { try { if (localStorage.getItem('cf.pos.layout') === 'desk') setPosLayout('desk'); } catch { /* ignore */ } }, []);
-  const chooseLayout = (v: 'classic' | 'desk') => { setPosLayout(v); try { localStorage.setItem('cf.pos.layout', v); } catch { /* ignore */ } };
   if (isInventoryLoading) return <div className="h-screen w-full flex flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Initializing Terminal...</p></div>;
 
   return (
     <div className="h-[100dvh] w-full flex flex-col bg-background text-left">
       <AppHeader title="Studio POS" />
-      {posLayout === 'desk' ? (
-        <DeskPOS e={__engine} onClassic={() => chooseLayout('classic')} />
-      ) : (<>
-      <div className="flex items-center justify-end px-4 pt-2 md:px-8"><button type="button" onClick={() => chooseLayout('desk')} className="rounded-full border px-3 py-1 text-xs font-semibold hover:bg-muted">Try the new front desk →</button></div>
-      <div className={cn("flex-1 grid transition-all duration-500 ease-in-out overflow-hidden", isCartCollapsed ? "lg:grid-cols-[1fr,80px]" : "lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px]")}>
-        <main className="flex-1 flex flex-col overflow-auto p-4 md:p-10 gap-10 pb-32 lg:pb-10 text-left">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-2">
-            <div className="grid gap-4 md:gap-6 grid-cols-2 lg:grid-cols-4 flex-1 w-full text-left">
-              <KpiCard title="Avg Wait" value={`${kpiData.avgWaitTime.toFixed(0)}m`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100" description="Check-in to chair." />
-              <KpiCard title="Today's Guests" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500" />} iconBgColor="bg-purple-100" description={`${kpiData.newGuestCount} new · ${kpiData.returningCount} returning`} />
-              <KpiCard title="Daily Gross" value={`$${safeNumber(kpiData.totalDailyGrossRevenue).toFixed(2)}`} icon={<DollarSign className="text-amber-500" />} iconBgColor="bg-amber-100" description={`$${kpiData.revenuePerGuest.toFixed(0)}/guest`} />
-              <KpiCard title="Conversion" value={`${kpiData.conversionRate.toFixed(0)}%`} icon={<Sparkles className="text-green-500" />} iconBgColor="bg-green-100" description="Walk-in → serviced" />
-            </div>
-            {isOwnerOrAdminUser && (<Button variant={activeTill ? "outline" : "default"} onClick={() => setIsTillManagementOpen(true)} className={cn("h-14 md:h-20 px-8 rounded-3xl font-black uppercase text-xs shadow-xl border-4 flex flex-col items-center justify-center gap-1", activeTill ? "border-green-500/20 bg-green-500/5 text-green-700" : "shadow-primary/20")}><Landmark className="w-5 h-5 mb-1" /> {activeTill ? `Till: $${safeNumber(activeTill.expectedCash).toFixed(2)}` : "Open Studio Till"}</Button>)}
-          </div>
-
-          <div className="grid gap-6 grid-cols-1">
-            {/* Action row — horizontally scrollable on narrow screens instead
-                of wrapping, so it stays a single reachable row on mobile
-                rather than eating vertical space as more actions get added. */}
-            <div className="flex items-center gap-3 overflow-x-auto flex-nowrap md:flex-wrap md:overflow-visible pb-1 -mx-1 px-1 no-scrollbar">
-              <Button onClick={() => setIsQuickBookOpen(true)} variant="outline" className="h-10 px-4 rounded-xl border-2 border-primary/20 bg-primary/5 text-primary font-black uppercase text-[10px] tracking-widest hover:bg-primary/10 gap-2 shrink-0"><Calendar className="w-4 h-4" /> Quick Book</Button>
-              {/* Scan / Check-In — opens full-screen camera scanner.
-                  After a successful scan, resolves the code against in-memory
-                  appointments (with a Firestore fallback) and opens the
-                  appropriate dialog. */}
-              <Button onClick={() => { setScanMode('checkin'); setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsCameraScanOpen(true); }} variant="outline" className="h-10 px-4 rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-700 font-black uppercase text-[10px] tracking-widest hover:bg-emerald-100 gap-2 shrink-0"><QrCode className="w-4 h-4" /> Scan / Check-In</Button>
-              <Button onClick={() => setIsVoidDialogOpen(true)} variant="outline" className="h-10 px-4 rounded-xl border-2 border-red-200 bg-red-50 text-red-600 font-black uppercase text-[10px] tracking-widest hover:bg-red-100 gap-2 shrink-0" disabled={!transactions?.some(t => isToday(safeDate(t.date)) && !t.voided)}><XCircle className="w-4 h-4" /> Void Tx</Button>
-            </div>
-
-            {/* ── Sticky Floor / Retail tab bar ─────────────────────────────
-                Stays visible while scrolling (sticky, not fixed, so it
-                respects the scroll container) — solves two brainstormed
-                problems at once: (1) staff no longer scroll past the entire
-                queue to reach retail or vice versa, and (2) wait time / guest
-                count stay glanceable even after scrolling past the KPI row. */}
-          <div className="sticky top-0 z-20 -mx-4 md:-mx-10 px-4 md:px-10 py-1.5 bg-background/90 backdrop-blur-md border-b flex items-center justify-between gap-3">
-  <div className="flex items-center gap-1 bg-muted/40 p-0.5 rounded-xl">
-    <button
-      onClick={() => setActiveFloorTab('floor')}
-      className={cn(
-        'h-8 px-3.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5',
-        activeFloorTab === 'floor' ? 'bg-white shadow-sm text-slate-900' : 'text-muted-foreground hover:text-slate-600',
-      )}
-    >
-      <Users className="w-3 h-3" /> Floor
-      {waitingNowCount > 0 && (
-        <span className={cn(
-          'w-4 h-4 rounded-full text-[8px] flex items-center justify-center font-black leading-none',
-          activeFloorTab === 'floor' ? 'bg-primary text-white' : 'bg-slate-200 text-slate-600',
-        )}>{waitingNowCount}</span>
-      )}
-    </button>
-    <button
-      onClick={() => setActiveFloorTab('retail')}
-      className={cn(
-        'h-8 px-3.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5',
-        activeFloorTab === 'retail' ? 'bg-white shadow-sm text-slate-900' : 'text-muted-foreground hover:text-slate-600',
-      )}
-    >
-      <ShoppingCart className="w-3 h-3" /> Retail
-    </button>
-    <button
-      onClick={() => setActiveFloorTab('waitlist')}
-      className={cn(
-        'h-8 px-3.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5',
-        activeFloorTab === 'waitlist' ? 'bg-white shadow-sm text-slate-900' : 'text-muted-foreground hover:text-slate-600',
-      )}
-    >
-      <BookOpen className="w-3 h-3" /> Waitlist
-      {waitlist.waitlistClients.length > 0 && (
-        <span className={cn(
-          'w-4 h-4 rounded-full text-[8px] flex items-center justify-center font-black leading-none',
-          activeFloorTab === 'waitlist' ? 'bg-primary text-white' : 'bg-slate-200 text-slate-600',
-        )}>{waitlist.waitlistClients.length}</span>
-      )}
-    </button>
-    <button
-      onClick={() => setActiveFloorTab('spaces')}
-      className={cn(
-        'h-8 px-3.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5',
-        activeFloorTab === 'spaces' ? 'bg-white shadow-sm text-slate-900' : 'text-muted-foreground hover:text-slate-600',
-      )}
-    >
-      <Armchair className="w-3 h-3" /> Spaces
-    </button>
-  </div>
-
-  {cartItemCount > 0 && (
-    <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-primary bg-primary/10 px-2.5 py-1 rounded-full shrink-0">
-      <ShoppingCart className="w-3 h-3" /> {cartItemCount} in cart
-    </div>
-  )}
-</div>
-
-            {/* ── Floor Ops tab ──────────────────────────────────────────── */}
-            {activeFloorTab === 'floor' && (
-              <div className="grid gap-8 grid-cols-1">
-                <TeamStatus staff={staff} onStatusChange={(id: any, act: any) => {}} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} services={services} onReorder={(newOrder: any) => { if (!firestore || !tenantId) return; const batch = writeBatch(firestore); newOrder.forEach((s: any, idx: number) => { batch.set(doc(firestore, 'tenants', tenantId, 'staff', s.id), { turnOrder: idx }, { merge: true }); }); batch.commit(); }} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={(staffId: string) => { if (!firestore || !tenantId) return; setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'staff', staffId), { status: 'idle' }, { merge: true }); toast({ title: "Staff Reset" }); }} />
-
-                <WalkInQueue walkIns={walkIns} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={(id: string) => { const item = (walkIns || []).find(w => w.id === id) || (appointmentsFromInventory || []).find(a => a.id === id); if (item) { const client = clients?.find(c => c.id === item.clientId); const service = services?.find(s => s.id === (item.serviceId || item.serviceIds?.[0])); const addOnServices = (item.addOnIds || []).map((aid: string) => services?.find(s => s.id === aid)).filter(Boolean); const staffMember = staff?.find(s => s.id === item.staffId); if (client && service) { setTicketToPrint({ business: { name: selectedTenant?.name || 'Studio', phone: selectedTenant?.twilioPhoneNumber || '' }, client, service, appointment: item, addOnServices, staffName: staffMember?.name, previousFormula: getPreviousFormula(client.id, service.id), visitCount: getVisitCount(client.id), stationName: (item.stationName || (item.requiredResourceIds?.[0] ? (resources || []).find((r: any) => r.id === item.requiredResourceIds[0])?.name : undefined)) }); setIsPrintDialogOpen(true); } } }} onSkip={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'skipped' }); }} onReturnToQueue={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'waiting' }); }} groupSizes={walkInGroupSizes} onToggleWaitForStaff={(walkInId: string, wait: boolean) => {
-                  if (!firestore || !tenantId) return;
-                  updateDocumentNonBlocking(
-                    doc(firestore, 'tenants', tenantId, 'walkIns', walkInId),
-                    { waitForPreferred: wait, waitForPreferredStaff: wait },
-                  );
-                }} onFinishService={(apt: any) => { setAppointmentToReview(apt); setIsTechnicianReviewOpen(true); }} onUpdateStatus={handleUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={(item: any) => { if (item.isPotentialAlias && item.matchedClient) { setPendingIdentityMatch(item); } else if (item.type === 'walk-in') { setPendingCheckInItem(item); } else { /* unarrived booked appointments go through check-in first; already-arrived skip straight to the full sheet */ const notYetArrived = !item.checkInStatus || item.checkInStatus === 'pending' || item.checkInStatus === 'confirmed'; if (notYetArrived) { setPendingCheckInItem(item); } else { setSelectedAppointment(item); setIsDetailsOpen(true); } } }} />
-
-              </div>
-            )}
-
-            {activeFloorTab === 'waitlist' && (
-              <div className="space-y-4 text-left">
+      <DeskPOS e={__engine} tools={{
+        // The classic POS's remaining panels, wired exactly as before, now in Desk's "More" drawer.
+        team: (
+          <TeamStatus staff={staff} onStatusChange={(id: any, act: any) => {}} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} services={services} onReorder={(newOrder: any) => { if (!firestore || !tenantId) return; const batch = writeBatch(firestore); newOrder.forEach((s: any, idx: number) => { batch.set(doc(firestore, 'tenants', tenantId, 'staff', s.id), { turnOrder: idx }, { merge: true }); }); batch.commit(); }} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={(staffId: string) => { if (!firestore || !tenantId) return; setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'staff', staffId), { status: 'idle' }, { merge: true }); toast({ title: "Staff Reset" }); }} />
+        ),
+        waitlist: (
                 <WaitlistManager
                   {...waitlist}
                   services={services || []}
                   staff={staff || []}
                   appointments={appointmentsFromInventory || []}
                 />
-              </div>
-            )}
-
-            {/* ── Retail tab ─────────────────────────────────────────────── */}
-            {activeFloorTab === 'spaces' && tenantId && (
-              <div className="grid gap-8 grid-cols-1">
+        ),
+        spaces: tenantId ? (<>
                 <DeskAvailabilityPanel
                   tenantId={tenantId}
                   staffId={currentUser?.uid || null}
@@ -246,53 +130,8 @@ function POSPage() {
                   }}
                 />
                 <GuestsTodayPanel tenantId={tenantId} />
-              </div>
-            )}
-
-            {activeFloorTab === 'retail' && (
-              <div className="space-y-4 text-left">
-                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2"><Sparkles className="w-4 h-4 text-primary" />Retail & Additions</h3>
-                <RetailCatalog
-                  services={services || []}
-                  inventory={inventory || []}
-                  memberships={memberships || []}
-                  packages={packages || []}
-                  onAddToCart={handleAddToCart}
-                  onScanClick={() => { setScanMode('retail'); setIsCameraScanOpen(true); }}
-                />
-              </div>
-            )}
-          </div>
-        </main>
-
-        <aside className={cn("hidden lg:flex border-l-4 border-muted/30 bg-white flex-col h-full transition-all duration-500 relative overflow-hidden", isCartCollapsed ? "w-20" : "w-full")}>
-          {!isCartCollapsed ? (
-            <div className="flex flex-col h-full w-full">
-              <div className="absolute top-6 left-[-24px] z-50"><Button variant="outline" size="icon" onClick={() => setIsCartCollapsed(true)} className="h-12 w-12 rounded-2xl border-4 border-white bg-white shadow-xl hover:bg-muted text-slate-400 group transition-all"><ChevronRight className="h-6 w-6 group-hover:translate-x-0.5 transition-transform" /></Button></div>
-              <div className="absolute inset-0 flex flex-col"><ScrollArea className="flex-1"><div className="p-6 pb-40"><CheckoutHub {...checkoutHubProps} /></div></ScrollArea></div>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center py-8 gap-8 h-full">
-              <button onClick={() => setIsCartCollapsed(false)} className="h-12 w-12 rounded-2xl bg-primary/5 text-primary hover:bg-primary/10 shadow-sm flex items-center justify-center"><ChevronLeft className="h-6 w-6" /></button>
-              <div className="flex flex-col items-center gap-1 [writing-mode:vertical-lr] rotate-180"><span className="font-black uppercase tracking-[0.3em] text-sm text-slate-900 opacity-40">Current Sale</span><span className="font-black text-primary text-xl mt-6 tracking-tighter">${totalCalc.toFixed(2)}</span></div>
-              <div className="mt-auto pb-8"><Badge className="rounded-full h-8 w-8 flex items-center justify-center p-0 font-black bg-primary text-white border-none shadow-lg animate-in zoom-in duration-300">{retailItems.length + selectedAppointmentIds.size}</Badge></div>
-            </div>
-          )}
-        </aside>
-      </div>
-
-      {isMobile && (
-        <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-xl lg:hidden z-40">
-          <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
-            <SheetTrigger asChild><Button className="w-full h-14 rounded-2xl text-lg font-black uppercase tracking-tight shadow-2xl shadow-primary/30">View Cart (${totalCalc.toFixed(2)})</Button></SheetTrigger>
-            <SheetContent side="bottom" className="h-[95dvh] p-0 flex flex-col border-none rounded-t-[3rem] bg-background">
-              <SheetHeader className="p-8 pb-4 border-b bg-muted/5 flex-shrink-0"><SheetTitle className="text-2xl font-black uppercase tracking-tighter">Current Sale</SheetTitle></SheetHeader>
-              <div className="flex-1 overflow-y-auto"><div className="p-6 pb-24"><CheckoutHub {...checkoutHubProps} /></div></div>
-            </SheetContent>
-          </Sheet>
-        </div>
-      )}
-      </>)}
+        </>) : null,
+      }} />
 
       <AnimatePresence>
         {newWalkInAlert && (
