@@ -23,6 +23,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { api, getToken, Shell, Loading, GameChips } from '@/components/academy/Learn';
+import { AnnouncementItem } from '@/components/academy/Announcement';
 
 // ── The portal's words (English) — translated for other languages ─────────
 const S = {
@@ -31,7 +32,7 @@ const S = {
   duty: 'Your duty today', noDuty: 'No duty assigned today', week: 'This week', clinicToday: 'Your clinic clients today', noClinic: 'No clinic clients booked today',
   signedOff: 'signed off', continueLearning: 'Continue learning', lessonsDone: 'lessons done', open: 'Open',
   paymentFailed: 'Your last tuition payment didn’t go through', updateCard: 'Update card', payNow: 'Pay now', nextPayment: 'Next payment', onAutopay: 'on autopay',
-  redo: 'Please upload again', announcements: 'Announcements', messages: 'Messages', newMessages: 'new messages',
+  redo: 'Please upload again', announcements: 'Announcements', gotIt: 'Got it', addToCalendar: 'Add to calendar', messages: 'Messages', newMessages: 'new messages',
   courses: 'Your courses', start: 'Start', cont: 'Continue', program: 'Your program', servicesDone: 'Services signed off',
   total: 'Total', online: 'Online', live: 'Live classes', inPerson: 'In person', of: 'of', attendance: 'Attendance history', progressChecks: 'Progress checks', onlineByWeek: 'Online learning by week', minutes: 'min',
   balance: 'Balance', paid: 'Paid', upcoming: 'Upcoming payments', history: 'Payment history', payNext: 'Pay next instalment', payAll: 'Pay full balance', allPaid: 'All paid — thank you!',
@@ -118,7 +119,7 @@ export function StudentPortal({ tenantId, courses, onSignOut }: { tenantId: stri
         </div>
         {note && <p className="rounded-2xl bg-emerald-50 p-3 text-sm text-emerald-900">{note}</p>}
 
-        {tab === 'today' && <Today p={p} w={w} lang={lang} tenantId={tenantId} color={color} go={setTab} />}
+        {tab === 'today' && <Today p={p} w={w} lang={lang} tenantId={tenantId} color={color} go={setTab} reload={load} />}
         {tab === 'learn' && <LearnTab p={p} w={w} tenantId={tenantId} color={color} courses={courses} />}
         {tab === 'hours' && <HoursTab w={w} lang={lang} tenantId={tenantId} color={color} />}
         {tab === 'tuition' && <TuitionTab w={w} lang={lang} tenantId={tenantId} color={color} />}
@@ -147,7 +148,7 @@ function Card({ title, children, tone }: { title?: string; children: React.React
   return <section className={`rounded-[1.5rem] border p-4 ${tone === 'alert' ? 'border-red-200 bg-red-50/90' : 'glass border-white/70'}`}>{title && <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-stone-500">{title}</p>}{children}</section>;
 }
 
-function Today({ p, w, lang, tenantId, color, go }: any) {
+function Today({ p, w, lang, tenantId, color, go, reload }: any) {
   const tr = useTranslated(tenantId, lang, p.announcements.flatMap((a: any) => [a.title, a.body]));
   const late = p.tuition.find((x: any) => x.status === 'past_due');
   const next = p.tuition.find((x: any) => x.status === 'active' && x.nextDueAt);
@@ -175,7 +176,7 @@ function Today({ p, w, lang, tenantId, color, go }: any) {
       {next && <Card title={w.nextPayment}><p className="text-[15px]"><b>{usd(Math.min(next.installmentCents, next.balanceCents))}</b> · {fmt(next.nextDueAt, lang, { weekday: 'short', month: 'short', day: 'numeric' })}{next.autopay ? ` · ${w.onAutopay}` : ''}</p></Card>}
       {p.unread > 0 && <button type="button" onClick={() => go('inbox')} className="glass w-full rounded-[1.5rem] border border-white/70 p-4 text-left"><b>💬 {p.unread}</b> {w.newMessages}</button>}
       {p.announcements.length > 0 && (
-        <Card title={w.announcements}>{p.announcements.map((a: any, i: number) => <div key={i} className="py-1.5"><p className="font-semibold">{tr ? tr[i * 2] : a.title}</p><p className="whitespace-pre-wrap text-[15px] text-stone-700">{tr ? tr[i * 2 + 1] : a.body}</p><p className="text-[11px] text-stone-400">{fmt(a.at, lang)}{tr ? ` · ${w.translatedNote}` : ''}</p></div>)}</Card>
+        <Card title={w.announcements}>{p.announcements.map((a: any, i: number) => <AnnouncementItem key={a.id || i} a={a} title={tr ? tr[i * 2] : a.title} body={tr ? tr[i * 2 + 1] : a.body} dateText={fmt(a.at, lang)} translated={!!tr} school={p.brand?.name || ''} color={color} words={w} onAck={async (id) => { await api({ action: 'announcement-ack', tenantId, token: getToken(tenantId), id }); await reload?.(); }} />)}</Card>
       )}
     </div>
   );
@@ -276,7 +277,7 @@ function InboxTab({ w, lang, tenantId, color, announcements, onRead }: any) {
         <div className="mt-3 flex gap-2"><textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder={w.write} className="flex-1 rounded-2xl border border-white/80 bg-white/80 p-3 text-[15px]" />
           <button type="button" disabled={!text.trim()} onClick={async () => { const r = await api({ action: 'message', tenantId, token: getToken(tenantId), text }); if (r.ok) { setText(''); void load(); } }} className="rounded-2xl px-4 text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>{w.send}</button></div>
       </Card>
-      {(d.announcements || []).length > 0 && <Card title={w.announcements}>{d.announcements.map((a: any, i: number) => <div key={i} className="py-1.5"><p className="font-semibold">{tr ? tr[i * 2] : a.title}</p><p className="whitespace-pre-wrap text-[15px] text-stone-700">{tr ? tr[i * 2 + 1] : a.body}</p><p className="text-[11px] text-stone-400">{fmt(a.at, lang)}</p></div>)}</Card>}
+      {(d.announcements || []).length > 0 && <Card title={w.announcements}>{d.announcements.map((a: any, i: number) => <AnnouncementItem key={a.id || i} a={a} title={tr ? tr[i * 2] : a.title} body={tr ? tr[i * 2 + 1] : a.body} dateText={fmt(a.at, lang)} translated={!!tr} school={d.brand?.name || ''} color={color} words={w} onAck={async (id) => { await api({ action: 'announcement-ack', tenantId, token: getToken(tenantId), id }); await load(); }} />)}</Card>}
     </div>
   );
 }
