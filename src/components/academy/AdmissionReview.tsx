@@ -56,6 +56,13 @@ export function AdmissionReview({ x, act, brand }: { x: any; act: (body: any, do
         </section>
       )}
 
+      {(a.answers || []).length > 0 && (
+        <section className="space-y-1.5 rounded-2xl bg-muted/40 p-3 text-sm">
+          <p className="font-black">📝 Their answers</p>
+          {a.answers.map((x: any) => <div key={x.id}><p className="text-[12px] text-muted-foreground">{x.label}</p><p className="whitespace-pre-wrap">{x.value}</p></div>)}
+        </section>
+      )}
+
       {/* Review */}
       {['applied', 'review', 'waitlist'].includes(stage) && (
         <section className="space-y-3 rounded-2xl bg-muted/40 p-3 text-sm">
@@ -81,18 +88,7 @@ export function AdmissionReview({ x, act, brand }: { x: any; act: (body: any, do
             </div>}
           </div>
 
-          <div className="space-y-1.5 rounded-lg bg-background p-2">
-            <p className="text-[12px] font-black">🗓 Interview</p>
-            {a.interview?.status === 'scheduled' ? <>
-              <p className="text-[13px]">{dtt(a.interview.at)}{a.interview.where ? ` · ${a.interview.where}` : ''} · with {a.interview.with}</p>
-              <div className="flex gap-1.5"><button type="button" onClick={() => act({ action: 'interview-result', id: a.id, status: 'done', note: window.prompt('Notes from the interview (optional)') || '' }, 'Interview recorded.')} className="h-8 rounded-lg border-2 border-emerald-300 px-2 text-[12px] font-bold text-emerald-800">Held ✓</button><button type="button" onClick={() => act({ action: 'interview-result', id: a.id, status: 'no_show' }, 'Recorded as missed.')} className="h-8 rounded-lg border-2 px-2 text-[12px] font-bold">Didn’t attend</button></div>
-            </> : <>
-              {a.interview && <p className="text-[12px] text-muted-foreground">Last: {dtt(a.interview.at)} — {a.interview.status === 'done' ? 'held' : 'missed'}{a.interview.note ? ` · “${a.interview.note}”` : ''}</p>}
-              <div className="grid gap-1.5 sm:grid-cols-3"><input type="datetime-local" className={field} value={iv.at} onChange={(e) => setIv({ ...iv, at: e.target.value })} aria-label="Interview date and time" /><input className={field} value={iv.where} onChange={(e) => setIv({ ...iv, where: e.target.value })} placeholder="Where (room, or video link)" /><input className={field} value={iv.with} onChange={(e) => setIv({ ...iv, with: e.target.value })} placeholder="With (your name)" /></div>
-              <label className="flex items-center gap-2 text-[12px]"><input type="checkbox" checked={iv.notify} onChange={(e) => setIv({ ...iv, notify: e.target.checked })} /> Email the invitation to {a.name.split(' ')[0]}</label>
-              <button type="button" disabled={!iv.at} onClick={async () => { const r = await act({ action: 'interview-set', id: a.id, ...iv, at: new Date(iv.at).toISOString(), whenText: new Date(iv.at).toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' }) }, 'Interview booked.'); if (r?.ok) setIv({ at: '', where: '', with: '', notify: true }); }} className="h-9 rounded-lg bg-foreground px-3 text-[12px] font-bold text-background disabled:opacity-40">Book interview</button>
-            </>}
-          </div>
+          <InterviewBox a={a} act={act} />
 
           {rv.rubric.length > 0 && <div className="space-y-1.5 rounded-lg bg-background p-2">
             <p className="text-[12px] font-black">📊 Rubric <span className="font-normal text-muted-foreground">— your scores; the average is across reviewers</span></p>
@@ -127,6 +123,12 @@ export function AdmissionReview({ x, act, brand }: { x: any; act: (body: any, do
         </section>
       )}
 
+      {(a.comms || []).length > 0 && (
+        <details className="rounded-2xl bg-muted/40 p-3 text-sm"><summary className="cursor-pointer font-black">✉️ Messages sent to them · {a.comms.length}{a.textOk ? ' · texts on' : ''}</summary>
+          <div className="mt-2 space-y-1">{[...a.comms].reverse().map((c: any, i: number) => <p key={i} className="text-[13px]"><span className="text-muted-foreground">{dt(c.at)}</span> · {c.subject}<span className="text-[11px] text-muted-foreground">{c.emailed ? ' · emailed' : ''}{c.texted ? ' · texted' : ''}{!c.emailed && !c.texted ? ' · not sent' : ''}</span></p>)}</div>
+        </details>
+      )}
+
       {/* Letters */}
       {(a.letters || []).length > 0 && (
         <section className="space-y-1.5">
@@ -134,6 +136,50 @@ export function AdmissionReview({ x, act, brand }: { x: any; act: (body: any, do
           {[...a.letters].reverse().map((l: any, i: number) => <div key={i} className="flex items-center gap-2 rounded-xl bg-muted/40 px-3 py-2 text-sm"><span className="min-w-0 flex-1"><b>{l.title}</b> · {dt(l.at)} · {l.by}{l.emailed ? ' · emailed' : ' · not emailed'}</span>{brand && <button type="button" onClick={() => printLetter(l)} className="text-[12px] font-bold underline">🖨 Print</button>}</div>)}
         </section>
       )}
+    </div>
+  );
+}
+
+
+/** The interview in every state: book · offer times · change requested · result. */
+function InterviewBox({ a, act }: { a: any; act: (body: any, done?: string) => Promise<any> }) {
+  const iv = a.interview; const first = String(a.name || '').split(' ')[0];
+  const [mode, setMode] = useState<'book' | 'offer'>('offer');
+  const [slots, setSlots] = useState<string[]>(['', '', '']); const [where, setWhere] = useState(iv?.where || ''); const [withWho, setWith] = useState(iv?.with || '');
+  const iso = (v: string) => (v ? new Date(v).toISOString() : '');
+  const planner = () => (
+    <div className="space-y-1.5 rounded-lg bg-muted/40 p-2">
+      <div className="flex gap-1">{([['offer', 'Offer times to choose from'], ['book', 'Book one time']] as const).map(([k, l]) => <button key={k} type="button" onClick={() => setMode(k)} className={`h-8 rounded-lg px-2 text-[12px] font-bold ${mode === k ? 'bg-foreground text-background' : 'border-2'}`}>{l}</button>)}</div>
+      <div className="grid gap-1.5 sm:grid-cols-3">{(mode === 'offer' ? [0, 1, 2] : [0]).map((i) => <input key={i} type="datetime-local" className={field} value={slots[i]} onChange={(e) => setSlots(slots.map((x, j) => (j === i ? e.target.value : x)))} aria-label={`Interview time ${i + 1}`} />)}</div>
+      <div className="grid gap-1.5 sm:grid-cols-2"><input className={field} value={where} onChange={(e) => setWhere(e.target.value)} placeholder="Where (room, or video link)" aria-label="Where" /><input className={field} value={withWho} onChange={(e) => setWith(e.target.value)} placeholder="With (your name)" aria-label="With" /></div>
+      <button type="button" disabled={mode === 'offer' ? !slots.some(Boolean) : !slots[0]} onClick={async () => {
+        const r = mode === 'offer' ? await act({ action: 'interview-offer', id: a.id, slots: slots.filter(Boolean).map(iso), where, with: withWho }, `Times sent to ${first} to choose from.`)
+          : await act({ action: 'interview-set', id: a.id, at: iso(slots[0]), where, with: withWho, whenText: new Date(slots[0]).toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' }) }, `Interview booked — ${first} has been told.`);
+        if (r?.ok) setSlots(['', '', '']); }} className="h-9 rounded-lg bg-foreground px-3 text-[12px] font-bold text-background disabled:opacity-40">{mode === 'offer' ? `Send times to ${first}` : `Book and tell ${first}`}</button>
+      <p className="text-[11px] text-muted-foreground">{first} is told by email{a.textOk ? ' and text' : ''}, and can ask for a different time from their application page.</p>
+    </div>
+  );
+  return (
+    <div className="space-y-1.5 rounded-lg bg-background p-2">
+      <p className="text-[12px] font-black">🗓 Interview</p>
+      {iv?.status === 'reschedule_requested' && <div className="space-y-1.5 rounded-lg border-2 border-amber-300 bg-amber-50 p-2 text-[13px]">
+        <p className="font-bold text-amber-900">{first} asked for a different time{iv.previousAt ? ` (was ${dtt(iv.previousAt)})` : ''}</p>
+        {iv.note && <p>“{iv.note}”</p>}
+        {(iv.proposals || []).length > 0 ? <><p className="text-[12px]">Times that work for them — tap one to book it:</p><div className="flex flex-wrap gap-1.5">{iv.proposals.map((p: string, i: number) => <button key={p} type="button" onClick={() => act({ action: 'interview-accept', id: a.id, index: i }, `Booked for ${dtt(p)} — ${first} has been told.`)} className="h-9 rounded-lg bg-foreground px-3 text-[12px] font-bold text-background">{dtt(p)}</button>)}</div></> : <p className="text-[12px]">They didn’t suggest times — offer some below.</p>}
+      </div>}
+      {iv?.status === 'offered' && <p className="text-[13px]">⏳ Waiting for {first} to choose: {(iv.offers || []).map(dtt).join(' · ')}</p>}
+      {iv?.status === 'scheduled' ? <>
+        <p className="text-[13px]">{dtt(iv.at)}{iv.where ? ` · ${iv.where}` : ''} · with {iv.with}</p>
+        <div className="flex flex-wrap gap-1.5">
+          <button type="button" onClick={() => act({ action: 'interview-result', id: a.id, status: 'done', note: window.prompt('Notes from the interview (optional)') || '' }, 'Interview recorded.')} className="h-8 rounded-lg border-2 border-emerald-300 px-2 text-[12px] font-bold text-emerald-800">Held ✓</button>
+          <button type="button" onClick={() => act({ action: 'interview-result', id: a.id, status: 'no_show' }, 'Recorded as missed.')} className="h-8 rounded-lg border-2 px-2 text-[12px] font-bold">Didn’t attend</button>
+          <button type="button" onClick={() => { const reason = window.prompt(`Cancel the interview? ${first} will be told. Add a short note (optional):`); if (reason !== null) void act({ action: 'interview-cancel', id: a.id, reason }, `Cancelled — ${first} has been told.`); }} className="h-8 rounded-lg px-2 text-[12px] font-bold text-red-700">Cancel</button>
+        </div>
+        <details className="text-[12px]"><summary className="cursor-pointer font-bold">Move it</summary>{planner()}</details>
+      </> : <>
+        {iv && ['done', 'no_show', 'cancelled'].includes(iv.status) && <p className="text-[12px] text-muted-foreground">Last: {iv.at ? dtt(iv.at) : ''} — {iv.status === 'done' ? 'held' : iv.status === 'no_show' ? 'missed' : 'cancelled'}{iv.note ? ` · “${iv.note}”` : ''}</p>}
+        {planner()}
+      </>}
     </div>
   );
 }
