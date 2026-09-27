@@ -17,12 +17,13 @@ import { AssignPanel } from '@/components/academy/AssignPanel';
 import { CourseBoard } from '@/components/academy/CourseBoard';
 import { AddToLesson, LessonPreview, TemplatePicker, LESSON_KINDS, FileToLesson, printStudyGuide, LayoutPicker, layoutOf } from '@/components/academy/LessonCanvas';
 import { SchoolIdentity } from '@/components/academy/SchoolIdentity';
+import { SchoolWebsite } from '@/components/academy/SchoolWebsite';
 import { ModuleSettings, GamifySetting, modKey } from '@/components/academy/ModuleSettings';
 import { AiCreditsMeter } from '@/components/academy/AiCreditsMeter';
 import { deviceId } from '@/lib/device';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAuth } from 'firebase/auth';
-import { Loader, ArrowUp, ArrowDown, Pencil, Trash2, ExternalLink, Video, FileText, Download, Plus, Home as HomeIcon, BookOpen, Sparkles, Users, Clock, ClipboardList, GraduationCap, Settings as SettingsIcon, Radio, Printer, ClipboardCheck, Timer } from 'lucide-react';
+import { Loader, ArrowUp, ArrowDown, Pencil, Trash2, ExternalLink, Video, FileText, Download, Plus, Home as HomeIcon, BookOpen, Sparkles, Users, Clock, ClipboardList, GraduationCap, Settings as SettingsIcon, Radio, Printer, ClipboardCheck, Timer, Globe } from 'lucide-react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { PrivateImg } from '@/components/shared/private-file';
 import { SchoolPrograms } from '@/components/academy/SchoolPrograms';
@@ -93,6 +94,8 @@ export default function AcademyBuilderPage() {
   // Online courses only, or a licensed school (programs + student salon too).
   const [mode, setMode] = useState<'courses' | 'school' | null>(null);
   const [section, setSection] = useState<Section>('home');
+  // Links from emails and alerts: /academy?section=admissions opens that section.
+  useEffect(() => { try { const q = new URLSearchParams(window.location.search).get('section'); if (q) setSection(q as Section); } catch { /* no-op */ } }, []);
   const [home, setHome] = useState<any>(null);
   useEffect(() => { if (tenantId) academyHome(tenantId).then((r) => r?.ok && setHome(r)); }, [tenantId, section]);
   useEffect(() => { if (!tenantId) return; (async () => { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : ''; const r = await fetch('/api/academy/school', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}`, 'x-cf-device': deviceId() }, body: JSON.stringify({ action: 'overview', tenantId }) }).then((x) => x.json()).catch(() => null); setMode(r?.mode || 'courses'); })(); }, [tenantId]);
@@ -182,6 +185,7 @@ export default function AcademyBuilderPage() {
       { key: 'admissions', label: 'Admissions', hint: 'Applicants, tuition, cohorts', icon: ClipboardList, school: true, badge: (home?.school?.docsToCheck || 0) + (home?.school?.toCountersign || 0) + (home?.school?.newInquiries || 0) } ] },
     { group: 'Set up', items: [
       { key: 'programs', label: 'Programs', hint: 'Hours, services, tuition rules', icon: GraduationCap, school: true },
+      { key: 'website', label: 'Website', hint: 'Your school’s public site, tours, inbox', icon: Globe, school: true },
       { key: 'documents', label: 'School documents', hint: 'Handbook, policies, syllabi, labels', icon: FileText },
       { key: 'settings', label: 'Settings', hint: 'Academy type and your links', icon: SettingsIcon } ] },
   ];
@@ -259,6 +263,7 @@ export default function AcademyBuilderPage() {
             {section === 'live' && <LiveClass tenantId={tenantId} />}
             {section === 'assign' && <AssignPanel tenantId={tenantId} />}
             {section === 'toolkit' && <ClassroomToolkit tenantId={tenantId} courses={courses || []} />}
+            {section === 'website' && mode === 'school' && <SchoolWebsite tenantId={tenantId} />}
             {section === 'documents' && <SchoolDocs tenantId={tenantId} brand={docBrand} courses={courses || []} />}
             {section === 'materials' && <CourseMaterials tenantId={tenantId} courses={courses || []} brand={docBrand} />}
             {section === 'reports' && mode === 'school' && <AcademyReports tenantId={tenantId} />}
