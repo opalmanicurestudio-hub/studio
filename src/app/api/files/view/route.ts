@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
   if (!tenantId || !path) return NextResponse.json({ ok: false, error: 'Missing file.' }, { status: 400 });
   // Only this business's private client files — nothing else in the bucket.
   // Admissions documents and the student file (IDs etc.): owners and managers only.
-  const isAdmissionsDoc = path.startsWith(`tenants/${tenantId}/academy/admissions/`) || path.startsWith(`tenants/${tenantId}/academy/files/`);
+  const isAdmissionsDoc = path.startsWith(`tenants/${tenantId}/academy/admissions/`) || path.startsWith(`tenants/${tenantId}/academy/files/`) || path.startsWith(`tenants/${tenantId}/academy/signed/`);
   const isAcademyPhoto = path.startsWith(`tenants/${tenantId}/academy/attendance/`) || path.startsWith(`tenants/${tenantId}/academy/clinic/`) || path.startsWith(`tenants/${tenantId}/academy/submissions/`) || isAdmissionsDoc;
   if ((!path.startsWith(`tenants/${tenantId}/completions/`) && !isAcademyPhoto) || path.includes('..')) return NextResponse.json({ ok: false, error: 'Not a file you can open here.' }, { status: 403 });
   const auth = await verifyStaffActor(req, tenantId);
