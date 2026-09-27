@@ -22,6 +22,7 @@ import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { DeskFrame, Btn, Seg, Pill, GuestCard, Empty, Panel, Drawer, Menu } from './kit';
 import { doc } from 'firebase/firestore';
 import { updateDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
+import { logAuditClient } from '@/lib/audit-client';
 import { collection } from 'firebase/firestore';
 import { resourceDowntime } from '@/lib/availability';
 import type { ReactNode } from 'react';
@@ -47,6 +48,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const pickView = (v: View) => { setView(v); try { localStorage.setItem(VIEW_KEY, v); } catch { /* ignore */ } };
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [mode, setMode] = useState<'desk' | 'counter'>('desk');
+  const [about, setAbout] = useState<Guest | null>(null);
   const [moreOpen, setMoreOpen] = useState(false); const [moreTab, setMoreTab] = useState<'team' | 'waitlist' | 'spaces'>('waitlist');
   // Maintenance & disruptions — only for businesses with the maintenance tool.
   const maintOn = moduleEnabled(tenant, 'maintenance');
@@ -128,10 +130,10 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
     if (soon) out.push(['Birthday this week', 'accent']);
     return out;
   };
-  const timerFor = (g: Guest): { text: string; tone?: 'warn' } | null => {
+  const timerFor = (g: Guest): { text: string; tone?: 'warn'; sub?: string } | null => {
     if (g.stage === 'arriving' && g.at) { const m = Math.round((g.at.getTime() - now.getTime()) / 60000); return m > 0 ? { text: m < 90 ? `in ${m} min` : `at ${format(g.at, 'h:mm a')}` } : g.lateMin ? { text: lateLabel(g.lateMin), tone: 'warn' } : { text: 'due now' }; }
-    if (g.stage === 'waiting') { const a0 = arrivedAt(g); const w = a0 ? Math.max(0, Math.round((now.getTime() - a0.getTime()) / 60000)) : null; if (g.kind === 'walkin' && !g.staffId) { const est = estWait(); return { text: `${w !== null ? `waiting ${w} min · ` : ''}${est ? `about ${est} min to go` : 'someone’s free'}`, tone: w !== null && w > 15 ? 'warn' : undefined }; } return w !== null ? { text: `waiting ${w} min`, tone: w > 15 ? 'warn' : undefined } : null; }
-    if (g.stage === 'service') { const s0 = startedAt(g); const tot = minsOf(g); if (!s0) return { text: `${tot} min service` }; const done = Math.round((now.getTime() - s0.getTime()) / 60000); const e0 = endsAt(g)!; return { text: `${Math.min(done, tot)} of ${tot} min · done ~${format(e0, 'h:mm')}`, tone: done > tot + 5 ? 'warn' : undefined }; }
+    if (g.stage === 'waiting') { const a0 = arrivedAt(g); const w = a0 ? Math.max(0, Math.round((now.getTime() - a0.getTime()) / 60000)) : null; if (g.kind === 'walkin' && !g.staffId) return { text: w !== null ? `waiting ${w} min` : 'waiting', tone: w !== null && w > 15 ? 'warn' : undefined, sub: (() => { const est = estWait(); return est ? `About ${est} min until someone’s free` : 'Someone’s free now'; })() }; return w !== null ? { text: `waiting ${w} min`, tone: w > 15 ? 'warn' : undefined } : null; }
+    if (g.stage === 'service') { const s0 = startedAt(g); const tot = minsOf(g); if (!s0) return { text: `${tot} min` }; const done = Math.round((now.getTime() - s0.getTime()) / 60000); const e0 = endsAt(g)!; return { text: done > tot ? `${done - tot} min over` : `done ~${format(e0, 'h:mm')}`, tone: done > tot + 5 ? 'warn' : undefined }; }
     if (g.stage === 'ready') { const r = toDate(g.appt?.actualEndTime); return r ? { text: `ready ${Math.max(0, Math.round((now.getTime() - r.getTime()) / 60000))} min` } : { text: 'ready to pay' }; }
     return null;
   };
@@ -181,7 +183,8 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const phoneOf = (g: Guest) => { const c = (e.clients || []).find((x: any) => x.id === (g.appt?.clientId || g.walkIn?.clientId)); return (c?.phone || g.walkIn?.phone || g.appt?.clientPhone || '').replace(/[^\d+]/g, ''); };
   const setWalkIn = (g: Guest, patch: any) => { if (e.firestore && e.tenantId) updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId, 'walkIns', g.walkIn.id), patch); };
   const late = (g: Guest, m: number) => e.handleUpdateStatus(g.appt.id, false, 'running_late', m);
-  const menuFor = (g: Guest) => { const ph = phoneOf(g); return g.kind === 'appt' ? [
+  const menuFor = (g: Guest) => { const ph = phoneOf(g); const aboutItem = { label: 'About this entry…', hint: 'What it is, where it came from — and remove it', onSelect: () => setAbout(g) }; return g.kind === 'appt' ? [
+      aboutItem,
       { label: 'Details & reschedule', onSelect: () => open(g) },
       g.stage === 'arriving' && { label: 'Running 10 min late', hint: 'Your late-arrival policy applies (fee or auto-cancel if set)', onSelect: () => late(g, 10) },
       g.stage === 'arriving' && { label: 'Running 20 min late', onSelect: () => late(g, 20) },
@@ -189,6 +192,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       ph && { label: 'Text', onSelect: () => { window.location.href = `sms:${ph}`; } },
       (g.stage === 'arriving' || g.stage === 'waiting') && { label: 'Cancel or no-show…', tone: 'danger' as const, onSelect: () => e.handleCancelAction(g.appt.id, false) },
     ] : [
+      aboutItem,
       ph && { label: 'Text', onSelect: () => { window.location.href = `sms:${ph}`; } },
       { label: 'Skip for now', hint: 'Leaves the queue; they can be returned later', onSelect: () => setWalkIn(g, { status: 'skipped' }) },
       { label: 'Remove from the queue…', tone: 'danger' as const, onSelect: () => e.handleCancelAction(g.walkIn.id, true) },
@@ -198,8 +202,11 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const card = (g: Guest, compact = false, hideTime = false) => { const tm = timerFor(g); const fl = flagsFor(g); return (
     <GuestCard key={g.key} id={g.key} compact={compact} name={g.name} onOpen={() => open(g)}
       line={<span className="inline-flex max-w-full items-center gap-1.5"><Face sid={g.staffId} size={18} /><span className="truncate">{g.service}{g.staffName ? ` · ${String(g.staffName).split(' ')[0]}` : g.kind === 'walkin' ? ' · anyone' : ''}</span></span>}
-      meta={<span className="flex flex-col gap-1"><span>{!hideTime && g.at ? `${format(g.at, 'h:mm a')} · ` : ''}{tm && <span style={tm.tone === 'warn' ? { color: 'var(--warn)', fontWeight: 600 } : undefined}>{tm.text}</span>}</span>{fl.length > 0 && <span className="flex flex-wrap gap-1">{fl.map(([l, t]) => <Pill key={l} tone={t}>{l}</Pill>)}</span>}</span>}
-      badge={<div className="flex items-center gap-1.5">{g.kind === 'walkin' && <Pill>Walk-in</Pill>}{g.awaitingDeposit && <Pill tone="warn">Awaiting deposit</Pill>}<Menu items={menuFor(g)} label={`More for ${g.name}`} /></div>} action={actionFor(g)} />
+      time={tm ? tm.text : (!hideTime && g.at ? format(g.at, 'h:mm a') : undefined)} timeTone={tm?.tone}
+      progress={g.stage === 'service' && startedAt(g) ? (now.getTime() - startedAt(g)!.getTime()) / 60000 / Math.max(1, minsOf(g)) : null}
+      meta={tm?.sub}
+      flags={[...(g.kind === 'walkin' ? [{ label: 'Walk-in' }] : []), ...(g.awaitingDeposit ? [{ label: 'Awaiting deposit', tone: 'warn' as const }] : []), ...fl.map(([label, tone]) => ({ label, tone }))]}
+      badge={<Menu items={menuFor(g)} label={`More for ${g.name}`} />} action={actionFor(g)} />
   ); };
 
   // ── Views ──────────────────────────────────────────────────────────────
@@ -289,11 +296,29 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
         </LayoutGroup>}
         {mode === 'desk' && <p className="mt-6 text-center text-[12px]" style={{ color: 'var(--muted)' }}>★ recommended for {solo ? 'a solo business' : 'your team'} · this device remembers your view</p>}
       </main>
-      <Drawer wide open={moreOpen} onClose={() => setMoreOpen(false)} title="More">
+      <Drawer accent={accent} open={!!about} onClose={() => setAbout(null)} title="About this entry">
+        {about && (() => { const r = about.appt || about.walkIn || {}; const created = toDate(r.createdAt || r.checkInTime); const paid = r.depositStatus === 'paid' || Number(r.amountPaid) > 0;
+          const rows: [string, string][] = [['What it is', about.kind === 'appt' ? 'A booking' : 'A walk-in'], ['Name on it', r.clientName || r.customerName || '— none —'], ['Service', about.service], ['With', about.staffName || '— anyone —'],
+            ['Status', `${r.status || '—'}${r.checkInStatus ? ` · check-in: ${r.checkInStatus}` : ''}`], ['Came from', r.source || r.createdVia || (about.kind === 'walkin' ? 'kiosk / front desk' : '—')], ['Created', created ? format(created, 'MMM d, h:mm a') : '—'], ['Reference', r.id || '—']];
+          const remove = async () => {
+            if (!window.confirm(`Remove ${r.clientName || r.customerName || 'this entry'} from today? It will be marked ${about.kind === 'appt' ? 'cancelled (removed at the desk)' : 'removed'} and recorded in the activity log.`)) return;
+            const nowIso = new Date().toISOString();
+            if (about.kind === 'appt') updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId, 'appointments', r.id), { status: 'cancelled', cancellationReason: 'removed_at_desk', cancelledAt: nowIso });
+            else updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId, 'walkIns', r.id), { status: 'removed', removedAt: nowIso });
+            await logAuditClient(e.firestore, e.tenantId, { action: about.kind === 'appt' ? 'appointment.removed_at_desk' : 'walkin.removed', targetType: about.kind === 'appt' ? 'appointment' : 'walkIn', targetId: r.id, summary: `Removed ${r.clientName || r.customerName || 'an unnamed entry'} from today at the front desk`, actor: { type: 'user', id: e.currentUser?.uid || null, name: e.currentUser?.displayName || 'Front desk', role: e.role || 'staff', via: 'front desk' } } as any);
+            setAbout(null);
+          };
+          return <div className="space-y-4">
+            <dl className="grid grid-cols-[7.5rem_1fr] gap-y-2 text-[14px]">{rows.flatMap(([k, v]) => [<dt key={`k-${k}`} style={{ color: 'var(--muted)' }}>{k}</dt>, <dd key={`v-${k}`} className="break-all">{v}</dd>])}</dl>
+            {paid ? <p className="rounded-2xl p-3 text-[13px]" style={{ background: 'var(--soft)' }}>Money has been paid on this entry, so it can’t be removed here — use <b>Cancel or no-show</b> so any refund or credit is handled.</p>
+              : <div className="space-y-2"><Btn onClick={remove}>Remove from today</Btn><p className="text-[12px]" style={{ color: 'var(--muted)' }}>For test entries, duplicates and anything that shouldn’t be on the desk. Nothing is deleted — it’s marked removed and noted in the activity log.</p></div>}
+          </div>; })()}
+      </Drawer>
+      <Drawer accent={accent} wide open={moreOpen} onClose={() => setMoreOpen(false)} title="More">
         {moreTabs.length > 1 && <div className="mb-4"><Seg label="More" value={(moreTabs.some(([k]) => k === moreTab) ? moreTab : moreTabs[0][0]) as any} onChange={(v) => setMoreTab(v as any)} options={moreTabs.map(([k, l]) => [k, l]) as any} /></div>}
         {(moreTabs.find(([k]) => k === moreTab) || moreTabs[0])?.[2]}
       </Drawer>
-      <Drawer open={checkoutOpen} onClose={() => setCheckoutOpen(false)} title="Checkout"><CheckoutHub {...e.checkoutHubProps} /></Drawer>
+      <Drawer accent={accent} open={checkoutOpen} onClose={() => setCheckoutOpen(false)} title="Checkout"><CheckoutHub {...e.checkoutHubProps} /></Drawer>
 
     </DeskFrame>
   );
