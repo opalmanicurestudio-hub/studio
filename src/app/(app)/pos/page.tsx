@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import React, { useState, useEffect, useMemo, useCallback, Suspense, useRef } from 'react';
 import { useInventory } from '@/context/InventoryContext';
 import { type Appointment, type Service, type Client, type WalkIn, type Staff, getServicePrice, type AppointmentCheckoutState, type Redemption, type TillSession, type Membership, type Package } from '@/lib/data';
@@ -594,7 +595,9 @@ function POSPage() {
    *    from it if missing (so the In Service lane and checkout still work), and a
    *    genuinely unknown id says so out loud instead of swallowing the press.
    */
-  const handleStartService = (appointmentId: string) => {
+  // Starting well before the booked time asks first (walk-ins never do).
+  const [earlyStart, setEarlyStart] = useState<{ id: string; who: string; at: string; mins: number } | null>(null);
+  const handleStartService = (appointmentId: string, confirmedEarly = false) => {
     if (!firestore || !tenantId) return;
     const nowISO = new Date().toISOString();
     const now = new Date();
@@ -618,6 +621,10 @@ function POSPage() {
     if (!appointment && !row) {
       toast({ variant: 'destructive', title: 'Could not start service', description: 'That ticket is no longer on this terminal. Refresh the queue and try again.' });
       return;
+    }
+    if (!confirmedEarly && appointment && !appointment.isWalkIn && appointment.startTime) {
+      const st = safeDate(appointment.startTime); const mins = Math.round((st.getTime() - Date.now()) / 60000);
+      if (mins > 10) { setEarlyStart({ id: appointmentId, who: appointment.clientName || 'This client', at: format(st, 'h:mm a'), mins }); return; }
     }
 
     const walkInId: string | null = row ? String(row.id) : (appointment?.isWalkIn ? String(appointment.id).replace('apt-walkin-', '') : null);
@@ -1755,6 +1762,20 @@ function POSPage() {
 
       <RecoveryOverrideDialog open={isRecoveryOverrideOpen} onOpenChange={setIsRecoveryOverrideOpen} staff={staff || []} onConfirm={(authorizer: any, reason: string) => { setIsRecoveryOverrideOpen(false); toast({ title: "Override Authorized", description: `Approved by ${authorizer.name}. Proceed with adjustment.` }); }} />
       <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={() => {}} />
+      <AlertDialog open={!!earlyStart} onOpenChange={(o) => { if (!o) setEarlyStart(null); }}>
+        <AlertDialogContent className="rounded-3xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Start early?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {earlyStart ? `${earlyStart.who}’s appointment is at ${earlyStart.at} — ${earlyStart.mins >= 60 ? `${Math.floor(earlyStart.mins / 60)} hr ${earlyStart.mins % 60 ? `${earlyStart.mins % 60} min ` : ''}` : `${earlyStart.mins} min `}from now. Start the service now anyway?` : ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Not yet</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { const id = earlyStart?.id; setEarlyStart(null); if (id) handleStartService(id, true); }}>Start now</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AppointmentDetailsSheet open={isDetailsOpen} onOpenChange={setIsDetailsOpen} appointment={liveSelectedAppointment} client={clients?.find(c => c.id === liveSelectedAppointment?.clientId) || null} service={services?.find(s => s.id === liveSelectedAppointment?.serviceId) || null} tmhr={selectedTenant?.tmhr || 50} transactions={transactions || []} onStartService={handleStartService} onFinishService={(apt: any) => { setAppointmentToReview(apt); setIsTechnicianReviewOpen(true); }} onEdit={() => {}} onDelete={(id: string) => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))} onCancel={handleCancelAction} onReschedule={() => {}} onRebook={() => {}} onBookNewForClient={() => {}} onPrintTicket={() => {}} onOverride={() => setIsOverrideOpen(true)} onWaiveFee={() => {}} />
 
       {selectedAppointment && (
