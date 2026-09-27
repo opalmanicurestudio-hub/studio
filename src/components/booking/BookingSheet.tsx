@@ -37,6 +37,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { PhoneInput } from '../ui/phone-input';
 import { useToast } from '@/hooks/use-toast';
+import { StudioFlow } from './StudioFlow';
+import type { InspoPhoto } from './PhotoMarkup';
 import { FormFieldRenderer } from '../consents/FormFieldRenderer';
 import { Separator } from '../ui/separator';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
@@ -253,6 +255,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const [formAnswers,          setFormAnswers]           = useState<Record<string, Record<string, any>>>({});
   const [bookedStaffId,        setBookedStaffId]         = useState<string | null>(null);
   const [inspirationPhotoUrl,  setInspirationPhotoUrl]   = useState<string>('');
+  // Studio design: up to 4 marked-up photos, each with a note (PhotoMarkup).
+  const [inspoPhotos,          setInspoPhotos]           = useState<InspoPhoto[]>([]);
   const { toast }     = useToast();
   const { firestore } = useFirebase();
 
@@ -557,7 +561,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         serviceId: service.id, staffId: finalStaffId,
         startTime: startDateTime.toISOString(), endTime: endDateTime.toISOString(),
         status: 'confirmed', isWalkIn: false, source: 'online',
-        inspirationPhotoUrl: inspirationPhotoUrl || undefined, notes: formValues.notes,
+        inspirationPhotoUrl: inspoPhotos[0]?.url || inspirationPhotoUrl || undefined, notes: formValues.notes,
+        ...(inspoPhotos.length ? { inspirationPhotos: inspoPhotos.map(({ url, note }) => ({ url, note })) } : {}),
         depositAmount,
         depositStatus: chargeDueNow ? 'pending' : 'none',
         // Written-out proof of consent. Storing the wording alongside the flag
@@ -683,7 +688,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   }, [currentStep, depositClientSecret, depositLoading, depositError, initiateCheckout]);
 
   useEffect(() => {
-    if (!depositClientSecret || !tenant?.id) return;
+    const payTenantId = tenantIdProp || tenant?.id; // the page's own id — doesn't wait on the loaded record
+    if (!depositClientSecret || !payTenantId) return;
     let cancelled = false;
     let instance: any;
 
@@ -701,7 +707,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       const keyRes = await fetch('/api/stripe/publishable-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId: tenant.id }),
+        body: JSON.stringify({ tenantId: payTenantId }),
       });
       const { publishableKey, stripeAccountId } = await keyRes.json();
       if (!publishableKey) throw new Error('Missing Stripe publishable key');
@@ -718,7 +724,12 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       });
       if (cancelled) { instance.destroy(); return; }
       embeddedCheckoutRef.current = instance;
+      // The payment screen can appear a moment after the details arrive — wait
+      // for its box (up to 2s) so the card form is never silently skipped.
+      for (let i = 0; i < 40 && !embeddedMountRef.current && !cancelled; i++) await new Promise((r) => setTimeout(r, 50));
+      if (cancelled) { try { instance.destroy(); } catch {} return; }
       if (embeddedMountRef.current) instance.mount(embeddedMountRef.current);
+      else setDepositError('Could not load secure checkout. Please try again.');
     };
 
     mount().catch((e) => {
@@ -731,7 +742,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       try { embeddedCheckoutRef.current?.destroy(); } catch {}
       embeddedCheckoutRef.current = null;
     };
-  }, [depositClientSecret, depositStripeAccountId, tenant?.id, steps]);
+  }, [depositClientSecret, depositStripeAccountId, tenant?.id, tenantIdProp, steps]);
 
   const handleNextStep = async () => {
     if (currentStep === 'dateTime' && !selectedTime) { toast({ variant: 'destructive', title: 'Please select a time.' }); return; }
@@ -853,6 +864,17 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
+  if (simple) {
+    return wrapInShell(<StudioFlow c={{
+      service, tenant, tenantId: tenantIdProp || (tenant as any)?.id, steps, currentStep, currentStepIndex, setCurrentStepIndex, handleNextStep, handlePrevStep, onOpenChange,
+      qualifiedStaff, lockedStaffId, selectedStaffId, handleStaffSelect, selectedStaff, bookedStaff, availableTiersForService, selectedTierId, setSelectedTierId,
+      date, setDate, weekStart, selectedTime, setSelectedTime, timeSlots, hotSlotMap, availability,
+      methods, smsConsentWording, smsMarketingWording, isResolvingIdentity, bannedClient, existingClientWithBalance,
+      requiredForms, formAnswers, setFormAnswers, inspoPhotos, setInspoPhotos, accentHex: 'var(--accent, #7c3aed)',
+      price, previewLines, bookingPreview, confirming, depositAmount, depositClientSecret, depositLoading, depositError, embeddedMountRef, initiateCheckout, bookingOutcome,
+    }} />);
+  }
+
   return (
     /* ── NO MODAL PRIMITIVE ───────────────────────────────────────────────
      * This was a Radix Sheet. Three separate attempts to make it behave on a
