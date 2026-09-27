@@ -111,6 +111,8 @@ export async function createTuitionPlan(opts: { tenantId: string; programId: str
   await ref.set({ id, programId: opts.programId, studentId: opts.studentId, email: opts.email, name: opts.name, admissionId: opts.admissionId, totalCents: total, downPaymentCents: Math.min(total, t.downPaymentCents || total),
     installmentCents, installmentsTotal: t.installments, installmentsPaid: 0, interval: t.interval, nextDueAt: null, status: 'awaiting_down_payment', autopay: false, failures: 0, createdAt: new Date().toISOString() });
   for (const [desc, amt] of [['Tuition', t.tuitionCents], ['Registration fee', t.registrationFeeCents], ['Kit', t.kitCents]] as [string, number][]) if (amt > 0) await ledger(opts.tenantId, id, opts.studentId, 'charge', amt, desc, opts.by);
+  // Scholarships awarded before the student signed are credited now.
+  try { const { applyPendingAwards } = await import('@/lib/academy-funding'); await applyPendingAwards(opts.tenantId, opts.email); } catch { /* staff can apply it from Funding */ }
   return id;
 }
 
