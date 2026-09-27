@@ -173,6 +173,9 @@ interface BookingSheetProps {
   prefillClient?: { clientName?: string | null; clientEmail?: string | null; clientPhone?: string | null } | null;
   /** The business — from the page's web address (sturdier than the loaded record). */
   tenantId?: string;
+  /** Studio design: three simple steps — When (who + time), You (details, forms,
+   *  summary, one Confirm), then Pay only if a deposit is due. */
+  simple?: boolean;
   appointments:   Appointment[];
   /**
    * The studio's MARKETING events, rendered on the public page. This is NOT
@@ -221,6 +224,7 @@ interface BookingSheetProps {
 /* Step names the client would use, not the ones the code uses. "dateTime" is
  * a variable; "Pick a time" is what the person is doing. The header shows this
  * so someone who put their phone down mid-booking knows where they are. */
+const SIMPLE_TITLES: Record<string, string> = { dateTime: 'When would you like to come?', details: 'Your details', checkout: 'Pay your deposit', confirmation: 'You’re booked' };
 const STEP_TITLES: Record<string, string> = {
   staff: 'Choose who',
   dateTime: 'Pick a time',
@@ -233,7 +237,7 @@ const STEP_TITLES: Record<string, string> = {
 
 export const BookingSheet: React.FC<BookingSheetProps> = ({
   open, onOpenChange, service, staff, pricingTiers, initialStaffId, lockedStaffId, prefillClient,
-  appointments, events, scheduleProfiles, services, consentForms, tenant, onConfirm, tenantId: tenantIdProp,
+  appointments, events, scheduleProfiles, services, consentForms, tenant, onConfirm, tenantId: tenantIdProp, simple = false,
   shifts, staffBlocks, dayOffBlocks, resources, tickets, maintenancePlans, calendarEvents,
   bookingOutcome,
   variant = 'overlay',
@@ -449,12 +453,19 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   }, [chargeDueNow, tenant, service, price]);
 
   const steps = useMemo(() => {
+    if (simple) {
+      // When (who + time) → You (details + forms + summary) → [Pay] → Done
+      const flow = ['dateTime', 'details'];
+      if (chargeDueNow || cardSetupDueNow) flow.push('checkout');
+      flow.push('confirmation');
+      return flow;
+    }
     const flow = lockedStaffId ? ['dateTime', 'details'] : ['staff', 'dateTime', 'details'];
     if (requiredForms.length > 0) flow.push('consents');
     flow.push(chargeDueNow || cardSetupDueNow ? 'checkout' : 'summary');
     flow.push('confirmation');
     return flow;
-  }, [requiredForms.length, chargeDueNow, cardSetupDueNow, lockedStaffId]);
+  }, [requiredForms.length, chargeDueNow, cardSetupDueNow, lockedStaffId, simple]);
 
   /* The pinned bars are measured rather than estimated. Their height changes
    * with the safe-area inset, the step rail, and how long the service name
@@ -740,7 +751,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         if (!matchedClient) { toast({ variant: 'destructive', title: 'Priority Access Only', description: 'This day is reserved for returning guests.' }); return; }
       }
     }
-    if (currentStep === 'consents') {
+    if (currentStep === 'consents' || (simple && currentStep === 'details' && requiredForms.length > 0)) {
       const allCompleted = requiredForms.every(form => {
         const answers = formAnswers[form.id] || {};
         return (form.fields || []).every(f => {
@@ -751,7 +762,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       });
       if (!allCompleted) { toast({ variant: 'destructive', title: 'Incomplete Forms', description: 'Please fill out all required fields and sign all forms.' }); return; }
     }
-    if (currentStep === 'summary') { handleConfirmBooking(); return; }
+    if (currentStep === 'summary' || (simple && currentStep === 'details' && steps[currentStepIndex + 1] !== 'checkout')) { handleConfirmBooking(); return; }
     setCurrentStepIndex(currentStepIndex + 1);
   };
 
@@ -760,6 +771,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const handleStaffSelect = (staffId: string) => {
     if (initialStaffId || lockedStaffId) return;
     setSelectedStaffId(staffId);
+    if (simple) { setSelectedTime(null); return; } // who + time share the "When" screen
     if (staffId !== 'any') { setCurrentStepIndex(1); setSelectedTime(null); }
   };
 
@@ -875,7 +887,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                 {service?.name || 'Booking'}{lockedStaffId ? ` · with ${staff.find((m) => m.id === lockedStaffId)?.name || 'your provider'}` : ''}
               </p>
               <h2 style={{ fontFamily: headingFont }} className="truncate text-base font-black uppercase tracking-tighter leading-tight">
-                {STEP_TITLES[currentStep] || 'Book'}
+                {((simple && SIMPLE_TITLES[currentStep]) || STEP_TITLES[currentStep]) || 'Book'}
               </h2>
             </div>
             <button
@@ -908,7 +920,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             </div>
           )}
           <p className="sr-only" aria-live="polite">
-            Step {currentStepIndex + 1} of {steps.length - 1}: {STEP_TITLES[currentStep]}
+            Step {currentStepIndex + 1} of {steps.length - 1}: {((simple && SIMPLE_TITLES[currentStep]) || STEP_TITLES[currentStep])}
           </p>
         </div>
 
@@ -1041,7 +1053,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                   )}
 
                   {/* ── Step: Staff ──────────────────────────────────────── */}
-                  {currentStep === 'staff' && (
+                  {(currentStep === 'staff' || (simple && currentStep === 'dateTime' && !lockedStaffId)) && (
                     <div className="space-y-6">
                       <div className="space-y-1 text-left">
                         <h3 style={{ fontFamily: headingFont }} className="text-base font-black uppercase tracking-tight flex items-center gap-2">
@@ -1269,7 +1281,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                   )}
 
                   {/* ── Step: Consents ───────────────────────────────────── */}
-                  {currentStep === 'consents' && (
+                  {(currentStep === 'consents' || (simple && currentStep === 'details' && requiredForms.length > 0)) && (
                     <div className="space-y-7 text-left">
                       <h3 style={{ fontFamily: headingFont }} className="text-base font-black uppercase tracking-tight flex items-center gap-2 text-left">
                         <FileSignature className="w-4 h-4 text-primary" />Agreements
@@ -1297,7 +1309,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                   )}
 
                   {/* ── Step: Summary (no-deposit path only) ─────────────── */}
-                  {currentStep === 'summary' && (
+                  {(currentStep === 'summary' || (simple && currentStep === 'details')) && (
                     <div className="space-y-6 text-left">
                       <h3 style={{ fontFamily: headingFont }} className="text-base font-black uppercase tracking-tight flex items-center gap-2">
                         <ShieldCheck className="w-4 h-4 text-primary" />Review
@@ -1426,7 +1438,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             >
               {/* The button names what happens next, and keeps that name all
                   the way through the flow. */}
-              {currentStep === 'summary' ? 'Confirm booking'
+              {simple && currentStep === 'details' ? (steps[currentStepIndex + 1] === 'checkout' ? 'Continue to payment' : 'Confirm booking')
+                : currentStep === 'summary' ? 'Confirm booking'
                 : currentStep === 'staff' ? 'Choose a time'
                   : currentStep === 'dateTime' ? (selectedTime ? 'Add your details' : 'Pick a time above')
                     : currentStep === 'consents' ? 'Agree and continue'
