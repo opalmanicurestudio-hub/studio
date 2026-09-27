@@ -25,22 +25,24 @@ function getStripe() {
 
 export async function POST(req: NextRequest) {
   try {
-    const {
-      tenantId,
-      completionToken,
-      appointmentId,
-      clientId,
-      clientName,
-      clientEmail,
-      depositAmount = 0,
-      serviceName,
-    } = await req.json();
-
-    if (!tenantId || !completionToken || !clientEmail) {
+    const body = await req.json();
+    const tenantId = body.tenantId, completionToken = body.completionToken;
+    if (!tenantId || !completionToken) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
     const db = getAdminDb();
+    /* Everything that matters comes from the COMPLETION RECORD on the server —
+     * never the browser (which could otherwise change the amount, or point the
+     * payment at another appointment or client). */
+    const cSnap = await db.doc(`tenants/${tenantId}/bookingCompletions/${String(completionToken)}`).get();
+    if (!cSnap.exists) return NextResponse.json({ error: 'This link isn’t valid any more — please contact the studio.' }, { status: 404 });
+    const rec: any = cSnap.data() || {};
+    const depositAmount = (Number(rec.depositAmountCents) || 0) / 100;
+    const appointmentId = rec.owedFeeAppointmentId || rec.appointmentId || null;
+    const clientId = rec.clientId || null, clientName = rec.clientName || '', serviceName = rec.serviceName || '';
+    const clientEmail = rec.clientEmail || body.clientEmail || null;
+    if (!clientEmail) return NextResponse.json({ error: 'We need an email on your booking to take payment — please contact the studio.' }, { status: 400 });
     const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
     if (!tenantSnap.exists) {
       return NextResponse.json({ error: 'Studio not found' }, { status: 404 });
@@ -83,6 +85,9 @@ export async function POST(req: NextRequest) {
       clientName:    clientName || '',
       clientEmail:   clientEmail || '',
       serviceName:   serviceName || '',
+      // A cancellation FEE (not a deposit) — the webhook records it as a fee
+      // and leaves the cancelled appointment cancelled.
+      purpose:       rec.owedFeeAppointmentId ? 'fee' : 'completion',
     };
 
     const hasDeposit = Number(depositAmount) > 0;
