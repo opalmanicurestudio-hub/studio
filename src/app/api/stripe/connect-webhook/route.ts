@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { logAuditAdmin } from '@/lib/audit';
 import { completeDonation } from '@/lib/academy-funding';
 import { enrollFromCheckout } from '@/lib/academy';
 import { completeDownPayment, completeStudentPayment, completeCardUpdate } from '@/lib/academy-admissions';
@@ -290,6 +291,7 @@ export async function POST(req: NextRequest) {
           });
 
           await batch.commit();
+          await logAuditAdmin(db, tenant.id, { action: 'deposit.paid', targetType: 'appointment', targetId: aptRef.id, amount: depositAmountCents / 100, summary: `Online booking deposit paid — ${br.clientName || 'Guest'}, ${br.serviceName || 'appointment'}`, actor: { type: 'user', name: br.clientName || 'Guest', role: 'client', via: 'online booking' } }).catch(() => {});
           console.log(`[connect-webhook] Deposit paid — appointment ${appointmentId} created for tenant ${tenant.id}`);
           break;
         }
@@ -336,6 +338,7 @@ export async function POST(req: NextRequest) {
                 savedAt:         new Date().toISOString(),
               },
             }, { merge: true });
+            await logAuditAdmin(db, tenant.id, { action: 'card.saved', targetType: 'client', targetId: clientId, summary: `Card saved on file — ${pm.card?.brand || 'card'} ending ${pm.card?.last4 || '????'}`, actor: { type: 'user', role: 'client', via: 'online' } }).catch(() => {});
           }
 
           if (sessionType === 'completion' && appointmentId && session.amount_total) {
