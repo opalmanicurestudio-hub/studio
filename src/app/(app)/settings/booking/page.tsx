@@ -20,6 +20,7 @@ import React, { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useTenant } from '@/context/TenantContext';
+import { PageDesignPicker } from '@/components/settings/PageDesignPicker';
 import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { AppointmentAuthoritySettings } from '@/components/settings/AppointmentAuthoritySettings';
@@ -177,6 +178,7 @@ export default function BookingSettingsPage() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-6 space-y-4">
+        {tenantId && <PageDesignPicker firestore={firestore as any} tenantId={tenantId} current={(selectedTenant as any)?.bookingPageSettings?.design} />}
         <Card className="border-2 rounded-[2rem] bg-white">
           <CardContent className="p-5 space-y-3">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">How online bookings arrive</p>
