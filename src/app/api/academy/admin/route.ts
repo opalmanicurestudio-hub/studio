@@ -7,7 +7,7 @@
 //   video-status   (is Mux done processing? saves the playback id)
 //   students       (who's enrolled, and how far they've got)
 
-import { fundSummary, useReportDraft, fundNames, decideScholarship, directAward, applyAward, sendReceipt } from '@/lib/academy-funding';
+import { fundSummary, useReportDraft, fundNames, decideScholarship, directAward, applyAward, sendReceipt, sendStatement, giftsFor, letterWho, saveSponsor } from '@/lib/academy-funding';
 import { randomBytes } from 'crypto';
 import { getSettings, sanitize, tourRules } from '@/lib/school-site';
 import { getIdentity, saveIdentity, brandFromIdentity } from '@/lib/school-identity';
@@ -246,7 +246,9 @@ async function handle(req: NextRequest) {
           const tt = ((await db.doc(F).get()).data() as any) || {};
           const [sum, gifts, apps, adm, funds, settings] = await Promise.all([fundSummary(tenantId, Number(b.year) || undefined), db.collection(`${F}/donations`).orderBy('createdAt', 'desc').limit(300).get(), db.collection(`${F}/scholarshipApplications`).orderBy('createdAt', 'desc').limit(300).get(),
             db.collection(`${F}/admissions`).where('stage', 'in', ['offer', 'accepted', 'agreement', 'enrolled']).limit(1000).get(), fundNames(tenantId), getSettings(tenantId)]);
-          return NextResponse.json({ ok: true, summary: sum, draft: useReportDraft(sum, tt.name || 'our'), funds, canGive: !!tt.stripeAccountId, donorsOn: settings.donors.enabled, nonprofit: settings.donors.nonprofit && !!settings.donors.ein, useReport: settings.donors.useReport,
+          const sp = await db.collection(`${F}/sponsors`).limit(200).get();
+          return NextResponse.json({ ok: true, summary: sum, draft: useReportDraft(sum, tt.name || 'our'), funds, letter: await letterWho(tenantId), tiers: settings.donors.tiers,
+            sponsors: sp.docs.map((d: any) => d.data()).sort((a: any, b: any) => String(a.status).localeCompare(String(b.status)) || (b.totalCents || 0) - (a.totalCents || 0)), canGive: !!tt.stripeAccountId, donorsOn: settings.donors.enabled, nonprofit: settings.donors.nonprofit && !!settings.donors.ein, useReport: settings.donors.useReport,
             gifts: gifts.docs.map((d: any) => d.data()), apps: apps.docs.map((d: any) => d.data()),
             students: adm.docs.map((d: any) => { const x = d.data() as any; return { id: d.id, name: x.name, email: x.email, stage: x.stage, programId: x.programId }; }).sort((x: any, y: any) => String(x.name).localeCompare(String(y.name))) });
         }
@@ -265,6 +267,12 @@ async function handle(req: NextRequest) {
           const sent = await sendReceipt(tenantId, g); await db.doc(`${F}/donations/${g.id}`).set({ receiptSent: sent || g.receiptSent || false }, { merge: true });
           return NextResponse.json({ ok: sent, error: sent ? undefined : 'The receipt couldn’t be emailed (no email on file, or email isn’t set up).' });
         }
+        if (b.action === 'funding-statement') {
+          const year = Number(b.year) || new Date().getFullYear(); const email = String(b.email || '').toLowerCase();
+          if (b.send) { const ok = await sendStatement(tenantId, email, year); if (ok) await appendAudit(tenantId, { type: 'funding.statement', by: who, summary: `${year} giving statement emailed to ${email}` }); return NextResponse.json({ ok, error: ok ? undefined : 'The statement couldn’t be emailed.' }); }
+          return NextResponse.json({ ok: true, gifts: await giftsFor(tenantId, email, year) });
+        }
+        if (b.action === 'funding-sponsor-save') return NextResponse.json({ ok: true, id: await saveSponsor(tenantId, b.sponsor || {}, who) });
         if (b.action === 'funding-report-save') {
           const cur = await getSettings(tenantId); const prev = ((await db.doc(`${F}/schoolSite/main`).get()).data() as any) || {};
           await db.doc(`${F}/schoolSite/main`).set({ ...cur, published: !!prev.published, donors: { ...cur.donors, useReport: String(b.text || '').slice(0, 2000) }, updatedAt: now, updatedBy: who });
