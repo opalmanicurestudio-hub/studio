@@ -12,6 +12,8 @@
 //                                             donate / sponsor / general → the website inbox
 // Every visitor gets an instant confirmation; the school gets an alert.
 
+import { donationSession, completeDonation, scholarshipApply } from '@/lib/academy-funding';
+import Stripe from 'stripe';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { tourSlots, tourRules, getSettings } from '@/lib/school-site';
@@ -69,9 +71,31 @@ export async function POST(req: NextRequest) {
   const origin = linkOrigin(t, req.nextUrl.origin);
   const school = (await getIdentity(tenantId, t).catch(() => null))?.displayName || t.name || 'Our school';
   // Bots: a hidden field real people never fill, and a minimum time on the form.
-  if (['tour-book', 'inquiry'].includes(b.action) && (b.website || (Number(b.elapsedMs) > 0 && Number(b.elapsedMs) < 2500))) return NextResponse.json({ ok: true });
+  if (['tour-book', 'inquiry', 'scholarship-apply', 'donate'].includes(b.action) && (b.website || (Number(b.elapsedMs) > 0 && Number(b.elapsedMs) < 2500))) return NextResponse.json({ ok: true });
 
   try {
+    // ── Gifts (school's own Stripe account) and scholarship applications ──
+    if (b.action === 'donate') {
+      const s = await getSettings(tenantId); if (!s.donors.enabled) return NextResponse.json({ ok: false, error: 'Online giving isn’t open.' }, { status: 400 });
+      const email = clean(b.email, 120).toLowerCase(); const name = clean(b.name, 80);
+      if (!name || !okEmail(email)) return NextResponse.json({ ok: false, error: 'Add your name and email for your receipt.' }, { status: 400 });
+      try { const url = await donationSession(tenantId, { amountCents: Math.round(Number(b.amountCents) || 0), fund: clean(b.fund, 100), name, email, anonymous: !!b.anonymous, business: !!b.business, businessName: clean(b.businessName, 100), showName: !!b.showName && !b.anonymous, message: clean(b.message, 450) }, origin); return NextResponse.json({ ok: true, url }); }
+      catch (e: any) { return NextResponse.json({ ok: false, error: e?.message || 'Couldn’t start the payment.' }, { status: 400 }); }
+    }
+    if (b.action === 'donate-confirm') {
+      if (!t.stripeAccountId || !/^cs_[A-Za-z0-9_]+$/.test(String(b.sessionId || ''))) return NextResponse.json({ ok: false }, { status: 400 });
+      const session = await new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2025-04-30.basil' as any }).checkout.sessions.retrieve(String(b.sessionId), {}, { stripeAccount: t.stripeAccountId });
+      if (session.metadata?.type !== 'academy_donation') return NextResponse.json({ ok: false }, { status: 400 });
+      if (session.payment_status !== 'paid') return NextResponse.json({ ok: false, pending: true });
+      await completeDonation(tenantId, session);
+      const g = ((await db.doc(`${T}/donations/${session.id}`).get()).data() as any) || {};
+      return NextResponse.json({ ok: true, amountCents: g.amountCents, fund: g.fund, receiptNo: g.receiptNo, emailed: !!g.receiptSent });
+    }
+    if (b.action === 'scholarship-apply') {
+      try { await scholarshipApply(tenantId, { scholarship: clean(b.scholarship, 100), name: clean(b.name, 80), email: clean(b.email, 120).toLowerCase(), phone: clean(b.phone, 30), programId: clean(b.programId, 40), why: clean(b.why, 3000), need: clean(b.need, 3000), goals: clean(b.goals, 3000) }); return NextResponse.json({ ok: true }); }
+      catch (e: any) { return NextResponse.json({ ok: false, error: e?.message || 'Couldn’t send your application.' }, { status: 400 }); }
+    }
+
     if (b.action === 'tour-slots') return NextResponse.json({ ok: true, ...(await tourSlots(tenantId, clean(b.date, 10))) });
 
     if (b.action === 'tour-book') {
