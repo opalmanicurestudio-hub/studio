@@ -1,48 +1,34 @@
 'use client';
-
 /**
  * components/planner/RescheduleAppointmentDialog.tsx
  *
- * A reschedule MOVES the same appointment to a new time. It is deliberately
- * NOT the cancellation pipeline, because a client who moves their booking
- * hasn't stopped being your client — treating it as a cancel+rebook is what
- * was quietly poisoning retention metrics and double-charging Stripe fees.
+ * A reschedule MOVES the same appointment to a new time (not a cancel +
+ * rebook — no cancellation count, no refund/re-collect of the deposit).
  *
- * What this does NOT do, on purpose:
- *   - does not increment cancellationCount
- *   - does not refund or re-collect the deposit (it stays attached to this
- *     same appointment id — no Stripe round-trip, no fees on either end)
- *   - does not write a cancellationEvent
- *   - does not touch storeCredits / outstandingBalance
- *
- * What it DOES do:
- *   - moves startTime / endTime on this same appointment, preserving the
- *     original duration
- *   - tags rescheduledFromTime / rescheduleCount / lastRescheduledAt so
- *     repeat-reschedulers are visible as their own distinct pattern
- *   - increments the client's rescheduleCount
- *   - writes one audit-log entry (entityType: 'appointment_reschedule')
- *   - optionally applies a SEPARATE, lenient reschedule fee — only if the
- *     studio has a reschedule-fee policy and the move is inside the window.
- *     This is never a cancellation fee and is logged as its own thing.
- *
- * Self-contained: it performs its own Firestore write, so it works whether
- * or not the parent passed an onReschedule handler.
+ * v2 (5c) — CHECKED LIKE A BOOKING. The dialog used to write any time straight
+ * to the database: outside hours, on a day off, on top of another booking.
+ * Now every step goes through /api/appointments/reschedule, which uses the
+ * same availability engine and time frame as online booking:
+ *   • pick a day → that day's open times for the provider
+ *   • "Another time" → checked live, with a plain reason if it won't work
+ *     ("Clashes with Maria Lopez's Gel manicure at 2:00 pm", "Outside
+ *     Jessica's hours that day (9:00 am – 5:00 pm)", "Jessica has the day off")
+ *   • managers can "Move anyway" — recorded with the reason it broke the rules
+ * The server keeps what this dialog used to do (reschedule fee inside the
+ * window, reschedule counts, history) and adds: the check-in copy is updated,
+ * the move is in the activity log, and the client is told by email + text.
+ * The "fill the freed slot" follow-up still runs from here afterwards.
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { format, addMinutes, differenceInMinutes, differenceInHours, parseISO } from 'date-fns';
+import React, { useEffect, useMemo, useState } from 'react';
+import { format, differenceInHours, parseISO } from 'date-fns';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Separator } from '@/components/ui/separator';
-import { CalendarClock, ArrowRight, Loader, Info, DollarSign } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { useFirebase } from '@/firebase';
-import { doc, updateDoc, increment, arrayUnion } from 'firebase/firestore';
+import { CalendarClock, Loader } from 'lucide-react';
+import { getAuth } from 'firebase/auth';
+import { deviceId } from '@/lib/device';
 import { useToast } from '@/hooks/use-toast';
 
 const safeDate = (val: any): Date => {
@@ -52,10 +38,7 @@ const safeDate = (val: any): Date => {
   if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
   return new Date(val);
 };
-
-// Build the value a datetime-local input expects: 'yyyy-MM-ddTHH:mm', in
-// LOCAL time (no Z). format() already renders local, so this is correct.
-const toLocalInputValue = (d: Date): string => format(d, "yyyy-MM-dd'T'HH:mm");
+const clock = (t: string) => { const [h, m] = t.split(':').map(Number); return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'pm' : 'am'}`; };
 
 interface RescheduleAppointmentDialogProps {
   open: boolean;
@@ -64,266 +47,105 @@ interface RescheduleAppointmentDialogProps {
   client?: any;
   tenant?: any;
   tenantId?: string;
-  actorName?: string;       // who is doing the reschedule (staff display name)
-  actorId?: string;         // staffId, or 'client'
+  actorName?: string;
+  actorId?: string;
   isMobile?: boolean;
   onRescheduled?: (newStartIso: string) => void;
 }
 
+async function api(body: any) {
+  const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
+  const r = await fetch('/api/appointments/reschedule', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}`, 'x-cf-device': deviceId() }, body: JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  return { status: r.status, ...(d || {}) };
+}
+
 export const RescheduleAppointmentDialog: React.FC<RescheduleAppointmentDialogProps> = ({
-  open, onOpenChange, appointment, client, tenant, tenantId,
-  actorName = 'Staff', actorId = 'system', isMobile = false, onRescheduled,
+  open, onOpenChange, appointment, client, tenant, tenantId, isMobile = false, onRescheduled,
 }) => {
-  const { firestore } = useFirebase();
   const { toast } = useToast();
-
   const originalStart = useMemo(() => safeDate(appointment?.startTime), [appointment]);
-  const originalEnd = useMemo(() => safeDate(appointment?.endTime), [appointment]);
-  const durationMins = useMemo(() => {
-    const d = differenceInMinutes(originalEnd, originalStart);
-    return d > 0 ? d : (appointment?.durationMinutes || 60);
-  }, [originalStart, originalEnd, appointment]);
+  const [day, setDay] = useState(''); const [times, setTimes] = useState<string[]>([]); const [loadingTimes, setLoadingTimes] = useState(false);
+  const [time, setTime] = useState(''); const [custom, setCustom] = useState(''); const [reason, setReason] = useState<string | null>(null);
+  const [applyFee, setApplyFee] = useState(true); const [notify, setNotify] = useState(true);
+  const [busy, setBusy] = useState(false); const [override, setOverride] = useState<{ reason: string } | null>(null);
+  const rescheduleFee = Number(tenant?.rescheduleFee || 0), windowH = Number(tenant?.rescheduleFeeWindowHours || 0);
+  const feeEligible = rescheduleFee > 0 && windowH > 0 && differenceInHours(originalStart, new Date()) < windowH;
+  const base = { tenantId, appointmentId: appointment?.id };
 
-  const [newStartLocal, setNewStartLocal] = useState('');
-  const [applyFee, setApplyFee] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  useEffect(() => { if (open) { setDay(format(originalStart, 'yyyy-MM-dd')); setTime(''); setCustom(''); setReason(null); setOverride(null); setApplyFee(true); setNotify(true); } }, [open, originalStart]);
+  useEffect(() => { // that day's open times
+    if (!open || !day || !tenantId || !appointment?.id) return; let stale = false;
+    setLoadingTimes(true); setTime(''); setReason(null); setOverride(null);
+    api({ ...base, action: 'check', date: day }).then((d) => { if (!stale) setTimes(d.ok ? d.times || [] : []); }).finally(() => { if (!stale) setLoadingTimes(false); });
+    return () => { stale = true; };
+  }, [open, day]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { // "Another time" — checked live
+    if (!custom || !/^\d{2}:\d{2}$/.test(custom)) return; let stale = false;
+    const h = setTimeout(() => api({ ...base, action: 'check', date: day, time: custom }).then((d) => { if (!stale) { setTime(custom); setReason(d.ok ? d.reason || null : d.error || 'Couldn’t check that time.'); setOverride(null); } }), 300);
+    return () => { stale = true; clearTimeout(h); };
+  }, [custom, day]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reschedule fee policy — SEPARATE from cancellation fees. Only offered if
-  // the studio configured one. Defaults to off; staff opt in per-move.
-  const rescheduleFee = Number(tenant?.rescheduleFee || 0);
-  const rescheduleWindowHours = Number(tenant?.rescheduleFeeWindowHours || 0);
-  const hoursUntilOriginal = useMemo(
-    () => differenceInHours(originalStart, new Date()),
-    [originalStart],
-  );
-  // A fee is only *suggested* when the studio has a fee, has a window, and the
-  // move is happening inside that window (i.e. short notice). Staff still
-  // choose whether to actually apply it.
-  const feeEligible = rescheduleFee > 0 && rescheduleWindowHours > 0 && hoursUntilOriginal < rescheduleWindowHours;
-
-  useEffect(() => {
-    if (open) {
-      // Pre-fill with the original time so staff only change what they need.
-      setNewStartLocal(toLocalInputValue(originalStart));
-      setApplyFee(feeEligible);
-      setIsSubmitting(false);
-    }
-  }, [open, originalStart, feeEligible]);
-
-  const newStartDate = newStartLocal ? new Date(newStartLocal) : null;
-  const newEndDate = newStartDate ? addMinutes(newStartDate, durationMins) : null;
-  const isUnchanged = newStartDate ? Math.abs(newStartDate.getTime() - originalStart.getTime()) < 60000 : true;
-  const isPast = newStartDate ? newStartDate.getTime() < Date.now() - 60000 : false;
-
-  const willApplyFee = applyFee && feeEligible && rescheduleFee > 0;
-
-  const handleConfirm = async () => {
-    if (!firestore || !tenantId || !appointment?.id || !newStartDate || !newEndDate) return;
-    if (isUnchanged || isPast) return;
-
-    setIsSubmitting(true);
+  const move = async (force = false) => {
+    if (!time || busy) return; setBusy(true);
     try {
-      const nowIso = new Date().toISOString();
-      const newStartIso = newStartDate.toISOString();
-      const newEndIso = newEndDate.toISOString();
-
-      // ── Move the SAME appointment. No cancellation, no deposit round-trip. ──
-      const apptUpdate: Record<string, any> = {
-        startTime: newStartIso,
-        endTime: newEndIso,
-        rescheduledFromTime: appointment.startTime,
-        rescheduleCount: increment(1),
-        lastRescheduledAt: nowIso,
-        lastRescheduledBy: actorId,
-        // A reschedule re-opens the booking as a normal confirmed appointment.
-        // If it had drifted into a late/no-show-adjacent check-in state, that
-        // no longer applies to the new time.
-        status: 'confirmed',
-        checkInStatus: 'pending',
-      };
-      if (willApplyFee) apptUpdate.rescheduleFeeApplied = rescheduleFee;
-
-      await updateDoc(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), apptUpdate);
-
-      // ── Client-level reschedule counter (distinct from cancellationCount) ──
-      const clientId = client?.id || appointment.clientId;
-      if (clientId) {
-        const clientUpdate: Record<string, any> = { rescheduleCount: increment(1) };
-
-        // If a reschedule fee applies, it's added to the balance as its own
-        // unpaidFees entry so the ledger's aging widget sees it — same shape
-        // every other fee path now uses. It is NOT a cancellation fee.
-        if (willApplyFee) {
-          clientUpdate.outstandingBalance = increment(rescheduleFee);
-          clientUpdate.unpaidFees = arrayUnion({
-            feeId: `resched_${appointment.id}_${Date.now()}`,
-            appointmentId: appointment.id,
-            appointmentDate: nowIso,
-            feeAmount: rescheduleFee,
-            reason: 'reschedule_fee',
-          });
-        }
-        await updateDoc(doc(firestore, `tenants/${tenantId}/clients`, clientId), clientUpdate);
+      const d = await api({ ...base, action: 'move', date: day, time, applyFee: feeEligible && applyFee, notify, override: force });
+      if (!d.ok) {
+        if (d.canOverride) { setOverride({ reason: d.error }); setReason(d.error); }
+        else toast({ variant: 'destructive', title: 'Couldn’t move it', description: d.error || 'Please try another time.' });
+        return;
       }
-
-      // ── Audit log — its own entity type, never confused with a cancel ──
-      const auditId = `resched_${appointment.id}_${Date.now()}`;
-      await updateDoc(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), {
-        rescheduleAuditTrail: arrayUnion({
-          id: auditId,
-          fromTime: appointment.startTime,
-          toTime: newStartIso,
-          at: nowIso,
-          byId: actorId,
-          byName: actorName,
-          feeApplied: willApplyFee ? rescheduleFee : 0,
-        }),
-      });
-
-      // Fire recovery for the VACATED (old) slot and log the behavior event —
-      // one call to the spawn route does both. Non-blocking: a recovery hiccup
-      // must never fail the reschedule the client just confirmed. auditId is the
-      // resolution ticket id linking this disruption to its recovery.
-      fetch('/api/opal/recovery-spawn', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tenantId,
-          appointmentId: appointment.id,
-          resolutionTicketId: auditId,
-          clientId: client?.id || appointment.clientId,
-          eventType: 'reschedule',
-          vacatedSlotStart: appointment.startTime,
-          vacatedSlotEnd: appointment.endTime,
-          locationId: appointment.locationId || null,
-        }),
-      }).catch(() => {});
-
-      toast({
-        title: 'Appointment Rescheduled',
-        description: `Moved to ${format(newStartDate, 'EEE MMM d, h:mm a')}${willApplyFee ? ` · $${rescheduleFee.toFixed(2)} fee added` : ''}.`,
-      });
-      onRescheduled?.(newStartIso);
-      onOpenChange(false);
-    } catch (e: any) {
-      console.error(e);
-      toast({ variant: 'destructive', title: 'Reschedule Failed', description: e?.message || 'Could not move the appointment.' });
-    } finally {
-      setIsSubmitting(false);
-    }
+      fetch('/api/opal/recovery-spawn', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, appointmentId: appointment.id, resolutionTicketId: d.auditId, clientId: client?.id || appointment.clientId, eventType: 'reschedule', vacatedSlotStart: appointment.startTime, vacatedSlotEnd: appointment.endTime, locationId: appointment.locationId || null }) }).catch(() => {});
+      const told = [d.told?.email && 'email', d.told?.sms && 'text'].filter(Boolean).join(' + ');
+      toast({ title: 'Appointment moved', description: `${format(safeDate(d.startTime), 'EEE MMM d, h:mm a')}${d.feeApplied ? ` · $${Number(d.feeApplied).toFixed(2)} fee added` : ''}${notify ? (told ? ` · client told by ${told}` : ' · client couldn’t be messaged (no contact details or messaging off)') : ''}${d.overrode ? ' · moved outside the rules (recorded)' : ''}` });
+      onRescheduled?.(d.startTime); onOpenChange(false);
+    } finally { setBusy(false); }
   };
 
+  const chip = (on: boolean) => `h-11 rounded-xl border-2 text-sm font-bold transition ${on ? 'border-primary bg-primary text-primary-foreground' : 'bg-background hover:bg-muted/40'}`;
   const body = (
-    <div className="space-y-6 px-1">
-      <div className="flex items-center gap-3 p-4 rounded-2xl border-2 bg-muted/5">
-        <CalendarClock className="w-5 h-5 text-primary shrink-0" />
-        <div className="min-w-0">
-          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Currently</p>
-          <p className="text-sm font-black tracking-tight text-slate-900 truncate">
-            {format(originalStart, 'EEE MMM d, h:mm a')}
-          </p>
-          <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">
-            {durationMins} min · {appointment?.serviceName || 'Service'}
-          </p>
-        </div>
+    <div className="space-y-5 px-1">
+      <div className="flex items-center gap-3 rounded-2xl border-2 bg-muted/5 p-4">
+        <CalendarClock className="h-5 w-5 shrink-0 text-primary" />
+        <div className="min-w-0"><p className="text-xs text-muted-foreground">Currently</p><p className="truncate text-sm font-black">{format(originalStart, 'EEE MMM d, h:mm a')}</p><p className="text-xs text-muted-foreground">{appointment?.serviceName || 'Service'}{appointment?.staffName ? ` · ${appointment.staffName}` : ''}</p></div>
       </div>
-
-      <div className="space-y-3">
-        <Label htmlFor="reschedule-new-time" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">
-          New Date & Time
-        </Label>
-        <Input
-          id="reschedule-new-time"
-          type="datetime-local"
-          value={newStartLocal}
-          onChange={e => setNewStartLocal(e.target.value)}
-          className="h-14 rounded-2xl border-2 font-black text-base bg-white shadow-inner"
-        />
-        {newEndDate && !isUnchanged && !isPast && (
-          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight ml-1">
-            Ends {format(newEndDate, 'h:mm a')} · duration preserved
-          </p>
-        )}
-        {isPast && (
-          <p className="text-[10px] font-bold text-destructive uppercase tracking-tight ml-1">
-            That time is in the past.
-          </p>
-        )}
+      <label className="block space-y-1.5"><span className="text-sm font-bold">Day</span>
+        <input type="date" value={day} min={format(new Date(), 'yyyy-MM-dd')} onChange={(e) => { setDay(e.target.value); setCustom(''); }} className="h-12 w-full rounded-xl border-2 px-3 text-base" /></label>
+      <div className="space-y-2" aria-live="polite">
+        <p className="text-sm font-bold">Open times</p>
+        {loadingTimes ? <p className="text-sm text-muted-foreground">Checking…</p>
+          : times.length === 0 ? <p className="rounded-xl bg-muted/30 p-3 text-sm">No open times for {appointment?.staffName?.split(' ')[0] || 'this provider'} that day — try another day, or choose another time below to see why.</p>
+          : <div className="grid grid-cols-3 gap-2">{times.map((t) => <button key={t} type="button" onClick={() => { setTime(t); setCustom(''); setReason(null); setOverride(null); }} aria-pressed={time === t && !custom} className={chip(time === t && !custom)}>{clock(t)}</button>)}</div>}
       </div>
-
-      <div className="flex items-start gap-3 p-4 rounded-2xl border border-dashed bg-primary/[0.02]">
-        <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-        <p className="text-[10px] font-bold text-slate-600 uppercase tracking-tight leading-relaxed">
-          The deposit and any credit stay attached to this booking. No refund, no re-collection, no cancellation on the client's record.
-        </p>
-      </div>
-
-      {feeEligible && (
-        <>
-          <Separator className="border-dashed" />
-          <div className="flex items-center justify-between p-4 rounded-2xl border-2 bg-muted/5">
-            <div className="space-y-0.5 text-left min-w-0">
-              <p className="text-[10px] font-black uppercase text-slate-900 flex items-center gap-1.5">
-                <DollarSign className="w-3.5 h-3.5 text-primary" /> Short-Notice Reschedule Fee
-              </p>
-              <p className="text-[8px] font-bold uppercase opacity-60">
-                Within {rescheduleWindowHours}h of the appointment · ${rescheduleFee.toFixed(2)}
-              </p>
-            </div>
-            <Switch checked={applyFee} onCheckedChange={setApplyFee} />
-          </div>
-        </>
-      )}
+      <label className="block space-y-1.5"><span className="text-sm font-bold">Another time</span>
+        <input type="time" step={300} value={custom} onChange={(e) => setCustom(e.target.value)} className="h-12 w-full rounded-xl border-2 px-3 text-base" /></label>
+      {reason && <p className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3 text-sm text-amber-900" role="alert">{reason}</p>}
+      {feeEligible && <label className="flex items-center justify-between gap-3 rounded-xl border-2 p-3"><span className="text-sm"><b>Reschedule fee</b> — ${rescheduleFee.toFixed(2)} (moved within {windowH} hours)</span><Switch checked={applyFee} onCheckedChange={setApplyFee} /></label>}
+      <label className="flex items-center justify-between gap-3 rounded-xl border-2 p-3"><span className="text-sm"><b>Tell the client</b> — email + text with the new time</span><Switch checked={notify} onCheckedChange={setNotify} /></label>
     </div>
   );
-
   const footer = (
-    <div className="w-full flex flex-col gap-3">
-      {newStartDate && !isUnchanged && !isPast && (
-        <div className="px-2 py-3 rounded-xl bg-muted/10 border border-dashed text-center">
-          <p className="text-[10px] font-bold text-slate-600 uppercase tracking-tight leading-relaxed flex items-center justify-center gap-2 flex-wrap">
-            <span>{format(originalStart, 'MMM d, h:mm a')}</span>
-            <ArrowRight className="w-3 h-3 text-primary" />
-            <span className="font-black text-primary">{format(newStartDate, 'MMM d, h:mm a')}</span>
-            {willApplyFee && <span>· ${rescheduleFee.toFixed(2)} fee</span>}
-          </p>
-        </div>
+    <div className="flex w-full flex-col gap-2">
+      {override ? <>
+        <p className="text-center text-xs text-muted-foreground">As a manager you can move it anyway — it will be recorded.</p>
+        <Button onClick={() => move(true)} disabled={busy} variant="destructive" className="h-12 w-full rounded-2xl font-black">{busy ? <Loader className="h-5 w-5 animate-spin" /> : 'Move anyway'}</Button>
+        <Button onClick={() => { setOverride(null); setReason(null); setTime(''); setCustom(''); }} variant="outline" className="h-11 w-full rounded-2xl">Pick another time</Button>
+      </> : (
+        <Button onClick={() => move(false)} disabled={busy || !time || (!!reason && !custom)} className="h-12 w-full rounded-2xl text-base font-black">
+          {busy ? <Loader className="h-5 w-5 animate-spin" /> : time ? `Move to ${format(parseISO(`${day}T${time}`), 'EEE MMM d')} at ${clock(time)}` : 'Pick a time'}
+        </Button>
       )}
-      <Button
-        onClick={handleConfirm}
-        disabled={isSubmitting || isUnchanged || isPast || !newStartDate}
-        className="w-full h-14 rounded-[2rem] text-lg font-black uppercase shadow-2xl shadow-primary/30"
-      >
-        {isSubmitting ? <Loader className="w-5 h-5 animate-spin" /> : 'Confirm New Time'}
-      </Button>
     </div>
   );
-
-  if (isMobile) {
-    return (
-      <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="rounded-t-[2rem] max-h-[92vh] overflow-y-auto p-6">
-          <SheetHeader className="text-left mb-4">
-            <SheetTitle className="text-xl font-black uppercase tracking-tight">Reschedule</SheetTitle>
-          </SheetHeader>
-          {body}
-          <SheetFooter className="mt-6">{footer}</SheetFooter>
-        </SheetContent>
-      </Sheet>
-    );
-  }
-
+  if (isMobile) return (
+    <Sheet open={open} onOpenChange={onOpenChange}><SheetContent side="bottom" className="max-h-[92vh] overflow-y-auto rounded-t-[2rem] p-6">
+      <SheetHeader className="mb-4 text-left"><SheetTitle className="text-xl font-black">Reschedule</SheetTitle></SheetHeader>{body}<SheetFooter className="mt-6">{footer}</SheetFooter>
+    </SheetContent></Sheet>
+  );
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md rounded-[2rem] p-8">
-        <DialogHeader className="mb-2">
-          <DialogTitle className="text-2xl font-black uppercase tracking-tight">Reschedule</DialogTitle>
-        </DialogHeader>
-        {body}
-        <DialogFooter className="mt-6">{footer}</DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="rounded-[2rem] p-8 sm:max-w-md">
+      <DialogHeader className="mb-2"><DialogTitle className="text-2xl font-black">Reschedule</DialogTitle></DialogHeader>{body}<DialogFooter className="mt-6">{footer}</DialogFooter>
+    </DialogContent></Dialog>
   );
 };
-
 export default RescheduleAppointmentDialog;
