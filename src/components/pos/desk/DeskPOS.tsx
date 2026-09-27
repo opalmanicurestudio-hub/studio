@@ -20,6 +20,7 @@ import { moduleEnabled } from '@/lib/modules';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { DeskFrame, Btn, Seg, Pill, GuestCard, Empty, Panel, Drawer } from './kit';
+import { Counter } from './Counter';
 
 type Stage = 'arriving' | 'waiting' | 'service' | 'ready' | 'done';
 type View = 'timeline' | 'lanes' | 'stations' | 'mix';
@@ -40,7 +41,10 @@ export function DeskPOS({ e, onClassic }: { e: any; onClassic: () => void }) {
   useEffect(() => { try { const v = localStorage.getItem(VIEW_KEY) as View | null; if (v && ['timeline', 'lanes', 'stations', 'mix'].includes(v)) setView(v); } catch { /* per-device memory is a nicety */ } }, []);
   const pickView = (v: View) => { setView(v); try { localStorage.setItem(VIEW_KEY, v); } catch { /* ignore */ } };
   const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [sellOpen, setSellOpen] = useState(false);
+  const [mode, setMode] = useState<'desk' | 'counter'>('desk');
+  const [todayOpen, setTodayOpen] = useState(true);
+  useEffect(() => { try { if (localStorage.getItem('cf.desk.today') === 'closed') setTodayOpen(false); } catch { /* ignore */ } }, []);
+  const toggleToday = () => { const v = !todayOpen; setTodayOpen(v); try { localStorage.setItem('cf.desk.today', v ? 'open' : 'closed'); } catch { /* ignore */ } };
   const [assigning, setAssigning] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | Exclude<Stage, 'done'>>('all');
   const [now, setNow] = useState(() => new Date());
@@ -79,6 +83,19 @@ export function DeskPOS({ e, onClassic }: { e: any; onClassic: () => void }) {
   const doneCount = guests.length - active.length;
   const takings = useMemo(() => (e.transactions || []).filter((t: any) => t.type === 'income' && !t.voided && toDate(t.date) && isToday(toDate(t.date)!)).reduce((s: number, t: any) => s + (Number(t.amount) || 0), 0), [e.transactions]);
   const next = active.find((g) => g.stage === 'arriving');
+  // "Today" — everyone, booked and walk-in (the classic tiles counted walk-ins only).
+  const today = useMemo(() => {
+    const waits: number[] = [];
+    for (const g of guests) {
+      const a = g.appt; if (!a) continue;
+      const arrived = toDate(a.checkInStatusTimestamp), started = toDate(a.actualStartTime || a.serviceStartTime);
+      if (arrived && started && started > arrived) waits.push((started.getTime() - arrived.getTime()) / 60000);
+    }
+    const walk = e.kpiData?.avgWaitTime || 0; const walkN = (e.walkIns || []).filter((w: any) => w.serviceStartTime && toDate(w.checkInTime) && isToday(toDate(w.checkInTime)!)).length;
+    const all = [...waits, ...Array(walkN).fill(walk)];
+    const avgWait = all.length ? all.reduce((x, y) => x + y, 0) / all.length : null;
+    return { avgWait, avgTicket: doneCount ? takings / doneCount : null, walkinsServed: e.kpiData?.totalWalkIns ? Math.round(e.kpiData.conversionRate) : null };
+  }, [guests, e.kpiData, e.walkIns, doneCount, takings]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Actions: the classic POS's own ─────────────────────────────────────
   const open = (g: Guest) => { if (g.appt) { e.setSelectedAppointment(g.appt); e.setIsDetailsOpen(true); } };
@@ -157,32 +174,36 @@ export function DeskPOS({ e, onClassic }: { e: any; onClassic: () => void }) {
         <div><p className="text-[22px] font-light tracking-tight">Front desk <span style={{ color: 'var(--muted)' }}>· {format(now, 'h:mm a')}</span></p>
           <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{active.length} today{doneCount ? ` · ${doneCount} done` : ''} · ${Math.round(takings)} taken{next ? ` · next: ${next.name.split(' ')[0]} at ${next.at ? format(next.at, 'h:mm a') : '—'}` : ''}</p></div>
         <div className="flex flex-wrap items-center gap-2">
-          <Seg label="View" value={shown} onChange={pickView} options={views.map(([k, l]) => [k, k === recommended ? `${l} ★` : l]) as [View, string][]} />
+          <Seg label="Mode" value={mode} onChange={setMode} options={[['desk', 'Desk'], ['counter', 'Counter']]} />
+          {mode === 'desk' && <Seg label="View" value={shown} onChange={pickView} options={views.map(([k, l]) => [k, k === recommended ? `${l} ★` : l]) as [View, string][]} />}
           {kioskOn && <Btn quiet onClick={() => e.setIsScanLookupOpen?.(true)}>Scan / find</Btn>}
           <Btn quiet onClick={() => e.setIsQuickBookOpen(true)}>Book</Btn>
-          {canSell && <Btn quiet onClick={() => setSellOpen(true)}>Sell</Btn>}
-          {readyIds.length > 0 && <Btn onClick={() => setCheckoutOpen(true)}>Checkout · {readyIds.length}</Btn>}
+          {mode === 'desk' && readyIds.length > 0 && <Btn onClick={() => setCheckoutOpen(true)}>Checkout · {readyIds.length}</Btn>}
           <Btn quiet onClick={() => e.setIsTillManagementOpen(true)}>Till</Btn>
           <button type="button" onClick={onClassic} className="text-[12px] underline underline-offset-2" style={{ color: 'var(--muted)' }}>Classic POS</button>
         </div>
       </div>
       <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-10 md:px-8">
-        <LayoutGroup>
+        {mode === 'desk' && <section aria-label="Today" className="mb-4">
+          <button type="button" onClick={toggleToday} aria-expanded={todayOpen} className="mb-2 text-[13px] font-semibold" style={{ color: 'var(--muted)' }}>Today {todayOpen ? '▴' : '▾'}</button>
+          {todayOpen && <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">{([
+            ['Taken today', `$${Math.round(takings).toLocaleString()}`],
+            ['Guests', `${doneCount} of ${guests.length} done`],
+            ['Average wait', today.avgWait === null ? '—' : `${Math.round(today.avgWait)} min`],
+            ['Average ticket', today.avgTicket === null ? '—' : `$${Math.round(today.avgTicket)}`],
+            ['Walk-ins served', today.walkinsServed === null ? '—' : `${today.walkinsServed}%`],
+          ] as [string, string][]).map(([l, v]) => <div key={l} className="rounded-2xl px-4 py-3" style={{ background: 'var(--card)' }}><p className="text-[12px]" style={{ color: 'var(--muted)' }}>{l}</p><p className="text-[20px] font-light tracking-tight">{v}</p></div>)}</div>}
+        </section>}
+        {mode === 'counter' ? <Counter e={e} /> : <LayoutGroup>
           {shown === 'timeline' && timeline}
           {shown === 'lanes' && lanes}
           {shown === 'stations' && stations}
           {shown === 'mix' && <div className="space-y-6">{stations}<div><p className="mb-2 text-[14px] font-semibold">The day</p>{timeline}</div></div>}
-        </LayoutGroup>
-        <p className="mt-6 text-center text-[12px]" style={{ color: 'var(--muted)' }}>★ recommended for {solo ? 'a solo business' : 'your team'} · this device remembers your view</p>
+        </LayoutGroup>}
+        {mode === 'desk' && <p className="mt-6 text-center text-[12px]" style={{ color: 'var(--muted)' }}>★ recommended for {solo ? 'a solo business' : 'your team'} · this device remembers your view</p>}
       </main>
       <Drawer open={checkoutOpen} onClose={() => setCheckoutOpen(false)} title="Checkout"><CheckoutHub {...e.checkoutHubProps} /></Drawer>
-      {canSell && <Drawer wide open={sellOpen} onClose={() => setSellOpen(false)} title="Sell">
-        <p className="mb-3 text-[13px]" style={{ color: 'var(--muted)' }}>Add products, then take payment below. Choose the client in checkout so the sale stays on their record.</p>
-        {/* Exactly what the classic POS passes — each part only if the business uses that tool. */}
-        <RetailCatalog services={e.services || []} inventory={retailOn ? e.inventory || [] : []} memberships={membershipsOn ? e.memberships || [] : []} packages={membershipsOn ? e.packages || [] : []}
-          onAddToCart={e.handleAddToCart} onScanClick={() => { e.setScanMode?.('retail'); e.setIsCameraScanOpen?.(true); }} />
-        <div className="mt-6"><CheckoutHub {...e.checkoutHubProps} /></div>
-      </Drawer>}
+
     </DeskFrame>
   );
 }
