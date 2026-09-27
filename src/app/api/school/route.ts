@@ -12,6 +12,7 @@
 //                                             donate / sponsor / general → the website inbox
 // Every visitor gets an instant confirmation; the school gets an alert.
 
+import { sponsorFromGift } from '@/lib/academy-funding';
 import { donationSession, completeDonation, scholarshipApply } from '@/lib/academy-funding';
 import Stripe from 'stripe';
 import { NextRequest, NextResponse } from 'next/server';
@@ -89,7 +90,17 @@ export async function POST(req: NextRequest) {
       if (session.payment_status !== 'paid') return NextResponse.json({ ok: false, pending: true });
       await completeDonation(tenantId, session);
       const g = ((await db.doc(`${T}/donations/${session.id}`).get()).data() as any) || {};
-      return NextResponse.json({ ok: true, amountCents: g.amountCents, fund: g.fund, receiptNo: g.receiptNo, emailed: !!g.receiptSent });
+      const st = await getSettings(tenantId);
+      return NextResponse.json({ ok: true, amountCents: g.amountCents, fund: g.fund, receiptNo: g.receiptNo, emailed: !!g.receiptSent, logoOffer: !!(g.business && g.showName && !g.anonymous && st.donors.logoOffer) });
+    }
+    // A business donor adds their logo for the sponsor wall (shown once the school approves it).
+    if (b.action === 'sponsor-logo') {
+      if (!/^cs_[A-Za-z0-9_]+$/.test(String(b.sessionId || ''))) return NextResponse.json({ ok: false, error: 'Missing gift.' }, { status: 400 });
+      try {
+        await sponsorFromGift(tenantId, String(b.sessionId), String(b.logo || ''), String(b.url || ''));
+        await alertSchool(tenantId, t, 'A sponsor added their logo', ['A business donor added their logo for your sponsor wall. It won’t show on your website until you approve it.'], `${origin}/academy?section=funding`);
+        return NextResponse.json({ ok: true });
+      } catch (e: any) { return NextResponse.json({ ok: false, error: e?.message || 'Couldn’t save your logo.' }, { status: 400 }); }
     }
     if (b.action === 'scholarship-apply') {
       try { await scholarshipApply(tenantId, { scholarship: clean(b.scholarship, 100), name: clean(b.name, 80), email: clean(b.email, 120).toLowerCase(), phone: clean(b.phone, 30), programId: clean(b.programId, 40), why: clean(b.why, 3000), need: clean(b.need, 3000), goals: clean(b.goals, 3000) }); return NextResponse.json({ ok: true }); }
