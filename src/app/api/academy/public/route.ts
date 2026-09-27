@@ -12,6 +12,7 @@
 //   lesson    { tenantId, courseId, lessonId, token? }  content; video token if allowed
 //   progress  { tenantId, token, courseId, lessonId, done }
 
+import { saveSignedPdf, signedPdfLink, SIGNATURE_OK } from '@/lib/signed-pdf';
 import { notifyApplicant, pickOfferedTime, requestReschedule } from '@/lib/academy-applicant-comms';
 import { respondOffer } from '@/lib/academy-decisions';
 import { getIdentity } from '@/lib/school-identity';
@@ -233,6 +234,15 @@ export async function POST(req: NextRequest) {
     }
 
     // ── School documents to read and sign (handbook, policies…) ──
+    // A 5-minute link to the student's OWN signed PDF (agreement or school document).
+    if (b.action === 'my-signed-pdf') {
+      if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+      const T = `tenants/${tenantId}`; let path: string | null = null;
+      if (b.kind === 'doc') { const x = ((await db.doc(`${T}/schoolDocs/${String(b.id || '')}`).get()).data() as any) || null; const ack = x ? (((await db.doc(`${T}/docAcks/${String(b.id)}_${x.version}_${student.id}`).get()).data() as any) || null) : null; path = ack?.pdf?.path || null; }
+      else { const adm = ((await db.doc(`${T}/admissions/${String(b.id || '')}`).get()).data() as any) || null; if (adm && String(adm.email || '').toLowerCase() === String(student.email || '').toLowerCase()) path = adm.agreement?.pdf?.path || null; }
+      if (!path) return NextResponse.json({ ok: false, error: 'No signed copy yet.' }, { status: 404 });
+      return NextResponse.json({ ok: true, url: await signedPdfLink(path) });
+    }
     if (b.action === 'docs-to-sign' || b.action === 'doc-read' || b.action === 'doc-sign' || b.action === 'docs-mine') {
       if (!student) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
       const T = `tenants/${tenantId}`;
@@ -240,7 +250,8 @@ export async function POST(req: NextRequest) {
         const [pub, acks] = await Promise.all([db.collection(`${T}/schoolDocs`).where('status', '==', 'published').limit(100).get(), db.collection(`${T}/docAcks`).where('studentId', '==', student.id).limit(500).get()]);
         const have = new Set(acks.docs.map((d: any) => { const a = d.data() as any; return `${a.docId}_${a.version}`; }));
         const docs = pub.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
-        if (b.action === 'docs-mine') return NextResponse.json({ ok: true, docs: docs.map((x: any) => ({ id: x.id, title: x.publishedTitle || x.title, version: x.version, requireAck: !!x.requireAck, signed: have.has(`${x.id}_${x.version}`) })) });
+        const pdfs = new Set(acks.docs.filter((d: any) => (d.data() as any).pdf?.path).map((d: any) => { const a = d.data() as any; return `${a.docId}_${a.version}`; }));
+        if (b.action === 'docs-mine') return NextResponse.json({ ok: true, docs: docs.map((x: any) => ({ id: x.id, title: x.publishedTitle || x.title, version: x.version, requireAck: !!x.requireAck, signed: have.has(`${x.id}_${x.version}`), hasPdf: pdfs.has(`${x.id}_${x.version}`) })) });
         return NextResponse.json({ ok: true, docs: docs.filter((x: any) => x.requireAck && !have.has(`${x.id}_${x.version}`)).map((x: any) => ({ id: x.id, title: x.publishedTitle || x.title, version: x.version })) });
       }
       const d = ((await db.doc(`${T}/schoolDocs/${String(b.id || '')}`).get()).data() as any) || null;
@@ -249,7 +260,10 @@ export async function POST(req: NextRequest) {
       if (b.action === 'doc-read') return NextResponse.json({ ok: true, doc: { id: String(b.id), title: pubTitle, body: pubBody, version: d.version, requireAck: !!d.requireAck } });
       const name = String(b.name || '').trim().slice(0, 120);
       if (name.length < 2 || !b.agree) return NextResponse.json({ ok: false, error: 'Type your full name and tick the box to sign.' }, { status: 400 });
-      await db.doc(`${T}/docAcks/${String(b.id)}_${d.version}_${student.id}`).set({ docId: String(b.id), version: d.version, studentId: student.id, email: student.email, title: pubTitle, signedName: name, at: new Date().toISOString(), hash: fingerprint(pubBody), agent: String(req.headers.get('user-agent') || '').slice(0, 200) });
+      if (!SIGNATURE_OK.test(String(b.signature || '')) || String(b.signature).length > 200_000) return NextResponse.json({ ok: false, error: 'Please draw your signature in the box.' }, { status: 400 });
+      const ackAt = new Date().toISOString(); const agent = String(req.headers.get('user-agent') || '').slice(0, 200); const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || null;
+      let pdf: any = null; try { pdf = await saveSignedPdf({ tenantId, title: pubTitle, kindLabel: `School document · version ${d.version}`, text: String(pubBody || ''), signer: { typedName: name, signature: String(b.signature), at: ackAt, ip, userAgent: agent, email: student.email }, school: { note: `Published by the school · version ${d.version}` } }, `doc-${String(b.id)}-v${d.version}-${student.id}`); } catch { /* the signature still counts */ }
+      await db.doc(`${T}/docAcks/${String(b.id)}_${d.version}_${student.id}`).set({ docId: String(b.id), version: d.version, studentId: student.id, email: student.email, title: pubTitle, signedName: name, at: ackAt, hash: fingerprint(pubBody), agent, ip, drawn: true, pdf });
       await appendAudit(tenantId, { type: 'doc.signed', studentId: student.id, by: student.email, summary: `Signed “${pubTitle}” (version ${d.version}) as “${name}”`, data: { docId: String(b.id), version: d.version } });
       return NextResponse.json({ ok: true });
     }
@@ -462,7 +476,7 @@ Keep this link private — you can use it any time to check your status.
         const canSign = ['accepted', 'agreement', 'enrolled'].includes(stage) || !!a.agreement?.signedAt;
         return NextResponse.json({ ok: true, brand, applicant: { name: a.name, email: a.email, stage, startDate: a.startDate || null, waitlisted: stage === 'waitlist', position }, offer, outcome, interview, canSign,
           program: { name: p.name, totalHours: p.totalHours || null, tuition }, docs,
-          agreement: a.agreement?.signedAt ? { signed: true, signedAt: a.agreement.signedAt, signedName: a.agreement.signedName, text: a.agreement.text } : { signed: false, text: agreementText() },
+          agreement: a.agreement?.signedAt ? { signed: true, signedAt: a.agreement.signedAt, signedName: a.agreement.signedName, text: a.agreement.text, hasPdf: !!a.agreement.pdf, countersigned: !!a.agreement.countersignedBy } : { signed: false, text: agreementText() },
           payment: plan ? { downPaymentCents: plan.downPaymentCents, paid: !!plan.downPaidAt, balanceCents: bal?.balanceCents ?? null, installmentCents: plan.installmentCents, installmentsTotal: plan.installmentsTotal, nextDueAt: plan.nextDueAt, autopay: !!plan.autopay } : null });
       }
       if (b.action === 'app-upload') {
@@ -479,6 +493,10 @@ Keep this link private — you can use it any time to check your status.
           await notifyApplicant(tenantId, a, { kind: 'docs_received', origin, subject: 'We have your documents', body: 'Thanks — we’ve received all your documents. Our admissions team will check them and review your application, and we’ll keep you posted by email' + (a.textOk ? ' and text' : '') + '.', sms: 'we have all your documents — your application is now being reviewed.' }).catch(() => null);
         }
         return NextResponse.json({ ok: true });
+      }
+      if (b.action === 'app-agreement-pdf') {
+        if (!a.agreement?.pdf?.path) return NextResponse.json({ ok: false, error: 'No signed copy yet.' }, { status: 404 });
+        return NextResponse.json({ ok: true, url: await signedPdfLink(a.agreement.pdf.path) });
       }
       if (b.action === 'app-interview-pick' || b.action === 'app-interview-change') {
         try {
@@ -498,9 +516,12 @@ Keep this link private — you can use it any time to check your status.
         const missing = (a.requiredDocs || DEFAULT_DOCS).filter((k: string) => !a.documents?.[k]);
         if (missing.length) return NextResponse.json({ ok: false, error: `Upload ${missing.join(', ')} first.` }, { status: 400 });
         const typed = String(b.typedName || '').trim().replace(/\s+/g, ' ');
+        if (!SIGNATURE_OK.test(String(b.signature || '')) || String(b.signature).length > 200_000) return NextResponse.json({ ok: false, error: 'Please draw your signature in the box.' }, { status: 400 });
         if (!b.agree || typed.toLowerCase() !== String(a.name).trim().replace(/\s+/g, ' ').toLowerCase()) return NextResponse.json({ ok: false, error: `Type your full name exactly as “${a.name}” and tick the box to sign.` }, { status: 400 });
         const text = agreementText(); const signedAt = new Date().toISOString();
-        const agreement = { text, sha256: sha256hex(text), signedName: typed, signedAt, ip: (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || null, userAgent: String(req.headers.get('user-agent') || '').slice(0, 240) };
+        const agreement: any = { text, sha256: sha256hex(text), signedName: typed, signedAt, ip: (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || null, userAgent: String(req.headers.get('user-agent') || '').slice(0, 240), signatureImage: String(b.signature) };
+        // The signed PDF (school countersignature pending). Signing still counts if the PDF fails — staff can regenerate it.
+        try { agreement.pdf = await saveSignedPdf({ tenantId, title: `Enrolment agreement — ${p.name || 'Program'}`, kindLabel: 'Enrolment agreement', text, signer: { typedName: typed, signature: agreement.signatureImage, at: signedAt, ip: agreement.ip, userAgent: agreement.userAgent, email: a.email }, school: { pending: true } }, `agreement-${a.id}`); } catch (e: any) { agreement.pdfError = String(e?.message || e).slice(0, 200); }
         await a.ref.set({ agreement, updatedAt: signedAt }, { merge: true });
         await appendAudit(tenantId, { type: 'admissions.signed', by: a.email, summary: `${a.name} signed the enrolment agreement for ${p.name}`, data: { admissionId: a.id, sha256: agreement.sha256 } });
         await setStage(tenantId, a.id, 'agreement', 'applicant', 'Agreement signed');
@@ -654,7 +675,7 @@ Keep this link private — you can use it any time to check your status.
       if (b.action === 'documents') {
         const [adm, letters] = await Promise.all([db.collection(`${T}/admissions`).where('email', '==', student.email).limit(5).get(),
           db.collection('platformDocuments').where('tenantId', '==', tenantId).where('email', '==', student.email).limit(50).get()]);
-        const agreements = adm.docs.map((d: any) => d.data() as any).filter((a: any) => a.agreement?.signedAt).map((a: any) => ({ signedAt: a.agreement.signedAt, signedName: a.agreement.signedName, text: a.agreement.text, countersignedBy: a.agreement.countersignedBy || null }));
+        const agreements = adm.docs.map((d: any) => d.data() as any).filter((a: any) => a.agreement?.signedAt).map((a: any) => ({ id: a.id, signedAt: a.agreement.signedAt, signedName: a.agreement.signedName, text: a.agreement.text, countersignedBy: a.agreement.countersignedBy || null, hasPdf: !!a.agreement.pdf }));
         const uploads = adm.docs.flatMap((d: any) => Object.entries((d.data() as any).documents || {}).map(([k, v]: any) => ({ doc: k, status: v.status, reason: v.reason || null, at: v.at })));
         const certs = ce.docs.map((d: any) => d.data() as any).filter((e: any) => e.certificateCode).map((e: any) => ({ code: e.certificateCode, at: e.completedAt, courseId: e.courseId }));
         for (const c of certs) (c as any).title = (((await db.doc(`${T}/courses/${c.courseId}`).get()).data() as any) || {}).title || 'Course';
