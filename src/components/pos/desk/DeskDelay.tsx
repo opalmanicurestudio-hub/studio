@@ -22,7 +22,7 @@ const toDate = (v: any): Date | null => { if (!v) return null; try { const d = v
 const hm = (d: Date) => format(d, 'h:mm a');
 const DONE = ['cancelled', 'canceled', 'no_show', 'completed', 'expired', 'declined', 'draft', 'held', 'requested'];
 
-export function DeskDelay({ e, appt, accent, onClose }: { e: any; appt: any | null; accent?: string | null; onClose: () => void }) {
+export function DeskDelay({ e, appt, accent, onClose, onReschedule }: { e: any; appt: any | null; accent?: string | null; onClose: () => void; onReschedule?: (a: any) => void }) {
   const [late, setLate] = useState(10);
   const [drop, setDrop] = useState<string[]>([]); const [agreed, setAgreed] = useState(false);
   const [applyFee, setApplyFee] = useState(true); const [waiveWhy, setWaiveWhy] = useState('');
@@ -120,7 +120,7 @@ export function DeskDelay({ e, appt, accent, onClose }: { e: any; appt: any | nu
             </div>}
             {model.others.length > 0 && <div className="space-y-1.5"><p className="text-[14px] font-semibold">Switch provider — free for the whole service</p>
               <div className="flex flex-wrap gap-1.5">{model.others.map((s: any) => <Btn key={s.id} quiet onClick={() => decide('switch', s)} disabled={busy}>Move to {String(s.name).split(' ')[0]}</Btn>)}</div></div>}
-            <div className="flex flex-wrap gap-2 pt-1"><Btn quiet onClick={() => { onClose(); e.setSelectedAppointment(appt); e.setIsDetailsOpen(true); }}>Reschedule…</Btn><Btn quiet onClick={() => { onClose(); e.handleCancelAction(appt.id, false); }}>Cancel…</Btn><Btn quiet onClick={() => decide('note')} disabled={busy}>Just note the ETA</Btn></div>
+            <div className="flex flex-wrap gap-2 pt-1"><Btn quiet onClick={() => { onClose(); if (onReschedule) onReschedule(appt); else { e.setSelectedAppointment(appt); e.setIsDetailsOpen(true); } }}>Reschedule…</Btn><Btn quiet onClick={() => { onClose(); e.handleCancelAction(appt.id, false); }}>Cancel…</Btn><Btn quiet onClick={() => decide('note')} disabled={busy}>Just note the ETA</Btn></div>
           </div>
         </Box>
 
