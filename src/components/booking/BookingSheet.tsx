@@ -178,6 +178,8 @@ interface BookingSheetProps {
   /** Studio design: three simple steps — When (who + time), You (details, forms,
    *  summary, one Confirm), then Pay only if a deposit is due. */
   simple?: boolean;
+  /** The visit being moved (client reschedule) — shown as a banner in the Studio flow. */
+  rescheduleOf?: { serviceName?: string | null; startTime?: string | null } | null;
   appointments:   Appointment[];
   /**
    * The studio's MARKETING events, rendered on the public page. This is NOT
@@ -239,7 +241,7 @@ const STEP_TITLES: Record<string, string> = {
 
 export const BookingSheet: React.FC<BookingSheetProps> = ({
   open, onOpenChange, service, staff, pricingTiers, initialStaffId, lockedStaffId, prefillClient,
-  appointments, events, scheduleProfiles, services, consentForms, tenant, onConfirm, tenantId: tenantIdProp, simple = false,
+  appointments, events, scheduleProfiles, services, consentForms, tenant, onConfirm, tenantId: tenantIdProp, simple = false, rescheduleOf = null,
   shifts, staffBlocks, dayOffBlocks, resources, tickets, maintenancePlans, calendarEvents,
   bookingOutcome,
   variant = 'overlay',
@@ -898,6 +900,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       methods, smsConsentWording, smsMarketingWording, isResolvingIdentity, bannedClient, existingClientWithBalance,
       requiredForms, formAnswers, setFormAnswers, inspoPhotos, setInspoPhotos, accentHex: 'var(--accent, #7c3aed)',
       price, previewLines, bookingPreview, confirming, depositAmount, depositClientSecret, depositLoading, depositError, embeddedMountRef, initiateCheckout, bookingOutcome,
+      rescheduleOf, providerId: (service as any)?.renterProviderId || null,
       retryPayment: () => { setDepositError(null); if (depositClientSecret) setMountTry((n) => n + 1); else void initiateCheckout(); },
     }} />);
   }
