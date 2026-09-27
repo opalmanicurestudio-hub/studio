@@ -204,39 +204,10 @@ const CancelledView = ({
     };
 
     const handleFeePaid = async () => {
-        // Best-effort settlement — mirrors the shape written when a fee is
-        // parked as owed, just reversed. The Stripe payment itself is the
-        // source of truth; this just keeps the client-facing status and
-        // ledger-adjacent records in sync so staff don't see a stale
-        // "still owed" balance after it's genuinely been paid.
+        // The payment is recorded by the Stripe webhook when Stripe confirms it —
+        // the fee (as a fee), the client's balance, the link marked paid and the
+        // activity log. The page just says thank you.
         setFeeSettled(true);
-        if (!firestore || !tenantId || !token) return;
-        try {
-            await setDoc(doc(firestore, `tenants/${tenantId}/bookingCompletions`, token), { status: 'fee_paid' }, { merge: true });
-            if (completion?.clientId) {
-                await setDoc(
-                    doc(firestore, `tenants/${tenantId}/clients`, completion.clientId),
-                    { feePaidViaLinkAt: new Date().toISOString() },
-                    { merge: true },
-                );
-            }
-            // Owner-visible audit trail — the client settled this themselves.
-            try {
-                await addDoc(collection(firestore, `tenants/${tenantId}/auditLogs`), {
-                    action: 'checkin.fee_paid',
-                    targetType: 'bookingCompletion',
-                    targetId: token,
-                    summary: `${completion?.clientName || 'Client'} paid the $${((completion?.depositAmountCents || 0) / 100).toFixed(2)} cancellation fee via self-service link`,
-                    amount: (completion?.depositAmountCents || 0) / 100,
-                    actor: { type: 'user', id: completion?.clientId || null, name: completion?.clientName || null, role: 'client', via: 'check-in-link' },
-                    at: new Date().toISOString(),
-                });
-            } catch { /* audit failures are non-fatal */ }
-        } catch {
-            // The Stripe payment itself DID succeed — only the status sync
-            // failed. Say so instead of failing silently.
-            setPaymentError('Your payment went through, but our records may take a moment to update. No further action is needed.');
-        }
     };
 
     return (
@@ -323,14 +294,12 @@ const NotificationPreferencesView = ({
     const [saved, setSaved] = useState(false);
 
     const handleSave = async () => {
-        if (!firestore || !tenantId || !client.id) return;
         setSaving(true);
         try {
-            await setDoc(
-                doc(firestore, `tenants/${tenantId}/clients`, client.id),
-                { notificationPreferences: { confirmationChannel, reminderChannel, reminderHoursBefore } },
-                { merge: true },
-            );
+            const token = typeof window !== 'undefined' ? window.location.pathname.split('/').pop() : '';
+            const res = await fetch('/api/checkin/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'prefs', token, confirmationChannel, reminderChannel, reminderHoursBefore }) });
+            const d = await res.json().catch(() => ({}));
+            if (!d?.ok) throw new Error(d?.error || 'save failed');
             setSaved(true);
             toast({ title: 'Preferences saved' });
             setTimeout(() => setSaved(false), 2000);
@@ -513,43 +482,18 @@ const CompletedView = ({ tenant, client, appointment, service }: { tenant: Tenan
     const [submitted, setSubmitted] = useState(!!appointment.reviewSubmittedAt);
 
     const handleReviewSubmit = async () => {
-        if (rating === 0 || !firestore || !tenant || !client) return;
+        // Saved on the server (the link is the proof of the visit). It used to be
+        // written from the browser, which the rules refuse — reviews were lost.
+        if (rating === 0 || !appointment) return;
         setIsSubmitting(true);
         try {
-            const reviewId = nanoid();
-            const review: Review = {
-                id: reviewId,
-                tenantId: tenant.id,
-                clientId: client.id,
-                clientName: client.name,
-                clientAvatarUrl: client.avatarUrl,
-                staffId: appointment.staffId || '',
-                serviceId: appointment.serviceId,
-                serviceName: service?.name || 'Treatment',
-                rating,
-                text: reviewText,
-                isPublic: false,
-                isFeatured: false,
-                createdAt: new Date().toISOString()
-            };
-            await setDocumentNonBlocking(doc(firestore, `tenants/${tenant.id}/reviews`, reviewId), review, {});
-            // v7 — FIX: previously nothing recorded that a review had been
-            // submitted anywhere the appointment itself could be checked —
-            // `submitted` was pure local component state. Reopening the
-            // same link later always re-showed the rating form, with no
-            // guard against submitting a second (or third) review for the
-            // same visit. This timestamp is checked on load below.
-            try {
-                await setDoc(
-                    doc(firestore, `tenants/${tenant.id}/appointments/${appointment.id}`),
-                    { reviewSubmittedAt: new Date().toISOString() },
-                    { merge: true },
-                );
-            } catch { /* best-effort — the review doc above is the record of truth */ }
-            toast({ title: "Feedback Archived", description: "Thank you for sharing your story." });
+            const res = await fetch('/api/checkin/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'review', token: (appointment as any).checkInToken || (typeof window !== 'undefined' ? window.location.pathname.split('/').pop() : ''), rating, text: reviewText }) });
+            const d = await res.json().catch(() => ({}));
+            if (!d?.ok) { toast({ variant: 'destructive', title: 'Couldn’t send your review', description: d?.error || 'Please try again.' }); return; }
+            toast({ title: 'Thank you', description: 'Your review has been sent.' });
             setSubmitted(true);
-        } catch (e) {
-            toast({ variant: 'destructive', title: "Submission Failed" });
+        } catch {
+            toast({ variant: 'destructive', title: 'Couldn’t send your review', description: 'Check your connection and try again.' });
         } finally {
             setIsSubmitting(false);
         }
@@ -1936,172 +1880,27 @@ const CompletionGateView = ({
                 depositAmountCents: completion?.depositAmountCents || 0,
             };
 
-            await addDoc(collection(firestore, `tenants/${tenantId}/completionSubmissions`), {
-                token, tenantId,
-                appointmentId: completion?.appointmentId || null,
-                clientId: completion?.clientId || null,
-                clientName: completion?.clientName || null,
-                clientEmail: completion?.clientEmail || null,
-                signedForms, fileSubmissions, policyAcceptance,
-                submittedAt: nowISO,
-                cardAlreadyOnFile: skipCardStep,
-            });
-
-            try {
-                if (completion?.appointmentId) {
-                    await setDoc(
-                        doc(firestore, `tenants/${tenantId}/appointments/${completion.appointmentId}`),
-                        { signedForms, policyAcceptance, requirementFiles: fileSubmissions, completionConsentsAt: nowISO },
-                        { merge: true },
-                    );
-                }
-            } catch { /* public write may be restricted -- audit record is source of truth */ }
-
-            // v3 — FIX: previously a signed form only ever got written onto
-            // THIS appointment (signedForms above) and into the audit log —
-            // never onto the client's permanent record. Since
-            // AppointmentDetailsSheet's "already on file" check reads
-            // exclusively from clients/{clientId}/signedConsents, a form
-            // signed here could never satisfy the "sign once, valid
-            // forever" rule at any FUTURE appointment — the client would be
-            // asked to sign the exact same form again next time, every
-            // time. This closes that gap. Keyed by formId so a later
-            // re-sign (e.g. a requiresEveryAppointment form) simply
-            // overwrites the prior record with the newer signature.
-            if (completion?.clientId && forms.length > 0) {
-                try {
-                    await Promise.all(forms.map((f: any) => {
-                        const guardian = f.requiresGuardianSignature ? guardianInfo[f.id] : null;
-                        return setDoc(
-                            doc(firestore, `tenants/${tenantId}/clients/${completion.clientId}/signedConsents`, f.id),
-                            {
-                                formId: f.id,
-                                formTitle: f.title,
-                                signedAt: nowISO,
-                                formData: answers[f.id] || {},
-                                source: 'client_self_service',
-                                appointmentId: completion?.appointmentId || null,
-                                // v4 — guardian consent, only present on forms flagged
-                                // requiresGuardianSignature. A separate signer's name/
-                                // relationship recorded alongside the minor's own answers,
-                                // not instead of them.
-                                ...(guardian ? {
-                                    guardianName: guardian.name.trim(),
-                                    guardianRelationship: guardian.relationship.trim(),
-                                    guardianSignedAt: nowISO,
-                                } : {}),
-                            },
-                            { merge: true },
-                        );
-                    }));
-                } catch { /* best-effort -- the appointment-level record and audit log above are the fallback of record */ }
-            }
-
-            // v4 — persistToProfile files (e.g. Photo ID): in addition to the
-            // per-appointment requirementFiles record above, save a durable
-            // copy onto the client's own profile so it isn't re-requested at
-            // a future visit. Files WITHOUT this flag (e.g. one-off
-            // inspiration photos) intentionally stay scoped to this
-            // appointment only — see fileCfg().persistToProfile on the
-            // requirement definition, set by staff when requesting it.
-            const persistentFileReqs = fileReqs.filter((fr: any) => fileCfg(fr).persistToProfile);
-            if (completion?.clientId && persistentFileReqs.length > 0) {
-                try {
-                    await setDoc(
-                        doc(firestore, `tenants/${tenantId}/clients`, completion.clientId),
-                        {
-                            profileDocuments: persistentFileReqs.map((fr: any) => ({
-                                requirementId: fr.id,
-                                label: fileCfg(fr).prompt || fr.label || 'Document',
-                                files: uploads[fr.id] || [],
-                                uploadedAt: nowISO,
-                            })),
-                        },
-                        { merge: true },
-                    );
-                } catch { /* best-effort -- appointment-level requirementFiles is the fallback of record */ }
-            }
-
-            // v4 — marketing/photo consent and emergency contact are
-            // permanent CLIENT attributes, not per-appointment data — they
-            // get written straight to the client doc, plus a timestamp on
-            // the appointment purely so the activity timeline can show when
-            // each was captured.
-            if (completion?.clientId && completion?.requestMarketingConsent && marketingConsent !== null) {
-                try {
-                    await setDoc(
-                        doc(firestore, `tenants/${tenantId}/clients`, completion.clientId),
-                        { marketingConsent: { consented: marketingConsent, consentedAt: nowISO, source: 'client_self_service' } },
-                        { merge: true },
-                    );
-                    if (completion?.appointmentId) {
-                        await setDoc(
-                            doc(firestore, `tenants/${tenantId}/appointments/${completion.appointmentId}`),
-                            { marketingConsentAnsweredAt: nowISO, marketingConsentAnswer: marketingConsent },
-                            { merge: true },
-                        );
-                    }
-                } catch { /* best-effort */ }
-            }
-            if (completion?.clientId && completion?.requestEmergencyContact && emergencyContactComplete) {
-                try {
-                    await setDoc(
-                        doc(firestore, `tenants/${tenantId}/clients`, completion.clientId),
-                        { emergencyContact: { name: emergencyContact.name.trim(), phone: emergencyContact.phone.trim(), relationship: emergencyContact.relationship.trim() || null } },
-                        { merge: true },
-                    );
-                    if (completion?.appointmentId) {
-                        await setDoc(
-                            doc(firestore, `tenants/${tenantId}/appointments/${completion.appointmentId}`),
-                            { emergencyContactCapturedAt: nowISO },
-                            { merge: true },
-                        );
-                    }
-                } catch { /* best-effort */ }
-            }
-
-            // v4 — acknowledgments (e.g. "please arrive with clean, dry
-            // hair") don't collect data — they're just a confirmed-read
-            // checkbox. Recorded onto the appointment for the timeline;
-            // nothing client-profile-level to persist here.
-            if (completion?.appointmentId && acknowledgments.length > 0) {
-                try {
-                    await setDoc(
-                        doc(firestore, `tenants/${tenantId}/appointments/${completion.appointmentId}`),
-                        { acknowledgedAt: nowISO, acknowledgedItems: acknowledgments.map((a: any) => a.text) },
-                        { merge: true },
-                    );
-                } catch { /* best-effort */ }
-            }
-
+            // ONE call to the server, which records everything (the submission,
+            // the appointment, signed consents, profile documents, marketing
+            // consent, emergency contact, acknowledgements, completion status).
+            // These used to be written from the browser — refused by the rules,
+            // so only the raw submission survived.
+            const guardianByForm = Object.fromEntries(forms.filter((f: any) => f.requiresGuardianSignature && guardianInfo[f.id]).map((f: any) => [f.id, { name: guardianInfo[f.id].name, relationship: guardianInfo[f.id].relationship }]));
+            const profileDocuments = fileReqs.filter((fr: any) => fileCfg(fr).persistToProfile).map((fr: any) => ({ requirementId: fr.id, label: fileCfg(fr).prompt || fr.label || 'Document', files: uploads[fr.id] || [] }));
+            const saveRes = await fetch('/api/checkin/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+                action: 'complete', token, tenantId, signedForms, fileSubmissions, policyAcceptance, guardianByForm, profileDocuments,
+                marketingConsent: completion?.requestMarketingConsent ? marketingConsent : null,
+                emergencyContact: completion?.requestEmergencyContact ? emergencyContact : null,
+                acknowledgments: acknowledgments.map((a: any) => a.text), skipCardStep,
+            }) });
+            const saved = await saveRes.json().catch(() => ({}));
+            if (!saved?.ok) { setError(saved?.error || 'We couldn’t save your answers — please try again.'); setSubmitting(false); return; }
             if (skipCardStep) {
-                try {
-                    await setDoc(
-                        doc(firestore, `tenants/${tenantId}/bookingCompletions`, token),
-                        { status: 'complete', completedAt: nowISO, formsSignedAt: nowISO },
-                        { merge: true },
-                    );
-                    // v5 — FIX: previously only bookingCompletions.status
-                    // flipped to 'complete' — nothing on the APPOINTMENT
-                    // itself (where staff actually look, via
-                    // completionStatus / the activity timeline) ever
-                    // updated. A completed request looked identical to a
-                    // still-pending one anywhere staff checked the
-                    // appointment record directly.
-                    if (completion?.appointmentId) {
-                        await setDoc(
-                            doc(firestore, `tenants/${tenantId}/appointments/${completion.appointmentId}`),
-                            { completionStatus: 'completed', requirementsCompletedAt: nowISO },
-                            { merge: true },
-                        );
-                    }
-                } catch { /* best-effort */ }
                 setSubmitting(false);
                 const startsToday = completion?.appointmentStartTime ? isToday(safeDate(completion.appointmentStartTime)) : false;
                 onDone(startsToday);
                 return;
             }
-
             const res = await fetch('/api/stripe/completion', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -2139,30 +1938,7 @@ const CompletionGateView = ({
                     <div className="bg-white rounded-2xl border-2 shadow-sm p-2 sm:p-4 min-h-[300px]">
                         {stripePromise
                             ? <EmbeddedCheckoutProvider stripe={stripePromise} options={{ clientSecret, onComplete: () => {
-                                // v5 — FIX: this path previously only wrote
-                                // cardUpdatedViaLinkAt (for the timeline) —
-                                // it never marked bookingCompletions.status
-                                // or the appointment's completionStatus as
-                                // done, unlike the skip-card-step branch
-                                // above. A request fulfilled via card/deposit
-                                // stayed looking "pending" forever anywhere
-                                // staff checked. Fire-and-forget, same as the
-                                // existing cardUpdatedViaLinkAt write —
-                                // onDone() below navigates the client onward
-                                // regardless of whether these land.
-                                const nowISO2 = new Date().toISOString();
-                                if (completion?.appointmentId) {
-                                    setDoc(
-                                        doc(firestore, `tenants/${tenantId}/appointments/${completion.appointmentId}`),
-                                        { cardUpdatedViaLinkAt: nowISO2, completionStatus: 'completed', requirementsCompletedAt: nowISO2 },
-                                        { merge: true },
-                                    ).catch(() => {});
-                                }
-                                setDoc(
-                                    doc(firestore, `tenants/${tenantId}/bookingCompletions`, token),
-                                    { status: 'complete', completedAt: nowISO2 },
-                                    { merge: true },
-                                ).catch(() => {});
+                                // Completion is recorded by the Stripe webhook when payment/card is confirmed.
                                 onDone(completion?.appointmentStartTime ? isToday(safeDate(completion.appointmentStartTime)) : false);
                             } }}>
                                 <EmbeddedCheckout />
@@ -2934,11 +2710,7 @@ export default function CheckInPage() {
     useEffect(() => {
         if (!firestore || !tenantId || !appointmentData?.id) return;
         if (appointmentData.completionLinkFirstViewedAt) return; // already recorded
-        setDoc(
-            doc(firestore, `tenants/${tenantId}/appointments/${appointmentData.id}`),
-            { completionLinkFirstViewedAt: new Date().toISOString() },
-            { merge: true },
-        ).catch(() => {}); // best-effort — never block the client's experience on this
+        fetch('/api/checkin/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'viewed', token }) }).catch(() => {}); // best-effort
     }, [firestore, tenantId, appointmentData?.id, appointmentData?.completionLinkFirstViewedAt]);
 
     const updateStatus = async (status: string, lateMinutes?: number) => {
@@ -3100,6 +2872,32 @@ export default function CheckInPage() {
 
     // IMMERSIVE TRANSITION CHECK
     const isArrivedOrServicing = appointmentData?.checkInStatus === 'arrived' || appointmentData?.status === 'servicing';
+
+    // The waiting experience (refreshments, explore services, help button) is a
+    // business choice — OFF unless turned on in Settings, so guests are never
+    // pointed to a concierge who isn't there. Off → a calm "you're checked in".
+    if (isArrivedOrServicing && (tenant as any)?.guestExperienceEnabled !== true) {
+        const who = (assignedStaff as any)?.name ? String((assignedStaff as any).name).split(' ')[0] : null;
+        const at = appointmentData?.startTime ? safeDate(appointmentData.startTime) : null;
+        const inService = appointmentData?.status === 'servicing';
+        return (
+            <div className="flex min-h-dvh items-center justify-center p-6" style={{ background: '#faf8f5', color: '#1c1917', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
+                <div className="w-full max-w-sm space-y-5 text-center">
+                    <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-white text-3xl shadow" aria-hidden>✓</div>
+                    <div className="space-y-2">
+                        <h1 className="text-3xl font-light">{inService ? <>You’re <b>all set</b></> : <>You’re <b>checked in</b></>}</h1>
+                        <p className="text-[15px] text-stone-600">{inService ? 'Enjoy your appointment.' : `${who ? `${who} knows you’re here` : 'We know you’re here'} and will be with you ${at ? `for your ${format(at, 'h:mm a')} appointment` : 'shortly'}.`}</p>
+                    </div>
+                    <div className="rounded-3xl bg-white p-5 text-left text-[15px] shadow-sm">
+                        <p className="font-semibold">{tenant?.name || 'Your appointment'}</p>
+                        {appointmentData?.serviceName && <p className="text-stone-600">{appointmentData.serviceName}{who ? ` with ${who}` : ''}</p>}
+                        {at && <p className="text-stone-600">{format(at, 'EEEE, MMMM d · h:mm a')}</p>}
+                    </div>
+                    {(tenant as any)?.phone && <a href={`tel:${String((tenant as any).phone).replace(/[^\d+]/g, '')}`} className="inline-block text-[14px] underline underline-offset-4">Need something? Call {tenant?.name || 'us'}</a>}
+                </div>
+            </div>
+        );
+    }
 
     if (isArrivedOrServicing) {
         return (
