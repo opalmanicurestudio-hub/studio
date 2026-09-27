@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { completeDonation } from '@/lib/academy-funding';
 import { enrollFromCheckout } from '@/lib/academy';
 import { completeDownPayment, completeStudentPayment, completeCardUpdate } from '@/lib/academy-admissions';
 import Stripe from 'stripe';
@@ -99,6 +100,10 @@ export async function POST(req: NextRequest) {
         // first; both are safe to run twice).
         if (sessionType === 'academy_course') {
           try { await enrollFromCheckout(tenant.id, session); } catch (e: any) { console.error('[connect-webhook] academy enrol failed', e?.message); }
+          break;
+        }
+        if (sessionType === 'academy_donation') {
+          try { await completeDonation(tenant.id, session); } catch (e: any) { console.error('[connect-webhook] donation failed', e?.message); }
           break;
         }
         if (sessionType === 'academy_tuition_payment') {
