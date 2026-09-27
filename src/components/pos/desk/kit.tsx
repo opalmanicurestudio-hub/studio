@@ -57,7 +57,7 @@ export function Pill({ children, tone = 'soft' }: { children: ReactNode; tone?: 
     : tone === 'ok' ? { color: 'var(--ok)', background: 'color-mix(in srgb, var(--ok) 12%, transparent)' }
     : tone === 'accent' ? { color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 12%, transparent)' }
     : { color: 'var(--muted)', background: 'var(--soft)' };
-  return <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold" style={s}>{children}</span>;
+  return <span className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold" style={s}>{children}</span>;
 }
 
 /** A guest, anywhere in the POS. Glides to its new place (layoutId) when its stage changes. */
@@ -74,7 +74,7 @@ export function GuestCard({ id, name, line, meta, badge, action, onOpen, compact
         </button>
         {badge}
       </div>
-      {(meta || action) && <div className="mt-2 flex items-center justify-between gap-2"><span className="min-w-0 truncate text-[12px]" style={{ color: 'var(--muted)' }}>{meta}</span>{action}</div>}
+      {(meta || action) && <div className="mt-2 flex items-end justify-between gap-2"><span className="min-w-0 text-[12px] leading-snug" style={{ color: 'var(--muted)' }}>{meta}</span>{action}</div>}
     </motion.article>
   );
 }
