@@ -55,7 +55,8 @@ const schema = z.object({
   name: z.string().min(1, 'Name is required'),
   type: z.enum(['service', 'addon']),
   // Where it happens — at the studio (default), online (with a link), or at the client's place.
-  where: z.enum(['studio', 'online', 'client']).optional(),
+  where: z.enum(['studio', 'online', 'phone', 'client']).optional(),
+  phoneWho: z.enum(['we_call', 'they_call']).optional(),
   meetingLink: z.string().max(500).optional(),
   isAddon: z.boolean().optional(),
   category: z.string().min(1, 'Category is required'),
@@ -318,7 +319,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
     if (mode === 'edit' && service) {
       reset({
         id: service.id, name: service.name, type: service.type,
-        where: ((service as any).where || 'studio') as any, meetingLink: (service as any).meetingLink || '',
+        where: ((service as any).where || 'studio') as any, meetingLink: (service as any).meetingLink || '', phoneWho: ((service as any).phoneWho || 'we_call') as any,
         isAddon: service.type === 'addon', isPrivate: service.isPrivate, membersOnly: service.membersOnly === true, rebookWeeks: Number(service.rebookWeeks) || 0,
         category: service.category, duration: service.duration,
         padBefore: service.padBefore || 0, padAfter: service.padAfter || 0,
@@ -587,14 +588,24 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
               </div>
               <div className="space-y-2">
                 <Label className="text-sm font-semibold">Where it happens</Label>
-                <div className="grid grid-cols-3 gap-2">
-                  {([['studio', 'At the studio'], ['online', 'Online'], ['client', 'At the client’s place']] as const).map(([k, l]) => {
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {([['studio', 'In person'], ['online', 'Video call'], ['phone', 'Phone call'], ['client', 'At the client’s location']] as const).map(([k, l]) => {
                     const on = (watch('where') || 'studio') === k;
                     return <button key={k} type="button" aria-pressed={on} onClick={() => setValue('where', k, { shouldDirty: true })} className={`h-11 rounded-xl border text-sm ${on ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>;
                   })}
                 </div>
                 {watch('where') === 'online' && <Input {...register('meetingLink')} placeholder="Meeting link — e.g. https://zoom.us/j/…" className="h-11 rounded-xl border" />}
-                <p className="text-xs text-muted-foreground">{watch('where') === 'online' ? 'Every booking of this service gets this link, so use a meeting room with a waiting room or passcode — or give a booking its own link from its appointment details. Clients get it in their confirmation, reminder and visit link.' : watch('where') === 'client' ? 'Messages say you’ll come to them (with their address, if it’s on file) — no check-in.' : 'Clients check in when they arrive.'}</p>
+                {watch('where') === 'phone' && <div className="grid grid-cols-2 gap-2">
+                  {([['we_call', 'We call them'], ['they_call', 'They call us']] as const).map(([k, l]) => {
+                    const on = (watch('phoneWho') || 'we_call') === k;
+                    return <button key={k} type="button" aria-pressed={on} onClick={() => setValue('phoneWho', k, { shouldDirty: true })} className={`h-10 rounded-xl border text-sm ${on ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>;
+                  })}
+                </div>}
+                <p className="text-xs text-muted-foreground">{
+                  watch('where') === 'online' ? 'Every booking of this service gets this link, so use a meeting room with a waiting room or passcode — or give a booking its own link from its appointment details. Clients get it in their confirmation, reminder and visit link; times show your time zone.'
+                  : watch('where') === 'phone' ? ((watch('phoneWho') || 'we_call') === 'we_call' ? 'You call the client at their appointment time — they must give a phone number when booking. No check-in; times show your time zone.' : 'The client calls your business number at their appointment time — it’s on their visit link. No check-in; times show your time zone.')
+                  : watch('where') === 'client' ? 'You go to them. Messages say you’ll come to them (with their address, if it’s on file) — no check-in.'
+                  : 'At your business — clients check in when they arrive.'}</p>
               </div>
 
               <div className="space-y-1.5">
