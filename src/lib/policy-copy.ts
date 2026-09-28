@@ -8,6 +8,7 @@
 
 import { resolveDepositPolicy } from '@/lib/deposit-policy';
 import { resolvePolicy } from '@/lib/booking-policies';
+import { graceLines } from '@/lib/grace';
 
 const money = (d: number) => `$${(Math.round(d * 100) / 100).toFixed(2)}`;
 const hrs = (h: number) => (h % 24 === 0 && h >= 48 ? `${h / 24} days` : `${h} hour${h === 1 ? '' : 's'}`); // "24 hours", "2 days"
@@ -54,6 +55,7 @@ export function bookingPolicyLines(tenant: any, service?: any, opts: { depositCe
   if (t.lateArrivalPolicy) out.push(`Running late: ${clip(t.lateArrivalPolicy)}`);
   else out.push(`Running late? Tell us from your visit link — we’ll let you know your options${grace > 0 ? ` (we can usually hold your time for ${grace} minutes)` : ''}.`);
   if (t.noShowPolicy) out.push(`Missed appointments: ${clip(t.noShowPolicy)}`);
+  out.push(...graceLines(t));   // the grace allowances, so clients know what flexibility exists
   return out;
 }
 
@@ -107,6 +109,8 @@ export function planCancellation(i: {
   studioDisposition?: 'refund' | 'store_credit'; collectPref: 'card' | 'balance'; hasCard: boolean; cardLast4?: string | null; goodwillDollars?: number;
   /** Late cancellation: 'both' (default — the deposit counts toward the fee), 'fee' (deposit becomes credit, full fee), 'deposit' (deposit kept, no fee). */
   lateConsequence?: 'both' | 'fee' | 'deposit';
+  /** Grace allowance: the deposit moves to a new booking (credit) instead of being kept. */
+  transferDeposit?: boolean;
 }): { outcome: CancelOutcome; due: number; applied: number; waived: boolean; fee: number } {
   const dp = i.depositPolicy; const dep = Math.max(0, Number(i.depositDollars) || 0);
   let depOutcome = i.who === 'studio' ? (i.studioDisposition === 'store_credit' ? 'store_credit' : 'refund') : i.who === 'no_show' ? dp.onNoShow : (i.hoursUntilStart >= dp.refundWindowHours ? dp.onEarlyCancel : dp.onLateCancel);
@@ -117,6 +121,7 @@ export function planCancellation(i: {
     if (lc === 'fee') depOutcome = 'rollover';          // fee only → their deposit comes back as credit
     else if (lc === 'deposit') fee = 0;                 // deposit only → no fee on top
   }
+  if (i.transferDeposit && i.who !== 'studio' && dep > 0) depOutcome = 'rollover';   // grace: the deposit moves to a new booking
   const policyFee = i.who === 'studio' ? 0 : Math.max(0, Number(i.policyFeeDollars) || 0);
   const waived = i.who !== 'studio' && !i.chargeFee && policyFee > 0;
   const applied = !waived && depOutcome === 'forfeit' && fee > 0 ? Math.min(dep, fee) : 0;
