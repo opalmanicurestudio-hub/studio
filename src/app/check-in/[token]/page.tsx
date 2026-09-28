@@ -2109,10 +2109,13 @@ const CancelGateView = ({
     tenantId,
     appointmentId,
     onBack,
+    accessKey,
 }: {
     tenantId: string;
     appointmentId: string;
     onBack: () => void;
+    /** This page's visit token — proves it's their own link. */
+    accessKey: string;
 }) => {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -2126,7 +2129,7 @@ const CancelGateView = ({
         // v9 — truthful errors: tell the difference between "the studio's
         // cancellation service isn't deployed" and "this appointment can't
         // be cancelled" instead of one vague message for everything.
-        fetch(`/api/appointments/self-cancel?tenantId=${tenantId}&appointmentId=${appointmentId}`)
+        fetch(`/api/appointments/self-cancel?tenantId=${tenantId}&appointmentId=${appointmentId}&k=${encodeURIComponent(accessKey)}`)
             .then(async (res) => {
                 let data: any = null;
                 try { data = await res.json(); } catch {
@@ -2149,7 +2152,7 @@ const CancelGateView = ({
             const res = await fetch('/api/appointments/self-cancel', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tenantId, appointmentId, clientReason: reason }),
+                body: JSON.stringify({ tenantId, appointmentId, clientReason: reason, k: accessKey }),
             });
             const data = await res.json();
             if (!data.ok) { setError(data.error || 'Could not cancel this appointment.'); return; }
@@ -2635,7 +2638,10 @@ export default function CheckInPage() {
         try {
             // Server write path — lands in the scoped collection (with audit
             // entry) and mirrors to the legacy one during the migration window.
-            if (!tenantId) throw new Error('__legacy__');
+            // Every update goes through the server — it checks the token, the business's
+            // rules (e.g. online check-in off → front desk) and duplicates. If it says no,
+            // we show why; we never write around it from the browser.
+            if (!tenantId) { toast({ variant: 'destructive', title: 'That didn’t send', description: 'Please let the front desk know directly.' }); return null; }
             const res = await fetch('/api/checkins', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -2646,20 +2652,15 @@ export default function CheckInPage() {
                 }),
             });
             const d = await res.json().catch(() => ({}));
-            if (!res.ok || !d?.ok) throw new Error('__legacy__');
+            if (!res.ok || !d?.ok) {
+                toast({ variant: 'destructive', title: d?.error ? 'Not sent' : 'That didn’t send', description: d?.error || 'Please let the front desk know directly.' });
+                return null;
+            }
             if (status === 'arrived') toast({ title: 'You’re checked in', description: 'We’ve let the team know you’re here.' });
             return d;
         } catch {
-            // API unavailable (or not deployed yet) — direct legacy write while
-            // the old open rule is still live; truthful failure toast otherwise.
-            try {
-                await updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', token), updates);
-                if (status === 'arrived') toast({ title: 'You’re checked in', description: 'We’ve let the team know you’re here.' });
-                return null;
-            } catch {
-                toast({ variant: 'destructive', title: 'That didn’t send', description: 'Please let the front desk know directly.' });
-                return null;
-            }
+            toast({ variant: 'destructive', title: 'That didn’t send', description: 'Please check your connection, or let the front desk know directly.' });
+            return null;
         }
     };
 
@@ -2760,6 +2761,7 @@ export default function CheckInPage() {
             <CancelGateView
                 tenantId={tenantId}
                 appointmentId={appointmentData.id}
+                accessKey={token}
                 onBack={() => setShowCancelFlow(false)}
             />
         );
