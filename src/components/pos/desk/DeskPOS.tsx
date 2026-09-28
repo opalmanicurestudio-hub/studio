@@ -32,6 +32,7 @@ import { DeskReschedule } from './DeskReschedule';
 import { DeskFollowUp } from './DeskFollowUp';
 import { DeskCancel } from './DeskCancel';
 import { DeskPayGate } from './DeskPayGate';
+import { OpsBoard, opsAttentionCount } from '@/components/ops/OpsBoard';
 import { opsStatus, paymentOutstanding } from '@/lib/appointment-ops';
 import { resolvePolicy } from '@/lib/booking-policies';
 import { query, where } from 'firebase/firestore';
@@ -56,6 +57,11 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const pickView = (v: View) => { setView(v); try { localStorage.setItem(VIEW_KEY, v); } catch { /* ignore */ } };
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [payFor, setPayFor] = useState<any>(null); // arrived — payment required
+  // Operations lives here: today's cases that need attention (late, overdue, payment, provider delays, offers).
+  const [attnOpen, setAttnOpen] = useState(false);
+  useEffect(() => { try { if (new URLSearchParams(window.location.search).get('attention') === '1') setAttnOpen(true); } catch { /* ignore */ } }, []);
+  const todaysAppts = useMemo(() => { const d = new Date().toDateString(); return (e.appointmentsFromInventory || []).filter((a: any) => { const t = toDate(a.startTime); return t && t.toDateString() === d; }); }, [e.appointmentsFromInventory]);
+  const opsCount = opsAttentionCount(todaysAppts, e.selectedTenant);
   const [mode, setMode] = useState<'desk' | 'counter'>('desk');
   const [about, setAbout] = useState<Guest | null>(null);
   const [lateFor, setLateFor] = useState<Guest | null>(null);
@@ -288,6 +294,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
           {mode === 'desk' && <Seg label="View" value={shown} onChange={pickView} options={views.map(([k, l]) => [k, k === recommended ? `${l} ★` : l]) as [View, string][]} />}
           {kioskOn && <Btn quiet onClick={() => e.setIsScanLookupOpen?.(true)}>Scan / find</Btn>}
           <Btn quiet onClick={() => e.setIsQuickBookOpen(true)}>Book</Btn>
+          <Btn quiet={!opsCount.attention} onClick={() => setAttnOpen(true)}>{opsCount.decisions ? `Needs a decision · ${opsCount.decisions}` : `Needs attention${opsCount.attention ? ` · ${opsCount.attention}` : ''}`}</Btn>
           {mode === 'desk' && readyIds.length > 0 && <Btn onClick={() => setCheckoutOpen(true)}>Checkout · {readyIds.length}</Btn>}
           <Btn quiet onClick={() => e.setIsTillManagementOpen(true)}>Till</Btn>
           {moreTabs.length > 0 && <Btn quiet onClick={() => setMoreOpen(true)}>More</Btn>}
@@ -335,6 +342,9 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       <DeskReschedule e={e} appt={moveAppt} accent={accent} onClose={() => setMoveAppt(null)} />
       <DeskFollowUp e={e} visit={followFor} accent={accent} onClose={() => setFollowFor(null)} />
       <DeskPayGate e={e} appt={payFor} accent={accent} onClose={() => setPayFor(null)} />
+      <Drawer accent={accent} open={attnOpen} onClose={() => setAttnOpen(false)} title="Needs attention">
+        {attnOpen && <OpsBoard appts={todaysAppts} staff={(e.staff || []).filter((s: any) => s.isActive !== false)} tenant={e.selectedTenant} tenantId={e.tenantId} role={e.role} uid={e.currentUser?.uid} />}
+      </Drawer>
       <DeskCancel e={e} accent={accent} onReschedule={(a: any) => setMoveAppt(a)} onOfferSlot={() => { setMoreTab('waitlist'); setMoreOpen(true); }} />
       <Drawer accent={accent} open={!!about} onClose={() => setAbout(null)} title="About this entry">
         {about && (() => { const r = about.appt || about.walkIn || {}; const created = toDate(r.createdAt || r.checkInTime); const paid = r.depositStatus === 'paid' || Number(r.amountPaid) > 0;
