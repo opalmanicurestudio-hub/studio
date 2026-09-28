@@ -169,7 +169,7 @@ export default function BookingSettingsPage() {
           </Button>
           <div className="flex-1 min-w-0">
             <h1 className="font-black uppercase tracking-tighter text-xl leading-none">Booking &amp; deposits</h1>
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-0.5">
+            <p className="text-sm text-muted-foreground mt-0.5">
               What happens when someone books online{isMgr ? '' : ' · view only'}
             </p>
           </div>
