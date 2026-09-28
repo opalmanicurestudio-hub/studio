@@ -109,12 +109,14 @@ export async function POST(req: NextRequest) {
     const insideWindow = Date.now() <= startMs - cancelHours * 3600000;
     // Moving it: the shared change rules (cutoff + how many times it's been moved).
     // When WE asked them to move it (running late → "please pick a new time"), the usual cutoff and change limit don't apply.
-    const change = a.studioAskedToMove ? { ...checkChange(tDoc, a, 'client'), allowed: true, needsApproval: false, blocked: false, canRequest: false, reason: null } : checkChange(tDoc, a, 'client');
+    // Our doing (we asked them to reschedule, or their provider is running late and they haven't chosen yet): no limits, no fee, not counted.
+    const studioCaused = !!a.studioAskedToMove || !!(a.providerDelay && !['keep', 'cancel'].includes(String(a.providerDelay.reply || '')));
+    const change = studioCaused ? { ...checkChange(tDoc, a, 'client'), allowed: true, needsApproval: false, blocked: false, canRequest: false, reason: null } : checkChange(tDoc, a, 'client');
     const insideRescheduleWindow = change.allowed;
     // Your reschedule fee (Booking policies) — counted from the ORIGINAL time; none when WE asked them to move it; renters keep their own rules.
     const rp = resolvePolicy(tDoc).change;
     const rFee = Number(rp.fee.value) || 0, rWin = Number(rp.feeWindowHours.value) || 0;
-    const feeIfMovedNow = !a.studioAskedToMove && !a.isRenterBooking && rFee > 0 && rWin > 0 && hoursToDeadline(tDoc, a) < rWin ? rFee : 0;
+    const feeIfMovedNow = !studioCaused && !a.isRenterBooking && rFee > 0 && rWin > 0 && hoursToDeadline(tDoc, a) < rWin ? rFee : 0;
     // Over the change limit and the business approves further moves → tell the team, ONCE, with the client's note.
     const requestChange = async (note: string | null) => {
       if (a.changeRequestedAt) return false;
@@ -226,6 +228,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ...(alsoCancelled > 0 ? { alsoCancelled } : {}) });
     }
 
+    // Their provider is running late → they choose: keep it, or cancel with no fee (reschedule uses the normal flow, unrestricted).
+    if (action === 'provider_delay_reply') {
+      const pd = a.providerDelay;
+      if (!pd) return NextResponse.json({ ok: false, error: 'Your appointment is on schedule.' }, { status: 409 });
+      const choice = String(body.choice || '');
+      const nowIso = new Date().toISOString();
+      if (choice === 'keep') {
+        const f = { providerDelay: { ...pd, reply: 'keep', replyAt: nowIso } };
+        await ref.set(f, { merge: true });
+        if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {}), db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {})]);
+        const n = db.collection(`tenants/${tenantId}/notifications`).doc();
+        await n.set({ id: n.id, userId: a.staffId || null, read: false, createdAt: nowIso, type: 'provider_delay_reply', link: 'pos', appointmentId: apptId, message: `${a.clientName || 'Your client'} will wait — see them around ${new Date(pd.newStartAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: zone || undefined })}.` }).catch(() => {});
+        await logAuditAdmin(db, tenantId, { action: 'appointment.provider_delay_reply', targetType: 'appointment', targetId: apptId, summary: `${a.clientName || 'Client'} chose to keep it (provider running ~${pd.minutes} min behind)`, actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'visit link' } }).catch(() => {});
+        return NextResponse.json({ ok: true, choice });
+      }
+      if (choice === 'cancel') {
+        const depositPaid = a.depositStatus === 'paid' || Number(a.depositAmountCents) > 0 && a.status !== 'pending_payment';
+        const cancelFields = { status: 'cancelled', cancelledAt: nowIso, cancelledBy: 'client_self_serve', cancellationReason: 'provider_delay', cancellationFeeCharged: 0, cancellationFeeWaived: true, providerDelay: { ...pd, reply: 'cancel', replyAt: nowIso }, studioCancelled: true };
+        await ref.set(cancelFields, { merge: true });
+        if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set({ ...cancelFields, tenantId }, { merge: true }).catch(() => {}), db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set({ ...cancelFields, tenantId }, { merge: true }).catch(() => {})]);
+        if (depositPaid) { const dRef = db.collection(`tenants/${tenantId}/depositDecisions`).doc(); await dRef.set({ id: dRef.id, tenantId, appointmentId: apptId, clientId: a.clientId || null, trigger: 'provider_delay', outcome: resolvePolicy(tDoc).deposit.outcomes.onStudioCancel === 'rollover' ? 'rollover' : 'refund_pending', reason: 'Provider running late — client cancelled', amountDollars: (Number(a.depositAmountCents) || 0) / 100, decidedAt: nowIso }).catch(() => {}); }
+        const n = db.collection(`tenants/${tenantId}/notifications`).doc();
+        await n.set({ id: n.id, userId: a.staffId || null, read: false, createdAt: nowIso, type: 'provider_delay_reply', link: 'pos', appointmentId: apptId, message: `${a.clientName || 'Your client'} cancelled because of the delay — no fee${depositPaid ? '; their deposit needs refunding (or crediting)' : ''}.` }).catch(() => {});
+        await logAuditAdmin(db, tenantId, { action: 'appointment.provider_delay_reply', targetType: 'appointment', targetId: apptId, summary: `${a.clientName || 'Client'} cancelled — provider running ~${pd.minutes} min behind (no fee${depositPaid ? '; deposit to refund/credit' : ''})`, actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'visit link' } }).catch(() => {});
+        return NextResponse.json({ ok: true, choice, depositRefund: depositPaid });
+      }
+      return NextResponse.json({ ok: false, error: 'Choose keep, reschedule or cancel.' }, { status: 400 });
+    }
     // "Ask us to move it" — when the change limit needs the team's OK.
     if (action === 'request_change') {
       if (change.allowed) return NextResponse.json({ ok: false, error: 'You can move this one yourself — pick a new time.' }, { status: 400 });
@@ -276,10 +306,10 @@ export async function POST(req: NextRequest) {
           if (overlaps(newStart.getTime(), newEnd.getTime(), oS, oE)) return { conflict: true };
         }
         const move = {
-          ...chainAfterMove(a, { byStudio: !!a.studioAskedToMove }),   // original time + count (not counted when WE asked them to reschedule)
+          ...chainAfterMove(a, { byStudio: studioCaused }),   // original time + count (not counted when WE asked them to reschedule)
           ...(feeIfMovedNow > 0 ? { rescheduleFeeApplied: feeIfMovedNow } : {}),
           // A new time is a fresh start: no longer late, no longer asked to move.
-          studioAskedToMove: false, lateReply: null, checkInStatus: null, lateTimeMinutes: null, clientCheckInStatus: null, clientLateMinutes: null, clientEtaAt: null, etaAt: null, clientLateNote: null, clientTrip: null,
+          studioAskedToMove: false, lateReply: null, providerDelay: null, providerLateMinutes: 0, checkInStatus: null, lateTimeMinutes: null, clientCheckInStatus: null, clientLateMinutes: null, clientEtaAt: null, etaAt: null, clientLateNote: null, clientTrip: null,
           startTime: newStart.toISOString(), endTime: newEnd.toISOString(),
           rescheduledAt: new Date().toISOString(), rescheduledBy: 'client_self_serve',
           previousStartTime: a.startTime,
