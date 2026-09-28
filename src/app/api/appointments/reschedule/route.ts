@@ -14,6 +14,7 @@
 //                     log, and the CLIENT IS TOLD (email + text) — before,
 //                     nothing ever sent "appointment moved".
 
+import { checkChange, chainAfterMove, hoursToDeadline } from '@/lib/change-rules';
 import { bookingPolicyLines } from '@/lib/policy-copy';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -98,7 +99,7 @@ export async function POST(req: NextRequest) {
 
   if (b.action === 'check') {
     const r = computeAvailability(input);
-    return NextResponse.json({ ok: true, times: r.times, reason: time ? explain(time) : null, duration, staffName: who?.name || null });
+    return NextResponse.json({ ok: true, times: r.times, reason: time ? explain(time) : null, duration, staffName: who?.name || null, policyNote: checkChange(t, appt, 'staff', service).staffNote });
   }
 
   if (b.action !== 'move' || !time) return NextResponse.json({ ok: false, error: 'Pick a time.' }, { status: 400 });
@@ -109,14 +110,17 @@ export async function POST(req: NextRequest) {
   const start = wallToUtc(date, Number(time.slice(0, 2)), Number(time.slice(3, 5)), tz); const end = new Date(start.getTime() + duration * 60000);
   const nowIso = new Date().toISOString();
   const fee = Number(t.rescheduleFee || 0), windowH = Number(t.rescheduleFeeWindowHours || 0);
-  const inWindow = fee > 0 && windowH > 0 && (Date.parse(appt.startTime) - Date.now()) / 3600000 < windowH;
+  // The fee window counts from the ORIGINAL time (Booking policies → deadline), so moving twice can't dodge it.
+  const inWindow = fee > 0 && windowH > 0 && hoursToDeadline(t, appt, service) < windowH;
+  const rule = checkChange(t, appt, 'staff', service);   // staff are never blocked — but it's recorded
   const applyFee = inWindow && b.applyFee !== false;
   const { FieldValue } = await import('firebase-admin/firestore');
   const batch = db.batch();
   const auditId = `resched_${appointmentId}_${Date.now()}`;
   batch.set(aRef, {
     startTime: start.toISOString(), endTime: end.toISOString(), staffId, ...(who?.name ? { staffName: who.name } : {}),
-    rescheduledFromTime: appt.startTime, rescheduleCount: FieldValue.increment(1), lastRescheduledAt: nowIso, lastRescheduledBy: actor.uid || actor.name || 'staff',
+    rescheduledFromTime: appt.startTime, rescheduleCount: FieldValue.increment(1), originalStartTime: chainAfterMove(appt).originalStartTime,
+    ...(rule.staffNote ? { lastChangePastPolicy: rule.staffNote } : {}), changeRequestedAt: null, lastRescheduledAt: nowIso, lastRescheduledBy: actor.uid || actor.name || 'staff',
     ...(['requested', 'pending_payment', 'cancelled'].includes(appt.status) ? {} : { status: 'confirmed' }), checkInStatus: 'pending',
     ...(applyFee ? { rescheduleFeeApplied: fee } : {}),
     rescheduleAuditTrail: FieldValue.arrayUnion({ id: auditId, fromTime: appt.startTime, toTime: start.toISOString(), at: nowIso, byId: actor.uid || null, byName: actor.name || null, feeApplied: applyFee ? fee : 0, ...(reason ? { overrode: reason } : {}) }),
@@ -128,7 +132,7 @@ export async function POST(req: NextRequest) {
   const whenOld = new Date(appt.startTime).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz });
   const whenNew = start.toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz });
   await logAuditAdmin(db, tenantId, { action: 'appointment.reschedule', targetType: 'appointment', targetId: appointmentId,
-    summary: `Moved ${appt.clientName || 'appointment'} from ${whenOld} to ${whenNew}${staffId !== appt.staffId && who?.name ? ` (now with ${who.name})` : ''}${applyFee ? ` · $${fee} reschedule fee` : ''}${reason ? ` · OVERRIDE: ${reason}` : ''}`,
+    summary: `Moved ${appt.clientName || 'appointment'} from ${whenOld} to ${whenNew}${staffId !== appt.staffId && who?.name ? ` (now with ${who.name})` : ''}${applyFee ? ` · $${fee} reschedule fee` : ''}${reason ? ` · OVERRIDE: ${reason}` : ''}${rule.staffNote ? ` — ${rule.staffNote}` : ''}`,
     before: { startTime: appt.startTime, staffId: appt.staffId }, after: { startTime: start.toISOString(), staffId },
     actor: { type: 'user', id: actor.uid, name: actor.name, role: actor.role, via: 'planner' } }).catch(() => {});
 
@@ -157,5 +161,5 @@ export async function POST(req: NextRequest) {
       }
     } catch (e) { console.error('[reschedule] client message failed (the move stands)', e); }
   }
-  return NextResponse.json({ ok: true, startTime: start.toISOString(), endTime: end.toISOString(), staffId, feeApplied: applyFee ? fee : 0, told, overrode: reason || null, auditId });
+  return NextResponse.json({ ok: true, policyNote: rule.staffNote, startTime: start.toISOString(), endTime: end.toISOString(), staffId, feeApplied: applyFee ? fee : 0, told, overrode: reason || null, auditId });
 }
