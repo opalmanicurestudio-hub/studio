@@ -1570,7 +1570,7 @@ export function QuickBookForm({
       return !profileDocs.some((pd: any) => pd.requirementId === fr.id);
     });
   }, [selectedSvc, selectedClient?.profileDocuments]);
-  const alreadyHasCard = !!selectedClient?.cardOnFile?.token || !!selectedClient?.cardOnFile?.paymentMethodId;
+  const alreadyHasCard = !!(selectedClient?.cardOnFile?.token || selectedClient?.cardOnFile?.paymentMethodId) || !!selectedClient?.cardOnFile?.paymentMethodId;
   const canChargeOnFile = !!selectedClient?.cardOnFile?.customerId && !!selectedClient?.cardOnFile?.paymentMethodId;
   const clientEmail = selectedClient?.email || newClientEmail;
   const lastService = services.find((s: any) => s.id === selectedClient?.lastServiceId);
