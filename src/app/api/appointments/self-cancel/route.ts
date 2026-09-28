@@ -51,6 +51,10 @@
  * not something this route implements itself.
  */
 
+import { resolveDepositPolicy, rolloverExpiryISO } from '@/lib/deposit-policy';
+import { planCancellation, cancellationOutcomeLines } from '@/lib/policy-copy';
+import { sendCancellationNotice } from '@/lib/cancel-notice';
+import { internalPost, internalOrigin } from '@/lib/message-policy';
 import { resolvePolicy } from '@/lib/booking-policies';
 import { hoursToDeadline } from '@/lib/change-rules';
 import { NextRequest, NextResponse } from 'next/server';
@@ -93,6 +97,40 @@ function isCreditExpired(expiresAt: string | null | undefined): boolean {
 }
 
 // ── GET: appointment details + fee preview for the public page ────────────────
+
+// ── ONE CALCULATION for the client's own cancellation — the same one the front
+// desk uses (planCancellation): the fee from Booking policies, the deposit on
+// this booking handled per the deposit policy + the late-cancellation choice
+// (it counts toward the fee / becomes credit / is refunded). The preview (GET)
+// and the cancellation (POST) both use it, so what the client is shown is what
+// happens. Renter bookings keep their own (renter) rules — untouched here.
+async function planSelfCancel(db: any, tenantId: string, appointmentId: string, appt: any, tenant: any, service: any, client: any, isReschedule: boolean) {
+  const P = resolvePolicy(tenant, service); const dp = resolveDepositPolicy(tenant);
+  const windowHours = Number(P.cancel.windowHours.value) || 24;
+  const hrs = hoursToDeadline(tenant, appt, service);
+  const isLate = hrs < windowHours;
+  const price = Number(service?.price) || 0, val = Number(P.cancel.feeValue.value) || 0, mode = P.cancel.feeMode.value;
+  // "Your costs" needs the cost model (front desk); online it falls back to your flat fee, else the service price — as before.
+  const policyFee = mode === 'flat' ? val : mode === 'percentage' ? price * (val > 0 ? val : 100) / 100 : mode === 'none' ? 0 : (Number(tenant?.cancellationFee) || price);
+  const feeDollars = isLate && !isReschedule ? Math.round(policyFee * 100) / 100 : 0;
+  let credit: any = null;
+  if (!isReschedule && !appt.isRenterBooking && appt.clientId) {
+    try {
+      const snap = await db.collection(`tenants/${tenantId}/depositCredits`).where('clientId', '==', String(appt.clientId)).where('status', '==', 'available').get();
+      const list = snap.docs.map((d: any) => ({ ref: d.ref, id: d.id, ...(d.data() as any) })).filter((c: any) => !isCreditExpired(c.expiresAt));
+      list.sort((a: any, b: any) => (b.appointmentId === appointmentId ? 1 : 0) - (a.appointmentId === appointmentId ? 1 : 0) || String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+      credit = list[0] || null;
+      if (credit) credit.amount = Number(credit.amountDollars ?? (Number(credit.amountCents) || 0) / 100) || 0;
+    } catch { credit = null; }
+  }
+  const pmId = client?.cardOnFile?.paymentMethodId || client?.cardOnFile?.token || null;
+  const cusId = client?.cardOnFile?.stripeCustomerId || client?.cardOnFile?.customerId || client?.stripeCustomerId || null;
+  const hasCard = !!(pmId && cusId);
+  const plan = planCancellation({ who: 'client', feeDollars, policyFeeDollars: feeDollars, chargeFee: true, depositDollars: appt.isRenterBooking ? 0 : (credit?.amount || 0),
+    hoursUntilStart: hrs, depositPolicy: dp, collectPref: 'card', hasCard, cardLast4: client?.cardOnFile?.last4 || null, lateConsequence: P.cancel.lateConsequence.value });
+  return { plan, credit, isLate, windowHours, hrs, hasCard, dp, feeDollars };
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const tenantId = searchParams.get('tenantId');
@@ -122,12 +160,14 @@ export async function GET(req: NextRequest) {
   const service = svcSnap.data() || {};
 
   // Booking policies: the window (a service can differ) and the deadline counted from the ORIGINAL time.
-  const windowHours = Number(resolvePolicy(tenant, service).cancel.windowHours.value) || 24;
-  const hrsUntil = hoursToDeadline(tenant, appt, service);
-  const isLate = hrsUntil < windowHours;
-  const estimatedFee = isLate ? (tenant.cancellationFee || service.price || 0) : 0;
+  const clientDocG = appt.clientId ? (((await db.doc(`tenants/${tenantId}/clients/${appt.clientId}`).get()).data() as any) || {}) : {};
+  const pv = await planSelfCancel(db, tenantId, appointmentId, appt, tenant, service, clientDocG, false);
+  const windowHours = pv.windowHours; const isLate = pv.isLate;
+  const estimatedFee = appt.isRenterBooking ? (isLate ? (tenant.cancellationFee || service.price || 0) : 0) : pv.plan.due;
 
   return NextResponse.json({
+    // Exactly what will happen, in the business's policy wording — shown BEFORE they confirm.
+    preview: appt.isRenterBooking ? null : { lines: cancellationOutcomeLines(pv.plan.outcome, { preview: true }), due: pv.plan.due, applied: pv.plan.applied, fee: pv.plan.fee },
     ok: true,
     appointment: {
       clientName: appt.clientName || null,
@@ -200,7 +240,10 @@ export async function POST(req: NextRequest) {
 
 
   const isReschedule = clientReason === 'rescheduled' && !!rescheduledToId;
-  const feeAmount = isLate && !isReschedule ? (tenant.cancellationFee || service.price || 0) : 0;
+  // Studio bookings: the shared plan (fee from Booking policies, minus any deposit
+  // the policy counts toward it). Renter bookings keep their own rules.
+  const pv = appt.isRenterBooking ? null : await planSelfCancel(db, tenantId, appointmentId, appt, tenant, service, client, isReschedule);
+  const feeAmount = pv ? pv.plan.due : (isLate && !isReschedule ? (tenant.cancellationFee || service.price || 0) : 0);
   const chargeFee = feeAmount > 0; // flagged, not waived, when inside the window
 
   // Read the card's customer + payment method from where the Connect webhook
@@ -215,8 +258,18 @@ export async function POST(req: NextRequest) {
     client?.stripeCustomerId ||
     null;
   const hasCard = !!(stripePaymentMethodId && stripeCustomerId);
-  const paymentMethod: 'card_on_file' | 'add_to_balance' | 'waived' =
+  let paymentMethod: 'card_on_file' | 'add_to_balance' | 'waived' =
     !chargeFee ? 'waived' : (hasCard ? 'card_on_file' : 'add_to_balance');
+  // Studio bookings: charge the card NOW (no retries — never twice). A decline
+  // falls back to what they owe, once; the background function is told it's done.
+  let chargedIntentId: string | null = null;
+  if (pv && chargeFee && hasCard) {
+    const cr = await internalPost(internalOrigin(tenant, req.nextUrl.origin), '/api/stripe/charge-card', {
+      tenantId, clientId: appt.clientId, amountCents: Math.round(feeAmount * 100), description: 'Late-cancellation fee', category: 'Cancellation Fees',
+      appointmentId, reason: 'Client cancelled inside the window', mode: 'auto', kind: 'deposit' }, { retries: 0 });
+    if (cr.ok && cr.data?.ok && cr.data?.paymentIntentId) chargedIntentId = cr.data.paymentIntentId;
+    else paymentMethod = 'add_to_balance';
+  }
 
   const now = new Date().toISOString();
   const eventId = nanoid();
@@ -341,8 +394,10 @@ export async function POST(req: NextRequest) {
     appointmentId,
     clientId: appt.clientId || null,
     clientName: client?.name || appt.clientName || 'Guest',
-    clientEmail: client?.email || appt.clientEmail || null,
-    clientPhone: client?.phone || appt.clientPhone || null,
+    // Studio bookings: the client gets ONE message from here (sendCancellationNotice) — not a second from the function.
+    clientEmail: pv ? null : (client?.email || appt.clientEmail || null),
+    clientPhone: pv ? null : (client?.phone || appt.clientPhone || null),
+    ...(pv ? { clientNotifiedBy: 'visit link' } : {}),
     serviceId: appt.serviceId,
     serviceName: service.name || null,
     staffId: appt.staffId || null,
@@ -350,8 +405,10 @@ export async function POST(req: NextRequest) {
     chargeFee,
     feeAmount,
     paymentMethod,
-    stripeCustomerId,
-    stripePaymentMethodId,
+    // Already charged here → no card details, so the function can't charge twice.
+    stripeCustomerId: chargedIntentId ? null : stripeCustomerId,
+    stripePaymentMethodId: chargedIntentId ? null : stripePaymentMethodId,
+    ...(chargedIntentId ? { stripePaymentIntentId: chargedIntentId, chargedAt: now, chargedBy: 'visit link' } : {}),
     cancellationAudit,
     reason: cancellationAudit.reason,
     // onCancellationEvent only acts on 'pending'. A RESCHEDULE is a move —
@@ -360,7 +417,7 @@ export async function POST(req: NextRequest) {
     // route in the renter's own name (below), not the studio's. Both keep
     // the event for the audit trail.
     status: isReschedule ? 'skipped_reschedule' : appt.isRenterBooking ? 'handled_renter_voice' : 'pending',
-    chargeStatus: chargeFee ? (hasCard ? 'pending' : 'balance') : 'waived',
+    chargeStatus: chargedIntentId ? 'succeeded' : chargeFee ? (paymentMethod === 'card_on_file' ? 'pending' : 'balance') : 'waived',
     emailStatus: 'pending',
     smsStatus: 'pending',
     selfService: true,
@@ -414,12 +471,19 @@ export async function POST(req: NextRequest) {
   // never prevent a client from completing a cancellation they're entitled to.
   try {
     // A reschedule moved the deposit with the visit; there is nothing to refund.
-    if (!isReschedule) await resolveDepositForClientCancel({ db, FieldValue, tenantId, appt, appointmentId, client, isLate, now });
+    if (!isReschedule) await resolveDepositForClientCancel({ db, FieldValue, tenantId, appt, appointmentId, client, isLate, now,
+      ...(pv ? { outcome: (pv.plan.outcome.deposit?.outcome as any) || null, creditId: pv.credit?.id || null, depositPolicy: pv.dp } : {}) });
   } catch (e) {
     console.error('[self-cancel deposit resolution]', e);
   }
 
-  return NextResponse.json({ ok: true, feeCharged: chargeFee, feeAmount, isLate, packageNote });
+  // One message to the client, saying exactly what happened (studio bookings).
+  let lines: string[] | null = null;
+  if (pv) {
+    const outcome = { ...pv.plan.outcome, collected: !chargeFee ? pv.plan.outcome.collected : chargedIntentId ? 'card' : 'balance' } as any;
+    try { lines = (await sendCancellationNotice(db, tenantId, appointmentId, outcome, internalOrigin(tenant, req.nextUrl.origin), { ...appt, status: 'cancelled' })).lines; } catch (e) { console.error('[self-cancel notice]', e); }
+  }
+  return NextResponse.json({ ok: true, feeCharged: chargeFee, feeAmount, isLate, packageNote, lines });
 }
 
 // ── Deposit resolution — mirrors useCancellationConfirm v3's client-cancel ────
@@ -436,6 +500,10 @@ async function resolveDepositForClientCancel(opts: {
   client: any;
   isLate: boolean;
   now: string;
+  /** The plan's decision (planCancellation) — when given, do exactly this. */
+  outcome?: 'forfeit' | 'applied' | 'rollover' | 'store_credit' | 'refund' | null;
+  creditId?: string | null;
+  depositPolicy?: any;
 }) {
   const { db, tenantId, appt, appointmentId, client, isLate, now } = opts;
 
@@ -452,15 +520,27 @@ async function resolveDepositForClientCancel(opts: {
     .map((d: any) => ({ ref: d.ref, ...(d.data() as any) }))
     .filter((c: any) => !isCreditExpired(c.expiresAt));
   candidates.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-  const credit = candidates[0];
+  const credit = (opts.creditId && candidates.find((c: any) => c.ref?.id === opts.creditId)) || candidates[0];
   if (!credit) return;
 
   const amount = Number(credit.amountDollars ?? (credit.amountCents || 0) / 100);
+  const oc = opts.outcome || (isLate ? 'forfeit' : 'refund');
+
+  // Becomes credit for their next visit (the deposit policy's early-cancel default).
+  if (oc === 'rollover' || oc === 'store_credit') {
+    await credit.ref.set({ status: 'available', rolledOver: true, rolledOverAt: now, rolledOverFromAppointmentId: appointmentId,
+      expiresAt: rolloverExpiryISO(opts.depositPolicy || resolveDepositPolicy({})) }, { merge: true });
+    const decisionRef = db.collection(`tenants/${tenantId}/depositDecisions`).doc();
+    await decisionRef.set({ id: decisionRef.id, tenantId, creditId: credit.ref.id, appointmentId, clientId: appt.clientId || null,
+      trigger: 'client_cancel', outcome: 'rollover', reason: 'policy', amountDollars: amount, decidedAt: now });
+    await db.doc(`tenants/${tenantId}/appointments/${appointmentId}`).set({ depositDisposition: 'rolled_over', depositDispositionAt: now }, { merge: true });
+    return;
+  }
 
   // Rule 2 maps directly onto deposit policy: outside the window the client
   // gave fair notice, so refund/rollover; inside the window, forfeit — the
   // studio already lost that slot, same logic as a no-show.
-  if (isLate) {
+  if (oc === 'forfeit' || oc === 'applied') {
     await credit.ref.set({
       status: 'forfeited',
       forfeitedAt: now,
