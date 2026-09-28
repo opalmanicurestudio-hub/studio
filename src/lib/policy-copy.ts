@@ -75,23 +75,23 @@ export interface CancelOutcome {
 }
 
 /** The lines telling a client what happened — matching what was actually done. */
-export function cancellationOutcomeLines(o: CancelOutcome): string[] {
-  const out: string[] = [];
+export function cancellationOutcomeLines(o: CancelOutcome, opts: { preview?: boolean } = {}): string[] {
+  const out: string[] = []; const will = !!opts.preview; // preview = BEFORE it happens ("will be")
   const fee = Number(o.feeDollars || 0), applied = Number(o.depositAppliedDollars || 0), due = Math.max(0, fee - applied);
   if (o.who === 'studio') out.push('We’re sorry to cancel on you — there’s no charge for this.');
   if (o.who !== 'studio' && fee > 0) {
-    if (o.collected === 'waived') out.push(`We’ve waived the ${money(fee)} ${o.who === 'no_show' ? 'missed-appointment' : 'late-cancellation'} fee this time.`);
+    if (o.collected === 'waived') out.push(`${will ? 'We’ll waive' : 'We’ve waived'} the ${money(fee)} ${o.who === 'no_show' ? 'missed-appointment' : 'late-cancellation'} fee this time.`);
     else {
       out.push(`Under our policy, a ${money(fee)} ${o.who === 'no_show' ? 'missed-appointment' : 'late-cancellation'} fee applies.`);
       if (applied > 0) out.push(`Your ${money(applied)} deposit goes toward it${due > 0 ? `, leaving ${money(due)}` : ' and covers it in full'}.`);
-      if (due > 0) out.push(o.collected === 'card' ? `${money(due)} was charged to your card${o.cardLast4 ? ` ending ${o.cardLast4}` : ''}.` : `${money(due)} will be due at your next visit.`);
+      if (due > 0) out.push(o.collected === 'card' ? `${money(due)} ${will ? 'will be' : 'was'} charged to your card${o.cardLast4 ? ` ending ${o.cardLast4}` : ''}.` : `${money(due)} will be due at your next visit.`);
     }
   } else if (o.who !== 'studio') out.push('There’s no charge for this cancellation.');
   const d = o.deposit;
   if (d && d.dollars > 0 && d.outcome !== 'applied') {
-    out.push(d.outcome === 'refund' ? `Your ${money(d.dollars)} deposit is being refunded to your card (usually 3–5 business days).`
-      : d.outcome === 'store_credit' || d.outcome === 'rollover' ? `Your ${money(d.dollars)} deposit is saved as credit for your next visit.`
-      : `Your ${money(d.dollars)} deposit is kept, as set out in our policy.`);
+    out.push(d.outcome === 'refund' ? `Your ${money(d.dollars)} deposit ${will ? 'will be' : 'is being'} refunded to your card (usually 3–5 business days).`
+      : d.outcome === 'store_credit' || d.outcome === 'rollover' ? `Your ${money(d.dollars)} deposit ${will ? 'will be' : 'is'} saved as credit for your next visit.`
+      : `Your ${money(d.dollars)} deposit ${will ? 'will be' : 'is'} kept, as set out in our policy.`);
   }
   if (Number(o.goodwillDollars || 0) > 0) out.push(`We’ve added ${money(Number(o.goodwillDollars))} of credit to say sorry.`);
   return out;
