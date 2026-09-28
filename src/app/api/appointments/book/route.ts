@@ -87,6 +87,40 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
 import { generateShortCode } from '@/lib/short-code';
 import { nanoid } from 'nanoid';
+import { verifyStaffActor } from '@/lib/staff-auth';
+import { createHash } from 'crypto';
+
+/**
+ * WHO IS ASKING. Staff treatment (no notice/horizon limits, the staff booking
+ * plan, a staff-set price) used to follow a `source` label the CALLER sent —
+ * so anyone booking online could claim to be the front desk and skip notice,
+ * deposit and approval, or send their own price. Now it is earned:
+ *   'internal' — a server-to-server call carrying CRON_SECRET (x-cf-internal)
+ *   'staff'    — a signed-in owner/team member of THIS business (Bearer token)
+ *   'renter'   — a valid renter-portal session, booking on that renter's own calendar
+ * Anything else is treated as a public booking, whatever `source` says.
+ */
+async function callerTrust(req: NextRequest, tenantId: string, body: any): Promise<'internal' | 'staff' | 'renter' | null> {
+  const secret = process.env.CRON_SECRET;
+  if (secret && req.headers.get('x-cf-internal') === secret) return 'internal';
+  if ((req.headers.get('authorization') || '').toLowerCase().startsWith('bearer ')) {
+    const a = await verifyStaffActor(req, tenantId).catch(() => null);
+    if (a && (a as any).ok) return 'staff';
+  }
+  const tok = typeof body?.renterToken === 'string' ? body.renterToken : '';
+  if (tok) {
+    try {
+      const db = getAdminDb();
+      const all = ((await db.doc(`tenants/${tenantId}/private/renterSessions`).get()).data() as any) || {};
+      const entry = all[createHash('sha256').update(tok).digest('hex')];
+      if (entry && entry.expiresAt > Date.now() && entry.renterId && body.staffId && body.staffId !== 'any') {
+        const st = ((await db.doc(`tenants/${tenantId}/staff/${String(body.staffId)}`).get()).data() as any) || null;
+        if (st && (st.renterId === entry.renterId || String(body.staffId) === String(entry.renterId))) return 'renter';
+      }
+    } catch { /* not trusted */ }
+  }
+  return null;
+}
 import { verifyBookable } from '@/lib/availability';
 import { graceHoursOf, resolveBookingPlan, shouldAutoApprove } from '@/lib/deposit-policy';
 
@@ -154,6 +188,7 @@ export async function POST(req: NextRequest) {
   })();
     const { tenantId, serviceId, startTime } = body || {};
     const source = String(body.source || 'api').slice(0, 40);
+    const trust = await callerTrust(req, String(tenantId || ''), body);
     if (!tenantId || !serviceId || !startTime) {
       return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
     }
@@ -323,7 +358,7 @@ export async function POST(req: NextRequest) {
      * the front desk must always be able to book the person standing there.
      * Public surfaces get the tenant's policy applied in full.
      */
-    const inStudio = IN_STUDIO_SOURCES.includes(source.toLowerCase());
+    const inStudio = !!trust && IN_STUDIO_SOURCES.includes(source.toLowerCase());
 
     // ── The race-proof core: check + write in ONE transaction ──
     const aptsRef = db.collection(`tenants/${tenantId}/appointments`);
@@ -433,13 +468,14 @@ export async function POST(req: NextRequest) {
         now: nowLocal,
         fallbackHours: LEGACY_FALLBACK_HOURS,
         ignoreHeuristics: inStudio,
-        ignoreShifts: body.ignoreShifts === true,
+        ignoreShifts: !!trust && body.ignoreShifts === true, // only staff may book outside shifts
+        // Public bookings use the business's own notice rule — never one the caller sends.
         minLeadMinutes: inStudio
           ? 0
-          : (Number.isFinite(Number(body.minLeadMinutes)) ? Number(body.minLeadMinutes) : undefined),
+          : (trust && Number.isFinite(Number(body.minLeadMinutes)) ? Number(body.minLeadMinutes) : undefined),
         maxHorizonDays: inStudio
           ? 3650
-          : (Number.isFinite(Number(body.maxHorizonDays)) ? Number(body.maxHorizonDays) : undefined),
+          : (trust && Number.isFinite(Number(body.maxHorizonDays)) ? Number(body.maxHorizonDays) : undefined), // public → the business's horizon
         requireAcceptingWalkIns: body.requireAcceptingWalkIns === true,
       };
 
@@ -567,12 +603,13 @@ export async function POST(req: NextRequest) {
       const STAFF_SOURCES = [
         'manual', 'front-desk', 'terminal', 'walk-in', 'walkin-kiosk', 'lounge',
         'foundation', 'recovery', 'goodwill', 'starter', 'event', 'retell', 'waitlist',
-        'renter_portal',
+        'renter_portal', 'front_desk',
       ];
-      const staffSide = STAFF_SOURCES.includes(String(source || '').toLowerCase());
+      const staffSide = !!trust && STAFF_SOURCES.includes(String(source || '').toLowerCase());
       let plan = resolveBookingPlan({
         tenant, service: svc,
-        price: Number(body.price ?? svc.price ?? 0),
+        // Only staff may set a price; everyone else pays the service's price.
+        price: Number((trust ? body.price : undefined) ?? svc.price ?? 0),
         // From a campaign's Book button. The code is only stored if it names
         // a real, active discount; checkout applies it automatically.
         ...(typeof body.campaignId === 'string' && body.campaignId ? { campaignId: String(body.campaignId).slice(0, 64) } : {}),
