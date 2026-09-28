@@ -1,4 +1,5 @@
 'use client';
+import { StudioTheme } from '@/components/shared/StudioTheme';
 import { HelpDesk } from '@/components/support/HelpDesk';
 import { StaleCopyBanner } from '@/components/shared/StaleCopyBanner';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
@@ -73,6 +74,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <AuthGuard>
       <a href="#main" className="skip-link">Skip to content</a>
       <TenantProvider>
+        <StudioTheme />
         <LocationProvider>
           <SidebarProvider>
             <AppSidebar />
