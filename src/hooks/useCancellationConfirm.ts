@@ -100,6 +100,10 @@ import {
 } from '@/lib/deposit-policy';
 
 interface CancellationConfirmPayload {
+  /** The front desk already charged the card (PaymentIntent id) — the background function must NOT charge again. */
+  alreadyChargedPaymentIntentId?: string | null;
+  /** The front desk already told the client (one server-sent message) — the background function must NOT message too. */
+  notifiedByServer?: boolean;
   reason: string;
   chargeFee: boolean;
   feeAmount: number;
@@ -140,6 +144,8 @@ export function useCancellationConfirm(
         auditLogEntry,
         depositDisposition,
         additionalCreditCents,
+        alreadyChargedPaymentIntentId = null,
+        notifiedByServer = false,
       } = payload;
 
       const isStudioCancel = cancellationAudit?.actorType === 'studio';
@@ -313,8 +319,10 @@ export function useCancellationConfirm(
         walkInId:              walkInId,
         clientId:              client.id,
         clientName:            client.name,
-        clientEmail:           client.email || null,
-        clientPhone:           client.phone || null,
+        // null = the desk has already told them (one message, not two)
+        clientEmail:           notifiedByServer ? null : (client.email || null),
+        clientPhone:           notifiedByServer ? null : (client.phone || null),
+        clientNotifiedBy:      notifiedByServer ? 'front desk' : null,
         serviceId:             appointment.serviceId,
         serviceName:           serviceName || null,
         staffId:               appointment.staffId,
@@ -324,8 +332,10 @@ export function useCancellationConfirm(
         chargeFee:             isStudioCancel ? false : chargeFee,
         feeAmount:             isStudioCancel ? 0 : feeAmount,
         paymentMethod:         isStudioCancel ? 'waived' : paymentMethod,
-        stripeCustomerId:      client.stripeCustomerId || null,
-        stripePaymentMethodId: client.cardOnFile?.paymentMethodId || (client.cardOnFile?.token || client.cardOnFile?.paymentMethodId) || null,
+        // Already charged at the desk → no card details, so the function never charges twice.
+        stripeCustomerId:      alreadyChargedPaymentIntentId ? null : (client.cardOnFile?.customerId || client.stripeCustomerId || null),
+        stripePaymentMethodId: alreadyChargedPaymentIntentId ? null : (client.cardOnFile?.paymentMethodId || (client.cardOnFile?.token || client.cardOnFile?.paymentMethodId) || null),
+        ...(alreadyChargedPaymentIntentId ? { stripePaymentIntentId: alreadyChargedPaymentIntentId, chargedAt: new Date().toISOString(), chargedBy: 'front desk' } : {}),
 
         cancellationAudit,
         reason,
@@ -333,7 +343,7 @@ export function useCancellationConfirm(
         depositDisposition:    depositDisposition || 'none',
 
         status:       'pending',
-        chargeStatus: isStudioCancel ? 'waived' : (chargeFee && paymentMethod === 'card_on_file' ? 'pending' : paymentMethod === 'add_to_balance' ? 'balance' : 'waived'),
+        chargeStatus: alreadyChargedPaymentIntentId ? 'succeeded' : isStudioCancel ? 'waived' : (chargeFee && paymentMethod === 'card_on_file' ? 'pending' : paymentMethod === 'add_to_balance' ? 'balance' : 'waived'),
         emailStatus:  'pending',
         smsStatus:    'pending',
 
