@@ -24,12 +24,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
+import { WinBackSettings } from '@/components/settings/WinBackSettings';
 import {
   MESSAGE_KINDS, resolveQuietHours, resolveAddressPolicy, validateOverride, type MessageKindDef,
 } from '@/lib/message-policy';
 import { cn } from '@/lib/utils';
 
-const GROUPS = ['Booking', 'Money', 'Reminders', 'Retail', 'Renters', 'Account'] as const;
+const GROUPS = ['Booking', 'Money', 'Reminders', 'After the visit', 'Your team', 'Retail', 'Renters', 'Account'] as const;
 
 export default function MessageSettingsPage() {
   const { firestore } = useFirebase();
@@ -107,8 +108,8 @@ export default function MessageSettingsPage() {
           </Button>
           <div className="flex-1 min-w-0">
             <h1 className="font-black uppercase tracking-tighter text-xl leading-none">Messages</h1>
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-0.5">
-              What goes out, and what it says{isMgr ? '' : ' · view only'}
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Every automatic message — what goes out, when, and in your words{isMgr ? '' : ' · view only'}
             </p>
           </div>
           <Link href="/message-log"
@@ -406,6 +407,9 @@ export default function MessageSettingsPage() {
             </Card>
           );
         })}
+
+        {tenantId && <div id="win-back" className="space-y-2 pt-4"><h2 className="px-2 text-lg font-semibold">Winning clients back · renter campaigns</h2>
+          <WinBackSettings tenantId={tenantId} tenant={selectedTenant} canEdit={isMgr} /></div>}
 
         <p className="px-2 text-[10px] font-bold leading-relaxed text-muted-foreground">
           Switched-off messages still appear in your message log marked as skipped, so nothing disappears without a trace.
