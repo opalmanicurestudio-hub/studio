@@ -94,9 +94,9 @@ export function useReschedule(props: Props) {
   }, [custom, day, staffId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const timesFor = (d: string) => slots[`${staffId}|${d}`];
-  // Presets: the same time 2, 4, 6, 8 or 12 weeks on (same weekday).
-  const presetDates = useMemo(() => [2, 4, 6, 8, 12].map((w) => [`In ${w} weeks`, addDays(original, w * 7)] as [string, Date]), [original]); // eslint-disable-line react-hooks/exhaustive-deps
-  // The first load covers 6 weeks; the 8- and 12-week dates are fetched on their own.
+  // Presets: the same time 2, 4, 6 or 8 weeks on (same weekday).
+  const presetDates = useMemo(() => [2, 4, 6, 8].map((w) => [`In ${w} weeks`, addDays(original, w * 7)] as [string, Date]), [original]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The first load covers 6 weeks; the 8-week date is fetched on its own.
   useEffect(() => { if (!open || !staffId) return; for (const [, d] of presetDates) if (d > addDays(original, 41) && !timesFor(key(d))) void ensure(d, 1, staffId); }, [open, staffId, presetDates, slots]); // eslint-disable-line react-hooks/exhaustive-deps
   const suggestions = useMemo(() => {
     return presetDates.map(([label, d]) => {
