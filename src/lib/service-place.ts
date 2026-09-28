@@ -12,9 +12,19 @@ const httpsOnly = (v: any) => (/^https:\/\//i.test(String(v || '').trim()) ? Str
 
 export const PLACE_LABEL: Record<PlaceKind, string> = { studio: 'In person', online: 'Video call', phone: 'Phone call', client: 'At the client’s location' };
 
-/** Where it happens. For video calls, a link set on THIS appointment wins over the service's shared one. */
+const KINDS: PlaceKind[] = ['studio', 'online', 'phone', 'client'];
+/** The options a client may pick from when booking (the service's main one first). One option = no choice. */
+export function placeOptionsOf(svc: any): PlaceKind[] {
+  const main: PlaceKind = KINDS.includes(svc?.where) ? svc.where : 'studio';
+  if (svc?.clientChoosesPlace !== true) return [main];
+  const alts = (Array.isArray(svc?.placeAlternatives) ? svc.placeAlternatives : []).filter((k: any) => KINDS.includes(k) && k !== main);
+  return [main, ...alts];
+}
+
+/** Where it happens. The client's choice on THIS booking wins (if the service allows it); for video calls, a link set on the booking wins over the service's shared one. */
 export function placeOf(svc: any, appt?: any): ServicePlace {
-  const w = svc?.where;
+  const chosen = appt?.place && placeOptionsOf(svc).includes(appt.place) ? appt.place : null;
+  const w = chosen || svc?.where;
   const k: PlaceKind = w === 'online' || w === 'client' || w === 'phone' ? w : 'studio';
   if (k === 'phone') return { kind: k, meetingLink: null, phoneWho: svc?.phoneWho === 'they_call' ? 'they_call' : 'we_call' };
   if (k !== 'online') return { kind: k, meetingLink: null };
