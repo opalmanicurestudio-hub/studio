@@ -18,6 +18,7 @@
 // A deposit that arrives after the hold was released does NOT revive the
 // booking (the time may be taken) — it is flagged, like online.
 
+import { bookingPolicyLines, holdLine } from '@/lib/policy-copy';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
@@ -40,9 +41,10 @@ async function tellClient(db: any, tenant: any, tenantId: string, ap: any, base:
     const link = ap.checkInToken ? `${base}/check-in/${ap.checkInToken}` : `${base}/book/${tenantId}`;
     const money = `$${(cents / 100).toFixed(2)}`;
     const subject = kind === 'confirmed' ? `You're booked — ${when}` : `Pay your ${money} deposit to confirm ${when}`;
+    const policy = bookingPolicyLines(tenant, null, { depositCents: cents });
     const lines = kind === 'confirmed'
-      ? [`Hi ${first},`, `Your next visit at ${studio} is confirmed for ${when}.${cents > 0 ? ` Your ${money} deposit is received and will come off your total on the day.` : ''}`]
-      : [`Hi ${first},`, `We've held ${when} for you at ${studio}. Pay your ${money} deposit to confirm it — it comes off your total on the day.`];
+      ? [`Hi ${first},`, `Your next visit at ${studio} is confirmed for ${when}.${cents > 0 ? ` Your ${money} deposit is received.` : ''}`, ...policy]
+      : [`Hi ${first},`, `We've held ${when} for you at ${studio}. Pay your ${money} deposit to confirm it.`, holdLine(tenant, ap.paymentDueAt ? new Date(ap.paymentDueAt) : null), ...policy];
     if (email) await sendNotification(db, { tenantId, channel: 'email', to: email, subject, html: brandedEmailHtml({ studioName: studio, title: kind === 'confirmed' ? 'You’re booked' : 'Confirm your next visit', bodyLines: lines, cta: { label: kind === 'confirmed' ? 'View your visit' : `Pay ${money} deposit`, url: link } }), kind: kind === 'confirmed' ? 'desk_booking_confirmed' : 'deposit_pay_link', appointmentId: ap.id, clientId: ap.clientId || null, clientName: ap.clientName || null } as any);
     if (phone) await sendNotification(db, { tenantId, channel: 'sms', to: phone, text: `${studio}: ${kind === 'confirmed' ? `you're booked for ${when}.` : `pay your ${money} deposit to confirm ${when}:`} ${link}`, kind: kind === 'confirmed' ? 'desk_booking_confirmed' : 'deposit_pay_link', appointmentId: ap.id, clientId: ap.clientId || null, clientName: ap.clientName || null } as any);
   } catch (e) { console.error('[desk-deposit] notify failed (the deposit is safe)', e); }
@@ -108,7 +110,7 @@ export async function POST(req: NextRequest) {
       serviceName: ap.serviceName || null, appointmentStartTime: ap.startTime, depositAmountCents: cents, skipCardStep: false, status: 'pending', createdAt: nowIso, createdVia: 'front desk' }, { merge: true });
     await batch.commit();
     await logAuditAdmin(db, tenantId, { action: 'deposit.link_sent', targetType: 'appointment', targetId: appointmentId, amount: cents / 100, summary: `Deposit link sent — ${ap.clientName || 'client'}, held until ${new Date(due).toLocaleString('en-US', { timeZone: tenant.timezone || undefined })}`, actor } as any).catch(() => {});
-    await tellClient(db, tenant, tenantId, ap, base, 'pay_link', cents);
+    await tellClient(db, tenant, tenantId, { ...ap, paymentDueAt: due }, base, 'pay_link', cents);
     return NextResponse.json({ ok: true, heldUntil: due });
   }
 
