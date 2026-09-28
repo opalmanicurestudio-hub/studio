@@ -853,8 +853,8 @@ export async function POST(req: NextRequest) {
             if (providerDoc?.renterId) {
               const v = await renterVoice(db, tenantId, String(providerDoc.renterId));
               const whenLabel = whenStr;
-              const cancelUrl = `${base}/cancel/${tenantId}/${r.aptId}`;
-              const rescheduleUrl = `${base}/book/${tenantId}?provider=${encodeURIComponent(String(renterSvc.staffId))}&reschedule=${encodeURIComponent(r.aptId)}`;
+              const cancelUrl = `${base}/cancel/${tenantId}/${r.aptId}${r.token ? `?k=${encodeURIComponent(r.token)}` : ''}`; // the key proves it's their link
+              const rescheduleUrl = `${base}/book/${tenantId}?provider=${encodeURIComponent(String(renterSvc.staffId))}&reschedule=${encodeURIComponent(r.aptId)}${r.token ? `&k=${encodeURIComponent(r.token)}` : ''}`;
               const depositLine = Number(r.plan?.depositCents) > 0 ? `A $${(Number(r.plan.depositCents) / 100).toFixed(2)} deposit holds it; the rest is due at your visit.` : '';
               renterConfirmed = true;
               await tellClient(db, v, { email, phone, clientId: r.clientId || null, name: r.clientName || null }, `You're booked — ${svcLabel}, ${whenLabel}`,
