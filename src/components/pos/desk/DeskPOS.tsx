@@ -35,6 +35,7 @@ import { DeskCancel } from './DeskCancel';
 import { DeskPayGate } from './DeskPayGate';
 import { OpsBoard, opsAttentionCount } from '@/components/ops/OpsBoard';
 import { OverrunPanel } from '@/components/ops/OverrunPanel';
+import { placeOf } from '@/lib/service-place';
 import { serviceOverrun, overrunImpact, overrunMode } from '@/lib/appointment-ops';
 import { opsStatus, paymentOutstanding } from '@/lib/appointment-ops';
 import { resolvePolicy } from '@/lib/booking-policies';
@@ -240,6 +241,8 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       (g.stage === 'service' || g.stage === 'ready') && { label: 'Book next visit…', hint: 'Same service & time — 2, 4, 6 or 8 weeks on', onSelect: () => setFollowFor(g.appt) },
       g.stage !== 'service' && g.stage !== 'ready' && { label: 'Reschedule…', onSelect: () => setMoveAppt(g.appt) },
       { label: 'Details', onSelect: () => open(g) },
+      (() => { const pl = placeOf((e.services || []).find((x: any) => x.id === g.appt?.serviceId), g.appt);   // online visit → join from here
+        return pl.meetingLink ? { label: 'Join the call', hint: pl.ownLink ? 'This booking’s own link' : 'The service’s shared link', onSelect: () => { window.open(pl.meetingLink!, '_blank', 'noopener'); } } : null; })(),
       g.stage === 'waiting' && g.appt?.studioAskedToMove && { label: 'Decide — arrived after reschedule offer…', hint: 'Keep it, shorten it, switch or reschedule — they’re told', onSelect: () => setLateFor(g) },
       g.stage === 'arriving' && { label: 'Running late…', hint: 'See what it affects and choose — nothing is charged automatically', onSelect: () => setLateFor(g) },
       ph && { label: 'Call', onSelect: () => { window.location.href = `tel:${ph}`; } },
