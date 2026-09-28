@@ -11,7 +11,7 @@ const safeDate = (v: any): Date => { try { const d = v?.toDate ? v.toDate() : ne
 // when it's past it), optional trip sharing (distance only; ends at check-in),
 // and the ways to change it. Replaces the old "Enter Studio / Portal Active" screens.
 const LATE_CHOICES = [5, 10, 15, 20, 30, 45];
-export const DayOfView = ({ accent, studioName, first, serviceName, startTime, provider, address, graceMinutes, onArrived, onMyWay, onLate, onReschedule, onCancel, portalHref, onNotifications, trip, reply, status, lateMinutes, etaAt, selfCheckIn = true }: {
+export const DayOfView = ({ accent, studioName, first, serviceName, startTime, provider, address, graceMinutes, onArrived, onMyWay, onLate, onReschedule, onCancel, portalHref, onNotifications, trip, reply, status, lateMinutes, etaAt, selfCheckIn = true, providerDelay, onProviderReply }: {
     accent: string; studioName?: string; first: string; serviceName?: string; startTime?: string; provider?: { name?: string; avatarUrl?: string } | null; address?: string | null; graceMinutes: number;
     onArrived: () => Promise<any>; onMyWay: () => Promise<any>; onLate: (mins: number, note: string) => Promise<any>;
     onReschedule?: () => void; onCancel?: () => void; portalHref?: string | null; onNotifications?: () => void;
@@ -22,6 +22,9 @@ export const DayOfView = ({ accent, studioName, first, serviceName, startTime, p
     status?: string | null; lateMinutes?: number | null; etaAt?: string | null;
     /** The business allows online self check-in (Booking policies). Off → front desk. */
     selfCheckIn?: boolean;
+    /** Their provider is running late — they choose: keep, reschedule or cancel (no fee). */
+    providerDelay?: { minutes: number; newStartAt: string; reply?: string | null } | null;
+    onProviderReply?: (choice: 'keep' | 'cancel') => Promise<any>;
 }) => {
     const [lateOpen, setLateOpen] = useState(false); const [mins, setMins] = useState<number | null>(null); const [note, setNote] = useState('');
     const [said, setSaid] = useState<string | null>(null); const [past, setPast] = useState(false); const [busy, setBusy] = useState(false);
@@ -42,6 +45,11 @@ export const DayOfView = ({ accent, studioName, first, serviceName, startTime, p
     };
     React.useEffect(() => () => { if (watchRef.current !== null && typeof navigator !== 'undefined') navigator.geolocation?.clearWatch(watchRef.current); }, []);
     const askedToMove = reply?.kind === 'move';
+    const [pdBusy, setPdBusy] = useState<string | null>(null); const [pdMsg, setPdMsg] = useState<string | null>(null); const [pdConfirmCancel, setPdConfirmCancel] = useState(false);
+    const pdOpen = !!providerDelay && !providerDelay.reply;
+    const pdTime = providerDelay?.newStartAt ? format(safeDate(providerDelay.newStartAt), 'h:mm a') : '';
+    const pdSend = async (c: 'keep' | 'cancel') => { if (!onProviderReply) return; setPdBusy(c); const d = await onProviderReply(c); setPdBusy(null);
+        setPdMsg(d?.ok ? (c === 'keep' ? `Thanks — we’ll see you around ${pdTime}.` : `Cancelled — no fee.${d.depositRefund ? ' Your deposit will be returned.' : ''}`) : (d?.error || 'That didn’t send — please try again.')); };
     // We've asked them to choose a new time → stop sharing the trip.
     React.useEffect(() => { if (askedToMove && watchRef.current !== null) stopTrip(true); }, [askedToMove]); // eslint-disable-line react-hooks/exhaustive-deps
     const when = startTime ? format(safeDate(startTime), 'EEEE · h:mm a') : '';
@@ -60,6 +68,16 @@ export const DayOfView = ({ accent, studioName, first, serviceName, startTime, p
                     {provider?.name && <div className="flex items-center gap-3">{provider.avatarUrl ? <img src={provider.avatarUrl} alt="" className="h-10 w-10 rounded-full object-cover" /> : <span className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold text-white" style={{ background: 'var(--accent)' }}>{provider.name.slice(0, 1)}</span>}<p className="text-[15px]">with <b>{provider.name.split(' ')[0]}</b></p></div>}
                     {address && <p className="text-[14px]" style={{ color: 'var(--muted)' }}>{address} · <a className="underline underline-offset-2" style={{ color: 'var(--ink)' }} target="_blank" rel="noreferrer" href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`}>Directions</a></p>}
                 </section>
+                {providerDelay && (pdOpen || pdMsg) && <section className="pub-card space-y-3 p-5" style={{ boxShadow: 'inset 0 0 0 2px var(--accent)' }} aria-live="polite">
+                    <p className="text-[13px] font-semibold" style={{ color: 'var(--accent)' }}>A quick update</p>
+                    {pdMsg ? <p className="text-[15px]">{pdMsg}</p> : <>
+                        <p className="text-[15px]">{provider?.name ? provider.name.split(' ')[0] : 'Your provider'} is running about <b>{providerDelay.minutes} minutes</b> behind, so your appointment would start around <b>{pdTime}</b>. Choose what works for you:</p>
+                        <button type="button" disabled={!!pdBusy} className={`${btn} font-semibold text-white`} style={{ background: 'var(--accent)' }} onClick={() => pdSend('keep')}>{pdBusy === 'keep' ? 'Sending…' : `Keep my appointment (~${pdTime})`}</button>
+                        {onReschedule && <button type="button" className={`${btn} bg-white shadow-sm`} style={{ border: '1px solid #e7e2dc' }} onClick={onReschedule}>Reschedule — no fee</button>}
+                        {!pdConfirmCancel ? <button type="button" className="w-full text-center text-[14px] underline underline-offset-2" style={{ color: 'var(--muted)' }} onClick={() => setPdConfirmCancel(true)}>Cancel — no fee</button>
+                          : <button type="button" disabled={!!pdBusy} className={`${btn} bg-white shadow-sm`} style={{ border: '1px solid #e7e2dc' }} onClick={() => pdSend('cancel')}>{pdBusy === 'cancel' ? 'Cancelling…' : 'Yes, cancel it (no fee)'}</button>}
+                    </>}
+                </section>}
                 {reply?.message && <section className="pub-card space-y-3 p-5" style={askedToMove ? { boxShadow: 'inset 0 0 0 2px var(--accent)' } : undefined} aria-live="polite">
                     <p className="text-[13px] font-semibold" style={{ color: 'var(--accent)' }}>{askedToMove ? 'Let’s find a new time' : `A message from ${studioName || 'us'}`}</p>
                     <p className="text-[15px]">{reply.message}</p>
