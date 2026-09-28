@@ -19,12 +19,19 @@ export function InterruptionClients({ tenantId, firestore, rec }: { tenantId: st
   const [prev, setPrev] = useState<any>(null); const [busy, setBusy] = useState(false); const [msg, setMsg] = useState<string | null>(null);
   const [moved, setMoved] = useState<string[]>([]); // moved to another room instead — no client impact
   useEffect(() => { if (!firestore || !tenantId) return; return onSnapshot(collection(firestore, `tenants/${tenantId}/tickets`), (s) => setTickets(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) })))); }, [firestore, tenantId]);
+  const [renterNames, setRenterNames] = useState<Record<string, string>>({});
+  useEffect(() => { if (!firestore || !tenantId) return; return onSnapshot(collection(firestore, `tenants/${tenantId}/renters`), (s) => setRenterNames(Object.fromEntries(s.docs.map((d) => [d.id, String((d.data() as any)?.name || 'Renter')])))); }, [firestore, tenantId]);
   const relevant = tickets.filter((t) => linked.includes(t.id) || !['closed', 'done', 'resolved', 'cancelled'].includes(String(t.status || ''))).slice(0, 12);
   const run = async (action: 'preview' | 'notify') => { setBusy(true); setMsg(null);
     const r = await staffPost('/api/appointments/disruption', { tenantId, action, kind: 'interruption', interruptionId: rec.id, ticketIds: linked, movedRoomIds: moved }); setBusy(false);
     if (!r?.ok) { setMsg(r?.error || 'That didn’t work.'); return; }
     if (action === 'preview') setPrev(r); else { setPrev(null); setMsg(`Done — ${r.told} client${r.told === 1 ? '' : 's'} told and asked to choose; ${r.rentersTold} renter${r.rentersTold === 1 ? '' : 's'} told about their bookings. Outcomes will fill in below as clients choose.`); } };
   const t = disruptionTotals(rec.affected);
+  const follow = async (action: 'chase' | 'reopen') => { setBusy(true); setMsg(null);
+    const r = await staffPost('/api/appointments/disruption', { tenantId, action, kind: 'interruption', disruptionId: rec.id }); setBusy(false);
+    setMsg(!r?.ok ? r?.error || 'That didn’t work.' : action === 'chase' ? `Reminded ${r.chased} client${r.chased === 1 ? '' : 's'} who hadn’t chosen yet.` : `Invited ${r.invited} client${r.invited === 1 ? '' : 's'} back to book.`); };
+  const undecided = Object.values(rec.affected || {}).filter((x: any) => !x.isRenterBooking && x.outcome === 'pending' && x.notifiedAt && Date.now() - Date.parse(x.notifiedAt) >= 3 * 3600000).length;
+  const renterRows = Object.values(rec.affected || {}).filter((x: any) => x.isRenterBooking && x.renterId).reduce((m: Map<string, { n: number; cents: number }>, x: any) => { const r = m.get(x.renterId) || { n: 0, cents: 0 }; r.n++; r.cents += Number(x.valueCents) || 0; m.set(x.renterId, r); return m; }, new Map());
   return (
     <div className="space-y-2 rounded-xl border-2 bg-white px-3 py-2.5">
       <p className="text-sm font-semibold">Clients and records</p>
@@ -42,6 +49,13 @@ export function InterruptionClients({ tenantId, firestore, rec }: { tenantId: st
         <p className="font-semibold">So far</p>
         <p>{t.rescheduled} rescheduled · {t.reassigned} with another provider · {t.cancelled} cancelled · {t.kept} kept · {t.pending} waiting</p>
         <p>Refunds {money(t.refundsCents)} · credits {money(t.creditsCents)} · booked value lost {money(t.lostCents)}</p>
+        {renterRows.size > 0 && <p className="text-xs text-slate-600">Renters (recorded bookings, for reimbursement): {Array.from(renterRows.entries()).map(([rid, r]) => `${renterNames[rid] || 'Renter'}: ${r.n} booking${r.n === 1 ? '' : 's'}, ${money(r.cents)}`).join(' · ')} — compare with their own loss logs below.</p>}
+        <div className="flex flex-wrap gap-2 pt-1">
+          {undecided > 0 && <button type="button" disabled={busy} onClick={() => follow('chase')} className="h-8 rounded-lg border-2 px-3 text-xs font-semibold disabled:opacity-50">Remind {undecided} undecided</button>}
+          <button type="button" disabled={busy} onClick={() => follow('reopen')} className="h-8 rounded-lg border-2 px-3 text-xs font-semibold disabled:opacity-50">We’re open again — invite them back</button>
+          <a href={`/api/booths/interruption-export?tenantId=${tenantId}&id=${rec.id}`} className="inline-flex h-8 items-center rounded-lg border-2 px-3 text-xs font-semibold">Download spreadsheet</a>
+          <a href={`/api/booths/interruption-packet?tenantId=${tenantId}&id=${rec.id}`} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center rounded-lg border-2 px-3 text-xs font-semibold">Print packet (save as PDF)</a>
+        </div>
       </div>}
     </div>
   );
