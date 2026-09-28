@@ -7,7 +7,7 @@
 // Pure functions: safe on the server and in the browser.
 
 import { resolveDepositPolicy } from '@/lib/deposit-policy';
-import { resolvePolicy } from '@/lib/booking-policies';
+import { resolvePolicy, unpaidFeeLine, unpaidFeeRuleOf } from '@/lib/booking-policies';
 import { graceLines } from '@/lib/grace';
 
 const money = (d: number) => `$${(Math.round(d * 100) / 100).toFixed(2)}`;
@@ -55,6 +55,8 @@ export function bookingPolicyLines(tenant: any, service?: any, opts: { depositCe
   if (t.lateArrivalPolicy) out.push(`Running late: ${clip(t.lateArrivalPolicy)}`);
   else out.push(`Running late? Tell us from your visit link — we’ll let you know your options${grace > 0 ? ` (we can usually hold your time for ${grace} minutes)` : ''}.`);
   if (t.noShowPolicy) out.push(`Missed appointments: ${clip(t.noShowPolicy)}`);
+  // What happens if a change fee can't be charged — only when the business charges change fees.
+  if (Number(t.rescheduleFee) > 0 || resolvePolicy(t).cancel.feeMode.value !== 'none') out.push(unpaidFeeLine(unpaidFeeRuleOf(t)));
   out.push(...graceLines(t));   // the grace allowances, so clients know what flexibility exists
   return out;
 }
