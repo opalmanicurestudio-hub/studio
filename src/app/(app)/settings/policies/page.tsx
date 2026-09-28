@@ -232,6 +232,9 @@ export default function BookingPoliciesPage() {
             </Row>
             <Row label="Late arrivals, in your words"><Text field="lateArrivalPolicy" value={t.lateArrivalPolicy} label="Late arrival policy" placeholder="e.g. After 15 minutes we may need to shorten your service…" /></Row>
             <Row label="Missed appointments, in your words"><Text field="noShowPolicy" value={t.noShowPolicy} label="No-show policy" placeholder="e.g. Missed appointments are charged…" /></Row>
+            <Row label="Video and phone appointments" note="Paid in full when booked — there’s no desk to pay at afterwards. Needs online payments switched on.">
+              <Choice field="bookingPolicies.remotePayInFull" value={t.bookingPolicies?.remotePayInFull !== false} label="Video and phone appointments" options={[[true, 'Paid in full when booked'], [false, 'Your usual deposit rules']]} />
+            </Row>
             <Row label="Offer late clients their choices" note="When a client tells us they’re running late past your grace time and the full visit won’t fit, work out what still can: a shorter visit (dropping add-ons), another free provider, or a new time. Nothing changes until they choose.">
               <Choice field="bookingPolicies.lateChoices" value={t.bookingPolicies?.lateChoices || 'off'} label="Offer late clients their choices" options={[['off', 'Off — staff decide'], ['prepare', 'Prepare them; staff send'], ['send', 'Send them automatically']]} />
               {(t.bookingPolicies?.lateChoices || 'off') !== 'off' && <Num field="bookingPolicies.lateChoicesWaitMinutes" value={Number(t.bookingPolicies?.lateChoicesWaitMinutes) || 10} unit="minutes to reply, then staff decide" label="Wait for a reply" min={5} max={60} />}
