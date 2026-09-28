@@ -57,6 +57,8 @@ const schema = z.object({
   // Where it happens — at the studio (default), online (with a link), or at the client's place.
   where: z.enum(['studio', 'online', 'phone', 'client']).optional(),
   phoneWho: z.enum(['we_call', 'they_call']).optional(),
+  clientChoosesPlace: z.boolean().optional(),
+  placeAlternatives: z.array(z.enum(['studio', 'online', 'phone', 'client'])).optional(),
   meetingLink: z.string().max(500).optional(),
   isAddon: z.boolean().optional(),
   category: z.string().min(1, 'Category is required'),
@@ -319,7 +321,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
     if (mode === 'edit' && service) {
       reset({
         id: service.id, name: service.name, type: service.type,
-        where: ((service as any).where || 'studio') as any, meetingLink: (service as any).meetingLink || '', phoneWho: ((service as any).phoneWho || 'we_call') as any,
+        where: ((service as any).where || 'studio') as any, meetingLink: (service as any).meetingLink || '', phoneWho: ((service as any).phoneWho || 'we_call') as any, clientChoosesPlace: (service as any).clientChoosesPlace === true, placeAlternatives: Array.isArray((service as any).placeAlternatives) ? (service as any).placeAlternatives : [],
         isAddon: service.type === 'addon', isPrivate: service.isPrivate, membersOnly: service.membersOnly === true, rebookWeeks: Number(service.rebookWeeks) || 0,
         category: service.category, duration: service.duration,
         padBefore: service.padBefore || 0, padAfter: service.padAfter || 0,
@@ -594,8 +596,17 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                     return <button key={k} type="button" aria-pressed={on} onClick={() => setValue('where', k, { shouldDirty: true })} className={`h-11 rounded-xl border text-sm ${on ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>;
                   })}
                 </div>
-                {watch('where') === 'online' && <Input {...register('meetingLink')} placeholder="Meeting link — e.g. https://zoom.us/j/…" className="h-11 rounded-xl border" />}
-                {watch('where') === 'phone' && <div className="grid grid-cols-2 gap-2">
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!watch('clientChoosesPlace')} onChange={(e) => setValue('clientChoosesPlace', e.target.checked, { shouldDirty: true })} /> Clients can choose</label>
+                {watch('clientChoosesPlace') && <div className="flex flex-wrap gap-3 text-sm">
+                  <span className="text-muted-foreground">Also offer:</span>
+                  {([['studio', 'In person'], ['online', 'Video call'], ['phone', 'Phone call'], ['client', 'At the client’s location']] as const).filter(([k]) => k !== (watch('where') || 'studio')).map(([k, l]) => {
+                    const cur: string[] = (watch('placeAlternatives') as any) || [];
+                    return <label key={k} className="flex items-center gap-1.5"><input type="checkbox" checked={cur.includes(k)} onChange={(e) => setValue('placeAlternatives', (e.target.checked ? [...cur, k] : cur.filter((x) => x !== k)) as any, { shouldDirty: true })} /> {l}</label>;
+                  })}
+                  <span className="w-full text-xs text-muted-foreground">When booking, clients pick how to meet. Video and phone calls are paid in full when booked (Booking policies).</span>
+                </div>}
+                {(watch('where') === 'online' || (watch('clientChoosesPlace') && ((watch('placeAlternatives') as any) || []).includes('online'))) && <Input {...register('meetingLink')} placeholder="Meeting link — e.g. https://zoom.us/j/…" className="h-11 rounded-xl border" />}
+                {(watch('where') === 'phone' || (watch('clientChoosesPlace') && ((watch('placeAlternatives') as any) || []).includes('phone'))) && <div className="grid grid-cols-2 gap-2">
                   {([['we_call', 'We call them'], ['they_call', 'They call us']] as const).map(([k, l]) => {
                     const on = (watch('phoneWho') || 'we_call') === k;
                     return <button key={k} type="button" aria-pressed={on} onClick={() => setValue('phoneWho', k, { shouldDirty: true })} className={`h-10 rounded-xl border text-sm ${on ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>;
