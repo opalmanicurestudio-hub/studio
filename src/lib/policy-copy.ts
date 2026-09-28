@@ -35,6 +35,13 @@ export function bookingPolicyLines(tenant: any, service?: any, opts: { depositCe
   if (t.cancellationPolicy) out.push(`Cancellations: ${clip(t.cancellationPolicy)}`);
   else if (windowH > 0) out.push(`Need to change or cancel? Do it from your visit link at least ${hrs(windowH)} ahead${fee ? ` — inside that, ${fee}${/kept$/.test(fee) ? '' : ' applies'}` : ''}.`);
   else out.push('Need to change or cancel? You can do it any time from your visit link.');
+  // Moving a booking — the rules now in force (change-rules.ts).
+  const ch = resolvePolicy(t, service).change;
+  const cut = Number(ch.cutoffHours.value) || 0, lim = Number(ch.limit.value) || 0;
+  const moveBits = [cut > 0 ? `online changes close ${hrs(cut)} before your appointment` : null,
+    lim > 0 ? `you can move it up to ${lim} time${lim === 1 ? '' : 's'}${ch.overLimit.value === 'approval' ? ', then we’ll need to OK it' : ', then please call us'}` : null,
+    ch.deadline.value === 'original' ? 'moving it keeps its original cancellation deadline' : null].filter(Boolean) as string[];
+  if (moveBits.length) out.push(`Moving your booking: ${moveBits.join('; ')}.`);
   const rf = Number(t.rescheduleFee || 0), rw = Number(t.rescheduleFeeWindowHours || 0);
   if (rf > 0 && rw > 0) out.push(`Moving it within ${hrs(rw)} of the time carries a ${money(rf)} reschedule fee.`);
   const dep = Number(opts.depositCents || 0);
