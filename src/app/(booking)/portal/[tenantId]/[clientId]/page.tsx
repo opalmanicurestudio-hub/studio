@@ -2,8 +2,9 @@
 
 import { hasRealCard } from '@/lib/card-on-file';
 import { checkChange, chainAfterMove } from '@/lib/change-rules';
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useRef, useMemo, useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
+import { bookThroughEngine, type ConfirmResult } from '@/lib/booking/engine-confirm';
 import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { doc, collection, query, where, writeBatch, increment, arrayUnion, deleteField, getDocs } from 'firebase/firestore';
 import { setDoc as setDocCR } from 'firebase/firestore';
@@ -350,162 +351,26 @@ export default function ClientPortalPage() {
             setIsProcessing(false);
         }
     };
+    // Booking goes through the shared engine (availability, booking mode, change
+    // rules, upcoming limit, deposits, card-on-file, messages, signed forms) —
+    // the same path as the public booking page. Never written from the browser.
+    const heldPortalPay = useRef<{ key: string; appointmentId: string } | null>(null);
     const handleConfirmDirectBooking = async (
-        formData: { clientName: string; clientEmail: string; clientPhone?: string },
-        appointmentDetails: Omit<Appointment, 'id' | 'clientId' | 'clientName' | 'clientEmail' | 'clientPhone'>,
+        formData: { clientName: string; clientEmail: string; clientPhone?: string; notes?: string },
+        appointmentDetails: any,
         signedForms: { formId: string; formTitle: string; formData: Record<string, any> }[],
         setBookingStep: (step: string) => void
-    ) => {
-        if (!firestore || !tenantId || !client) return;
+    ): Promise<ConfirmResult> => {
+        if (!tenantId) return { requiresPayment: true, error: 'Please try again.' };
         setIsProcessing(true);
-
-        // v12 — race-proof path: the shared booking engine conflict-checks
-        // server-side in a transaction. On success, consents + the staff
-        // ping still write client-side; on 404/error we fall back to the
-        // legacy direct batch below unchanged.
         try {
-            const ad: any = appointmentDetails;
-            if (ad?.serviceId && ad?.startTime) {
-                const res = await fetch('/api/appointments/book', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        tenantId,
-                        source: 'client-portal',
-                        serviceId: ad.serviceId,
-                        addOnIds: ad.addOnIds || [],
-                        staffId: ad.staffId || 'any',
-                        startTime: ad.startTime,
-                        client: { id: client.id },
-                    }),
-                });
-                if (res.status === 409) {
-                    const out = await res.json().catch(() => ({}));
-                    toast({ variant: 'destructive', title: 'That time was just taken', description: out?.error || 'Pick another slot and try again.' });
-                    setIsProcessing(false);
-                    return;
-                }
-                if (res.ok) {
-                    const out = await res.json().catch(() => null);
-                    if (out?.ok) {
-                        const sideBatch = writeBatch(firestore);
-                        const sideNow = new Date().toISOString();
-                        signedForms.forEach(form => {
-                            const consentDocRef = doc(collection(firestore, `tenants/${tenantId}/clients/${client.id}/signedConsents`));
-                            sideBatch.set(consentDocRef, { ...form, id: consentDocRef.id, clientId: client.id, signedAt: sideNow });
-                        });
-                        if (out.staffId) {
-                            const notificationRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
-                            sideBatch.set(notificationRef, {
-                                id: nanoid(),
-                                userId: out.staffId,
-                                type: 'new_appointment',
-                                message: `New booking: ${client.name} for ${selectedServiceForBooking?.name} on ${format(parseISO(out.startTime), 'MMM d @ h:mm a')}`,
-                                link: '/planner',
-                                createdAt: sideNow,
-                                read: false,
-                            });
-                        }
-                        await sideBatch.commit().catch(() => { /* side-writes are secondary */ });
-                        /* The SERVER decides what this became. This screen used
-                         * to say "Booking Confirmed!" for every outcome — so a
-                         * shop in approval mode told the client they were
-                         * booked while the planner showed the request still
-                         * waiting on a yes. */
-                        setBookingOutcome({
-                            status: String(out.status || 'confirmed'),
-                            notice: String(out.clientNotice || ''),
-                            depositCents: Number(out.depositCents) || 0,
-                        });
-                        toast({
-                            title: out.status === 'requested' ? 'Request sent'
-                                : out.status === 'pending_payment' ? 'Time held' : 'Booking confirmed',
-                        });
-                        setBookingStep('confirmation');
-                        setIsProcessing(false);
-                        return;
-                    }
-                }
-            }
-        } catch { /* fall back to the legacy direct write below */ }
-
-        const batch = writeBatch(firestore);
-        const now = new Date().toISOString();
-
-        try {
-            const appointmentRef = doc(collection(firestore, `tenants/${tenantId}/appointments`));
-            const newAppointmentId = appointmentRef.id;
-            const checkInToken = nanoid(16);
-
-            const fallbackPlan = resolveBookingPlan({
-                tenant: tenant as any,
-                service: ((services || []).find((sv: any) => sv.id === (appointmentDetails as any)?.serviceId) || {}) as any,
-                price: Number((appointmentDetails as any)?.price ?? 0),
-                client: client as any,
-                byStaff: false,
+            return await bookThroughEngine({
+                tenantId, source: 'client-portal',
+                formData: { ...formData, clientName: formData.clientName || client?.name || '', clientEmail: formData.clientEmail || client?.email || '', clientPhone: formData.clientPhone || client?.phone || '' },
+                apptDetails: appointmentDetails, signedForms, setStep: setBookingStep,
+                onOutcome: (x) => setBookingOutcome({ status: x.status, notice: x.notice, depositCents: x.depositCents }),
+                held: heldPortalPay,
             });
-
-            const newAppointment = {
-                ...appointmentDetails,
-                id: newAppointmentId,
-                tenantId: tenantId,
-                clientId: client.id,
-                clientName: client.name,
-                clientEmail: client.email,
-                clientPhone: client.phone,
-                checkInToken: checkInToken,
-                status: fallbackPlan.status,
-                bookingMode: fallbackPlan.mode,
-                bookingReason: `${fallbackPlan.reason} (offline path)`,
-                requiresCardOnFile: !!fallbackPlan.requiresCardOnFile,
-                ...(fallbackPlan.status === 'requested' ? {
-                    requestedAt: now,
-                    requestExpiresAt: fallbackPlan.approvalExpiryHours > 0
-                        ? new Date(Date.now() + fallbackPlan.approvalExpiryHours * 3600000).toISOString()
-                        : null,
-                } : {}),
-            };
-
-            batch.set(appointmentRef, newAppointment);
-            batch.set(doc(firestore, 'appointmentCheckIns', checkInToken), newAppointment);
-
-            signedForms.forEach(form => {
-                const consentDocRef = doc(collection(firestore, `tenants/${tenantId}/clients/${client.id}/signedConsents`));
-                batch.set(consentDocRef, {
-                    ...form,
-                    id: consentDocRef.id,
-                    clientId: client.id,
-                    signedAt: now,
-                });
-            });
-
-            if (newAppointment.staffId) {
-                const notificationRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
-                batch.set(notificationRef, {
-                    id: nanoid(),
-                    userId: newAppointment.staffId,
-                    type: 'new_appointment',
-                    message: `New booking: ${client.name} for ${selectedServiceForBooking?.name} on ${format(parseISO(newAppointment.startTime), 'MMM d @ h:mm a')}`,
-                    link: '/planner',
-                    createdAt: now,
-                    read: false,
-                });
-            }
-            
-            await batch.commit();
-            setBookingOutcome({
-                status: fallbackPlan.status,
-                notice: fallbackPlan.clientNotice || '',
-                depositCents: fallbackPlan.depositCents || 0,
-            });
-            toast({
-                title: fallbackPlan.status === 'requested' ? 'Request sent'
-                    : fallbackPlan.status === 'pending_payment' ? 'Time held' : 'Booking confirmed',
-            });
-            setBookingStep('confirmation');
-        } catch (error) {
-            console.error(error);
-            toast({ variant: 'destructive', title: "Booking Failed" });
         } finally {
             setIsProcessing(false);
         }
