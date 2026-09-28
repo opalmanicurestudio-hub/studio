@@ -154,8 +154,16 @@ export const onCancellationEvent = functions.firestore.onDocumentCreated(
 
     const eventRef = db.doc(`tenants/${tenantId}/cancellationEvents/${eventId}`);
 
-    // Mark processing immediately to prevent double-execution
-    await eventRef.update({ status: 'processing' });
+    // Claim it ATOMICALLY. Cloud Functions can deliver the same event more than
+    // once; only the run that flips pending → processing may continue, so a
+    // client can never be charged (or messaged) twice for one cancellation.
+    const claimed = await db.runTransaction(async (tx) => {
+      const cur = (await tx.get(eventRef)).data();
+      if (!cur || cur.status !== 'pending') return false;
+      tx.update(eventRef, { status: 'processing', claimedAt: new Date().toISOString() });
+      return true;
+    });
+    if (!claimed) return;
 
     // Load tenant config for studio name, email, phone, etc.
     const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
@@ -219,7 +227,7 @@ export const onCancellationEvent = functions.firestore.onDocumentCreated(
             reason: data.reason,
             actorType: data.cancellationAudit?.actorType || 'unknown',
           },
-        }, { stripeAccount: connectedAccountId });
+        }, { stripeAccount: connectedAccountId, idempotencyKey: `cancel-fee-${tenantId}-${eventId}` }); // Stripe refuses a second identical charge
 
         const latestCharge: any = paymentIntent.latest_charge;
         const chargeId: string | null =
