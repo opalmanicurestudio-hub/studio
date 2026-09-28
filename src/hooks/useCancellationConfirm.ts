@@ -71,6 +71,7 @@
  * route) behave identically.
  */
 
+import { hoursToDeadline } from '@/lib/change-rules';
 import { logAuditClient } from '@/lib/audit-client';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { useCallback } from 'react';
@@ -104,6 +105,8 @@ interface CancellationConfirmPayload {
   alreadyChargedPaymentIntentId?: string | null;
   /** The front desk already told the client (one server-sent message) — the background function must NOT message too. */
   notifiedByServer?: boolean;
+  /** The front desk's plan for the deposit (planCancellation) — when given, the save does exactly this. */
+  depositOutcome?: 'forfeit' | 'applied' | 'rollover' | 'store_credit' | 'refund' | null;
   reason: string;
   chargeFee: boolean;
   feeAmount: number;
@@ -146,6 +149,7 @@ export function useCancellationConfirm(
         additionalCreditCents,
         alreadyChargedPaymentIntentId = null,
         notifiedByServer = false,
+        depositOutcome = null,
       } = payload;
 
       const isStudioCancel = cancellationAudit?.actorType === 'studio';
@@ -405,8 +409,8 @@ export function useCancellationConfirm(
               const amount = Number(credit.amountDollars ?? (credit.amountCents || 0) / 100);
               const decisionNow = new Date().toISOString();
 
-              if (isNoShowCancel) {
-                // No discretion, no policy lookup — genuine no-shows forfeit.
+              if (isNoShowCancel && (!depositOutcome || depositOutcome === 'forfeit' || depositOutcome === 'applied')) {
+                // No-shows forfeit (unless the business's policy — via the desk's plan — says otherwise).
                 const forfeitBatch = writeBatch(firestore);
                 forfeitBatch.set(credit.ref, {
                   status: 'forfeited', forfeitedAt: decisionNow,
@@ -428,8 +432,10 @@ export function useCancellationConfirm(
                 depositNote = `$${amount.toFixed(2)} deposit forfeited — no-show.`;
               } else {
                 const policy = resolveDepositPolicy(selectedTenant);
-                const hrs = hoursUntilStart(appointment.startTime);
-                const resolved = resolveDepositOutcome({ trigger: 'client_cancel', hoursUntilStart: hrs, policy });
+                // Counted from the ORIGINAL time; and when the desk passed its plan, do exactly that.
+                const hrs = hoursToDeadline(selectedTenant, appointment);
+                const planned = depositOutcome === 'forfeit' || depositOutcome === 'applied' ? 'forfeit' : depositOutcome === 'rollover' || depositOutcome === 'store_credit' ? 'rollover' : depositOutcome === 'refund' ? 'refund' : null;
+                const resolved: any = planned ? { outcome: planned, reason: 'front_desk_plan' } : resolveDepositOutcome({ trigger: 'client_cancel', hoursUntilStart: hrs, policy });
 
                 if (resolved.outcome === 'refund') {
                   const decisionRef = doc(collection(firestore, `tenants/${tenantId}/depositDecisions`));
