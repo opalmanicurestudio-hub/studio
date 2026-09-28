@@ -1,5 +1,6 @@
 'use client';
 
+import { staffAuthHeader } from '@/lib/staff-fetch';
 import React, { useState, useMemo, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
@@ -415,7 +416,7 @@ export default function ClientDetailPage() {
         // charge.succeeded webhook, not anything written here.
         const res = await fetch('/api/stripe/charge-card', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
             body: JSON.stringify({
                 tenantId,
                 clientId: client.id,
