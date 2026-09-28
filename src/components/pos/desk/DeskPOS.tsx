@@ -31,6 +31,9 @@ import { DeskDelay } from './DeskDelay';
 import { DeskReschedule } from './DeskReschedule';
 import { DeskFollowUp } from './DeskFollowUp';
 import { DeskCancel } from './DeskCancel';
+import { DeskPayGate } from './DeskPayGate';
+import { opsStatus, paymentOutstanding } from '@/lib/appointment-ops';
+import { resolvePolicy } from '@/lib/booking-policies';
 import { query, where } from 'firebase/firestore';
 
 type Stage = 'arriving' | 'waiting' | 'service' | 'ready' | 'done';
@@ -52,6 +55,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   useEffect(() => { try { const v = localStorage.getItem(VIEW_KEY) as View | null; if (v && ['timeline', 'lanes', 'stations', 'mix'].includes(v)) setView(v); } catch { /* per-device memory is a nicety */ } }, []);
   const pickView = (v: View) => { setView(v); try { localStorage.setItem(VIEW_KEY, v); } catch { /* ignore */ } };
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [payFor, setPayFor] = useState<any>(null); // arrived — payment required
   const [mode, setMode] = useState<'desk' | 'counter'>('desk');
   const [about, setAbout] = useState<Guest | null>(null);
   const [lateFor, setLateFor] = useState<Guest | null>(null);
@@ -135,11 +139,10 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
     const bd = c?.birthday ? String(c.birthday).slice(5, 10) : null; const soon = bd ? [0, 1, 2, 3, 4, 5, 6].some((i) => { const d = new Date(now.getTime() + i * 864e5); return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` === bd; }) : false;
     const out: [string, 'soft' | 'warn' | 'ok' | 'accent'][] = [];
     // What the client told us from their visit link — first, while they're on their way.
-    if (g.stage === 'arriving') {
-      if (a.clientCheckInStatus === 'running_late') out.push([`Late ~${Number(a.clientLateMinutes) || 10} min (told us)`, 'warn']);
-      else if (a.clientCheckInStatus === 'on_my_way') out.push(['On the way', 'ok']);
-      const tripAt = a.clientTrip?.at ? Date.parse(a.clientTrip.at) : 0;
-      if (a.clientTrip?.distanceKm != null && now.getTime() - tripAt < 10 * 60000) out.push([`${a.clientTrip.distanceKm} km away`, 'soft']);
+    if (g.stage === 'arriving' || g.stage === 'waiting') {
+      // The shared real-time status (same words as the planner, portal and Operations).
+      const ops = opsStatus(a, now, { graceMinutes: Number(resolvePolicy(e.selectedTenant).late.graceMinutes.value) || 0 });
+      if (!['on_time', 'finished', 'in_service', 'checked_in', 'payment_required'].includes(ops.status)) out.push([ops.label, ops.tone === 'alert' || ops.tone === 'warn' ? 'warn' : ops.tone === 'info' ? 'soft' : 'ok']);
     }
     if (!c || visits === 0) out.push(['New client', 'accent']);
     if (a.completionStatus && a.completionStatus !== 'completed') out.push(['Forms not done', 'warn']);
@@ -194,6 +197,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       if (g.kind === 'walkin' && !g.staffId) return assigning === g.key
         ? <div className="flex flex-wrap justify-end gap-1">{staffList.map((s) => <Btn key={s.id} quiet onClick={() => assign(g, s.id)}>{String(s.name).split(' ')[0]}</Btn>)}<Btn quiet onClick={() => setAssigning(null)} label="Cancel">✕</Btn></div>
         : <Btn quiet onClick={() => setAssigning(g.key)}>Assign</Btn>;
+      if (g.kind === 'appt' && paymentOutstanding(g.appt)) return <Btn onClick={() => setPayFor(g.appt)}>Payment required</Btn>;
       return <Btn quiet onClick={() => start(g)}>Start</Btn>;
     }
     if (g.stage === 'service') return g.appt ? <Btn quiet onClick={() => finish(g)}>Finish</Btn> : null;
@@ -207,6 +211,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       (g.stage === 'service' || g.stage === 'ready') && { label: 'Book next visit…', hint: 'Same service & time — 2, 4, 6 or 8 weeks on', onSelect: () => setFollowFor(g.appt) },
       g.stage !== 'service' && g.stage !== 'ready' && { label: 'Reschedule…', onSelect: () => setMoveAppt(g.appt) },
       { label: 'Details', onSelect: () => open(g) },
+      g.stage === 'waiting' && g.appt?.studioAskedToMove && { label: 'Decide — arrived after reschedule offer…', hint: 'Keep it, shorten it, switch or reschedule — they’re told', onSelect: () => setLateFor(g) },
       g.stage === 'arriving' && { label: 'Running late…', hint: 'See what it affects and choose — nothing is charged automatically', onSelect: () => setLateFor(g) },
       ph && { label: 'Call', onSelect: () => { window.location.href = `tel:${ph}`; } },
       ph && { label: 'Text', onSelect: () => { window.location.href = `sms:${ph}`; } },
@@ -329,6 +334,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       <DeskDelay e={e} appt={lateFor?.appt || null} accent={accent} onClose={() => setLateFor(null)} onReschedule={(a) => setMoveAppt(a)} />
       <DeskReschedule e={e} appt={moveAppt} accent={accent} onClose={() => setMoveAppt(null)} />
       <DeskFollowUp e={e} visit={followFor} accent={accent} onClose={() => setFollowFor(null)} />
+      <DeskPayGate e={e} appt={payFor} accent={accent} onClose={() => setPayFor(null)} />
       <DeskCancel e={e} accent={accent} onReschedule={(a: any) => setMoveAppt(a)} onOfferSlot={() => { setMoreTab('waitlist'); setMoreOpen(true); }} />
       <Drawer accent={accent} open={!!about} onClose={() => setAbout(null)} title="About this entry">
         {about && (() => { const r = about.appt || about.walkIn || {}; const created = toDate(r.createdAt || r.checkInTime); const paid = r.depositStatus === 'paid' || Number(r.amountPaid) > 0;
