@@ -80,6 +80,7 @@
 // without looking at the published roster. That is the server being right and
 // the page being behind, and the fix is to pass that page the same data.
 
+import { unpaidFeeRuleOf } from '@/lib/booking-policies';
 import { resolvePolicy } from '@/lib/booking-policies';
 import { checkChange, chainAfterMove } from '@/lib/change-rules';
 import { bookingPolicyLines, holdLine } from '@/lib/policy-copy';
@@ -244,6 +245,35 @@ export async function POST(req: NextRequest) {
           }
         }
         replacedChain = chainAfterMove(old);
+      }
+    }
+
+    // ── UNPAID CHANGE FEE (Booking policies: "they pay it before booking again") — online only ─────
+    // Matched by email/phone like the limit below. The pay link goes ONLY to the client's own email on
+    // file — never shown here, never sent to whatever address was typed (that would leak their account).
+    if (!trust && unpaidFeeRuleOf(tenant) === 'before_booking') {
+      const em = String(body?.client?.email || '').trim().toLowerCase(); const pd = String(body?.client?.phone || '').replace(/\D/g, '').slice(-10);
+      const hits: any[] = [];
+      try {
+        if (em) hits.push(...(await db.collection(`tenants/${tenantId}/clients`).where('email', '==', em).limit(5).get()).docs);
+        if (pd.length === 10) for (const f of [pd, `+1${pd}`, `(${pd.slice(0, 3)}) ${pd.slice(3, 6)}-${pd.slice(6)}`]) hits.push(...(await db.collection(`tenants/${tenantId}/clients`).where('phone', '==', f).limit(3).get()).docs);
+      } catch { /* best-effort */ }
+      const owing = hits.map((d: any) => ({ id: d.id, ...(d.data() as any) })).find((c: any) => Number(c.outstandingBalance) > 0);
+      if (owing) {
+        const bal = Number(owing.outstandingBalance);
+        const last = Date.parse(owing.balanceLinkSentAt || '');
+        if (String(owing.email || '').includes('@') && !(Number.isFinite(last) && Date.now() - last < 3600000)) {
+          try {
+            const { sendNotification } = await import('@/lib/notify'); const { brandedEmailHtml } = await import('@/lib/email-template');
+            const origin = linkOrigin(tenant, req.nextUrl.origin);
+            const studio = (tenant as any).name || 'the studio';
+            await sendNotification(db, { tenantId, channel: 'email', to: String(owing.email), subject: `Your balance with ${studio}`, kind: 'balance_due',
+              html: brandedEmailHtml({ studioName: studio, title: 'Before your next booking', bodyLines: [`You have a $${bal.toFixed(2)} balance from a previous change. Once it’s paid, you can book again.`], cta: { label: 'Pay my balance', url: `${origin}/portal/${tenantId}/${owing.id}` } }),
+              clientId: owing.id, clientName: owing.name || null } as any);
+            await db.doc(`tenants/${tenantId}/clients/${owing.id}`).set({ balanceLinkSentAt: new Date().toISOString() }, { merge: true });
+          } catch (e) { console.error('[book] balance link failed', e); }
+        }
+        return NextResponse.json({ ok: false, code: 'balance_due', error: `There’s an unpaid balance on your account from a previous change. We’ve emailed you a link to pay it — once it’s paid, you can book.` }, { status: 402 });
       }
     }
 
