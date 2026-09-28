@@ -277,7 +277,8 @@ export async function GET(req: NextRequest) {
           let msg: string;
           if (b.items.length === 1) {
             const withWho = first.a.staffName ? ` with ${first.a.staffName}` : '';
-            const whereLine = placeLine(svcById.get(String(first.a.serviceId || '')), null, first.a);   // this booking's own link wins   // online link / "we'll come to you"
+            const tRem0: any = tDoc.data() || {};
+            const whereLine = placeLine(svcById.get(String(first.a.serviceId || '')), null, first.a, { timeZone: tRem0.timezone || null, clientPhone: b.phone || null, businessPhone: tRem0.phone || tRem0.twilioPhoneNumber || null });   // this booking's own link wins; remote visits say the time zone   // online link / "we'll come to you"
             msg = daysBefore === 0
               ? `Reminder — your appointment is today, ${when}${withWho}.${whereLine ? ` ${whereLine}` : ''}${manage}`
               : `Reminder — your appointment is ${when}${withWho}.${whereLine ? ` ${whereLine}` : ''}${manage}`;
