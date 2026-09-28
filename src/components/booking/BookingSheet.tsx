@@ -1,5 +1,6 @@
 'use client';
 
+import { placeOptionsOf, PLACE_LABEL } from '@/lib/service-place';
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
@@ -263,6 +264,19 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const { firestore } = useFirebase();
 
   const methods = useForm<BookingFormData>({ resolver: zodResolver(bookingSchema) });
+  // Where it happens — when the service lets clients choose (in person / video call / phone / at their place).
+  const placeOpts = placeOptionsOf(service);
+  const [placeChoice, setPlaceChoice] = React.useState<string>(placeOpts[0]);
+  React.useEffect(() => { setPlaceChoice(placeOptionsOf(service)[0]); }, [service?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const placeChooser = placeOpts.length > 1 ? (
+    <div className="space-y-2">
+      <p className="text-[15px] font-semibold">How would you like to meet?</p>
+      <div className="grid grid-cols-2 gap-2">{placeOpts.map((k) => { const on = placeChoice === k;
+        return <button key={k} type="button" aria-pressed={on} onClick={() => setPlaceChoice(k)} className="h-11 rounded-full px-3 text-[14px] transition active:scale-[.98]"
+          style={on ? { background: 'var(--accent, #1c1917)', color: '#fff', fontWeight: 600 } : { background: '#fff', border: '1px solid #e7e2dc' }}>{PLACE_LABEL[k]}</button>; })}</div>
+      {(placeChoice === 'online' || placeChoice === 'phone') && tenant?.depositsLive && (tenant as any)?.bookingPolicies?.remotePayInFull !== false && <p className="text-[13px]" style={{ color: '#78716c' }}>{placeChoice === 'online' ? 'Video calls' : 'Phone calls'} are paid in full when you book.</p>}
+    </div>
+  ) : null;
   const { handleSubmit, watch } = methods;
   const clientEmail = watch('clientEmail');
   const clientPhone = watch('clientPhone');
@@ -577,6 +591,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       signedForms,
       appointmentDetails: {
         serviceId: service.id, staffId: finalStaffId,
+        ...(placeOpts.length > 1 ? { place: placeChoice } : {}),
         startTime: startDateTime.toISOString(), endTime: endDateTime.toISOString(),
         status: 'confirmed', isWalkIn: false, source: 'online',
         inspirationPhotoUrl: inspoPhotos[0]?.url || inspirationPhotoUrl || undefined, notes: formValues.notes,
@@ -894,6 +909,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   // ── Render ────────────────────────────────────────────────────────────────
   if (simple) {
     return wrapInShell(<StudioFlow c={{
+      placeChooser,
       service, tenant, tenantId: tenantIdProp || (tenant as any)?.id, steps, currentStep, currentStepIndex, setCurrentStepIndex, handleNextStep, handlePrevStep, onOpenChange,
       qualifiedStaff, lockedStaffId, selectedStaffId, handleStaffSelect, selectedStaff, bookedStaff, availableTiersForService, selectedTierId, setSelectedTierId,
       date, setDate, weekStart, selectedTime, setSelectedTime, timeSlots, hotSlotMap, availability,
@@ -1257,6 +1273,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                   {currentStep === 'details' && (
                     <FormProvider {...methods}>
                       <form id="booking-details-form" onSubmit={handleSubmit(handleNextStep)} className="space-y-7 text-left">
+                        {placeChooser}
                         <h3 style={{ fontFamily: headingFont }} className="text-base font-black uppercase tracking-tight flex items-center gap-2 text-left">
                           <User className="w-4 h-4 text-primary" />Guest Profile
                         </h3>
