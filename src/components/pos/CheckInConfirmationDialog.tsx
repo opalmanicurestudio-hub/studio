@@ -37,6 +37,7 @@
  * contact verification, arrival notes, print ticket.
  */
 
+import { hasRealCard } from '@/lib/card-on-file';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Dialog,
@@ -215,7 +216,7 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
     tenantId,
     !!(tenantId && (item?.clientId || client?.id)),
   );
-  const cardSecured = !!(item?.cardOnFileSecured || client?.cardOnFile?.token || client?.cardOnFile?.paymentMethodId);
+  const cardSecured = !!(item?.cardOnFileSecured || hasRealCard(client));
 
   // v2 — carried-forward context: allergy/medical notes plus the most
   // recent PAST visit's outcome, if it flagged something worth knowing
