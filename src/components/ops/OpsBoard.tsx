@@ -15,6 +15,7 @@ import { getAuth } from 'firebase/auth';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { opsStatus, fitCheck, opsCan, opsLevelOf, paymentOutstanding, serviceOverrun, overrunImpact, type OpsView } from '@/lib/appointment-ops';
 import { OverrunPanel } from '@/components/ops/OverrunPanel';
+import { disruptionTotals } from '@/lib/disruptions';
 import { resolvePolicy } from '@/lib/booking-policies';
 
 const hm = (v: any) => { if (!v) return ''; const d = new Date(v); return isNaN(d.getTime()) ? '' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); };
@@ -71,13 +72,15 @@ function CaseCard({ a, ops, tenant, tenantId, staffById, next, role, uid, freeOt
         {a.providerDelay && <><dt className="text-muted-foreground">Provider delay</dt><dd>~{a.providerDelay.minutes} min · new start ~{hm(a.providerDelay.newStartAt)} · {a.providerDelay.reply ? `they chose: ${a.providerDelay.reply}` : 'waiting for their choice'}</dd></>}
       </dl>
       {a.lateReply?.message && <p className="rounded-2xl bg-secondary p-3 text-sm"><b>They’ve been told:</b> {a.lateReply.message}</p>}
-      {late && (can('keep') || can('move')) && <div className="space-y-2">
+      {((late && (can('keep') || can('move'))) || (callout && opsLevelOf(tenant) !== 'view')) && <div className="space-y-2">
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={tell} onChange={(e) => setTell(e.target.checked)} /> Tell {first} (text/email + their visit link)</label>
-        <div className="flex flex-wrap gap-2">
+        {late && <div className="flex flex-wrap gap-2">
           {can('keep') && <button type="button" disabled={!!busy} onClick={() => decide('keep')} className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60">{busy === 'keep' ? 'Saving…' : 'Still see them'}</button>}
           {can('move') && <button type="button" disabled={!!busy} onClick={() => decide('move')} className="rounded-full border px-4 py-2 text-sm font-semibold disabled:opacity-60">{busy === 'move' ? 'Saving…' : 'Ask them to reschedule'}</button>}
           {can('condense') && <Link href="/pos" className="rounded-full border px-4 py-2 text-sm">Shorter visit or late fee →</Link>}
-        </div>
+        </div>}
+        {callout && Array.isArray(a.coverVolunteers) && a.coverVolunteers.length > 0 && <p className="text-xs"><b>Offered to cover:</b> {a.coverVolunteers.map((v: any) => String(v.name || '').split(' ')[0]).join(', ')}{can('switch') ? ' — send them the offer below' : ''}</p>}
+        {callout && uid && uid !== a.staffId && !(a.coverVolunteers || []).some((v: any) => v.staffId === uid) && opsLevelOf(tenant) !== 'view' && <button type="button" disabled={!!busy} onClick={async () => { setBusy('vol'); const r = await staffPost('/api/appointments/disruption', { tenantId, action: 'cover_volunteer', kind: 'callout', disruptionId: a.disruption.id, appointmentId: a.id }); setBusy(null); setMsg(r?.ok ? 'Thanks — a manager will send them the offer.' : r?.error || 'That didn’t send.'); }} className="rounded-full border px-4 py-2 text-sm font-semibold disabled:opacity-60">I can cover this</button>}
         {(late || callout) && can('switch') && freeOthers.length > 0 && a.providerOffer?.status !== 'pending' && <div className="space-y-1"><p className="text-xs text-muted-foreground">Offer another provider (they accept or decline on their link):</p>
           <div className="flex flex-wrap gap-2">{freeOthers.slice(0, 4).map(({ staff: s0, startAt }) => <button key={s0.id} type="button" disabled={!!busy} onClick={() => offer(s0.id, startAt)} className="rounded-full border px-3 py-1.5 text-sm disabled:opacity-60">{busy === `offer:${s0.id}` ? 'Offering…' : `Offer ${String(s0.name).split(' ')[0]} at ${hm(startAt)}`}</button>)}</div></div>}
       </div>}
@@ -162,6 +165,38 @@ function ReportCallout({ tenantId, staff, role, uid, tenant }: { tenantId: strin
   );
 }
 
+
+/** Recent provider callouts — follow-ups: ask the team to cover, remind the undecided, "they're back", spreadsheet. */
+function CalloutRecords({ tenantId }: { tenantId: string }) {
+  const { firestore } = useFirebase() as any;
+  const since = useMemo(() => new Date(Date.now() - 7 * 864e5).toISOString(), []);
+  const q = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, `tenants/${tenantId}/providerCallouts`), where('createdAt', '>=', since)) : null), [firestore, tenantId, since]);
+  const { data } = useCollection<any>(q);
+  const [busy, setBusy] = useState<string | null>(null); const [msg, setMsg] = useState<Record<string, string>>({});
+  const list = (data || []).slice().sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  if (!list.length) return null;
+  const act = async (rec: any, action: 'cover_request' | 'chase' | 'reopen') => { setBusy(`${rec.id}:${action}`);
+    const r = await staffPost('/api/appointments/disruption', { tenantId, action, kind: 'callout', disruptionId: rec.id }); setBusy(null);
+    setMsg((m) => ({ ...m, [rec.id]: !r?.ok ? r?.error || 'That didn’t work.' : action === 'cover_request' ? `Asked ${r.asked} team member${r.asked === 1 ? '' : 's'} to cover ${r.appointments}.` : action === 'chase' ? `Reminded ${r.chased}.` : `Invited ${r.invited} back to book.` })); };
+  return (
+    <section className="space-y-2 rounded-3xl border bg-card p-4">
+      <p className="font-semibold">Recent callouts</p>
+      {list.map((rec: any) => { const t = disruptionTotals(rec.affected); return (
+        <div key={rec.id} className="space-y-1.5 rounded-2xl bg-secondary p-3 text-sm">
+          <p><b>{rec.staffName || 'Provider'}</b> · {new Date(rec.from).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}{rec.to && new Date(rec.to).toDateString() !== new Date(rec.from).toDateString() ? ` – ${new Date(rec.to).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''} · {rec.hoursLost ?? 0} h</p>
+          <p className="text-xs">{t.appointments} affected · {t.rescheduled} rescheduled · {t.reassigned} another provider · {t.cancelled} cancelled · {t.pending} waiting</p>
+          <div className="flex flex-wrap gap-2">
+            {t.pending > 0 && <button type="button" disabled={!!busy} onClick={() => act(rec, 'cover_request')} className="rounded-full border px-3 py-1 text-xs font-semibold disabled:opacity-60">Ask the team to cover</button>}
+            {t.pending > 0 && <button type="button" disabled={!!busy} onClick={() => act(rec, 'chase')} className="rounded-full border px-3 py-1 text-xs font-semibold disabled:opacity-60">Remind undecided</button>}
+            <button type="button" disabled={!!busy} onClick={() => act(rec, 'reopen')} className="rounded-full border px-3 py-1 text-xs font-semibold disabled:opacity-60">They’re back — invite rebooking</button>
+            <a href={`/api/booths/interruption-export?tenantId=${tenantId}&id=${rec.id}&kind=callout`} className="rounded-full border px-3 py-1 text-xs font-semibold">Spreadsheet</a>
+          </div>
+          {msg[rec.id] && <p className="text-xs font-semibold">{msg[rec.id]}</p>}
+        </div>); })}
+    </section>
+  );
+}
+
 /** Services running over that affect a later guest (planned length = the booking's own length). */
 function overrunCases(appts: any[], now = new Date()) {
   return (appts || []).map((a: any) => { const planned = Math.max(15, Math.round((Date.parse(a.endTime || a.startTime) - Date.parse(a.startTime)) / 60000) || 60);
@@ -191,6 +226,7 @@ export function OpsBoard({ appts, staff, tenant, tenantId, role, uid }: { appts:
     <div className="space-y-4">
       <ProviderLate tenantId={tenantId} staff={(staff || []).filter((s: any) => s.isActive !== false)} role={role} uid={uid} tenant={tenant} />
       <ReportCallout tenantId={tenantId} staff={(staff || []).filter((s: any) => s.isActive !== false)} role={role} uid={uid} tenant={tenant} />
+      <CalloutRecords tenantId={tenantId} />
       {overrunCases(appts).map(({ a, ov }) => <OverrunPanel key={`ov-${a.id}`} tenant={tenant} tenantId={tenantId} role={role} inService={a} today={appts} overMin={ov.overMin} plannedEnd={ov.plannedEnd} providerName={staffById.get(a.staffId)?.name || null} />)}
       <div className="flex flex-wrap items-center gap-2">
         {([['attention', `Needs attention · ${attention.length}`], ['all', 'All of today']] as const).map(([v, l]) => <button key={v} type="button" onClick={() => setView(v)} aria-pressed={view === v} className={`rounded-full border px-4 py-1.5 text-sm ${view === v ? 'bg-primary text-primary-foreground' : ''}`}>{l}</button>)}
