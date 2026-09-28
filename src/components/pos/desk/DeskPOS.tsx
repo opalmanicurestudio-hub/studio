@@ -196,7 +196,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const setWalkIn = (g: Guest, patch: any) => { if (e.firestore && e.tenantId) updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId, 'walkIns', g.walkIn.id), patch); };
   const menuFor = (g: Guest) => { const ph = phoneOf(g); const aboutItem = { label: 'About this entry…', hint: 'What it is, where it came from — and remove it', onSelect: () => setAbout(g) }; return g.kind === 'appt' ? [
       aboutItem,
-      (g.stage === 'service' || g.stage === 'ready') && { label: 'Book next visit…', hint: 'Same service & time — 2, 4, 6, 8 or 12 weeks on', onSelect: () => setFollowFor(g.appt) },
+      (g.stage === 'service' || g.stage === 'ready') && { label: 'Book next visit…', hint: 'Same service & time — 2, 4, 6 or 8 weeks on', onSelect: () => setFollowFor(g.appt) },
       g.stage !== 'service' && g.stage !== 'ready' && { label: 'Reschedule…', onSelect: () => setMoveAppt(g.appt) },
       { label: 'Details', onSelect: () => open(g) },
       g.stage === 'arriving' && { label: 'Running late…', hint: 'See what it affects and choose — nothing is charged automatically', onSelect: () => setLateFor(g) },
