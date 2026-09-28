@@ -380,6 +380,19 @@ export default function BookingSettingsPage() {
             <NumRow k="holdMinutes" field="bookingMode.holdMinutes" unit="min" label="Someone starts paying and wanders off"
               note="We keep the slot for them this long, then put it back on sale so nobody else is blocked out."
               zeroMeans="the slot is never held" />
+            <div className="space-y-2 border-t pt-4">
+              <p className="text-sm font-bold">You book someone’s next visit at the desk</p>
+              <p className="text-xs text-muted-foreground">If the service needs a deposit, this is what the desk offers first. Staff can pick another option when it suits — it never becomes a request.</p>
+              <div className="grid gap-2 sm:grid-cols-2">{([
+                ['bill', 'Add it to today’s bill', 'Held until the end of today; confirmed when they pay.'],
+                ['card', 'Charge their saved card', 'Confirmed straight away when a card is on file.'],
+                ['link', 'Send them a pay link', `Held for your ${Number((selectedTenant as any)?.bookingMode?.paymentGraceHours || 0) || 'grace'}-hour window, then released.`],
+                ['regulars', 'No deposit for members & regulars', 'Others: added to today’s bill.'],
+              ] as [string, string, string][]).map(([v, l, n]) => { const on = ((selectedTenant as any)?.deskDepositDefault || 'bill') === v; return (
+                <button key={v} type="button" disabled={!isMgr || busy === 'deskDepositDefault'} onClick={() => save('deskDepositDefault', 'deskDepositDefault', v, 'Desk deposits')}
+                  className={`rounded-2xl border p-3 text-left transition disabled:opacity-60 ${on ? 'border-primary bg-primary/10 ring-2 ring-primary' : 'hover:bg-muted/30'}`} aria-pressed={on}>
+                  <p className="text-sm font-bold">{l}</p><p className="text-xs text-muted-foreground">{n}</p></button>); })}</div>
+            </div>
             {bm.mode === 'approval' && (
               <>
                 <NumRow k="approvalExpiryHours" field="bookingMode.approvalExpiryHours" unit="hours" label="You do not answer a request"
