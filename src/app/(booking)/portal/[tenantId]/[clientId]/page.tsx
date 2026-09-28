@@ -1,9 +1,11 @@
 'use client';
 
+import { checkChange, chainAfterMove } from '@/lib/change-rules';
 import React, { useMemo, useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { doc, collection, query, where, writeBatch, increment, arrayUnion, deleteField, getDocs } from 'firebase/firestore';
+import { setDoc as setDocCR } from 'firebase/firestore';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -358,6 +360,22 @@ export default function ClientPortalPage() {
         const now = new Date().toISOString();
         const svc = services?.find(s => s.id === aptData.serviceId);
 
+        // Booking policies: the change cutoff and the change limit apply here too —
+        // checked BEFORE any fee is charged or anything is saved.
+        const moving: any = appointmentToReschedule || aptData;
+        const rule = checkChange(tenant, moving, 'client', svc);
+        if (!rule.allowed) {
+            if (rule.needsApproval && !moving.changeRequestedAt) {
+                try {
+                    const nRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+                    await setDocCR(nRef, { id: nRef.id, userId: null, read: false, createdAt: now, type: 'change_request', link: 'pos',
+                        message: `${client?.name || 'A client'} wants to move their ${svc?.name || 'appointment'} again (already moved ${rule.count} time${rule.count === 1 ? '' : 's'}) — please move it for them.` });
+                } catch { /* the message below still tells them what to do */ }
+            }
+            toast({ variant: 'destructive', title: rule.needsApproval ? 'This one needs our OK' : 'Can’t move it online', description: rule.reason || '' });
+            return;
+        }
+
         // v13 — CRITICAL FIX: previously, both 'settle_now' (charge card on
         // file) and 'new_card' wrote a ledger income transaction with ZERO
         // Stripe API call anywhere in this function — the fee was recorded
@@ -418,7 +436,8 @@ export default function ClientPortalPage() {
 
         const updates: any = {
             startTime: aptData.startTime,
-            endTime: aptData.endTime
+            endTime: aptData.endTime,
+            ...chainAfterMove(moving),   // the original time + how many times it has moved
         };
 
         if (applyFee && feeAmount > 0) {
