@@ -48,6 +48,7 @@
  * import, say so and the policy math gets inlined here instead.
  */
 
+import { hasRealCard } from '@/lib/card-on-file';
 import { internalHeaders } from '@/lib/message-policy';
 import type { Firestore } from 'firebase-admin/firestore';
 import { nanoid } from 'nanoid';
@@ -223,7 +224,7 @@ export async function createBooking(
     : null;
   const cardIsExpired = !!cardExpDate && cardExpDate < new Date();
   const hasUsableCard = !!(
-    (clientDoc?.cardOnFile?.paymentMethodId || (clientDoc?.cardOnFile?.token || clientDoc?.cardOnFile?.paymentMethodId)) &&
+    (clientDoc?.cardOnFile?.paymentMethodId || hasRealCard(clientDoc)) &&
     (clientDoc?.cardOnFile?.customerId || clientDoc?.cardOnFile?.stripeCustomerId) &&
     !cardIsExpired
   );
@@ -469,8 +470,8 @@ export async function createBooking(
         serviceName: service.name || '',
         depositAmountCents: depositCharged ? 0 : depositCents,
         requiredConsentFormIds: formsNeedingSignature,
-        skipCardStep: depositCharged || !!(clientDoc?.cardOnFile?.paymentMethodId || (clientDoc?.cardOnFile?.token || clientDoc?.cardOnFile?.paymentMethodId)),
-        cardAlreadyOnFile: !!(clientDoc?.cardOnFile?.paymentMethodId || (clientDoc?.cardOnFile?.token || clientDoc?.cardOnFile?.paymentMethodId)),
+        skipCardStep: depositCharged || !!(clientDoc?.cardOnFile?.paymentMethodId || hasRealCard(clientDoc)),
+        cardAlreadyOnFile: !!(clientDoc?.cardOnFile?.paymentMethodId || hasRealCard(clientDoc)),
         fileRequirements: pendingFileReqs.map((fr: any) => ({
           id: fr.id,
           type: 'file_upload',
