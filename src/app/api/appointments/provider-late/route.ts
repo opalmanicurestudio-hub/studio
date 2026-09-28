@@ -73,7 +73,8 @@ export async function POST(req: NextRequest) {
     await db.doc(`${T}/appointments/${a.id}`).set(f, { merge: true }); await mirror(a, f);
     if (b.tell !== false) {
       const first = String(a.clientName || '').split(' ')[0] || 'there';
-      const msg = `Hi ${first} — ${pFirst} is running about ${delayMin} minutes behind today, so your appointment would start around ${when}. Choose what works for you: keep it, reschedule, or cancel with no fee.`;
+      const credit = Number(tenant.bookingPolicies?.providerDelayCredit) || 0;
+      const msg = `Hi ${first} — ${pFirst} is running about ${delayMin} minutes behind today, so your appointment would start around ${when}. Choose what works for you: keep it, reschedule, or cancel with no fee.${credit > 0 ? ` If you’re happy to wait, we’ll add $${credit.toFixed(2)} credit to your account as a thank-you.` : ''}`;
       const link = a.checkInToken ? `${base}/check-in/${a.checkInToken}` : null;
       try {
         const cl: any = a.clientId ? (((await db.doc(`${T}/clients/${a.clientId}`).get()).data() as any) || {}) : {};
