@@ -185,7 +185,8 @@ service cloud.firestore {
       allow list, write: if isStaff(tenantId);
     }
     match /tenants/{tenantId}/completionSubmissions/{subId} {
-      allow create: if true;
+      // Written by the server (/api/completion/submit, /api/checkin/actions) — no public writes.
+      allow create: if false;
       allow read, update, delete: if isStaff(tenantId);
     }
     match /tenants/{tenantId}/bookingRequests/{requestId} {
