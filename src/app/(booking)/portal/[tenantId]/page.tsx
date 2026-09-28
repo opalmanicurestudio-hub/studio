@@ -1,5 +1,6 @@
 'use client';
 
+import { hasRealCard } from '@/lib/card-on-file';
 import { checkChange, chainAfterMove } from '@/lib/change-rules';
 import React, { useMemo, useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
@@ -282,77 +283,27 @@ export default function ClientPortalPage() {
             .sort((a, b) => safeDate(b.startTime).getTime() - safeDate(a.startTime).getTime());
     }, [appointments]);
 
+    // Cancelling goes through the server — it applies the business's real policy
+    // (notice period, fees, deposit, grace), tells the team and the client, and
+    // keeps the visit link in step. The booking's visit token proves it's theirs.
     const handleConfirmCancellation = async () => {
-        if (!appointmentToCancel || !firestore || !tenantId || !client) return;
+        if (!appointmentToCancel || !tenantId || !client) return;
         setIsProcessing(true);
-        
-        const batch = writeBatch(firestore);
-        const now = new Date().toISOString();
-        const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, appointmentToCancel.id);
-        const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
-
-        const hoursUntil = differenceInHours(safeDate(appointmentToCancel.startTime), new Date());
-        const svc = services?.find(s => s.id === appointmentToCancel.serviceId);
-        const requiredWindow = svc?.cancellationWindowHours || tenant?.cancellationWindowHours || 24;
-        const isLate = hoursUntil < requiredWindow;
-
-        let feeAmount = 0;
-        if (isLate) {
-            const duration = svc?.duration || 60;
-            const tmhrVal = tenant?.tmhr || 50;
-            const overhead = (duration / 60) * tmhrVal;
-            feeAmount = Number(overhead.toFixed(2));
-        }
-
-        batch.update(appointmentRef, { 
-            status: 'cancelled', 
-            cancellationReason: 'client_request',
-            cancellationFeeApplied: feeAmount,
-            cancellationPaymentStatus: feeAmount > 0 ? 'unpaid' : 'waived'
-        });
-
-        if (feeAmount > 0) {
-            batch.update(clientRef, {
-                outstandingBalance: increment(feeAmount),
-                unpaidFees: arrayUnion({
-                    feeId: nanoid(),
-                    appointmentId: appointmentToCancel.id,
-                    appointmentDate: safeDate(appointmentToCancel.startTime).toISOString(),
-                    feeAmount: feeAmount,
-                    reason: `Late Cancellation: Guest Request (< ${requiredWindow}h notice)`
-                })
-            });
-        }
-
-        // --- INTELLIGENCE ALERT DISPATCH ---
-        const adminsAndOwners = (staff || []).filter(s => s.role === 'admin' || s.role === 'owner');
-        const recipients = new Set(adminsAndOwners.map(s => s.id));
-        if (appointmentToCancel.staffId) recipients.add(appointmentToCancel.staffId);
-
-        recipients.forEach(rid => {
-            const notifRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
-            batch.set(notifRef, {
-                id: notifRef.id,
-                userId: rid,
-                type: 'cancellation',
-                message: `Cancellation: ${client.name} for ${svc?.name || 'Service'} on ${format(safeDate(appointmentToCancel.startTime), 'MMM d @ h:mm a')}`,
-                link: '/planner',
-                createdAt: now,
-                read: false
-            });
-        });
-
         try {
-            await batch.commit();
-            toast({ title: "Session Terminated", description: feeAmount > 0 ? `Late cancellation fee of $${feeAmount.toFixed(2)} applied.` : "Appointment removed." });
+            const res = await fetch('/api/appointments/self-cancel', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tenantId, appointmentId: appointmentToCancel.id, k: (appointmentToCancel as any).checkInToken || '' }),
+            });
+            const d = await res.json().catch(() => ({}));
+            if (!res.ok || !d?.ok) { toast({ variant: 'destructive', title: 'Couldn’t cancel', description: d?.error || 'Please try again, or use the link in your confirmation.' }); return; }
+            toast({ title: 'Cancelled', description: Array.isArray(d.lines) && d.lines.length ? d.lines.join(' ') : d.feeCharged && Number(d.feeAmount) > 0 ? `A $${Number(d.feeAmount).toFixed(2)} late-cancellation fee applies, as set out in the policy.` : 'Your appointment has been cancelled.' });
             setAppointmentToCancel(null);
-        } catch (e) {
-            toast({ variant: 'destructive', title: "Process Error" });
+        } catch {
+            toast({ variant: 'destructive', title: 'Couldn’t cancel', description: 'Please check your connection and try again.' });
         } finally {
             setIsProcessing(false);
         }
     };
-
     const handleRescheduleConfirm = async (data: any) => {
         // Moves go through the server now (/api/appt), like the visit link: your
         // change rules, the conflict check, the reschedule fee, the change history
@@ -382,49 +333,23 @@ export default function ClientPortalPage() {
         }
     };
 
+    // Paying what they owe goes through the server: it charges their saved card
+    // for the balance ON RECORD, and clears it only once Stripe confirms.
     const handleSettleArrears = async () => {
-        if (!client || !firestore || !tenantId) return;
+        if (!client || !tenantId) return;
         setIsProcessing(true);
-        
-        const batch = writeBatch(firestore);
-        const amount = safeNumber(client.outstandingBalance);
-        const now = new Date().toISOString();
-
-        const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-        batch.set(txnRef, {
-            id: txnRef.id,
-            date: now,
-            description: "Self-Service Arrears Settlement",
-            clientOrVendor: client.name,
-            clientId: client.id,
-            type: 'income',
-            context: 'Business',
-            category: 'Fee Recovery',
-            amount: amount,
-            paymentMethod: (client.cardOnFile?.token || client.cardOnFile?.paymentMethodId) ? 'Card on File' : 'Digital Gateway',
-            hasReceipt: false,
-            tenantId
-        });
-
-        const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
-        batch.update(clientRef, {
-            outstandingBalance: 0,
-            unpaidFees: [],
-            lifetimeValue: increment(amount)
-        });
-
         try {
-            await batch.commit();
+            const res = await fetch('/api/portal/pay-balance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, clientId: client.id }) });
+            const d = await res.json().catch(() => ({}));
+            if (!res.ok || !d?.ok) { toast({ variant: 'destructive', title: 'Not paid', description: d?.error || 'The payment didn’t go through. You can settle it at your next visit instead.' }); return; }
             setSettlementSuccess(true);
-            toast({ title: "Balance Reconciled", description: "Your studio account is now clear." });
-        } catch (e) {
-            console.error(e);
-            toast({ variant: 'destructive', title: "Settlement Failed" });
+            toast({ title: 'Paid — thank you', description: d.paidDollars ? `$${Number(d.paidDollars).toFixed(2)} charged to your card${d.last4 ? ` ending ${d.last4}` : ''}. You’re all clear.` : (d.message || 'You’re all clear.') });
+        } catch {
+            toast({ variant: 'destructive', title: 'Not paid', description: 'Please check your connection and try again.' });
         } finally {
             setIsProcessing(false);
         }
     };
-
     const handleConfirmDirectBooking = async (
         formData: { clientName: string; clientEmail: string; clientPhone?: string },
         appointmentDetails: Omit<Appointment, 'id' | 'clientId' | 'clientName' | 'clientEmail' | 'clientPhone'>,
