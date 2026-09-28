@@ -1,5 +1,6 @@
 'use client';
 
+import { staffAuthHeader } from '@/lib/staff-fetch';
 import { offerProblem } from '@/lib/offers';
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -802,7 +803,7 @@ export const CheckoutHub = ({
     try {
       const res = await fetch('/api/stripe/charge-card', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
         body:    JSON.stringify({
           tenantId,
           clientId:    selectedClient.id,
