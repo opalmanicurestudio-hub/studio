@@ -165,7 +165,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const hasCard        = !!(client.cardOnFile?.paymentMethodId || client.cardOnFile?.token);
+  const hasCard        = !!(client.cardOnFile?.paymentMethodId || (client.cardOnFile?.token || client.cardOnFile?.paymentMethodId));
   const paymentMethod  = hasCard ? 'card_on_file' : 'add_to_balance';
   const eventId        = nanoid();
 
@@ -284,7 +284,7 @@ export async function POST(req: NextRequest) {
     feeAmount,
     paymentMethod,
     stripeCustomerId:      client.stripeCustomerId || null,
-    stripePaymentMethodId: client.cardOnFile?.paymentMethodId || client.cardOnFile?.token || null,
+    stripePaymentMethodId: client.cardOnFile?.paymentMethodId || (client.cardOnFile?.token || client.cardOnFile?.paymentMethodId) || null,
     cancellationAudit,
     reason:                'no-show',
     status:                'pending',
