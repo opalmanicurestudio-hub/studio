@@ -16,6 +16,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useInventory } from '@/context/InventoryContext';
 import { resolvePolicy, sourceLabel, type Source } from '@/lib/booking-policies';
 import { bookingPolicyLines } from '@/lib/policy-copy';
+import { GRACE_EVENTS, PERMIT_LABEL, graceRule } from '@/lib/grace';
 import { moduleEnabled } from '@/lib/modules';
 
 const NEXT = 'starts next update';
@@ -168,7 +169,27 @@ export default function BookingPoliciesPage() {
             </Row>
           </Section>
 
-          <Section n={3} q="What do they receive, and when?">
+          <Section n={3} q="Grace — flexibility for the occasional slip">
+            <p className="mb-3 text-sm text-muted-foreground">A set allowance per client, separate from your standard policy and from a manager’s override. Each event has its own allowance, so a late arrival doesn’t use up their late-cancellation grace. Every use is recorded, and a manager can undo one that was misclassified. Clients see these in your policy wording.</p>
+            {GRACE_EVENTS.map((g) => { const r = graceRule(t, g.id); const f = (k: string) => `bookingPolicies.grace.${g.id}.${k}`; return (
+              <Row key={g.id} label={g.label} source={r.enabled ? 'business' : 'default'}>
+                <Choice field={f('enabled')} value={r.enabled} label={`${g.label} grace`} options={[[false, 'Off'], [true, 'On']]} />
+                {r.enabled && <>
+                  <Num field={f('allowance')} value={r.allowance} unit="per client, every" label="Allowance" min={1} max={12} />
+                  <Num field={f('periodMonths')} value={r.periodMonths} unit="months" label="Reset period" min={1} max={36} />
+                  <span className="w-full text-xs text-muted-foreground">It lets them:</span>
+                  <Choice field={f('permits')} value={r.permits} label="What grace permits" options={g.permits.map((p) => [p, PERMIT_LABEL[p]]) as any} />
+                  {r.permits === 'reduce_fee' && <Num field={f('reducePercent')} value={r.reducePercent} unit="% off the fee" label="Reduction" min={5} max={95} />}
+                  {r.permits === 'extend_window' && <Num field={f('extendMinutes')} value={r.extendMinutes} unit="extra minutes" label="Extra time" min={5} max={60} />}
+                  <span className="w-full text-xs text-muted-foreground">Counted:</span>
+                  <Choice field={f('scope')} value={r.scope} label="Allowance applies" options={[['client', 'Per client'], ['client_service', 'Per client, per service'], ['client_provider', 'Per client, per provider']]} />
+                  <span className="w-full text-xs text-muted-foreground">Who can apply it:</span>
+                  <Choice field={f('approval')} value={r.approval} label="Who approves grace" options={[['staff', 'Any staff'], ['manager', 'A manager']]} />
+                </>}
+              </Row>); })}
+          </Section>
+
+          <Section n={4} q="What do they receive, and when?">
             <Row label="Your cancellation policy, in your words" note="Shown on your booking page and in messages. Leave blank to use the wording built from your settings.">
               <Text field="cancellationPolicy" value={t.cancellationPolicy} label="Cancellation policy" placeholder="e.g. We ask for 24 hours’ notice…" />
             </Row>
@@ -189,7 +210,7 @@ export default function BookingPoliciesPage() {
             </Row>
           </Section>
 
-          {renters && <Section n={4} q="Renters using your front desk">
+          {renters && <Section n={5} q="Renters using your front desk">
             <Row label="Front-desk support for renters" soon source={P.renterDesk.billing.source}>
               <Choice field="bookingPolicies.renterDeskSupport.billing" value={P.renterDesk.billing.value} label="Renter desk support" options={[['included', 'Included with rent'], ['per_booking', 'Per booking'], ['monthly', 'Monthly']]} />
               {P.renterDesk.billing.value !== 'included' && <Num field="bookingPolicies.renterDeskSupport.amount" value={P.renterDesk.amount.value} unit={P.renterDesk.billing.value === 'monthly' ? 'dollars a month' : 'dollars a booking'} label="Desk support fee" step={0.5} />}
