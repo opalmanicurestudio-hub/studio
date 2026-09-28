@@ -2897,6 +2897,8 @@ export default function CheckInPage() {
             lateMinutes={(appointmentData as any)?.lateTimeMinutes ?? null}
             etaAt={(appointmentData as any)?.etaAt || null}
             selfCheckIn={(tenant as any)?.bookingPolicies?.onlineCheckIn !== false}
+            providerDelay={(appointmentData as any)?.providerDelay || null}
+            onProviderReply={async (choice) => { try { const r = await fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'provider_delay_reply', tenantId, apptId: appointmentData?.id, k: token, choice }) }); return await r.json(); } catch { return { ok: false }; } }}
         />
     );
 }
