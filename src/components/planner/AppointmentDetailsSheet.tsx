@@ -1,5 +1,7 @@
 'use client';
 
+import { getAuth } from 'firebase/auth';
+import { placeOf } from '@/lib/service-place';
 import { hasRealCard } from '@/lib/card-on-file';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { RequestDecisionPanel } from '@/components/appointments/RequestDecisionPanel';
@@ -1494,6 +1496,38 @@ const MidServiceHandoffDialog = ({
 /** RUNNING LATE — decide on the planner, and the client is told straight away
  *  (text/email + their visit link). The front desk's panel has the fuller
  *  options (shorter visit, switch provider, late fee). */
+
+/** ONLINE APPOINTMENTS — Join, and this booking's own link (a private room instead of the service's shared one). */
+function OnlineLinkCard({ appointment, tenantId, service }: { appointment: any; tenantId: string; service: any }) {
+  const place = placeOf(service, appointment);
+  const [link, setLink] = React.useState(''); const [tell, setTell] = React.useState(true); const [busy, setBusy] = React.useState(false); const [msg, setMsg] = React.useState<string | null>(null);
+  if (place.kind !== 'online') return null;
+  const save = async (value: string) => {
+    setBusy(true); setMsg(null);
+    const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
+    const r = await fetch('/api/appointments/meeting-link', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, appointmentId: appointment.id, link: value, tell: !!value && tell }) }).then((x) => x.json()).catch(() => ({}));
+    setBusy(false); if (r?.ok) setLink('');
+    setMsg(!r?.ok ? r?.error || 'That didn’t save.' : value ? (r.told ? 'Saved and sent to the client.' : 'Saved — it’s on their visit link.') : 'Back to the service’s shared link.');
+  };
+  return (
+    <div className="space-y-2 rounded-2xl border p-4">
+      <p className="text-sm font-semibold">Online appointment</p>
+      {place.meetingLink ? <>
+        <p className="break-all text-sm">{place.meetingLink}</p>
+        <p className="text-xs text-muted-foreground">{place.ownLink ? 'This booking’s own link.' : 'The service’s shared link — every booking of this service gets it. Give this one its own room below if you don’t use a waiting room.'}</p>
+        <a href={place.meetingLink} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center rounded-full bg-primary px-4 text-sm font-semibold text-primary-foreground">Join</a>
+      </> : <p className="text-sm text-muted-foreground">No link yet — add one so the client can join.</p>}
+      <div className="flex flex-wrap gap-2 pt-1">
+        <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="This booking’s own link — https://…" className="h-10 flex-1 rounded-xl border px-3 text-sm" />
+        <button type="button" disabled={busy || !link.trim()} onClick={() => save(link.trim())} className="h-10 rounded-full border px-4 text-sm font-semibold disabled:opacity-50">{busy ? 'Saving…' : 'Save'}</button>
+      </div>
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={tell} onChange={(e) => setTell(e.target.checked)} /> Send it to the client</label>
+      {place.ownLink && <button type="button" disabled={busy} onClick={() => save('')} className="text-xs underline">Use the service’s shared link instead</button>}
+      {msg && <p className="text-sm font-semibold">{msg}</p>}
+    </div>
+  );
+}
+
 function LateBanner({ appointment, tenantId, onCancel, onDone }: { appointment: any; tenantId?: string; onCancel?: (id: string, walkIn: boolean) => void; onDone?: () => void }) {
   const [tell, setTell] = React.useState(true); const [busy, setBusy] = React.useState<string | null>(null); const [msg, setMsg] = React.useState<string | null>(null);
   const done = ['completed', 'cancelled', 'no_show', 'servicing'].includes(String(appointment?.status || ''));
@@ -2374,6 +2408,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     <ScrollArea className="flex-1 overflow-y-auto">
       <div className="space-y-5 p-4 md:p-6 pb-6">
         <LateBanner appointment={appointment} tenantId={tenantId} onCancel={onCancel ? (id: string, w: boolean) => { onOpenChange(false); onCancel(id, w); } : undefined} />
+        {tenantId && <OnlineLinkCard appointment={appointment} tenantId={tenantId} service={(allServices || []).find((x: any) => x.id === appointment?.serviceId)} />}
 
         {/* ── Status section ─────────────────────────────────────────────── */}
         {isCancelled
