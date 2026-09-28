@@ -331,29 +331,9 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                         </div>
                         <Badge variant="outline" className="font-black text-[8px] uppercase tracking-widest h-6 px-3 bg-white border-2">Card on File</Badge>
                     </div>
-                    <div className="space-y-6">
-                        <div className="space-y-2 text-left">
-                            <Label className="text-[10px] font-black uppercase tracking-widest ml-1">Simulated Card Entry</Label>
-                            <div className="relative">
-                                <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                                <Input placeholder="•••• •••• •••• 4242" className="h-14 pl-12 rounded-2xl border-2 font-mono text-lg bg-white shadow-sm" {...register('cardOnFile.last4')} onChange={e => {
-                                    const val = e.target.value.slice(-4);
-                                    setValue('cardOnFile.last4', val);
-                                    setValue('cardOnFile.brand', 'Visa');
-                                    setValue('cardOnFile.token', 'sim_tok_' + nanoid(10));
-                                }} />
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-6">
-                            <div className="space-y-2 text-left">
-                                <Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry Month</Label>
-                                <Input type="number" placeholder="MM" {...register('cardOnFile.expiryMonth')} className="h-12 rounded-xl border-2 font-bold text-center" />
-                            </div>
-                            <div className="space-y-2 text-left">
-                                <Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry Year</Label>
-                                <Input type="number" placeholder="YYYY" {...register('cardOnFile.expiryYear')} className="h-12 rounded-xl border-2 font-bold text-center" />
-                            </div>
-                        </div>
+                    <div className="space-y-2 text-left">
+                        <p className="text-sm">No card on file yet.</p>
+                        <p className="text-xs text-muted-foreground">Cards are saved securely by the client — when they book online, or when you take a payment at checkout. Card numbers are never typed in here.</p>
                     </div>
                 </div>
             </div>
