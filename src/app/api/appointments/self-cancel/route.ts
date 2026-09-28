@@ -151,7 +151,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'This appointment has already been cancelled.', alreadyCancelled: true }, { status: 409 });
   }
   if (appt.status !== 'confirmed' && appt.status !== 'deposit_pending') {
-    return NextResponse.json({ ok: false, error: 'This appointment can no longer be cancelled online — please call the studio.', status: appt.status }, { status: 409 });
+    return NextResponse.json({ ok: false, error: 'This appointment can’t be cancelled online at this point.', status: appt.status }, { status: 409 });
   }
 
   const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
@@ -222,7 +222,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, alreadyCancelled: true });
   }
   if (appt.status !== 'confirmed' && appt.status !== 'deposit_pending') {
-    return NextResponse.json({ ok: false, error: 'This appointment can no longer be cancelled online — please call the studio.', status: appt.status }, { status: 409 });
+    return NextResponse.json({ ok: false, error: 'This appointment can’t be cancelled online at this point.', status: appt.status }, { status: 409 });
   }
 
   const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
