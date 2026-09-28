@@ -11,6 +11,7 @@
 // card on /maintenance reads — so the number on the screen and the number on
 // the page cannot disagree.
 
+import { disruptionTotals } from '@/lib/disruptions';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { INTERRUPTION_TYPE_LABEL, abatementProposals, exposureCents, interruptionDays, lossesByRenter, lossTotals, appointmentsInWindow, bookedValueCents, type InterruptionRecord } from '@/lib/interruptions';
@@ -152,6 +153,13 @@ export async function GET(req: NextRequest) {
   @media print{body{background:#fff;padding:0}.head,.card,.fact{border-color:#cbd5e1}}
   `;
 
+  // Linked maintenance tickets + what happened to each affected appointment (recorded as clients chose).
+  const tIds: string[] = Array.isArray((rec as any).ticketIds) ? (rec as any).ticketIds : [];
+  const tDocs: any[] = [];
+  for (const tid of tIds.slice(0, 20)) { const d = await db.doc(`tenants/${tenantId}/tickets/${tid}`).get().catch(() => null); if (d && d.exists) tDocs.push({ id: d.id, ...(d.data() as any) }); }
+  const affected: any[] = Object.values((rec as any).affected || {}).sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime)));
+  const dt = disruptionTotals(affected);
+  const OUT: Record<string, string> = { pending: 'Waiting for their choice', rescheduled: 'Rescheduled', reassigned: 'Another provider', kept: 'Kept', moved_room: 'Moved room', cancelled: 'Cancelled' };
   const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Interruption packet — ${esc(rec.title)}</title><style>${styles}</style></head><body>
   <div class="head">
     <div><div class="kicker">Business interruption · packet</div><h1>${esc(rec.title)}</h1>
@@ -196,6 +204,12 @@ export async function GET(req: NextRequest) {
     </tbody></table>
     <div class="detail" style="margin-top:10px">${studioHit.length} booking${studioHit.length === 1 ? '' : 's'} worth ${money(bookedValueCents(studioHit))} fell inside the closure; ${studioCut.length} cancelled by it. Booked value is the service price at the time; it is the studio's figure for its own insurer.</div>`}
   </div>
+
+  ${tDocs.length ? `<div class="card"><h2>Maintenance tickets behind this interruption</h2>
+    <table><thead><tr><th>Ticket</th><th>Category</th><th>Status</th><th>Opened</th></tr></thead><tbody>${tDocs.map((t) => `<tr><td>${esc(t.title || 'Ticket')}</td><td>${esc(t.category || '')}</td><td>${esc(t.status || '')}</td><td>${esc(String(t.createdAt || '').slice(0, 10))}</td></tr>`).join('')}</tbody></table></div>` : ''}
+  ${affected.length ? `<div class="card"><h2>Every affected appointment · what happened</h2>
+    <table><thead><tr><th>When</th><th>Client</th><th>Service</th><th>Book</th><th>Value</th><th>Outcome</th><th>Deposit</th></tr></thead><tbody>${affected.map((x: any) => `<tr><td>${esc(new Date(x.startTime).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}</td><td>${esc(x.clientName || 'Client')}</td><td>${esc(x.serviceName || '')}</td><td>${x.isRenterBooking ? 'Renter' : 'Studio'}</td><td>${money(x.valueCents || 0)}</td><td>${esc(OUT[x.outcome] || x.outcome)}${x.newStartTime ? ` → ${esc(new Date(x.newStartTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }))}` : ''}</td><td>${x.refundCents ? `Refund ${money(x.refundCents)}` : x.creditCents ? `Credit ${money(x.creditCents)}` : x.depositCents ? money(x.depositCents) + ' held' : '—'}</td></tr>`).join('')}</tbody></table>
+    <div class="detail" style="margin-top:10px">${dt.appointments} appointments (${dt.studio} studio, ${dt.renter} renter) · ${money(dt.bookedCents)} booked · ${dt.rescheduled} rescheduled, ${dt.reassigned} with another provider, ${dt.cancelled} cancelled, ${dt.pending} waiting · refunds ${money(dt.refundsCents)} · credits ${money(dt.creditsCents)} · booked value lost ${money(dt.lostCents)}.</div></div>` : ''}
 
   <div class="card"><h2>What renters say it cost them · their own logs</h2>
     ${allLosses.length === 0 ? `<div class="detail">No renter has logged losses for this event.</div>` : lossesByRenter(allLosses).map((g) => `
