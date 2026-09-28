@@ -360,7 +360,7 @@ export default function ClientPortalPage() {
         if (!tenantId || !appointmentToReschedule) return;
         const moving: any = appointmentToReschedule;
         const key = moving.checkInToken || moving.manageToken;
-        if (!key) { toast({ variant: 'destructive', title: 'Please call us to move this one' }); return; }
+        if (!key) { toast({ variant: 'destructive', title: 'This one can’t be rescheduled here', description: 'Open it from the link in your confirmation to reschedule.' }); return; }
         const tz = (tenant as any)?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
         const parts = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date(data.startTime));
         const get = (t: string) => parts.find((x) => x.type === t)?.value || '';
@@ -371,14 +371,14 @@ export default function ClientPortalPage() {
                 body: JSON.stringify({ action: 'reschedule', tenantId, apptId: moving.id, k: key, newDate, newTime }) });
             const d = await res.json().catch(() => ({}));
             if (!d?.ok) {
-                toast({ variant: 'destructive', title: d?.requested ? 'We’ll be in touch' : 'Couldn’t move it', description: d?.error || 'Please try another time, or call us.' });
+                toast({ variant: 'destructive', title: d?.requested ? 'We’ll be in touch' : 'Couldn’t reschedule it', description: d?.error || 'Please try another time.' });
                 if (d?.requested) setAppointmentToReschedule(null);
                 return;
             }
-            toast({ title: 'Moved', description: `You’re now booked for ${d.whenLabel}${Number(d.feeApplied) > 0 ? ` — a $${Number(d.feeApplied).toFixed(2)} reschedule fee was added to your balance` : ''}.` });
+            toast({ title: 'Rescheduled', description: `You’re now booked for ${d.whenLabel}${Number(d.feeApplied) > 0 ? ` — a $${Number(d.feeApplied).toFixed(2)} reschedule fee was added to your balance` : ''}.` });
             setAppointmentToReschedule(null);
         } catch {
-            toast({ variant: 'destructive', title: 'Couldn’t move it', description: 'Check your connection and try again, or call us.' });
+            toast({ variant: 'destructive', title: 'Couldn’t reschedule it', description: 'Check your connection and try again.' });
         }
     };
 
