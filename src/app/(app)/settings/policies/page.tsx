@@ -124,10 +124,18 @@ export default function BookingPoliciesPage() {
           </Section>
 
           <Section n={2} q="When can they book or change it?">
-            <Row label="How far ahead" note="Members can be given a longer window." source={P.access.publicDays.source}>
-              <Num field="bookingRelease.horizonDays" value={P.access.publicDays.value} unit="days — everyone" label="Booking window" max={365} />
-              <Num field="bookingRelease.memberHorizonDays" value={P.access.memberDays.value} unit="days — members" label="Member booking window" max={365} />
-              {t.bookingRelease?.mode !== 'rolling' && <button type="button" disabled={!isMgr} className="text-xs underline" onClick={() => save('bookingRelease.mode', 'rolling', 'Booking window')}>Use these windows</button>}
+            <Row label="How far ahead clients can book" note="Members can be given a longer window — or earlier access to the next month." source={P.access.publicDays.source}>
+              <Choice field="bookingRelease.mode" value={t.bookingRelease?.mode || 'off'} label="Booking window" options={[['off', 'No limit'], ['rolling', 'A rolling window'], ['monthly', 'Next month opens on a set day']]} />
+              {t.bookingRelease?.mode === 'rolling' && <>
+                <Num field="bookingRelease.horizonDays" value={t.bookingRelease?.horizonDays ?? 30} unit="days — everyone" label="Booking window" max={365} />
+                <Num field="bookingRelease.memberHorizonDays" value={t.bookingRelease?.memberHorizonDays ?? 60} unit="days — members" label="Member booking window" max={365} /></>}
+              {t.bookingRelease?.mode === 'monthly' && <>
+                <span className="w-full text-xs text-muted-foreground">Next month opens to everyone on day</span>
+                <Num field="bookingRelease.releaseDay" value={t.bookingRelease?.releaseDay ?? 25} unit="of the month, at" label="Release day" min={1} max={28} />
+                <Num field="bookingRelease.releaseHour" value={t.bookingRelease?.releaseHour ?? 9} unit=":00" label="Release hour" max={23} />
+                <span className="w-full text-xs text-muted-foreground">Members get it early — on day</span>
+                <Num field="bookingRelease.memberReleaseDay" value={t.bookingRelease?.memberReleaseDay ?? 20} unit="at" label="Member release day" min={1} max={28} />
+                <Num field="bookingRelease.memberReleaseHour" value={t.bookingRelease?.memberReleaseHour ?? 9} unit=":00" label="Member release hour" max={23} /></>}
             </Row>
             <Row label="Minimum notice to book online" source={P.access.minNoticeMinutes.source}>
               <Num field="bookingLeadHours" value={Math.round(P.access.minNoticeMinutes.value / 60)} unit="hours" label="Minimum notice" max={336} />
