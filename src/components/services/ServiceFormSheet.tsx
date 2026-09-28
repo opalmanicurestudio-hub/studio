@@ -54,6 +54,9 @@ const schema = z.object({
   id: z.string().optional(),
   name: z.string().min(1, 'Name is required'),
   type: z.enum(['service', 'addon']),
+  // Where it happens — at the studio (default), online (with a link), or at the client's place.
+  where: z.enum(['studio', 'online', 'client']).optional(),
+  meetingLink: z.string().max(500).optional(),
   isAddon: z.boolean().optional(),
   category: z.string().min(1, 'Category is required'),
   duration: z.coerce.number().min(1, 'Duration required'),
@@ -315,6 +318,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
     if (mode === 'edit' && service) {
       reset({
         id: service.id, name: service.name, type: service.type,
+        where: ((service as any).where || 'studio') as any, meetingLink: (service as any).meetingLink || '',
         isAddon: service.type === 'addon', isPrivate: service.isPrivate, membersOnly: service.membersOnly === true, rebookWeeks: Number(service.rebookWeeks) || 0,
         category: service.category, duration: service.duration,
         padBefore: service.padBefore || 0, padAfter: service.padAfter || 0,
@@ -580,6 +584,17 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Description</Label>
                 <Textarea {...register('description')} placeholder="Describe the service..." className="rounded-2xl border-2 min-h-[80px]" />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold">Where it happens</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([['studio', 'At the studio'], ['online', 'Online'], ['client', 'At the client’s place']] as const).map(([k, l]) => {
+                    const on = (watch('where') || 'studio') === k;
+                    return <button key={k} type="button" aria-pressed={on} onClick={() => setValue('where', k, { shouldDirty: true })} className={`h-11 rounded-xl border text-sm ${on ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>;
+                  })}
+                </div>
+                {watch('where') === 'online' && <Input {...register('meetingLink')} placeholder="Meeting link — e.g. https://zoom.us/j/…" className="h-11 rounded-xl border" />}
+                <p className="text-xs text-muted-foreground">{watch('where') === 'online' ? 'Clients get the link in their confirmation, reminder and visit link — no “check in when you arrive”.' : watch('where') === 'client' ? 'Messages say you’ll come to them (with their address, if it’s on file) — no check-in.' : 'Clients check in when they arrive.'}</p>
               </div>
 
               <div className="space-y-1.5">
