@@ -27,6 +27,8 @@
  *   day-of arrival (Hello + status buttons)
  */
 
+import { DayOfView } from '@/components/booking/DayOfView';
+import { resolvePolicy } from '@/lib/booking-policies';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -2415,6 +2417,7 @@ const CancelGateView = ({
     );
 };
 
+
 // "Ask us to move it" — when the change limit needs the team's OK. Sends one
 // request (with an optional note) through /api/appt → the team is notified.
 const AskToMove = ({ apptApi }: { apptApi: (p: any) => Promise<any> }) => {
@@ -2740,10 +2743,11 @@ export default function CheckInPage() {
         fetch('/api/checkin/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'viewed', token }) }).catch(() => {}); // best-effort
     }, [firestore, tenantId, appointmentData?.id, appointmentData?.completionLinkFirstViewedAt]);
 
-    const updateStatus = async (status: string, lateMinutes?: number) => {
-        if (!firestore || !token || !appointmentData) return;
+    const updateStatus = async (status: string, lateMinutes?: number, lateNote?: string): Promise<any> => {
+        if (!firestore || !token || !appointmentData) return null;
         const updates: any = { checkInStatus: status };
         if (lateMinutes !== undefined) updates.lateTimeMinutes = lateMinutes;
+        if (lateNote) updates.lateNote = lateNote;
         try {
             // Server write path — lands in the scoped collection (with audit
             // entry) and mirrors to the legacy one during the migration window.
@@ -2759,15 +2763,18 @@ export default function CheckInPage() {
             });
             const d = await res.json().catch(() => ({}));
             if (!res.ok || !d?.ok) throw new Error('__legacy__');
-            toast({ title: "Status Updated", description: "Studio technical team notified." });
+            if (status === 'arrived') toast({ title: 'You’re checked in', description: 'We’ve let the team know you’re here.' });
+            return d;
         } catch {
             // API unavailable (or not deployed yet) — direct legacy write while
             // the old open rule is still live; truthful failure toast otherwise.
             try {
                 await updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', token), updates);
-                toast({ title: "Status Updated", description: "Studio technical team notified." });
+                if (status === 'arrived') toast({ title: 'You’re checked in', description: 'We’ve let the team know you’re here.' });
+                return null;
             } catch {
-                toast({ variant: 'destructive', title: "Update Failed", description: "Please let the front desk know directly." });
+                toast({ variant: 'destructive', title: 'That didn’t send', description: 'Please let the front desk know directly.' });
+                return null;
             }
         }
     };
@@ -2989,134 +2996,23 @@ export default function CheckInPage() {
     }
 
     return (
-        <AnimatePresence mode="wait">
-            {!entered ? (
-                <motion.div 
-                    key="entry"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background px-6 text-center"
-                >
-                    <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-                        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/10 blur-[120px] rounded-full animate-pulse" />
-                        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-primary/5 blur-[120px] rounded-full animate-pulse" />
-                    </div>
-
-                    <motion.div
-                        initial={{ scale: 0.9, y: 20, opacity: 0 }}
-                        animate={{ scale: 1, y: 0, opacity: 1 }}
-                        transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
-                        className="relative z-10 space-y-12 max-w-sm w-full"
-                    >
-                        <div className="flex flex-col items-center gap-8">
-                            <div className="p-6 bg-white rounded-[2.5rem] shadow-3xl border-4 border-primary/5">
-                                <ClarityFlowLogo className="w-16 h-16" />
-                            </div>
-                            <div className="space-y-3">
-                                <h1 className="text-4xl md:text-6xl font-black uppercase tracking-tighter text-slate-900 leading-none">Hello,<br/><span className="text-primary italic font-serif lowercase tracking-normal">{client?.name?.split(' ')[0] || 'there'}</span></h1>
-                                <p className="text-sm font-bold text-muted-foreground uppercase tracking-[0.3em] opacity-60">Verified Identity</p>
-                            </div>
-                        </div>
-
-                        <Button 
-                            size="lg" 
-                            onClick={() => setEntered(true)}
-                            className="w-full h-20 rounded-[2.5rem] text-xl font-black uppercase tracking-widest shadow-3xl shadow-primary/30 group active:scale-95 transition-all"
-                        >
-                            Enter Studio <ArrowRight className="ml-3 w-6 h-6 transition-transform group-hover:translate-x-2" />
-                        </Button>
-                    </motion.div>
-                </motion.div>
-            ) : (
-                <ViewContainer key="options">
-                    <ViewHeader title="Portal Active" subtitle="Certify your arrival protocol" icon={Fingerprint} />
-                    <CardContent className="p-8 md:p-12 text-center space-y-10">
-                        <div className="p-8 rounded-[3rem] bg-primary/5 border-2 border-primary/10 shadow-inner space-y-6">
-                            <CalendarIcon className="w-12 h-12 text-primary mx-auto opacity-40" />
-                            <div className="space-y-1.5">
-                                <p className="text-[10px] font-black uppercase text-primary tracking-[0.3em]">Technical Agenda</p>
-                                <h3 className="text-2xl font-black uppercase text-slate-900 leading-tight">{service?.name}</h3>
-                                <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">{format(safeDate(appointmentData?.startTime), 'EEEE, MMM d @ h:mm a')}</p>
-                            </div>
-                        </div>
-
-                        <div className="space-y-8">
-                            <p className="text-sm md:text-lg font-medium text-slate-500 leading-relaxed px-6">Ready for your transformation? Please certify your status below to begin the concierge sequence.</p>
-                            
-                            <div className="grid gap-4">
-                                <Button 
-                                    onClick={() => updateStatus('arrived')} 
-                                    className="w-full h-16 md:h-20 rounded-[2rem] text-lg md:text-2xl font-black uppercase tracking-tight shadow-3xl shadow-primary/30 group"
-                                >
-                                    I Have Arrived <ArrowRight className="ml-3 w-6 h-6 transition-transform group-hover:translate-x-1" />
-                                </Button>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <Button 
-                                        variant="outline" 
-                                        onClick={() => updateStatus('on_my_way')} 
-                                        className="h-14 md:h-16 rounded-2xl border-2 font-black uppercase text-[10px] md:text-xs tracking-widest bg-white shadow-sm"
-                                    >
-                                        <Car className="w-5 h-5 mr-2 text-primary" /> En Route
-                                    </Button>
-                                    <Button 
-                                        variant="outline" 
-                                        onClick={() => updateStatus('running_late', 15)} 
-                                        className="h-14 md:h-16 rounded-2xl border-2 font-black uppercase text-[10px] md:text-xs tracking-widest bg-white shadow-sm"
-                                    >
-                                        <AlertTriangle className="w-5 h-5 mr-2 text-amber-500" /> Late
-                                    </Button>
-                                </div>
-                            </div>
-
-                            {assignedStaff && (
-                                <div className="flex items-center gap-5 p-5 rounded-[2rem] border-2 bg-muted/5 shadow-inner text-left">
-                                    <Avatar className="h-14 w-14 border-4 border-background shadow-xl rounded-[1.5rem] shrink-0">
-                                        <AvatarImage src={assignedStaff.avatarUrl} className="object-cover" />
-                                        <AvatarFallback className="font-black text-sm bg-primary/10 text-primary">{(assignedStaff.name || 'S').charAt(0)}</AvatarFallback>
-                                    </Avatar>
-                                    <div className="text-left flex-1 min-w-0">
-                                        <p className="text-[10px] font-black uppercase text-muted-foreground opacity-60 leading-none mb-1 text-left">Professional Mastery</p>
-                                        <p className="font-black text-sm md:text-lg uppercase text-slate-800 leading-none truncate text-left">{assignedStaff.name}</p>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                        
-                        <div className="pt-6 border-t border-dashed space-y-3">
-                            <Button asChild variant="outline" className="w-full h-14 rounded-2xl border-2 font-black uppercase text-[10px] bg-white shadow-sm">
-                                <Link href={`/portal/${tenantId}/${clientId}`}>
-                                    <LayoutDashboard className="w-4 h-4 mr-3 opacity-40" />
-                                    Access Private Dashboard
-                                </Link>
-                            </Button>
-                            <button
-                                type="button"
-                                onClick={() => setShowRescheduleFlow(true)}
-                                className="w-full text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest hover:text-primary transition-colors"
-                            >
-                                Need a different time? Reschedule
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setShowCancelFlow(true)}
-                                className="w-full text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest hover:text-destructive transition-colors"
-                            >
-                                Can't make it? Cancel appointment
-                            </button>
-                            {tenant?.notificationDefaults?.allowClientOverride !== false && (
-                                <button
-                                    type="button"
-                                    onClick={() => setShowNotificationSettings(true)}
-                                    className="w-full text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest hover:text-primary transition-colors"
-                                >
-                                    Notification settings
-                                </button>
-                            )}
-                        </div>
-                    </CardContent>
-                </ViewContainer>
-            )}
-        </AnimatePresence>
+        <DayOfView
+            accent={(tenant as any)?.bookingPageSettings?.cfPageConfig?.accentColor || (tenant as any)?.brandColor || '#7c3aed'}
+            studioName={tenant?.name}
+            first={String(client?.name || appointmentData?.clientName || '').split(' ')[0] || 'there'}
+            serviceName={service?.name}
+            startTime={appointmentData?.startTime as any}
+            provider={assignedStaff ? { name: assignedStaff.name, avatarUrl: (assignedStaff as any).avatarUrl } : null}
+            address={(tenant as any)?.studioAddress || null}
+            graceMinutes={Number(resolvePolicy(tenant).late.graceMinutes.value) || 0}
+            onArrived={() => updateStatus('arrived')}
+            onMyWay={() => updateStatus('on_my_way')}
+            onLate={(m, n) => updateStatus('running_late', m, n)}
+            onReschedule={() => setShowRescheduleFlow(true)}
+            onCancel={() => setShowCancelFlow(true)}
+            portalHref={tenantId && clientId ? `/portal/${tenantId}/${clientId}` : null}
+            onNotifications={tenant?.notificationDefaults?.allowClientOverride !== false ? () => setShowNotificationSettings(true) : undefined}
+            trip={tenantId && token && appointmentData?.id ? { tenantId, token, appointmentId: appointmentData.id } : null}
+        />
     );
 }
