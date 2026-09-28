@@ -29,6 +29,7 @@ import type { ReactNode } from 'react';
 import { Counter } from './Counter';
 import { DeskDelay } from './DeskDelay';
 import { DeskReschedule } from './DeskReschedule';
+import { DeskFollowUp } from './DeskFollowUp';
 import { query, where } from 'firebase/firestore';
 
 type Stage = 'arriving' | 'waiting' | 'service' | 'ready' | 'done';
@@ -54,6 +55,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const [about, setAbout] = useState<Guest | null>(null);
   const [lateFor, setLateFor] = useState<Guest | null>(null);
   const [moveAppt, setMoveAppt] = useState<any | null>(null);
+  const [followFor, setFollowFor] = useState<any | null>(null);
   // "Also today" — interviews and tours, each only if the business uses that tool.
   const hiringOn = moduleEnabled(tenant, 'team'), rentalsOn = moduleEnabled(tenant, 'booth_rental'), academyOn = moduleEnabled(tenant, 'academy');
   const ivQ = useMemoFirebase(() => (hiringOn && e.firestore && e.tenantId ? query(collection(e.firestore, 'tenants', e.tenantId, 'interviewInvites'), where('status', '==', 'accepted')) : null), [hiringOn, e.firestore, e.tenantId]);
@@ -194,7 +196,8 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const setWalkIn = (g: Guest, patch: any) => { if (e.firestore && e.tenantId) updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId, 'walkIns', g.walkIn.id), patch); };
   const menuFor = (g: Guest) => { const ph = phoneOf(g); const aboutItem = { label: 'About this entry…', hint: 'What it is, where it came from — and remove it', onSelect: () => setAbout(g) }; return g.kind === 'appt' ? [
       aboutItem,
-      { label: 'Reschedule…', onSelect: () => setMoveAppt(g.appt) },
+      (g.stage === 'service' || g.stage === 'ready') && { label: 'Book next visit…', hint: 'Same service & time — 2, 4, 6, 8 or 12 weeks on', onSelect: () => setFollowFor(g.appt) },
+      g.stage !== 'service' && g.stage !== 'ready' && { label: 'Reschedule…', onSelect: () => setMoveAppt(g.appt) },
       { label: 'Details', onSelect: () => open(g) },
       g.stage === 'arriving' && { label: 'Running late…', hint: 'See what it affects and choose — nothing is charged automatically', onSelect: () => setLateFor(g) },
       ph && { label: 'Call', onSelect: () => { window.location.href = `tel:${ph}`; } },
@@ -297,7 +300,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
         {mode === 'desk' && !solo && <section aria-label="Team now" className="-mx-1 mb-4 flex gap-2 overflow-x-auto px-1 pb-1">{staffList.map((s) => { const busy = active.filter((g) => g.staffId === s.id && g.stage === 'service'); const f = freeAt(s.id); const nx = active.filter((g) => g.staffId === s.id && (g.stage === 'arriving' || g.stage === 'waiting'))[0];
           return <div key={s.id} className="flex shrink-0 items-center gap-2.5 rounded-2xl py-2 pl-2 pr-4" style={{ background: 'var(--card)' }}><Face sid={s.id} size={34} /><div className="text-[12px] leading-tight"><p className="text-[13px] font-semibold">{String(s.name).split(' ')[0]}</p>
             <p style={{ color: busy.length ? 'var(--ink)' : 'var(--ok)' }}>{busy.length ? `${busy.length > 1 ? `${busy.length} guests at once · ` : ''}free ~${f ? format(f, 'h:mm') : '—'}` : 'Free now'}</p>{nx?.at && <p style={{ color: 'var(--muted)' }}>next {format(nx.at, 'h:mm')}</p>}</div></div>; })}</section>}
-        {mode === 'counter' ? <Counter e={e} /> : <LayoutGroup>
+        {mode === 'counter' ? <Counter e={e} onFollowUp={(v: any) => setFollowFor(v)} /> : <LayoutGroup>
           {shown === 'timeline' && timeline}
           {shown === 'lanes' && lanes}
           {shown === 'stations' && stations}
@@ -317,6 +320,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       </main>
       <DeskDelay e={e} appt={lateFor?.appt || null} accent={accent} onClose={() => setLateFor(null)} onReschedule={(a) => setMoveAppt(a)} />
       <DeskReschedule e={e} appt={moveAppt} accent={accent} onClose={() => setMoveAppt(null)} />
+      <DeskFollowUp e={e} visit={followFor} accent={accent} onClose={() => setFollowFor(null)} />
       <Drawer accent={accent} open={!!about} onClose={() => setAbout(null)} title="About this entry">
         {about && (() => { const r = about.appt || about.walkIn || {}; const created = toDate(r.createdAt || r.checkInTime); const paid = r.depositStatus === 'paid' || Number(r.amountPaid) > 0;
           const rows: [string, string][] = [['What it is', about.kind === 'appt' ? 'A booking' : 'A walk-in'], ['Name on it', r.clientName || r.customerName || '— none —'], ['Service', about.service], ['With', about.staffName || '— anyone —'],
@@ -339,7 +343,10 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
         {moreTabs.length > 1 && <div className="mb-4"><Seg label="More" value={(moreTabs.some(([k]) => k === moreTab) ? moreTab : moreTabs[0][0]) as any} onChange={(v) => setMoreTab(v as any)} options={moreTabs.map(([k, l]) => [k, l]) as any} /></div>}
         {(moreTabs.find(([k]) => k === moreTab) || moreTabs[0])?.[2]}
       </Drawer>
-      <Drawer accent={accent} open={checkoutOpen} onClose={() => setCheckoutOpen(false)} title="Checkout"><CheckoutHub {...e.checkoutHubProps} /></Drawer>
+      <Drawer accent={accent} open={checkoutOpen} onClose={() => setCheckoutOpen(false)} title="Checkout">
+        {(() => { const ids: string[] = Array.from(e.selectedAppointmentIds || []); const v = ids.length === 1 ? (e.appointmentsFromInventory || []).find((a: any) => a.id === ids[0]) : null;
+          return v ? <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl p-3" style={{ background: 'var(--card)' }}><span className="text-[14px]">Before they go — <b>book their next visit?</b></span><Btn quiet onClick={() => setFollowFor(v)}>Book next visit</Btn></div> : null; })()}
+        <CheckoutHub {...e.checkoutHubProps} /></Drawer>
 
     </DeskFrame>
   );
