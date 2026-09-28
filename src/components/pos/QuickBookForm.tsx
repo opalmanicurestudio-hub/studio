@@ -127,6 +127,7 @@
  *   regardless of `willChargeNow`.
  */
 
+import { staffAuthHeader } from '@/lib/staff-fetch';
 import React from 'react';
 import PhoneInput from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
@@ -2347,7 +2348,7 @@ export function QuickBookForm({
       const amountCents = Math.round(outstandingBalance * 100);
       const res = await fetch('/api/stripe/charge-card', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
         body: JSON.stringify({
           tenantId,
           clientId: selectedClient.id,
@@ -2687,7 +2688,7 @@ export function QuickBookForm({
         try {
           const chargeRes = await fetch('/api/stripe/charge-card', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
             body: JSON.stringify({
               tenantId,
               clientId,
