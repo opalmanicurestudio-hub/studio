@@ -69,7 +69,7 @@ export function StudioBookingPage({ tenant, services, staff, sections, accent, o
 
         <Section id="services" eyebrow="Services" title={<>Choose your <b>service</b></>}>
           {withWho && <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white px-4 py-3 text-[15px] shadow-sm" role="status"><span>Booking with <b>{withWho.name}</b> — choose a service</span><button type="button" onClick={() => setWithId(null)} className="text-[14px] underline underline-offset-4">Anyone is fine</button></div>}
-          {bookable.length === 0 ? <p className="text-stone-600">Online booking is coming soon. Please call us to book.</p> : (
+          {bookable.length === 0 ? <p className="text-stone-600">Online booking is coming soon — please check back shortly.</p> : (
             <div className="space-y-8">{groups.map(([cat, list]) => (
               <div key={cat} className="space-y-3">
                 {groups.length > 1 && <h3 className="text-lg font-semibold">{cat}</h3>}
