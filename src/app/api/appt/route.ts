@@ -25,6 +25,7 @@
 // self-service leaves the same paper trail as front-desk service.
 
 import { resolvePolicy } from '@/lib/booking-policies';
+import { checkChange, chainAfterMove, deadlineStart } from '@/lib/change-rules';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
@@ -101,9 +102,12 @@ export async function POST(req: NextRequest) {
     // offset above still drives everything, unchanged.
     const hasZone = isValidTimeZone(tDoc.timezone) || isValidTimeZone(tDoc.timeZone) || isValidTimeZone(tDoc.retailSettings?.timezone);
     const zone = hasZone ? tenantTimeZone(tDoc) : null;
-    const startMs = new Date(a.startTime).getTime();
+    // Deadlines count from the booking's ORIGINAL time unless the business chose otherwise.
+    const startMs = deadlineStart(tDoc, a).getTime();
     const insideWindow = Date.now() <= startMs - cancelHours * 3600000;
-    const insideRescheduleWindow = Date.now() <= startMs - rescheduleCutoffHours * 3600000;
+    // Moving it: the shared change rules (cutoff + how many times it's been moved).
+    const change = checkChange(tDoc, a, 'client');
+    const insideRescheduleWindow = change.allowed;
     const already = ['cancelled', 'canceled', 'completed', 'no_show'].includes(String(a.status || ''));
 
     if (action === 'view') {
@@ -119,6 +123,7 @@ export async function POST(req: NextRequest) {
         policy: {
           cancelHours, canChange: insideWindow && !already, tzOffsetMinutes: tzOffset,
           rescheduleCutoffHours, canReschedule: insideRescheduleWindow && !already,
+          changeRule: change.allowed ? null : { reason: change.reason, needsApproval: change.needsApproval, count: change.count, limit: change.limit },
           // The earliest date the CLIENT may pick, on the STUDIO's calendar.
           // The pages used to compute this from the browser's clock, so a
           // client travelling — or simply awake late — could be offered a
@@ -202,7 +207,18 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'reschedule') {
-      if (!insideRescheduleWindow) return NextResponse.json({ ok: false, error: `Online rescheduling closes ${rescheduleCutoffHours}h before the appointment — call the studio and we'll sort it out.` }, { status: 422 });
+      if (!change.allowed) {
+        // Over the limit and the business approves further changes → tell the team, once.
+        if (change.needsApproval && !a.changeRequestedAt) {
+          const nowIso = new Date().toISOString();
+          await ref.set({ changeRequestedAt: nowIso }, { merge: true }).catch(() => {});
+          const n = db.collection(`tenants/${tenantId}/notifications`).doc();
+          await n.set({ id: n.id, userId: null, read: false, createdAt: nowIso, type: 'change_request', link: 'pos',
+            message: `${a.clientName || 'A client'} wants to move their ${a.serviceName || 'appointment'} again (already moved ${change.count} time${change.count === 1 ? '' : 's'}) — please reschedule it for them.` }).catch(() => {});
+          await logAuditAdmin(db, tenantId, { action: 'appointment.change_requested', targetType: 'appointment', targetId: apptId, summary: `${a.clientName || 'Client'} asked to move it again — over the change limit (${change.count}/${change.limit}), staff approval needed`, actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'visit link' } }).catch(() => {});
+        }
+        return NextResponse.json({ ok: false, error: change.reason, requested: change.needsApproval }, { status: 409 });
+      }
       // WALL CLOCK IN, INSTANT OUT. '2026-07-16' + '14:30' means half past two
       // on the studio's wall — a fact only the server can turn into a moment,
       // because only it knows the zone and whether daylight saving applies on
@@ -240,6 +256,7 @@ export async function POST(req: NextRequest) {
           if (overlaps(newStart.getTime(), newEnd.getTime(), oS, oE)) return { conflict: true };
         }
         const move = {
+          ...chainAfterMove(a),   // remembers the original time + how many times it has moved
           startTime: newStart.toISOString(), endTime: newEnd.toISOString(),
           rescheduledAt: new Date().toISOString(), rescheduledBy: 'client_self_serve',
           previousStartTime: a.startTime,
