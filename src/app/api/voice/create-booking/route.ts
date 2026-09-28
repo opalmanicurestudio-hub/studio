@@ -434,8 +434,8 @@ export async function createBooking(
         serviceName: service.name || '',
         depositAmountCents: depositCharged ? 0 : depositCents,
         requiredConsentFormIds: formsNeedingSignature,
-        skipCardStep: depositCharged || !!(clientDoc?.cardOnFile?.paymentMethodId || clientDoc?.cardOnFile?.token),
-        cardAlreadyOnFile: !!(clientDoc?.cardOnFile?.paymentMethodId || clientDoc?.cardOnFile?.token),
+        skipCardStep: depositCharged || !!(clientDoc?.cardOnFile?.paymentMethodId || (clientDoc?.cardOnFile?.token || clientDoc?.cardOnFile?.paymentMethodId)),
+        cardAlreadyOnFile: !!(clientDoc?.cardOnFile?.paymentMethodId || (clientDoc?.cardOnFile?.token || clientDoc?.cardOnFile?.paymentMethodId)),
         fileRequirements: pendingFileReqs.map((fr: any) => ({
           id: fr.id,
           type: 'file_upload',
