@@ -51,6 +51,8 @@
  * not something this route implements itself.
  */
 
+import { resolvePolicy } from '@/lib/booking-policies';
+import { hoursToDeadline } from '@/lib/change-rules';
 import { NextRequest, NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
 
@@ -119,8 +121,9 @@ export async function GET(req: NextRequest) {
   const svcSnap = await db.doc(`tenants/${tenantId}/services/${appt.serviceId}`).get();
   const service = svcSnap.data() || {};
 
-  const windowHours = tenant.cancellationWindowHours ?? 24;
-  const hrsUntil = hoursUntil(appt.startTime);
+  // Booking policies: the window (a service can differ) and the deadline counted from the ORIGINAL time.
+  const windowHours = Number(resolvePolicy(tenant, service).cancel.windowHours.value) || 24;
+  const hrsUntil = hoursToDeadline(tenant, appt, service);
   const isLate = hrsUntil < windowHours;
   const estimatedFee = isLate ? (tenant.cancellationFee || service.price || 0) : 0;
 
@@ -188,12 +191,13 @@ export async function POST(req: NextRequest) {
   const client = clientSnap?.exists ? clientSnap.data() : {};
 
   // ── Rule 2: Late Cancellation Window ─────────────────────────────────────
-  const windowHours = tenant.cancellationWindowHours ?? 24;
-  const hrsUntil = hoursUntil(appt.startTime);
-  const isLate = hrsUntil < windowHours;
-
   const svcSnap = await db.doc(`tenants/${tenantId}/services/${appt.serviceId}`).get();
   const service = svcSnap.data() || {};
+  // Booking policies: the window (a service can differ) and the deadline counted from the ORIGINAL time.
+  const windowHours = Number(resolvePolicy(tenant, service).cancel.windowHours.value) || 24;
+  const hrsUntil = hoursToDeadline(tenant, appt, service);
+  const isLate = hrsUntil < windowHours;
+
 
   const isReschedule = clientReason === 'rescheduled' && !!rescheduledToId;
   const feeAmount = isLate && !isReschedule ? (tenant.cancellationFee || service.price || 0) : 0;
@@ -269,7 +273,7 @@ export async function POST(req: NextRequest) {
       }
       if (purchase) {
         const pkg = ((await db.doc(`tenants/${tenantId}/renterPackages/${String(purchase.packageId)}`).get()).data() as any) || {};
-        const d = decideCredit(pkg, { by: 'client', how: 'cancel', hoursBeforeStart: hoursUntil(appt.startTime) }, !!appt.paidByPackageId, ((Number(purchase.creditsTotal) || 0) - (Number(purchase.creditsUsed) || 0)) > 0);
+        const d = decideCredit(pkg, { by: 'client', how: 'cancel', hoursBeforeStart: hoursToDeadline(tenant, appt, service) }, !!appt.paidByPackageId, ((Number(purchase.creditsTotal) || 0) - (Number(purchase.creditsUsed) || 0)) > 0);
         const evRef = db.collection(`tenants/${tenantId}/packageEvents`).doc();
         if (d.action === 'restore') {
           batch.update(purCol.doc(purchase.id), { creditsUsed: Math.max(0, (Number(purchase.creditsUsed) || 0) - 1) });
