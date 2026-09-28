@@ -86,6 +86,8 @@ export async function POST(req: NextRequest) {
       const prevMins = Number(appt.lateTimeMinutes) || 0, mins = Math.max(0, Math.min(120, Math.round(Number(body.lateTimeMinutes) || 0)));
       const arrived = prev === 'arrived' || ['servicing', 'completed'].includes(String(appt.status || ''));
       if (arrived && st !== 'arrived') return NextResponse.json({ ok: true, ignored: 'already_here' });
+      if (st === 'arrived' && ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.bookingPolicies?.onlineCheckIn === false)
+        return NextResponse.json({ ok: false, error: 'Please check in at the front desk when you arrive.' }, { status: 403 });
       if (st === 'arrived' && prev === 'arrived') return NextResponse.json({ ok: true, duplicate: true });
       if (st === prev && since < 3 * 60000 && (st !== 'running_late' || Math.abs(mins - prevMins) < 5)) return NextResponse.json({ ok: true, duplicate: true });
     }
