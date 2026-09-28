@@ -13,7 +13,8 @@ import React, { useMemo, useState } from 'react';
 import { collection, query, where } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
-import { opsStatus, fitCheck, opsCan, opsLevelOf, paymentOutstanding, type OpsView } from '@/lib/appointment-ops';
+import { opsStatus, fitCheck, opsCan, opsLevelOf, paymentOutstanding, serviceOverrun, overrunImpact, type OpsView } from '@/lib/appointment-ops';
+import { OverrunPanel } from '@/components/ops/OverrunPanel';
 import { resolvePolicy } from '@/lib/booking-policies';
 
 const hm = (v: any) => { if (!v) return ''; const d = new Date(v); return isNaN(d.getTime()) ? '' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); };
@@ -126,6 +127,13 @@ function ProviderLate({ tenantId, staff, role, uid, tenant }: { tenantId: string
   );
 }
 
+
+/** Services running over that affect a later guest (planned length = the booking's own length). */
+function overrunCases(appts: any[], now = new Date()) {
+  return (appts || []).map((a: any) => { const planned = Math.max(15, Math.round((Date.parse(a.endTime || a.startTime) - Date.parse(a.startTime)) / 60000) || 60);
+    const ov = serviceOverrun(a, planned, now); return ov && ov.overMin >= 1 && overrunImpact(appts, a, Math.max(10, ov.overMin), now).length ? { a, ov } : null; }).filter(Boolean) as { a: any; ov: { overMin: number; plannedEnd: Date } }[];
+}
+
 /** The Needs-attention board: provider running late + today's cases. Fed the
  *  data by its host (the POS panel), so it shows exactly what the desk sees. */
 export function OpsBoard({ appts, staff, tenant, tenantId, role, uid }: { appts: any[]; staff: any[]; tenant: any; tenantId: string; role: string; uid?: string }) {
@@ -148,6 +156,7 @@ export function OpsBoard({ appts, staff, tenant, tenantId, role, uid }: { appts:
   return (
     <div className="space-y-4">
       <ProviderLate tenantId={tenantId} staff={(staff || []).filter((s: any) => s.isActive !== false)} role={role} uid={uid} tenant={tenant} />
+      {overrunCases(appts).map(({ a, ov }) => <OverrunPanel key={`ov-${a.id}`} tenant={tenant} tenantId={tenantId} role={role} inService={a} today={appts} overMin={ov.overMin} plannedEnd={ov.plannedEnd} providerName={staffById.get(a.staffId)?.name || null} />)}
       <div className="flex flex-wrap items-center gap-2">
         {([['attention', `Needs attention · ${attention.length}`], ['all', 'All of today']] as const).map(([v, l]) => <button key={v} type="button" onClick={() => setView(v)} aria-pressed={view === v} className={`rounded-full border px-4 py-1.5 text-sm ${view === v ? 'bg-primary text-primary-foreground' : ''}`}>{l}</button>)}
         {decisions > 0 && <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-800">{decisions} decision{decisions === 1 ? '' : 's'} needed</span>}
@@ -166,5 +175,6 @@ export function opsAttentionCount(appts: any[], tenant: any): { attention: numbe
   for (const a of appts || []) { const o = opsStatus(a, now, { graceMinutes: grace });
     if (o.needsDecision) decisions++;
     if (o.needsDecision || ['running_late', 'eta_overdue', 'location_shared', 'rescheduling_offered', 'provider_late', 'provider_offered', 'arrived_payment_required', 'decision_needed', 'payment_required'].includes(o.status)) attention++; }
-  return { attention, decisions };
+  const over = overrunCases(appts, now).filter((x) => !x.a.overrunNotifiedAt).length;
+  return { attention: attention + over, decisions: decisions + over };
 }
