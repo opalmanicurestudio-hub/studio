@@ -152,7 +152,7 @@ export default function BookingPoliciesPage() {
             </Row>
             <Row label="Changes allowed" source={P.change.limit.source}>
               <Num field="bookingPolicies.rescheduleLimit" value={P.change.limit.value} unit="times (0 = unlimited), then…" label="Reschedule limit" max={20} />
-              <Choice field="bookingPolicies.overLimit" value={P.change.overLimit.value} label="After the limit" options={[['approval', 'Staff approve'], ['block', 'They must call']]} />
+              <Choice field="bookingPolicies.overLimit" value={P.change.overLimit.value} label="After the limit" options={[['approval', 'They ask us from their link'], ['block', 'No more changes online']]} />
             </Row>
             <Row label="When they move a booking, the notice deadline…" source={P.change.deadline.source}>
               <Choice field="bookingPolicies.rescheduleDeadline" value={P.change.deadline.value} label="Reschedule deadline" options={[['original', 'Stays with the original time'], ['new', 'Moves to the new time']]} />
@@ -174,6 +174,9 @@ export default function BookingPoliciesPage() {
             </Row>
             <Row label="Late arrivals, in your words"><Text field="lateArrivalPolicy" value={t.lateArrivalPolicy} label="Late arrival policy" placeholder="e.g. After 15 minutes we may need to shorten your service…" /></Row>
             <Row label="Missed appointments, in your words"><Text field="noShowPolicy" value={t.noShowPolicy} label="No-show policy" placeholder="e.g. Missed appointments are charged…" /></Row>
+            <Row label="Online check-in" note="Clients can tap “I’m here” on their visit link. Off: they check in at the front desk (running late and “on my way” still work).">
+              <Choice field="bookingPolicies.onlineCheckIn" value={t.bookingPolicies?.onlineCheckIn !== false} label="Online check-in" options={[[true, 'On'], [false, 'Off — front desk only']]} />
+            </Row>
             <Row label="Messages and automations">
               <Link href="/settings/messages" className="text-sm underline underline-offset-2">Message wording & timing →</Link>
               <Link href="/settings/automations" className="text-sm underline underline-offset-2">Everything that runs automatically →</Link>
