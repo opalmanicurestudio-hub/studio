@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
         : null;
       const cardIsExpired = !!cardExpDate && cardExpDate < now;
       const hasUsableCard = !!(
-        (client.cardOnFile?.paymentMethodId || client.cardOnFile?.token) &&
+        (client.cardOnFile?.paymentMethodId || (client.cardOnFile?.token || client.cardOnFile?.paymentMethodId)) &&
         (client.cardOnFile?.customerId || client.cardOnFile?.stripeCustomerId) &&
         !cardIsExpired
       );
