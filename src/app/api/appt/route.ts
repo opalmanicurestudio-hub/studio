@@ -25,7 +25,8 @@
 // self-service leaves the same paper trail as front-desk service.
 
 import { resolvePolicy } from '@/lib/booking-policies';
-import { checkChange, chainAfterMove, deadlineStart } from '@/lib/change-rules';
+import { checkChange, chainAfterMove, deadlineStart, hoursToDeadline } from '@/lib/change-rules';
+import { FieldValue } from 'firebase-admin/firestore';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
@@ -88,7 +89,8 @@ export async function POST(req: NextRequest) {
     const tDoc = (await db.doc(`tenants/${tenantId}`).get()).data() as any || {};
     const studioName = tDoc.name || tDoc.businessName || 'The studio';
     const cfg = tDoc.clientNotify || {};
-    const cancelHours = Number.isFinite(Number(cfg.cancelHours)) ? Math.max(0, Number(cfg.cancelHours)) : 24;
+    // Your cancellation window from Booking policies (the old hidden clientNotify.cancelHours is retired).
+    const cancelHours = Math.max(0, Number(resolvePolicy(tDoc).cancel.windowHours.value) || 24);
     // v19 — RESCHEDULING has its OWN, much shorter cutoff (default 2h,
     // configurable via clientNotify.rescheduleCutoffHours). Psychology:
     // a reschedule KEEPS the booking and the revenue — every one you
@@ -109,6 +111,10 @@ export async function POST(req: NextRequest) {
     // When WE asked them to move it (running late → "please pick a new time"), the usual cutoff and change limit don't apply.
     const change = a.studioAskedToMove ? { ...checkChange(tDoc, a, 'client'), allowed: true, needsApproval: false, blocked: false, reason: null } : checkChange(tDoc, a, 'client');
     const insideRescheduleWindow = change.allowed;
+    // Your reschedule fee (Booking policies) — counted from the ORIGINAL time; none when WE asked them to move it; renters keep their own rules.
+    const rp = resolvePolicy(tDoc).change;
+    const rFee = Number(rp.fee.value) || 0, rWin = Number(rp.feeWindowHours.value) || 0;
+    const feeIfMovedNow = !a.studioAskedToMove && !a.isRenterBooking && rFee > 0 && rWin > 0 && hoursToDeadline(tDoc, a) < rWin ? rFee : 0;
     // Over the change limit and the business approves further moves → tell the team, ONCE, with the client's note.
     const requestChange = async (note: string | null) => {
       if (a.changeRequestedAt) return false;
@@ -136,6 +142,7 @@ export async function POST(req: NextRequest) {
           cancelHours, canChange: insideWindow && !already, tzOffsetMinutes: tzOffset,
           rescheduleCutoffHours, canReschedule: insideRescheduleWindow && !already,
           changeRule: change.allowed ? null : { reason: change.reason, needsApproval: change.needsApproval, count: change.count, limit: change.limit },
+          rescheduleFee: feeIfMovedNow, rescheduleFeeWindowHours: rWin,
           // The earliest date the CLIENT may pick, on the STUDIO's calendar.
           // The pages used to compute this from the browser's clock, so a
           // client travelling — or simply awake late — could be offered a
@@ -156,7 +163,8 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'cancel') {
-      if (!insideWindow) return NextResponse.json({ ok: false, error: `Online cancellation closes ${cancelHours}h before the appointment — call the studio and we'll sort it out.` }, { status: 422 });
+      // Inside the window, cancelling goes through the visit link, where your late-cancellation policy (and fee) applies.
+      if (!insideWindow) return NextResponse.json({ ok: false, error: `It’s within ${cancelHours} hours of your appointment, so a late-cancellation policy applies — cancel from your visit link to see exactly what that means, or call us.`, visitLink: a.checkInToken ? `/check-in/${a.checkInToken}` : null }, { status: 422 });
       const nowIso = new Date().toISOString();
       const cancelFields = { status: 'cancelled', cancelledAt: nowIso, cancelledBy: 'client_self_serve' };
       await ref.set(cancelFields, { merge: true });
@@ -269,6 +277,7 @@ export async function POST(req: NextRequest) {
         }
         const move = {
           ...chainAfterMove(a),   // remembers the original time + how many times it has moved
+          ...(feeIfMovedNow > 0 ? { rescheduleFeeApplied: feeIfMovedNow } : {}),
           // A new time is a fresh start: no longer late, no longer asked to move.
           studioAskedToMove: false, lateReply: null, checkInStatus: null, lateTimeMinutes: null, clientCheckInStatus: null, clientLateMinutes: null, clientEtaAt: null, etaAt: null, clientLateNote: null, clientTrip: null,
           startTime: newStart.toISOString(), endTime: newEnd.toISOString(),
@@ -286,15 +295,20 @@ export async function POST(req: NextRequest) {
         }
         return { conflict: false };
       });
+      if (!result.conflict && feeIfMovedNow > 0 && a.clientId) {
+        const feeId = `rf_${Date.now().toString(36)}`;
+        await db.doc(`tenants/${tenantId}/clients/${a.clientId}`).set({ outstandingBalance: FieldValue.increment(feeIfMovedNow),
+          unpaidFees: FieldValue.arrayUnion({ feeId, appointmentId: apptId, appointmentDate: new Date().toISOString(), feeAmount: feeIfMovedNow, reason: 'reschedule_fee' }) }, { merge: true }).catch(() => {});
+      }
       if (result.conflict) return NextResponse.json({ ok: false, error: `${a.staffName || 'That staff member'} is booked then — try another time.` }, { status: 409 });
       await notifyStaffAndOwner(db, tenantId, a,
         `${a.clientName || 'A client'} moved their appointment${a.staffName ? ` with ${a.staffName}` : ''}: ${fmtWhen(a.startTime, tzOffset, zone)} → ${fmtWhen(newStart.toISOString(), tzOffset, zone)} (self-serve).`);
       await logAuditAdmin(db, tenantId, {
         action: 'appointment.client_rescheduled', targetType: 'appointment', targetId: apptId,
-        summary: `${a.clientName || 'Client'} self-rescheduled to ${fmtWhen(newStart.toISOString(), tzOffset, zone)}`,
+        summary: `${a.clientName || 'Client'} self-rescheduled to ${fmtWhen(newStart.toISOString(), tzOffset, zone)}${feeIfMovedNow > 0 ? ` · $${feeIfMovedNow.toFixed(2)} reschedule fee added to their balance` : ''}${a.studioAskedToMove ? ' (we asked them to choose a new time)' : ''}`,
         actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'manage-link' },
       });
-      return NextResponse.json({ ok: true, newStartIso: newStart.toISOString(), whenLabel: fmtWhen(newStart.toISOString(), tzOffset, zone) });
+      return NextResponse.json({ ok: true, newStartIso: newStart.toISOString(), whenLabel: fmtWhen(newStart.toISOString(), tzOffset, zone), feeApplied: feeIfMovedNow });
     }
 
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
