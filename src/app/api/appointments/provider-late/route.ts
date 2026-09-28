@@ -14,7 +14,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { linkOrigin } from '@/lib/app-origin';
-import { opsCan, opsLevelOf, providerDelayImpact } from '@/lib/appointment-ops';
+import { opsCan, opsLevelOf, providerDelayImpact, canSendOverrun } from '@/lib/appointment-ops';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,8 +27,17 @@ export async function POST(req: NextRequest) {
   if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error || 'Sign in to do that.' }, { status: auth.status || 401 });
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
   const tenant: any = ((await db.doc(T).get()).data() as any) || {};
-  if (!opsCan(auth.actor.role, opsLevelOf(tenant), staffId === auth.actor.uid, 'provider_late'))
-    return NextResponse.json({ ok: false, error: 'Only the provider or a manager can say they’re running late.' }, { status: 403 });
+  // A service running over (the timer) may be sent by whoever the business allows (Booking policies).
+  const overrun = b.reason === 'overrun';
+  if (!opsCan(auth.actor.role, opsLevelOf(tenant), staffId === auth.actor.uid, 'provider_late') && !(overrun && canSendOverrun(tenant, auth.actor.role)))
+    return NextResponse.json({ ok: false, error: overrun ? 'A manager sends the running-over message here.' : 'Only the provider or a manager can say they’re running late.' }, { status: 403 });
+  // Told ONCE per running-over service (several devices may notice at the same moment).
+  const inServiceRef = overrun && b.inServiceId ? db.doc(`${T}/appointments/${String(b.inServiceId)}`) : null;
+  if (inServiceRef) {
+    const cur: any = (await inServiceRef.get()).data() || {};
+    if (cur.overrunNotifiedAt && Date.now() - Date.parse(cur.overrunNotifiedAt) < 45 * 60000) return NextResponse.json({ ok: true, already: true, affected: [] });
+    await inServiceRef.set({ overrunNotifiedAt: new Date().toISOString(), overrunExtraMinutes: minutes }, { merge: true });
+  }
   const provider: any = ((await db.doc(`${T}/staff/${staffId}`).get()).data() as any) || {};
   const pFirst = String(provider.name || 'Your provider').split(' ')[0];
 
@@ -87,7 +96,7 @@ export async function POST(req: NextRequest) {
       } catch (e) { console.error('[provider-late] send failed', e); }
     }
     await logAuditAdmin(db, tenantId, { action: 'appointment.provider_late', targetType: 'appointment', targetId: a.id,
-      summary: `${provider.name || 'Provider'} running ~${delayMin} min behind — new estimated start ${when}${told.includes(a.id) ? '; guest asked to choose (keep / reschedule / cancel, no fee)' : ''}`,
+      summary: `${overrun ? 'Service running over — ' : ''}${provider.name || 'Provider'} running ~${delayMin} min behind — new estimated start ${when}${told.includes(a.id) ? '; guest asked to choose (keep / reschedule / cancel, no fee)' : ''}`,
       actor: { type: 'user', id: auth.actor.uid, name: auth.actor.name, role: auth.actor.role } }).catch(() => {});
   }
   return NextResponse.json({ ok: true, affected: impact.map((x) => ({ id: x.appt.id, clientName: x.appt.clientName || null, delayMin: x.delayMin, newStartAt: x.newStart.toISOString(), told: told.includes(x.appt.id) })) });
