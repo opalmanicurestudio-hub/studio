@@ -1,5 +1,6 @@
 'use client';
 
+import { ClientStatusCard } from '@/components/staff/ClientStatusCard';
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { FulfilmentPanel } from '@/components/fulfilment/FulfilmentPanel';
 import { permissionsFor } from '@/lib/fulfilment-access';
@@ -1328,24 +1329,8 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
             </div>
           )}
 
-          {/* Check-in status */}
-          {apt.checkInStatus && !['none', undefined, null].includes(apt.checkInStatus) && !['servicing','completed'].includes(st) && (
-            <div className={cn('p-2.5 rounded-xl border flex items-center gap-2',
-              apt.checkInStatus === 'arrived'      ? 'bg-green-50 border-green-200' :
-              apt.checkInStatus === 'running_late' ? 'bg-amber-50 border-amber-200' :
-                                                     'bg-blue-50 border-blue-200')}>
-              {apt.checkInStatus === 'arrived'      ? <MapPin className="w-3 h-3 text-green-600 shrink-0" /> :
-               apt.checkInStatus === 'running_late' ? <Clock   className="w-3 h-3 text-amber-600 shrink-0 animate-pulse" /> :
-                                                      <Car     className="w-3 h-3 text-blue-600 shrink-0" />}
-              <p className={cn('text-[10px] font-black uppercase',
-                apt.checkInStatus === 'arrived'      ? 'text-green-700' :
-                apt.checkInStatus === 'running_late' ? 'text-amber-700' : 'text-blue-700')}>
-                {apt.checkInStatus === 'arrived'      ? 'Client has arrived' :
-                 apt.checkInStatus === 'running_late' ? `Running late · est. +${apt.lateTimeMinutes}min` :
-                                                        'Client is on their way'}
-              </p>
-            </div>
-          )}
+          {/* What the client told us (running late / on the way / here) + decide on the spot */}
+          <ClientStatusCard apt={apt} tenantId={tenantId} />
         </div>
 
         {/* Add-on sheet — slides in when toggled */}
@@ -1949,8 +1934,9 @@ function DayTimeline({
                           {(services || []).find((s: any) => s.id === apt.serviceId)?.name || 'Service'}
                         </p>
                         {apt.checkInStatus === 'arrived'      && <span className="shrink-0 text-[7px] font-black uppercase bg-green-500 text-white rounded-md px-1 py-0.5">HERE</span>}
-                        {apt.checkInStatus === 'running_late' && <span className="shrink-0 text-[7px] font-black uppercase bg-amber-500 text-white rounded-md px-1 py-0.5 animate-pulse">+{apt.lateTimeMinutes}M</span>}
-                        {apt.checkInStatus === 'on_my_way'    && <span className="shrink-0 text-[7px] font-black uppercase bg-blue-500 text-white rounded-md px-1 py-0.5">EN ROUTE</span>}
+                        {apt.studioAskedToMove && <span className="shrink-0 text-[7px] font-black uppercase bg-amber-500 text-white rounded-md px-1 py-0.5">Resched.</span>}
+                        {!apt.studioAskedToMove && apt.checkInStatus === 'running_late' && <span className="shrink-0 text-[7px] font-black uppercase bg-amber-500 text-white rounded-md px-1 py-0.5 animate-pulse">{apt.etaAt ? `Late ~${new Date(apt.etaAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(' ', '')}` : `+${apt.lateTimeMinutes}M`}</span>}
+                        {apt.checkInStatus === 'on_my_way'    && <span className="shrink-0 text-[7px] font-black uppercase bg-blue-500 text-white rounded-md px-1 py-0.5">{apt.clientTrip?.etaMin && apt.clientTrip?.at && Date.now() - Date.parse(apt.clientTrip.at) < 600000 ? `En route ~${apt.clientTrip.etaMin}m` : 'En route'}</span>}
                       </div>
                       {/* Time + client */}
                       <p className="text-[9px] font-bold text-muted-foreground uppercase pl-3 truncate">
