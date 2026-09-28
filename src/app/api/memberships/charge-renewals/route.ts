@@ -35,6 +35,7 @@
  * this has nothing to do with voice.
  */
 
+import { internalHeaders } from '@/lib/message-policy';
 import { NextRequest, NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -152,7 +153,7 @@ export async function POST(req: NextRequest) {
         try {
           const chargeRes = await fetch(`${appUrl}/api/stripe/charge-card`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...internalHeaders(String(`${appUrl}/api/stripe/charge-card`)) },
             body: JSON.stringify({
               tenantId,
               clientId: clientDoc.id,
