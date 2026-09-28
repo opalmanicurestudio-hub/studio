@@ -11,7 +11,7 @@ const safeDate = (v: any): Date => { try { const d = v?.toDate ? v.toDate() : ne
 // when it's past it), optional trip sharing (distance only; ends at check-in),
 // and the ways to change it. Replaces the old "Enter Studio / Portal Active" screens.
 const LATE_CHOICES = [5, 10, 15, 20, 30, 45];
-export const DayOfView = ({ accent, studioName, first, serviceName, startTime, provider, address, graceMinutes, onArrived, onMyWay, onLate, onReschedule, onCancel, portalHref, onNotifications, trip, reply, status, lateMinutes, etaAt, selfCheckIn = true, providerDelay, onProviderReply }: {
+export const DayOfView = ({ accent, studioName, first, serviceName, startTime, provider, address, graceMinutes, onArrived, onMyWay, onLate, onReschedule, onCancel, portalHref, onNotifications, trip, reply, status, lateMinutes, etaAt, selfCheckIn = true, providerDelay, onProviderReply, providerOffer, onOfferReply }: {
     accent: string; studioName?: string; first: string; serviceName?: string; startTime?: string; provider?: { name?: string; avatarUrl?: string } | null; address?: string | null; graceMinutes: number;
     onArrived: () => Promise<any>; onMyWay: () => Promise<any>; onLate: (mins: number, note: string) => Promise<any>;
     onReschedule?: () => void; onCancel?: () => void; portalHref?: string | null; onNotifications?: () => void;
@@ -25,6 +25,9 @@ export const DayOfView = ({ accent, studioName, first, serviceName, startTime, p
     /** Their provider is running late — they choose: keep, reschedule or cancel (no fee). */
     providerDelay?: { minutes: number; newStartAt: string; reply?: string | null } | null;
     onProviderReply?: (choice: 'keep' | 'cancel') => Promise<any>;
+    /** We offered another provider — they accept or decline. */
+    providerOffer?: { toStaffName?: string | null; fromStaffName?: string | null; startAt: string; status: string } | null;
+    onOfferReply?: (choice: 'accept' | 'decline') => Promise<any>;
 }) => {
     const [lateOpen, setLateOpen] = useState(false); const [mins, setMins] = useState<number | null>(null); const [note, setNote] = useState('');
     const [said, setSaid] = useState<string | null>(null); const [past, setPast] = useState(false); const [busy, setBusy] = useState(false);
@@ -47,9 +50,15 @@ export const DayOfView = ({ accent, studioName, first, serviceName, startTime, p
     const askedToMove = reply?.kind === 'move';
     const [pdBusy, setPdBusy] = useState<string | null>(null); const [pdMsg, setPdMsg] = useState<string | null>(null); const [pdConfirmCancel, setPdConfirmCancel] = useState(false);
     const pdOpen = !!providerDelay && !providerDelay.reply;
+    const [poBusy, setPoBusy] = useState<string | null>(null); const [poMsg, setPoMsg] = useState<string | null>(null);
+    const poOpen = providerOffer?.status === 'pending';
+    const poTime = providerOffer?.startAt ? format(safeDate(providerOffer.startAt), 'h:mm a') : '';
+    const poWho = String(providerOffer?.toStaffName || 'Another of our team').split(' ')[0];
+    const poSend = async (c: 'accept' | 'decline') => { if (!onOfferReply) return; setPoBusy(c); const d = await onOfferReply(c); setPoBusy(null);
+        setPoMsg(d?.ok ? (c === 'accept' ? `Done — ${poWho} will see you at ${poTime}.` : 'No problem — we’ll be in touch with what happens next.') : (d?.error || 'That didn’t send — please try again.')); };
     const pdTime = providerDelay?.newStartAt ? format(safeDate(providerDelay.newStartAt), 'h:mm a') : '';
     const pdSend = async (c: 'keep' | 'cancel') => { if (!onProviderReply) return; setPdBusy(c); const d = await onProviderReply(c); setPdBusy(null);
-        setPdMsg(d?.ok ? (c === 'keep' ? `Thanks — we’ll see you around ${pdTime}.` : `Cancelled — no fee.${d.depositRefund ? ' Your deposit will be returned.' : ''}`) : (d?.error || 'That didn’t send — please try again.')); };
+        setPdMsg(d?.ok ? (c === 'keep' ? `Thanks — we’ll see you around ${pdTime}.${Number(d.creditCents) > 0 ? ` We’ve added $${(Number(d.creditCents) / 100).toFixed(2)} credit to your account as a thank-you.` : ''}` : `Cancelled — no fee.${d.depositRefund ? ' Your deposit will be returned.' : ''}`) : (d?.error || 'That didn’t send — please try again.')); };
     // We've asked them to choose a new time → stop sharing the trip.
     React.useEffect(() => { if (askedToMove && watchRef.current !== null) stopTrip(true); }, [askedToMove]); // eslint-disable-line react-hooks/exhaustive-deps
     const when = startTime ? format(safeDate(startTime), 'EEEE · h:mm a') : '';
@@ -68,6 +77,16 @@ export const DayOfView = ({ accent, studioName, first, serviceName, startTime, p
                     {provider?.name && <div className="flex items-center gap-3">{provider.avatarUrl ? <img src={provider.avatarUrl} alt="" className="h-10 w-10 rounded-full object-cover" /> : <span className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold text-white" style={{ background: 'var(--accent)' }}>{provider.name.slice(0, 1)}</span>}<p className="text-[15px]">with <b>{provider.name.split(' ')[0]}</b></p></div>}
                     {address && <p className="text-[14px]" style={{ color: 'var(--muted)' }}>{address} · <a className="underline underline-offset-2" style={{ color: 'var(--ink)' }} target="_blank" rel="noreferrer" href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`}>Directions</a></p>}
                 </section>
+                {providerOffer && (poOpen || poMsg) && <section className="pub-card space-y-3 p-5" style={{ boxShadow: 'inset 0 0 0 2px var(--accent)' }} aria-live="polite">
+                    <p className="text-[13px] font-semibold" style={{ color: 'var(--accent)' }}>Another option for today</p>
+                    {poMsg ? <p className="text-[15px]">{poMsg}</p> : <>
+                        <p className="text-[15px]">To fit you in, <b>{poWho}</b> can see you at <b>{poTime}</b>{providerOffer.fromStaffName ? <> instead of {String(providerOffer.fromStaffName).split(' ')[0]}</> : null}. Would that work?</p>
+                        <div className="grid grid-cols-2 gap-2">
+                            <button type="button" disabled={!!poBusy} className={`${btn} font-semibold text-white`} style={{ background: 'var(--accent)' }} onClick={() => poSend('accept')}>{poBusy === 'accept' ? 'Saving…' : 'Accept'}</button>
+                            <button type="button" disabled={!!poBusy} className={`${btn} bg-white shadow-sm`} style={{ border: '1px solid #e7e2dc' }} onClick={() => poSend('decline')}>{poBusy === 'decline' ? 'Sending…' : 'No thanks'}</button>
+                        </div>
+                    </>}
+                </section>}
                 {providerDelay && (pdOpen || pdMsg) && <section className="pub-card space-y-3 p-5" style={{ boxShadow: 'inset 0 0 0 2px var(--accent)' }} aria-live="polite">
                     <p className="text-[13px] font-semibold" style={{ color: 'var(--accent)' }}>A quick update</p>
                     {pdMsg ? <p className="text-[15px]">{pdMsg}</p> : <>
