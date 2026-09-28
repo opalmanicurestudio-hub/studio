@@ -11,7 +11,7 @@ const safeDate = (v: any): Date => { try { const d = v?.toDate ? v.toDate() : ne
 // when it's past it), optional trip sharing (distance only; ends at check-in),
 // and the ways to change it. Replaces the old "Enter Studio / Portal Active" screens.
 const LATE_CHOICES = [5, 10, 15, 20, 30, 45];
-export const DayOfView = ({ accent, studioName, first, serviceName, startTime, provider, address, graceMinutes, onArrived, onMyWay, onLate, onReschedule, onCancel, portalHref, onNotifications, trip, reply, status, lateMinutes, etaAt }: {
+export const DayOfView = ({ accent, studioName, first, serviceName, startTime, provider, address, graceMinutes, onArrived, onMyWay, onLate, onReschedule, onCancel, portalHref, onNotifications, trip, reply, status, lateMinutes, etaAt, selfCheckIn = true }: {
     accent: string; studioName?: string; first: string; serviceName?: string; startTime?: string; provider?: { name?: string; avatarUrl?: string } | null; address?: string | null; graceMinutes: number;
     onArrived: () => Promise<any>; onMyWay: () => Promise<any>; onLate: (mins: number, note: string) => Promise<any>;
     onReschedule?: () => void; onCancel?: () => void; portalHref?: string | null; onNotifications?: () => void;
@@ -20,6 +20,8 @@ export const DayOfView = ({ accent, studioName, first, serviceName, startTime, p
     reply?: { kind: string; message: string; at?: string } | null;
     /** What they've already told us (from the live booking) — so the screen remembers. */
     status?: string | null; lateMinutes?: number | null; etaAt?: string | null;
+    /** The business allows online self check-in (Booking policies). Off → front desk. */
+    selfCheckIn?: boolean;
 }) => {
     const [lateOpen, setLateOpen] = useState(false); const [mins, setMins] = useState<number | null>(null); const [note, setNote] = useState('');
     const [said, setSaid] = useState<string | null>(null); const [past, setPast] = useState(false); const [busy, setBusy] = useState(false);
@@ -66,7 +68,7 @@ export const DayOfView = ({ accent, studioName, first, serviceName, startTime, p
                 {!askedToMove && status === 'running_late' && !said && <section className="pub-card p-5"><p className="text-[15px]">You told us you’re about <b>{Number(lateMinutes) || '?'} minutes</b> late{etaAt ? <> — arriving about <b>{format(safeDate(etaAt), 'h:mm a')}</b></> : null}. {provider?.name ? provider.name.split(' ')[0] : 'The team'} knows.</p></section>}
                 {!askedToMove && status === 'on_my_way' && !said && <section className="pub-card p-5"><p className="text-[15px]">You’re on your way — {provider?.name ? provider.name.split(' ')[0] : 'the team'} knows.</p></section>}
                 {!askedToMove && <section className="space-y-2">
-                    {confirmHere ? (
+                    {!selfCheckIn ? <div className="pub-card p-4 text-center"><p className="text-[15px]">Please check in at the front desk when you arrive.</p></div> : confirmHere ? (
                         <div className="pub-card space-y-2 p-4"><p className="text-[15px]">Looks like you’re about {dist} km away — check in anyway?</p>
                             <div className="grid grid-cols-2 gap-2"><button type="button" disabled={busy} className={`${btn} font-semibold text-white`} style={{ background: 'var(--accent)' }} onClick={async () => { setBusy(true); if (sharing) await stopTrip(true); await onArrived(); setBusy(false); }}>Yes, I’m here</button>
                                 <button type="button" className={`${btn} bg-white shadow-sm`} onClick={() => setConfirmHere(false)}>Not yet</button></div></div>
@@ -89,7 +91,7 @@ export const DayOfView = ({ accent, studioName, first, serviceName, startTime, p
                     }}>Let them know</button>
                 </section>}
                 {said && !reply?.message && <section className="pub-card space-y-3 p-5"><p className="text-[15px]">{said}</p>{past && onReschedule && <button type="button" className={`${btn} bg-white shadow-sm`} style={{ border: '1px solid #e7e2dc' }} onClick={onReschedule}>Reschedule instead</button>}</section>}
-                {trip && !askedToMove && <section className="pub-card space-y-2 p-5">
+                {trip && selfCheckIn && !askedToMove && <section className="pub-card space-y-2 p-5">
                     <div className="flex items-center justify-between gap-3"><p className="text-[15px] font-semibold">Share my trip</p>
                         <button type="button" onClick={() => (sharing ? stopTrip() : startTrip())} className="h-9 rounded-full px-4 text-[14px]" style={sharing ? { background: '#f1ece6' } : { background: 'var(--accent)', color: '#fff' }}>{sharing ? 'Stop' : 'Start'}</button></div>
                     <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{tripMsg || (tripNudge ? 'On your way? Tap Start and we’ll see roughly how far away you are — only the distance, and it stops when you check in.' : 'Let us see roughly how far away you are until you arrive. Only the distance is shared, and it stops when you check in.')}</p>
