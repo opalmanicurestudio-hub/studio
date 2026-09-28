@@ -219,7 +219,7 @@ export async function POST(req: NextRequest) {
 
     // ── MOVING A VISIT (client reschedule from the booking page) ──────────
     // The business's change rules apply before anything is created: the change
-    // cutoff and the change limit (then staff approval, or "please call").
+    // cutoff and the change limit (then staff approval, or no more changes online).
     // Staff/our server aren't limited here. When allowed, the new booking
     // inherits the original time + count, so deadlines can't be pushed back.
     let replacedChain: { originalStartTime: string | null; rescheduleCount: number } | null = null;
@@ -236,7 +236,7 @@ export async function POST(req: NextRequest) {
               await oldSnap.ref.set({ changeRequestedAt: nowIso, changeRequestedFor: body.startTime || null }, { merge: true }).catch(() => {});
               const n = db.collection(`tenants/${tenantId}/notifications`).doc();
               await n.set({ id: n.id, userId: null, read: false, createdAt: nowIso, type: 'change_request', link: 'pos',
-                message: `${old.clientName || 'A client'} wants to move their ${old.serviceName || 'appointment'} again (already moved ${rule.count} time${rule.count === 1 ? '' : 's'})${body.startTime ? ` — to ${new Date(body.startTime).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tenant.timezone || undefined })}` : ''}. Please move it for them.` }).catch(() => {});
+                message: `${old.clientName || 'A client'} is asking you to reschedule their ${old.serviceName || 'appointment'} (already rescheduled ${rule.count} time${rule.count === 1 ? '' : 's'})${body.startTime ? ` — to ${new Date(body.startTime).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tenant.timezone || undefined })}` : ''}. Please reschedule it for them.` }).catch(() => {});
               await logAuditAdmin(db, tenantId, { action: 'appointment.change_requested', targetType: 'appointment', targetId: replacesId,
                 summary: `${old.clientName || 'Client'} asked to move it again — over the change limit (${rule.count}/${rule.limit}), staff approval needed`, actor: { type: 'user', name: old.clientName || 'Client', role: 'client', via: 'booking page' } }).catch(() => {});
             }
@@ -265,7 +265,7 @@ export async function POST(req: NextRequest) {
           const q = await db.collection(`tenants/${tenantId}/appointments`).where('clientId', '==', cid).limit(60).get();
           upcoming += q.docs.filter((d: any) => { const x = d.data() as any; return d.id !== replacesId && String(x.startTime || '') >= nowIso && !['cancelled', 'canceled', 'declined', 'expired', 'completed', 'no_show', 'released'].includes(String(x.status || '')); }).length;
         }
-        if (upcoming >= maxUpcoming) return NextResponse.json({ ok: false, error: `You already have ${upcoming} upcoming booking${upcoming === 1 ? '' : 's'} with us — the most we can hold at once is ${maxUpcoming}. Change one of them, or call us and we’ll help.` }, { status: 409 });
+        if (upcoming >= maxUpcoming) return NextResponse.json({ ok: false, error: `You already have ${upcoming} upcoming booking${upcoming === 1 ? '' : 's'} with us — the most we can hold at once is ${maxUpcoming}. Reschedule or cancel one of them from its confirmation link, then book again.` }, { status: 409 });
       }
     }
 
