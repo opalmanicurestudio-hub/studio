@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
     if (!action || !tenantId || !apptId) return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
     const db = getAdminDb();
     const authed = await loadAuthed(db, tenantId, apptId, body.k);
-    if (!authed) return NextResponse.json({ ok: false, error: 'This link is no longer valid — call the studio and we\'ll help.' }, { status: 401 });
+    if (!authed) return NextResponse.json({ ok: false, error: 'This link is no longer valid — please open the link in your most recent confirmation.' }, { status: 401 });
     const { ref, a } = authed;
 
     const tDoc = (await db.doc(`tenants/${tenantId}`).get()).data() as any || {};
@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
     const insideWindow = Date.now() <= startMs - cancelHours * 3600000;
     // Moving it: the shared change rules (cutoff + how many times it's been moved).
     // When WE asked them to move it (running late → "please pick a new time"), the usual cutoff and change limit don't apply.
-    const change = a.studioAskedToMove ? { ...checkChange(tDoc, a, 'client'), allowed: true, needsApproval: false, blocked: false, reason: null } : checkChange(tDoc, a, 'client');
+    const change = a.studioAskedToMove ? { ...checkChange(tDoc, a, 'client'), allowed: true, needsApproval: false, blocked: false, canRequest: false, reason: null } : checkChange(tDoc, a, 'client');
     const insideRescheduleWindow = change.allowed;
     // Your reschedule fee (Booking policies) — counted from the ORIGINAL time; none when WE asked them to move it; renters keep their own rules.
     const rp = resolvePolicy(tDoc).change;
@@ -122,8 +122,8 @@ export async function POST(req: NextRequest) {
       await ref.set({ changeRequestedAt: nowIso, ...(note ? { changeRequestNote: note } : {}) }, { merge: true }).catch(() => {});
       const n = db.collection(`tenants/${tenantId}/notifications`).doc();
       await n.set({ id: n.id, userId: null, read: false, createdAt: nowIso, type: 'change_request', link: 'pos',
-        message: `${a.clientName || 'A client'} wants to move their ${a.serviceName || 'appointment'} again (already moved ${change.count} time${change.count === 1 ? '' : 's'})${note ? ` — “${note}”` : ''}. Please move it for them.` }).catch(() => {});
-      await logAuditAdmin(db, tenantId, { action: 'appointment.change_requested', targetType: 'appointment', targetId: apptId, summary: `${a.clientName || 'Client'} asked to move it again — over the change limit (${change.count}/${change.limit}), staff approval needed${note ? `: “${note}”` : ''}`, actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'visit link' } }).catch(() => {});
+        message: `${a.clientName || 'A client'} is asking you to reschedule their ${a.serviceName || 'appointment'}${change.count ? ` (already rescheduled ${change.count} time${change.count === 1 ? '' : 's'})` : ' (inside your change cutoff)'}${note ? ` — “${note}”` : ''}. Please reschedule it for them.` }).catch(() => {});
+      await logAuditAdmin(db, tenantId, { action: 'appointment.change_requested', targetType: 'appointment', targetId: apptId, summary: `${a.clientName || 'Client'} asked us to reschedule it — ${change.count >= change.limit && change.limit > 0 ? `over the change limit (${change.count}/${change.limit})` : 'inside the change cutoff'}${note ? `: “${note}”` : ''}`, actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'visit link' } }).catch(() => {});
       return true;
     };
     const already = ['cancelled', 'canceled', 'completed', 'no_show'].includes(String(a.status || ''));
@@ -141,7 +141,7 @@ export async function POST(req: NextRequest) {
         policy: {
           cancelHours, canChange: insideWindow && !already, tzOffsetMinutes: tzOffset,
           rescheduleCutoffHours, canReschedule: insideRescheduleWindow && !already,
-          changeRule: change.allowed ? null : { reason: change.reason, needsApproval: change.needsApproval, count: change.count, limit: change.limit },
+          changeRule: change.allowed ? null : { reason: change.reason, needsApproval: change.needsApproval, canRequest: change.canRequest, count: change.count, limit: change.limit },
           rescheduleFee: feeIfMovedNow, rescheduleFeeWindowHours: rWin,
           // The earliest date the CLIENT may pick, on the STUDIO's calendar.
           // The pages used to compute this from the browser's clock, so a
@@ -164,7 +164,7 @@ export async function POST(req: NextRequest) {
 
     if (action === 'cancel') {
       // Inside the window, cancelling goes through the visit link, where your late-cancellation policy (and fee) applies.
-      if (!insideWindow) return NextResponse.json({ ok: false, error: `It’s within ${cancelHours} hours of your appointment, so a late-cancellation policy applies — cancel from your visit link to see exactly what that means, or call us.`, visitLink: a.checkInToken ? `/check-in/${a.checkInToken}` : null }, { status: 422 });
+      if (!insideWindow) return NextResponse.json({ ok: false, error: `It’s within ${cancelHours} hours of your appointment, so a late-cancellation policy applies — cancel from your visit link to see exactly what that means.`, visitLink: a.checkInToken ? `/check-in/${a.checkInToken}` : null }, { status: 422 });
       const nowIso = new Date().toISOString();
       const cancelFields = { status: 'cancelled', cancelledAt: nowIso, cancelledBy: 'client_self_serve' };
       await ref.set(cancelFields, { merge: true });
@@ -229,7 +229,7 @@ export async function POST(req: NextRequest) {
     // "Ask us to move it" — when the change limit needs the team's OK.
     if (action === 'request_change') {
       if (change.allowed) return NextResponse.json({ ok: false, error: 'You can move this one yourself — pick a new time.' }, { status: 400 });
-      if (!change.needsApproval) return NextResponse.json({ ok: false, error: change.reason }, { status: 409 });
+      if (!change.canRequest) return NextResponse.json({ ok: false, error: change.reason }, { status: 409 });
       const note = typeof body.note === 'string' ? body.note.trim().slice(0, 300) : '';
       const first = await requestChange(note || null);
       return NextResponse.json({ ok: true, requested: true, alreadyAsked: !first });
@@ -276,7 +276,7 @@ export async function POST(req: NextRequest) {
           if (overlaps(newStart.getTime(), newEnd.getTime(), oS, oE)) return { conflict: true };
         }
         const move = {
-          ...chainAfterMove(a),   // remembers the original time + how many times it has moved
+          ...chainAfterMove(a, { byStudio: !!a.studioAskedToMove }),   // original time + count (not counted when WE asked them to reschedule)
           ...(feeIfMovedNow > 0 ? { rescheduleFeeApplied: feeIfMovedNow } : {}),
           // A new time is a fresh start: no longer late, no longer asked to move.
           studioAskedToMove: false, lateReply: null, checkInStatus: null, lateTimeMinutes: null, clientCheckInStatus: null, clientLateMinutes: null, clientEtaAt: null, etaAt: null, clientLateNote: null, clientTrip: null,
