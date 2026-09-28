@@ -43,6 +43,7 @@ export async function bookThroughEngine(o: {
       res = await fetch('/api/appointments/book', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
         tenantId: o.tenantId, source: o.source,
         serviceId: d.serviceId, addOnIds: d.addOnIds || [], staffId: d.staffId || 'any', startTime: d.startTime,
+        ...(d.place ? { place: d.place } : {}),
         client: { name: o.formData.clientName, email: o.formData.clientEmail, phone: o.formData.clientPhone,
           smsConsent: (d.smsConsent ?? o.formData.smsConsent) === true, smsConsentText: d.smsConsentText || null },
         notes: o.formData.notes,
