@@ -1,5 +1,6 @@
 'use client';
 
+import { hasRealCard } from '@/lib/card-on-file';
 import React, { useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn, safeNumber } from '@/lib/utils';
@@ -12,7 +13,7 @@ import {
 import { type Client } from '@/lib/data';
 
 function ClientBadges({ client }: { client: Client }) {
-  const hasCard  = !!(client.cardOnFile?.token || client.cardOnFile?.paymentMethodId);
+  const hasCard  = !!hasRealCard(client);
   const hasDebt  = safeNumber(client.outstandingBalance) > 0;
   const isMember = !!client.activeMembershipId || client.subscription?.status === 'active';
   if (!hasCard && !hasDebt && !isMember) return null;
