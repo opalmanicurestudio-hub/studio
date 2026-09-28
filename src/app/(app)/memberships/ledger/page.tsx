@@ -1,5 +1,6 @@
 'use client';
 
+import { hasRealCard } from '@/lib/card-on-file';
 import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
@@ -73,7 +74,7 @@ const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title:
 
 const SubscriptionRow = ({ instance, client, onSettle }: { instance: SubscriptionInstance, client?: any, onSettle: (inst: SubscriptionInstance) => void }) => {
     const isOverdue = instance.status === 'pending' && isPast(parseISO(instance.dueDate)) && !isToday(parseISO(instance.dueDate));
-    const hasCard = !!(client?.cardOnFile?.token || client?.cardOnFile?.paymentMethodId);
+    const hasCard = !!hasRealCard(client);
 
     return (
         <TableRow className="group hover:bg-primary/[0.02] cursor-pointer">
@@ -179,7 +180,7 @@ export default function MembershipLedgerPage() {
   const handleSettle = async (instance: SubscriptionInstance) => {
     if (!firestore || !tenantId) return;
     const client = clients.find(c => c.id === instance.clientId);
-    const hasCard = !!(client?.cardOnFile?.token || client?.cardOnFile?.paymentMethodId);
+    const hasCard = !!hasRealCard(client);
 
     const batch = writeBatch(firestore);
     const now = new Date().toISOString();
