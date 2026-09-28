@@ -1,0 +1,105 @@
+// src/lib/booking-policies.ts — WHAT APPLIES TO THIS APPOINTMENT, FOR THIS CLIENT.
+//
+// One answer for everything that needs it (booking, the front desk, cancel &
+// reschedule, emails, the booking-page FAQ): business default → service →
+// provider/renter → client privileges, with WHERE each rule came from.
+//
+// It reads the settings that already exist first (cancellationWindowHours,
+// depositPolicy, bookingRelease, …) so nothing changes until the owner edits;
+// new rules live under tenant.bookingPolicies with the defaults below.
+// Pure — safe on the server and in the browser.
+
+import { resolveDepositPolicy, type DepositPolicy } from '@/lib/deposit-policy';
+
+export type Source = 'default' | 'business' | 'service' | 'provider' | 'member';
+export type Ruled<T> = { value: T; source: Source };
+
+/** The new, per-business rules (owner decisions 2026-09-28) and their defaults. */
+export interface BookingPoliciesSettings {
+  lateCancelConsequence?: 'both' | 'fee' | 'deposit';     // default 'both' — the deposit counts toward the fee
+  changeCutoffHours?: number;                             // no client changes inside this; 0 = any time (default 0)
+  rescheduleLimit?: number;                               // changes allowed before the next needs a person; 0 = unlimited (default 2)
+  overLimit?: 'approval' | 'block';                       // default 'approval'
+  rescheduleDeadline?: 'original' | 'new';                // default 'original' — moving can't push the deadline back
+  maxUpcomingBookings?: number;                           // 0 = no limit (default)
+  balanceDue?: 'visit' | 'booking';                       // default 'visit'
+  renterDeskSupport?: { billing: 'included' | 'per_booking' | 'monthly'; amount?: number }; // default included
+}
+export const POLICY_DEFAULTS: Required<Omit<BookingPoliciesSettings, 'renterDeskSupport'>> & { renterDeskSupport: { billing: 'included'; amount: number } } = {
+  lateCancelConsequence: 'both', changeCutoffHours: 0, rescheduleLimit: 2, overLimit: 'approval', rescheduleDeadline: 'original',
+  maxUpcomingBookings: 0, balanceDue: 'visit', renterDeskSupport: { billing: 'included', amount: 0 },
+};
+
+export interface EffectivePolicy {
+  deposit: { required: Ruled<boolean>; kind: Ruled<'flat' | 'percent' | 'full' | 'breakeven' | 'none'>; amount: Ruled<number>; appliesToBalance: Ruled<boolean>; outcomes: DepositPolicy; balanceDue: Ruled<'visit' | 'booking'> };
+  cancel: { windowHours: Ruled<number>; feeMode: Ruled<'flat' | 'percentage' | 'matrix' | 'none'>; feeValue: Ruled<number>; lateConsequence: Ruled<'both' | 'fee' | 'deposit'> };
+  change: { cutoffHours: Ruled<number>; feeWindowHours: Ruled<number>; fee: Ruled<number>; limit: Ruled<number>; overLimit: Ruled<'approval' | 'block'>; deadline: Ruled<'original' | 'new'> };
+  noShow: { feeMode: Ruled<'full_service' | 'flat' | 'matrix' | 'none'>; flatFee: Ruled<number> };
+  late: { graceMinutes: Ruled<number>; fee: Ruled<number>; autoCancel: Ruled<boolean> };
+  access: { publicDays: Ruled<number>; memberDays: Ruled<number>; minNoticeMinutes: Ruled<number>; maxUpcoming: Ruled<number>; membersOnly: Ruled<boolean> };
+  holds: { holdMinutes: Ruled<number>; paymentGraceHours: Ruled<number> };
+  renterDesk: { billing: Ruled<'included' | 'per_booking' | 'monthly'>; amount: Ruled<number> };
+}
+
+const has = (v: any) => v !== undefined && v !== null && v !== '';
+const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+/** First defined value wins, with its source. */
+function pick<T>(...c: [any, Source][]): Ruled<T> { for (const [v, s] of c) if (has(v)) return { value: v as T, source: s }; return { value: undefined as any, source: 'default' }; }
+
+export function resolvePolicy(tenant: any, service?: any, opts: { isMember?: boolean } = {}): EffectivePolicy {
+  const t = tenant || {}; const s = service || {}; const bp: BookingPoliciesSettings = t.bookingPolicies || {}; const bm = t.bookingMode || {}; const rel = t.bookingRelease || {};
+  const svcDeposit = !!s.depositType && s.depositType !== 'none' && (s.depositType !== 'deposit' || num(s.depositAmount) > 0);
+  const svcFeeMode = s.cancellationFeeMode && s.cancellationFeeMode !== 'inherit' ? s.cancellationFeeMode : undefined;
+  const tenantFeeMode = t.defaultCancellationMode || (num(t.cancellationFee) > 0 ? 'flat' : undefined);
+  return {
+    deposit: {
+      required: svcDeposit ? { value: true, source: 'service' } : { value: false, source: 'default' },
+      kind: svcDeposit ? { value: s.depositType === 'full' ? 'full' : s.depositType === 'breakeven' ? 'breakeven' : s.depositSubType === 'percentage' ? 'percent' : 'flat', source: 'service' } : { value: 'none', source: 'default' },
+      amount: svcDeposit ? { value: num(s.depositAmount), source: 'service' } : { value: 0, source: 'default' },
+      appliesToBalance: pick<boolean>([s.depositAppliesToBalance, 'service'], [true, 'default']),
+      outcomes: resolveDepositPolicy(t),
+      balanceDue: pick<'visit' | 'booking'>([bp.balanceDue, 'business'], [POLICY_DEFAULTS.balanceDue, 'default']),
+    },
+    cancel: {
+      windowHours: pick<number>([num(s.cancellationWindowHours) || undefined, 'service'], [num(t.cancellationWindowHours) || undefined, 'business'], [24, 'default']),
+      feeMode: pick([svcFeeMode, 'service'], [tenantFeeMode, 'business'], ['none', 'default']),
+      feeValue: pick<number>([num(s.cancellationFeeValue ?? s.customCancellationFee) || undefined, 'service'], [num(t.cancellationFee) || undefined, 'business'], [0, 'default']),
+      lateConsequence: pick([bp.lateCancelConsequence, 'business'], [POLICY_DEFAULTS.lateCancelConsequence, 'default']),
+    },
+    change: {
+      cutoffHours: pick<number>([bp.changeCutoffHours, 'business'], [POLICY_DEFAULTS.changeCutoffHours, 'default']),
+      feeWindowHours: pick<number>([num(t.rescheduleFeeWindowHours) || undefined, 'business'], [0, 'default']),
+      fee: pick<number>([num(t.rescheduleFee) || undefined, 'business'], [0, 'default']),
+      limit: pick<number>([bp.rescheduleLimit, 'business'], [POLICY_DEFAULTS.rescheduleLimit, 'default']),
+      overLimit: pick([bp.overLimit, 'business'], [POLICY_DEFAULTS.overLimit, 'default']),
+      deadline: pick([bp.rescheduleDeadline, 'business'], [POLICY_DEFAULTS.rescheduleDeadline, 'default']),
+    },
+    noShow: {
+      feeMode: pick([t.noShowFeeMode, 'business'], ['full_service', 'default']), // what the no-show path charges today when unset
+      flatFee: pick<number>([num(t.flatNoShowFee ?? t.noShowFee) || undefined, 'business'], [0, 'default']),
+    },
+    late: {
+      graceMinutes: pick<number>([has(t.lateArrivalGracePeriod) ? num(t.lateArrivalGracePeriod) : undefined, 'business'], [15, 'default']),
+      fee: pick<number>([num(t.lateArrivalFee) || undefined, 'business'], [0, 'default']),
+      autoCancel: pick<boolean>([has(t.autoCancelLateArrivals) ? !!t.autoCancelLateArrivals : undefined, 'business'], [false, 'default']),
+    },
+    access: {
+      publicDays: pick<number>([num(rel.horizonDays) || undefined, 'business'], [num(t.bookingHorizonDays) || undefined, 'business'], [0, 'default']),
+      memberDays: pick<number>([opts.isMember ? (num(rel.memberHorizonDays) || undefined) : undefined, 'member'], [num(rel.memberHorizonDays) || undefined, 'business'], [0, 'default']),
+      minNoticeMinutes: pick<number>([num(t.bookingLeadMinutes) || (num(t.bookingLeadHours) ? num(t.bookingLeadHours) * 60 : undefined), 'business'], [0, 'default']),
+      maxUpcoming: pick<number>([bp.maxUpcomingBookings, 'business'], [POLICY_DEFAULTS.maxUpcomingBookings, 'default']),
+      membersOnly: pick<boolean>([s.membersOnly === true ? true : undefined, 'service'], [false, 'default']),
+    },
+    holds: {
+      holdMinutes: pick<number>([num(bm.holdMinutes) || undefined, 'business'], [30, 'default']),
+      paymentGraceHours: pick<number>([has(bm.paymentGraceHours) ? num(bm.paymentGraceHours) : undefined, 'business'], [24, 'default']),
+    },
+    renterDesk: {
+      billing: pick([bp.renterDeskSupport?.billing, 'business'], [POLICY_DEFAULTS.renterDeskSupport.billing, 'default']),
+      amount: pick<number>([bp.renterDeskSupport?.amount, 'business'], [0, 'default']),
+    },
+  };
+}
+
+/** For the owner: "Business default", "This service", … */
+export const sourceLabel = (s: Source) => ({ default: 'ClarityFlow default', business: 'Your setting', service: 'This service', provider: 'This provider', member: 'Members' } as const)[s];
