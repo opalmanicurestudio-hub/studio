@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
 
   if (decision === 'accept') {
     const { internalOrigin, internalPost } = await import('@/lib/message-policy');
-    const r = await internalPost(internalOrigin(t, req.nextUrl.origin), '/api/appointments/book', {
+    const r = await internalPost(internalOrigin(null, req.nextUrl.origin), '/api/appointments/book', { // our own host → recognised as a staff booking
       tenantId, source: 'manual', serviceId: br.serviceId, addOnIds: br.addOnIds || [], staffId: br.staffId || 'any', startTime: br.startTime,
       client: { name: br.clientName, email: br.clientEmail, phone: br.clientPhone || null, smsConsent: br.smsConsent === true, smsConsentText: br.smsConsentText || null },
       notes: br.notes || null, inspirationPhotoUrl: br.inspirationPhotoUrl || undefined, signedForms: Array.isArray(br.signedForms) ? br.signedForms : [],
