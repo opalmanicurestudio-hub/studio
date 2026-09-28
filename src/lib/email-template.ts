@@ -13,6 +13,7 @@ export interface BrandedEmailInput {
   bigCode?: string;              // renders a large centered code block (OTPs)
   bodyHtml?: string;             // trusted pre-built HTML (caller escapes its own data), rendered after bodyLines
   cta?: { label: string; url: string } | null;
+  secondaryCta?: { label: string; url: string } | null; // a quieter second link, e.g. "Add to calendar"
   footerNote?: string;           // small print under the card
 }
 
@@ -42,7 +43,7 @@ export function brandedEmailHtml(i: BrandedEmailInput): string {
   const bodyHtml = i.bodyHtml || '';
 
   return `<!doctype html>
-<html><body style="margin:0;padding:0;background:#f1f5f9;">
+<html><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0;padding:0;background:#f1f5f9;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:28px 12px;">
     <tr><td align="center">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
@@ -58,6 +59,7 @@ export function brandedEmailHtml(i: BrandedEmailInput): string {
           ${bodyHtml}
           ${code}
           ${cta}
+          ${i.secondaryCta ? `<p style="margin:10px 0 0;text-align:center;font-size:14px;"><a href="${esc(i.secondaryCta.url)}" target="_blank" style="color:#334155;text-decoration:underline;">${esc(i.secondaryCta.label)}</a></p>` : ''}
         </td></tr>
         <!-- Footer -->
         <tr><td style="padding:16px 10px 0;text-align:center;">
