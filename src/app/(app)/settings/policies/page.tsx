@@ -185,6 +185,8 @@ export default function BookingPoliciesPage() {
                   <Choice field={f('scope')} value={r.scope} label="Allowance applies" options={[['client', 'Per client'], ['client_service', 'Per client, per service'], ['client_provider', 'Per client, per provider']]} />
                   <span className="w-full text-xs text-muted-foreground">Who can apply it:</span>
                   <Choice field={f('approval')} value={r.approval} label="Who approves grace" options={[['staff', 'Any staff'], ['manager', 'A manager']]} />
+                  {g.id === 'late_reschedule' && <><span className="w-full text-xs text-muted-foreground">Online:</span>
+                    <Choice field={f('selfServe')} value={r.selfServe === true} label="Clients use it online" options={[[false, 'Staff apply it'], [true, 'Clients can use it themselves online']]} /></>}
                 </>}
               </Row>); })}
           </Section>
@@ -197,6 +199,9 @@ export default function BookingPoliciesPage() {
             <Row label="Missed appointments, in your words"><Text field="noShowPolicy" value={t.noShowPolicy} label="No-show policy" placeholder="e.g. Missed appointments are charged…" /></Row>
             <Row label="Who can decide" note="When a client is running late, a provider is behind, or a payment is due. Owners, admins and managers can always decide; fees and provider changes stay with them.">
               <Choice field="bookingPolicies.staffOpsLevel" value={t.bookingPolicies?.staffOpsLevel || 'decide_own'} label="Who can decide" options={[['decide_own', 'Staff decide for their own clients'], ['recommend', 'Staff can offer a reschedule only'], ['view', 'Staff view only']]} />
+            </Row>
+            <Row label="Running-over messages" note="When a service runs past its planned time and a later guest is affected, the POS prepares a message for them (keep, reschedule or cancel — no fee).">
+              <Choice field="bookingPolicies.overrunMessages" value={t.bookingPolicies?.overrunMessages || 'staff'} label="Running-over messages" options={[['staff', 'Any staff can send it'], ['manager', 'A manager sends it'], ['auto', 'Send automatically (10+ min over)']]} />
             </Row>
             <Row label="When a provider runs late" note="Guests who choose to wait get this as account credit, as a thank-you. 0 = no credit.">
               <Num field="bookingPolicies.providerDelayCredit" value={Number(t.bookingPolicies?.providerDelayCredit) || 0} unit="dollars credit" label="Thank-you credit" step={1} max={500} />
