@@ -30,6 +30,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { smsConfigured, sendTenantSms } from '@/lib/sms';
 import { sendNotification } from '@/lib/notify';
+import { resolveMessage, tidyBody } from '@/lib/message-policy';
+
+/** A custom message's link lines, when that link doesn't apply (no booking or review link), are dropped — never sent as "Book: ". */
+const withoutEmptyLinks = (t: string) => t.split('\n').filter((l) => !/:\s*$/.test(l.trim())).join('\n').trim();
 import {
   addDays, dayKey, formatShortDay, formatTime, hourIn, isValidTimeZone, tenantTimeZone,
 } from '@/lib/tenant-time';
@@ -395,7 +399,11 @@ export async function GET(req: NextRequest) {
                 : who.length === 2
                   ? `${who[0]} and ${who[1]}`
                   : `${who.slice(0, -1).join(', ')} and ${who[who.length - 1]}`;
-            const bits = [
+            const bookLink = cfg.bookingUrl ? (() => { const sid = b.items.length === 1 ? String(b.items[0].a.serviceId || '') : ''; if (!sid) return cfg.bookingUrl;
+              try { const u = new URL(cfg.bookingUrl); u.searchParams.set('service', sid); return u.toString(); } catch { return cfg.bookingUrl; } })() : '';
+            const thanksMsg = resolveMessage(tDoc.data(), 'post_visit_followup', { client_first: String(first.a.clientName || '').split(' ')[0] || 'there', team: whoLabel || 'we', book_link: bookLink, review_link: cfg.reviewUrl || '', studio: (tDoc.data() as any)?.name || '' }, 'sms');
+            if (!thanksMsg.send) continue;   // switched off on the Messages page
+            const bits = thanksMsg.custom ? withoutEmptyLinks(tidyBody(thanksMsg.body)) : [
               `Thanks for coming in yesterday${whoLabel ? ` — ${whoLabel} loved having you` : ''}!`,
               // Opens on the service they just had, so rebooking is two taps.
               cfg.bookingUrl ? `Book your next visit: ${(() => { const sid = b.items.length === 1 ? String(b.items[0].a.serviceId || '') : ''; if (!sid) return cfg.bookingUrl;
@@ -459,8 +467,10 @@ export async function GET(req: NextRequest) {
             const agenda = byStaff.get(sDoc.id);
             if (!agenda || !s.phone || s.active === false || s.archived) continue;
             try {
+              const am = resolveMessage(tDoc.data(), 'staff_agenda', { staff_first: String(s.name || '').split(' ')[0], count: agenda.count, appointments: `${agenda.count} appointment${agenda.count === 1 ? '' : 's'}`, first_time: agenda.firstLabel || '', note: downNote, studio: (tDoc.data() as any)?.name || '' }, 'sms');
+              if (!am.send) continue;
               const r = await sendTenantSms(db, tid, s.phone,
-                `Good morning! Today: ${agenda.count} appointment${agenda.count === 1 ? '' : 's'}, first at ${agenda.firstLabel}.${downNote}`);
+                am.custom ? tidyBody(am.body) : `Good morning! Today: ${agenda.count} appointment${agenda.count === 1 ? '' : 's'}, first at ${agenda.firstLabel}.${downNote}`);
               if (r.ok) agendas++;
             } catch { /* next staffer */ }
           }
@@ -504,7 +514,9 @@ export async function GET(req: NextRequest) {
             }
           } catch { /* skip */ }
           const msg = `Morning brief: ${apptsToday} appointment${apptsToday === 1 ? '' : 's'} today${firstLabel ? ` (first ${firstLabel})` : ''} · ${openTickets} open maintenance${overdueTickets ? ` (${overdueTickets} overdue)` : ''} · $${revYesterday.toFixed(0)} collected yesterday.`;
-          if (smsConfigured()) brief = (await sendTenantSms(db, tid, cfg.ownerPhone, msg)).ok;
+          const ob = resolveMessage(tDoc.data(), 'owner_brief', { appointments: `${apptsToday} appointment${apptsToday === 1 ? '' : 's'}`, first_time: firstLabel || '—', open_maintenance: openTickets, overdue_maintenance: overdueTickets, revenue_yesterday: `$${revYesterday.toFixed(2)}`, studio: (tDoc.data() as any)?.name || '' }, 'sms');
+          const briefText = ob.custom ? tidyBody(ob.body) : msg;
+          if (smsConfigured() && ob.send) brief = (await sendTenantSms(db, tid, cfg.ownerPhone, briefText)).ok;
         } catch { /* brief is a bonus */ }
       }
 
