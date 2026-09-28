@@ -133,7 +133,7 @@ const KpiCardInternal = ({ title, value, icon: Icon, description, colorClass }: 
 
 const SubscriptionRowInternal = ({ instance, client, membership, onSettle, onTerminate }: { instance: SubscriptionInstance, client?: any, membership?: Membership, onSettle: (inst: SubscriptionInstance) => void, onTerminate: (inst: SubscriptionInstance) => void }) => {
     const isOverdue = instance.status === 'failed' || (instance.status === 'pending' && isPast(parseISO(instance.dueDate)) && !isToday(parseISO(instance.dueDate)));
-    const hasCard = !!client?.cardOnFile?.token;
+    const hasCard = !!(client?.cardOnFile?.token || client?.cardOnFile?.paymentMethodId);
     const isNoCommitment = !!membership?.noCommitment;
 
     return (
@@ -209,7 +209,7 @@ const SubscriptionRowInternal = ({ instance, client, membership, onSettle, onTer
 
 const SubscriptionCardInternal = ({ instance, client, membership, onSettle, onTerminate }: { instance: SubscriptionInstance, client?: any, membership?: Membership, onSettle: (inst: SubscriptionInstance) => void, onTerminate: (inst: SubscriptionInstance) => void }) => {
     const isOverdue = instance.status === 'failed' || (instance.status === 'pending' && isPast(parseISO(instance.dueDate)) && !isToday(parseISO(instance.dueDate)));
-    const hasCard = !!client?.cardOnFile?.token;
+    const hasCard = !!(client?.cardOnFile?.token || client?.cardOnFile?.paymentMethodId);
     const isNoCommitment = !!membership?.noCommitment;
 
     return (
@@ -304,7 +304,7 @@ const SettleMembershipDialogInternal = ({ open, onOpenChange, instance, client, 
             methods.reset({
                 amount: instance.amount,
                 date: new Date(),
-                paymentMethod: client?.cardOnFile?.token ? 'Card on File' : 'Cash',
+                paymentMethod: (client?.cardOnFile?.token || client?.cardOnFile?.paymentMethodId) ? 'Card on File' : 'Cash',
                 notes: ''
             });
         }
@@ -453,7 +453,7 @@ export const MembershipLedger = () => {
       const autoSettlable = filteredInstances.filter(i => {
           if (i.status === 'paid' || i.status === 'cancelled') return false;
           const client = clients.find(c => c.id === i.clientId);
-          return !!client?.cardOnFile?.token;
+          return !!(client?.cardOnFile?.token || client?.cardOnFile?.paymentMethodId);
       });
 
       if (autoSettlable.length === 0) {
