@@ -31,6 +31,7 @@
  * self-cancel).
  */
 
+import { hasRealCard } from '@/lib/card-on-file';
 import { NextRequest, NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
 import { spawnRecoveryTicket } from '@/lib/opal/recovery-engine';
@@ -165,7 +166,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const hasCard        = !!(client.cardOnFile?.paymentMethodId || (client.cardOnFile?.token || client.cardOnFile?.paymentMethodId));
+  const hasCard        = !!(client.cardOnFile?.paymentMethodId || hasRealCard(client));
   const paymentMethod  = hasCard ? 'card_on_file' : 'add_to_balance';
   const eventId        = nanoid();
 
@@ -284,7 +285,7 @@ export async function POST(req: NextRequest) {
     feeAmount,
     paymentMethod,
     stripeCustomerId:      client.stripeCustomerId || null,
-    stripePaymentMethodId: client.cardOnFile?.paymentMethodId || (client.cardOnFile?.token || client.cardOnFile?.paymentMethodId) || null,
+    stripePaymentMethodId: client.cardOnFile?.paymentMethodId || (hasRealCard(client) ? client.cardOnFile?.token : null) || null,
     cancellationAudit,
     reason:                'no-show',
     status:                'pending',
