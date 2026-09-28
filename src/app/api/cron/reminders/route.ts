@@ -31,6 +31,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { smsConfigured, sendTenantSms } from '@/lib/sms';
 import { sendNotification } from '@/lib/notify';
 import { resolveMessage, tidyBody } from '@/lib/message-policy';
+import { placeLine } from '@/lib/service-place';
 
 /** A custom message's link lines, when that link doesn't apply (no booking or review link), are dropped — never sent as "Book: ". */
 const withoutEmptyLinks = (t: string) => t.split('\n').filter((l) => !/:\s*$/.test(l.trim())).join('\n').trim();
@@ -163,9 +164,10 @@ export async function GET(req: NextRequest) {
       // Service names, read once, so a multi-appointment reminder can say
       // "10:00 Manicure, 11:15 Pedicure" instead of listing bare times.
       const svcNames = new Map<string, string>();
+      const svcById = new Map<string, any>();   // where each service happens (studio / online / at the client's)
       try {
         const svcSnap = await db.collection(`tenants/${tid}/services`).get();
-        for (const d of svcSnap.docs) svcNames.set(d.id, String((d.data() as any)?.name || ''));
+        for (const d of svcSnap.docs) { svcNames.set(d.id, String((d.data() as any)?.name || '')); svcById.set(d.id, d.data()); }
       } catch { /* names are a nicety, not a requirement */ }
 
       /**
@@ -275,9 +277,10 @@ export async function GET(req: NextRequest) {
           let msg: string;
           if (b.items.length === 1) {
             const withWho = first.a.staffName ? ` with ${first.a.staffName}` : '';
+            const whereLine = placeLine(svcById.get(String(first.a.serviceId || '')));   // online link / "we'll come to you"
             msg = daysBefore === 0
-              ? `Reminder — your appointment is today, ${when}${withWho}.${manage}`
-              : `Reminder — your appointment is ${when}${withWho}.${manage}`;
+              ? `Reminder — your appointment is today, ${when}${withWho}.${whereLine ? ` ${whereLine}` : ''}${manage}`
+              : `Reminder — your appointment is ${when}${withWho}.${whereLine ? ` ${whereLine}` : ''}${manage}`;
           } else {
             // More than one name in the bucket means this phone is covering
             // other people, so lead each line with who it is for.
