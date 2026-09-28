@@ -262,7 +262,10 @@ export async function GET(req: NextRequest) {
           // forms/deposit, and the studio's real cancellation flow all
           // live there. The old /appt manage page is retired from links.
           const token = b.items.find((i) => i.a.checkInToken)?.a.checkInToken || null;
-          const manage = token && base ? ` Details & check-in: ${base}/check-in/${token}` : '';
+          const link = token && base ? `${base}/check-in/${token}` : '';
+          const formsDue = b.items.some((i) => i.a.completionStatus && i.a.completionStatus !== 'completed');
+          const depositDue = b.items.some((i) => i.a.status === 'pending_payment');
+          const manage = link ? ` ${depositDue ? 'Your deposit is still due — pay it here' : formsDue ? 'Please finish your forms before you arrive' : 'Details, check-in, running late or need to change it'}: ${link}` : '';
 
           let msg: string;
           if (b.items.length === 1) {
@@ -293,10 +296,19 @@ export async function GET(req: NextRequest) {
             delivered = r.ok;
           }
           if (!delivered && b.email) {
+            const { brandedEmailHtml } = await import('@/lib/email-template');
+            const tRem: any = (await db.doc(`tenants/${tid}`).get()).data() || {};
+            const graceRem = Number(tRem.lateArrivalGracePeriod || 0);
+            const html = brandedEmailHtml({ studioName: tRem.name || tRem.businessName || 'Your studio', title: daysBefore === 0 ? 'See you today' : 'See you soon',
+              bodyLines: [msg.replace(manage, '').replace(/^Reminder\s*[—-]?\s*/, '').trim(),
+                ...(depositDue ? ['Your deposit is still due — pay it from your link to keep this time.'] : formsDue ? ['Please finish your forms before you arrive — it only takes a minute from your link.'] : []),
+                `Running late? Tell us from your link and we’ll let you know your options${graceRem > 0 ? ` (we can usually hold your time for ${graceRem} minutes)` : ''}.`,
+                'Need to change it? Reschedule or cancel from the same link.'],
+              cta: link ? { label: depositDue ? 'Pay deposit' : formsDue ? 'Finish my forms' : 'My visit', url: link } : null });
             const r = await sendNotification(db, {
               tenantId: tid, channel: 'email', to: b.email,
-              subject: 'Appointment reminder',
-              text: msg, kind: 'appointment_reminder',
+              subject: daysBefore === 0 ? 'See you today' : 'Appointment reminder',
+              text: msg, html, kind: 'appointment_reminder',
               appointmentId: first.id, clientId: first.a.clientId || null, clientName: first.a.clientName || null,
             });
             delivered = r.ok;
@@ -384,7 +396,9 @@ export async function GET(req: NextRequest) {
                   : `${who.slice(0, -1).join(', ')} and ${who[who.length - 1]}`;
             const bits = [
               `Thanks for coming in yesterday${whoLabel ? ` — ${whoLabel} loved having you` : ''}!`,
-              cfg.bookingUrl ? `Book your next visit: ${cfg.bookingUrl}` : null,
+              // Opens on the service they just had, so rebooking is two taps.
+              cfg.bookingUrl ? `Book your next visit: ${(() => { const sid = b.items.length === 1 ? String(b.items[0].a.serviceId || '') : ''; if (!sid) return cfg.bookingUrl;
+                try { const u = new URL(cfg.bookingUrl); u.searchParams.set('service', sid); return u.toString(); } catch { return cfg.bookingUrl; } })()}` : null,
               cfg.reviewUrl ? `Enjoyed it? A quick review means the world: ${cfg.reviewUrl}` : null,
             ].filter(Boolean).join(' ');
             let delivered = false;
