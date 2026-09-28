@@ -23,7 +23,7 @@
 
 import { dailyRentCents } from './leave-policy';
 
-export type InterruptionType = 'flood' | 'fire' | 'power' | 'water' | 'weather' | 'closure' | 'other';
+export type InterruptionType = 'flood' | 'fire' | 'power' | 'water' | 'weather' | 'closure' | 'maintenance' | 'safety' | 'other';
 export type InterruptionStatus = 'open' | 'resolved';
 
 export const INTERRUPTION_TYPE_LABEL: Record<InterruptionType, string> = {
@@ -33,6 +33,8 @@ export const INTERRUPTION_TYPE_LABEL: Record<InterruptionType, string> = {
   water: 'No running water',
   weather: 'Weather',
   closure: 'Forced closure',
+  maintenance: 'Planned maintenance',
+  safety: 'Safety closure',
   other: 'Other',
 };
 
