@@ -152,7 +152,11 @@ export async function POST(req: NextRequest) {
   const candidates = creditSnap.docs
     .map((d: any) => ({ ref: d.ref, id: d.id, ...(d.data() as any) }))
     .filter((c: any) => !isCreditExpired(c.expiresAt));
-  candidates.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+  // THIS appointment's deposit first (a client can have more than one on file); otherwise the most recent.
+  candidates.sort((a: any, b: any) => {
+    const am = (a.appointmentId === appointmentId || a.sourceAppointmentId === appointmentId) ? 1 : 0, bm = (b.appointmentId === appointmentId || b.sourceAppointmentId === appointmentId) ? 1 : 0;
+    return bm - am || new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+  });
   const credit = candidates[0];
   if (!credit) {
     return NextResponse.json({ ok: false, reason: 'Deposit on file has expired.' }, { status: 404 });
