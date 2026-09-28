@@ -37,6 +37,7 @@ export function DeskCancel({ e, accent, onReschedule, onOfferSlot }: { e: any; a
   const [collect, setCollect] = useState<'card' | 'balance'>('card');
   const [waiveWhy, setWaiveWhy] = useState(''); const [tell, setTell] = useState(true);
   const [grace, setGrace] = useState<any>(null); const [graceOn, setGraceOn] = useState(false); // the client's grace allowance for this event
+  const [emergency, setEmergency] = useState(false); // an emergency uses its OWN allowance, not their ordinary grace
   const [done, setDone] = useState<{ lines: string[]; told: boolean } | null>(null); const [err, setErr] = useState('');
   const [snap, setSnap] = useState<any>(null); // outcome computed at confirm time
   const doneRef = useRef(false); // the shared logic closes the dialog after saving — keep the summary open
@@ -84,14 +85,14 @@ export function DeskCancel({ e, accent, onReschedule, onOfferSlot }: { e: any; a
   [who, r.finalFeeAmount, policyFee, r.chargeFee, r.hasDeposit, r.depositDollars, Math.round(hrsToDeadline), r.depositDisposition, collect, r.hasCardOnFile, card?.last4, r.additionalCreditValue, graceOn, grace?.rule?.permits]); // eslint-disable-line react-hooks/exhaustive-deps
   const { outcome, due, applied, waived, fee } = plan;
   useEffect(() => { setSnap({ outcome, due }); }, [outcome, due]);
-  const graceEvent = who === 'no_show' ? 'no_show' : 'late_cancellation';
+  const graceEvent = emergency ? 'emergency' : who === 'no_show' ? 'no_show' : 'late_cancellation';
   useEffect(() => {
     setGrace(null); setGraceOn(false);
     if (!appt?.clientId || who === 'studio' || !(policyFee > 0)) return;
     let live = true;
     staffPost('/api/grace', { tenantId: e.tenantId, action: 'check', event: graceEvent, clientId: appt.clientId, serviceId: appt.serviceId || null, staffId: appt.staffId || null }).then((g) => { if (live && g?.ok) setGrace(g); });
     return () => { live = false; };
-  }, [appt?.id, who, policyFee > 0]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [appt?.id, who, policyFee > 0, graceEvent]); // eslint-disable-line react-hooks/exhaustive-deps
   const useGrace = (on: boolean) => {
     setGraceOn(on); const p = grace?.rule?.permits;
     if (p === 'reduce_fee' && who === 'client') { r.setChargeFee(true); r.setFeeValue(on ? Math.round(policyFee * (100 - (Number(grace?.rule?.reducePercent) || 50))) / 100 : policyFee); setWaiveWhy(''); }
@@ -140,8 +141,10 @@ export function DeskCancel({ e, accent, onReschedule, onOfferSlot }: { e: any; a
         {who !== 'studio' && (policyFee > 0 || fee > 0) && <Card tone={due > 0 ? 'warn' : undefined}><p className="text-[14px] font-semibold">Your policy</p>
           <p className="text-[14px]">{who === 'no_show' ? 'Missed-appointment fee' : hrsToDeadline >= Number(e.selectedTenant?.cancellationWindowHours || 24) ? 'Enough notice — ' : 'Inside your notice window — '}<b>{money(waived ? policyFee : fee)}</b>{!waived && who === 'client' && r.isFeeOverridden ? <Pill tone="warn">changed from {money(Number(r.suggestedFeeTotal) || 0)}</Pill> : null}</p>
           {applied > 0 && <p className="text-[14px]">Their {money(depDollars)} deposit is kept under your policy, so it counts toward this — <b>{due > 0 ? `${money(due)} left to collect` : 'fully covered'}</b>.</p>}
+          <label className="flex items-center gap-2 text-[14px]"><input type="checkbox" checked={emergency} onChange={(ev) => { setEmergency(ev.target.checked); useGrace(false); }} /> This was an emergency <span className="text-[12px]" style={{ color: 'var(--muted)' }}>— uses their emergency allowance; no details needed</span></label>
+          {emergency && grace && !grace.enabled && <p className="text-[12px]" style={{ color: 'var(--muted)' }}>Emergency grace isn’t switched on — Booking policies → Grace → Emergency.</p>}
           {grace?.enabled && <div className="space-y-1.5 rounded-2xl p-3" style={{ background: 'var(--soft)' }}>
-            <p className="text-[13px]"><b>Grace allowance</b> · {grace.remaining} of {grace.allowance} left (every {grace.periodMonths} months) — {String(grace.permitLabel || '').toLowerCase()}.</p>
+            <p className="text-[13px]"><b>{emergency ? 'Emergency allowance' : 'Grace allowance'}</b> · {grace.remaining} of {grace.allowance} left (every {grace.periodMonths} months) — {String(grace.permitLabel || '').toLowerCase()}.</p>
             {grace.remaining > 0 ? (grace.canApply ? <label className="flex items-center gap-2 text-[14px]"><input type="checkbox" checked={graceOn} onChange={(ev) => useGrace(ev.target.checked)} /> Use grace for this</label>
               : <p className="text-[12px]" style={{ color: 'var(--muted)' }}>A manager approves grace for this.</p>)
               : <p className="text-[12px]" style={{ color: 'var(--muted)' }}>None left{grace.nextFreesAt ? ` — the next one frees up ${new Date(grace.nextFreesAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}. Your standard policy applies.</p>}
