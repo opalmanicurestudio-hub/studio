@@ -71,6 +71,8 @@
  * route) behave identically.
  */
 
+import { logAuditClient } from '@/lib/audit-client';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 import { useCallback } from 'react';
 import {
   doc,
@@ -158,7 +160,7 @@ export function useCancellationConfirm(
         try {
           const res = await fetch('/api/stripe/studio-cancel-refund', {
             method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
             body: JSON.stringify({
               tenantId,
               clientId:      client.id,
@@ -182,7 +184,7 @@ export function useCancellationConfirm(
               // Re-call with store_credit
               const fallbackRes = await fetch('/api/stripe/studio-cancel-refund', {
                 method:  'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
                 body: JSON.stringify({
                   tenantId,
                   clientId:      client.id,
@@ -323,7 +325,7 @@ export function useCancellationConfirm(
         feeAmount:             isStudioCancel ? 0 : feeAmount,
         paymentMethod:         isStudioCancel ? 'waived' : paymentMethod,
         stripeCustomerId:      client.stripeCustomerId || null,
-        stripePaymentMethodId: client.cardOnFile?.paymentMethodId || client.cardOnFile?.token || null,
+        stripePaymentMethodId: client.cardOnFile?.paymentMethodId || (client.cardOnFile?.token || client.cardOnFile?.paymentMethodId) || null,
 
         cancellationAudit,
         reason,
@@ -353,6 +355,11 @@ export function useCancellationConfirm(
         });
         return;
       }
+
+      // Also into the activity log everyone reads (tenants/{t}/auditLogs). The
+      // entry above goes to an older collection the activity log doesn't show;
+      // it's kept as-is so the cancellation itself can't be affected.
+      logAuditClient(firestore, tenantId, { ...(auditLogEntry as any), actor: (auditLogEntry as any)?.actor || { type: 'user', name: 'Front desk', role: 'staff' } } as any).catch(() => {});
 
       // ── Step 3: Deposit-credit resolution for CLIENT and NO-SHOW cancellations ─
       // Best-effort, non-blocking — the appointment is already cancelled by
