@@ -529,7 +529,7 @@ export default function ClientDetailPage() {
   const upcomingAppointments = appointmentsForThisClient.filter(apt => safeDate(apt.startTime) > new Date() && apt.status !== 'cancelled');
   const pastAppointments = appointmentsForThisClient.filter(apt => safeDate(apt.startTime) <= new Date()).sort((a,b) => safeDate(b.startTime).getTime() - safeDate(a.startTime).getTime());
   const hasDebt = safeBalance > 0;
-  const hasCardOnFile = !!client.cardOnFile?.token;
+  const hasCardOnFile = !!(client.cardOnFile?.token || client.cardOnFile?.paymentMethodId);
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50 overflow-x-hidden text-left">
