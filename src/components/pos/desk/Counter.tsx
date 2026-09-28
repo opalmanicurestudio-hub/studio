@@ -17,7 +17,7 @@ import { Btn, Pill, Empty, Panel } from './kit';
 const toDate = (v: any): Date | null => { if (!v) return null; try { const d = v?.toDate ? v.toDate() : v instanceof Date ? v : typeof v === 'string' ? parseISO(v) : new Date(v); return isNaN(d.getTime()) ? null : d; } catch { return null; } };
 const money = (n: any) => `$${(Number(n) || 0).toFixed(2)}`;
 
-export function Counter({ e }: { e: any }) {
+export function Counter({ e, onFollowUp }: { e: any; onFollowUp?: (visit: any) => void }) {
   const tenant = e.selectedTenant;
   const retailOn = moduleEnabled(tenant, 'retail'), membershipsOn = moduleEnabled(tenant, 'memberships');
   const [q, setQ] = useState(''); const [guest, setGuest] = useState(false);
@@ -84,7 +84,8 @@ export function Counter({ e }: { e: any }) {
               return <div key={a.id} className="flex items-center justify-between gap-2 rounded-2xl px-3 py-2.5" style={{ background: 'var(--card)' }}><span className="min-w-0 truncate text-[14px]">{(e.services || []).find((s: any) => s.id === a.serviceId)?.name || 'Service'}</span>{on ? <Pill tone="ok">In this sale</Pill> : <Btn quiet onClick={() => addReady(a)}>Add</Btn>}</div>; })}</Panel>}
             {fees.length > 0 && <Panel title="Owed" count={fees.length}>{fees.map((f: any) => { const on = applied.has(f.feeId);
               return <div key={f.feeId} className="flex items-center justify-between gap-2 rounded-2xl px-3 py-2.5" style={{ background: 'var(--card)' }}><span className="min-w-0 text-[14px]"><span className="block truncate">{String(f.reason || 'Fee').replace(/_/g, ' ')}</span><span className="text-[12px]" style={{ color: 'var(--muted)' }}>{money(f.feeAmount)}</span></span>{on ? <Btn quiet onClick={() => toggleFee(f.feeId)}>Remove</Btn> : <Btn quiet onClick={() => toggleFee(f.feeId)}>Add to sale</Btn>}</div>; })}</Panel>}
-            <div className="flex flex-wrap gap-2"><Btn quiet onClick={() => e.setIsQuickBookOpen(true)}>Book next visit</Btn>{client.id && <Btn quiet onClick={() => { const a = theirs[0]; if (a) { e.setSelectedAppointment(a); e.setIsDetailsOpen(true); } }} disabled={!theirs.length}>History</Btn>}</div>
+            <div className="flex flex-wrap gap-2"><Btn quiet onClick={() => { const last = readyToday[0] || [...theirs].filter((a: any) => ['completed', 'ready_for_checkout', 'servicing', 'confirmed'].includes(String(a.status))).sort((a: any, b: any) => (toDate(b.startTime)?.getTime() || 0) - (toDate(a.startTime)?.getTime() || 0))[0];
+                if (last && onFollowUp) onFollowUp(last); else e.setIsQuickBookOpen(true); }}>Book next visit</Btn>{client.id && <Btn quiet onClick={() => { const a = theirs[0]; if (a) { e.setSelectedAppointment(a); e.setIsDetailsOpen(true); } }} disabled={!theirs.length}>History</Btn>}</div>
           </section>
         )}
         {(retailOn || membershipsOn) && <section className="rounded-3xl p-4" style={{ background: 'var(--card)' }} aria-label="Add to the sale">
