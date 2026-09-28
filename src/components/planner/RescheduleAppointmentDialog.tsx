@@ -70,11 +70,22 @@ export function useReschedule(props: Props) {
   const [reason, setReason] = useState<string | null>(null); const [override, setOverride] = useState(false);
   const [applyFee, setApplyFee] = useState(true); const [notify, setNotify] = useState(true); const [busy, setBusy] = useState(false);
   const [initiatedBy, setInitiatedBy] = useState<'client' | 'studio'>('client'); // who asked for this change
+  const [grace, setGrace] = useState<any>(null); const [graceOn, setGraceOn] = useState(false); // late-reschedule grace allowance
   const fee = Number(tenant?.rescheduleFee || 0), windowH = Number(tenant?.rescheduleFeeWindowHours || 0);
   // Counted from the ORIGINAL time (Booking policies) — the same way the server charges it.
   const feeEligible = fee > 0 && windowH > 0 && hoursToDeadline(tenant, appointment) < windowH;
   // Staff are never blocked — but they see when a move goes past your policy (and it's recorded).
   const policyNote = useMemo(() => checkChange(tenant, appointment, 'staff').staffNote, [tenant, appointment]);
+  useEffect(() => {
+    setGrace(null); setGraceOn(false);
+    if (!open || !feeEligible || initiatedBy !== 'client' || !appointment?.clientId) return;
+    let live = true;
+    (async () => { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
+      const g = await fetch('/api/grace', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` },
+        body: JSON.stringify({ tenantId, action: 'check', event: 'late_reschedule', clientId: appointment.clientId, serviceId: appointment.serviceId || null, staffId: appointment.staffId || null }) }).then((x) => x.json()).catch(() => null);
+      if (live && g?.ok && g.enabled) setGrace(g); })();
+    return () => { live = false; };
+  }, [open, feeEligible, initiatedBy, appointment?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const base = { tenantId, appointmentId: appointment?.id };
   const first = String(appointment?.clientName || client?.name || 'client').split(' ')[0];
 
@@ -118,11 +129,13 @@ export function useReschedule(props: Props) {
   const move = async (force = false) => {
     if (!time || !day || busy) return; setBusy(true);
     try {
-      const d = await api({ ...base, action: 'move', date: day, time, staffId, applyFee: feeEligible && applyFee && initiatedBy === 'client', notify, override: force, initiatedBy });
+      const d = await api({ ...base, action: 'move', date: day, time, staffId, applyFee: feeEligible && applyFee && initiatedBy === 'client' && !graceOn, notify, override: force, initiatedBy });
       if (!d.ok) { if (d.canOverride) { setOverride(true); setReason(d.error); } else toast({ variant: 'destructive', title: 'Couldn’t move it', description: d.error || 'Please try another time.' }); return; }
       fetch('/api/opal/recovery-spawn', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, appointmentId: appointment.id, resolutionTicketId: d.auditId, clientId: client?.id || appointment.clientId, eventType: 'reschedule', vacatedSlotStart: appointment.startTime, vacatedSlotEnd: appointment.endTime, locationId: appointment.locationId || null }) }).catch(() => {});
       const told = [d.told?.email && 'email', d.told?.sms && 'text'].filter(Boolean).join(' + ');
       toast({ title: `${first} moved`, description: `${format(safeDate(d.startTime), 'EEE MMM d, h:mm a')}${d.feeApplied ? ` · $${Number(d.feeApplied).toFixed(2)} fee added` : ''}${notify ? (told ? ` · told by ${told}` : ' · couldn’t be messaged') : ''}${d.overrode ? ' · outside the rules (recorded)' : ''}` });
+      if (graceOn && appointment.clientId) { const gu = getAuth().currentUser; const gtk = gu ? await gu.getIdToken() : '';
+        await fetch('/api/grace', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${gtk}` }, body: JSON.stringify({ tenantId, action: 'use', event: 'late_reschedule', clientId: appointment.clientId, appointmentId: appointment.id, serviceId: appointment.serviceId || null, staffId: appointment.staffId || null }) }).catch(() => {}); }
       onRescheduled?.(d.startTime); onOpenChange(false);
     } finally { setBusy(false); }
   };
@@ -194,7 +207,9 @@ export function useReschedule(props: Props) {
       <div className="space-y-1.5 rounded-xl border p-3"><p className="text-sm font-semibold">Who asked for this change?</p>
         <div className="flex gap-2">{([['client', 'The client'], ['studio', 'We did']] as const).map(([v, l]) => <Button key={v} type="button" size="sm" variant={initiatedBy === v ? 'default' : 'outline'} onClick={() => setInitiatedBy(v)}>{l}</Button>)}</div>
         {initiatedBy === 'studio' && <p className="text-xs text-muted-foreground">Our change: no reschedule fee, it doesn’t count toward their change limit, and their notice deadline starts from the new time.</p>}</div>
-      {feeEligible && initiatedBy === 'client' && <label className="flex items-center justify-between gap-3 rounded-xl border p-3"><span className="text-sm"><b>Reschedule fee</b> — ${fee.toFixed(2)} (moved within {windowH} hours)</span><Switch checked={applyFee} onCheckedChange={setApplyFee} /></label>}
+      {grace && initiatedBy === 'client' && <div className="space-y-1 rounded-xl border p-3"><p className="text-sm"><b>Grace allowance</b> · {grace.remaining} of {grace.allowance} left (every {grace.periodMonths} months) — no reschedule fee.</p>
+        {grace.remaining > 0 ? (grace.canApply ? <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={graceOn} onChange={(ev) => setGraceOn(ev.target.checked)} /> Use grace for this</label> : <p className="text-xs text-muted-foreground">A manager approves grace for this.</p>) : <p className="text-xs text-muted-foreground">None left — the reschedule fee applies.</p>}</div>}
+      {feeEligible && initiatedBy === 'client' && !graceOn && <label className="flex items-center justify-between gap-3 rounded-xl border p-3"><span className="text-sm"><b>Reschedule fee</b> — ${fee.toFixed(2)} (moved within {windowH} hours)</span><Switch checked={applyFee} onCheckedChange={setApplyFee} /></label>}
       <label className="flex items-center justify-between gap-3 rounded-xl border p-3"><span className="text-sm"><b>Tell {first}</b> — email + text with the new time</span><Switch checked={notify} onCheckedChange={setNotify} /></label>
     </div>
   );
@@ -214,7 +229,7 @@ export function useReschedule(props: Props) {
     toast, original, usualTime, today, staffId, setStaffId, providers, setProviders,
     slots, setSlots, loading, setLoading, fetched, month, setMonth, day,
     setDay, time, setTime, custom, setCustom, reason, setReason, override,
-    setOverride, applyFee, setApplyFee, notify, setNotify, busy, setBusy, fee, initiatedBy, setInitiatedBy,
+    setOverride, applyFee, setApplyFee, notify, setNotify, busy, setBusy, fee, initiatedBy, setInitiatedBy, grace, graceOn, setGraceOn,
     windowH, feeEligible, base, first, ensure, timesFor, suggestions, choose,
     move, cells, dayTimes, groups, who, body, footer, policyNote,
   };
@@ -226,7 +241,7 @@ export const RescheduleAppointmentDialog: React.FC<Props> = (props) => {
     toast, original, usualTime, today, staffId, setStaffId, providers, setProviders,
     slots, setSlots, loading, setLoading, fetched, month, setMonth, day,
     setDay, time, setTime, custom, setCustom, reason, setReason, override,
-    setOverride, applyFee, setApplyFee, notify, setNotify, busy, setBusy, fee, initiatedBy, setInitiatedBy,
+    setOverride, applyFee, setApplyFee, notify, setNotify, busy, setBusy, fee, initiatedBy, setInitiatedBy, grace, graceOn, setGraceOn,
     windowH, feeEligible, base, first, ensure, timesFor, suggestions, choose,
     move, cells, dayTimes, groups, who, body, footer,
   } = useReschedule(props);
