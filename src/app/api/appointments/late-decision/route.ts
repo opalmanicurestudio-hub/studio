@@ -16,6 +16,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { linkOrigin } from '@/lib/app-origin';
+import { opsCan, opsLevelOf } from '@/lib/appointment-ops';
 import { lateReplyText, LATE_OPTIONS as OPTIONS, type LateOption as Option } from '@/lib/late-reply';
 
 export const dynamic = 'force-dynamic';
@@ -34,6 +35,9 @@ export async function POST(req: NextRequest) {
   if (!ap) return NextResponse.json({ ok: false, error: 'That booking wasn’t found.' }, { status: 404 });
   if (['completed', 'cancelled', 'no_show'].includes(String(ap.status || ''))) return NextResponse.json({ ok: false, error: 'That booking is already finished.' }, { status: 409 });
   const tenant: any = ((await db.doc(T).get()).data() as any) || {};
+  // Who can decide (Booking policies → "Who can decide") — enforced here, not just in the screen.
+  if (!opsCan(auth.actor.role, opsLevelOf(tenant), ap.staffId === auth.actor.uid, option as any))
+    return NextResponse.json({ ok: false, error: option === 'move' ? 'You can view this, but not send a reschedule offer.' : 'You can offer a reschedule, but a manager (or their provider) decides the rest.' }, { status: 403 });
   const nowIso = new Date().toISOString();
   const by = { uid: auth.actor.uid, name: auth.actor.name };
 
