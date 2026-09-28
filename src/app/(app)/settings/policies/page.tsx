@@ -140,21 +140,21 @@ export default function BookingPoliciesPage() {
             <Row label="Minimum notice to book online" source={P.access.minNoticeMinutes.source}>
               <Num field="bookingLeadHours" value={Math.round(P.access.minNoticeMinutes.value / 60)} unit="hours" label="Minimum notice" max={336} />
             </Row>
-            <Row label="Upcoming bookings one client can hold" soon source={P.access.maxUpcoming.source}>
+            <Row label="Upcoming bookings one client can hold" source={P.access.maxUpcoming.source}>
               <Num field="bookingPolicies.maxUpcomingBookings" value={P.access.maxUpcoming.value} unit="(0 = no limit)" label="Upcoming bookings" max={50} />
             </Row>
             <Row label="Rescheduling fee" note="Moving a booking inside this window carries the fee." source={P.change.fee.source}>
               <Num field="rescheduleFee" value={P.change.fee.value} unit="dollars" label="Reschedule fee" step={0.5} />
               <Num field="rescheduleFeeWindowHours" value={P.change.feeWindowHours.value} unit="hours before" label="Reschedule fee window" max={720} />
             </Row>
-            <Row label="No changes by the client inside" soon source={P.change.cutoffHours.source}>
+            <Row label="No changes by the client inside" source={P.change.cutoffHours.source}>
               <Num field="bookingPolicies.changeCutoffHours" value={P.change.cutoffHours.value} unit="hours (0 = any time)" label="Change cutoff" max={336} />
             </Row>
-            <Row label="Changes allowed" soon source={P.change.limit.source}>
+            <Row label="Changes allowed" source={P.change.limit.source}>
               <Num field="bookingPolicies.rescheduleLimit" value={P.change.limit.value} unit="times (0 = unlimited), then…" label="Reschedule limit" max={20} />
               <Choice field="bookingPolicies.overLimit" value={P.change.overLimit.value} label="After the limit" options={[['approval', 'Staff approve'], ['block', 'They must call']]} />
             </Row>
-            <Row label="When they move a booking, the notice deadline…" soon source={P.change.deadline.source}>
+            <Row label="When they move a booking, the notice deadline…" source={P.change.deadline.source}>
               <Choice field="bookingPolicies.rescheduleDeadline" value={P.change.deadline.value} label="Reschedule deadline" options={[['original', 'Stays with the original time'], ['new', 'Moves to the new time']]} />
             </Row>
             <Row label="Running late" source={P.late.graceMinutes.source}>
