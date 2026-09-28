@@ -91,7 +91,7 @@ const outcomeWord = (v: any) => (v === 'refund' ? 'refunded'
 export const SETTINGS_MAP: SettingEntry[] = [
   // ── How bookings arrive ──────────────────────────────────────────────────
   {
-    group: 'arrive', label: 'How people book', href: '/settings/booking', screen: 'Booking & Deposits',
+    group: 'arrive', label: 'How people book', href: '/settings/booking#rules', screen: 'How bookings come in',
     control: {
       kind: 'choice', field: 'bookingMode.mode',
       value: (t) => t?.bookingMode?.mode || 'instant',
@@ -113,7 +113,7 @@ export const SETTINGS_MAP: SettingEntry[] = [
     },
   },
   {
-    group: 'arrive', label: 'If you do not answer a request', href: '/settings/booking', screen: 'Booking & Deposits',
+    group: 'arrive', label: 'If you do not answer a request', href: '/settings/booking#rules', screen: 'How bookings come in',
     control: {
       kind: 'number', field: 'bookingMode.approvalExpiryHours',
       value: (t) => Number(t?.bookingMode?.approvalExpiryHours ?? 24), unit: 'hours', max: 168,
@@ -129,7 +129,7 @@ export const SETTINGS_MAP: SettingEntry[] = [
     unconfiguredWarning: 'With no expiry, your silence can cost a client their day.',
   },
   {
-    group: 'arrive', label: 'Collect deposits at all', href: '/settings', screen: 'Studio Settings',
+    group: 'arrive', label: 'Collect deposits at all', href: '/settings/booking#rules', screen: 'How bookings come in',
     control: {
       kind: 'toggle', field: 'depositsLive',
       on: (t) => t?.depositsLive === true,
@@ -142,7 +142,7 @@ export const SETTINGS_MAP: SettingEntry[] = [
     unconfiguredWarning: 'Every deposit rule you have set is currently inactive.',
   },
   {
-    group: 'arrive', label: 'Protect against repeat no-shows', href: '/settings', screen: 'Studio Settings',
+    group: 'arrive', label: 'Protect against repeat no-shows', href: '/settings/booking#rules', screen: 'How bookings come in',
     control: {
       kind: 'toggle', field: 'guardianProtocolEnabled',
       on: (t) => t?.guardianProtocolEnabled !== false,
@@ -155,7 +155,7 @@ export const SETTINGS_MAP: SettingEntry[] = [
 
   // ── When plans change ────────────────────────────────────────────────────
   {
-    group: 'change', label: 'Cancellation fee', href: '/settings', screen: 'Studio Settings',
+    group: 'change', label: 'Cancellation fee', href: '/settings/policies', screen: 'Booking policies',
     summarise: (t) => {
       const mode = t?.defaultCancellationMode || 'matrix';
       const w = hrs(t?.cancellationWindowHours ?? 24);
@@ -167,14 +167,14 @@ export const SETTINGS_MAP: SettingEntry[] = [
     unconfiguredWarning: 'Flat mode with no amount set means late cancellations cost nothing.',
   },
   {
-    group: 'change', label: 'Deposit outcomes', href: '/settings', screen: 'Studio Settings',
+    group: 'change', label: 'Deposit outcomes', href: '/settings/policies', screen: 'Booking policies',
     summarise: (t) => {
       const p = t?.depositPolicy || {};
       return `Early cancel: ${outcomeWord(p.onEarlyCancel || 'refund')}. Late: ${outcomeWord(p.onLateCancel || 'forfeit')}. No-show: ${outcomeWord(p.onNoShow || 'forfeit')}. You cancel: ${outcomeWord(p.onStudioCancel || 'refund')}.`;
     },
   },
   {
-    group: 'change', label: 'Reschedule fee', href: '/settings', screen: 'Studio Settings',
+    group: 'change', label: 'Reschedule fee', href: '/settings/policies', screen: 'Booking policies',
     summarise: (t) => {
       const f = Number(t?.rescheduleFee) || 0;
       const w = Number(t?.rescheduleFeeWindowHours) || 0;
@@ -206,7 +206,7 @@ export const SETTINGS_MAP: SettingEntry[] = [
     },
   },
   {
-    group: 'chase', label: 'Staff credit limit', href: '/settings', screen: 'Studio Settings',
+    group: 'chase', label: 'Staff credit limit', href: '/settings?tab=policies', screen: 'Money owed, credit & recovery',
     summarise: (t) => {
       const c = Number(t?.retailSettings?.staffCreditCapCents ?? 2500) / 100;
       return c > 0
@@ -217,7 +217,7 @@ export const SETTINGS_MAP: SettingEntry[] = [
 
   // ── What we say ──────────────────────────────────────────────────────────
   {
-    group: 'say', label: 'Remind people before they come', href: '/settings', screen: 'Studio Settings',
+    group: 'say', label: 'Remind people before they come', href: '/settings/messages', screen: 'Messages',
     control: {
       kind: 'number', field: 'clientNotify.daysBefore',
       value: (t) => (Number.isFinite(Number(t?.clientNotify?.daysBefore)) ? Number(t.clientNotify.daysBefore) : 1),
