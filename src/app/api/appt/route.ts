@@ -108,6 +108,17 @@ export async function POST(req: NextRequest) {
     // Moving it: the shared change rules (cutoff + how many times it's been moved).
     const change = checkChange(tDoc, a, 'client');
     const insideRescheduleWindow = change.allowed;
+    // Over the change limit and the business approves further moves → tell the team, ONCE, with the client's note.
+    const requestChange = async (note: string | null) => {
+      if (a.changeRequestedAt) return false;
+      const nowIso = new Date().toISOString();
+      await ref.set({ changeRequestedAt: nowIso, ...(note ? { changeRequestNote: note } : {}) }, { merge: true }).catch(() => {});
+      const n = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await n.set({ id: n.id, userId: null, read: false, createdAt: nowIso, type: 'change_request', link: 'pos',
+        message: `${a.clientName || 'A client'} wants to move their ${a.serviceName || 'appointment'} again (already moved ${change.count} time${change.count === 1 ? '' : 's'})${note ? ` — “${note}”` : ''}. Please move it for them.` }).catch(() => {});
+      await logAuditAdmin(db, tenantId, { action: 'appointment.change_requested', targetType: 'appointment', targetId: apptId, summary: `${a.clientName || 'Client'} asked to move it again — over the change limit (${change.count}/${change.limit}), staff approval needed${note ? `: “${note}”` : ''}`, actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'visit link' } }).catch(() => {});
+      return true;
+    };
     const already = ['cancelled', 'canceled', 'completed', 'no_show'].includes(String(a.status || ''));
 
     if (action === 'view') {
@@ -206,17 +217,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ...(alsoCancelled > 0 ? { alsoCancelled } : {}) });
     }
 
+    // "Ask us to move it" — when the change limit needs the team's OK.
+    if (action === 'request_change') {
+      if (change.allowed) return NextResponse.json({ ok: false, error: 'You can move this one yourself — pick a new time.' }, { status: 400 });
+      if (!change.needsApproval) return NextResponse.json({ ok: false, error: change.reason }, { status: 409 });
+      const note = typeof body.note === 'string' ? body.note.trim().slice(0, 300) : '';
+      const first = await requestChange(note || null);
+      return NextResponse.json({ ok: true, requested: true, alreadyAsked: !first });
+    }
     if (action === 'reschedule') {
       if (!change.allowed) {
-        // Over the limit and the business approves further changes → tell the team, once.
-        if (change.needsApproval && !a.changeRequestedAt) {
-          const nowIso = new Date().toISOString();
-          await ref.set({ changeRequestedAt: nowIso }, { merge: true }).catch(() => {});
-          const n = db.collection(`tenants/${tenantId}/notifications`).doc();
-          await n.set({ id: n.id, userId: null, read: false, createdAt: nowIso, type: 'change_request', link: 'pos',
-            message: `${a.clientName || 'A client'} wants to move their ${a.serviceName || 'appointment'} again (already moved ${change.count} time${change.count === 1 ? '' : 's'}) — please reschedule it for them.` }).catch(() => {});
-          await logAuditAdmin(db, tenantId, { action: 'appointment.change_requested', targetType: 'appointment', targetId: apptId, summary: `${a.clientName || 'Client'} asked to move it again — over the change limit (${change.count}/${change.limit}), staff approval needed`, actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'visit link' } }).catch(() => {});
-        }
+        if (change.needsApproval) await requestChange(null);
         return NextResponse.json({ ok: false, error: change.reason, requested: change.needsApproval }, { status: 409 });
       }
       // WALL CLOCK IN, INSTANT OUT. '2026-07-16' + '14:30' means half past two
