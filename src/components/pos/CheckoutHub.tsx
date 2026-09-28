@@ -1,5 +1,6 @@
 'use client';
 
+import { hasRealCard } from '@/lib/card-on-file';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { offerProblem } from '@/lib/offers';
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -574,7 +575,7 @@ export const CheckoutHub = ({
     [selectedClientId, clients]
   );
 
-  const hasCardOnFile = !!(selectedClient?.cardOnFile?.token || selectedClient?.cardOnFile?.paymentMethodId);
+  const hasCardOnFile = !!hasRealCard(selectedClient);
   const readerConnected = terminal?.readerStatus === 'connected';
 
   const isBirthdayToday = useMemo(() => {
