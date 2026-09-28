@@ -13,7 +13,8 @@
 //   In service with a provider                       → Finish (provider review → ready to pay)
 //   Ready      ready for checkout                    → Check out (checkout drawer)
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { getAuth } from 'firebase/auth';
 import { LayoutGroup } from 'framer-motion';
 import { format, isToday, parseISO } from 'date-fns';
 import { moduleEnabled } from '@/lib/modules';
@@ -33,6 +34,8 @@ import { DeskFollowUp } from './DeskFollowUp';
 import { DeskCancel } from './DeskCancel';
 import { DeskPayGate } from './DeskPayGate';
 import { OpsBoard, opsAttentionCount } from '@/components/ops/OpsBoard';
+import { OverrunPanel } from '@/components/ops/OverrunPanel';
+import { serviceOverrun, overrunImpact, overrunMode } from '@/lib/appointment-ops';
 import { opsStatus, paymentOutstanding } from '@/lib/appointment-ops';
 import { resolvePolicy } from '@/lib/booking-policies';
 import { query, where } from 'firebase/firestore';
@@ -62,6 +65,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   useEffect(() => { try { if (new URLSearchParams(window.location.search).get('attention') === '1') setAttnOpen(true); } catch { /* ignore */ } }, []);
   const todaysAppts = useMemo(() => { const d = new Date().toDateString(); return (e.appointmentsFromInventory || []).filter((a: any) => { const t = toDate(a.startTime); return t && t.toDateString() === d; }); }, [e.appointmentsFromInventory]);
   const opsCount = opsAttentionCount(todaysAppts, e.selectedTenant);
+  const [overFor, setOverFor] = useState<any>(null); // a service running over → tell the next guests
   const [mode, setMode] = useState<'desk' | 'counter'>('desk');
   const [about, setAbout] = useState<Guest | null>(null);
   const [lateFor, setLateFor] = useState<Guest | null>(null);
@@ -150,6 +154,11 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       const ops = opsStatus(a, now, { graceMinutes: Number(resolvePolicy(e.selectedTenant).late.graceMinutes.value) || 0 });
       if (!['on_time', 'finished', 'in_service', 'checked_in', 'payment_required'].includes(ops.status)) out.push([ops.label, ops.tone === 'alert' || ops.tone === 'warn' ? 'warn' : ops.tone === 'info' ? 'soft' : 'ok']);
     }
+    if (g.stage === 'service' && g.appt) {
+      const ov = serviceOverrun(g.appt, minsOf(g), now);
+      if (ov && ov.overMin >= 1) { const hit = overrunImpact(todaysAppts, g.appt, Math.max(10, ov.overMin), now)[0];
+        if (hit) out.push([`Running over · affects ${String(hit.appt.clientName || 'next guest').split(' ')[0]} ${format(new Date(hit.appt.startTime), 'h:mm')}`, 'warn']); }
+    }
     if (!c || visits === 0) out.push(['New client', 'accent']);
     if (a.completionStatus && a.completionStatus !== 'completed') out.push(['Forms not done', 'warn']);
     if ((c?.unpaidFees || []).length) out.push(['Owes', 'warn']);
@@ -159,6 +168,19 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
     if (soon) out.push(['Birthday this week', 'accent']);
     return out;
   };
+  // Automatic mode (Booking policies): once a service is 10+ min over and a later guest is affected, tell them — once.
+  const autoSent = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (overrunMode(e.selectedTenant) !== 'auto' || !e.tenantId) return;
+    for (const a of todaysAppts) {
+      const ov = serviceOverrun(a, minsOf({ appt: a } as any), now);
+      if (!ov || ov.overMin < 10 || a.overrunNotifiedAt || autoSent.current.has(a.id) || !overrunImpact(todaysAppts, a, 10, now).length) continue;
+      autoSent.current.add(a.id);
+      (async () => { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
+        await fetch('/api/appointments/provider-late', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) },
+          body: JSON.stringify({ tenantId: e.tenantId, staffId: a.staffId, minutes: 10, reason: 'overrun', inServiceId: a.id }) }).catch(() => {}); })();
+    }
+  }, [now]); // eslint-disable-line react-hooks/exhaustive-deps
   const timerFor = (g: Guest): { text: string; tone?: 'warn'; sub?: string } | null => {
     if (g.stage === 'arriving' && g.at) { const m = Math.round((g.at.getTime() - now.getTime()) / 60000); return m > 0 ? { text: m < 90 ? `in ${m} min` : `at ${format(g.at, 'h:mm a')}` } : g.lateMin ? { text: lateLabel(g.lateMin), tone: 'warn' } : { text: 'due now' }; }
     if (g.stage === 'waiting') { const a0 = arrivedAt(g); const w = a0 ? Math.max(0, Math.round((now.getTime() - a0.getTime()) / 60000)) : null; if (g.kind === 'walkin' && !g.staffId) return { text: w !== null ? `waiting ${w} min` : 'waiting', tone: w !== null && w > 15 ? 'warn' : undefined, sub: (() => { const est = estWait(); return est ? `About ${est} min until someone’s free` : 'Someone’s free now'; })() }; return w !== null ? { text: `waiting ${w} min`, tone: w > 15 ? 'warn' : undefined } : null; }
@@ -214,6 +236,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const setWalkIn = (g: Guest, patch: any) => { if (e.firestore && e.tenantId) updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId, 'walkIns', g.walkIn.id), patch); };
   const menuFor = (g: Guest) => { const ph = phoneOf(g); const aboutItem = { label: 'About this entry…', hint: 'What it is, where it came from — and remove it', onSelect: () => setAbout(g) }; return g.kind === 'appt' ? [
       aboutItem,
+      g.stage === 'service' && g.appt && (serviceOverrun(g.appt, minsOf(g), now)?.overMin || 0) >= 1 && { label: 'Running over — tell next guests…', hint: 'See who’s affected and what they’ll be told', onSelect: () => setOverFor(g) },
       (g.stage === 'service' || g.stage === 'ready') && { label: 'Book next visit…', hint: 'Same service & time — 2, 4, 6 or 8 weeks on', onSelect: () => setFollowFor(g.appt) },
       g.stage !== 'service' && g.stage !== 'ready' && { label: 'Reschedule…', onSelect: () => setMoveAppt(g.appt) },
       { label: 'Details', onSelect: () => open(g) },
@@ -342,6 +365,9 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       <DeskReschedule e={e} appt={moveAppt} accent={accent} onClose={() => setMoveAppt(null)} />
       <DeskFollowUp e={e} visit={followFor} accent={accent} onClose={() => setFollowFor(null)} />
       <DeskPayGate e={e} appt={payFor} accent={accent} onClose={() => setPayFor(null)} />
+      <Drawer accent={accent} open={!!overFor} onClose={() => setOverFor(null)} title="Running over">
+        {overFor && (() => { const ov = serviceOverrun(overFor.appt, minsOf(overFor), now); return <OverrunPanel tenant={e.selectedTenant} tenantId={e.tenantId} role={e.role} inService={overFor.appt} today={todaysAppts} overMin={ov?.overMin || 0} plannedEnd={ov?.plannedEnd || null} providerName={staffName(overFor.appt.staffId || null)} />; })()}
+      </Drawer>
       <Drawer accent={accent} open={attnOpen} onClose={() => setAttnOpen(false)} title="Needs attention">
         {attnOpen && <OpsBoard appts={todaysAppts} staff={(e.staff || []).filter((s: any) => s.isActive !== false)} tenant={e.selectedTenant} tenantId={e.tenantId} role={e.role} uid={e.currentUser?.uid} />}
       </Drawer>
