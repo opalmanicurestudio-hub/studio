@@ -30,7 +30,7 @@ export type MessageChannel = 'email' | 'sms';
 
 export interface MessageKindDef {
   id: string;
-  group: 'Booking' | 'Money' | 'Reminders' | 'Retail' | 'Renters' | 'Account';
+  group: 'Booking' | 'Money' | 'Reminders' | 'After the visit' | 'Your team' | 'Retail' | 'Renters' | 'Account';
   label: string;
   /** What actually triggers it, in the owner's language. */
   when: string;
@@ -404,6 +404,36 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     requiredTokens: [],
     defaultSubject: 'Rent due today — {{amount}}',
     defaultBody: '{{renter_first}}, rent of {{amount}} is due today ({{when}}).\n\nIf you are on autopay there is nothing to do. Otherwise you can pay here: {{link}}',
+    timing: 'immediate',
+  },
+  {
+    id: 'post_visit_followup', group: 'After the visit', label: 'Thank you after a visit',
+    when: 'The day after a visit (one per client, thanking everyone who looked after them).',
+    channels: ['sms', 'email'], canDisable: true,
+    tokens: ['{{client_first}}', '{{team}}', '{{book_link}}', '{{review_link}}', '{{studio}}'],
+    requiredTokens: [],
+    defaultSubject: 'Thank you for visiting',
+    defaultBody: 'Thanks for coming in yesterday — {{team}} loved having you!\nBook your next visit: {{book_link}}\nEnjoyed it? A quick review means the world: {{review_link}}',
+    timing: 'immediate',
+  },
+  {
+    id: 'staff_agenda', group: 'Your team', label: 'Morning agenda for each team member',
+    when: 'Each morning, to each team member with appointments that day.',
+    channels: ['sms'], canDisable: true,
+    tokens: ['{{staff_first}}', '{{count}}', '{{appointments}}', '{{first_time}}', '{{note}}', '{{studio}}'],
+    requiredTokens: [],
+    defaultSubject: 'Your day',
+    defaultBody: 'Good morning! Today: {{appointments}}, first at {{first_time}}.{{note}}',
+    timing: 'immediate',
+  },
+  {
+    id: 'owner_brief', group: 'Your team', label: 'Morning brief for the owner',
+    when: 'Each morning, to the owner’s phone.',
+    channels: ['sms'], canDisable: true,
+    tokens: ['{{appointments}}', '{{first_time}}', '{{open_maintenance}}', '{{overdue_maintenance}}', '{{revenue_yesterday}}', '{{studio}}'],
+    requiredTokens: [],
+    defaultSubject: 'Morning brief',
+    defaultBody: 'Morning brief: {{appointments}} today (first {{first_time}}) · {{open_maintenance}} open maintenance · {{revenue_yesterday}} taken yesterday.',
     timing: 'immediate',
   },
   {
