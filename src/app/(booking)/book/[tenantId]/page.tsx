@@ -134,9 +134,10 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       } catch { /* no-op */ }
       const rs = new URLSearchParams(window.location.search).get('reschedule') || '';
       if (rs) {
-        fetch(`/api/appointments/self-cancel?tenantId=${encodeURIComponent(tenantId)}&appointmentId=${encodeURIComponent(rs)}`)
+        const rk = new URLSearchParams(window.location.search).get('k') || '';
+        fetch(`/api/appointments/self-cancel?tenantId=${encodeURIComponent(tenantId)}&appointmentId=${encodeURIComponent(rs)}&k=${encodeURIComponent(rk)}`)
           .then((r) => r.json()).then((d) => {
-            if (d?.ok && d.appointment && d.appointment.status !== 'cancelled') setReschedule({ id: rs, ...d.appointment });
+            if (d?.ok && d.appointment && d.appointment.status !== 'cancelled') setReschedule({ id: rs, key: rk, ...d.appointment });
             else setRescheduleNote('That visit can no longer be rescheduled online — just book a new time below.');
           }).catch(() => setRescheduleNote('Could not load the visit to reschedule — book a new time below.'));
       }
@@ -584,7 +585,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
                 // quietly — the client already has the new confirmation.
                 if (reschedule?.id) {
                   try {
-                    await fetch('/api/appointments/self-cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, appointmentId: reschedule.id, clientReason: 'Rescheduled online', rescheduledToId: out?.appointmentId || null }) });
+                    await fetch('/api/appointments/self-cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, appointmentId: reschedule.id, k: (reschedule as any).key || '', clientReason: 'Rescheduled online', rescheduledToId: out?.appointmentId || null }) });
                   } catch { /* the new booking stands; the old one can still be cancelled from its own link */ }
                   setReschedule(null);
                 }
