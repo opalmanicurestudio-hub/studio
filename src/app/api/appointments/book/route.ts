@@ -80,6 +80,8 @@
 // without looking at the published roster. That is the server being right and
 // the page being behind, and the fix is to pass that page the same data.
 
+import { resolvePolicy } from '@/lib/booking-policies';
+import { checkChange, chainAfterMove } from '@/lib/change-rules';
 import { bookingPolicyLines, holdLine } from '@/lib/policy-copy';
 import { linkOrigin } from '@/lib/app-origin';
 import { offerProblem, walletStatus, offerLine } from '@/lib/offers';
@@ -214,6 +216,58 @@ export async function POST(req: NextRequest) {
     const services = svcListSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
     const roster = staffSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
     const tenant = ((tenantSnap.data() as any) || {}) as any;
+
+    // ── MOVING A VISIT (client reschedule from the booking page) ──────────
+    // The business's change rules apply before anything is created: the change
+    // cutoff and the change limit (then staff approval, or "please call").
+    // Staff/our server aren't limited here. When allowed, the new booking
+    // inherits the original time + count, so deadlines can't be pushed back.
+    let replacedChain: { originalStartTime: string | null; rescheduleCount: number } | null = null;
+    const replacesId = typeof body.replacesAppointmentId === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(body.replacesAppointmentId) ? body.replacesAppointmentId : null;
+    if (replacesId) {
+      const oldSnap = await db.doc(`tenants/${tenantId}/appointments/${replacesId}`).get();
+      const old: any = oldSnap.exists ? oldSnap.data() : null;
+      if (old) {
+        if (!trust) {
+          const rule = checkChange(tenant, old, 'client', services.find((x: any) => x.id === old.serviceId));
+          if (!rule.allowed) {
+            if (rule.needsApproval && !old.changeRequestedAt) {
+              const nowIso = new Date().toISOString();
+              await oldSnap.ref.set({ changeRequestedAt: nowIso, changeRequestedFor: body.startTime || null }, { merge: true }).catch(() => {});
+              const n = db.collection(`tenants/${tenantId}/notifications`).doc();
+              await n.set({ id: n.id, userId: null, read: false, createdAt: nowIso, type: 'change_request', link: 'pos',
+                message: `${old.clientName || 'A client'} wants to move their ${old.serviceName || 'appointment'} again (already moved ${rule.count} time${rule.count === 1 ? '' : 's'})${body.startTime ? ` — to ${new Date(body.startTime).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tenant.timezone || undefined })}` : ''}. Please move it for them.` }).catch(() => {});
+              await logAuditAdmin(db, tenantId, { action: 'appointment.change_requested', targetType: 'appointment', targetId: replacesId,
+                summary: `${old.clientName || 'Client'} asked to move it again — over the change limit (${rule.count}/${rule.limit}), staff approval needed`, actor: { type: 'user', name: old.clientName || 'Client', role: 'client', via: 'booking page' } }).catch(() => {});
+            }
+            return NextResponse.json({ ok: false, error: rule.reason, changeRequested: rule.needsApproval }, { status: 409 });
+          }
+        }
+        replacedChain = chainAfterMove(old);
+      }
+    }
+
+    // ── UPCOMING-BOOKING LIMIT (Booking policies) — online bookings only ─────
+    const maxUpcoming = Number(resolvePolicy(tenant).access.maxUpcoming.value) || 0;
+    if (!trust && maxUpcoming > 0) {
+      const ids = new Set<string>();
+      if (typeof body?.client?.id === 'string' && body.client.id) ids.add(body.client.id);
+      const em = String(body?.client?.email || '').trim().toLowerCase();
+      const pd = String(body?.client?.phone || '').replace(/\D/g, '').slice(-10);
+      try {
+        if (em) (await db.collection(`tenants/${tenantId}/clients`).where('email', '==', em).limit(5).get()).docs.forEach((d: any) => ids.add(d.id));
+        if (pd.length === 10) for (const f of [pd, `+1${pd}`, `(${pd.slice(0, 3)}) ${pd.slice(3, 6)}-${pd.slice(6)}`])
+          (await db.collection(`tenants/${tenantId}/clients`).where('phone', '==', f).limit(3).get()).docs.forEach((d: any) => ids.add(d.id));
+      } catch { /* matching is best-effort */ }
+      if (ids.size) {
+        const nowIso = new Date().toISOString(); let upcoming = 0;
+        for (const cid of Array.from(ids).slice(0, 5)) {
+          const q = await db.collection(`tenants/${tenantId}/appointments`).where('clientId', '==', cid).limit(60).get();
+          upcoming += q.docs.filter((d: any) => { const x = d.data() as any; return d.id !== replacesId && String(x.startTime || '') >= nowIso && !['cancelled', 'canceled', 'declined', 'expired', 'completed', 'no_show', 'released'].includes(String(x.status || '')); }).length;
+        }
+        if (upcoming >= maxUpcoming) return NextResponse.json({ ok: false, error: `You already have ${upcoming} upcoming booking${upcoming === 1 ? '' : 's'} with us — the most we can hold at once is ${maxUpcoming}. Change one of them, or call us and we’ll help.` }, { status: 409 });
+      }
+    }
 
     let svc = services.find((s: any) => s.id === serviceId);
     // A campaign offer code, if the client came from one — verified here.
@@ -697,6 +751,7 @@ export async function POST(req: NextRequest) {
         // fills inspirationPhotoUrl so every existing screen keeps showing it.
         ...(inspoIn.length ? { inspirationPhotos: inspoIn } : {}),
         // The visit this booking replaces (client reschedule) — released after payment by the webhook.
+        ...(replacedChain || {}),
         ...(typeof body.replacesAppointmentId === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(body.replacesAppointmentId) ? { replacesAppointmentId: body.replacesAppointmentId } : {}),
         inspirationPhotoUrl: inspoIn[0]?.url || (body.inspirationPhotoUrl ? String(body.inspirationPhotoUrl).slice(0, 500) : null),
         // Signed forms travel WITH the booking and are saved here, on the server.
