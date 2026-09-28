@@ -94,9 +94,12 @@ export function useReschedule(props: Props) {
   }, [custom, day, staffId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const timesFor = (d: string) => slots[`${staffId}|${d}`];
+  // Presets: the same time 2, 4, 6, 8 or 12 weeks on (same weekday).
+  const presetDates = useMemo(() => [2, 4, 6, 8, 12].map((w) => [`In ${w} weeks`, addDays(original, w * 7)] as [string, Date]), [original]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The first load covers 6 weeks; the 8- and 12-week dates are fetched on their own.
+  useEffect(() => { if (!open || !staffId) return; for (const [, d] of presetDates) if (d > addDays(original, 41) && !timesFor(key(d))) void ensure(d, 1, staffId); }, [open, staffId, presetDates, slots]); // eslint-disable-line react-hooks/exhaustive-deps
   const suggestions = useMemo(() => {
-    const nextMonth = (() => { const t = addMonths(original, 1); return addDays(t, (original.getDay() - t.getDay() + 7) % 7); })(); // same weekday, next month
-    return ([['Next week', addDays(original, 7)], ['In 2 weeks', addDays(original, 14)], ['In 4 weeks', addDays(original, 28)], ['Next month', nextMonth]] as [string, Date][]).map(([label, d]) => {
+    return presetDates.map(([label, d]) => {
       const list = timesFor(key(d));
       if (!list) return { label, d, state: 'loading' as const };
       if (list.includes(usualTime)) return { label, d, state: 'same' as const, t: usualTime };
