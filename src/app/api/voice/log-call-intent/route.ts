@@ -67,6 +67,7 @@
  *           { logged: false, error, spokenSummary }
  */
 
+import { internalHeaders } from '@/lib/message-policy';
 import { NextRequest, NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
 import { FieldValue } from 'firebase-admin/firestore';
@@ -278,7 +279,7 @@ export async function POST(req: NextRequest) {
             try {
               const chargeRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com'}/api/stripe/charge-card`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...internalHeaders(String(`${process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com'}/api/stripe/charge-card`)) },
                 body: JSON.stringify({
                   tenantId,
                   clientId: appointment.clientId,
@@ -499,7 +500,7 @@ export async function POST(req: NextRequest) {
           try {
             const chargeRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com'}/api/stripe/charge-card`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', ...internalHeaders(String(`${process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com'}/api/stripe/charge-card`)) },
               body: JSON.stringify({
                 tenantId,
                 clientId: appointment.clientId,
