@@ -15,7 +15,8 @@ const clip = (t: any, n = 240) => { const s = String(t || '').replace(/\s+/g, ' 
 
 /** The cancellation fee, described (flat amount, % of the service, or "a fee"). */
 function feePhrase(tenant: any, service?: any): string | null {
-  const mode = service?.cancellationFeeMode && service.cancellationFeeMode !== 'inherit' ? service.cancellationFeeMode : (tenant?.defaultCancellationMode || (Number(tenant?.cancellationFee) > 0 ? 'flat' : null));
+  // Unset → 'matrix' — the same default the cancellation screen charges with.
+  const mode = service?.cancellationFeeMode && service.cancellationFeeMode !== 'inherit' ? service.cancellationFeeMode : (tenant?.defaultCancellationMode || 'matrix');
   const svcFlat = Number(service?.cancellationFeeValue ?? service?.customCancellationFee ?? 0);
   if (mode === 'flat') { const v = svcFlat > 0 ? svcFlat : Number(tenant?.cancellationFee || 0); return v > 0 ? `a ${money(v)} cancellation fee` : null; }
   if (mode === 'percentage') { const pct = Number(service?.cancellationFeeValue) > 0 ? Number(service.cancellationFeeValue) : 100; return `a cancellation fee of ${pct}% of the service`; }
