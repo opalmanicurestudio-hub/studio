@@ -55,6 +55,7 @@ import { staffOrServer } from '@/lib/route-guard';
 import { hasRealCard } from '@/lib/card-on-file';
 import { resolveDepositPolicy, rolloverExpiryISO } from '@/lib/deposit-policy';
 import { planCancellation, cancellationOutcomeLines } from '@/lib/policy-copy';
+import { unpaidFeeRuleOf, unpaidFeeLine } from '@/lib/booking-policies';
 import { sendCancellationNotice } from '@/lib/cancel-notice';
 import { internalPost, internalOrigin } from '@/lib/message-policy';
 import { resolvePolicy } from '@/lib/booking-policies';
@@ -181,6 +182,10 @@ export async function GET(req: NextRequest) {
   const pv = await planSelfCancel(db, tenantId, appointmentId, appt, tenant, service, clientDocG, false);
   const windowHours = pv.windowHours; const isLate = pv.isLate;
   const estimatedFee = appt.isRenterBooking ? (isLate ? (tenant.cancellationFee || service.price || 0) : 0) : pv.plan.due;
+  // Their business's rule if the fee can't be charged — and, when that rule keeps the booking and there's no card, say so up front.
+  const unpaidRule = unpaidFeeRuleOf(tenant);
+  const feeBlock = !appt.isRenterBooking && pv.plan.due > 0 && !pv.hasCard && unpaidRule === 'keep_booking'
+    ? `Cancelling now needs the $${pv.plan.due.toFixed(2)} fee paid by card, and there’s no card on file — so it can’t be cancelled online.` : null;
   let gracePreview: any = null;
   if (!appt.isRenterBooking && (pv.plan.due > 0 || pv.plan.fee > 0 || pv.plan.applied > 0)) {
     const g = await selfCancelGrace(db, tenantId, tenant, appt);
@@ -192,6 +197,7 @@ export async function GET(req: NextRequest) {
     // Exactly what will happen, in the business's policy wording — shown BEFORE they confirm.
     preview: appt.isRenterBooking ? null : { lines: cancellationOutcomeLines(pv.plan.outcome, { preview: true }), due: pv.plan.due, applied: pv.plan.applied, fee: pv.plan.fee },
     grace: gracePreview,
+    feeBlock, unpaidLine: pv.plan.due > 0 ? unpaidFeeLine(unpaidRule) : null,
     ok: true,
     appointment: {
       clientName: appt.clientName || null,
@@ -303,6 +309,12 @@ export async function POST(req: NextRequest) {
       appointmentId, reason: 'Client cancelled inside the window', mode: 'auto', kind: 'deposit' }, { retries: 0 });
     if (cr.ok && cr.data?.ok && cr.data?.paymentIntentId) chargedIntentId = cr.data.paymentIntentId;
     else paymentMethod = 'add_to_balance';
+  }
+  // The business's rule for a fee that can't be charged: "don't make the change" → stop here, nothing written.
+  if (pv && chargeFee && !chargedIntentId && !isReschedule && unpaidFeeRuleOf(tenant) === 'keep_booking') {
+    return NextResponse.json({ ok: false, code: 'fee_unpaid', error: hasCard
+      ? `Your card was declined, so your appointment is still booked. You can update your card and try again, or keep your appointment.`
+      : `Cancelling now needs the $${feeAmount.toFixed(2)} fee paid by card, and there’s no card on file — so your appointment is still booked.` }, { status: 402 });
   }
 
   const now = new Date().toISOString();
