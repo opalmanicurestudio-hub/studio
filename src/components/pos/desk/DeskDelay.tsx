@@ -11,6 +11,8 @@
 // or cancelled silently. The decision is stored on the appointment, the
 // provider(s) told, and the next client warned only if still at risk.
 
+import { getAuth } from 'firebase/auth';
+import { lateReplyText, type LateOption } from '@/lib/late-reply';
 import { useEffect, useMemo, useState } from 'react';
 import { format, parseISO } from 'date-fns';
 import { writeBatch, doc, collection, arrayUnion, increment } from 'firebase/firestore';
@@ -27,7 +29,8 @@ export function DeskDelay({ e, appt, accent, onClose, onReschedule }: { e: any; 
   const [drop, setDrop] = useState<string[]>([]); const [agreed, setAgreed] = useState(false);
   const [applyFee, setApplyFee] = useState(true); const [waiveWhy, setWaiveWhy] = useState('');
   const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
-  useEffect(() => { if (appt) { const now = Date.now(), st = toDate(appt.startTime)?.getTime() || now; setLate(Math.max(5, Math.round((now - st) / 60000 / 5) * 5 || 10)); setDrop([]); setAgreed(false); setApplyFee(true); setWaiveWhy(''); setErr(''); } }, [appt?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [tellClient, setTellClient] = useState(true); const [sent, setSent] = useState<string | null>(null);
+  useEffect(() => { if (appt) { const now = Date.now(), st = toDate(appt.startTime)?.getTime() || now; setTellClient(true); setSent(null); const told = Number(appt.clientLateMinutes || (appt.checkInStatus === 'running_late' ? appt.lateTimeMinutes : 0)) || 0; if (told > 0) { setLate([5, 10, 15, 20, 30, 45].reduce((b, m) => (Math.abs(m - told) < Math.abs(b - told) ? m : b), 10)); setDrop([]); setAgreed(false); setApplyFee(true); setWaiveWhy(''); setErr(''); return; } setLate(Math.max(5, Math.round((now - st) / 60000 / 5) * 5 || 10)); setDrop([]); setAgreed(false); setApplyFee(true); setWaiveWhy(''); setErr(''); } }, [appt?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const t = e.selectedTenant || {};
   const svc = (id: string) => (e.services || []).find((s: any) => s.id === id);
@@ -62,6 +65,20 @@ export function DeskDelay({ e, appt, accent, onClose, onReschedule }: { e: any; 
   const nextName = model.next ? String(model.next.clientName || 'their next guest').split(' ')[0] : null;
   const nextPhone = model.next ? String(((e.clients || []).find((c: any) => c.id === model.next.clientId)?.phone) || '').replace(/[^\d+]/g, '') : '';
 
+  // Tell the client what happens next (server: text + email + their visit link shows it).
+  const tellThem = async (option: LateOption) => {
+    const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
+    const r = await fetch('/api/appointments/late-decision', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) },
+      body: JSON.stringify({ tenantId: e.tenantId, appointmentId: appt.id, option, tell: tellClient }) }).then((x) => x.json()).catch(() => ({}));
+    return r;
+  };
+  const askToMove = async () => {
+    setBusy(true); setErr('');
+    const r = await tellThem('move');
+    setBusy(false);
+    if (r?.ok) { setSent(`${first} has been asked not to come in and to choose a new time${tellClient ? '' : ' (not messaged — tell them yourself)'}. Their slot stays on the planner until they move it.`); }
+    else setErr(r?.error || 'That didn’t send — please try again.');
+  };
   const decide = async (option: 'keep' | 'condense' | 'switch' | 'note', toStaff?: any) => {
     if (!e.firestore || !e.tenantId) return;
     if (option === 'condense' && !agreed) { setErr(`Confirm ${first} agreed to the shorter service.`); return; }
@@ -88,6 +105,7 @@ export function DeskDelay({ e, appt, accent, onClose, onReschedule }: { e: any; 
       await logAuditClient(e.firestore, e.tenantId, { action: 'appointment.late_decision', targetType: 'appointment', targetId: appt.id, amount: charging ? model.fee : undefined,
         summary: `${appt.clientName || 'Guest'} running ${late} min late — ${what}${model.fee > 0 && option !== 'note' ? (charging ? ` · late fee $${model.fee.toFixed(2)}` : ` · fee waived (${waiveWhy.trim()})`) : ''}`,
         actor: { type: 'user', id: e.currentUser?.uid || null, name: by, role: e.role || 'staff', via: 'front desk' } } as any);
+      if (option !== 'note') await tellThem(option);
       onClose();
     } catch { setErr('That didn’t save — please try again.'); } finally { setBusy(false); }
   };
@@ -98,6 +116,12 @@ export function DeskDelay({ e, appt, accent, onClose, onReschedule }: { e: any; 
   return (
     <Drawer accent={accent} open={!!appt} onClose={onClose} title={`${first} is running late`}>
       <div className="space-y-3">
+        {(appt?.clientCheckInStatus === 'running_late' || appt?.clientLateNote) && <Box tone="warn"><H>{first} told us</H>
+          <p className="text-[14px]">About {Number(appt.clientLateMinutes || appt.lateTimeMinutes) || '?'} minutes late{appt.clientLateNote ? ` — “${appt.clientLateNote}”` : ''}.</p></Box>}
+        {sent && <Box tone="ok"><p className="text-[14px]">{sent}</p><Btn onClick={onClose}>Done</Btn></Box>}
+        <Box><div className="flex items-center justify-between gap-3"><H>Tell {first} what happens</H>
+            <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={tellClient} onChange={(ev) => setTellClient(ev.target.checked)} /> Send</label></div>
+          <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{tellClient ? `When you choose below, ${first} gets a text/email and their visit link updates — e.g. “${lateReplyText('keep', { first, studio: t.name || '', provider: provider?.name ? String(provider.name).split(' ')[0] : null, eta: hm(model.arrive) })}”` : `${first} won’t be messaged — tell them yourself.`}</p></Box>
         <Box><H>When will they arrive?</H>
           <div className="flex flex-wrap gap-1.5">{[5, 10, 15, 20, 30, 45].map((m) => <Btn key={m} quiet={late !== m} onClick={() => setLate(m)}>{m} min</Btn>)}</div>
           <p className="text-[14px]">Booked {hm(model.start)} → arriving about <b>{hm(model.arrive)}</b></p></Box>
@@ -120,7 +144,7 @@ export function DeskDelay({ e, appt, accent, onClose, onReschedule }: { e: any; 
             </div>}
             {model.others.length > 0 && <div className="space-y-1.5"><p className="text-[14px] font-semibold">Switch provider — free for the whole service</p>
               <div className="flex flex-wrap gap-1.5">{model.others.map((s: any) => <Btn key={s.id} quiet onClick={() => decide('switch', s)} disabled={busy}>Move to {String(s.name).split(' ')[0]}</Btn>)}</div></div>}
-            <div className="flex flex-wrap gap-2 pt-1"><Btn quiet onClick={() => { onClose(); if (onReschedule) onReschedule(appt); else { e.setSelectedAppointment(appt); e.setIsDetailsOpen(true); } }}>Reschedule…</Btn><Btn quiet onClick={() => { onClose(); e.handleCancelAction(appt.id, false); }}>Cancel…</Btn><Btn quiet onClick={() => decide('note')} disabled={busy}>Just note the ETA</Btn></div>
+            <div className="flex flex-wrap gap-2 pt-1"><Btn quiet onClick={askToMove} disabled={busy}>Ask them to pick a new time</Btn><Btn quiet onClick={() => { onClose(); if (onReschedule) onReschedule(appt); else { e.setSelectedAppointment(appt); e.setIsDetailsOpen(true); } }}>Move it myself…</Btn><Btn quiet onClick={() => { onClose(); e.handleCancelAction(appt.id, false); }}>Not today (cancel)…</Btn><Btn quiet onClick={() => decide('note')} disabled={busy}>Just note the ETA</Btn></div>
           </div>
         </Box>
 
