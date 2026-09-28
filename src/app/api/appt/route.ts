@@ -339,6 +339,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'Choose keep, reschedule or cancel.' }, { status: 400 });
     }
     // "Ask us to move it" — when the change limit needs the team's OK.
+    // Open times to move to — same provider, service and length; the business's normal client rules.
+    if (action === 'slots') {
+      const from = /^\d{4}-\d{2}-\d{2}$/.test(String(body.from || '')) ? String(body.from) : new Date().toISOString().slice(0, 10);
+      const { clientOpenTimes } = await import('@/lib/reschedule-slots');
+      const r = await clientOpenTimes(db, tenantId, apptId, a, from, Number(body.days) || 14);
+      return NextResponse.json(r, { status: r.ok ? 200 : 400 });
+    }
     if (action === 'request_change') {
       if (change.allowed) return NextResponse.json({ ok: false, error: 'You can move this one yourself — pick a new time.' }, { status: 400 });
       if (!change.canRequest) return NextResponse.json({ ok: false, error: change.reason }, { status: 409 });
