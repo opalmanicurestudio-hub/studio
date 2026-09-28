@@ -2081,6 +2081,7 @@ const CancelGateView = ({
     const [error, setError] = useState<string | null>(null);
     const [details, setDetails] = useState<any>(null);
     const [reason, setReason] = useState('schedule_conflict');
+    const [useGrace, setUseGrace] = useState(false); // their late-cancellation grace, if the business allows it online
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [result, setResult] = useState<any>(null);
 
@@ -2112,7 +2113,7 @@ const CancelGateView = ({
             const res = await fetch('/api/appointments/self-cancel', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tenantId, appointmentId, clientReason: reason, k: accessKey }),
+                body: JSON.stringify({ tenantId, appointmentId, clientReason: reason, k: accessKey, useGrace: useGrace && !!details?.grace }),
             });
             const data = await res.json();
             if (!data.ok) { setError(data.error || 'Could not cancel this appointment.'); return; }
@@ -2149,8 +2150,9 @@ const CancelGateView = ({
         );
     }
 
-    const lines: string[] = Array.isArray(details?.preview?.lines) ? details.preview.lines : [];
-    const owes = Number(details?.preview?.due) > 0 || Number(details?.preview?.fee) > 0 || !!details?.isLate;
+    const g = details?.grace || null; const graced = useGrace && !!g;
+    const lines: string[] = graced ? (g.lines || []) : Array.isArray(details?.preview?.lines) ? details.preview.lines : [];
+    const owes = graced ? Number(g.due) > 0 : Number(details?.preview?.due) > 0 || Number(details?.preview?.fee) > 0 || !!details?.isLate;
     return (
         <VisitShell brand={brand} title={<>Cancel your <b>appointment</b>?</>}>
             <VisitCard>
@@ -2164,6 +2166,10 @@ const CancelGateView = ({
                     : <p className="text-[15px]">There’s no cancellation fee — thanks for letting us know in advance.</p>}
                 {details?.cancellationPolicyText && <VisitMuted>{details.cancellationPolicyText}</VisitMuted>}
             </VisitCard>
+            {g && <VisitCard>
+                <label className="flex items-start gap-2 text-[15px]"><input type="checkbox" className="mt-1" checked={useGrace} onChange={(e) => setUseGrace(e.target.checked)} />
+                    <span>You have {g.remaining} grace cancellation{g.remaining === 1 ? '' : 's'} left (every {g.periodMonths} months) — use it: {String(g.permitLabel || '').toLowerCase()}.</span></label>
+            </VisitCard>}
             <VisitCard>
                 <VisitLabel>Reason (optional)</VisitLabel>
                 <VisitSelect label="Reason for cancelling" value={reason} onChange={setReason} options={CLIENT_REASON_OPTIONS} />
