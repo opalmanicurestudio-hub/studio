@@ -242,6 +242,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ...(alsoCancelled > 0 ? { alsoCancelled } : {}) });
     }
 
+    // Running late, past the grace time → they chose from the options we sent (a shorter visit, another provider, a new time).
+    if (action === 'late_choice') {
+      const lc = a.lateChoices;
+      if (!lc || lc.status !== 'sent' || lc.choice) return NextResponse.json({ ok: false, error: 'These options aren’t open any more — the team will be in touch.' }, { status: 409 });
+      const choice = String(body.choice || '');
+      if (!Array.isArray(lc.options) || !lc.options.includes(choice)) return NextResponse.json({ ok: false, error: 'That option isn’t available.' }, { status: 400 });
+      const nowIso = new Date().toISOString(); const who = a.clientName || 'Client';
+      const answered = { lateChoices: { ...lc, choice, answeredAt: nowIso } };
+      const put = async (f: any) => { await ref.set(f, { merge: true }); if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {}), db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {})]); };
+      const tellTeam = async (message: string) => { const n = db.collection(`tenants/${tenantId}/notifications`).doc(); await n.set({ id: n.id, userId: a.staffId || null, read: false, createdAt: nowIso, type: 'late_choice', link: 'pos', appointmentId: apptId, message }).catch(() => {}); };
+      if (choice === 'condense') {
+        const drop: string[] = Array.isArray(lc.dropAddOnIds) ? lc.dropAddOnIds : [];
+        const names = (lc.dropNames || []).join(' and ') || 'the add-ons';
+        await put({ ...answered, addOnIds: (a.addOnIds || []).filter((id: string) => !drop.includes(id)), droppedAddOnIds: drop,
+          lateReply: { kind: 'condense', message: `Thanks — we’ll do a shorter visit today, without ${names}, so you finish on time.`, at: nowIso, by: who, clientAgreed: true } });
+        await tellTeam(`${who} (running late) chose a shorter visit — without ${names}.`);
+        await logAuditAdmin(db, tenantId, { action: 'late.client_chose', targetType: 'appointment', targetId: apptId, summary: `${who} chose a shorter visit (without ${names}) after running late`, actor: { type: 'user', name: who, role: 'client', via: 'visit link' } }).catch(() => {});
+        return NextResponse.json({ ok: true, choice });
+      }
+      if (choice === 'switch') {
+        const offer = { toStaffId: lc.toStaffId, toStaffName: lc.toStaffName || null, fromStaffId: a.staffId || null, fromStaffName: a.staffName || null, startAt: lc.etaAt, at: nowIso, by: 'client’s choice (running late)', status: 'pending' };
+        await put({ ...answered, providerOffer: offer });
+        return NextResponse.json({ ok: true, choice, next: 'accept_offer' });   // the visit link confirms it (re-checks they're still free)
+      }
+      await put(answered);                                                     // reschedule → their usual reschedule screen
+      await tellTeam(`${who} (running late) chose to pick a new time.`);
+      return NextResponse.json({ ok: true, choice, next: 'reschedule' });
+    }
     // A callout or business interruption → they cancel with no fee, deposit refunded or kept as credit (their choice).
     if (action === 'disruption_reply') {
       const d = a.disruption;
