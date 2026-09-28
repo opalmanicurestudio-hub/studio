@@ -517,6 +517,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
             source: 'booking-page',
             ...(campaignRef ? { campaignId: campaignRef.campaignId, promoCode: campaignRef.code } : {}),
             serviceId: restDetails.serviceId,
+            ...((restDetails as any).place ? { place: (restDetails as any).place } : {}),
             addOnIds: restDetails.addOnIds || [],
             staffId: restDetails.staffId || 'any',
             startTime: restDetails.startTime,
