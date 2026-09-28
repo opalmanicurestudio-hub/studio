@@ -594,7 +594,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                   })}
                 </div>
                 {watch('where') === 'online' && <Input {...register('meetingLink')} placeholder="Meeting link — e.g. https://zoom.us/j/…" className="h-11 rounded-xl border" />}
-                <p className="text-xs text-muted-foreground">{watch('where') === 'online' ? 'Clients get the link in their confirmation, reminder and visit link — no “check in when you arrive”.' : watch('where') === 'client' ? 'Messages say you’ll come to them (with their address, if it’s on file) — no check-in.' : 'Clients check in when they arrive.'}</p>
+                <p className="text-xs text-muted-foreground">{watch('where') === 'online' ? 'Every booking of this service gets this link, so use a meeting room with a waiting room or passcode — or give a booking its own link from its appointment details. Clients get it in their confirmation, reminder and visit link.' : watch('where') === 'client' ? 'Messages say you’ll come to them (with their address, if it’s on file) — no check-in.' : 'Clients check in when they arrive.'}</p>
               </div>
 
               <div className="space-y-1.5">
