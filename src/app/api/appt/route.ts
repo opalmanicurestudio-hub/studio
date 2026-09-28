@@ -24,6 +24,7 @@
 // Every action stamps the appointment and writes the audit log — client
 // self-service leaves the same paper trail as front-desk service.
 
+import { unpaidFeeRuleOf, unpaidFeeLine } from '@/lib/booking-policies';
 import { graceRule, graceRemaining } from '@/lib/grace';
 import { internalPost, internalOrigin } from '@/lib/message-policy';
 import { resolvePolicy } from '@/lib/booking-policies';
@@ -157,6 +158,7 @@ export async function POST(req: NextRequest) {
           rescheduleCutoffHours, canReschedule: insideRescheduleWindow && !already,
           changeRule: change.allowed ? null : { reason: change.reason, needsApproval: change.needsApproval, canRequest: change.canRequest, count: change.count, limit: change.limit },
           rescheduleFee: feeIfMovedNow, rescheduleFeeWindowHours: rWin, graceAvailable: feeIfMovedNow > 0 ? selfGrace : null,
+          unpaidLine: feeIfMovedNow > 0 ? unpaidFeeLine(unpaidFeeRuleOf(tDoc)) : null,
           // The earliest date the CLIENT may pick, on the STUDIO's calendar.
           // The pages used to compute this from the browser's clock, so a
           // client travelling — or simply awake late — could be offered a
@@ -384,6 +386,27 @@ export async function POST(req: NextRequest) {
       // Conflict check against the SAME staff member's calendar, honoring pads.
       const dayStart = new Date(newStart.getTime() - 86400000).toISOString();
       const dayEnd = new Date(newEnd.getTime() + 86400000).toISOString();
+      const takenBy = (docs: any[]) => docs.some((d: any) => { if (d.id === apptId) return false; const o = d.data() as any;
+        if (o.staffId !== a.staffId || ['cancelled', 'canceled'].includes(String(o.status || ''))) return false;
+        return overlaps(newStart.getTime(), newEnd.getTime(), new Date(o.startTime).getTime() - (Number(o.padBefore) || 0) * 60000, new Date(o.endTime || o.startTime).getTime() + (Number(o.padAfter) || 0) * 60000); });
+      // The fee is part of the change: charge their saved card FIRST — only for a time that's free — so the
+      // business's rule ("don't make the change") can be honoured. If the time is taken a split second later, it's refunded.
+      const owesFee = feeIfMovedNow > 0 && !usingGrace && !!a.clientId && !a.isRenterBooking;
+      let feeIntent: string | null = null;
+      if (owesFee) {
+        if (takenBy((await db.collection(`tenants/${tenantId}/appointments`).where('startTime', '>=', dayStart).where('startTime', '<=', dayEnd).get()).docs))
+          return NextResponse.json({ ok: false, error: `${a.staffName || 'That staff member'} is booked then — try another time.` }, { status: 409 });
+        const cl: any = ((await db.doc(`tenants/${tenantId}/clients/${a.clientId}`).get()).data() as any) || {};
+        const hasCard = !!(cl.cardOnFile?.paymentMethodId && (cl.cardOnFile?.customerId || cl.cardOnFile?.stripeCustomerId || cl.stripeCustomerId));
+        if (hasCard) {
+          const cr = await internalPost(internalOrigin(tDoc, req.nextUrl.origin), '/api/stripe/charge-card', { tenantId, clientId: a.clientId, amountCents: Math.round(feeIfMovedNow * 100),
+            description: 'Late-reschedule fee', category: 'Reschedule Fees', appointmentId: apptId, reason: 'Client rescheduled inside the window', mode: 'auto', kind: 'deposit' }, { retries: 0 });
+          if (cr.ok && cr.data?.ok && cr.data?.paymentIntentId) feeIntent = cr.data.paymentIntentId;
+        }
+        if (!feeIntent && unpaidFeeRuleOf(tDoc) === 'keep_booking') return NextResponse.json({ ok: false, code: 'fee_unpaid', error: hasCard
+          ? 'Your card was declined, so your appointment hasn’t been moved. You can update your card and try again, or keep your current time.'
+          : `Rescheduling now needs the $${feeIfMovedNow.toFixed(2)} fee paid by card, and there’s no card on file — so your appointment hasn’t been moved.` }, { status: 402 });
+      }
       const result = await db.runTransaction(async (tx: any) => {
         const nearby = await tx.get(db.collection(`tenants/${tenantId}/appointments`)
           .where('startTime', '>=', dayStart).where('startTime', '<=', dayEnd));
@@ -397,7 +420,7 @@ export async function POST(req: NextRequest) {
         }
         const move = {
           ...chainAfterMove(a, { byStudio: studioCaused }),   // original time + count (not counted when WE asked them to reschedule)
-          ...(feeIfMovedNow > 0 && !usingGrace ? { rescheduleFeeApplied: feeIfMovedNow } : {}),
+          ...(feeIfMovedNow > 0 && !usingGrace ? { rescheduleFeeApplied: feeIfMovedNow, rescheduleFeePaid: !!feeIntent, ...(feeIntent ? { rescheduleFeeIntentId: feeIntent } : {}) } : {}),
           ...(usingGrace ? { rescheduleGraceUsed: true } : {}),
           // A new time is a fresh start: no longer late, no longer asked to move.
           studioAskedToMove: false, lateReply: null, providerDelay: null, providerLateMinutes: 0, checkInStatus: null, lateTimeMinutes: null, clientCheckInStatus: null, clientLateMinutes: null, clientEtaAt: null, etaAt: null, clientLateNote: null, clientTrip: null,
@@ -422,7 +445,13 @@ export async function POST(req: NextRequest) {
         await gRef.set({ id: gRef.id, tenantId, clientId: String(a.clientId), event: 'late_reschedule', at: gNow, appointmentId: apptId, serviceId: a.serviceId || null, staffId: a.staffId || null, permit: 'free_reschedule', reason: null, appliedBy: a.clientName || 'Client', appliedById: null, approvedBy: null, voidedAt: null, via: 'visit link' });
         await logAuditAdmin(db, tenantId, { action: 'grace.used', targetType: 'appointment', targetId: apptId, summary: `Grace used by the client — late reschedule: no fee. ${selfGrace!.remaining - 1} left in this ${selfGrace!.periodMonths}-month period.`, actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'visit link' } }).catch(() => {});
       }
-      if (!result.conflict && feeIfMovedNow > 0 && !usingGrace && a.clientId) {
+      if (result.conflict && feeIntent) {   // the time went in the split second after charging → give the fee back
+        const { refundPaymentIntent } = await import('@/lib/stripe-refund');
+        const back = await refundPaymentIntent(tDoc.stripeAccountId, feeIntent);
+        await logAuditAdmin(db, tenantId, { action: 'fee.auto_refunded', targetType: 'appointment', targetId: apptId, summary: `Reschedule fee $${feeIfMovedNow.toFixed(2)} ${back ? 'refunded automatically' : 'NEEDS A MANUAL REFUND'} — the new time was taken before the move completed`, actor: { type: 'system', name: 'Booking' } } as any).catch(() => {});
+        return NextResponse.json({ ok: false, error: `That time was just taken — ${back ? 'your fee has been refunded' : 'we’ll refund your fee'}. Please pick another time.` }, { status: 409 });
+      }
+      if (!result.conflict && feeIfMovedNow > 0 && !usingGrace && a.clientId && !feeIntent) {
         const feeId = `rf_${Date.now().toString(36)}`;
         await db.doc(`tenants/${tenantId}/clients/${a.clientId}`).set({ outstandingBalance: FieldValue.increment(feeIfMovedNow),
           unpaidFees: FieldValue.arrayUnion({ feeId, appointmentId: apptId, appointmentDate: new Date().toISOString(), feeAmount: feeIfMovedNow, reason: 'reschedule_fee' }) }, { merge: true }).catch(() => {});
@@ -435,7 +464,7 @@ export async function POST(req: NextRequest) {
         summary: `${a.clientName || 'Client'} self-rescheduled to ${fmtWhen(newStart.toISOString(), tzOffset, zone)}${usingGrace ? ' · grace used — no fee' : feeIfMovedNow > 0 ? ` · $${feeIfMovedNow.toFixed(2)} reschedule fee added to their balance` : ''}${a.studioAskedToMove ? ' (we asked them to choose a new time)' : ''}`,
         actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'manage-link' },
       });
-      return NextResponse.json({ ok: true, newStartIso: newStart.toISOString(), whenLabel: fmtWhen(newStart.toISOString(), tzOffset, zone), feeApplied: usingGrace ? 0 : feeIfMovedNow, graceUsed: usingGrace });
+      return NextResponse.json({ ok: true, newStartIso: newStart.toISOString(), whenLabel: fmtWhen(newStart.toISOString(), tzOffset, zone), feeApplied: usingGrace ? 0 : feeIfMovedNow, feePaid: !!feeIntent, graceUsed: usingGrace });
     }
 
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
