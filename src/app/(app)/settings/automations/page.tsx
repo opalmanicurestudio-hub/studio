@@ -361,12 +361,8 @@ export default function AutomationsSettingsPage() {
         {/* Header */}
         <div className="flex flex-col md:flex-row items-start md:items-end justify-between gap-4">
           <div className="space-y-1">
-            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">
-              Automations
-            </h1>
-            <p className="text-[10px] text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">
-              Configure what happens when clients don't complete requirements
-            </p>
+            <h1 className="text-3xl md:text-4xl font-light tracking-tight text-slate-900 leading-none">Automations</h1>
+            <p className="text-sm text-muted-foreground">What happens automatically when clients haven’t paid a deposit or finished their forms — reminders, and when a held time is released.</p>
           </div>
           <Button
             onClick={handleSave}
