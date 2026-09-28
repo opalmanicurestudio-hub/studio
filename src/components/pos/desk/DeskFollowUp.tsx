@@ -2,7 +2,7 @@
 // src/components/pos/desk/DeskFollowUp.tsx — BOOK THEIR NEXT VISIT.
 //
 // From a visit (checkout, a card, or the client's card in Counter): the same
-// service, add-ons, provider and usual time, 2 · 4 · 6 · 8 · 12 weeks on.
+// service, add-ons, provider and usual time, 2 · 4 · 6 · 8 weeks on.
 // Each preset is checked for real (the reschedule route's staff-side 'range',
 // same engine, no online booking horizon), shown as "same time" or the nearest
 // free. Booking goes through /api/appointments/book as a front-desk booking
@@ -18,7 +18,7 @@ const toDate = (v: any): Date | null => { if (!v) return null; try { const d = v
 const ymd = (d: Date) => format(d, 'yyyy-MM-dd');
 const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 const clock = (t: string) => { const [h, m] = t.split(':').map(Number); return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'pm' : 'am'}`; };
-const WEEKS = [2, 4, 6, 8, 12];
+const WEEKS = [2, 4, 6, 8];
 
 async function staffPost(url: string, body: any) {
   const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
