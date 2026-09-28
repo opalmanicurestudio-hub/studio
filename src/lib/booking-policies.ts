@@ -24,11 +24,12 @@ export interface BookingPoliciesSettings {
   maxUpcomingBookings?: number;                           // 0 = no limit (default)
   balanceDue?: 'visit' | 'booking';                       // default 'visit'
   onlineCheckIn?: boolean;                                // clients can check themselves in from their link (default on)
+  unpaidFeeRule?: 'next_visit' | 'before_booking' | 'keep_booking'; // a change fee their card can't pay (default: next visit)
   renterDeskSupport?: { billing: 'included' | 'per_booking' | 'monthly'; amount?: number }; // default included
 }
 export const POLICY_DEFAULTS: Required<Omit<BookingPoliciesSettings, 'renterDeskSupport'>> & { renterDeskSupport: { billing: 'included'; amount: number } } = {
   lateCancelConsequence: 'both', changeCutoffHours: 2, rescheduleLimit: 2, overLimit: 'approval', rescheduleDeadline: 'original',
-  maxUpcomingBookings: 0, balanceDue: 'visit', onlineCheckIn: true, renterDeskSupport: { billing: 'included', amount: 0 },
+  maxUpcomingBookings: 0, balanceDue: 'visit', onlineCheckIn: true, unpaidFeeRule: 'next_visit', renterDeskSupport: { billing: 'included', amount: 0 },
 };
 
 export interface EffectivePolicy {
@@ -106,3 +107,17 @@ export function resolvePolicy(tenant: any, service?: any, opts: { isMember?: boo
 
 /** For the owner: "Business default", "This service", … */
 export const sourceLabel = (s: Source) => ({ default: 'ClarityFlow default', business: 'Your setting', service: 'This service', provider: 'This provider', member: 'Members' } as const)[s];
+
+
+// ── A CHANGE FEE THEIR CARD CAN'T PAY (no card, or declined) ─────────────
+//   next_visit     → added to their balance, due at their next visit (default)
+//   before_booking → added to their balance; they must pay it before booking again
+//   keep_booking   → the change isn't made; their appointment stays as it was
+export type UnpaidFeeRule = 'next_visit' | 'before_booking' | 'keep_booking';
+export const unpaidFeeRuleOf = (tenant: any): UnpaidFeeRule => (['next_visit', 'before_booking', 'keep_booking'].includes(tenant?.bookingPolicies?.unpaidFeeRule) ? tenant.bookingPolicies.unpaidFeeRule : 'next_visit');
+/** What clients are told (before booking, and at the change). */
+export function unpaidFeeLine(rule: UnpaidFeeRule): string {
+  return rule === 'keep_booking' ? 'Change fees are charged to your card on file; if it can’t be charged, your appointment stays as it is.'
+    : rule === 'before_booking' ? 'Change fees are charged to your card on file; if it can’t be charged, the fee needs to be paid before you book again.'
+    : 'Change fees are charged to your card on file; if it can’t be charged, the fee is added to your next visit.';
+}
