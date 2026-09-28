@@ -127,6 +127,7 @@
  *   regardless of `willChargeNow`.
  */
 
+import { hasRealCard } from '@/lib/card-on-file';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import React from 'react';
 import PhoneInput from 'react-phone-number-input';
@@ -1570,7 +1571,7 @@ export function QuickBookForm({
       return !profileDocs.some((pd: any) => pd.requirementId === fr.id);
     });
   }, [selectedSvc, selectedClient?.profileDocuments]);
-  const alreadyHasCard = !!(selectedClient?.cardOnFile?.token || selectedClient?.cardOnFile?.paymentMethodId) || !!selectedClient?.cardOnFile?.paymentMethodId;
+  const alreadyHasCard = !!hasRealCard(selectedClient) || !!selectedClient?.cardOnFile?.paymentMethodId;
   const canChargeOnFile = !!selectedClient?.cardOnFile?.customerId && !!selectedClient?.cardOnFile?.paymentMethodId;
   const clientEmail = selectedClient?.email || newClientEmail;
   const lastService = services.find((s: any) => s.id === selectedClient?.lastServiceId);
