@@ -2719,7 +2719,7 @@ export default function CheckInPage() {
 
     return (
         <DayOfView
-            place={placeOf(service)}
+            place={placeOf(service, appointmentData)}
             lateChoices={(appointmentData as any)?.lateChoices || null}
             onLateChoice={async (choice) => {
                 const call = async (payload: any) => { try { const r = await fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, apptId: appointmentData?.id, k: token, ...payload }) }); return await r.json(); } catch { return { ok: false }; } };
