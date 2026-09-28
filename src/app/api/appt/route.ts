@@ -112,7 +112,11 @@ export async function POST(req: NextRequest) {
     // Moving it: the shared change rules (cutoff + how many times it's been moved).
     // When WE asked them to move it (running late → "please pick a new time"), the usual cutoff and change limit don't apply.
     // Our doing (we asked them to reschedule, or their provider is running late and they haven't chosen yet): no limits, no fee, not counted.
-    const studioCaused = !!a.studioAskedToMove || !!(a.providerDelay && !['keep', 'cancel'].includes(String(a.providerDelay.reply || '')));
+    const studioCaused = !!a.studioAskedToMove || !!(a.providerDelay && !['keep', 'cancel'].includes(String(a.providerDelay.reply || ''))) || a.disruption?.status === 'pending';
+    // Record an outcome against the disruption (callout / interruption) this booking belongs to — for the insurance packet and renter reimbursements.
+    const recordDisruption = async (fields: any) => { const d = a.disruption; if (!d?.id || d.status !== 'pending') return;
+      await db.doc(`tenants/${tenantId}/${d.kind === 'callout' ? 'providerCallouts' : 'interruptions'}/${d.id}`).set({ affected: { [apptId]: { ...fields, outcomeAt: new Date().toISOString(), by: a.clientName || 'Client' } } }, { merge: true }).catch(() => {});
+      await ref.set({ disruption: { ...d, status: 'resolved', outcome: fields.outcome } }, { merge: true }).catch(() => {}); };
     const change = studioCaused ? { ...checkChange(tDoc, a, 'client'), allowed: true, needsApproval: false, blocked: false, canRequest: false, reason: null } : checkChange(tDoc, a, 'client');
     const insideRescheduleWindow = change.allowed;
     // Your reschedule fee (Booking policies) — counted from the ORIGINAL time; none when WE asked them to move it; renters keep their own rules.
@@ -236,6 +240,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ...(alsoCancelled > 0 ? { alsoCancelled } : {}) });
     }
 
+    // A callout or business interruption → they cancel with no fee, deposit refunded or kept as credit (their choice).
+    if (action === 'disruption_reply') {
+      const d = a.disruption;
+      if (!d || d.status !== 'pending') return NextResponse.json({ ok: false, error: 'Your appointment is going ahead as booked.' }, { status: 409 });
+      if (String(body.choice || '') !== 'cancel') return NextResponse.json({ ok: false, error: 'Choose a new time or cancel.' }, { status: 400 });
+      const nowIso = new Date().toISOString();
+      const dep = a.depositStatus === 'paid' ? Number(a.depositAmountCents) || 0 : 0;
+      const asCredit = body.deposit === 'credit';
+      const cancelFields = { status: 'cancelled', cancelledAt: nowIso, cancelledBy: 'client_self_serve', cancellationReason: d.kind === 'callout' ? 'provider_callout' : 'business_interruption', cancellationFeeCharged: 0, cancellationFeeWaived: true, studioCancelled: true, ...(d.kind === 'interruption' ? { interruptionId: d.id, lostToInterruption: true } : { calloutId: d.id }) };
+      await ref.set(cancelFields, { merge: true });
+      if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set({ ...cancelFields, tenantId }, { merge: true }).catch(() => {}), db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set({ ...cancelFields, tenantId }, { merge: true }).catch(() => {})]);
+      if (dep > 0) { const dRef = db.collection(`tenants/${tenantId}/depositDecisions`).doc(); await dRef.set({ id: dRef.id, tenantId, appointmentId: apptId, clientId: a.clientId || null, trigger: d.kind === 'callout' ? 'provider_callout' : 'business_interruption', outcome: asCredit ? 'rollover' : 'refund_pending', reason: `${d.reasonLabel || 'Disruption'} — client cancelled`, amountDollars: dep / 100, decidedAt: nowIso }).catch(() => {}); }
+      await recordDisruption({ outcome: 'cancelled', ...(dep > 0 ? (asCredit ? { creditCents: dep } : { refundCents: dep }) : {}) });
+      const n = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await n.set({ id: n.id, userId: a.staffId || null, read: false, createdAt: nowIso, type: 'disruption_reply', link: 'pos', appointmentId: apptId, message: `${a.clientName || 'A client'} cancelled (${d.kind === 'callout' ? 'callout' : 'interruption'}) — no fee${dep > 0 ? `; deposit ${asCredit ? 'kept as credit' : 'to refund'}` : ''}.` }).catch(() => {});
+      await logAuditAdmin(db, tenantId, { action: 'disruption.client_cancelled', targetType: 'appointment', targetId: apptId, summary: `${a.clientName || 'Client'} cancelled because of the ${d.kind === 'callout' ? 'provider callout' : 'business interruption'} — no fee${dep > 0 ? `; $${(dep / 100).toFixed(2)} deposit ${asCredit ? 'kept as credit' : 'to be refunded'}` : ''}`, actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'visit link' } }).catch(() => {});
+      return NextResponse.json({ ok: true, deposit: dep > 0 ? (asCredit ? 'credit' : 'refund') : null });
+    }
     // We offered another provider → they accept (it's applied) or decline (back to the team).
     if (action === 'provider_offer_reply') {
       const po = a.providerOffer;
@@ -273,6 +295,7 @@ export async function POST(req: NextRequest) {
       };
       await ref.set(applied, { merge: true });
       await mirrorSet({ staffId: applied.staffId, staffName: applied.staffName, startTime: applied.startTime, endTime: applied.endTime, providerOffer: applied.providerOffer, lateReply: applied.lateReply, studioAskedToMove: false });
+      await recordDisruption({ outcome: 'reassigned', newStaffId: po.toStaffId, newStartTime: applied.startTime });
       await tellStaff(po.toStaffId, `${a.clientName || 'A client'} is now with you at ${when} (moved from ${po.fromStaffName ? String(po.fromStaffName).split(' ')[0] : 'another provider'}).`);
       if (po.fromStaffId) await tellStaff(po.fromStaffId, `${a.clientName || 'Your client'} accepted ${po.toStaffName ? String(po.toStaffName).split(' ')[0] : 'another provider'} at ${when} — they’re no longer on your schedule.`);
       await logAuditAdmin(db, tenantId, { action: 'appointment.provider_changed', targetType: 'appointment', targetId: apptId,
@@ -386,6 +409,7 @@ export async function POST(req: NextRequest) {
         }
         return { conflict: false };
       });
+      if (!result.conflict) await recordDisruption({ outcome: 'rescheduled', newStartTime: newStart.toISOString() });
       if (!result.conflict && usingGrace && a.clientId) {
         const gRef = db.collection(`tenants/${tenantId}/graceUses`).doc(); const gNow = new Date().toISOString();
         await gRef.set({ id: gRef.id, tenantId, clientId: String(a.clientId), event: 'late_reschedule', at: gNow, appointmentId: apptId, serviceId: a.serviceId || null, staffId: a.staffId || null, permit: 'free_reschedule', reason: null, appliedBy: a.clientName || 'Client', appliedById: null, approvedBy: null, voidedAt: null, via: 'visit link' });
