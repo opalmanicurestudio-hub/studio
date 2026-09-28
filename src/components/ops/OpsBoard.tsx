@@ -73,6 +73,11 @@ function CaseCard({ a, ops, tenant, tenantId, staffById, next, role, uid, freeOt
         {a.providerDelay && <><dt className="text-muted-foreground">Provider delay</dt><dd>~{a.providerDelay.minutes} min · new start ~{hm(a.providerDelay.newStartAt)} · {a.providerDelay.reply ? `they chose: ${a.providerDelay.reply}` : 'waiting for their choice'}</dd></>}
       </dl>
       {a.lateReply?.message && <p className="rounded-2xl bg-secondary p-3 text-sm"><b>They’ve been told:</b> {a.lateReply.message}</p>}
+      {a.lateChoices && !a.lateChoices.choice && <div className="space-y-1 rounded-2xl bg-secondary p-3 text-sm">
+        <p><b>Their options:</b> {(a.lateChoices.options || []).map((o: string) => o === 'condense' ? `shorter visit (without ${(a.lateChoices.dropNames || []).join(' and ') || 'add-ons'})` : o === 'switch' ? `${String(a.lateChoices.toStaffName || 'another provider').split(' ')[0]}` : 'a new time').join(' · ')}</p>
+        {a.lateChoices.status === 'prepared' && can('move') && <button type="button" disabled={!!busy} onClick={async () => { setBusy('lc'); const r = await staffPost('/api/appointments/late-options', { tenantId, appointmentId: a.id, action: 'send' }); setBusy(null); setMsg(r?.ok ? (r.told ? `Sent — ${first} can choose on their link.` : 'Saved on their link, but the message didn’t send — tell them yourself.') : r?.error || 'That didn’t send.'); }} className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60">{busy === 'lc' ? 'Sending…' : 'Send their options'}</button>}
+      </div>}
+      {a.lateChoices?.choice && <p className="text-sm"><b>They chose:</b> {a.lateChoices.choice === 'condense' ? 'a shorter visit' : a.lateChoices.choice === 'switch' ? `to see ${String(a.lateChoices.toStaffName || 'another provider').split(' ')[0]}` : 'a new time'}.</p>}
       {((late && (can('keep') || can('move'))) || (callout && opsLevelOf(tenant) !== 'view')) && <div className="space-y-2">
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={tell} onChange={(e) => setTell(e.target.checked)} /> Tell {first} (text/email + their visit link)</label>
         {late && <div className="flex flex-wrap gap-2">
@@ -257,7 +262,7 @@ function UnpaidFees({ tenantId, role, tenant }: { tenantId: string; role: string
 }
 
 
-/** Renters & academy — cases only those modules have. Shown only to businesses using them. */
+/** Renter and academy cases — each shown only to businesses using that module. */
 function ModuleCases({ tenantId, tenant, appts, staff }: { tenantId: string; tenant: any; appts: any[]; staff: any[] }) {
   const { firestore } = useFirebase() as any;
   const renters = moduleEnabled(tenant, 'booth_rental'); const academy = moduleEnabled(tenant, 'academy');
@@ -278,13 +283,19 @@ function ModuleCases({ tenantId, tenant, appts, staff }: { tenantId: string; ten
   // 2) A student's finished service still waiting for an instructor's sign-off (checkout needs it).
   const signOff = academy ? (appts || []).filter((a: any) => live(a) && staffById.get(a.staffId)?.isStudent && ['ready_for_checkout', 'servicing', 'in_service'].includes(String(a.status || '')) && !a.clinicCheckoff?.signedOff
     && (String(a.status) === 'ready_for_checkout' || Date.parse(a.endTime || a.startTime) <= Date.now())) : [];
+  // Separate sections — a business may use renters, the academy, both or neither.
   if (!onLeave.length && !signOff.length) return null;
   return (
-    <section className="space-y-2 rounded-3xl border bg-card p-4">
-      <p className="font-semibold">Renters &amp; academy</p>
-      {onLeave.map(({ a, renter, until }) => <p key={`lv-${a.id}`} className="text-sm"><b>{a.clientName || 'A client'}</b> is booked with {renter.split(' ')[0]} at {hm(a.startTime)} — but {renter.split(' ')[0]} is on approved leave until {new Date(`${until}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}. Let {renter.split(' ')[0]} know so their client isn’t turned away.</p>)}
-      {signOff.map((a: any) => <p key={`so-${a.id}`} className="text-sm"><b>{a.clientName || 'A client'}</b>’s {a.serviceName || 'service'} with student {String(staffById.get(a.staffId)?.name || '').split(' ')[0]} needs an <b>instructor’s sign-off</b> before checkout — fetch an instructor so they aren’t kept waiting.</p>)}
-    </section>
+    <>
+      {onLeave.length > 0 && <section className="space-y-2 rounded-3xl border bg-card p-4">
+        <p className="font-semibold">Renters</p>
+        {onLeave.map(({ a, renter, until }) => <p key={`lv-${a.id}`} className="text-sm"><b>{a.clientName || 'A client'}</b> is booked with {renter.split(' ')[0]} at {hm(a.startTime)} — but {renter.split(' ')[0]} is on approved leave until {new Date(`${until}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}. Let {renter.split(' ')[0]} know so their client isn’t turned away.</p>)}
+      </section>}
+      {signOff.length > 0 && <section className="space-y-2 rounded-3xl border bg-card p-4">
+        <p className="font-semibold">Academy</p>
+        {signOff.map((a: any) => <p key={`so-${a.id}`} className="text-sm"><b>{a.clientName || 'A client'}</b>’s {a.serviceName || 'service'} with student {String(staffById.get(a.staffId)?.name || '').split(' ')[0]} needs an <b>instructor’s sign-off</b> before checkout — fetch an instructor so they aren’t kept waiting.</p>)}
+      </section>}
+    </>
   );
 }
 
