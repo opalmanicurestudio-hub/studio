@@ -1,5 +1,6 @@
 'use client';
 
+import { staffAuthHeader } from '@/lib/staff-fetch';
 import { RequestDecisionPanel } from '@/components/appointments/RequestDecisionPanel';
 import { isAwaitingApproval } from '@/lib/booking-approval';
 import { PrivateImg, resolvePrivateUrl, openPrivateFile } from '@/components/shared/private-file';
@@ -2141,7 +2142,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       const depositCents = depositOwedCents > 0 ? depositOwedCents : (() => { try { return computeDepositCents({ service, price, depositsLive: selectedTenant?.depositsLive === true }); } catch { return 0; } })();
       if (!depositCents || depositCents <= 0) { toast({ variant: 'destructive', title: 'No deposit amount set' }); return; }
       const res = await fetch('/api/stripe/charge-card', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
         body: JSON.stringify({ tenantId, clientId: client.id, amountCents: depositCents, description: `Deposit — ${service.name}`, category: 'Retainers', appointmentId: appointment.id, reason: 'Deposit collection (card on file)', mode: 'pos' }),
       });
       const out = await res.json().catch(() => null);
