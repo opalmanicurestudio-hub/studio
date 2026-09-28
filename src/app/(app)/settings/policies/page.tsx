@@ -9,9 +9,10 @@
 
 import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
-import { doc, updateDoc, type Firestore } from 'firebase/firestore';
+import { doc, updateDoc, collection, query, where, type Firestore } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 import { useTenant } from '@/context/TenantContext';
-import { useFirebase } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { useInventory } from '@/context/InventoryContext';
 import { resolvePolicy, sourceLabel, type Source } from '@/lib/booking-policies';
@@ -53,6 +54,39 @@ const Section = ({ n, q, children }: { n: number; q: string; children: React.Rea
   <section className="rounded-3xl border bg-card p-5"><p className="mb-3 text-lg font-semibold"><span className="mr-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-secondary text-sm">{n}</span>{q}</p>{children}</section>
 );
 
+
+
+/** Recent grace uses (last 30 days) — who, which allowance, what it did, who applied it — with Undo (a manager, with a reason). */
+function GraceUses({ tenantId }: { tenantId: string }) {
+  const { firestore } = useFirebase() as any;
+  const since = React.useMemo(() => new Date(Date.now() - 30 * 864e5).toISOString(), []);
+  const q = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, `tenants/${tenantId}/graceUses`), where('at', '>=', since)) : null), [firestore, tenantId, since]);
+  const { data } = useCollection<any>(q);
+  const [undoing, setUndoing] = React.useState<string | null>(null); const [why, setWhy] = React.useState(''); const [msg, setMsg] = React.useState<string | null>(null);
+  const list = (data || []).slice().sort((a: any, b: any) => String(b.at).localeCompare(String(a.at)));
+  const EV: Record<string, string> = { late_arrival: 'Late arrival', late_cancellation: 'Late cancellation', late_reschedule: 'Late reschedule', no_show: 'No-show', emergency: 'Emergency' };
+  const undo = async (id: string) => {
+    const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
+    const r = await fetch('/api/grace', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, action: 'void', useId: id, reason: why.trim() }) }).then((x) => x.json()).catch(() => ({}));
+    setMsg(r?.ok ? 'Undone — the allowance is available again.' : r?.error || 'That didn’t work.'); if (r?.ok) { setUndoing(null); setWhy(''); }
+  };
+  return (
+    <div className="space-y-2 rounded-2xl border p-4">
+      <p className="text-sm font-semibold">Grace used in the last 30 days</p>
+      {list.length === 0 ? <p className="text-sm text-muted-foreground">None yet.</p> : <ul className="space-y-2">{list.map((u: any) => (
+        <li key={u.id} className={`text-sm ${u.voidedAt ? 'opacity-60' : ''}`}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span><b>{u.clientName || (u.via ? u.appliedBy : '') || 'Client'}</b> · {EV[u.event] || u.event} · {String(PERMIT_LABEL[u.permit as keyof typeof PERMIT_LABEL] || u.permit || '').toLowerCase()} · {new Date(u.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · {u.via ? 'by the client, online' : `by ${u.appliedBy || 'staff'}`}{u.reason ? ` — “${u.reason}”` : ''}{u.voidedAt ? ` · undone by ${u.voidedBy || 'a manager'}${u.voidReason ? ` (${u.voidReason})` : ''}` : ''}</span>
+            {!u.voidedAt && undoing !== u.id && <button type="button" onClick={() => { setUndoing(u.id); setWhy(''); setMsg(null); }} className="rounded-full border px-3 py-1 text-xs">Undo…</button>}
+          </div>
+          {undoing === u.id && <div className="mt-1 flex flex-wrap gap-2"><input value={why} onChange={(e) => setWhy(e.target.value)} placeholder="Why? e.g. recorded as the wrong event" className="h-9 flex-1 rounded-full border px-3 text-sm" />
+            <button type="button" disabled={!why.trim()} onClick={() => undo(u.id)} className="rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground disabled:opacity-50">Undo it</button>
+            <button type="button" onClick={() => setUndoing(null)} className="rounded-full border px-3 py-1 text-xs">Cancel</button></div>}
+        </li>))}</ul>}
+      {msg && <p className="text-sm font-semibold">{msg}</p>}
+    </div>
+  );
+}
 
 export default function BookingPoliciesPage() {
   const { selectedTenant, role } = useTenant() as any;
@@ -185,10 +219,11 @@ export default function BookingPoliciesPage() {
                   <Choice field={f('scope')} value={r.scope} label="Allowance applies" options={[['client', 'Per client'], ['client_service', 'Per client, per service'], ['client_provider', 'Per client, per provider']]} />
                   <span className="w-full text-xs text-muted-foreground">Who can apply it:</span>
                   <Choice field={f('approval')} value={r.approval} label="Who approves grace" options={[['staff', 'Any staff'], ['manager', 'A manager']]} />
-                  {g.id === 'late_reschedule' && <><span className="w-full text-xs text-muted-foreground">Online:</span>
+                  {(g.id === 'late_reschedule' || g.id === 'late_cancellation') && <><span className="w-full text-xs text-muted-foreground">Online:</span>
                     <Choice field={f('selfServe')} value={r.selfServe === true} label="Clients use it online" options={[[false, 'Staff apply it'], [true, 'Clients can use it themselves online']]} /></>}
                 </>}
               </Row>); })}
+            {t.id && <GraceUses tenantId={t.id} />}
           </Section>
 
           <Section n={4} q="What do they receive, and when?">
