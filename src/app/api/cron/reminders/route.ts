@@ -22,6 +22,7 @@
 // reminder goes out — reruns and overlapping windows can't double-text.
 // Delivery: SMS first, branded-email fallback, per the messaging layer.
 
+import { bookingPolicyLines } from '@/lib/policy-copy';
 import { releaseUnpaidHolds } from '@/lib/release-unpaid';
 import { recordCronRun } from '@/lib/cron-heartbeat';
 import { linkOrigin } from '@/lib/app-origin';
@@ -302,8 +303,8 @@ export async function GET(req: NextRequest) {
             const html = brandedEmailHtml({ studioName: tRem.name || tRem.businessName || 'Your studio', title: daysBefore === 0 ? 'See you today' : 'See you soon',
               bodyLines: [msg.replace(manage, '').replace(/^Reminder\s*[—-]?\s*/, '').trim(),
                 ...(depositDue ? ['Your deposit is still due — pay it from your link to keep this time.'] : formsDue ? ['Please finish your forms before you arrive — it only takes a minute from your link.'] : []),
-                `Running late? Tell us from your link and we’ll let you know your options${graceRem > 0 ? ` (we can usually hold your time for ${graceRem} minutes)` : ''}.`,
-                'Need to change it? Reschedule or cancel from the same link.'],
+                // Same policy wording as every other message (change/cancel + running late).
+                ...bookingPolicyLines(tRem).filter((l, i) => i === 0 || /^Running late/.test(l))],
               cta: link ? { label: depositDue ? 'Pay deposit' : formsDue ? 'Finish my forms' : 'My visit', url: link } : null });
             const r = await sendNotification(db, {
               tenantId: tid, channel: 'email', to: b.email,
