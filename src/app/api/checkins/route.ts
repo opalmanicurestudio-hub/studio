@@ -76,6 +76,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, sharing: true, distanceKm, etaMin });
     }
 
+    // ── NO DOUBLE SUBMISSIONS, NO GOING BACKWARDS ─────────────────────────
+    // The same status again within 3 minutes (or "running late" by a similar
+    // amount) is recognised and not re-sent to the team; after "I'm here", a
+    // stale "on my way" / "running late" is ignored.
+    if (appt && body.checkInStatus) {
+      const st = String(body.checkInStatus), prev = String(appt.checkInStatus || '');
+      const since = appt.clientStatusAt ? Date.now() - Date.parse(appt.clientStatusAt) : Infinity;
+      const prevMins = Number(appt.lateTimeMinutes) || 0, mins = Math.max(0, Math.min(120, Math.round(Number(body.lateTimeMinutes) || 0)));
+      const arrived = prev === 'arrived' || ['servicing', 'completed'].includes(String(appt.status || ''));
+      if (arrived && st !== 'arrived') return NextResponse.json({ ok: true, ignored: 'already_here' });
+      if (st === 'arrived' && prev === 'arrived') return NextResponse.json({ ok: true, duplicate: true });
+      if (st === prev && since < 3 * 60000 && (st !== 'running_late' || Math.abs(mins - prevMins) < 5)) return NextResponse.json({ ok: true, duplicate: true });
+    }
+
     const clean: any = { tenantId, checkInToken: token, updatedAt: new Date().toISOString() };
     for (const k of ALLOWED_FIELDS) {
       if (body[k] === undefined) continue;
@@ -89,7 +103,8 @@ export async function POST(req: NextRequest) {
     if (!clean.checkedInAt && clean.status) clean.checkedInAt = new Date().toISOString();
     if (clean.lateTimeMinutes !== undefined) clean.lateTimeMinutes = Math.max(0, Math.min(120, Math.round(Number(clean.lateTimeMinutes) || 0)));
     // A new "running late" replaces any earlier decision (the team decides again).
-    if (clean.checkInStatus === 'running_late') { clean.lateReply = null; clean.studioAskedToMove = false; }
+    if (clean.checkInStatus === 'running_late') { clean.lateReply = null; clean.studioAskedToMove = false;
+      if (appt?.startTime) clean.etaAt = new Date(Date.parse(appt.startTime) + (Number(clean.lateTimeMinutes) || 0) * 60000).toISOString(); }
 
     // Scoped write (the target state) + legacy mirror (compatibility).
     await db.doc(`tenants/${tenantId}/appointmentCheckIns/${token}`).set(clean, { merge: true });
