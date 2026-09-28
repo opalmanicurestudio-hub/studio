@@ -1501,6 +1501,18 @@ const MidServiceHandoffDialog = ({
 function OnlineLinkCard({ appointment, tenantId, service }: { appointment: any; tenantId: string; service: any }) {
   const place = placeOf(service, appointment);
   const [link, setLink] = React.useState(''); const [tell, setTell] = React.useState(true); const [busy, setBusy] = React.useState(false); const [msg, setMsg] = React.useState<string | null>(null);
+  if (place.kind === 'phone') {
+    const num = String(appointment?.clientPhone || '').trim();
+    return (
+      <div className="space-y-2 rounded-2xl border p-4">
+        <p className="text-sm font-semibold">Phone call</p>
+        {place.phoneWho === 'they_call' ? <p className="text-sm text-muted-foreground">The client calls your business number at their appointment time.</p>
+          : num ? <><p className="text-sm">You call {String(appointment?.clientName || 'the client').split(' ')[0]} on {num}.</p>
+              <a href={`tel:${num.replace(/[^\d+]/g, '')}`} className="inline-flex h-10 items-center rounded-full bg-primary px-4 text-sm font-semibold text-primary-foreground">Call</a></>
+            : <p className="text-sm text-muted-foreground">No phone number on this booking — add one to the client’s profile.</p>}
+      </div>
+    );
+  }
   if (place.kind !== 'online') return null;
   const save = async (value: string) => {
     setBusy(true); setMsg(null);
