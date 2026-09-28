@@ -10,7 +10,7 @@
 // planner all behave like any other booking.
 
 import { useEffect, useMemo, useState } from 'react';
-import { format, addDays, parseISO } from 'date-fns';
+import { format, addDays, addMonths, parseISO, startOfMonth, endOfMonth, isBefore, isSameDay, startOfDay } from 'date-fns';
 import { getAuth } from 'firebase/auth';
 import { Drawer, Btn, Seg } from './kit';
 
@@ -32,7 +32,7 @@ export function DeskFollowUp({ e, visit, accent, onClose }: { e: any; visit: any
   const [staffId, setStaffId] = useState<string>(visit?.staffId || '');
   const [times, setTimes] = useState<Record<string, string[] | null>>({}); // `${staffId}|date` → times (null = loading)
   const [pick, setPick] = useState<{ date: string; time: string } | null>(null);
-  const [otherDate, setOtherDate] = useState(''); const [busy, setBusy] = useState(false); const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [otherDate, setOtherDate] = useState(''); const [month, setMonth] = useState(() => startOfMonth(addDays(new Date(), 14))); const [busy, setBusy] = useState(false); const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const presets = useMemo(() => WEEKS.map((w) => ({ w, d: addDays(base, w * 7) })), [visit?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (visit) { setStaffId(visit.staffId || ''); setTimes({}); setPick(null); setOtherDate(''); setMsg(null); } }, [visit?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -43,7 +43,15 @@ export function DeskFollowUp({ e, visit, accent, onClose }: { e: any; visit: any
     setTimes((t) => ({ ...t, [k]: d.ok ? (d.days?.[0]?.times || []) : [] }));
   };
   useEffect(() => { if (visit && staffId) presets.forEach((p) => void load(ymd(p.d))); }, [visit?.id, staffId]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (visit && staffId && otherDate) void load(otherDate); }, [otherDate]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The month calendar: one request fills the whole month's dots.
+  const loadMonth = async (m: Date, sid = staffId) => {
+    if (!visit || !sid) return; const first = isBefore(startOfMonth(m), startOfDay(new Date())) ? startOfDay(new Date()) : startOfMonth(m);
+    const k = `${sid}|month|${ymd(first)}`; if (times[k] !== undefined) return; setTimes((t) => ({ ...t, [k]: [] }));
+    const days = Math.round((endOfMonth(m).getTime() - first.getTime()) / 864e5) + 1;
+    const d = await staffPost('/api/appointments/reschedule', { action: 'range', tenantId: e.tenantId, appointmentId: visit.id, date: ymd(first), days: Math.min(31, days), staffId: sid });
+    if (d.ok) setTimes((t) => { const n = { ...t }; for (const x of d.days || []) if (n[`${sid}|${x.date}`] === undefined || n[`${sid}|${x.date}`] === null) n[`${sid}|${x.date}`] = x.times || []; return n; });
+  };
+  useEffect(() => { if (visit && staffId) void loadMonth(month); }, [visit?.id, staffId, month]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!visit) return <Drawer accent={accent} open={false} onClose={onClose} title="Book next visit">{null}</Drawer>;
   const svc = (id: string) => (e.services || []).find((s: any) => s.id === id);
@@ -84,7 +92,16 @@ export function DeskFollowUp({ e, visit, accent, onClose }: { e: any; visit: any
               style={on ? { background: 'color-mix(in srgb, var(--accent) 14%, var(--card))', boxShadow: 'inset 0 0 0 2px var(--accent)' } : { background: 'var(--soft)' }}>
               <p className="text-[11px]" style={{ color: 'var(--muted)' }}>In {w} weeks</p><p className="text-[14px] font-semibold">{format(d, 'EEE, MMM d')}</p>
               <p className="text-[12px]" style={{ color: list === undefined || list === null ? 'var(--muted)' : !list.length ? 'var(--muted)' : t === usual ? 'var(--ok)' : 'var(--warn)' }}>{list === undefined || list === null ? 'Checking…' : !list.length ? 'No times that day' : t === usual ? `✓ ${clock(t!)} · same time` : `${clock(t!)} · nearest free`}</p></button>); })}</div>
-          <label className="flex items-center gap-2 text-[13px]"><span style={{ color: 'var(--muted)' }}>Or pick a date</span><input type="date" value={otherDate} min={ymd(new Date())} onChange={(ev) => { setOtherDate(ev.target.value); setPick(null); }} className="h-9 rounded-full px-3 text-[13px]" style={{ background: 'var(--soft)' }} /></label>
+        </Card>
+        <Card>
+          <div className="flex items-center justify-between"><p className="text-[14px] font-semibold">Or pick a day · {format(month, 'MMMM yyyy')}</p>
+            <div className="flex gap-1"><Btn quiet label="Previous month" disabled={!isBefore(startOfMonth(new Date()), month)} onClick={() => setMonth(addMonths(month, -1))}>‹</Btn><Btn quiet label="Next month" onClick={() => setMonth(addMonths(month, 1))}>›</Btn></div></div>
+          <div className="grid grid-cols-7 gap-1 text-center text-[11px]" style={{ color: 'var(--muted)' }}>{['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => <span key={i}>{d}</span>)}</div>
+          <div className="grid grid-cols-7 gap-1">{[...Array(startOfMonth(month).getDay()).fill(null), ...Array.from({ length: endOfMonth(month).getDate() }, (_, i) => addDays(startOfMonth(month), i))].map((d: Date | null, i: number) => {
+            if (!d) return <span key={`b${i}`} />; const k = ymd(d); const list = tf(k); const past = isBefore(d, startOfDay(new Date())); const on = otherDate === k || pick?.date === k; const has = !!list?.length;
+            return <button key={k} type="button" disabled={past} aria-pressed={on} aria-label={`${format(d, 'EEEE MMMM d')}${has ? `, ${list!.length} times` : ''}`} onClick={() => { setOtherDate(k); setPick(null); void load(k); }}
+              className="relative flex h-10 items-center justify-center rounded-xl text-[14px] disabled:opacity-30" style={on ? { background: 'var(--accent)', color: 'var(--accent-ink)', fontWeight: 600 } : isSameDay(d, base) ? { boxShadow: 'inset 0 0 0 1.5px var(--line)' } : undefined}>
+              {d.getDate()}{!past && Array.isArray(list) && <span className="absolute bottom-1 h-1 w-1 rounded-full" style={{ background: has ? (on ? 'var(--accent-ink)' : 'var(--accent)') : 'transparent' }} />}</button>; })}</div>
         </Card>
         {shownDate && <Card><p className="text-[14px] font-semibold">{format(new Date(`${shownDate}T12:00`), 'EEEE, MMM d')}</p>
           {dayList === undefined || dayList === null ? <p className="text-[13px]" style={{ color: 'var(--muted)' }}>Checking…</p> : !dayList.length ? <p className="text-[13px]" style={{ color: 'var(--muted)' }}>No open times that day.</p>
