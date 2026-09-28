@@ -230,7 +230,7 @@ export async function POST(req: NextRequest) {
          * function was warming up is a failure nobody reports. */
         const { internalOrigin, internalPost } = await import('@/lib/message-policy');
         const cr = await internalPost(
-          internalOrigin(tenantForGrace, req.nextUrl.origin),
+          internalOrigin(null, req.nextUrl.origin), // our own host — so the charge carries the server's proof
           '/api/stripe/charge-card',
           {
             tenantId, clientId: apt.clientId,
