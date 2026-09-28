@@ -45,3 +45,38 @@ export function VisitButton({ children, onClick, href, quiet, disabled }: { chil
 }
 
 export const VisitMuted = ({ children }: { children: React.ReactNode }) => <p className="text-[14px]" style={{ color: 'var(--muted)' }}>{children}</p>;
+
+/** A calm section label (no all-caps micro-labels). */
+export const VisitLabel = ({ children }: { children: React.ReactNode }) => <p className="text-[14px] font-semibold">{children}</p>;
+
+/** Choice pills — one of a few options. */
+export function VisitChoice<T extends string | number>({ value, onChange, options, cols }: { value: T; onChange: (v: T) => void; options: [T, string][]; cols?: 2 | 3 | 4 }) {
+  return (
+    <div className={`grid gap-2 ${cols === 2 ? 'grid-cols-2' : cols === 3 ? 'grid-cols-3' : 'grid-cols-2 sm:grid-cols-4'}`} role="radiogroup">
+      {options.map(([v, l]) => {
+        const on = v === value;
+        return <button key={String(v)} type="button" role="radio" aria-checked={on} onClick={() => onChange(v)}
+          className="h-11 rounded-full px-3 text-[14px] transition active:scale-[.98]"
+          style={on ? { background: 'var(--accent)', color: '#fff', fontWeight: 600 } : { background: '#fff', border: '1px solid #e7e2dc' }}>{l}</button>;
+      })}
+    </div>
+  );
+}
+
+/** A plain select in the Studio look. */
+export function VisitSelect({ value, onChange, options, label }: { value: string | number; onChange: (v: string) => void; options: { value: string | number; label: string }[]; label: string }) {
+  return (
+    <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} className="h-12 w-full rounded-2xl bg-white px-4 text-[15px] outline-none" style={{ border: '1px solid #e7e2dc' }}>
+      {options.map((o) => <option key={String(o.value)} value={o.value}>{o.label}</option>)}
+    </select>
+  );
+}
+
+/** A text field / textarea in the Studio look. */
+export function VisitInput({ value, onChange, placeholder, multiline, label }: { value: string; onChange: (v: string) => void; placeholder?: string; multiline?: boolean; label: string }) {
+  const cls = 'w-full rounded-2xl bg-white px-4 text-[15px] outline-none';
+  const style = { border: '1px solid #e7e2dc' };
+  return multiline
+    ? <textarea aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} rows={3} className={`${cls} py-3`} style={style} />
+    : <input aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className={`${cls} h-12`} style={style} />;
+}
