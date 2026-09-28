@@ -88,6 +88,8 @@ export async function POST(req: NextRequest) {
     // `status`) — a status-only update ("on my way") must NOT stamp arrival.
     if (!clean.checkedInAt && clean.status) clean.checkedInAt = new Date().toISOString();
     if (clean.lateTimeMinutes !== undefined) clean.lateTimeMinutes = Math.max(0, Math.min(120, Math.round(Number(clean.lateTimeMinutes) || 0)));
+    // A new "running late" replaces any earlier decision (the team decides again).
+    if (clean.checkInStatus === 'running_late') { clean.lateReply = null; clean.studioAskedToMove = false; }
 
     // Scoped write (the target state) + legacy mirror (compatibility).
     await db.doc(`tenants/${tenantId}/appointmentCheckIns/${token}`).set(clean, { merge: true });
@@ -130,18 +132,24 @@ export async function POST(req: NextRequest) {
       const grace = Number(P.late.graceMinutes.value) || 0;
       const nowIso = new Date().toISOString();
       const etaAt = st === 'running_late' && appt.startTime ? new Date(Date.parse(appt.startTime) + mins * 60000).toISOString() : null;
-      if (!appt.isRenterBooking) await aRef.set({ clientCheckInStatus: st, clientStatusAt: nowIso,
-        ...(st === 'running_late' ? { clientLateMinutes: mins, clientEtaAt: etaAt, clientLateNote: clean.lateNote || null } : {}),
-        ...(st === 'arrived' ? { clientTrip: null } : {}) }, { merge: true });
+      // The fields the PLANNER and the DESK already show (checkInStatus / lateTimeMinutes):
+      // what the client tells us from their link now appears everywhere, straight away.
+      const done = ['completed', 'cancelled', 'no_show', 'servicing'].includes(String(appt.status || ''));
+      if (!done) await aRef.set({
+        checkInStatus: st, clientCheckInStatus: st, clientStatusAt: nowIso, checkInStatusTimestamp: nowIso,
+        ...(st === 'running_late' ? { lateTimeMinutes: mins, clientLateMinutes: mins, clientEtaAt: etaAt, etaAt, clientLateNote: clean.lateNote || null, lateReply: null } : {}),
+        ...(st === 'arrived' ? { clientTrip: null, arrivedAt: nowIso } : {}),
+      }, { merge: true });
       else if (st === 'arrived') await aRef.set({ clientTrip: null }, { merge: true });
       reply = { graceMinutes: grace, withinGrace: st !== 'running_late' || mins <= grace, lateFee: Number(P.late.fee.value) || 0 };
       // Tell the studio (renters are told above, in their own name).
-      if (!appt.isRenterBooking && (st === 'running_late' || st === 'on_my_way')) {
+      if (!appt.isRenterBooking && (st === 'running_late' || st === 'on_my_way' || st === 'arrived')) {
         const when = appt.startTime ? new Date(appt.startTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: t.timezone || undefined }) : '';
         const who = appt.clientName || 'Your client';
         const n = db.collection(`tenants/${tenantId}/notifications`).doc();
-        await n.set({ id: n.id, userId: appt.staffId || null, read: false, createdAt: nowIso, type: st === 'running_late' ? 'running_late' : 'on_my_way', link: 'pos', appointmentId: String(body.appointmentId),
-          message: st === 'running_late' ? `${who} is running ~${mins} min late for ${when}${mins > grace ? ` — past your ${grace}-minute grace` : ''}${clean.lateNote ? `: “${clean.lateNote}”` : ''}` : `${who} is on the way for ${when}` }).catch(() => {});
+        await n.set({ id: n.id, userId: appt.staffId || null, read: false, createdAt: nowIso, type: st === 'running_late' ? 'running_late' : st === 'arrived' ? 'arrived' : 'on_my_way', link: 'pos', appointmentId: String(body.appointmentId),
+          message: st === 'running_late' ? `${who} is running ~${mins} min late for ${when}${mins > grace ? ` — past your ${grace}-minute grace` : ''}${clean.lateNote ? `: “${clean.lateNote}”` : ''} — decide what happens (front desk or planner) and they’ll be told.`
+            : st === 'arrived' ? `${who} is here for ${when}` : `${who} is on the way for ${when}` }).catch(() => {});
       }
     }
 
