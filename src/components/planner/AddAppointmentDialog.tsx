@@ -1,5 +1,6 @@
 'use client';
 
+import { hasRealCard } from '@/lib/card-on-file';
 import { getAuth } from 'firebase/auth';
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -745,7 +746,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                                                         <p className="font-semibold text-sm truncate leading-none text-left">{c.name}</p>
                                                                         {hasPkg && <Badge className="bg-teal-50 text-teal-700 border border-teal-200 text-[9px] h-4 px-1.5 font-medium">Package</Badge>}
                                                                         {hasDebt && <Badge className="bg-red-50 text-red-600 border border-red-200 text-[9px] h-4 px-1.5 font-medium">Owes balance</Badge>}
-                                                                        {!!(c.cardOnFile?.token || c.cardOnFile?.paymentMethodId) && <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] h-4 px-1.5 font-medium"><CreditCard className="w-2.5 h-2.5 mr-0.5" />Card</Badge>}
+                                                                        {!!hasRealCard(c) && <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] h-4 px-1.5 font-medium"><CreditCard className="w-2.5 h-2.5 mr-0.5" />Card</Badge>}
                                                                     </div>
                                                                     <p className="text-xs text-muted-foreground truncate text-left">{c.email || c.phone || 'No contact on file'}</p>
                                                                 </div>
@@ -768,8 +769,8 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                         {(selectedClient.activePackages || []).map((p: any) => (
                                             <span key={p.packageId} className="inline-flex items-center gap-1 text-[10px] font-medium text-teal-700 bg-teal-50 border border-teal-200 rounded-full px-2 py-0.5"><Sparkles className="w-2.5 h-2.5" /> {p.sessionsRemaining} package visit{p.sessionsRemaining === 1 ? '' : 's'} left</span>
                                         ))}
-                                        {!!(selectedClient.cardOnFile?.token || selectedClient.cardOnFile?.paymentMethodId) && (
-                                            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5"><CreditCard className="w-2.5 h-2.5" /> {selectedClient.cardOnFile.brand} •••• {selectedClient.cardOnFile.last4}</span>
+                                        {!!hasRealCard(selectedClient) && (
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5"><CreditCard className="w-2.5 h-2.5" /> {selectedClient.cardOnFile?.brand} •••• {selectedClient.cardOnFile?.last4}</span>
                                         )}
                                         {(selectedClient.outstandingBalance || 0) > 0 && (
                                             <span className="inline-flex items-center gap-1 text-[10px] font-medium text-red-600 bg-red-50 border border-red-200 rounded-full px-2 py-0.5">Owes ${safeNumber(selectedClient.outstandingBalance).toFixed(2)}</span>
@@ -973,15 +974,15 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                     control={control}
                                     render={({ field }) => (
                                         <RadioGroup value={field.value} onValueChange={field.onChange} className="grid grid-cols-1 gap-3">
-                                            <label htmlFor="pay-vault" className={cn("flex items-center justify-between p-5 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/5", !(selectedClient?.cardOnFile?.token || selectedClient?.cardOnFile?.paymentMethodId) && "opacity-40 grayscale grayscale-[0.5]")}>
+                                            <label htmlFor="pay-vault" className={cn("flex items-center justify-between p-5 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/5", !hasRealCard(selectedClient) && "opacity-40 grayscale grayscale-[0.5]")}>
                                                 <div className="flex items-center gap-4">
-                                                    <RadioGroupItem value="card_on_file" id="pay-vault" disabled={!(selectedClient?.cardOnFile?.token || selectedClient?.cardOnFile?.paymentMethodId)}/>
+                                                    <RadioGroupItem value="card_on_file" id="pay-vault" disabled={!hasRealCard(selectedClient)}/>
                                                     <div className="space-y-0.5 text-left">
                                                         <span className="text-sm font-semibold text-slate-900">Card on file</span>
-                                                        <p className="text-xs text-muted-foreground">{(selectedClient?.cardOnFile?.token || selectedClient?.cardOnFile?.paymentMethodId) ? `${selectedClient?.cardOnFile?.brand} •••• ${selectedClient?.cardOnFile?.last4}` : 'No card saved yet'}</p>
+                                                        <p className="text-xs text-muted-foreground">{hasRealCard(selectedClient) ? `${selectedClient?.cardOnFile?.brand} •••• ${selectedClient?.cardOnFile?.last4}` : 'No card saved yet'}</p>
                                                     </div>
                                                 </div>
-                                                <ShieldCheck className={cn("w-5 h-5", (selectedClient?.cardOnFile?.token || selectedClient?.cardOnFile?.paymentMethodId) ? "text-primary" : "text-slate-300")} />
+                                                <ShieldCheck className={cn("w-5 h-5", hasRealCard(selectedClient) ? "text-primary" : "text-slate-300")} />
                                             </label>
                                             <label htmlFor="pay-terminal" className="flex items-center justify-between p-5 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/5 border-border">
                                                 <div className="flex items-center gap-4">
