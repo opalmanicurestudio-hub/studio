@@ -113,13 +113,15 @@ export async function POST(req: NextRequest) {
   // The fee window counts from the ORIGINAL time (Booking policies → deadline), so moving twice can't dodge it.
   const inWindow = fee > 0 && windowH > 0 && hoursToDeadline(t, appt, service) < windowH;
   const rule = checkChange(t, appt, 'staff', service);   // staff are never blocked — but it's recorded
-  const applyFee = inWindow && b.applyFee !== false;
+  // Who asked? 'studio' = our decision: no fee, not counted against the client, deadline starts fresh.
+  const byStudio = b.initiatedBy === 'studio';
+  const applyFee = inWindow && b.applyFee !== false && !byStudio;
   const { FieldValue } = await import('firebase-admin/firestore');
   const batch = db.batch();
   const auditId = `resched_${appointmentId}_${Date.now()}`;
   batch.set(aRef, {
     startTime: start.toISOString(), endTime: end.toISOString(), staffId, ...(who?.name ? { staffName: who.name } : {}),
-    rescheduledFromTime: appt.startTime, rescheduleCount: FieldValue.increment(1), originalStartTime: chainAfterMove(appt).originalStartTime,
+    rescheduledFromTime: appt.startTime, ...(byStudio ? {} : { rescheduleCount: FieldValue.increment(1) }), originalStartTime: chainAfterMove(appt, { byStudio }).originalStartTime, rescheduledBy: byStudio ? 'studio' : 'client_request',
     ...(rule.staffNote ? { lastChangePastPolicy: rule.staffNote } : {}), changeRequestedAt: null,
     studioAskedToMove: false, lateReply: null, lateTimeMinutes: null, clientCheckInStatus: null, clientLateMinutes: null, clientEtaAt: null, etaAt: null, clientLateNote: null, clientTrip: null, lastRescheduledAt: nowIso, lastRescheduledBy: actor.uid || actor.name || 'staff',
     ...(['requested', 'pending_payment', 'cancelled'].includes(appt.status) ? {} : { status: 'confirmed' }), checkInStatus: 'pending',
@@ -127,13 +129,13 @@ export async function POST(req: NextRequest) {
     rescheduleAuditTrail: FieldValue.arrayUnion({ id: auditId, fromTime: appt.startTime, toTime: start.toISOString(), at: nowIso, byId: actor.uid || null, byName: actor.name || null, feeApplied: applyFee ? fee : 0, ...(reason ? { overrode: reason } : {}) }),
   }, { merge: true });
   if (appt.checkInToken) batch.set(db.doc(`appointmentCheckIns/${appt.checkInToken}`), { studioAskedToMove: false, lateReply: null, startTime: start.toISOString(), endTime: end.toISOString(), staffId }, { merge: true });
-  if (appt.clientId) batch.set(db.doc(`${T}/clients/${appt.clientId}`), { rescheduleCount: FieldValue.increment(1), ...(applyFee ? { outstandingBalance: FieldValue.increment(fee), unpaidFees: FieldValue.arrayUnion({ feeId: auditId, appointmentId, appointmentDate: nowIso, feeAmount: fee, reason: 'reschedule_fee' }) } : {}) }, { merge: true });
+  if (appt.clientId) batch.set(db.doc(`${T}/clients/${appt.clientId}`), { ...(byStudio ? {} : { rescheduleCount: FieldValue.increment(1) }), ...(applyFee ? { outstandingBalance: FieldValue.increment(fee), unpaidFees: FieldValue.arrayUnion({ feeId: auditId, appointmentId, appointmentDate: nowIso, feeAmount: fee, reason: 'reschedule_fee' }) } : {}) }, { merge: true });
   await batch.commit();
 
   const whenOld = new Date(appt.startTime).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz });
   const whenNew = start.toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz });
   await logAuditAdmin(db, tenantId, { action: 'appointment.reschedule', targetType: 'appointment', targetId: appointmentId,
-    summary: `Moved ${appt.clientName || 'appointment'} from ${whenOld} to ${whenNew}${staffId !== appt.staffId && who?.name ? ` (now with ${who.name})` : ''}${applyFee ? ` · $${fee} reschedule fee` : ''}${reason ? ` · OVERRIDE: ${reason}` : ''}${rule.staffNote ? ` — ${rule.staffNote}` : ''}`,
+    summary: `Moved ${appt.clientName || 'appointment'} from ${whenOld} to ${whenNew}${staffId !== appt.staffId && who?.name ? ` (now with ${who.name})` : ''}${applyFee ? ` · $${fee} reschedule fee` : ''}${reason ? ` · OVERRIDE: ${reason}` : ''}${rule.staffNote ? ` — ${rule.staffNote}` : ''}${byStudio ? ' — our change (not counted against the client)' : ''}`,
     before: { startTime: appt.startTime, staffId: appt.staffId }, after: { startTime: start.toISOString(), staffId },
     actor: { type: 'user', id: actor.uid, name: actor.name, role: actor.role, via: 'planner' } }).catch(() => {});
 
