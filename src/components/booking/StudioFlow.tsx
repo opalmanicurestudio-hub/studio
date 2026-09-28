@@ -228,6 +228,7 @@ export function StudioFlow({ c }: { c: any }) {
       {header}
       <main className="mx-auto max-w-xl px-5 pb-40 pt-2" key={currentStep} style={{ animation: 'pubRise .45s cubic-bezier(.2,.8,.2,1) both' }}>
         {currentStep === 'dateTime' && whenStep}
+        {currentStep === 'details' && c.placeChooser && <section className="mb-4 rounded-3xl bg-white p-5 shadow-sm">{c.placeChooser}</section>}
         {currentStep === 'details' && youStep}
         {currentStep === 'checkout' && payStep}
         {currentStep === 'confirmation' && doneStep}
