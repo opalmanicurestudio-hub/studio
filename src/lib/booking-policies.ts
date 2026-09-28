@@ -17,7 +17,7 @@ export type Ruled<T> = { value: T; source: Source };
 /** The new, per-business rules (owner decisions 2026-09-28) and their defaults. */
 export interface BookingPoliciesSettings {
   lateCancelConsequence?: 'both' | 'fee' | 'deposit';     // default 'both' — the deposit counts toward the fee
-  changeCutoffHours?: number;                             // no client changes inside this; 0 = any time (default 0)
+  changeCutoffHours?: number;                             // no client changes inside this; 0 = any time (default 2 — today's behaviour)
   rescheduleLimit?: number;                               // changes allowed before the next needs a person; 0 = unlimited (default 2)
   overLimit?: 'approval' | 'block';                       // default 'approval'
   rescheduleDeadline?: 'original' | 'new';                // default 'original' — moving can't push the deadline back
@@ -26,7 +26,7 @@ export interface BookingPoliciesSettings {
   renterDeskSupport?: { billing: 'included' | 'per_booking' | 'monthly'; amount?: number }; // default included
 }
 export const POLICY_DEFAULTS: Required<Omit<BookingPoliciesSettings, 'renterDeskSupport'>> & { renterDeskSupport: { billing: 'included'; amount: number } } = {
-  lateCancelConsequence: 'both', changeCutoffHours: 0, rescheduleLimit: 2, overLimit: 'approval', rescheduleDeadline: 'original',
+  lateCancelConsequence: 'both', changeCutoffHours: 2, rescheduleLimit: 2, overLimit: 'approval', rescheduleDeadline: 'original',
   maxUpcomingBookings: 0, balanceDue: 'visit', renterDeskSupport: { billing: 'included', amount: 0 },
 };
 
@@ -50,7 +50,8 @@ export function resolvePolicy(tenant: any, service?: any, opts: { isMember?: boo
   const t = tenant || {}; const s = service || {}; const bp: BookingPoliciesSettings = t.bookingPolicies || {}; const bm = t.bookingMode || {}; const rel = t.bookingRelease || {};
   const svcDeposit = !!s.depositType && s.depositType !== 'none' && (s.depositType !== 'deposit' || num(s.depositAmount) > 0);
   const svcFeeMode = s.cancellationFeeMode && s.cancellationFeeMode !== 'inherit' ? s.cancellationFeeMode : undefined;
-  const tenantFeeMode = t.defaultCancellationMode || (num(t.cancellationFee) > 0 ? 'flat' : undefined);
+  // Unset → 'matrix' (your costs): that's what the cancellation screen charges when no type was chosen.
+  const tenantFeeMode = t.defaultCancellationMode || undefined;
   return {
     deposit: {
       required: svcDeposit ? { value: true, source: 'service' } : { value: false, source: 'default' },
@@ -62,12 +63,13 @@ export function resolvePolicy(tenant: any, service?: any, opts: { isMember?: boo
     },
     cancel: {
       windowHours: pick<number>([num(s.cancellationWindowHours) || undefined, 'service'], [num(t.cancellationWindowHours) || undefined, 'business'], [24, 'default']),
-      feeMode: pick([svcFeeMode, 'service'], [tenantFeeMode, 'business'], ['none', 'default']),
+      feeMode: pick([svcFeeMode, 'service'], [tenantFeeMode, 'business'], ['matrix', 'default']),
       feeValue: pick<number>([num(s.cancellationFeeValue ?? s.customCancellationFee) || undefined, 'service'], [num(t.cancellationFee) || undefined, 'business'], [0, 'default']),
       lateConsequence: pick([bp.lateCancelConsequence, 'business'], [POLICY_DEFAULTS.lateCancelConsequence, 'default']),
     },
     change: {
-      cutoffHours: pick<number>([bp.changeCutoffHours, 'business'], [POLICY_DEFAULTS.changeCutoffHours, 'default']),
+      // One cutoff: the new setting, else the older clientNotify.rescheduleCutoffHours, else 2h (what clients get today).
+      cutoffHours: pick<number>([bp.changeCutoffHours, 'business'], [has(t.clientNotify?.rescheduleCutoffHours) ? num(t.clientNotify.rescheduleCutoffHours) : undefined, 'business'], [POLICY_DEFAULTS.changeCutoffHours, 'default']),
       feeWindowHours: pick<number>([num(t.rescheduleFeeWindowHours) || undefined, 'business'], [0, 'default']),
       fee: pick<number>([num(t.rescheduleFee) || undefined, 'business'], [0, 'default']),
       limit: pick<number>([bp.rescheduleLimit, 'business'], [POLICY_DEFAULTS.rescheduleLimit, 'default']),
