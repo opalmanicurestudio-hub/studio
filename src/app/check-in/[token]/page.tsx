@@ -2328,6 +2328,7 @@ const RescheduleGateView = ({
     onBack: () => void;
 }) => {
     const [isLoading, setIsLoading] = useState(true);
+    const [useGrace, setUseGrace] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [info, setInfo] = useState<any>(null);
     const [newDate, setNewDate] = useState('');
@@ -2370,7 +2371,7 @@ const RescheduleGateView = ({
             // landed an hour late in the planner. Only the server knows the
             // studio's zone and whether daylight saving applies on the chosen
             // date, so only the server should build the moment.
-            const d = await apptApi({ action: 'reschedule', newDate, newTime });
+            const d = await apptApi({ action: 'reschedule', newDate, newTime, useGrace });
             if (!d.ok) { setError(d.error || 'Could not move the appointment — try another time.'); return; }
             setResult(d);
         } catch (e: any) { setError(e?.message || 'Something went wrong — please try again.'); }
@@ -2452,8 +2453,9 @@ const RescheduleGateView = ({
                     </div>
                 ) : null}
                 {canChange && Number(info?.policy?.rescheduleFee) > 0 && (
-                    <div className="p-4 rounded-2xl border-2 border-amber-200 bg-amber-50">
-                        <p className="text-sm text-amber-900">Moving it now carries a <b>${Number(info.policy.rescheduleFee).toFixed(2)}</b> reschedule fee, as it’s within {info.policy.rescheduleFeeWindowHours} hours of your appointment. It’s added to your balance and due at your visit.</p>
+                    <div className="p-4 rounded-2xl border-2 border-amber-200 bg-amber-50 space-y-2">
+                        <p className="text-sm text-amber-900">{useGrace ? <>Using your grace allowance — <b>no reschedule fee</b> this time.</> : <>Rescheduling now carries a <b>${Number(info.policy.rescheduleFee).toFixed(2)}</b> fee, as it’s within {info.policy.rescheduleFeeWindowHours} hours of your appointment. It’s added to your balance and due at your visit.</>}</p>
+                        {info?.policy?.graceAvailable && <label className="flex items-center gap-2 text-sm text-amber-900"><input type="checkbox" checked={useGrace} onChange={(e) => setUseGrace(e.target.checked)} /> You have {info.policy.graceAvailable.remaining} grace reschedule{info.policy.graceAvailable.remaining === 1 ? '' : 's'} left (every {info.policy.graceAvailable.periodMonths} months) — use it and reschedule for free</label>}
                     </div>
                 )}
                 {!canChange && (info?.policy?.changeRule?.canRequest ?? info?.policy?.changeRule?.needsApproval) ? (
