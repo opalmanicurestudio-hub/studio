@@ -2,10 +2,10 @@
 //
 // A CLIENT IS RUNNING LATE → WE DECIDE → THEY'RE TOLD, straight away.
 // Used by the front desk (after its running-late panel saves) and the planner.
-//   keep     — come in as planned
-//   condense — come in; a shorter visit (the add-ons the desk dropped)
-//   switch   — come in; another provider will look after you
-//   move     — please DON'T come in; choose a new time (their visit link lets
+//   keep     — as planned
+//   condense — a shorter visit (the add-ons the desk dropped)
+//   switch   — another provider will look after them
+//   move     — we can't keep this time; choose a new one (their visit link lets
 //              them move it even past the usual cutoff / change limit — we asked)
 // ("Not today" is a cancellation — the desk's cancel screen, which tells them.)
 // Writes appointment.lateReply (the visit link shows it live), texts + emails
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
       const email = String(cl.email || ap.clientEmail || '').trim(), phone = String(cl.phone || ap.clientPhone || '').trim();
       const { sendNotification } = await import('@/lib/notify');
       const { brandedEmailHtml } = await import('@/lib/email-template');
-      const title = option === 'move' ? 'Please don’t come in — let’s find a new time' : 'We’ll see you soon';
+      const title = option === 'move' ? 'Let’s find a new time' : 'We’ll see you soon';
       if (email.includes('@')) told.email = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `${title} — ${studio}`, kind: 'late_reply',
         html: brandedEmailHtml({ studioName: studio, title, bodyLines: [message], cta: link ? { label: option === 'move' ? 'Choose a new time' : 'My visit', url: link } : null }),
         appointmentId, clientId: ap.clientId || null, clientName: ap.clientName || null } as any))?.ok;
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     } catch (e) { console.error('[late-decision] send failed', e); }
   }
   await logAuditAdmin(db, tenantId, { action: 'appointment.late_reply', targetType: 'appointment', targetId: appointmentId,
-    summary: `Running late → ${option === 'move' ? 'asked them to move it (not to come in)' : option === 'condense' ? 'shorter visit' : option === 'switch' ? 'another provider' : 'come in as planned'}. ${told.email || told.sms ? `Told by ${[told.email && 'email', told.sms && 'text'].filter(Boolean).join(' + ')}.` : b.tell === false ? 'Not messaged.' : 'No contact on file.'}`,
+    summary: `Running late → ${option === 'move' ? 'asked them to choose a new time' : option === 'condense' ? 'shorter visit' : option === 'switch' ? 'another provider' : 'come in as planned'}. ${told.email || told.sms ? `Told by ${[told.email && 'email', told.sms && 'text'].filter(Boolean).join(' + ')}.` : b.tell === false ? 'Not messaged.' : 'No contact on file.'}`,
     actor: { type: 'user', id: by.uid, name: by.name, role: auth.actor.role, via: 'staff' } }).catch(() => {});
   return NextResponse.json({ ok: true, message, told });
 }
