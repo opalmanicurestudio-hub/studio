@@ -68,3 +68,37 @@ export function fitCheck(a: any, next: any | null, serviceMinutes: number, buffe
   const over = Math.max(0, Math.round((finish.getTime() - limit) / 60000));
   return { fits: over === 0, overrunMinutes: over, finishAt: finish };
 }
+
+// ── WHO CAN DECIDE (per business: Booking policies → "Who can decide") ──────
+// Owners, admins and managers decide everything. Staff, by the business's choice:
+//   'decide_own' (default) — decide for their own clients; for others, send a reschedule offer
+//   'recommend'            — send a reschedule offer (e.g. a receptionist); no other decisions
+//   'view'                 — see the cases, no actions
+export type OpsAction = 'keep' | 'move' | 'condense' | 'switch' | 'payment_exception' | 'provider_late';
+export type StaffOpsLevel = 'decide_own' | 'recommend' | 'view';
+export const MANAGER_ROLES = ['owner', 'admin', 'manager'];
+export function opsCan(role: string | null | undefined, level: StaffOpsLevel | undefined, isOwnClient: boolean, action: OpsAction): boolean {
+  const r = String(role || '').toLowerCase();
+  if (MANAGER_ROLES.includes(r)) return true;
+  if (action === 'payment_exception' || action === 'switch') return false;       // manager's call (fees, provider changes)
+  const lv = level || 'decide_own';
+  if (lv === 'view') return false;
+  if (action === 'provider_late') return isOwnClient;                             // a provider can say THEY are running late
+  if (action === 'move') return true;                                             // anyone who isn't view-only can offer a reschedule
+  return lv === 'decide_own' && isOwnClient;
+}
+export const opsLevelOf = (tenant: any): StaffOpsLevel => (['decide_own', 'recommend', 'view'].includes(tenant?.bookingPolicies?.staffOpsLevel) ? tenant.bookingPolicies.staffOpsLevel : 'decide_own');
+
+/** Provider running late: which of their next appointments move, and by how much (cascading). */
+export function providerDelayImpact(appts: any[], freeAt: Date, durOf: (a: any) => number): { appt: any; delayMin: number; newStart: Date }[] {
+  const out: { appt: any; delayMin: number; newStart: Date }[] = [];
+  let free = freeAt.getTime();
+  for (const a of [...appts].sort((x, y) => Date.parse(x.startTime) - Date.parse(y.startTime))) {
+    const s = Date.parse(a.startTime); if (!Number.isFinite(s)) continue;
+    const ns = Math.max(s, free); const d = Math.round((ns - s) / 60000);
+    if (d < 5) break;                                   // back on schedule — later guests unaffected
+    out.push({ appt: a, delayMin: d, newStart: new Date(ns) });
+    free = ns + Math.max(15, durOf(a)) * 60000;
+  }
+  return out;
+}
