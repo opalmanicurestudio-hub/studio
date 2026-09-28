@@ -59,7 +59,7 @@ import { useDepositCredit } from '@/hooks/useDepositCredit';
 // Who is performing the cancellation. Drives the audit trail's actorType.
 type ActorType = 'studio' | 'client' | 'no_show';
 
-const STUDIO_REASON_OPTIONS: { value: StudioCancellationReason; label: string }[] = [
+export const STUDIO_REASON_OPTIONS: { value: StudioCancellationReason; label: string }[] = [
   { value: 'late_arrival',           label: 'Late Arrival' },
   { value: 'staff_unavailable',      label: 'Staff Unavailable' },
   { value: 'double_booked',          label: 'Double Booked' },
@@ -67,7 +67,7 @@ const STUDIO_REASON_OPTIONS: { value: StudioCancellationReason; label: string }[
   { value: 'other',                  label: 'Other' },
 ];
 
-const CLIENT_REASON_OPTIONS: { value: ClientCancellationReason; label: string }[] = [
+export const CLIENT_REASON_OPTIONS: { value: ClientCancellationReason; label: string }[] = [
   { value: 'schedule_conflict',   label: 'Schedule Conflict' },
   { value: 'changed_mind',        label: 'Changed Mind' },
   { value: 'found_alternative',   label: 'Found Alternative' },
@@ -122,14 +122,9 @@ const safeDate = (val: any): Date => {
   return new Date(val);
 };
 
-export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = ({
-  open,
-  onOpenChange,
-  appointment,
-  tenant,
-  currentStaff,
-  onConfirm,
-}) => {
+/** The cancel/no-show dialog's logic — shared by the planner dialog and the front desk (same policy maths, two layouts). */
+export function useCancelDialog(props: CancelAppointmentDialogProps) {
+  const { open, onOpenChange, appointment, tenant, currentStaff, onConfirm } = props;
   const { services, clients, staff, inventory } = useInventory();
 
   const [actorType, setActorType] = useState<ActorType>('studio');
@@ -460,6 +455,26 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
+  return {
+    services, clients, staff, inventory, actorType, setActorType, studioReason, setStudioReason,
+    clientReason, setClientReason, customReason, setCustomReason, chargeFee, setChargeFee, paymentMethod, setPaymentMethod,
+    isSubmitting, setIsSubmitting, feeValue, setFeeValue, showFeeBreakdown, setShowFeeBreakdown, depositDisposition, setDepositDisposition,
+    additionalCreditValue, setAdditionalCreditValue, client, depositCredit, isLoadingDeposit, hasDeposit, depositDollars, hasCardOnFile,
+    tmhr, taxBurden, sessionItems, recoveryMatrix, hoursUntilAppt, suggestedFeeTotal, isNoShow, activeSpecificReason,
+    isOtherSelected, coarseReason, isFeeOverridden, finalFeeAmount, handleAction,
+  };
+}
+
+export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (props) => {
+  const { open, onOpenChange, appointment, tenant, currentStaff, onConfirm } = props;
+  const {
+    services, clients, staff, inventory, actorType, setActorType, studioReason, setStudioReason,
+    clientReason, setClientReason, customReason, setCustomReason, chargeFee, setChargeFee, paymentMethod, setPaymentMethod,
+    isSubmitting, setIsSubmitting, feeValue, setFeeValue, showFeeBreakdown, setShowFeeBreakdown, depositDisposition, setDepositDisposition,
+    additionalCreditValue, setAdditionalCreditValue, client, depositCredit, isLoadingDeposit, hasDeposit, depositDollars, hasCardOnFile,
+    tmhr, taxBurden, sessionItems, recoveryMatrix, hoursUntilAppt, suggestedFeeTotal, isNoShow, activeSpecificReason,
+    isOtherSelected, coarseReason, isFeeOverridden, finalFeeAmount, handleAction,
+  } = useCancelDialog(props);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl flex flex-col h-[95dvh] max-h-[95dvh] bg-background">
