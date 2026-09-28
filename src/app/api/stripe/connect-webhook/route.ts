@@ -494,6 +494,12 @@ export async function POST(req: NextRequest) {
             const nowIso = new Date().toISOString();
             await db.doc(`tenants/${tenant.id}/bookingCompletions/${completionToken}`).set({ status: 'complete', completedAt: nowIso }, { merge: true });
             if (appointmentId) await db.doc(`tenants/${tenant.id}/appointments/${appointmentId}`).set({ completionStatus: 'completed', requirementsCompletedAt: nowIso, cardUpdatedViaLinkAt: nowIso }, { merge: true });
+            // On the appointment's own record: the client paid through their link.
+            if (appointmentId && sessionType === 'completion' && Number(session.amount_total) > 0) await logAuditAdmin(db, tenant.id, { action: 'deposit.paid', targetType: 'appointment', targetId: appointmentId, amount: Number(session.amount_total) / 100,
+              summary: `Deposit $${(Number(session.amount_total) / 100).toFixed(2)} paid by ${session.metadata?.clientName || 'the client'} through their link — booking confirmed`,
+              actor: { type: 'user', name: session.metadata?.clientName || 'Client', role: 'client', via: 'pay link' } }).catch(() => {});
+            else if (appointmentId && sessionType === 'completion_setup') await logAuditAdmin(db, tenant.id, { action: 'card.saved', targetType: 'appointment', targetId: appointmentId,
+              summary: `${session.metadata?.clientName || 'The client'} saved a card and finished their pre-visit steps`, actor: { type: 'user', name: session.metadata?.clientName || 'Client', role: 'client', via: 'check-in link' } }).catch(() => {});
           }
           console.log(`[connect-webhook] Completion processed for client ${clientId} on tenant ${tenant.id}`);
           break;
