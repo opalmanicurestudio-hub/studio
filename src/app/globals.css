@@ -748,3 +748,72 @@ main :where(div, section, form, li) { min-width: 0; }
 /* State reads at a glance: colour carries urgency, not decoration. */
 .station-mode .border-destructive\/60 { border-width: 3px; }
 .station-mode .border-amber-300 { border-width: 3px; }
+
+/* ── STUDIO — the app-wide look (same family as the front desk + booking page) ──
+   Switched on by <StudioTheme/> (html.studio) unless a business picks "Classic".
+   Warm paper, ink and stone; buttons in the business's accent (set inline as
+   --primary when it has enough contrast); and calmer type — the tiny, letter-
+   spaced UPPERCASE labels read as sentence case, extra-bold becomes firm. */
+html.studio {
+  --background: 36 33% 97%;          /* #faf8f5 paper */
+  --foreground: 24 10% 10%;          /* #1c1917 ink */
+  --card: 0 0% 100%;
+  --card-foreground: 24 10% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 24 10% 10%;
+  --secondary: 33 30% 92%;           /* #f1ece6 soft stone */
+  --secondary-foreground: 24 10% 10%;
+  --muted: 33 30% 94%;
+  --muted-foreground: 30 5% 34%;     /* #57534e */
+  --accent: 33 30% 92%;
+  --accent-foreground: 24 10% 10%;
+  --border: 33 18% 89%;              /* #e7e2dc */
+  --input: 33 18% 86%;
+  --sidebar-background: 36 33% 98%;
+  --sidebar-foreground: 24 10% 10%;
+  --sidebar-accent: 33 30% 92%;
+  --sidebar-accent-foreground: 24 10% 10%;
+  --sidebar-border: 33 18% 89%;
+}
+html.studio.dark {
+  --background: 24 12% 8%;           /* #171412 */
+  --foreground: 33 33% 93%;          /* #f3eee8 */
+  --card: 26 12% 12%;                /* #211d1a */
+  --card-foreground: 33 33% 93%;
+  --popover: 26 12% 12%;
+  --popover-foreground: 33 33% 93%;
+  --secondary: 26 12% 15%;
+  --secondary-foreground: 33 33% 93%;
+  --muted: 26 12% 15%;
+  --muted-foreground: 30 9% 67%;     /* #b3aaa1 */
+  --accent: 26 12% 15%;
+  --accent-foreground: 33 33% 93%;
+  --border: 27 12% 18%;              /* #342e29 */
+  --input: 27 12% 22%;
+  --sidebar-background: 24 12% 9%;
+  --sidebar-foreground: 33 33% 93%;
+  --sidebar-accent: 26 12% 15%;
+  --sidebar-accent-foreground: 33 33% 93%;
+  --sidebar-border: 27 12% 18%;
+}
+/* Calmer type, app-wide: text reads as it's written (Title/sentence case) —
+   not SHOUTED, and not the older all-lowercase treatment. */
+html.studio .uppercase { text-transform: none; }
+html.studio .uppercase:is(.tracking-widest, .tracking-wider, .tracking-wide, [class*="tracking-[0."]) { letter-spacing: 0.005em; }
+html.studio .uppercase:is(.tracking-widest, .tracking-wider, .tracking-wide, [class*="tracking-[0."]):is(.text-\[8px\], .text-\[9px\], .text-\[10px\], .text-\[11px\]) { font-size: 0.75rem; font-weight: 500; }
+/* Big shouting headings (uppercase + tight tracking) read as titles. */
+html.studio .uppercase:is(.tracking-tight, .tracking-tighter):is(.text-lg, .text-xl, .text-2xl, .text-3xl, .text-4xl, .text-5xl) { text-transform: none; }
+html.studio .font-black { font-weight: 600; }
+html.studio .font-extrabold { font-weight: 650; }
+html.studio .tracking-tighter { letter-spacing: -0.02em; }
+
+/* Surfaces: the page is warm paper; cards and panels stay white (the "glass"
+   rule above would otherwise paint every page white). */
+html.studio body { background-color: hsl(var(--background)); background-image: none; }
+html.studio .bg-background { background-color: hsl(var(--background)); }
+html.studio [role="dialog"] .bg-background, html.studio [data-radix-popper-content-wrapper] .bg-background { background-color: hsl(var(--card)); }
+/* Print keeps its voice. */
+@media print {
+  html.studio .uppercase { text-transform: uppercase; }
+  html.studio .font-black { font-weight: 800; }
+}
