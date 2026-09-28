@@ -3,16 +3,19 @@
 // for the words every message and the visit link use, so an online or mobile
 // appointment is never told to "check in when you arrive". Pure.
 export type PlaceKind = 'studio' | 'online' | 'client';
-export interface ServicePlace { kind: PlaceKind; meetingLink: string | null }
+export interface ServicePlace { kind: PlaceKind; meetingLink: string | null; ownLink?: boolean }
+const httpsOnly = (v: any) => (/^https:\/\//i.test(String(v || '').trim()) ? String(v).trim() : null);
 
-export function placeOf(svc: any): ServicePlace {
+/** Where it happens. For online visits, a link set on THIS appointment wins over the service's shared one. */
+export function placeOf(svc: any, appt?: any): ServicePlace {
   const k = svc?.where === 'online' || svc?.where === 'client' ? svc.where : 'studio';
-  const link = k === 'online' && /^https?:\/\//i.test(String(svc?.meetingLink || '')) ? String(svc.meetingLink) : null;
-  return { kind: k, meetingLink: link };
+  if (k !== 'online') return { kind: k, meetingLink: null };
+  const own = httpsOnly(appt?.meetingLink);
+  return { kind: k, meetingLink: own || httpsOnly(svc?.meetingLink), ownLink: !!own };
 }
 /** The extra line for confirmations and reminders (null for the studio). */
-export function placeLine(svc: any, clientAddress?: string | null): string | null {
-  const p = placeOf(svc);
+export function placeLine(svc: any, clientAddress?: string | null, appt?: any): string | null {
+  const p = placeOf(svc, appt);
   if (p.kind === 'online') return p.meetingLink ? `This is an online appointment — join here: ${p.meetingLink}` : 'This is an online appointment — we’ll send your link before it starts.';
   if (p.kind === 'client') return clientAddress ? `We’ll come to you at ${clientAddress}.` : 'We’ll come to you — we’ll confirm your address before your appointment.';
   return null;
