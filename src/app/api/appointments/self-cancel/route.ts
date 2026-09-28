@@ -51,6 +51,8 @@
  * not something this route implements itself.
  */
 
+import { staffOrServer } from '@/lib/route-guard';
+import { hasRealCard } from '@/lib/card-on-file';
 import { resolveDepositPolicy, rolloverExpiryISO } from '@/lib/deposit-policy';
 import { planCancellation, cancellationOutcomeLines } from '@/lib/policy-copy';
 import { sendCancellationNotice } from '@/lib/cancel-notice';
@@ -123,7 +125,7 @@ async function planSelfCancel(db: any, tenantId: string, appointmentId: string, 
       if (credit) credit.amount = Number(credit.amountDollars ?? (Number(credit.amountCents) || 0) / 100) || 0;
     } catch { credit = null; }
   }
-  const pmId = client?.cardOnFile?.paymentMethodId || client?.cardOnFile?.token || null;
+  const pmId = client?.cardOnFile?.paymentMethodId || (hasRealCard(client) ? client?.cardOnFile?.token : null) || null;
   const cusId = client?.cardOnFile?.stripeCustomerId || client?.cardOnFile?.customerId || client?.stripeCustomerId || null;
   const hasCard = !!(pmId && cusId);
   const plan = planCancellation({ who: 'client', feeDollars, policyFeeDollars: feeDollars, chargeFee: true, depositDollars: appt.isRenterBooking ? 0 : (credit?.amount || 0),
@@ -135,6 +137,8 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const tenantId = searchParams.get('tenantId');
   const appointmentId = searchParams.get('appointmentId');
+  // The key (their visit token) proves it's the client's own link. Without it, only a basic preview — never contact details.
+  const key = String(searchParams.get('k') || '');
 
   if (!tenantId || !appointmentId) {
     return NextResponse.json({ ok: false, error: 'Missing tenantId or appointmentId' }, { status: 400 });
@@ -171,8 +175,9 @@ export async function GET(req: NextRequest) {
     ok: true,
     appointment: {
       clientName: appt.clientName || null,
-      clientEmail: appt.clientEmail || null,
-      clientPhone: appt.clientPhone || null,
+      clientEmail: key && key === appt.checkInToken ? appt.clientEmail || null : null,
+      clientPhone: key && key === appt.checkInToken ? appt.clientPhone || null : null,
+      canCancel: !!key && key === appt.checkInToken,
       startTime: appt.startTime,
       serviceName: appt.renterServiceName || service.name || 'Service',
       serviceId: appt.serviceId || null,
@@ -217,6 +222,14 @@ export async function POST(req: NextRequest) {
   }
   const appt = apptSnap.data();
 
+  // Only the client's own link (their visit token as the key), staff, or our own server can cancel.
+  // An appointment id alone is not enough — it isn't a secret.
+  const key = String((body as any)?.k || '');
+  const keyOk = !!key && !!appt.checkInToken && key === appt.checkInToken;
+  if (!keyOk && !(await staffOrServer(req, String(tenantId)))) {
+    return NextResponse.json({ ok: false, error: 'For your security, please cancel from the link in your latest confirmation or your visit link.', code: 'needs_link' }, { status: 403 });
+  }
+
   // Idempotent on double-submission.
   if (appt.status === 'cancelled') {
     return NextResponse.json({ ok: true, alreadyCancelled: true });
@@ -251,7 +264,7 @@ export async function POST(req: NextRequest) {
   // over the top-level client.stripeCustomerId. These exact two values are
   // written onto the cancellationEvent below so onCancellationEvent can charge.
   const stripePaymentMethodId =
-    client?.cardOnFile?.paymentMethodId || (client?.cardOnFile?.token || client?.cardOnFile?.paymentMethodId) || null;
+    client?.cardOnFile?.paymentMethodId || (hasRealCard(client) ? client?.cardOnFile?.token : null) || null;
   const stripeCustomerId =
     client?.cardOnFile?.stripeCustomerId ||
     client?.cardOnFile?.customerId ||
