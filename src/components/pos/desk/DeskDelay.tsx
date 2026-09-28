@@ -76,7 +76,7 @@ export function DeskDelay({ e, appt, accent, onClose, onReschedule }: { e: any; 
     setBusy(true); setErr('');
     const r = await tellThem('move');
     setBusy(false);
-    if (r?.ok) { setSent(`${first} has been asked not to come in and to choose a new time${tellClient ? '' : ' (not messaged — tell them yourself)'}. Their slot stays on the planner until they move it.`); }
+    if (r?.ok) { setSent(`${first} has been asked to choose a new time${tellClient ? '' : ' (not messaged — tell them yourself)'}. Their slot stays on the planner until they move it.`); }
     else setErr(r?.error || 'That didn’t send — please try again.');
   };
   const decide = async (option: 'keep' | 'condense' | 'switch' | 'note', toStaff?: any) => {
