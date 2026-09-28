@@ -2,7 +2,7 @@
 
 import { PayLaterCard } from '@/components/settings/PayLaterCard';
 import React, { useState, useEffect, useMemo, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter,
@@ -432,11 +432,9 @@ function SettingsPageImpl() {
     { value: 'locations',   label: 'Locations',                  icon: <MapPin className="w-4 h-4" />      },
     { value: 'hours',       label: 'Opening hours',           icon: <Clock className="w-4 h-4" />       },
     { value: 'experience',  label: 'Guest comforts & Wi-Fi', icon: <Coffee className="w-4 h-4" />      },
-    { value: 'policies',    label: 'Policies',      icon: <ShieldCheck className="w-4 h-4" /> },
+    { value: 'policies',    label: 'Recovery & money owed',      icon: <ShieldCheck className="w-4 h-4" /> },
     { value: 'payments',    label: 'Payments & Payouts',         icon: <DollarSign className="w-4 h-4" />  },
     { value: 'terminal',    label: 'Card reader',            icon: <Monitor className="w-4 h-4" />     },
-    { value: 'automations', label: 'Automations',                icon: <Zap className="w-4 h-4" />         },
-    { value: 'builder',     label: 'Booking page',       icon: <Globe className="w-4 h-4" />       },
     { value: 'kiosk',       label: 'Check-in kiosk',        icon: <Fingerprint className="w-4 h-4" /> },
     { value: 'timeclock',   label: 'Time Clock',                 icon: <Timer className="w-4 h-4" />       },
   ];
@@ -734,9 +732,15 @@ function SettingsPageImpl() {
                   </Button>
                 )}
               </div>
+              {/* Booking rules moved to Booking policies — one place, no duplicates. */}
+              <Link href="/settings/policies" className="flex items-center justify-between gap-4 rounded-3xl border bg-card p-5 transition hover:bg-muted/40">
+                <span><span className="block font-semibold">Cancellations, no-shows, deposits, rescheduling and booking windows</span>
+                  <span className="block text-sm text-muted-foreground">Now all in Booking policies — with a preview of exactly what clients are told.</span></span>
+                <span className="shrink-0 text-sm font-semibold">Open →</span>
+              </Link>
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                 <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                  <SectionHeader icon={ShieldCheck} title="Global Studio Governance" />
+                  <SectionHeader icon={ShieldCheck} title="Service recovery & outreach" />
                   <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Define studio-wide defaults for late shifts and cancellations.</CardDescription>
                 </CardHeader>
                 <CardContent className="p-6 md:p-8 space-y-10 text-left">
@@ -804,66 +808,6 @@ function SettingsPageImpl() {
                     ))}
                   </div>
                   <Separator className="border-dashed" />
-                  <div className="space-y-6">
-                    <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-primary ml-1">Default Recovery Strategy</Label>
-                    <RadioGroup onValueChange={(v: any) => setTenantData(p => ({ ...p, defaultCancellationMode: v }))} value={tenantData.defaultCancellationMode || 'matrix'} className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                      {[{ v: 'matrix', icon: ScaleIcon, label: 'Recovery Matrix', sub: 'Time + Materials' }, { v: 'percentage', icon: Percent, label: 'Service Percentage', sub: 'Price Pro-Rata' }, { v: 'flat', icon: DollarSign, label: 'Fixed Rate', sub: 'Uniform Fee' }].map(opt => (
-                        <label key={opt.v} className="cursor-pointer h-full">
-                          <div className={cn('flex flex-col items-center justify-center p-6 rounded-[2rem] border-2 transition-all h-full text-center', (tenantData.defaultCancellationMode || 'matrix') === opt.v ? 'border-primary bg-primary/5 shadow-lg' : 'border-border bg-background hover:border-primary/20')}>
-                            <opt.icon className={cn('mb-2 h-8 w-8', (tenantData.defaultCancellationMode || 'matrix') === opt.v ? 'text-primary' : 'text-muted-foreground opacity-40')} />
-                            <span className="text-[10px] font-black uppercase tracking-widest leading-tight">{opt.label}</span>
-                            <p className="text-[8px] font-bold opacity-40 mt-1 uppercase">{opt.sub}</p>
-                            <RadioGroupItem value={opt.v} className="sr-only" disabled={!isEditing} />
-                          </div>
-                        </label>
-                      ))}
-                    </RadioGroup>
-                  </div>
-                  {/* ── Booking release: how far ahead clients can book, and how much
-                      earlier members can. Same engine and settings shape the renters
-                      use — one function decides what the page shows and what the
-                      booking route enforces. Off by default. ── */}
-                  <div className="pt-4 border-t border-dashed space-y-3">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Booking Release</Label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {([['off', 'No limit'], ['rolling', 'Rolling window'], ['monthly', 'Monthly release']] as const).map(([k, l]) => (
-                        <button key={k} type="button" disabled={!isEditing} aria-pressed={(tenantData.bookingRelease?.mode || 'off') === k}
-                          onClick={() => setTenantData(prev => ({ ...prev, bookingRelease: { ...(prev.bookingRelease || {}), mode: k } }))}
-                          className={cn('h-12 rounded-2xl border-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-60', (tenantData.bookingRelease?.mode || 'off') === k ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>{l}</button>
-                      ))}
-                    </div>
-                    {tenantData.bookingRelease?.mode === 'rolling' && (
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1"><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Everyone, up to (days)</Label>
-                          <Input type="number" min={1} max={365} value={tenantData.bookingRelease?.horizonDays ?? 30} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, bookingRelease: { ...(prev.bookingRelease || {}), horizonDays: parseInt(e.target.value) || 0 } }))} className="h-12 rounded-2xl border-2 font-black text-center" /></div>
-                        <div className="space-y-1"><Label className="text-[9px] font-black uppercase tracking-widest text-violet-700 ml-1">Members, up to (days)</Label>
-                          <Input type="number" min={1} max={365} value={tenantData.bookingRelease?.memberHorizonDays ?? 60} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, bookingRelease: { ...(prev.bookingRelease || {}), memberHorizonDays: parseInt(e.target.value) || 0 } }))} className="h-12 rounded-2xl border-2 border-violet-200 font-black text-center" /></div>
-                      </div>
-                    )}
-                    {tenantData.bookingRelease?.mode === 'monthly' && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="rounded-2xl border-2 border-dashed p-3 space-y-2">
-                          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Next month opens to everyone on the</p>
-                          <div className="flex items-center gap-2">
-                            <Input type="number" min={1} max={28} value={tenantData.bookingRelease?.releaseDay ?? 25} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, bookingRelease: { ...(prev.bookingRelease || {}), releaseDay: parseInt(e.target.value) || 1 } }))} className="h-11 w-20 rounded-xl border-2 font-black text-center" />
-                            <span className="text-[10px] font-bold text-muted-foreground">at</span>
-                            <select value={tenantData.bookingRelease?.releaseHour ?? 9} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, bookingRelease: { ...(prev.bookingRelease || {}), releaseHour: parseInt(e.target.value) } }))} className="h-11 rounded-xl border-2 bg-background px-2 font-black">{Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{h % 12 === 0 ? 12 : h % 12}{h < 12 ? 'am' : 'pm'}</option>)}</select>
-                          </div>
-                        </div>
-                        <div className="rounded-2xl border-2 border-dashed border-violet-200 bg-violet-50/40 p-3 space-y-2">
-                          <p className="text-[9px] font-black uppercase tracking-widest text-violet-700">Members get it early — on the</p>
-                          <div className="flex items-center gap-2">
-                            <Input type="number" min={1} max={28} value={tenantData.bookingRelease?.memberReleaseDay ?? 20} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, bookingRelease: { ...(prev.bookingRelease || {}), memberReleaseDay: parseInt(e.target.value) || 1 } }))} className="h-11 w-20 rounded-xl border-2 border-violet-200 font-black text-center" />
-                            <span className="text-[10px] font-bold text-violet-800">at</span>
-                            <select value={tenantData.bookingRelease?.memberReleaseHour ?? 9} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, bookingRelease: { ...(prev.bookingRelease || {}), memberReleaseHour: parseInt(e.target.value) } }))} className="h-11 rounded-xl border-2 border-violet-200 bg-background px-2 font-black">{Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{h % 12 === 0 ? 12 : h % 12}{h < 12 ? 'am' : 'pm'}</option>)}</select>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    {(() => { const rs = releaseSentence(tenantData.bookingRelease || null, new Date(), (tenantData as any).timezone || 'America/New_York'); return (
-                    <p className="text-[10px] font-bold text-muted-foreground ml-1">{rs.everyone}{rs.members ? ` ${rs.members}` : ''} Members are clients with an active membership; the booking page and the booking engine both enforce this. Services can also be marked Members Only in their editor.</p>
-                    ); })()}
-                  </div>
                   {/* ── Renter campaigns: can renters send their own, and who pays for texts ── */}
                   <div className="pt-4 border-t border-dashed space-y-3">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Renter Campaigns</Label>
@@ -926,76 +870,12 @@ function SettingsPageImpl() {
                       </div>
                     )}
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4 border-t border-dashed">
-                    <div className="space-y-3">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Cancellation Window (Hours)</Label>
-                      <Input type="number" value={tenantData.cancellationWindowHours || 0} onChange={e => setTenantData(prev => ({ ...prev, cancellationWindowHours: parseInt(e.target.value) || 0 }))} disabled={!isEditing} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center" />
-                    </div>
-                    <div className="space-y-3">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Fixed Flat Fee ($)</Label>
-                      <div className="relative">
-                        <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                        <Input type="number" value={tenantData.cancellationFee || 0} onChange={e => setTenantData(prev => ({ ...prev, cancellationFee: parseFloat(e.target.value) || 0 }))} disabled={!isEditing || tenantData.defaultCancellationMode !== 'flat'} className={cn('h-14 pl-12 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-primary', tenantData.defaultCancellationMode !== 'flat' && 'opacity-40')} />
-                      </div>
-                    </div>
-                  </div>
                   <SettingRow icon={Zap} title="Let clients pay fees later" description="Allow guests to add rescheduling fees to their session bill">
                     <Switch checked={!!tenantData.allowGuestFeeDeferral} onCheckedChange={(val) => setTenantData(prev => ({ ...prev, allowGuestFeeDeferral: val }))} disabled={!isEditing} className="scale-125 data-[state=checked]:bg-primary" />
                   </SettingRow>
                 </CardContent>
               </Card>
 
-              {/* ── DEPOSIT GOVERNANCE ── */}
-              <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                  <SectionHeader icon={Landmark} title="Deposit Governance" />
-                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Automate what happens to a deposit when a booking is cancelled or missed.</CardDescription>
-                </CardHeader>
-                <CardContent className="p-6 md:p-8 space-y-8 text-left">
-                  <SettingRow icon={ShieldCheck} color="green" title="Collect Deposits (Live)" description="Master switch. While off, no deposits are charged anywhere.">
-                    <Switch checked={!!(tenantData as any).depositsLive} onCheckedChange={(val) => setTenantData(prev => ({ ...prev, depositsLive: val } as any))} disabled={!isEditing} className="scale-125 data-[state=checked]:bg-green-600" />
-                  </SettingRow>
-                  <Separator className="border-dashed" />
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div className="space-y-3">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Refund Window (Hours)</Label>
-                      <Input type="number" value={(tenantData as any).depositPolicy?.refundWindowHours ?? ''} onChange={e => handleDepositPolicyChange({ refundWindowHours: parseInt(e.target.value) || 0 })} disabled={!isEditing} placeholder={String(DEFAULT_DEPOSIT_POLICY.refundWindowHours)} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center" />
-                      <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 ml-1 leading-relaxed">Cancellations earlier than this count as "early". Inside it counts as "late".</p>
-                    </div>
-                    <div className="space-y-3">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Rollover Expires After (Days)</Label>
-                      <Input type="number" value={(tenantData as any).depositPolicy?.rolloverExpiryDays ?? ''} onChange={e => handleDepositPolicyChange({ rolloverExpiryDays: parseInt(e.target.value) || 0 })} disabled={!isEditing} placeholder={String(DEFAULT_DEPOSIT_POLICY.rolloverExpiryDays)} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center" />
-                      <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 ml-1 leading-relaxed">How long a rolled-over deposit stays usable on the client's next visit.</p>
-                    </div>
-                  </div>
-                  <Separator className="border-dashed" />
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-3 px-1"><Scale className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">What happens automatically</h3></div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {depositOutcomeRules.map(rule => (
-                        <div key={rule.key} className="p-5 rounded-[2rem] border-2 bg-slate-50 border-slate-200 space-y-3">
-                          <div className="space-y-0.5">
-                            <p className="text-[11px] font-black uppercase tracking-tight text-slate-900">{rule.label}</p>
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{rule.desc}</p>
-                          </div>
-                          <Select value={depositPolicy[rule.key]} onValueChange={(v: any) => handleDepositPolicyChange({ [rule.key]: v })} disabled={!isEditing}>
-                            <SelectTrigger className="h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm"><SelectValue /></SelectTrigger>
-                            <SelectContent className="rounded-xl border-2 shadow-2xl">
-                              <SelectItem value="rollover" className="font-bold uppercase text-[10px] tracking-widest">Roll over to next visit</SelectItem>
-                              <SelectItem value="forfeit"  className="font-bold uppercase text-[10px] tracking-widest">Studio keeps it</SelectItem>
-                              <SelectItem value="refund"   className="font-bold uppercase text-[10px] tracking-widest">Refund to client</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="p-4 rounded-2xl border-2 border-dashed bg-amber-50 border-amber-200 flex items-start gap-3">
-                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                      <p className="text-[9px] font-bold text-amber-700 uppercase tracking-widest leading-relaxed">Refunds send money back through Stripe and can't be undone — that outcome asks for a one-tap confirmation before it runs.</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
 
               {/* ── CREDIT & RECOVERY LEDGER ── */}
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
@@ -1167,21 +1047,6 @@ function SettingsPageImpl() {
                 </div>
               </div>
 
-              <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                <CardHeader className="bg-muted/5 border-b p-6 md:p-8"><SectionHeader icon={Shield} title="Public Accountability Policies" /></CardHeader>
-                <CardContent className="p-6 md:p-8 space-y-6 text-left">
-                  {[
-                    { id: 'cancellationPolicy', label: 'Cancellation Policy (Public)', placeholder: 'Describe your requirements for cancelling a session...' },
-                    { id: 'lateArrivalPolicy',  label: 'Late Arrival Policy (Public)',  placeholder: 'Describe grace periods and potential penalties...'    },
-                    { id: 'noShowPolicy',        label: 'No-Show Policy (Public)',       placeholder: 'Describe the consequence of missing an appointment...' },
-                  ].map(policy => (
-                    <div key={policy.id} className="space-y-2">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">{policy.label}</Label>
-                      <Textarea value={(tenantData as any)[policy.id] || ''} onChange={e => setTenantData(prev => ({ ...prev, [policy.id]: e.target.value }))} disabled={!isEditing} placeholder={policy.placeholder} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] font-medium" />
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
             </TabsContent>
 
             {/* ── BUILDER ── */}
@@ -1531,9 +1396,14 @@ export default function SettingsPage() {
 }
 
 /** /settings → the Settings home; /settings?tab=… → that tab of the full page. */
+// Tabs that were duplicates of a full page now forward there (old links keep working).
+const FORWARD_TABS: Record<string, string> = { automations: '/settings/automations', builder: '/settings/booking' };
 function SettingsGate() {
   const tab = useSearchParams().get('tab');
+  const router = useRouter();
   const { selectedTenant } = useTenant();
+  React.useEffect(() => { if (tab && FORWARD_TABS[tab]) router.replace(FORWARD_TABS[tab]); }, [tab, router]);
+  if (tab && FORWARD_TABS[tab]) return null;
   if (!tab) return (<><AppHeader title="Settings" /><SettingsHome tenant={selectedTenant} /></>);
   return (<>
     <div className="mx-auto w-full max-w-6xl px-4 pt-3 md:px-10"><Link href="/settings" className="text-sm font-bold underline underline-offset-4">← Settings home</Link></div>
