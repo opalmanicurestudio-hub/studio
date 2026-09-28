@@ -36,7 +36,7 @@ function DecisionLog({ tenantId, id }: { tenantId: string; id: string }) {
   return <ul className="space-y-1">{rows.map((r: any) => <li key={r.id || r.at} className="text-xs"><span className="text-muted-foreground">{hm(r.at)} · {r.actor?.name || 'System'}:</span> {r.summary}</li>)}</ul>;
 }
 
-function CaseCard({ a, ops, tenant, tenantId, staffById, next, role, uid }: { a: any; ops: OpsView; tenant: any; tenantId: string; staffById: Map<string, any>; next: any | null; role: string; uid?: string }) {
+function CaseCard({ a, ops, tenant, tenantId, staffById, next, role, uid, freeOthers }: { a: any; ops: OpsView; tenant: any; tenantId: string; staffById: Map<string, any>; next: any | null; role: string; uid?: string; freeOthers: { staff: any; startAt: string }[] }) {
   const [busy, setBusy] = useState<string | null>(null); const [msg, setMsg] = useState<string | null>(null); const [tell, setTell] = useState(true);
   const [excWhy, setExcWhy] = useState(''); const [showLog, setShowLog] = useState(false);
   const level = opsLevelOf(tenant); const own = !!uid && a.staffId === uid;
@@ -49,6 +49,7 @@ function CaseCard({ a, ops, tenant, tenantId, staffById, next, role, uid }: { a:
   const decide = async (option: 'keep' | 'move') => { setBusy(option); setMsg(null); const r = await staffPost('/api/appointments/late-decision', { tenantId, appointmentId: a.id, option, tell }); setBusy(null); setMsg(r?.ok ? (tell ? `${first} has been told.` : 'Saved.') : r?.error || 'That didn’t save.'); };
   const pay = async (action: 'charge' | 'waive') => { setBusy(action); setMsg(null); const r = await staffPost('/api/appointments/desk-deposit', { tenantId, appointmentId: a.id, action, ...(action === 'waive' ? { reason: excWhy.trim() } : {}) }); setBusy(null); setMsg(r?.ok ? (action === 'charge' ? 'Deposit collected.' : 'Exception recorded.') : r?.error || 'That didn’t go through.'); };
   const late = a.checkInStatus === 'running_late' || ops.status === 'eta_overdue' || ops.status === 'decision_needed';
+  const offer = async (toStaffId: string, startAt: string) => { setBusy(`offer:${toStaffId}`); setMsg(null); const r = await staffPost('/api/appointments/provider-offer', { tenantId, appointmentId: a.id, toStaffId, startAt, tell }); setBusy(null); setMsg(r?.ok ? `Offered — waiting for ${first} to accept.` : r?.error || 'That didn’t send.'); };
   return (
     <article className="space-y-3 rounded-3xl border bg-card p-4">
       <header className="flex flex-wrap items-start justify-between gap-2">
@@ -64,6 +65,8 @@ function CaseCard({ a, ops, tenant, tenantId, staffById, next, role, uid }: { a:
         <dt className="text-muted-foreground">Service</dt><dd>{mins} min{fit.finishAt && late ? ` · finishes ~${hm(fit.finishAt)}` : ''}</dd>
         <dt className="text-muted-foreground">Next booking</dt><dd>{next ? `${String(next.clientName || 'Guest').split(' ')[0]} at ${hm(next.startTime)} — ${fit.fits ? 'fits' : `runs ${fit.overrunMinutes} min into it`}` : 'Nothing after'}</dd>
         {(dep > 0 || unpaid) && <><dt className="text-muted-foreground">Deposit</dt><dd>{unpaid ? `Due${dep ? ` · $${dep.toFixed(2)}` : ''}` : a.paymentException ? 'Exception recorded' : 'Paid'}</dd></>}
+        {a.providerOffer && <><dt className="text-muted-foreground">Provider offer</dt><dd>{String(a.providerOffer.toStaffName || '').split(' ')[0]} at {hm(a.providerOffer.startAt)} · {a.providerOffer.status}</dd></>}
+        {a.originalScheduledTime && <><dt className="text-muted-foreground">Originally</dt><dd>{hm(a.originalScheduledTime)}{a.originalStaffId && staffById.get(a.originalStaffId) ? ` with ${String(staffById.get(a.originalStaffId).name).split(' ')[0]}` : ''}</dd></>}
         {a.providerDelay && <><dt className="text-muted-foreground">Provider delay</dt><dd>~{a.providerDelay.minutes} min · new start ~{hm(a.providerDelay.newStartAt)} · {a.providerDelay.reply ? `they chose: ${a.providerDelay.reply}` : 'waiting for their choice'}</dd></>}
       </dl>
       {a.lateReply?.message && <p className="rounded-2xl bg-secondary p-3 text-sm"><b>They’ve been told:</b> {a.lateReply.message}</p>}
@@ -72,8 +75,10 @@ function CaseCard({ a, ops, tenant, tenantId, staffById, next, role, uid }: { a:
         <div className="flex flex-wrap gap-2">
           {can('keep') && <button type="button" disabled={!!busy} onClick={() => decide('keep')} className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60">{busy === 'keep' ? 'Saving…' : 'Still see them'}</button>}
           {can('move') && <button type="button" disabled={!!busy} onClick={() => decide('move')} className="rounded-full border px-4 py-2 text-sm font-semibold disabled:opacity-60">{busy === 'move' ? 'Saving…' : 'Ask them to reschedule'}</button>}
-          {can('condense') && <Link href="/pos" className="rounded-full border px-4 py-2 text-sm">Shorter visit, switch or late fee →</Link>}
+          {can('condense') && <Link href="/pos" className="rounded-full border px-4 py-2 text-sm">Shorter visit or late fee →</Link>}
         </div>
+        {can('switch') && freeOthers.length > 0 && a.providerOffer?.status !== 'pending' && <div className="space-y-1"><p className="text-xs text-muted-foreground">Offer another provider (they accept or decline on their link):</p>
+          <div className="flex flex-wrap gap-2">{freeOthers.slice(0, 4).map(({ staff: s0, startAt }) => <button key={s0.id} type="button" disabled={!!busy} onClick={() => offer(s0.id, startAt)} className="rounded-full border px-3 py-1.5 text-sm disabled:opacity-60">{busy === `offer:${s0.id}` ? 'Offering…' : `Offer ${String(s0.name).split(' ')[0]} at ${hm(startAt)}`}</button>)}</div></div>}
       </div>}
       {unpaid && ['arrived_payment_required', 'payment_required'].includes(ops.status) && <div className="space-y-2">
         <div className="flex flex-wrap gap-2">
@@ -135,8 +140,14 @@ export default function OperationsPage() {
   const grace = Number(resolvePolicy(tenant).late.graceMinutes.value) || 0;
   const now = new Date();
   const rows = useMemo(() => (appts || []).map((a: any) => ({ a, ops: opsStatus(a, now, { graceMinutes: grace }) })), [appts, grace]); // eslint-disable-line react-hooks/exhaustive-deps
+  const freeFor = (a: any) => {
+    const mins = Math.max(15, Math.round((Date.parse(a.endTime || a.startTime) - Date.parse(a.startTime)) / 60000) || 60);
+    const start = Math.max(Date.now(), Date.parse(a.etaAt || a.clientEtaAt || a.startTime)); const end = start + mins * 60000;
+    return (staff || []).filter((s0: any) => s0.isActive !== false && s0.id !== a.staffId && !(appts || []).some((x: any) => x.staffId === s0.id && !['cancelled', 'completed', 'no_show', 'declined', 'expired'].includes(String(x.status || '')) && Date.parse(x.startTime) < end && Date.parse(x.endTime || x.startTime) > start))
+      .map((s0: any) => ({ staff: s0, startAt: new Date(Math.ceil(start / 300000) * 300000).toISOString() }));
+  };
   const nextFor = (a: any) => (appts || []).filter((x: any) => x.staffId === a.staffId && x.id !== a.id && Date.parse(x.startTime) > Date.parse(a.startTime) && !['cancelled', 'completed', 'no_show'].includes(String(x.status || ''))).sort((x: any, y: any) => Date.parse(x.startTime) - Date.parse(y.startTime))[0] || null;
-  const attention = rows.filter((r) => r.ops.needsDecision || ['running_late', 'eta_overdue', 'location_shared', 'rescheduling_offered', 'provider_late', 'arrived_payment_required', 'decision_needed', 'payment_required'].includes(r.ops.status));
+  const attention = rows.filter((r) => r.ops.needsDecision || ['running_late', 'eta_overdue', 'location_shared', 'rescheduling_offered', 'provider_late', 'provider_offered', 'arrived_payment_required', 'decision_needed', 'payment_required'].includes(r.ops.status));
   const shown = (view === 'attention' ? attention : rows.filter((r) => r.ops.status !== 'finished'))
     .sort((x, y) => Number(y.ops.needsDecision) - Number(x.ops.needsDecision) || Date.parse(x.a.startTime) - Date.parse(y.a.startTime));
   const decisions = attention.filter((r) => r.ops.needsDecision).length;
@@ -152,7 +163,7 @@ export default function OperationsPage() {
         {decisions > 0 && <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-800">{decisions} decision{decisions === 1 ? '' : 's'} needed</span>}
       </div>
       {shown.length === 0 ? <p className="rounded-3xl border bg-card p-8 text-center text-muted-foreground">{view === 'attention' ? 'All calm — nothing needs attention right now.' : 'No appointments today.'}</p> : (
-        <div className="grid gap-4 md:grid-cols-2">{shown.map(({ a, ops }) => <CaseCard key={a.id} a={a} ops={ops} tenant={tenant} tenantId={tenantId} staffById={staffById} next={nextFor(a)} role={role} uid={user?.uid} />)}</div>
+        <div className="grid gap-4 md:grid-cols-2">{shown.map(({ a, ops }) => <CaseCard key={a.id} a={a} ops={ops} tenant={tenant} tenantId={tenantId} staffById={staffById} next={nextFor(a)} role={role} uid={user?.uid} freeOthers={freeFor(a)} />)}</div>
       )}
     </div>
   );
