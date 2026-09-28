@@ -100,8 +100,15 @@ export async function POST(req: NextRequest) {
   const byRenter = new Map<string, AffectedEntry[]>(); let told = 0;
   const pFirst = staff?.name ? String(staff.name).split(' ')[0] : null;
   const cause = kind === 'callout' ? reason : interruption?.type;
+  // Moved to another room/space instead — no client impact, not messaged, recorded as "moved room".
+  const movedRoom = new Set<string>(Array.isArray(b.movedRoomIds) ? b.movedRoomIds.map(String) : []);
   for (const en of entries) {
     const a = appts.find((x: any) => x.id === en.appointmentId);
+    if (movedRoom.has(en.appointmentId)) {
+      en.outcome = 'moved_room'; en.outcomeAt = nowIso; en.by = auth.actor.name;
+      await logAuditAdmin(db, tenantId, { action: 'disruption.moved_room', targetType: 'appointment', targetId: en.appointmentId, summary: `${interruption?.title || 'Interruption'}: moved to another room — no change for the client`, actor }).catch(() => {});
+      continue;
+    }
     const mark = { disruption: { kind, id, cause, reasonLabel: disruptionReason(kind, cause, pFirst), at: nowIso, status: 'pending' } };
     if (en.isRenterBooking && en.renterId) { (byRenter.get(en.renterId) || byRenter.set(en.renterId, []).get(en.renterId)!).push(en); en.notifiedAt = nowIso; await db.doc(`${T}/appointments/${en.appointmentId}`).set(mark, { merge: true }); continue; }
     await db.doc(`${T}/appointments/${en.appointmentId}`).set(mark, { merge: true });
