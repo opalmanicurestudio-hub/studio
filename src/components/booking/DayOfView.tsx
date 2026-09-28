@@ -36,7 +36,7 @@ export const DayOfView = ({ accent, studioName, first, serviceName, startTime, p
     };
     React.useEffect(() => () => { if (watchRef.current !== null && typeof navigator !== 'undefined') navigator.geolocation?.clearWatch(watchRef.current); }, []);
     const askedToMove = reply?.kind === 'move';
-    // They've been asked not to come in → stop sharing the trip.
+    // We've asked them to choose a new time → stop sharing the trip.
     React.useEffect(() => { if (askedToMove && watchRef.current !== null) stopTrip(true); }, [askedToMove]); // eslint-disable-line react-hooks/exhaustive-deps
     const when = startTime ? format(safeDate(startTime), 'EEEE · h:mm a') : '';
     const btn = 'inline-flex h-12 w-full items-center justify-center rounded-full px-6 text-[15px] transition active:scale-[.98] disabled:opacity-60';
@@ -55,7 +55,7 @@ export const DayOfView = ({ accent, studioName, first, serviceName, startTime, p
                     {address && <p className="text-[14px]" style={{ color: 'var(--muted)' }}>{address} · <a className="underline underline-offset-2" style={{ color: 'var(--ink)' }} target="_blank" rel="noreferrer" href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`}>Directions</a></p>}
                 </section>
                 {reply?.message && <section className="pub-card space-y-3 p-5" style={askedToMove ? { boxShadow: 'inset 0 0 0 2px var(--accent)' } : undefined} aria-live="polite">
-                    <p className="text-[13px] font-semibold" style={{ color: 'var(--accent)' }}>{askedToMove ? 'Please don’t come in' : `A message from ${studioName || 'us'}`}</p>
+                    <p className="text-[13px] font-semibold" style={{ color: 'var(--accent)' }}>{askedToMove ? 'Let’s find a new time' : `A message from ${studioName || 'us'}`}</p>
                     <p className="text-[15px]">{reply.message}</p>
                     {askedToMove && onReschedule && <button type="button" className={`${btn} font-semibold text-white`} style={{ background: 'var(--accent)' }} onClick={onReschedule}>Choose a new time</button>}
                 </section>}
