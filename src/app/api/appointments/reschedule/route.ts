@@ -14,6 +14,7 @@
 //                     log, and the CLIENT IS TOLD (email + text) — before,
 //                     nothing ever sent "appointment moved".
 
+import { bookingPolicyLines } from '@/lib/policy-copy';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
@@ -144,7 +145,7 @@ export async function POST(req: NextRequest) {
       const { brandedEmailHtml } = await import('@/lib/email-template');
       if (email) {
         const r = await sendNotification(db, { tenantId, channel: 'email', to: email, kind: 'appointment_rescheduled', subject: `Your ${svcName} has moved — ${whenNew}`,
-          html: brandedEmailHtml({ studioName: studio, title: 'Your appointment has moved', bodyLines: [`Hi ${String(appt.clientName || '').split(' ')[0] || 'there'} — your ${svcName} is now on ${whenNew}${who?.name ? ` with ${who.name}` : ''}.`, `(It was ${whenOld}.)`, 'If the new time doesn’t work, just reply or give us a call.'],
+          html: brandedEmailHtml({ studioName: studio, title: 'Your appointment has moved', bodyLines: [`Hi ${String(appt.clientName || '').split(' ')[0] || 'there'} — your ${svcName} is now on ${whenNew}${who?.name ? ` with ${who.name}` : ''}.`, `(It was ${whenOld}.)`, ...(applyFee ? [`A $${fee.toFixed(2)} reschedule fee applies, as it was moved within ${windowH} hours of the time.`] : []), 'If the new time doesn’t work, just reply or give us a call.', ...bookingPolicyLines(t, service).filter((l, i) => i === 0 || /^Running late/.test(l))],
             ...(link ? { cta: { label: 'View my appointment', url: link } } : {}) }),
           recipientType: 'client', recipientId: appt.clientId || null, recipientName: appt.clientName || null, appointmentId } as any).catch(() => null);
         told.email = (r as any)?.status === 'sent';
