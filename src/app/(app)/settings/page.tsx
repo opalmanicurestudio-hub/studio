@@ -266,7 +266,11 @@ function SettingsPageImpl() {
   const tabParam       = searchParams.get('tab');
 
   const [activeTab,        setActiveTab]        = useState(tabParam || 'profile');
-  const [isEditing,        setIsEditing]        = useState(false);
+  // Settings save as you go (no Edit/Save mode). Kept as constants so every field stays enabled.
+  const isEditing = true; const setIsEditing = (_v: boolean) => {};
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  // What was edited here — so a save writes ONLY that (never stale copies of settings changed elsewhere).
+  const dirty = React.useRef<{ sched: boolean; kiosk: boolean; svc: Set<string> }>({ sched: false, kiosk: false, svc: new Set() });
   const [tenantData,       setTenantData]       = useState<Partial<Tenant>>({});
   const [serviceSearch,    setServiceSearch]    = useState('');
   const [servicePolicies,  setServicePolicies]  = useState<Record<string, any>>({});
@@ -359,53 +363,52 @@ function SettingsPageImpl() {
   };
 
   // ─── SAVE ─────────────────────────────────────────────────────────────────
-  const handleSave = async () => {
+  const handleSave = async (silent = false) => {
     if (!selectedTenant || !firestore) return;
+    const { bookingPageSettings: _pageBuilderOwned, ...cur } = tenantData as any;
+    const base: any = selectedTenant || {};
+    const changed: any = {};
+    for (const k of Object.keys(cur)) if (k !== 'id' && JSON.stringify(cur[k] ?? null) !== JSON.stringify(base[k] ?? null)) changed[k] = cur[k];
+    if (dirty.current.kiosk || changed.kioskSettings) changed.kioskSettings = { ...(tenantData.kioskSettings || {}), kioskSchedule: tenantData.kioskSettings?.useSpecificHours ? localKioskSchedule : null };
+    const svcIds = Array.from(dirty.current.svc); const sched = dirty.current.sched && !!activeProfile && !!localSchedule;
+    if (!Object.keys(changed).length && !svcIds.length && !sched) return;     // nothing new — nothing written
+    setSaveState('saving');
     try {
-      const batch     = writeBatch(firestore);
-      const tenantRef = doc(firestore, 'tenants', selectedTenant.id);
-
-      const { bookingPageSettings: _pageBuilderOwned, ...tenantDataToSave } = tenantData as any;
-
-      const finalData = {
-        ...tenantDataToSave,
-        kioskSettings: {
-          ...tenantData.kioskSettings,
-          kioskSchedule: tenantData.kioskSettings?.useSpecificHours ? localKioskSchedule : null,
-        },
-      };
-      batch.update(tenantRef, finalData);
-
-      if (activeProfile && localSchedule) {
-        const profileRef = doc(firestore, `tenants/${selectedTenant.id}/scheduleProfiles`, activeProfile.id);
-        batch.update(profileRef, { week: localSchedule, bookingSlotInterval: localInterval });
-      }
-
-      Object.entries(servicePolicies).forEach(([id, p]) => {
-        const svcRef          = doc(firestore, `tenants/${selectedTenant.id}/services`, id);
-        const originalService = services.find(s => s.id === id);
-        batch.update(svcRef, {
+      const batch = writeBatch(firestore);
+      if (Object.keys(changed).length) batch.update(doc(firestore, 'tenants', selectedTenant.id), changed);
+      if (sched) batch.update(doc(firestore, `tenants/${selectedTenant.id}/scheduleProfiles`, activeProfile!.id), { week: localSchedule, bookingSlotInterval: localInterval });
+      for (const id of svcIds) {
+        const p = servicePolicies[id]; if (!p) continue;
+        const originalService = services.find(x => x.id === id);
+        batch.update(doc(firestore, `tenants/${selectedTenant.id}/services`, id), {
           cancellationFeeMode:     p.mode,
           cancellationWindowHours: p.window || (deleteField() as any),
           customCancellationFee:   p.mode === 'flat' ? p.value : (p.mode === 'inherit' ? (deleteField() as any) : (originalService?.customCancellationFee || 0)),
           cancellationFeeValue:    p.value || (deleteField() as any),
         });
-      });
-
+      }
       await batch.commit();
-      toast({ title: 'Settings Synchronized', description: 'Studio operational parameters updated.' });
-      setIsEditing(false);
-    } catch { toast({ variant: 'destructive', title: 'Save Failed' }); }
+      dirty.current = { sched: false, kiosk: false, svc: new Set() };
+      setSaveState('saved');
+      if (!silent) toast({ title: 'Saved' });
+    } catch { setSaveState('error'); toast({ variant: 'destructive', title: 'Couldn’t save that change', description: 'Check your connection — it will try again when you change something.' }); }
   };
+
+  // Save as you go: a moment after any change here.
+  useEffect(() => {
+    if (!selectedTenant) return;
+    const t = setTimeout(() => { void handleSave(true); }, 900);
+    return () => clearTimeout(t);
+  }, [tenantData, localSchedule, localInterval, servicePolicies, localKioskSchedule]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLoadStrategicTemplates = () => {
     setTenantData(prev => ({ ...prev, escalationPolicy: defaultEscalationPolicy, recoveryPresets: defaultRecoveryPresets, maxAutonomousRecoveryAmount: 50, maxAutonomousRecoveryPercent: 25 }));
     toast({ title: 'Strategic Templates Loaded' });
   };
 
-  const handleScheduleChange      = (day: string, updates: Partial<DayHours>) => setLocalSchedule((prev: any) => ({ ...prev, [day]: { ...prev[day], ...updates } }));
-  const handleKioskScheduleChange = (day: string, updates: Partial<DayHours>) => setLocalKioskSchedule((prev: any) => ({ ...prev, [day]: { ...(prev?.[day] || { enabled: false, start: '09:00 AM', end: '05:00 PM' }), ...updates } }));
-  const handlePolicyChange        = (id: string, updates: any) => setServicePolicies(prev => ({ ...prev, [id]: { ...prev[id], ...updates } }));
+  const handleScheduleChange      = (day: string, updates: Partial<DayHours>) => (dirty.current.sched = true, setLocalSchedule)((prev: any) => ({ ...prev, [day]: { ...prev[day], ...updates } }));
+  const handleKioskScheduleChange = (day: string, updates: Partial<DayHours>) => (dirty.current.kiosk = true, setLocalKioskSchedule)((prev: any) => ({ ...prev, [day]: { ...(prev?.[day] || { enabled: false, start: '09:00 AM', end: '05:00 PM' }), ...updates } }));
+  const handlePolicyChange        = (id: string, updates: any) => (dirty.current.svc.add(id), setServicePolicies)(prev => ({ ...prev, [id]: { ...prev[id], ...updates } }));
   const handleDepositPolicyChange = (updates: any) => setTenantData(prev => ({ ...prev, depositPolicy: { ...(((prev as any).depositPolicy) || {}), ...updates } } as any));
   const handleAddPreset           = () => setTenantData(prev => ({ ...prev, recoveryPresets: [...(prev.recoveryPresets || []), { id: nanoid(), label: 'NEW PRESET', type: 'fixed', value: 0 }] }));
   const handleRemovePreset        = (id: string) => setTenantData(prev => ({ ...prev, recoveryPresets: prev.recoveryPresets?.filter(p => p.id !== id) }));
@@ -433,10 +436,10 @@ function SettingsPageImpl() {
     { value: 'hours',       label: 'Opening hours',           icon: <Clock className="w-4 h-4" />       },
     { value: 'experience',  label: 'Guest comforts & Wi-Fi', icon: <Coffee className="w-4 h-4" />      },
     { value: 'policies',    label: 'Recovery & money owed',      icon: <ShieldCheck className="w-4 h-4" /> },
-    { value: 'payments',    label: 'Payments & Payouts',         icon: <DollarSign className="w-4 h-4" />  },
+    { value: 'payments',    label: 'Payments & payouts',         icon: <DollarSign className="w-4 h-4" />  },
     { value: 'terminal',    label: 'Card reader',            icon: <Monitor className="w-4 h-4" />     },
     { value: 'kiosk',       label: 'Check-in kiosk',        icon: <Fingerprint className="w-4 h-4" /> },
-    { value: 'timeclock',   label: 'Time Clock',                 icon: <Timer className="w-4 h-4" />       },
+    { value: 'timeclock',   label: 'Time clock',                 icon: <Timer className="w-4 h-4" />       },
   ];
 
   // Tabs that manage their own state — hide global save/cancel for these
@@ -455,19 +458,14 @@ function SettingsPageImpl() {
           {/* Page header */}
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 text-left">
             <div className="space-y-1 text-left">
-              <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Settings</h1>
-              <p className="text-[10px] md:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Everything about how your business runs</p>
+              <h1 className="text-3xl md:text-4xl font-light tracking-tight text-slate-900 leading-none">Settings</h1>
+              <p className="text-sm text-muted-foreground">{WHATS_HERE[activeTab] || 'Everything about how your business runs.'}</p>
             </div>
             <div className="flex items-center gap-3 w-full sm:w-auto">
               {!selfManagedTabs.includes(activeTab) && (
-                isEditing ? (
-                  <>
-                    <Button variant="ghost" onClick={() => { setIsEditing(false); setGeoInitialized(false); }} className="flex-1 sm:w-auto h-12 font-black uppercase text-[9px] sm:text-[10px] tracking-widest text-slate-400">Cancel</Button>
-                    <Button onClick={handleSave} className="flex-[2] sm:w-auto h-12 px-8 rounded-2xl shadow-xl font-black uppercase text-[10px] tracking-widest shadow-primary/20"><Save className="mr-2 h-4 w-4" />Save Archive</Button>
-                  </>
-                ) : (
-                  <Button onClick={() => setIsEditing(true)} className="w-full sm:w-auto h-12 px-8 rounded-2xl border-2 border-primary/20 bg-primary text-white font-black uppercase text-[10px] tracking-widest shadow-xl hover:bg-primary/90 transition-all active:scale-95"><Edit className="mr-2 h-4 w-4" />Modify Logic</Button>
-                )
+                <p className="text-sm text-muted-foreground" aria-live="polite">
+                  {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved ✓' : saveState === 'error' ? <button type="button" className="underline" onClick={() => handleSave()}>Couldn’t save — try again</button> : 'Changes save automatically'}
+                </p>
               )}
             </div>
           </div>
@@ -646,7 +644,7 @@ function SettingsPageImpl() {
                 <CardContent className="p-6 md:p-8 space-y-10 text-left">
                   <div className="space-y-4 max-w-sm text-left">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2"><Sparkles className="w-3.5 h-3.5" /> Booking Precision (Interval)</Label>
-                    <Select value={String(localInterval)} onValueChange={(v) => setLocalInterval(parseInt(v))} disabled={!isEditing}>
+                    <Select value={String(localInterval)} onValueChange={(v) => { dirty.current.sched = true; setLocalInterval(parseInt(v)); }} disabled={!isEditing}>
                       <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-tight shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
                       <SelectContent className="rounded-xl border-2 shadow-2xl">
                         <SelectItem value="15" className="font-bold uppercase text-[9px] tracking-widest">15 MINUTE SLOTS</SelectItem>
@@ -808,68 +806,10 @@ function SettingsPageImpl() {
                     ))}
                   </div>
                   <Separator className="border-dashed" />
-                  {/* ── Renter campaigns: can renters send their own, and who pays for texts ── */}
-                  <div className="pt-4 border-t border-dashed space-y-3">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Renter Campaigns</Label>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                      {([['off', 'Off', 'Renters can’t send campaigns'], ['business_covers', 'We cover some', 'A monthly allowance of texts per renter; they pay beyond it'], ['renter_pays', 'Renters pay', 'Every text is charged to the renter’s card on file']] as const).map(([k, l, d]) => (
-                        <button key={k} type="button" disabled={!isEditing} aria-pressed={(tenantData.renterCampaigns?.mode || 'off') === k}
-                          onClick={() => setTenantData(prev => ({ ...prev, renterCampaigns: { ...(prev.renterCampaigns || {}), mode: k } as any }))}
-                          className={cn('rounded-2xl border-2 p-3 text-left disabled:opacity-60', (tenantData.renterCampaigns?.mode || 'off') === k ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200')}>
-                          <p className="text-[10px] font-black uppercase tracking-widest">{l}</p><p className="text-[10px] font-bold opacity-70 mt-1">{d}</p>
-                        </button>
-                      ))}
-                    </div>
-                    {tenantData.renterCampaigns?.mode && tenantData.renterCampaigns.mode !== 'off' && (
-                      <div className="grid grid-cols-2 gap-4">
-                        {tenantData.renterCampaigns.mode === 'business_covers' && (
-                          <div className="space-y-1"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Free texts per renter, per month</p>
-                            <Input type="number" min={0} max={5000} value={tenantData.renterCampaigns?.monthlyTexts ?? 100} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, renterCampaigns: { ...(prev.renterCampaigns as any), monthlyTexts: parseInt(e.target.value) || 0 } }))} className="h-11 rounded-xl border-2 text-center font-black" /></div>
-                        )}
-                        <div className="space-y-1"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Price per paid text (cents)</p>
-                          <Input type="number" min={1} max={50} value={tenantData.renterCampaigns?.priceCentsPerText ?? 2} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, renterCampaigns: { ...(prev.renterCampaigns as any), priceCentsPerText: parseInt(e.target.value) || 2 } }))} className="h-11 rounded-xl border-2 text-center font-black" /></div>
-                      </div>
-                    )}
-                    <p className="text-[10px] font-bold text-muted-foreground ml-1">Renters send to their own clients only, in their own name, with the same consent, monthly text limit and quiet-hour rules as yours. Emails are always free. Paid texts are shown to the renter before sending and charged to the card they use for rent; the charge appears in your transactions as “Renter Text Messages”. A text counts per segment (about 150 characters).</p>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">What a text costs you (cents, for estimates)</p>
-                        <Input type="number" step="0.1" min={0.5} max={10} value={tenantData.smsCostCentsPerSegment ?? 1.3} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, smsCostCentsPerSegment: parseFloat(e.target.value) || 1.3 }))} className="h-11 rounded-xl border-2 text-center font-black" /></div>
-                    </div>
-                  </div>
-                  {/* ── Reconnect: little nudges that bring quiet clients back ── */}
-                  <div className="pt-4 border-t border-dashed space-y-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Reconnect With Quiet Clients</Label>
-                      <Switch checked={tenantData.reconnect?.enabled === true} disabled={!isEditing} onCheckedChange={(v) => setTenantData(prev => ({ ...prev, reconnect: { ...(prev.reconnect || {}), enabled: v } }))} />
-                    </div>
-                    <p className="text-[10px] font-bold text-muted-foreground ml-1">A text (or email, if there's no phone) at your reminder hour. Never to someone with a visit booked, who opted out, or who was nudged in the last few weeks — and at most {tenantData.reconnect?.dailyCap ?? 25} a day. Renters' clients are theirs to nudge.</p>
-                    {tenantData.reconnect?.enabled && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="rounded-2xl border-2 border-dashed p-3 space-y-2">
-                          <div className="flex items-center justify-between"><p className="text-[10px] font-black uppercase tracking-widest">“You're due”</p>
-                            <Switch checked={tenantData.reconnect?.dueEnabled !== false} disabled={!isEditing} onCheckedChange={(v) => setTenantData(prev => ({ ...prev, reconnect: { ...(prev.reconnect || {}), dueEnabled: v } }))} /></div>
-                          <p className="text-[10px] font-bold text-muted-foreground">When a client passes the service's <span className="font-black">Rebook Every</span> (set per service) by</p>
-                          <div className="flex items-center gap-2"><Input type="number" min={0} max={30} value={tenantData.reconnect?.dueGraceDays ?? 3} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, reconnect: { ...(prev.reconnect || {}), dueGraceDays: parseInt(e.target.value) || 0 } }))} className="h-10 w-20 rounded-xl border-2 text-center font-black" /><span className="text-[10px] font-bold text-muted-foreground">days</span></div>
-                        </div>
-                        <div className="rounded-2xl border-2 border-dashed p-3 space-y-2">
-                          <div className="flex items-center justify-between"><p className="text-[10px] font-black uppercase tracking-widest">“We miss you”</p>
-                            <Switch checked={tenantData.reconnect?.missEnabled !== false} disabled={!isEditing} onCheckedChange={(v) => setTenantData(prev => ({ ...prev, reconnect: { ...(prev.reconnect || {}), missEnabled: v } }))} /></div>
-                          <p className="text-[10px] font-bold text-muted-foreground">Once, after no visit for</p>
-                          <div className="flex items-center gap-2"><Input type="number" min={3} max={104} value={tenantData.reconnect?.missWeeks ?? 10} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, reconnect: { ...(prev.reconnect || {}), missWeeks: parseInt(e.target.value) || 10 } }))} className="h-10 w-20 rounded-xl border-2 text-center font-black" /><span className="text-[10px] font-bold text-muted-foreground">weeks</span></div>
-                        </div>
-                        <div className="rounded-2xl border-2 border-dashed p-3 space-y-2 md:col-span-2">
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Space nudges at least (days)</p><Input type="number" min={7} max={180} value={tenantData.reconnect?.minDaysBetween ?? 21} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, reconnect: { ...(prev.reconnect || {}), minDaysBetween: parseInt(e.target.value) || 21 } }))} className="h-10 rounded-xl border-2 text-center font-black" /></div>
-                            <div className="space-y-1"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Most per day</p><Input type="number" min={1} max={200} value={tenantData.reconnect?.dailyCap ?? 25} disabled={!isEditing} onChange={e => setTenantData(prev => ({ ...prev, reconnect: { ...(prev.reconnect || {}), dailyCap: parseInt(e.target.value) || 25 } }))} className="h-10 rounded-xl border-2 text-center font-black" /></div>
-                          </div>
-                          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground pt-1">Your words (optional) — {'{first} {service} {weeks} {link}'}</p>
-                          <Input value={tenantData.reconnect?.dueMessage || ''} disabled={!isEditing} placeholder="“You're due” — leave blank for: Hi {first}! It's been {weeks} weeks since your {service} — ready for a refresh? Grab a time here: {link}" onChange={e => setTenantData(prev => ({ ...prev, reconnect: { ...(prev.reconnect || {}), dueMessage: e.target.value.slice(0, 320) } }))} className="h-11 rounded-xl border-2" />
-                          <Input value={tenantData.reconnect?.missMessage || ''} disabled={!isEditing} placeholder="“We miss you” — leave blank for: Hi {first}, it's been a little while and we'd love to see you again. Whenever you're ready: {link}" onChange={e => setTenantData(prev => ({ ...prev, reconnect: { ...(prev.reconnect || {}), missMessage: e.target.value.slice(0, 320) } }))} className="h-11 rounded-xl border-2" />
-                        </div>
-                        <ReconnectTally tenantId={tenantId} />
-                      </div>
-                    )}
-                  </div>
+                  {/* Win-back texts and renter campaigns are messages — they live in Messages now. */}
+                  <Link href="/settings/messages#win-back" className="block rounded-2xl border p-4 text-sm hover:bg-muted/40">
+                    <b>Winning clients back · renter campaigns</b> — now in <span className="underline">Messages</span>, with your other automatic messages →
+                  </Link>
                   <SettingRow icon={Zap} title="Let clients pay fees later" description="Allow guests to add rescheduling fees to their session bill">
                     <Switch checked={!!tenantData.allowGuestFeeDeferral} onCheckedChange={(val) => setTenantData(prev => ({ ...prev, allowGuestFeeDeferral: val }))} disabled={!isEditing} className="scale-125 data-[state=checked]:bg-primary" />
                   </SettingRow>
@@ -1382,6 +1322,19 @@ function SettingsPageImpl() {
   );
 }
 
+/** One plain sentence per tab — what you'll find (and change) here. */
+const WHATS_HERE: Record<string, string> = {
+  profile: 'Your business name, contact details and how you appear to clients.',
+  locations: 'Where you work — addresses clients see and use for directions.',
+  hours: 'When you’re open, and the time steps clients can book in.',
+  experience: 'What guests are offered while they’re with you — drinks, Wi-Fi and other comforts.',
+  policies: 'Money clients owe you: missed payments, credits, retries and when a manager steps in.',
+  payments: 'How you get paid and paid out — your Stripe account and payouts.',
+  terminal: 'Your card reader for taking payments in person.',
+  kiosk: 'The check-in kiosk clients use when they arrive.',
+  timeclock: 'How your team clocks in and out.',
+};
+
 export default function SettingsPage() {
   return (
     <Suspense fallback={
@@ -1412,25 +1365,4 @@ function SettingsGate() {
 }
 
 // ── Reconnect tally: the last 30 days of the studio's own nudges ──────────
-function ReconnectTally({ tenantId }: { tenantId: string | null | undefined }) {
-  const { firestore } = useFirebase();
-  const [t, setT] = React.useState<{ sent: number; converted: number; due: number; miss: number } | null>(null);
-  React.useEffect(() => {
-    if (!firestore || !tenantId) return;
-    const since = new Date(Date.now() - 30 * 86400000).toISOString();
-    getDocs(query(collection(firestore, `tenants/${tenantId}/reconnectNudges`), where('sender', '==', 'studio')))
-      .then((snap) => {
-        const rows = snap.docs.map((d) => d.data() as any).filter((x) => String(x.sentAt || '') >= since);
-        setT({ sent: rows.length, converted: rows.filter((x) => x.converted).length, due: rows.filter((x) => x.kind === 'due').length, miss: rows.filter((x) => x.kind === 'miss_you').length });
-      }).catch(() => setT({ sent: 0, converted: 0, due: 0, miss: 0 }));
-  }, [firestore, tenantId]);
-  if (!t) return null;
-  return (
-    <div className="rounded-2xl border-2 p-3 md:col-span-2">
-      <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Last 30 days</p>
-      <p className="mt-1 text-sm font-black">{t.sent} nudge{t.sent === 1 ? '' : 's'} sent ({t.due} due · {t.miss} miss-you) → {t.converted} rebooked within 14 days{t.sent ? ` · ${Math.round((t.converted / t.sent) * 100)}%` : ''}</p>
-      {t.sent === 0 && <p className="text-[10px] font-bold text-muted-foreground">Nothing yet — nudges go out at your reminder hour once someone qualifies. Set Rebook Every on your services for “you're due” to have anything to measure.</p>}
-    </div>
-  );
-}
                   
