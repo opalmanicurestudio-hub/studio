@@ -1,5 +1,6 @@
 'use client';
 
+import { hasRealCard } from '@/lib/card-on-file';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
@@ -140,7 +141,7 @@ export const GuestRescheduleDialog = ({
 
     const publicScheduleProfile = useMemo(() => scheduleProfiles?.find((p: any) => p.isActive), [scheduleProfiles]);
     const assignedStaff = useMemo(() => staff?.find(s => s.id === appointment.staffId), [staff, appointment.staffId]);
-    const hasCardOnFile = !!(client?.cardOnFile?.token || client?.cardOnFile?.paymentMethodId);
+    const hasCardOnFile = !!hasRealCard(client);
 
     // SCHEDULING NAVIGATION
     const weekStart = useMemo(() => startOfWeek(rescheduleDate, { weekStartsOn: 0 }), [rescheduleDate]);
