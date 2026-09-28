@@ -16,6 +16,7 @@ import { format, parseISO } from 'date-fns';
 import { getAuth } from 'firebase/auth';
 import { useCancelDialog, CLIENT_REASON_OPTIONS, STUDIO_REASON_OPTIONS } from '@/components/planner/CancelAppointmentDialog';
 import { resolveDepositPolicy } from '@/lib/deposit-policy';
+import { resolvePolicy } from '@/lib/booking-policies';
 import { cancellationOutcomeLines, planCancellation, type CancelOutcome } from '@/lib/policy-copy';
 import { logAuditClient } from '@/lib/audit-client';
 import { Drawer, Btn, Seg, Pill } from './kit';
@@ -73,7 +74,8 @@ export function DeskCancel({ e, accent, onReschedule, onOfferSlot }: { e: any; a
   const card = r.client?.cardOnFile;
   const plan = useMemo(() => planCancellation({ who, feeDollars: Number(r.finalFeeAmount) || 0, policyFeeDollars: policyFee, chargeFee: !!r.chargeFee,
     depositDollars: r.hasDeposit ? Number(r.depositDollars) || 0 : 0, hoursUntilStart: hrsLeft, depositPolicy: dp,
-    studioDisposition: r.depositDisposition, collectPref: collect, hasCard: !!r.hasCardOnFile, cardLast4: card?.last4 || null, goodwillDollars: Number(r.additionalCreditValue) || 0 }),
+    studioDisposition: r.depositDisposition, collectPref: collect, hasCard: !!r.hasCardOnFile, cardLast4: card?.last4 || null, goodwillDollars: Number(r.additionalCreditValue) || 0,
+    lateConsequence: resolvePolicy(e.selectedTenant).cancel.lateConsequence.value }),
   [who, r.finalFeeAmount, policyFee, r.chargeFee, r.hasDeposit, r.depositDollars, Math.round(hrsLeft), r.depositDisposition, collect, r.hasCardOnFile, card?.last4, r.additionalCreditValue]); // eslint-disable-line react-hooks/exhaustive-deps
   const { outcome, due, applied, waived, fee } = plan;
   useEffect(() => { setSnap({ outcome, due }); }, [outcome, due]);
