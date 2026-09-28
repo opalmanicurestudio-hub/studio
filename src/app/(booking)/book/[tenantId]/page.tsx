@@ -1,1222 +1,1176 @@
 'use client';
 
-export const dynamic = 'force-dynamic';
-
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { getFirestore } from 'firebase/firestore';
-import { getApp } from 'firebase/app';
-import { doc, setDoc, getDoc, getDocs, addDoc, collection, query, orderBy, where } from 'firebase/firestore';
-import { type PageSection, type PageBuilderConfig } from '@/lib/data';
-import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
-import { resolveBookingPlan } from '@/lib/deposit-policy';
-import { X as XIcon, ArrowRight } from 'lucide-react';
-import { linkHref, LINK_KINDS, livePageSections, cleanBrand, onAccent } from '@/lib/renter-identity';
-import { policyText } from '@/lib/package-credits';
-import { horizonDaysFor, releaseSentence } from '@/lib/booking-release';
-import { StudioBookingPage } from '@/components/booking/StudioBookingPage';
-import { PUBLIC_CSS, PUBLIC_FONT_HREF } from '@/components/public/kit';
+import React, { useMemo, useState, useEffect } from 'react';
+import { useParams } from 'next/navigation';
+import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
+import { doc, collection, query, where, writeBatch, increment, arrayUnion, deleteField, getDocs } from 'firebase/firestore';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { Separator } from '@/components/ui/separator';
+import { format, parseISO, subMonths, isAfter, subYears, startOfMonth, differenceInHours, isSameDay, startOfDay, addMonths, isToday } from 'date-fns';
+import { 
+    Award, 
+    Calendar, 
+    Loader, 
+    Clock, 
+    Star, 
+    Zap, 
+    CheckCircle2, 
+    ArrowRight, 
+    History, 
+    Sparkles, 
+    Wallet, 
+    ListChecks, 
+    Coffee, 
+    Activity, 
+    ShieldCheck, 
+    Trophy, 
+    TrendingUp, 
+    HeartHandshake, 
+    Flame, 
+    PartyPopper, 
+    User, 
+    Repeat, 
+    FileSignature, 
+    ArrowDown, 
+    Shield, 
+    Check, 
+    AlertTriangle, 
+    XCircle, 
+    Undo2, 
+    CalendarCheck, 
+    Lock, 
+    CreditCard, 
+    Ban, 
+    ShieldAlert, 
+    MessageSquare, 
+    Heart,
+    Landmark,
+    LayoutDashboard,
+    PlusCircle,
+    Gift
+} from 'lucide-react';
+import { type Client, type Appointment, type Service, type Membership, type Package, type Tenant, type Redemption, type RefreshmentRequest, type Discount, type Staff, type Review, type InventoryItem, type PricingTier } from '@/lib/data';
+import { type Transaction } from '@/lib/financial-data';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { cn, safeNumber } from '@/lib/utils';
+import { useToast } from '@/hooks/use-toast';
+import { motion, AnimatePresence } from 'framer-motion';
+import Image from 'next/image';
+import { 
+    AlertDialog, 
+    AlertDialogAction, 
+    AlertDialogCancel, 
+    AlertDialogContent, 
+    AlertDialogDescription, 
+    AlertDialogFooter, 
+    AlertDialogHeader, 
+    AlertDialogTitle 
+} from "@/components/ui/alert-dialog";
+import { 
+    Dialog, 
+    DialogContent, 
+    DialogHeader, 
+    DialogTitle, 
+    DialogDescription, 
+    DialogFooter 
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { GuestRescheduleDialog } from '@/components/booking/GuestRescheduleDialog';
+import { nanoid } from 'nanoid';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { BookingSheet } from '@/components/booking/BookingSheet';
-import {
-  ANIM_CSS, STACKS, GFONTS,
-  StyleConfig, PageData,
-  DS, ac, hf, bf, br, hexToHsl, injectFonts,
-  SectionWrapper, SectionRenderer, Footer,
-  isBuilderConfig, buildDefaults,
-} from '@/lib/booking-sections';
+import { resolveBookingPlan } from '@/lib/deposit-policy';
+import { BookingServices } from '@/components/booking/BookingServices';
 
-// ─── Font loading ─────────────────────────────────────────────────────────────
-const GFONTS_HREF = `https://fonts.googleapis.com/css2?${
-  Object.values(GFONTS).map(f => `family=${f}`).join('&')
-}&display=swap`;
-
-function usePageFonts() {
-  useEffect(() => {
-    if (document.getElementById('cf-page-gfonts')) return;
-    const pre = document.createElement('link');
-    pre.rel = 'preconnect'; pre.href = 'https://fonts.googleapis.com';
-    document.head.appendChild(pre);
-    const pre2 = document.createElement('link');
-    pre2.rel = 'preconnect'; pre2.href = 'https://fonts.gstatic.com';
-    pre2.crossOrigin = 'anonymous'; document.head.appendChild(pre2);
-    const link = document.createElement('link');
-    link.id = 'cf-page-gfonts'; link.rel = 'stylesheet'; link.href = GFONTS_HREF;
-    document.head.appendChild(link);
-  }, []);
-}
-
-// ─── Result type returned by handleConfirm ────────────────────────────────────
-type ConfirmResult =
-  | { requiresPayment: false }
-  | { requiresPayment: true; clientSecret: string; stripeAccountId?: string }
-  | { requiresPayment: true; error: string };
-
-/**
- * Recursively removes any keys with undefined values from an object.
- * The Firestore client SDK (unlike Admin SDK) throws on undefined values.
- */
-const sanitizeForFirestore = (obj: any): any => {
-  if (obj === null || typeof obj !== 'object') return obj;
-  if (Array.isArray(obj)) return obj.map(sanitizeForFirestore);
-  return Object.fromEntries(
-    Object.entries(obj)
-      .filter(([_, v]) => v !== undefined)
-      .map(([k, v]) => [k, sanitizeForFirestore(v)])
-  );
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
+    if (typeof val === 'object' && 'seconds' in val) {
+        return new Date(val.seconds * 1000);
+    }
+    return new Date(val);
 };
 
-// ─── Main component ────────────────────────────────────────────────────────────
-function BookingPageContent({ tenantId }: { tenantId: string }) {
-  usePageFonts();
+export default function ClientPortalPage() {
+    const { tenantId, clientId } = useParams() as { tenantId: string; clientId: string };
+    const { firestore } = useFirebase();
+    const { toast } = useToast();
 
-  /* What the server actually made of the last booking — read by the sheet's
-   * confirmation screen so it never claims "confirmed" for a request. */
-  const [bookingOutcome, setBookingOutcome] = useState<{ status: string; notice: string; depositCents: number; cardOnFile?: boolean } | null>(null);
-  const [tenant,          setTenant]          = useState<any>(null);
-  const [services,        setServices]        = useState<any[]>([]);
-  const [staff,           setStaff]           = useState<any[]>([]);
-  // Independent-provider mode: /book/{tenant}?provider={staffId} shows ONLY
-  // that renter's own menu at their own prices. Read post-mount from
-  // window.location for the same reason the applicants page does — useSearchParams
-  // forces a Suspense boundary this page doesn't have.
-  const [providerId,      setProviderId]      = useState('');
-  // ?reschedule=<appointmentId> — arrived from the "Reschedule" link in a
-  // confirmation. Loads the visit (the id is the bearer, same as /cancel),
-  // opens the booking sheet on that service with the client's details
-  // prefilled, and releases the OLD visit only after the NEW one is booked —
-  // never the other way round, so a client can't end up with nothing.
-  const [reschedule, setReschedule] = useState<{ id: string; clientName: string | null; clientEmail: string | null; clientPhone: string | null; serviceId: string | null; serviceName: string; startTime: string } | null>(null);
-  const [rescheduleNote, setRescheduleNote] = useState('');
-  const [rescheduleOpened, setRescheduleOpened] = useState(false);
-  const [campaignRef, setCampaignRef] = useState<{ campaignId: string | null; code: string | null } | null>(null);
-  // The offer the client is booking with — shown to them, checked on the server.
-  const [offerShown, setOfferShown] = useState<{ code: string; line: string; amount?: string; until?: string | null; oncePer?: boolean } | null>(null);
-  const [offerInput, setOfferInput] = useState('');
-  const [offerErr, setOfferErr] = useState('');
-  const [offerOpen, setOfferOpen] = useState(false);
-  const checkOffer = async (code: string, quiet = false) => {
-    setOfferErr('');
-    try {
-      // On a renter's page the code is checked against THAT renter's offers.
-      const r = await fetch('/api/offers/check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, code, ...(providerId ? { provider: providerId } : {}) }) });
-      const d = await r.json().catch(() => null);
-      if (d?.ok) { setOfferShown({ code: d.code, line: d.line, amount: d.amount, until: d.until, oncePer: d.oncePer }); setCampaignRef((x) => ({ campaignId: x?.campaignId || null, code: d.code })); setOfferOpen(false); }
-      else { if (!quiet) setOfferErr(d?.error || 'That code didn’t work.'); if (quiet) setCampaignRef((x) => (x ? { ...x, code: null } : x)); }
-    } catch { if (!quiet) setOfferErr('Couldn’t check that code right now.'); }
-  };
-  useEffect(() => { if (campaignRef?.code && !offerShown) void checkOffer(campaignRef.code, true); }, [campaignRef?.code]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Page design: the business's choice (Settings → Booking → Page design), or
-  // ?design=studio / ?design=classic to preview either before switching.
-  const [designParam, setDesignParam] = useState('');
-  const [studioStaffId, setStudioStaffId] = useState<string | undefined>(undefined);
-  // The appointment we're holding for a deposit — a retry pays for THIS one
-  // instead of booking the same time again.
-  const heldPay = useRef<{ key: string; appointmentId: string } | null>(null);
-  useEffect(() => { try { setDesignParam(new URLSearchParams(window.location.search).get('design') || ''); } catch { /* no preview */ } }, []);
-  useEffect(() => {
-    if (!reschedule || rescheduleOpened || services.length === 0) return;
-    const svc = services.find((x: any) => x.id === reschedule.serviceId) || services.find((x: any) => x.name === reschedule.serviceName);
-    if (!svc) { setRescheduleNote(`Rescheduling your ${reschedule.serviceName} — pick it from the menu below to choose a new time.`); setRescheduleOpened(true); return; }
-    setRescheduleNote(`Rescheduling your ${reschedule.serviceName} from ${new Date(reschedule.startTime).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} — pick a new time. The old time is released once the new one is booked.`);
-    setDialogService(svc); setDialogOpen(true); setRescheduleOpened(true);
-  }, [reschedule, rescheduleOpened, services]);
-  const [awayProvider,    setAwayProvider]    = useState<any>(null);
-  const [elsewhere,       setElsewhere]       = useState<any[]>([]);
-  useEffect(() => {
-    try {
-      const p = new URLSearchParams(window.location.search).get('provider') || '';
-      if (p) setProviderId(p);
-      // From a campaign's Book button: which campaign, and its offer code —
-      // carried with the booking so checkout applies it without anyone typing.
-      try {
-        const q = new URLSearchParams(window.location.search);
-        const cid = (q.get('c') || '').slice(0, 64); const code = (q.get('code') || '').slice(0, 40);
-        if (cid || code) setCampaignRef({ campaignId: cid || null, code: code || null });
-      } catch { /* no-op */ }
-      const rs = new URLSearchParams(window.location.search).get('reschedule') || '';
-      if (rs) {
-        fetch(`/api/appointments/self-cancel?tenantId=${encodeURIComponent(tenantId)}&appointmentId=${encodeURIComponent(rs)}`)
-          .then((r) => r.json()).then((d) => {
-            if (d?.ok && d.appointment && d.appointment.status !== 'cancelled') setReschedule({ id: rs, ...d.appointment });
-            else setRescheduleNote('That visit can no longer be rescheduled online — just book a new time below.');
-          }).catch(() => setRescheduleNote('Could not load the visit to reschedule — book a new time below.'));
-      }
-    } catch { /* no-op */ }
-  }, []);
-  const [events,          setEvents]          = useState<any[]>([]);
-  const [appointments,    setAppointments]    = useState<any[]>([]);
-  const [scheduleProfiles,setScheduleProfiles]= useState<any[]>([]);
-  const [pricingTiers,    setPricingTiers]    = useState<any[]>([]);
-  const [consentForms,    setConsentForms]    = useState<any[]>([]);
-  // The blocking sources. `events` above is the studio's marketing events on
-  // the page itself — these are the calendar blocks, a different collection.
-  const [shifts,          setShifts]          = useState<any[]>([]);
-  const [staffBlocks,     setStaffBlocks]     = useState<any[]>([]);
-  const [dayOffBlocks,    setDayOffBlocks]    = useState<any[]>([]);
-  const [resources,       setResources]       = useState<any[]>([]);
-  const [maintTickets,    setMaintTickets]    = useState<any[]>([]);
-  const [maintenancePlans,setMaintenancePlans]= useState<any[]>([]);
-  const [calendarEvents,  setCalendarEvents]  = useState<any[]>([]);
-  const [savedConfig,     setSavedConfig]     = useState<PageBuilderConfig|null>(null);
-  const [configReady,     setConfigReady]     = useState(false);
-  const [dialogOpen,      setDialogOpen]      = useState(false);
-  const [dialogService,   setDialogService]   = useState<any>(null);
-  const [showPicker,      setShowPicker]      = useState(false);
+    const [entered, setEntered] = useState(false);
+    const [appointmentToCancel, setAppointmentToCancel] = useState<Appointment | null>(null);
+    const [appointmentToReschedule, setAppointmentToReschedule] = useState<Appointment | null>(null);
+    const [isSettlementOpen, setIsSettlementOpen] = useState(false);
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [bookingOutcome, setBookingOutcome] = useState<{ status: string; notice: string; depositCents: number } | null>(null);
+    const [settlementSuccess, setSettlementSuccess] = useState(false);
+    const [expandedImage, setExpandedImage] = useState<string | null>(null);
+    
+    // Booking flow within portal
+    const [isBookingFlowOpen, setIsBookingFlowOpen] = useState(false);
+    const [selectedServiceForBooking, setSelectedServiceForBooking] = useState<Service | null>(null);
+    const [isBookingSheetOpen, setIsBookingSheetOpen] = useState(false);
 
-  const [loadingStyle] = useState<StyleConfig>(() => {
-    try {
-      if (typeof window === 'undefined') return DS;
-      const raw = localStorage.getItem(`cf-style-${tenantId}`);
-      if (raw) return { ...DS, ...JSON.parse(raw) };
-    } catch {}
-    return DS;
-  });
+    // --- DATA FETCHING ---
+    const clientRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}/clients/${clientId}`), [firestore, tenantId, clientId]);
+    const { data: client, isLoading: clientLoading } = useDoc<Client>(clientRef);
 
-  const getDb = useCallback(() => {
-    try { return getFirestore(getApp()); } catch { return null; }
-  }, []);
+    const tenantRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
+    const { data: tenant } = useDoc<Tenant>(tenantRef);
 
-  // Inject animation keyframes
-  useEffect(() => {
-    if (!document.getElementById('cf-anim')) {
-      const s = document.createElement('style');
-      s.id = 'cf-anim'; s.textContent = ANIM_CSS;
-      document.head.appendChild(s);
-    }
-  }, []);
+    const appointmentsQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/appointments`), where('clientId', '==', clientId)), [firestore, tenantId, clientId]);
+    const { data: appointments, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
 
-  // Phase 1: Load tenant + saved page config
-  useEffect(() => {
-    if (!tenantId) { setConfigReady(true); return; }
-    let cancelled = false;
-    const run = async () => {
-      const db = getDb();
-      if (!db) { setConfigReady(true); return; }
-      try {
-        const tSnap = await getDoc(doc(db, 'tenants', tenantId));
-        if (!cancelled && tSnap.exists()) {
-          const t = { id: tSnap.id, ...tSnap.data() } as any;
-          setTenant(t);
-          const pc = t?.bookingPageSettings?.cfPageConfig;
-          if (isBuilderConfig(pc)) {
-            setSavedConfig(pc as PageBuilderConfig);
-            try {
-              localStorage.setItem(`cf-style-${tenantId}`, JSON.stringify({
-                accentColor: pc.accentColor, bgColor: pc.bgColor,
-                headingFont: pc.headingFont, bodyFont: pc.bodyFont,
-                borderRadius: pc.borderRadius, buttonStyle: pc.buttonStyle,
-                density: pc.density,
-              }));
-            } catch {}
-          }
-        }
-      } catch (e) { console.warn('[booking:config]', e); }
-      if (!cancelled) setConfigReady(true);
-    };
-    run();
-    return () => { cancelled = true; };
-  }, [tenantId, getDb]);
+    const redemptionsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/clients/${clientId}/redemptions`), [firestore, tenantId, clientId]);
+    const { data: redemptions } = useCollection<Redemption>(redemptionsQuery);
 
-  // Phase 2: Load services, staff, events (non-blocking)
-  useEffect(() => {
-    if (!tenantId || !configReady) return;
-    let cancelled = false;
-    const run = async () => {
-      const db = getDb(); if (!db) return;
-      // THE LOWER BOUND ON EVERY "from today" QUERY BELOW.
-      // It used to be the VISITOR's day. That is the wrong direction of wrong:
-      // when the browser is a day AHEAD of the studio — anyone booking in the
-      // evening from further east — these queries silently excluded today's
-      // appointments, shifts and blocks, so the availability engine on this
-      // page could not see a slot that was already taken and offered it. The
-      // booking route then refused it at the last step. Same inputs on both
-      // sides, same answer: the studio's day. Phase 1 sets `tenant` and
-      // `configReady` in the same pass, so this closure has the tenant doc;
-      // if that fetch failed it degrades to UTC, exactly as before.
-      const fromDay = todayIn(tenantTimeZone(tenant));
-      const eventsFromDay = todayIn(tenantTimeZone(tenant), new Date(Date.now() - 31 * 86400000));
-      try {
-        // Loaded on the SERVER (/api/booking/public-data): visitors who aren't
-        // signed in may not read the team, appointments, shifts or days off
-        // directly — the route returns only what they may see (busy times,
-        // never other clients' details). Same shape as before, so the page's
-        // availability logic is unchanged.
-        const res = await fetch('/api/booking/public-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId }) });
-        const pd: any = await res.json().catch(() => null);
-        if (!pd?.ok) throw new Error(pd?.error || 'Could not load the booking page.');
-        const asSnap = (arr: any[]) => ({ docs: (arr || []).map((x: any) => { const { id, ...rest } = x || {}; return { id, data: () => rest }; }) });
-        const [svSnap, stSnap, evSnap, aptSnap, spSnap, ptSnap, cfSnap, shSnap, sbSnap, doSnap, rsSnap, tkSnap, mpSnap, ceSnap, rsvSnap] =
-          [pd.services, pd.staff, pd.studioEvents, pd.appointments, pd.scheduleProfiles, pd.pricingTiers, pd.consentForms, pd.shifts, pd.staffBlocks, pd.dayOffBlocks, pd.resources, pd.tickets, pd.maintenancePlans, pd.events, pd.renterServices].map(asSnap);
-        if (!cancelled) {
-          const everyStaff = stSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false);
-          // A renter running their own booking system is not bookable here.
-          // Left in, they would show as a provider whose every date is empty —
-          // a dead end that reads like a broken page rather than a choice.
-          const allStaff = everyStaff.filter((m: any) => !(m.isRenter && m.bookingOptOut === true));
-          setElsewhere(everyStaff.filter((m: any) =>
-            m.isRenter && m.bookingOptOut === true && m.listExternally === true && m.externalBookingUrl));
-          const houseServices = svSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false);
-          const optedOut: any = providerId
-            ? everyStaff.find((m: any) => m.id === providerId && m.isRenter && m.bookingOptOut === true)
-            : null;
-          if (optedOut) setAwayProvider(optedOut);
-          const provider: any = providerId ? allStaff.find((m: any) => m.id === providerId && m.isRenter) : null;
-          if (provider) {
-            // Their menu, their prices, their durations — never mixed with the
-            // house list, so a client never sees one service priced two ways.
-            const mine = (rsvSnap as any).docs
-              .map((d: any) => ({ id: d.id, ...d.data() }))
-              .filter((sv: any) => sv.isActive !== false && sv.staffId === provider.id)
-              .map((sv: any) => ({
-                ...sv,
-                collectsOwnPayment: true,
-                providerName: provider.name || 'your provider',
-                staffIds: [provider.id],
-                // Deposits are possible only when THEIR Stripe can charge.
-                renterChargesEnabled: provider.stripeChargesEnabled === true,
-                renterDepositAmount: sv.depositMode === 'percent'
-                  ? Math.round((Number(sv.price) || 0) * (Number(sv.depositPercent) || 0)) / 100
-                  : Number(sv.depositAmount) || 0,
-                renterProviderId: provider.id,
-              }));
-            setServices(mine);
-            setStaff([provider]);
-          } else {
-            setServices(houseServices);
-            setStaff(allStaff);
-          }
-          setEvents(evSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-          setAppointments((aptSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
-          setScheduleProfiles((spSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
-          setPricingTiers((ptSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
-          setConsentForms((cfSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
-          setShifts((shSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
-          setStaffBlocks((sbSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
-          setDayOffBlocks((doSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
-          setResources((rsSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
-          setMaintTickets((tkSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
-          setMaintenancePlans((mpSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
-          setCalendarEvents((ceSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
-        }
-      } catch (e) { console.warn('[booking:data]', e); }
-    };
-    run();
-    return () => { cancelled = true; };
-  }, [tenantId, configReady, getDb, providerId]);
+    const refreshmentRequestsQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/refreshmentRequests`), where('clientId', '==', clientId)), [firestore, tenantId, clientId]);
+    const { data: refreshmentRequests } = useCollection<RefreshmentRequest>(refreshmentRequestsQuery);
 
-  // Booking events
-  useEffect(() => {
-    const h = (e: Event) => {
-      const d = (e as CustomEvent).detail;
-      if (d?.service) { setDialogService(d.service); setDialogOpen(true); }
-      else { if (services.length === 1) { setDialogService(services[0]); setDialogOpen(true); } else setShowPicker(true); }
-    };
-    window.addEventListener('cf-book', h);
-    return () => window.removeEventListener('cf-book', h);
-  }, [services]);
-  // A link to one service (e.g. the school website's clinic menu:
-  // /book/{t}?service={id}) opens the booking sheet for it — once.
-  const openedServiceLink = useRef(false);
-  useEffect(() => {
-    if (openedServiceLink.current || !services.length) return;
-    try {
-      const want = new URLSearchParams(window.location.search).get('service');
-      const hit = want ? services.find((sv: any) => sv.id === want) : null;
-      if (hit) { openedServiceLink.current = true; setDialogService(hit); setDialogOpen(true); }
-    } catch { /* no-op */ }
-  }, [services]);
+    const servicesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/services`), [firestore, tenantId]);
+    const { data: services } = useCollection<Service>(servicesQuery);
 
-  // Derive resolved config and style
-  const sections: PageSection[] = savedConfig?.sections ?? buildDefaults();
-  const studioDesign = !providerId && designParam !== 'classic' && (designParam === 'studio' || (tenant as any)?.bookingPageSettings?.design === 'studio');
-  const resolvedStyle: StyleConfig = {
-    accentColor:  savedConfig?.accentColor  ?? DS.accentColor,
-    bgColor:      savedConfig?.bgColor      ?? DS.bgColor,
-    headingFont:  savedConfig?.headingFont  ?? DS.headingFont,
-    bodyFont:     savedConfig?.bodyFont     ?? DS.bodyFont,
-    borderRadius: savedConfig?.borderRadius ?? DS.borderRadius,
-    buttonStyle:  savedConfig?.buttonStyle  ?? DS.buttonStyle,
-    density:      savedConfig?.density      ?? DS.density,
-  };
+    const staffQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
+    const { data: staff } = useCollection<Staff>(staffQuery);
 
-  // Only render sections that are enabled AND not hidden from visitors
-  const activeSections = sections
-    .filter(s => s.enabled && s.visible !== false)
-    .sort((a, b) => a.order - b.order);
+    const membershipsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/memberships`), [firestore, tenantId]);
+    const { data: memberships } = useCollection<Membership>(membershipsQuery);
 
-  useEffect(() => { injectFonts(resolvedStyle.headingFont, resolvedStyle.bodyFont); }, [resolvedStyle.headingFont, resolvedStyle.bodyFont]);
-  // The renter's page: splash-then-app state, and their typeface loaded the
-  // same way the studio's is. Declared here, above every early return, so
-  // hook order never depends on which page renders.
-  const [providerEntered, setProviderEntered] = useState(false);
-  const [providerTab, setProviderTab] = useState<'book' | 'work' | 'about' | 'reviews'>('book');
-  // The service a client is LOOKING AT, before they decide to book it.
-  const [providerPeek, setProviderPeek] = useState<any | null>(null);
-  const [providerPackages, setProviderPackages] = useState<any[]>([]);
-  const [providerMemberships, setProviderMemberships] = useState<any[]>([]);
-  // The purchase form: which product, and the buyer's details. Replaces
-  // two browser prompts with a sheet that matches the page.
-  const [buying, setBuying] = useState<{ kind: 'package' | 'membership'; item: any } | null>(null);
-  const [buyer, setBuyer] = useState({ name: '', email: '', phone: '', existing: false });
-  const [memberThanks, setMemberThanks] = useState(false);
-  // "I'm a member" — an email check against the renter's active members.
-  // Unlocks the member booking window on this page; the server re-checks the
-  // same email at confirm, so it is a convenience, not the gate.
-  const [memberEmail, setMemberEmail] = useState('');
-  // Studio members: same idea on the studio's own page — a member unlocks
-  // their earlier release and members-only services. The server checks the
-  // same thing at confirm; this only changes what the calendar shows.
-  const [studioMemberOk, setStudioMemberOk] = useState<boolean | null>(null);
-  const [studioMemberInput, setStudioMemberInput] = useState('');
-  const [studioMemberBusy, setStudioMemberBusy] = useState(false);
-  const checkStudioMember = async () => {
-    const v = studioMemberInput.trim(); if (!v) return;
-    setStudioMemberBusy(true);
-    try {
-      const res = await fetch('/api/booking/member-check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, contact: v }) });
-      const d = await res.json().catch(() => ({}));
-      setStudioMemberOk(!!d?.member);
-    } catch { setStudioMemberOk(false); } finally { setStudioMemberBusy(false); }
-  };
-  const [memberOk, setMemberOk] = useState<boolean | null>(null);
-  const [memberChecking, setMemberChecking] = useState(false);
-  const checkMember = async () => {
-    const e = memberEmail.trim().toLowerCase(); if (!e || !providerId) return;
-    setMemberChecking(true);
-    try {
-      const r = await fetch('/api/booking/public-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, action: 'renter-member', providerId, email: e }) });
-      const d = await r.json().catch(() => ({}));
-      setMemberOk(!!d?.member);
-    } catch { setMemberOk(false); } finally { setMemberChecking(false); }
-  };
-  const [pkgBuying, setPkgBuying] = useState('');
-  const [pkgErr, setPkgErr] = useState('');
-  const [pkgThanks, setPkgThanks] = useState(false);
-  useEffect(() => {
-    if (!providerId || !tenantId) { setProviderPackages([]); return; }
-    try { const q = new URLSearchParams(window.location.search); if (q.get('package') === 'thanks') setPkgThanks(true); if (q.get('member') === 'thanks') setMemberThanks(true); } catch { /* no-op */ }
-    (async () => {
-      try {
-        const r = await fetch('/api/booking/public-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, action: 'renter-products', providerId }) });
-        const d: any = await r.json().catch(() => ({}));
-        setProviderPackages((d?.packages || []).filter((p: any) => p.isActive !== false).sort((a: any, b: any) => (a.priceCents || 0) - (b.priceCents || 0)));
-        setProviderMemberships((d?.memberships || []).filter((m: any) => m.isActive !== false).sort((a: any, b: any) => (a.priceCents || 0) - (b.priceCents || 0)));
-      } catch { setProviderPackages([]); setProviderMemberships([]); }
-    })();
-  }, [providerId, tenantId, getDb]);
-  const buyPackage = (pkg: any) => { setPkgErr(''); setBuying({ kind: 'package', item: pkg }); };
-  const joinMembership = (m: any) => { setPkgErr(''); setBuying({ kind: 'membership', item: m }); };
-  const submitPurchase = async () => {
-    if (!buying) return;
-    if (!buyer.name.trim() || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(buyer.email.trim())) { setPkgErr('A name and a valid email are needed — the receipt and your credits go there.'); return; }
-    setPkgBuying(buying.item.id); setPkgErr('');
-    try {
-      const url = buying.kind === 'package' ? '/api/stripe/renter-package' : '/api/stripe/renter-membership';
-      const idKey = buying.kind === 'package' ? 'packageId' : 'membershipId';
-      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, [idKey]: buying.item.id, clientName: buyer.name.trim(), clientEmail: buyer.email.trim().toLowerCase(), clientPhone: buyer.phone.trim() }) });
-      const d = await res.json().catch(() => ({}));
-      if (d?.ok && d.url) { window.location.href = d.url; return; }
-      setPkgErr(d?.error || 'Could not start checkout.');
-    } finally { setPkgBuying(''); }
-  };
-  const providerBrandFont = providerId ? cleanBrand((staff.find((m: any) => m.id === providerId && m.isRenter) as any)?.brand).font : null;
-  useEffect(() => { if (providerBrandFont) injectFonts(providerBrandFont, 'jakarta'); }, [providerBrandFont]);
-  useEffect(() => {
-    const root = document.documentElement;
-    /* Fallbacks point at the app's own typeface, so an unknown or missing
-     * font id degrades INTO the house style rather than out of it. */
-    root.style.setProperty('--booking-heading-font', STACKS[resolvedStyle.headingFont] || STACKS.jakarta);
-    root.style.setProperty('--booking-body-font',    STACKS[resolvedStyle.bodyFont]    || STACKS.jakarta);
-    root.style.setProperty('--radius', `${resolvedStyle.borderRadius}px`);
-    try { root.style.setProperty('--primary', hexToHsl(resolvedStyle.accentColor)); } catch {}
-  }, [resolvedStyle]);
+    const packagesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/packages`), [firestore, tenantId]);
+    const { data: packages } = useCollection<Package>(packagesQuery);
 
-  const data: PageData = {
-    tenant,
-    // Members-only services stay off the studio's page until a member unlocks.
-    services: services.filter((sv: any) => sv.membersOnly !== true || studioMemberOk === true),
-    staff, events, tenantId,
-    // Everything the booking sheet needs to reach the same verdict as the
-    // server. Passed through in one object so there is exactly one place to
-    // keep in step when a new blocking source is added.
-    appointments, scheduleProfiles, shifts, staffBlocks, dayOffBlocks,
-    resources, tickets: maintTickets, maintenancePlans, calendarEvents,
-    pricingTiers, consentForms,
-  };
+    const discountsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/discounts`), [firestore, tenantId]);
+    const { data: discounts } = useCollection<Discount>(discountsQuery);
 
-  /* ── THIS HOOK MUST STAY ABOVE EVERY `return` ─────────────────────────
-   * It was placed further down, below the loading-spinner early return. On
-   * the first render — while config is still loading — that return fires and
-   * this hook never runs, so React sees a different number of hooks between
-   * renders and throws. The whole booking site died with "a client-side
-   * exception has occurred", which is the generic face of exactly this
-   * mistake.
-   *
-   * Opening the flow scrolls to the top: without it the page keeps whatever
-   * offset the service list had, and the flow's first screen starts halfway
-   * down looking like a blank panel. */
-  useEffect(() => {
-    if (dialogOpen) window.scrollTo({ top: 0, behavior: 'auto' });
-  }, [dialogOpen]);
+    const scheduleProfilesQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true)), [firestore, tenantId]);
+    const { data: scheduleProfiles } = useCollection<any>(scheduleProfilesQuery);
 
-  // Loading spinner
-  if (!configReady) {
-    return (
-      <div className="w-full min-h-dvh flex items-center justify-center" style={{ background: loadingStyle.bgColor }}>
-        <div className="w-7 h-7 border-2 border-t-transparent rounded-full animate-spin"
-             style={{ borderColor: loadingStyle.accentColor }}/>
-      </div>
-    );
-  }
+    const inventoryQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/inventory`), [firestore, tenantId]);
+    const { data: inventory } = useCollection<InventoryItem>(inventoryQuery);
 
-  // ── handleConfirm ────────────────────────────────────────────────────────────
-  // No deposit: creates the appointment immediately and tells the sheet to show
-  // the confirmation screen.
-  // Deposit required: creates the bookingRequest, asks Stripe for an EMBEDDED
-  // checkout session, and returns the clientSecret to BookingSheet so it can
-  // mount Stripe's checkout UI directly inside the sheet. The guest never
-  // leaves the page. The connect-webhook converts the bookingRequest into a
-  // real appointment once Stripe confirms payment.
-  // ── handleConfirm ────────────────────────────────────────────────
-  // ONE PATH (5a). Every online booking goes to the server first; the SERVER
-  // decides what it is — a request awaiting approval, a hold waiting for a
-  // deposit, or confirmed — and creates the appointment right away, so it
-  // always shows in Requests or the planner. Signed forms travel with it.
-  //   • hold for a deposit → Stripe opens for THAT appointment (the amount is
-  //     read on the server); the webhook confirms the same appointment.
-  //   • request (approval mode) → nothing is charged now; the client hears back.
-  // (Was: the page chose its road by the deposit AMOUNT alone — in approval
-  // mode that created a hidden bookingRequest + a payment the client was told
-  // they didn't need, so the booking vanished; and paying skipped approval.)
-  const handleConfirm = async (
-    formData: { clientName: string; clientEmail: string; clientPhone?: string; notes?: string },
-    apptDetails: any, signedForms: any[], setStep: (s: string) => void,
-  ): Promise<ConfirmResult> => {
-    try {
-      const { depositAmount, depositStatus, ...restDetails } = apptDetails || {};
-      void depositAmount; void depositStatus; // the server decides deposits now
-      if (!restDetails?.serviceId || !restDetails?.startTime) {
-        return { requiresPayment: true, error: 'Please pick a service and a time first.' };
-      }
-      const holdKey = `${restDetails.serviceId}|${restDetails.startTime}|${String(formData.clientEmail || '').toLowerCase()}`;
-      const payFor = async (appointmentId: string): Promise<ConfirmResult> => {
-        const dres = await fetch('/api/stripe/deposit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, appointmentId }) }).catch(() => null);
-        const d: any = dres ? await dres.json().catch(() => null) : null;
-        if (d?.clientSecret) return { requiresPayment: true, clientSecret: d.clientSecret, stripeAccountId: d.stripeAccountId };
-        return { requiresPayment: true, error: d?.error || 'Your time is held, but the payment step didn’t open. Please try again — or use the pay link in your email.' };
-      };
-      // Retrying the same booking while its deposit is pending → pay for the held one.
-      if (heldPay.current?.key === holdKey) return payFor(heldPay.current.appointmentId);
-      let bookRes: Response;
-      try {
-        bookRes = await fetch('/api/appointments/book', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            tenantId,
-            source: 'booking-page',
-            ...(campaignRef ? { campaignId: campaignRef.campaignId, promoCode: campaignRef.code } : {}),
-            serviceId: restDetails.serviceId,
-            addOnIds: restDetails.addOnIds || [],
-            staffId: restDetails.staffId || 'any',
-            startTime: restDetails.startTime,
-            client: { name: formData.clientName, email: formData.clientEmail, phone: formData.clientPhone,
-              smsConsent: ((restDetails as any).smsConsent ?? (formData as any).smsConsent) === true, smsConsentText: (restDetails as any).smsConsentText || null,
-              smsMarketing: ((restDetails as any).smsMarketing ?? (formData as any).smsMarketing) === true, smsMarketingText: (restDetails as any).smsMarketingText || null },
-            notes: formData.notes,
-            inspirationPhotoUrl: (restDetails as any).inspirationPhotoUrl || undefined,
-            inspirationPhotos: Array.isArray((restDetails as any).inspirationPhotos) ? (restDetails as any).inspirationPhotos : undefined,
-            signedForms: Array.isArray(signedForms) ? signedForms : [],
-            // A reschedule: the old visit is released once this one is booked (or, with a deposit, paid for).
-            ...(reschedule?.id ? { replacesAppointmentId: reschedule.id } : {}),
-          }),
+    const pricingTiersQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/pricingTiers`), [firestore, tenantId]);
+    const { data: pricingTiers } = useCollection<PricingTier>(pricingTiersQuery);
+
+    // --- LOGIC ---
+    const activeMembership = useMemo(() => {
+        const mId = client?.activeMembershipId || client?.subscription?.membershipId;
+        if (!mId || !memberships) return null;
+        return memberships.find(m => m.id === mId);
+    }, [client, memberships]);
+
+    const cycleStart = useMemo(() => {
+        if (!client?.subscription?.nextBillingDate || !activeMembership) return startOfMonth(new Date());
+        const nextBilling = safeDate(client.subscription.nextBillingDate);
+        return startOfMonth(activeMembership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1));
+    }, [client, activeMembership]);
+
+    const currentCycleActivity = useMemo(() => {
+        const servRedemptions = (redemptions || []).filter(r => isAfter(safeDate(r.date), cycleStart) && !r.isForfeit);
+        const hospitalityReqs = (refreshmentRequests || []).filter(r => r.status !== 'cancelled' && isAfter(safeDate(r.requestedAt), cycleStart));
+        
+        return {
+            services: servRedemptions,
+            hospitality: hospitalityReqs,
+            all: [...servRedemptions, ...hospitalityReqs].sort((a,b) => safeDate(b.date || (b as any).requestedAt).getTime() - safeDate(a.date || (a as any).requestedAt).getTime())
+        };
+    }, [redemptions, refreshmentRequests, cycleStart]);
+
+    const perkAllotments = useMemo(() => {
+        if (!activeMembership) return [];
+        const items: any[] = [];
+
+        const getUsage = (id: string) => {
+            const servCount = currentCycleActivity.services.filter(r => r.serviceId === id).length;
+            const hospCount = currentCycleActivity.hospitality.filter(r => r.itemId === id).reduce((sum, r) => sum + safeNumber(r.quantity), 0);
+            return servCount + hospCount;
+        };
+
+        (activeMembership.includedServices || []).forEach(perk => {
+            const used = getUsage(perk.id);
+            items.push({ ...perk, id: perk.id, type: 'Service', used, progress: Math.min(100, (used / perk.quantity) * 100), icon: Star, color: 'text-indigo-600', bg: 'bg-indigo-500/10' });
         });
-      } catch {
-        return { requiresPayment: true, error: 'We couldn’t reach the booking system — check your connection and try again. Nothing was booked yet.' };
-      }
-      const out = await bookRes.json().catch(() => null);
-      if (!out?.ok) {
-        return { requiresPayment: true, error: out?.error || (bookRes.status === 409 ? 'That time was just taken — pick another slot.' : 'We could not hold that time. Please pick another slot.') };
-      }
-      /* The SERVER decided what this booking became; the screen, the email
-       * and the text all say the same thing. */
-      setBookingOutcome({ status: String(out.status || 'confirmed'), notice: String(out.clientNotice || ''), depositCents: Number(out.depositCents) || 0, cardOnFile: !!out.requiresCardOnFile });
 
-      // A deposit is due now → pay against THIS appointment.
-      if (out.status === 'pending_payment' && Number(out.depositCents) > 0 && out.appointmentId) {
-        heldPay.current = { key: holdKey, appointmentId: out.appointmentId };
-        const d: any = await payFor(out.appointmentId);
-        if (d?.clientSecret) {
-          // A reschedule that needs a deposit: the payment webhook releases the
-          // OLD visit once this one is paid for (same client only).
-          return d;
+        (activeMembership.includedAddOns || []).forEach(perk => {
+            const used = getUsage(perk.id);
+            items.push({ ...perk, id: perk.id, type: 'Enhancement', used, progress: Math.min(100, (used / perk.quantity) * 100), icon: Zap, color: 'text-amber-600', bg: 'bg-amber-500/10' });
+        });
+
+        (activeMembership.includedProducts || []).forEach(perk => {
+            const used = getUsage(perk.id);
+            items.push({ ...perk, id: perk.id, type: 'Hospitality', used, progress: Math.min(100, (used / perk.quantity) * 100), icon: Coffee, color: 'text-primary', bg: 'bg-primary/10' });
+        });
+
+        return items;
+    }, [activeMembership, currentCycleActivity]);
+
+    const loyaltyHubData = useMemo(() => {
+        if (!client || !appointments || !discounts) return null;
+
+        const completedApts = appointments.filter(a => a.status === 'completed');
+        const visitCount = completedApts.length;
+
+        const loyaltyProtocol = discounts.find(d => d.automation?.trigger === 'loyalty' && d.isActive);
+        const threshold = loyaltyProtocol?.automation?.appointmentThreshold || 10;
+        
+        const progressToNextReward = (visitCount % threshold) / threshold * 100;
+        const visitsToNext = threshold - (visitCount % threshold);
+
+        let cycleSavings = 0;
+        if (activeMembership) {
+            currentCycleActivity.services.forEach(r => {
+                const svc = services?.find(s => s.id === r.serviceId);
+                cycleSavings += (svc?.price || 0);
+            });
+            currentCycleActivity.hospitality.forEach(r => {
+                cycleSavings += (safeNumber(r.priceAtRequest) * safeNumber(r.quantity));
+            });
         }
-        return d;
-      }
 
-                if (out.requiresCardOnFile && out.clientId) {
-                  try {
-                    const cardRes = await fetch('/api/stripe/booking-card', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        tenantId,
-                        clientId: out.clientId,
-                        clientEmail: formData.clientEmail,
-                        clientName: formData.clientName,
-                        serviceName: restDetails?.serviceName || '',
-                      }),
-                    });
-                    const cardOut = await cardRes.json().catch(() => null);
-                    if (cardOut?.clientSecret) {
-                      return {
-                        requiresPayment: true,
-                        clientSecret: cardOut.clientSecret,
-                        stripeAccountId: cardOut.stripeAccountId,
-                      };
-                    }
-                  } catch {
-                    /* The booking stands. Accepting it will send a pay link
-                     * instead of charging — worse, but never lost. */
-                  }
-                }
+        return {
+            visitCount,
+            visitsToNext,
+            progressToNextReward,
+            loyaltyProtocol,
+            cycleSavings,
+            referralCount: client.successfulReferrals?.length || 0,
+            referralEarnings: safeNumber(client.walletCredit)
+        };
+    }, [client, appointments, discounts, activeMembership, currentCycleActivity, services]);
 
-                // Rescheduling: the new visit is booked; now release the old one,
-                // quietly — the client already has the new confirmation.
-                if (reschedule?.id) {
-                  try {
-                    await fetch('/api/appointments/self-cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, appointmentId: reschedule.id, clientReason: 'Rescheduled online', rescheduledToId: out?.appointmentId || null }) });
-                  } catch { /* the new booking stands; the old one can still be cancelled from its own link */ }
-                  setReschedule(null);
-                }
-                setStep('confirmation');
-                return { requiresPayment: false };
-    } catch (e: any) {
-      console.error('[booking-confirm]', e);
-      return { requiresPayment: true, error: `Booking error: ${e?.message || e?.code || String(e)}` };
-    }
-  };
+    const upcomingAppointments = useMemo(() => {
+        if (!appointments) return [];
+        const now = new Date();
+        const startOfToday = startOfDay(now);
+        return appointments
+            .filter(a => {
+                const isCancelled = a.status === 'cancelled';
+                const isCompleted = a.status === 'completed';
+                const startTime = safeDate(a.startTime);
+                return !isCancelled && !isCompleted && (startTime > now || isSameDay(startTime, startOfToday));
+            })
+            .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime());
+    }, [appointments]);
 
-  /* When the flow is open it OWNS the screen — the marketing page underneath
-   * is not rendered at all. Leaving it mounted meant the customer could
-   * scroll past the end of the booking form into the studio's hero section,
-   * which reads as the form having ended prematurely. */
-  if (dialogOpen && dialogService) {
-    // Reschedules always use the Studio flow (clear, calm, month calendar) — whatever the page design.
-    const flowStudio = studioDesign || (!!reschedule && !providerId);
-    return (
-      <div className={`w-full min-h-dvh overflow-x-hidden ${flowStudio ? 'pub-flow' : ''}`}
-           style={flowStudio ? { background: '#faf8f5', ['--accent' as any]: resolvedStyle.accentColor } : { background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
-        {flowStudio && <><style>{PUBLIC_CSS}</style><link rel="stylesheet" href={PUBLIC_FONT_HREF} /></>}
-        <BookingSheet
-          tenantId={tenantId}
-          initialStaffId={studioDesign ? studioStaffId : undefined}
-          rescheduleOf={reschedule ? { serviceName: reschedule.serviceName, startTime: reschedule.startTime } : null}
-          simple={flowStudio}
-          lockedStaffId={providerId && staff.some((m: any) => m.id === providerId && m.isRenter) ? providerId : undefined}
-          prefillClient={reschedule ? { clientName: reschedule.clientName, clientEmail: reschedule.clientEmail, clientPhone: reschedule.clientPhone } : null}
-          open
-          onOpenChange={o => { if (!o) { setDialogOpen(false); setDialogService(null); setStudioStaffId(undefined); } }}
-          service={dialogService}
-          staff={staff}
-          pricingTiers={pricingTiers}
-          appointments={appointments}
-          events={events}
-          scheduleProfiles={scheduleProfiles}
-          services={services}
-          consentForms={consentForms}
-          tenant={(() => {
-            // Renter's release settings on their own page — rolling or monthly —
-            // for a member once identified, otherwise the public window. The
-            // same function the server enforces with, so the calendar never
-            // shows a day the booking would then refuse.
-            const prov: any = providerId ? staff.find((m: any) => m.id === providerId && m.isRenter) : null;
-            const days = prov
-              ? horizonDaysFor(prov.renterBooking || null, memberOk === true, new Date(), tenant?.timezone || 'America/New_York')
-              : horizonDaysFor((tenant as any)?.bookingRelease || null, studioMemberOk === true, new Date(), tenant?.timezone || 'America/New_York');
-            return days !== null && days > 0 ? { ...tenant, bookingHorizonDays: days } : tenant;
-          })()}
-          shifts={shifts}
-          staffBlocks={staffBlocks}
-          dayOffBlocks={dayOffBlocks}
-          resources={resources}
-          tickets={maintTickets}
-          maintenancePlans={maintenancePlans}
-          calendarEvents={calendarEvents}
-          onConfirm={handleConfirm}
-          bookingOutcome={bookingOutcome}
-          variant="page"
-        />
-      </div>
-    );
-  }
+    const pastAppointments = useMemo(() => {
+        if (!appointments) return [];
+        const now = new Date();
+        const startOfToday = startOfDay(now);
+        return appointments
+            .filter(a => {
+                const isCancelled = a.status === 'cancelled';
+                const isCompleted = a.status === 'completed';
+                const startTime = safeDate(a.startTime);
+                return isCompleted || isCancelled || (startTime < startOfToday);
+            })
+            .sort((a, b) => safeDate(b.startTime).getTime() - safeDate(a.startTime).getTime());
+    }, [appointments]);
 
-  // Someone followed a personal link belonging to a renter who books
-  // elsewhere. Sending them their real link is the whole point — the
-  // alternative is a client who came looking for a specific person and
-  // leaves thinking the studio is broken.
-  // ── A renter's link opens THEIR page ─────────────────────────────────
-  // A SPLASH, then an APP. The splash is one full screen — their cover or
-  // their colour, their name in their typeface, a tagline, one gesture in.
-  // The app is fixed to the viewport: a slim header, four panes (Book · Work
-  // · About · Reviews) that scroll INSIDE themselves, a bottom bar, and a
-  // "Book" bar that never moves. Nothing here is the studio's theme; the
-  // renter's brand — accent, light or dark, cover, face — is the whole look,
-  // with calm defaults when they have set nothing. Luxury is restraint:
-  // hairline rules, tracking, light weights, space.
-  const linkedProvider: any = providerId ? staff.find((m: any) => m.id === providerId && m.isRenter) : null;
-  if (linkedProvider && !awayProvider) {
-    const p = linkedProvider;
-    const brand = cleanBrand(p.brand);
-    const dark = brand.tone === 'dark';
-    const bg = dark ? '#0c0a09' : '#faf9f7';
-    const ink = dark ? '#fafaf9' : '#1c1917';
-    const mute = dark ? '#c8c2ba' : '#78716c';
-    const line = dark ? 'rgba(250,250,249,0.12)' : 'rgba(28,25,23,0.10)';
-    const card = dark ? 'rgba(250,250,249,0.05)' : 'rgba(255,255,255,0.7)';
-    // Night mode: the default accent is near-black, so on a dark page every
-    // accent-coloured element — eyebrows, prices, the tab indicator, stars —
-    // disappeared, and thin light type at 10px on dark was hard to read. On
-    // dark: lift a too-dark accent toward white until it clears the page,
-    // brighten the muted grey, and don't go below 400 weight.
-    const lift = (hex: string): string => {
-      const m = /^#([0-9a-f]{6})$/i.exec(hex); if (!m) return hex;
-      const n = parseInt(m[1], 16); const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
-      const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-      if (lum > 0.45) return hex;
-      const t = 0.72; const mix = (c: number) => Math.round(c + (255 - c) * t);
-      return `#${[mix(r), mix(g), mix(b)].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+    const handleConfirmCancellation = async () => {
+        if (!appointmentToCancel || !firestore || !tenantId || !client) return;
+        setIsProcessing(true);
+        
+        const batch = writeBatch(firestore);
+        const now = new Date().toISOString();
+        const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, appointmentToCancel.id);
+        const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
+
+        const hoursUntil = differenceInHours(safeDate(appointmentToCancel.startTime), new Date());
+        const svc = services?.find(s => s.id === appointmentToCancel.serviceId);
+        const requiredWindow = svc?.cancellationWindowHours || tenant?.cancellationWindowHours || 24;
+        const isLate = hoursUntil < requiredWindow;
+
+        let feeAmount = 0;
+        if (isLate) {
+            const duration = svc?.duration || 60;
+            const tmhrVal = tenant?.tmhr || 50;
+            const overhead = (duration / 60) * tmhrVal;
+            feeAmount = Number(overhead.toFixed(2));
+        }
+
+        batch.update(appointmentRef, { 
+            status: 'cancelled', 
+            cancellationReason: 'client_request',
+            cancellationFeeApplied: feeAmount,
+            cancellationPaymentStatus: feeAmount > 0 ? 'unpaid' : 'waived'
+        });
+
+        if (feeAmount > 0) {
+            batch.update(clientRef, {
+                outstandingBalance: increment(feeAmount),
+                unpaidFees: arrayUnion({
+                    feeId: nanoid(),
+                    appointmentId: appointmentToCancel.id,
+                    appointmentDate: safeDate(appointmentToCancel.startTime).toISOString(),
+                    feeAmount: feeAmount,
+                    reason: `Late Cancellation: Guest Request (< ${requiredWindow}h notice)`
+                })
+            });
+        }
+
+        // --- INTELLIGENCE ALERT DISPATCH ---
+        const adminsAndOwners = (staff || []).filter(s => s.role === 'admin' || s.role === 'owner');
+        const recipients = new Set(adminsAndOwners.map(s => s.id));
+        if (appointmentToCancel.staffId) recipients.add(appointmentToCancel.staffId);
+
+        recipients.forEach(rid => {
+            const notifRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+            batch.set(notifRef, {
+                id: notifRef.id,
+                userId: rid,
+                type: 'cancellation',
+                message: `Cancellation: ${client.name} for ${svc?.name || 'Service'} on ${format(safeDate(appointmentToCancel.startTime), 'MMM d @ h:mm a')}`,
+                link: '/planner',
+                createdAt: now,
+                read: false
+            });
+        });
+
+        try {
+            await batch.commit();
+            toast({ title: "Session Terminated", description: feeAmount > 0 ? `Late cancellation fee of $${feeAmount.toFixed(2)} applied.` : "Appointment removed." });
+            setAppointmentToCancel(null);
+        } catch (e) {
+            toast({ variant: 'destructive', title: "Process Error" });
+        } finally {
+            setIsProcessing(false);
+        }
     };
-    const accent = dark ? lift(brand.accent) : brand.accent;
-    const onAcc = onAccent(accent);
-    const lightWeight = dark ? 400 : 300;
-    const face = STACKS[brand.font] || STACKS.cormorant;
-    const body = STACKS.jakarta;
-    const first = String(p.name || '').split(' ')[0] || 'them';
-    const photo = p.avatarUrl || p.photoUrl || '';
-    const cover = brand.coverUrl || photo || '';
-    const links: any[] = Array.isArray(p.links) ? p.links : [];
-    const igOnly = p.instagram && !links.some((l) => l.kind === 'instagram');
-    const rows: { label: string; href: string }[] = [
-      ...(igOnly ? [{ label: 'Instagram', href: linkHref({ kind: 'instagram', value: p.instagram }) }] : []),
-      ...links.map((l) => ({ label: l.label || (LINK_KINDS.find((k) => k.kind === l.kind)?.label ?? 'Link'), href: linkHref(l) })).filter((r) => r.href),
-    ];
-    const addr = [tenant?.address?.street || tenant?.address?.line1, tenant?.address?.city].filter(Boolean).join(', ');
-    const sections = livePageSections(p.page);
-    const gallery = sections.find((x) => x.kind === 'gallery');
-    const about = sections.find((x) => x.kind === 'about');
-    const faq = sections.find((x) => x.kind === 'faq');
-    const policies = sections.find((x) => x.kind === 'policies');
-    const reviews: any[] = Array.isArray(p.reviews) ? p.reviews : [];
-    const policyLines = policies?.text ? String(policies.text).split(/\n+/).map((t) => t.replace(/^[-•]\s*/, '').trim()).filter(Boolean).slice(0, 10) : [];
-    const cats = Array.from(new Set(services.map((sv: any) => String(sv.category || '').trim()).filter(Boolean)));
-    const tabs = [
-      ['book', 'Book'],
-      ...((gallery?.photos || []).length ? [['work', 'Work']] : []),
-      ...((about || faq || policyLines.length || rows.length) ? [['about', 'About']] : []),
-      ...(reviews.length ? [['reviews', 'Reviews']] : []),
-    ] as [string, string][];
-    // globals.css flips the .uppercase utility to lowercase for the app's
-    // soft look; this page wants true small caps, so the transform is inline.
-    const caps: React.CSSProperties = { textTransform: 'uppercase', letterSpacing: '0.35em' };
-    const eyebrow = (t: string) => <p className="text-[10px] font-medium" style={{ ...caps, color: accent, fontFamily: body }}>{t}</p>;
-    const hour = new Date().getHours();
-    const greeting = hour < 5 ? 'Welcome' : hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-    const sameName = String(tenant?.name || '').trim().toLowerCase() === String(p.name || '').trim().toLowerCase();
-    const studioLine = tenant?.name && !sameName ? `at ${tenant.name}` : '';
-    const rule = <div className="h-px w-full" style={{ background: line }} />;
 
-    if (!providerEntered) {
-      return (
-        <div className="fixed inset-0 overflow-hidden" data-tone={dark ? 'dark' : 'light'} style={{ background: bg, fontFamily: body }}>
-          <style>{`[data-tone="dark"] .font-light { font-weight: 400; }`}</style>
-          {cover && <img src={cover} alt="" className="absolute inset-0 h-full w-full object-cover" style={{ opacity: dark ? 0.55 : 0.9 }} />}
-          <div className="absolute inset-0" style={{ background: `linear-gradient(180deg, ${dark ? 'rgba(12,10,9,0.15)' : 'rgba(250,249,247,0.05)'} 0%, ${bg} 78%)` }} />
-          <div className="absolute inset-x-0 bottom-0 px-8 pb-[max(2.5rem,env(safe-area-inset-bottom))]">
-            {eyebrow(greeting)}
-            <h1 className="mt-3 text-[56px] font-light leading-[0.9] tracking-tight" style={{ fontFamily: face, color: ink }}>{p.name || 'Provider'}</h1>
-            {brand.tagline && <p className="mt-3 text-[15px] font-light leading-relaxed" style={{ color: mute }}>{brand.tagline}</p>}
-            {reviews.length > 0 && p.reviewAverage ? <p className="mt-3 text-[11px]" style={{ ...caps, letterSpacing: '0.25em', color: mute }}>{p.reviewAverage} ★ · {p.reviewCount || reviews.length} reviews</p> : null}
-            <button type="button" onClick={() => setProviderEntered(true)}
-              className="mt-8 flex h-14 w-full items-center justify-between px-6 text-[11px] font-medium transition-transform active:scale-[0.98]"
-              style={{ ...caps, letterSpacing: '0.3em', background: accent, color: onAcc, borderRadius: 999 }}>
-              Enter <span aria-hidden>→</span>
-            </button>
-            {studioLine && <p className="mt-4 text-center text-[9px]" style={{ ...caps, color: mute, opacity: 0.7 }}>{studioLine}</p>}
-          </div>
-        </div>
-      );
+    const handleRescheduleConfirm = async (data: any) => {
+        if (!firestore || !tenantId || !client) return;
+
+        const { applyFee, feeAmount, paymentMethod, ...aptData } = data;
+        const now = new Date().toISOString();
+        const svc = services?.find(s => s.id === aptData.serviceId);
+
+        // v13 — CRITICAL FIX: previously, both 'settle_now' (charge card on
+        // file) and 'new_card' wrote a ledger income transaction with ZERO
+        // Stripe API call anywhere in this function — the fee was recorded
+        // as collected revenue whether or not any money actually moved.
+        // This is now a real charge attempt via the same
+        // /api/stripe/charge-card route (mode: 'auto', same pattern used
+        // for every other "client not present" charge in this codebase)
+        // BEFORE the batch commits, so the ledger only ever reflects what
+        // genuinely happened.
+        //
+        // 'new_card' is deliberately NOT wired to a real charge here — the
+        // dialog collects it via raw, untokenized text inputs, and
+        // charging that directly would mean handling a card number outside
+        // Stripe's Elements/tokenization flow, a real PCI problem. Until
+        // that's rebuilt with a proper Stripe Elements form (the same
+        // pattern CheckoutHub's EmbeddedCardForm already uses correctly),
+        // 'new_card' falls back to add_to_balance instead of silently
+        // faking success.
+        let actualPaymentMethod = paymentMethod;
+        let chargeSucceeded = false;
+        let stripePaymentIntentId: string | undefined;
+
+        if (applyFee && feeAmount > 0 && paymentMethod === 'settle_now') {
+            try {
+                const chargeRes = await fetch('/api/stripe/charge-card', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        tenantId,
+                        clientId: client.id,
+                        amountCents: Math.round(feeAmount * 100),
+                        description: `Reschedule fee — ${svc?.name || 'Service'}`,
+                        category: 'Adjustment Fee',
+                        appointmentId: aptData.id,
+                        reason: 'Guest self-service reschedule fee',
+                        mode: 'auto',
+                        kind: 'arrears_fee',
+                    }),
+                });
+                const chargeData = await chargeRes.json().catch(() => ({ ok: false }));
+                if (chargeData.ok) {
+                    chargeSucceeded = true;
+                    stripePaymentIntentId = chargeData.paymentIntentId;
+                }
+            } catch {
+                /* falls through to add_to_balance below, same as a declined card */
+            }
+            if (!chargeSucceeded) actualPaymentMethod = 'add_to_balance';
+        } else if (applyFee && feeAmount > 0 && paymentMethod === 'new_card') {
+            // See comment above — not a safe charge path yet. Recorded as
+            // owed, never as already-collected revenue.
+            actualPaymentMethod = 'add_to_balance';
+        }
+
+        setIsProcessing(true);
+        const batch = writeBatch(firestore);
+        const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, aptData.id);
+
+        const updates: any = {
+            startTime: aptData.startTime,
+            endTime: aptData.endTime
+        };
+
+        if (applyFee && feeAmount > 0) {
+            if (actualPaymentMethod === 'settle_now' && chargeSucceeded) {
+                const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+                batch.set(txnRef, {
+                    id: txnRef.id,
+                    date: now,
+                    description: `Reschedule Recovery: ${aptData.clientName}`,
+                    clientOrVendor: aptData.clientName || 'Client',
+                    clientId: client.id,
+                    type: 'income',
+                    context: 'Business',
+                    category: 'Adjustment Fee',
+                    amount: feeAmount,
+                    paymentMethod: 'Card on File (Stripe)',
+                    stripePaymentIntentId,
+                    hasReceipt: true,
+                    appointmentId: aptData.id,
+                    tenantId
+                });
+            } else if (actualPaymentMethod === 'add_to_session') {
+                updates['checkoutState.additionalCharge'] = increment(feeAmount);
+            } else {
+                const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
+                batch.update(clientRef, {
+                    outstandingBalance: increment(feeAmount),
+                    unpaidFees: arrayUnion({
+                        feeId: nanoid(),
+                        appointmentId: aptData.id,
+                        appointmentDate: safeDate(aptData.startTime).toISOString(),
+                        feeAmount: feeAmount,
+                        reason: "Late Reschedule Protocol Fee"
+                    })
+                });
+            }
+        }
+
+        batch.update(appointmentRef, updates);
+
+        // --- INTELLIGENCE ALERT DISPATCH ---
+        const adminsAndOwners = (staff || []).filter(s => s.role === 'admin' || s.role === 'owner');
+        const recipients = new Set(adminsAndOwners.map(s => s.id));
+        if (aptData.staffId) recipients.add(aptData.staffId);
+
+        recipients.forEach(rid => {
+            const notifRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+            batch.set(notifRef, {
+                id: notifRef.id,
+                userId: rid,
+                type: 'reschedule',
+                message: `Reschedule: ${client.name} moved ${svc?.name || 'Session'} to ${format(safeDate(aptData.startTime), 'MMM d @ h:mm a')}`,
+                link: '/planner',
+                createdAt: now,
+                read: false
+            });
+        });
+
+        try {
+            await batch.commit();
+            toast({ title: "Session Shifted", description: applyFee ? "Protocol adjustment applied to ledger." : "Agenda updated." });
+            setAppointmentToReschedule(null);
+        } catch (e) {
+            toast({ variant: 'destructive', title: "Process Error" });
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    const handleSettleArrears = async () => {
+        if (!client || !firestore || !tenantId) return;
+        setIsProcessing(true);
+        
+        const batch = writeBatch(firestore);
+        const amount = safeNumber(client.outstandingBalance);
+        const now = new Date().toISOString();
+
+        const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+        batch.set(txnRef, {
+            id: txnRef.id,
+            date: now,
+            description: "Self-Service Arrears Settlement",
+            clientOrVendor: client.name,
+            clientId: client.id,
+            type: 'income',
+            context: 'Business',
+            category: 'Fee Recovery',
+            amount: amount,
+            paymentMethod: (client.cardOnFile?.token || client.cardOnFile?.paymentMethodId) ? 'Card on File' : 'Digital Gateway',
+            hasReceipt: false,
+            tenantId
+        });
+
+        const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
+        batch.update(clientRef, {
+            outstandingBalance: 0,
+            unpaidFees: [],
+            lifetimeValue: increment(amount)
+        });
+
+        try {
+            await batch.commit();
+            setSettlementSuccess(true);
+            toast({ title: "Balance Reconciled", description: "Your studio account is now clear." });
+        } catch (e) {
+            console.error(e);
+            toast({ variant: 'destructive', title: "Settlement Failed" });
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    const handleConfirmDirectBooking = async (
+        formData: { clientName: string; clientEmail: string; clientPhone?: string },
+        appointmentDetails: Omit<Appointment, 'id' | 'clientId' | 'clientName' | 'clientEmail' | 'clientPhone'>,
+        signedForms: { formId: string; formTitle: string; formData: Record<string, any> }[],
+        setBookingStep: (step: string) => void
+    ) => {
+        if (!firestore || !tenantId || !client) return;
+        setIsProcessing(true);
+        const batch = writeBatch(firestore);
+        const now = new Date().toISOString();
+
+        try {
+            const appointmentRef = doc(collection(firestore, `tenants/${tenantId}/appointments`));
+            const newAppointmentId = appointmentRef.id;
+            const checkInToken = nanoid(16);
+
+            /* ── THIS WRITE MUST OBEY THE SHOP'S BOOKING MODE ──────────────
+             * appointmentDetails arrives from BookingSheet with a hardcoded
+             * status: 'confirmed'. This surface writes straight to Firestore
+             * rather than through /api/appointments/book, so a studio running
+             * approval mode got a confirmed appointment on the calendar with
+             * no request to answer — the setting was on and the booking
+             * ignored it, on this one screen only.
+             *
+             * resolveBookingPlan is a pure function, so the same decision the
+             * server makes is made here. Same fix, same reasoning, as the
+             * public page's offline path. */
+            const planService = (services || []).find((sv: any) => sv.id === (appointmentDetails as any)?.serviceId) || {};
+            const plan = resolveBookingPlan({
+                tenant: tenant as any,
+                service: planService as any,
+                price: Number((appointmentDetails as any)?.price ?? 0),
+                client: client as any,
+                byStaff: false,
+            });
+
+            const newAppointment = {
+                ...appointmentDetails,
+                id: newAppointmentId,
+                tenantId: tenantId,
+                clientId: client.id,
+                clientName: client.name,
+                clientEmail: client.email,
+                clientPhone: client.phone,
+                checkInToken: checkInToken,
+                status: plan.status,
+                bookingMode: plan.mode,
+                bookingReason: plan.reason,
+                requiresCardOnFile: !!plan.requiresCardOnFile,
+                ...(plan.status === 'requested' ? {
+                    requestedAt: now,
+                    requestExpiresAt: plan.approvalExpiryHours > 0
+                        ? new Date(Date.now() + plan.approvalExpiryHours * 3600000).toISOString()
+                        : null,
+                } : {}),
+            };
+
+            batch.set(appointmentRef, newAppointment);
+            batch.set(doc(firestore, 'appointmentCheckIns', checkInToken), newAppointment);
+
+            signedForms.forEach(form => {
+                const consentDocRef = doc(collection(firestore, `tenants/${tenantId}/clients/${client.id}/signedConsents`));
+                batch.set(consentDocRef, {
+                    ...form,
+                    id: consentDocRef.id,
+                    clientId: client.id,
+                    signedAt: now,
+                });
+            });
+
+            if (newAppointment.staffId) {
+                const notificationRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+                batch.set(notificationRef, {
+                    id: nanoid(),
+                    userId: newAppointment.staffId,
+                    type: 'new_appointment',
+                    message: `New booking: ${client.name} for ${selectedServiceForBooking?.name} on ${format(parseISO(newAppointment.startTime), 'MMM d @ h:mm a')}`,
+                    link: '/planner',
+                    createdAt: now,
+                    read: false,
+                });
+            }
+            
+            await batch.commit();
+            setBookingOutcome({
+                status: plan.status,
+                notice: plan.clientNotice || '',
+                depositCents: plan.depositCents || 0,
+            });
+            toast({
+                title: plan.status === 'requested' ? 'Request sent'
+                    : plan.status === 'pending_payment' ? 'Time held' : 'Booking confirmed',
+            });
+            setBookingStep('confirmation');
+        } catch (error) {
+            console.error(error);
+            toast({ variant: 'destructive', title: "Booking Failed" });
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    const safeBalance = useMemo(() => safeNumber(client?.outstandingBalance), [client]);
+
+    if (clientLoading || appointmentsLoading) {
+        return (
+            <div className="flex h-screen w-full flex-col items-center justify-center p-4 bg-background text-center">
+                <Loader className="h-10 w-10 animate-spin text-primary" />
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-40 mt-4">Initializing Studio Pulse...</p>
+            </div>
+        );
     }
 
-    const pane = 'absolute inset-x-0 top-14 bottom-[calc(7.5rem+env(safe-area-inset-bottom))] overflow-y-auto overscroll-contain px-6 pt-4 pb-6';
+    if (!client) return null;
+
     return (
-      <div className="fixed inset-0 overflow-hidden" data-tone={dark ? 'dark' : 'light'} style={{ background: bg, color: ink, fontFamily: body }}>
-        <style>{`[data-tone="dark"] .font-light { font-weight: 400; } [data-tone="dark"] .text-\\[10px\\] { font-size: 11px; }`}</style>
-        <header className="absolute inset-x-0 top-0 z-10 flex h-14 items-center gap-3 px-6" style={{ background: bg, borderBottom: `1px solid ${line}` }}>
-          {photo ? <img src={photo} alt="" className="h-8 w-8 rounded-full object-cover" /> : <span className="h-8 w-8 rounded-full" style={{ background: accent }} />}
-          <span className="min-w-0 truncate text-[17px] font-light" style={{ fontFamily: face }}>{p.name || 'Provider'}</span>
-          <button type="button" onClick={() => setProviderEntered(false)} aria-label="Back to the cover" className="ml-auto text-[10px]" style={{ ...caps, letterSpacing: '0.25em', color: mute }}>Cover</button>
-        </header>
-
-        {providerTab === 'book' && (
-          <div className={pane}>
-            {rescheduleNote && <p className="mb-4 rounded-2xl px-4 py-3 text-[13px]" style={{ background: card, color: ink, border: `1px solid ${accent}`, fontWeight: lightWeight }}>{rescheduleNote}</p>}
-            {pkgThanks && <p className="mb-4 rounded-2xl px-4 py-3 text-[13px]" style={{ background: accent, color: onAcc, fontWeight: lightWeight }}>Thank you — your package is ready. Your credits come off each visit; just book as usual.</p>}
-            {/* The client's offer on the renter's page — glass, in the renter's colours. */}
-            {offerShown ? (
-              <div className="glass relative mb-6 overflow-hidden rounded-[1.5rem] p-4" style={{ border: `1px solid ${line}` }} role="status">
-                <div aria-hidden className="pointer-events-none absolute -right-10 -top-12 h-32 w-32 rounded-full blur-2xl" style={{ background: accent, opacity: 0.25 }} />
-                <div className="relative flex items-center gap-3">
-                  <div className="glass flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-xl" aria-hidden>🎁</div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[10px] uppercase tracking-[0.22em]" style={{ color: mute }}>Your offer</p>
-                    <p className="text-[24px] leading-tight" style={{ fontFamily: face, fontWeight: lightWeight }}>{offerShown.amount || offerShown.line}</p>
-                    <p className="text-[12px]" style={{ color: mute }}>{offerShown.until ? `Until ${offerShown.until} · ` : ''}code {offerShown.code} · taken off at your visit</p>
-                  </div>
-                </div>
-              </div>
-            ) : offerOpen ? (
-              <div className="mb-6 flex gap-2">
-                <input value={offerInput} onChange={(e) => { setOfferInput(e.target.value.toUpperCase()); setOfferErr(''); }} onKeyDown={(e) => { if (e.key === 'Enter') void checkOffer(offerInput); }} placeholder="Offer code" aria-label="Offer code" autoFocus
-                  className="h-11 min-w-0 flex-1 rounded-full px-4 font-mono text-sm tracking-[0.12em] outline-none" style={{ background: card, border: `1px solid ${line}`, color: ink }} />
-                <button type="button" onClick={() => checkOffer(offerInput)} className="h-11 shrink-0 rounded-full px-5 text-[11px] uppercase tracking-[0.18em]" style={{ background: accent, color: onAcc }}>Apply</button>
-                {offerErr && <p className="sr-only" role="alert">{offerErr}</p>}
-              </div>
-            ) : (
-              <button type="button" onClick={() => setOfferOpen(true)} className="mb-6 text-[12px] underline" style={{ color: mute }}>🎁 Have an offer code?</button>
-            )}
-            {offerOpen && offerErr && <p className="-mt-4 mb-6 text-[12px]" style={{ color: mute }}>{offerErr}</p>}
-            {memberThanks && <p className="mb-4 rounded-2xl px-4 py-3 text-[13px]" style={{ background: accent, color: onAcc, fontWeight: lightWeight }}>Welcome — you&apos;re a member. Your included visits and perks apply from your next booking.</p>}
-            {providerMemberships.length > 0 && (
-              <div className="mb-8">
-                {eyebrow('Membership')}
-                <div className="mt-3 space-y-3">
-                  {providerMemberships.map((m: any) => (
-                    <div key={m.id} className="rounded-2xl p-4" style={{ background: card, border: `1px solid ${line}` }}>
-                      <div className="flex items-baseline justify-between gap-3">
-                        <p className="text-[19px] leading-tight" style={{ fontFamily: face, fontWeight: lightWeight }}>{m.name}</p>
-                        <p className="shrink-0 text-[15px] tabular-nums" style={{ color: accent, fontWeight: lightWeight }}>${(m.priceCents / 100).toFixed(0)}<span className="text-[11px]" style={{ color: mute }}>/mo</span></p>
-                      </div>
-                      {m.description && <p className="mt-1 text-[13px] leading-snug" style={{ color: mute, fontWeight: lightWeight }}>{m.description}</p>}
-                      <ul className="mt-3 space-y-1">
-                        {m.includedVisits > 0 && <li className="flex gap-2 text-[13px]" style={{ fontWeight: lightWeight }}><span style={{ color: accent }}>✓</span>{m.includedVisits} visit{m.includedVisits === 1 ? '' : 's'} included every month</li>}
-                        {m.discountPct > 0 && <li className="flex gap-2 text-[13px]" style={{ fontWeight: lightWeight }}><span style={{ color: accent }}>✓</span>{m.discountPct}% off every other service</li>}
-                        {(m.perks || []).map((p: string, i: number) => <li key={i} className="flex gap-2 text-[13px]" style={{ fontWeight: lightWeight }}><span style={{ color: accent }}>✓</span>{p}</li>)}
-                      </ul>
-                      <p className="mt-2 text-[10px]" style={{ color: mute }}>{policyText(m)} Cancel any time.</p>
-                      <button type="button" onClick={() => joinMembership(m)} className="mt-3 w-full rounded-full py-3 text-[11px] font-medium" style={{ ...caps, letterSpacing: '0.25em', background: accent, color: onAcc }}>Become a member</button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {providerPackages.length > 0 && (
-              <div className="mb-8">
-                {eyebrow('Packages')}
-                <div className="mt-3 space-y-2">
-                  {providerPackages.map((pkg: any) => (
-                    <div key={pkg.id} className="flex items-center justify-between gap-3 py-3" style={{ borderTop: `1px solid ${line}`, borderBottom: `1px solid ${line}` }}>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[17px] font-light leading-tight" style={{ fontFamily: face }}>{pkg.name}</p>
-                        <p className="mt-0.5 text-[12px] font-light" style={{ color: mute }}>{pkg.credits} visit{pkg.credits === 1 ? '' : 's'}{pkg.serviceName ? ` · ${pkg.serviceName}` : ''} · ${(pkg.priceCents / pkg.credits / 100).toFixed(0)} each · valid {pkg.validDays} days</p>
-                        {pkg.description && <p className="mt-1 text-[12px] font-light leading-snug" style={{ color: mute }}>{pkg.description}</p>}
-                        <p className="mt-1 text-[10px] font-light" style={{ color: mute, opacity: 0.8 }}>{policyText(pkg)}</p>
-                      </div>
-                      <button type="button" disabled={pkgBuying === pkg.id} onClick={() => buyPackage(pkg)} className="shrink-0 rounded-full px-4 py-2 text-[11px] font-medium disabled:opacity-50" style={{ ...caps, letterSpacing: '0.2em', background: accent, color: onAcc }}>
-                        {pkgBuying === pkg.id ? '…' : `$${(pkg.priceCents / 100).toFixed(0)}`}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                {pkgErr && <p className="mt-2 text-[12px]" style={{ color: '#b91c1c' }}>{pkgErr}</p>}
-              </div>
-            )}
-            {(() => {
-              const rel = (linkedProvider as any)?.renterBooking || null;
-              const sent = releaseSentence(rel, new Date(), tenant?.timezone || 'America/New_York');
-              const anyMembersOnly = services.some((x: any) => x.membersOnly === true);
-              const memberPerk = !!sent.members || anyMembersOnly;
-              const hasRelease = !!rel && (rel.mode || 'off') !== 'off';
-              if (!hasRelease && !anyMembersOnly) return null;
-              return (
-                <div className="mb-6 rounded-2xl p-3" style={{ background: card, border: `1px solid ${memberOk ? accent : line}` }}>
-                  {memberOk ? (
-                    <p className="text-[12px]" style={{ color: ink }}>✓ Member{sent.members ? ` — ${sent.members.replace(/^Members /, 'you ')}` : ''}{anyMembersOnly ? ' Members-only services are unlocked below.' : ''}</p>
-                  ) : (
-                    <>
-                      <p className="text-[12px]" style={{ color: ink }}>{sent.everyone}{sent.members ? ` ${sent.members}` : ''}{anyMembersOnly ? ' Some services are members only.' : ''}</p>
-                      {(sent.members || anyMembersOnly) && (
-                        <div className="mt-2 flex gap-2">
-                          <input value={memberEmail} onChange={(e) => { setMemberEmail(e.target.value); setMemberOk(null); }} inputMode="email" placeholder="Member? Your email" aria-label="Member email" className="h-10 min-w-0 flex-1 rounded-xl px-3 text-[13px]" style={{ background: bg, color: ink, border: `1px solid ${line}` }} />
-                          <button type="button" disabled={memberChecking} onClick={checkMember} className="h-10 shrink-0 rounded-xl px-3 text-[10px] font-medium disabled:opacity-50" style={{ ...caps, letterSpacing: '0.2em', background: accent, color: onAcc }}>{memberChecking ? '…' : 'Unlock'}</button>
+        <div className="min-h-screen bg-background relative overflow-x-hidden text-left">
+            <AnimatePresence mode="wait">
+                {!entered ? (
+                    <motion.div
+                        initial={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+                        className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background overflow-hidden"
+                    >
+                        <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+                            <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/10 blur-[120px] rounded-full animate-pulse" />
+                            <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-primary/5 blur-[120px] rounded-full animate-pulse" />
                         </div>
-                      )}
-                      {memberOk === false && <p className="mt-1 text-[11px]" style={{ color: mute }}>No active membership under that email.</p>}
-                    </>
-                  )}
-                </div>
-              );
-            })()}
-            {eyebrow('Services')}
-            <p className="mt-2 text-[32px] font-light leading-none" style={{ fontFamily: face }}>Menu</p>
-            {addr && <p className="mt-2 text-[12px] font-light" style={{ color: mute }}>{addr}</p>}
-            <div className="mt-6">
-              {services.length === 0 && <p className="text-sm font-light" style={{ color: mute }}>No services listed yet.</p>}
-              {(cats.length ? cats : ['']).map((cat) => (
-                <div key={cat || 'all'} className="mb-6">
-                  {cat && <p className="mb-2 text-[10px]" style={{ ...caps, letterSpacing: '0.3em', color: mute }}>{cat}</p>}
-                  {services.filter((sv: any) => (cat ? String(sv.category || '').trim() === cat : true) && (sv.membersOnly !== true || memberOk === true)).map((sv: any, i: number, arr: any[]) => (
-                    <button key={sv.id} onClick={() => setProviderPeek(sv)} className="group flex w-full items-start gap-4 py-4 text-left" style={{ borderTop: i === 0 ? `1px solid ${line}` : undefined, borderBottom: `1px solid ${line}` }}>
-                      {sv.imageUrl && <img src={sv.imageUrl} alt="" className="h-16 w-16 shrink-0 object-cover" style={{ borderRadius: 2 }} />}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-baseline justify-between gap-3">
-                          <p className="text-[19px] font-light leading-tight" style={{ fontFamily: face }}>{sv.name}{sv.membersOnly ? <span className="ml-2 align-middle text-[9px]" style={{ ...caps, letterSpacing: '0.2em', color: accent }}>Members</span> : null}</p>
-                          {sv.price != null && <span className="shrink-0 text-[15px] font-light tabular-nums" style={{ color: accent }}>${sv.price}</span>}
-                        </div>
-                        {sv.description && <p className="mt-1 text-[13px] font-light leading-snug line-clamp-2" style={{ color: mute }}>{sv.description}</p>}
-                        <p className="mt-1.5 text-[10px]" style={{ ...caps, letterSpacing: '0.25em', color: mute }}>{sv.duration ? `${sv.duration} min` : ''}{sv.renterChargesEnabled && sv.renterDepositAmount > 0 ? ` · $${Number(sv.renterDepositAmount).toFixed(0)} deposit` : ''}{sv.videoUrl ? <span style={{ color: accent }}> · ▶ video</span> : null}</p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
-        {providerTab === 'work' && gallery && (
-          <div className={pane}>
-            {eyebrow(gallery.title || 'My work')}
-            <div className="mt-4 columns-2 gap-2 [&>*]:mb-2">
-              {(gallery.photos || []).map((u, i) => (
-                <a key={u} href={u} target="_blank" rel="noopener noreferrer" className="block overflow-hidden" style={{ borderRadius: 2, breakInside: 'avoid' }}>
-                  <img src={u} alt={`${p.name || 'Work'} — ${i + 1}`} loading={i < 4 ? 'eager' : 'lazy'} className="w-full object-cover" style={{ aspectRatio: i % 3 === 0 ? '4 / 5' : '1 / 1' }} />
-                </a>
-              ))}
-            </div>
-          </div>
-        )}
+                        <motion.div 
+                            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            transition={{ delay: 0.2, duration: 1, ease: [0.16, 1, 0.3, 1] }}
+                            className="relative z-10 flex flex-col items-center text-center px-6 w-full"
+                        >
+                            <div className="relative w-24 h-24 md:w-32 md:h-32 rounded-[2.5rem] md:rounded-[3rem] border-4 border-white shadow-2xl overflow-hidden mb-8 bg-white/50 backdrop-blur-xl">
+                                {tenant?.bookingPageSettings?.logoUrl ? (
+                                    <Image src={tenant.bookingPageSettings.logoUrl} alt={tenant.name || 'Studio'} fill className="object-cover" />
+                                ) : (
+                                    <div className="w-full h-full flex items-center justify-center">
+                                        <Sparkles className="w-12 h-12 text-primary" />
+                                    </div>
+                                )}
+                            </div>
+                            
+                            <div className="space-y-4 max-w-sm mx-auto">
+                                <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">
+                                    Welcome, {client.name.split(' ')[0]}
+                                </h1>
+                                <p className="text-sm font-bold text-muted-foreground uppercase tracking-widest opacity-60 mt-4">Verified Client Dashboard</p>
+                            </div>
 
-        {providerTab === 'about' && (
-          <div className={pane}>
-            {p.bio && <p className="text-[22px] font-light leading-snug" style={{ fontFamily: face }}>{p.bio}</p>}
-            {about?.text && (<div className="mt-6">{eyebrow(about.title || 'About')}<p className="mt-2 text-[15px] font-light leading-relaxed whitespace-pre-wrap" style={{ color: ink }}>{about.text}</p></div>)}
-            {rows.length > 0 && (
-              <div className="mt-8">{eyebrow('Find me')}<div className="mt-3 divide-y" style={{ borderColor: line }}>
-                {rows.map((r, i) => (
-                  <a key={i} href={r.href} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between py-3 text-[14px] font-light" style={{ borderTop: i === 0 ? `1px solid ${line}` : undefined, borderBottom: `1px solid ${line}` }}>{r.label}<span style={{ color: accent }}>↗</span></a>
-                ))}
-              </div></div>
-            )}
-            {policyLines.length > 0 && (
-              <div className="mt-8">{eyebrow(policies?.title || 'Policies')}
-                <ol className="mt-3 space-y-3">
-                  {policyLines.map((t, i) => (
-                    <li key={i} className="flex gap-4 text-[14px] font-light leading-relaxed"><span className="shrink-0 tabular-nums" style={{ color: accent }}>{String(i + 1).padStart(2, '0')}</span><span>{t}</span></li>
-                  ))}
-                </ol>
-              </div>
-            )}
-            {faq && (faq.items || []).length > 0 && (
-              <div className="mt-8">{eyebrow(faq.title || 'Good to know')}
-                <div className="mt-3">
-                  {(faq.items || []).map((it, i) => (
-                    <details key={i} className="group py-3" style={{ borderTop: i === 0 ? `1px solid ${line}` : undefined, borderBottom: `1px solid ${line}` }}>
-                      <summary className="flex cursor-pointer list-none items-center justify-between text-[15px] font-light">{it.q}<span className="ml-3 transition-transform group-open:rotate-45" style={{ color: accent }}>+</span></summary>
-                      <p className="mt-2 text-[14px] font-light leading-relaxed whitespace-pre-wrap" style={{ color: mute }}>{it.a}</p>
-                    </details>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {providerTab === 'reviews' && (
-          <div className={pane}>
-            {eyebrow('What clients say')}
-            {p.reviewAverage ? <p className="mt-2 text-[32px] font-light leading-none" style={{ fontFamily: face }}>{p.reviewAverage} <span className="text-[18px]" style={{ color: accent }}>★</span> <span className="text-[13px] font-light" style={{ color: mute }}>from {p.reviewCount || reviews.length}</span></p> : null}
-            <div className="mt-6 space-y-6">
-              {reviews.map((r: any, i: number) => (
-                <figure key={i}>
-                  {rule}
-                  <blockquote className="mt-4 text-[17px] font-light leading-relaxed" style={{ fontFamily: face }}>“{r.text || 'Loved it.'}”</blockquote>
-                  <figcaption className="mt-2 flex items-center justify-between text-[10px]" style={{ ...caps, letterSpacing: '0.25em', color: mute }}><span>{r.name || 'Client'}{r.service ? ` · ${r.service}` : ''}</span><span style={{ color: accent }}>{'★'.repeat(Math.max(1, Math.min(5, Number(r.rating) || 5)))}</span></figcaption>
-                </figure>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="absolute inset-x-0 bottom-0 z-10 px-6 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3" style={{ background: bg, borderTop: `1px solid ${line}` }}>
-          {providerTab !== 'book' && services.length > 0 && (
-            <button type="button" onClick={() => setProviderTab('book')} className="mb-3 flex h-12 w-full items-center justify-center text-[11px] font-medium" style={{ ...caps, letterSpacing: '0.3em', background: accent, color: onAcc, borderRadius: 999 }}>Book an appointment</button>
-          )}
-          <nav className="flex items-center justify-between" aria-label="Sections">
-            {tabs.map(([k, l]) => (
-              <button key={k} type="button" onClick={() => setProviderTab(k as any)} aria-pressed={providerTab === k} className="relative flex-1 py-2 text-[10px] transition-opacity" style={{ ...caps, letterSpacing: '0.3em', color: providerTab === k ? ink : mute, opacity: providerTab === k ? 1 : 0.7 }}>
-                {l}
-                {providerTab === k && <span className="absolute inset-x-6 -bottom-0.5 h-px" style={{ background: accent }} />}
-              </button>
-            ))}
-          </nav>
-          <a href={`/book/${tenantId}`} className="mt-2 block text-center text-[8px]" style={{ ...caps, letterSpacing: '0.3em', color: mute, opacity: 0.5 }}>Partnered with {tenant?.name || 'the studio'}</a>
-        </div>
-
-        {buying && (
-          <div className="fixed inset-0 z-30 flex flex-col justify-end" role="dialog" aria-modal="true" aria-label="Your details">
-            <button type="button" aria-label="Close" onClick={() => setBuying(null)} className="absolute inset-0" style={{ background: dark ? 'rgba(0,0,0,0.6)' : 'rgba(28,25,23,0.35)' }} />
-            <div className="relative max-h-[88dvh] overflow-y-auto overscroll-contain px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-5" style={{ background: bg, color: ink, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}>
-              {eyebrow(buying.kind === 'package' ? 'Buy a package' : 'Become a member')}
-              <p className="mt-2 text-[24px] leading-tight" style={{ fontFamily: face, fontWeight: lightWeight }}>{buying.item.name}</p>
-              <p className="mt-1 text-[13px]" style={{ color: mute, fontWeight: lightWeight }}>{buying.kind === 'package' ? `${buying.item.credits} visit${buying.item.credits === 1 ? '' : 's'} · $${(buying.item.priceCents / 100).toFixed(0)} once` : `$${(buying.item.priceCents / 100).toFixed(0)} a month · cancel any time`}</p>
-              <div className="mt-4 space-y-2">
-                <button type="button" aria-pressed={buyer.existing} onClick={() => setBuyer((b) => ({ ...b, existing: !b.existing }))} className="w-full rounded-xl px-3 py-2.5 text-left text-[12px]" style={{ border: `1px solid ${buyer.existing ? accent : line}`, color: ink, fontWeight: lightWeight }}>
-                  {buyer.existing ? `✓ I already book with ${first} — use the email on my record` : `Already a client of ${first}? Tap here`}
-                </button>
-                <input value={buyer.name} onChange={(e) => setBuyer((b) => ({ ...b, name: e.target.value.slice(0, 120) }))} placeholder="Your name" aria-label="Your name" className="h-12 w-full rounded-xl px-4 text-[15px]" style={{ background: card, color: ink, border: `1px solid ${line}` }} />
-                <input value={buyer.email} onChange={(e) => setBuyer((b) => ({ ...b, email: e.target.value.slice(0, 160) }))} inputMode="email" placeholder={buyer.existing ? 'The email you book with' : 'Email — receipt and credits go here'} aria-label="Email" className="h-12 w-full rounded-xl px-4 text-[15px]" style={{ background: card, color: ink, border: `1px solid ${line}` }} />
-                <input value={buyer.phone} onChange={(e) => setBuyer((b) => ({ ...b, phone: e.target.value.slice(0, 40) }))} inputMode="tel" placeholder="Mobile (optional)" aria-label="Mobile" className="h-12 w-full rounded-xl px-4 text-[15px]" style={{ background: card, color: ink, border: `1px solid ${line}` }} />
-              </div>
-              <p className="mt-2 text-[11px]" style={{ color: mute }}>{buyer.existing ? `We match by email, so this lands on your existing record with ${first} — your history and credits in one place.` : `Paid securely through ${first}'s Stripe. Your ${buying.kind === 'package' ? 'credits' : 'membership'} are recorded under this email.`}</p>
-              {pkgErr && <p className="mt-2 text-[12px]" style={{ color: '#ef4444' }}>{pkgErr}</p>}
-              <button type="button" disabled={!!pkgBuying} onClick={submitPurchase} className="mt-4 flex h-14 w-full items-center justify-center text-[11px] font-medium disabled:opacity-50" style={{ ...caps, letterSpacing: '0.3em', background: accent, color: onAcc, borderRadius: 999 }}>
-                {pkgBuying ? 'Opening checkout…' : buying.kind === 'package' ? `Pay $${(buying.item.priceCents / 100).toFixed(0)}` : `Start · $${(buying.item.priceCents / 100).toFixed(0)}/mo`}
-              </button>
-            </div>
-          </div>
-        )}
-        {providerPeek && (() => {
-          const sv = providerPeek;
-          const yt = /(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([\w-]+)/.exec(String(sv.videoUrl || ''));
-          const file = !yt && /\.(mp4|mov|webm)(\?.*)?$/i.test(String(sv.videoUrl || '')) ? sv.videoUrl : '';
-          return (
-            <div className="fixed inset-0 z-20 flex flex-col justify-end" role="dialog" aria-modal="true" aria-label={sv.name}>
-              <button type="button" aria-label="Close" onClick={() => setProviderPeek(null)} className="absolute inset-0" style={{ background: dark ? 'rgba(0,0,0,0.6)' : 'rgba(28,25,23,0.35)' }} />
-              <div className="relative max-h-[88dvh] overflow-y-auto overscroll-contain" style={{ background: bg, color: ink, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}>
-                {yt ? (
-                  <div className="w-full" style={{ aspectRatio: '16 / 9' }}>
-                    <iframe src={`https://www.youtube-nocookie.com/embed/${yt[1]}?rel=0&modestbranding=1`} title={sv.name} className="h-full w-full" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowFullScreen />
-                  </div>
-                ) : file ? (
-                  <video src={file} controls playsInline className="w-full" style={{ aspectRatio: '4 / 5', objectFit: 'cover', background: '#000' }} />
-                ) : sv.imageUrl ? (
-                  <img src={sv.imageUrl} alt={sv.name} className="w-full object-cover" style={{ aspectRatio: '4 / 5' }} />
+                            <motion.button 
+                                onClick={() => setEntered(true)}
+                                className="mt-16 group flex flex-col items-center gap-4 transition-all active:scale-95 text-slate-400"
+                            >
+                                <span className="text-[11px] md:text-sm font-black uppercase tracking-[0.4em] opacity-60 group-hover:opacity-100 transition-opacity">Access Dashboard</span>
+                                <ArrowDown className="w-6 h-6 md:w-8 md:h-8 animate-bounce opacity-60 group-hover:opacity-100" />
+                            </motion.button>
+                        </motion.div>
+                    </motion.div>
                 ) : null}
-                <div className="px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-5">
-                  <div className="flex items-baseline justify-between gap-4">
-                    <p className="text-[28px] font-light leading-tight" style={{ fontFamily: face }}>{sv.name}</p>
-                    {sv.price != null && <span className="shrink-0 text-[20px] font-light tabular-nums" style={{ color: accent }}>${sv.price}</span>}
-                  </div>
-                  <p className="mt-1 text-[10px]" style={{ ...caps, letterSpacing: '0.25em', color: mute }}>
-                    {sv.duration ? `${sv.duration} min` : ''}{sv.category ? ` · ${sv.category}` : ''}{sv.renterChargesEnabled && sv.renterDepositAmount > 0 ? ` · $${Number(sv.renterDepositAmount).toFixed(0)} deposit to hold` : ''}
-                  </p>
-                  {sv.description && <p className="mt-4 text-[15px] font-light leading-relaxed whitespace-pre-wrap">{sv.description}</p>}
-                  {sv.imageUrl && (yt || file) && <img src={sv.imageUrl} alt="" className="mt-4 w-full object-cover" style={{ aspectRatio: '4 / 3', borderRadius: 2 }} />}
-                  <button type="button" onClick={() => { setProviderPeek(null); setDialogService(sv); setDialogOpen(true); }}
-                    className="mt-6 flex h-14 w-full items-center justify-center text-[11px] font-medium" style={{ ...caps, letterSpacing: '0.3em', background: accent, color: onAcc, borderRadius: 999 }}>
-                    Book this
-                  </button>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
-      </div>
-    );
-  }
+            </AnimatePresence>
 
-  if (awayProvider) {
-    return (
-      <div className="w-full min-h-dvh flex items-center justify-center p-6"
-           style={{ background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
-        <div className="w-full max-w-sm bg-white p-8 text-center space-y-4"
-             style={{ borderRadius: br(resolvedStyle), border: `2px solid ${ac(resolvedStyle)}25` }}>
-          {awayProvider.photoUrl && (
-            <img src={awayProvider.photoUrl} alt={awayProvider.name || 'Provider'}
-                 className="w-20 h-20 rounded-full object-cover mx-auto" />
-          )}
-          <div>
-            <p className="text-xl font-light" style={{ fontFamily: hf(resolvedStyle), color: ac(resolvedStyle) }}>
-              {awayProvider.name || 'This provider'}
-            </p>
-            <p className="text-[11px] font-black uppercase tracking-widest mt-1" style={{ color: ac(resolvedStyle) + '80' }}>
-              Books on their own site
-            </p>
-          </div>
-          {awayProvider.bio && <p className="text-sm text-slate-600">{awayProvider.bio}</p>}
-          {awayProvider.externalBookingUrl ? (
-            <a href={awayProvider.externalBookingUrl} target="_blank" rel="noopener noreferrer"
-               className="block w-full py-4 text-white text-[11px] font-black uppercase tracking-widest"
-               style={{ background: ac(resolvedStyle), borderRadius: br(resolvedStyle) }}>
-              Book with {String(awayProvider.name || '').split(' ')[0] || 'them'}
-            </a>
-          ) : (
-            <p className="text-sm text-slate-600">
-              They take bookings directly — contact the studio and we&apos;ll point you their way.
-            </p>
-          )}
-          <a href={`/book/${tenantId}`} className="block text-[10px] font-black uppercase tracking-widest text-slate-400">
-            See everyone else here
-          </a>
-        </div>
-      </div>
-    );
-  }
-
-  if (studioDesign) {
-    return (
-      <StudioBookingPage tenant={tenant} accent={resolvedStyle.accentColor}
-        services={services.filter((sv: any) => sv.membersOnly !== true || studioMemberOk === true)} staff={staff} sections={sections}
-        onBook={(svc, staffId) => { setStudioStaffId(staffId); setDialogService(svc); setDialogOpen(true); }} />
-    );
-  }
-
-  return (
-    <div className="w-full min-h-dvh overflow-x-hidden"
-         style={{ background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
-
-      {showPicker && (
-        <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center">
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowPicker(false)}/>
-          <div className="relative w-full sm:max-w-lg sm:mx-4 bg-white overflow-hidden"
-               style={{ borderRadius: '24px 24px 0 0', maxHeight: '80dvh' }}>
-            <div className="flex items-center justify-between px-5 py-4 border-b"
-                 style={{ borderColor: ac(resolvedStyle) + '20' }}>
-              <p className="font-black text-sm uppercase tracking-widest"
-                 style={{ fontFamily: bf(resolvedStyle), color: ac(resolvedStyle) }}>Select a Service</p>
-              <button onClick={() => setShowPicker(false)}
-                      className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
-                <XIcon className="w-4 h-4"/>
-              </button>
-            </div>
-            <div className="overflow-y-auto p-4 space-y-2" style={{ maxHeight: '60dvh' }}>
-              {services.map((s: any) => (
-                <button key={s.id}
-                        onClick={() => { setDialogService(s); setShowPicker(false); setDialogOpen(true); }}
-                        className="w-full flex items-center justify-between p-4 text-left hover:shadow-md transition-all"
-                        style={{ borderRadius: br(resolvedStyle), border: `2px solid ${ac(resolvedStyle)}25`, background: 'white' }}>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate"
-                       style={{ fontFamily: bf(resolvedStyle) }}>{s.name}</p>
-                    {s.duration && <p className="text-[10px] font-black uppercase tracking-widest mt-0.5"
-                                      style={{ color: ac(resolvedStyle) + '80' }}>{s.duration} min</p>}
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0 ml-4">
-                    {s.price && <span className="text-xl font-light"
-                                      style={{ fontFamily: hf(resolvedStyle), color: ac(resolvedStyle) }}>${s.price}</span>}
-                    <ArrowRight className="w-4 h-4 text-slate-300"/>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {(() => {
-        const rel = (tenant as any)?.bookingRelease || null;
-        const hasRelease = !!rel && (rel.mode || 'off') !== 'off';
-        const anyMembersOnly = services.some((sv: any) => sv.membersOnly === true);
-        if (!hasRelease && !anyMembersOnly) return null;
-        const sent = releaseSentence(rel, new Date(), (tenant as any)?.timezone || 'America/New_York');
-        const memberPerk = !!sent.members || anyMembersOnly;
-        return (
-          <div className="mx-auto w-full max-w-3xl px-4 pt-4">
-            <div className="rounded-2xl border px-4 py-3" style={{ borderColor: studioMemberOk ? 'currentColor' : 'rgba(120,113,108,0.3)' }}>
-              {studioMemberOk ? (
-                <p className="text-[13px]">✓ Member — {sent.members ? sent.members.replace(/^Members /, 'you ') : 'welcome back.'}{anyMembersOnly ? ' Members-only services are unlocked below.' : ''}</p>
-              ) : (
-                <>
-                  <p className="text-[13px]">{hasRelease ? sent.everyone : ''}{sent.members ? ` ${sent.members}` : ''}{anyMembersOnly ? ' Some services are members only.' : ''}</p>
-                  {memberPerk && (
-                    <div className="mt-2 flex gap-2">
-                      <input value={studioMemberInput} onChange={(e) => { setStudioMemberInput(e.target.value); setStudioMemberOk(null); }} placeholder="Member? Email or phone" aria-label="Member email or phone" className="h-10 min-w-0 flex-1 rounded-xl border bg-transparent px-3 text-[13px]" />
-                      <button type="button" disabled={studioMemberBusy} onClick={checkStudioMember} className="h-10 shrink-0 rounded-xl bg-slate-900 px-4 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50">{studioMemberBusy ? '…' : 'Unlock'}</button>
+            <main className={cn(
+                "relative transition-all duration-1000 p-4 md:p-8 max-w-6xl mx-auto space-y-8 md:space-y-10",
+                !entered ? "opacity-0 translate-y-10" : "opacity-100 translate-y-0"
+            )}>
+                <header className="flex flex-col md:flex-row items-center gap-6 md:gap-8 text-center md:text-left pt-10">
+                    <div className="relative group">
+                        <Avatar className="w-20 h-20 md:w-28 md:h-28 border-4 border-white shadow-2xl rounded-[2.5rem] overflow-hidden transition-all group-hover:scale-105">
+                            <AvatarImage src={client.avatarUrl} className="object-cover" />
+                            <AvatarFallback className="font-black text-xl bg-primary/10 text-primary uppercase">{(client.name || 'G').substring(0, 2).toUpperCase()}</AvatarFallback>
+                        </Avatar>
+                        {activeMembership && (
+                            <div className="absolute -top-2 -right-2 bg-indigo-600 text-white p-1.5 rounded-2xl shadow-xl border-4 border-white">
+                                <Award className="w-4 h-4 md:w-5 md:h-5" />
+                            </div>
+                        )}
                     </div>
-                  )}
-                  {studioMemberOk === false && <p className="mt-1 text-[11px] opacity-70">No active membership under that — check the email or phone on your membership.</p>}
-                </>
-              )}
-            </div>
-          </div>
-        );
-      })()}
-      {/* The client's offer: shown when they arrive from a campaign, or typed in.
-          Glass, like the rest of the app — the amount is the headline, the
-          code a tag, and one line says what happens next. */}
-      <div className="mx-auto w-full max-w-3xl px-4 pt-4">
-        {offerShown ? (
-          <div className="glass relative overflow-hidden rounded-[1.75rem] p-4 sm:p-5 shadow-[0_10px_40px_-12px_rgba(15,23,42,0.18)]" role="status" aria-live="polite">
-            <div aria-hidden className="pointer-events-none absolute -right-10 -top-12 h-36 w-36 rounded-full bg-gradient-to-br from-amber-200/70 via-rose-200/60 to-violet-300/50 blur-2xl" />
-            <div aria-hidden className="pointer-events-none absolute -bottom-14 -left-10 h-32 w-32 rounded-full bg-gradient-to-tr from-sky-200/50 to-emerald-200/40 blur-2xl" />
-            <div className="relative flex items-center gap-4">
-              <div className="glass flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-2xl shadow-sm" aria-hidden>🎁</div>
-              <div className="min-w-0 flex-1">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] opacity-60">Your offer</p>
-                <p className="text-2xl font-semibold leading-tight tracking-tight sm:text-3xl">{offerShown.amount || offerShown.line}</p>
-                <p className="mt-0.5 text-[12px] opacity-70">{offerShown.until ? `Until ${offerShown.until}` : 'Applied at your visit'}{offerShown.oncePer ? ' · one per client' : ''}</p>
-              </div>
-              <span className="hidden shrink-0 rounded-xl border border-dashed border-slate-400/60 px-3 py-1.5 font-mono text-[12px] font-semibold tracking-[0.18em] opacity-80 sm:inline-block">{offerShown.code}</span>
-            </div>
-            <div className="relative mt-3 flex items-center justify-between gap-3 border-t border-white/50 pt-3">
-              <p className="text-[12px] opacity-75">Saved with your booking and taken off at your visit — nothing to enter later.</p>
-              <span className="shrink-0 rounded-lg border border-dashed border-slate-400/60 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-[0.15em] opacity-80 sm:hidden">{offerShown.code}</span>
-            </div>
-          </div>
-        ) : offerOpen ? (
-          <div className="glass rounded-[1.5rem] p-3 shadow-[0_8px_30px_-12px_rgba(15,23,42,0.15)]">
-            <div className="flex gap-2">
-              <input value={offerInput} onChange={(e) => { setOfferInput(e.target.value.toUpperCase()); setOfferErr(''); }} onKeyDown={(e) => { if (e.key === 'Enter') void checkOffer(offerInput); }}
-                placeholder="Enter your offer code" aria-label="Offer code" autoFocus
-                className="h-11 min-w-0 flex-1 rounded-2xl border border-white/60 bg-white/50 px-4 font-mono text-sm tracking-[0.12em] outline-none focus:ring-2 focus:ring-slate-400/40" />
-              <button type="button" onClick={() => checkOffer(offerInput)} className="h-11 shrink-0 rounded-2xl bg-slate-900 px-5 text-[11px] font-semibold uppercase tracking-[0.18em] text-white shadow-sm active:scale-[0.98]">Apply</button>
-            </div>
-            {offerErr && <p className="px-1 pt-2 text-[12px] opacity-80">{offerErr}</p>}
-          </div>
-        ) : (
-          <button type="button" onClick={() => setOfferOpen(true)} className="glass inline-flex items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium shadow-sm active:scale-[0.98]">
-            <span aria-hidden>🎁</span> Have an offer code?
-          </button>
-        )}
-      </div>
-      {activeSections.map(section => (
-        <SectionWrapper key={section.id} section={section} isPreview={false}
-          onEdit={() => {}} onFieldTap={() => {}}>
-          <SectionRenderer section={section} style={resolvedStyle} data={data}
-            isPreview={false} onFieldTap={() => {}}/>
-        </SectionWrapper>
-      ))}
+                    <div className="space-y-1 flex-1 min-w-0 text-left">
+                        <h1 className={cn("font-black uppercase tracking-tighter text-slate-900 leading-none truncate w-full md:w-auto text-center md:text-left", client.name.length > 15 ? "text-xl md:text-2xl" : "text-2xl md:text-4xl")}>
+                            {client.name}
+                        </h1>
+                        <p className="text-[10px] md:text-xs font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-center md:text-left">{tenant?.name} &middot; Authenticated Guest</p>
+                    </div>
+                    <div className="shrink-0 flex gap-2 w-full md:w-auto">
+                        <Button asChild variant="outline" className="flex-1 md:flex-none h-12 md:h-14 px-4 md:px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest border-border/50 bg-white/50 backdrop-blur-sm">
+                            <Link href={`/book/${tenantId}`}>View Menu</Link>
+                        </Button>
+                        <Button 
+                            onClick={() => setIsBookingFlowOpen(true)}
+                            size="lg" 
+                            className="flex-[2] md:flex-none h-12 md:h-14 px-6 md:px-8 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20 group"
+                        >
+                            Secure Session <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
+                        </Button>
+                    </div>
+                </header>
 
-      {elsewhere.length > 0 && (
-        <div className="px-5 py-8 max-w-lg mx-auto w-full">
-          <p className="text-[10px] font-black uppercase tracking-widest text-center mb-3"
-             style={{ color: ac(resolvedStyle) + '80' }}>Also at this studio</p>
-          <div className="space-y-2">
-            {elsewhere.map((m: any) => (
-              <a key={m.id} href={m.externalBookingUrl} target="_blank" rel="noopener noreferrer"
-                 className="flex items-center gap-3 p-4 bg-white hover:shadow-md transition-all"
-                 style={{ borderRadius: br(resolvedStyle), border: `2px solid ${ac(resolvedStyle)}25` }}>
-                {m.photoUrl
-                  ? <img src={m.photoUrl} alt={m.name || ''} className="w-10 h-10 rounded-full object-cover shrink-0" />
-                  : <div className="w-10 h-10 rounded-full bg-slate-100 shrink-0" />}
-                <div className="flex-1 min-w-0">
-                  <p className="font-black text-sm text-slate-900 truncate">{m.name}</p>
-                  <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: ac(resolvedStyle) + '80' }}>
-                    Books on their own site
-                  </p>
-                </div>
-                <ArrowRight className="w-4 h-4 text-slate-300 shrink-0"/>
-              </a>
-            ))}
-          </div>
+                <AnimatePresence>
+                    {safeBalance > 0 && (
+                        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}>
+                            <Alert variant="destructive" className="border-4 border-destructive/20 bg-destructive/[0.02] rounded-[2.5rem] p-6 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-6 text-left">
+                                <div className="flex items-start gap-4 md:gap-6 text-left">
+                                    <div className="p-3 md:p-4 bg-destructive text-white rounded-2xl shadow-xl shadow-destructive/20 shrink-0 mt-1">
+                                        <Wallet className="w-6 h-6 md:w-8 md:h-8" />
+                                    </div>
+                                    <div className="space-y-1 text-left">
+                                        <AlertTitle className="text-lg md:text-xl font-black uppercase tracking-tighter text-destructive leading-none text-left">Accounting Balance</AlertTitle>
+                                        <AlertDescription className="text-[10px] md:text-sm font-bold text-slate-600 uppercase tracking-tight opacity-80 mt-2 text-left">
+                                            A total of <strong>${safeBalance.toFixed(2)}</strong> in outstanding fees is recorded. Reconcile now to maintain active status.
+                                        </AlertDescription>
+                                        <div className="pt-4 text-left">
+                                            <Button variant="outline" onClick={() => setIsSettlementOpen(true)} className="h-9 md:h-10 rounded-xl border-destructive/30 bg-white text-destructive font-black uppercase text-[10px] tracking-widest hover:bg-destructive hover:text-white transition-all shadow-sm"><Zap className="w-3.5 h-3.5 mr-2" />Settle Balance Now</Button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                    <p className="text-[9px] md:text-[10px] font-black uppercase text-destructive tracking-[0.2em] mb-1 text-right">Total Arrears</p>
+                                    <p className="text-2xl md:text-4xl font-black font-mono tracking-tighter text-destructive text-right">${safeBalance.toFixed(2)}</p>
+                                </div>
+                            </Alert>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                <Tabs defaultValue="appointments" className="w-full">
+                    <ScrollArea className="w-full">
+                        <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-10 w-max mx-auto">
+                            <TabsTrigger value="appointments" className="px-6 md:px-8 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">
+                                <Clock className="w-3.5 h-3.5 mr-2" /> Schedule
+                            </TabsTrigger>
+                            <TabsTrigger value="portfolio" className="px-6 md:px-8 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">
+                                <Award className="w-3.5 h-3.5 mr-2" /> Membership
+                            </TabsTrigger>
+                            <TabsTrigger value="rewards" className="px-6 md:px-8 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">
+                                <Trophy className="w-3.5 h-3.5 mr-2" /> Rewards
+                            </TabsTrigger>
+                            <TabsTrigger value="ledger" className="px-6 md:px-8 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">
+                                <Landmark className="w-3.5 h-3.5 mr-2" /> Ledger
+                            </TabsTrigger>
+                        </TabsList>
+                        <ScrollBar orientation="horizontal" className="hidden" />
+                    </ScrollArea>
+
+                    <TabsContent value="appointments" className="space-y-12 animate-in fade-in duration-500 text-left">
+                        {/* STUDIO GIFTS (Post-Op Recovery) */}
+                        {client.oneTimePerks && client.oneTimePerks.filter(p => !p.isRedeemed).length > 0 && (
+                            <div className="space-y-6">
+                                <div className="flex items-center gap-3 px-1">
+                                    <Gift className="w-5 h-5 text-primary" />
+                                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Studio Gifts</h3>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    {client.oneTimePerks.filter(p => !p.isRedeemed).map(perk => (
+                                        <Card key={perk.id} className="border-4 border-primary/20 bg-primary/5 rounded-[2rem] overflow-hidden shadow-xl shadow-primary/5">
+                                            <CardContent className="p-6 flex items-center gap-4">
+                                                <div className="p-3 bg-white rounded-2xl shadow-inner border border-primary/10">
+                                                    {perk.type === 'service' ? <Sparkles className="w-6 h-6 text-primary" /> : <Coffee className="w-6 h-6 text-primary" />}
+                                                </div>
+                                                <div className="min-w-0 text-left">
+                                                    <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate">{perk.name}</p>
+                                                    <p className="text-[9px] font-bold text-primary uppercase tracking-widest opacity-60">Verified Recovery Reward</p>
+                                                </div>
+                                            </CardContent>
+                                            <div className="px-6 pb-6 pt-0">
+                                                <p className="text-[10px] font-medium text-slate-600 leading-relaxed italic border-l-2 border-primary/20 pl-3">
+                                                    "{perk.reason}"
+                                                </p>
+                                            </div>
+                                        </Card>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="space-y-6 text-left">
+                            <div className="flex items-center justify-between px-1">
+                                <div className="flex items-center gap-3">
+                                    <Calendar className="w-5 h-5 text-primary" />
+                                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Agenda Matrix</h3>
+                                </div>
+                                <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    onClick={() => setIsBookingFlowOpen(true)}
+                                    className="h-8 rounded-xl font-black uppercase text-[10px] tracking-widest text-primary border border-primary/20 hover:bg-primary/5"
+                                >
+                                    <PlusCircle className="w-3.5 h-3.5 mr-2" /> Reserve Session
+                                </Button>
+                            </div>
+                            {upcomingAppointments.length > 0 ? (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                    {upcomingAppointments.map(apt => {
+                                        const svc = services?.find(s => s.id === apt.serviceId);
+                                        const pro = staff?.find(s => s.id === apt.staffId);
+                                        const isActionable = apt.status === 'confirmed' || apt.status === 'deposit_pending' || apt.status === 'ready_for_checkout' || apt.status === 'servicing';
+                                        return (
+                                            <Card key={apt.id} className="border-2 rounded-[2.5rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all group flex flex-col text-left">
+                                                <CardContent className="p-6 flex items-center gap-6 flex-1 text-left">
+                                                    <div className="p-4 bg-primary/5 rounded-2xl border-2 border-primary/10 shadow-inner text-primary shrink-0 group-hover:bg-primary group-hover:text-white transition-all duration-500"><Calendar className="w-8 h-8" /></div>
+                                                    <div className="min-w-0 text-left flex-1">
+                                                        <p className="font-black text-lg uppercase tracking-tight text-slate-900 truncate mb-1">{svc?.name || 'Service'}</p>
+                                                        <div className="flex items-center gap-2 mb-2">
+                                                            <Badge variant="outline" className="h-5 px-2 border-none bg-muted/50 text-muted-foreground text-[8px] font-black uppercase">By {pro?.name.split(' ')[0] || 'Technician'}</Badge>
+                                                            <Badge className={cn("h-5 px-2 border-none font-black text-[8px] uppercase", apt.status === 'confirmed' ? "bg-green-500 text-white" : "bg-amber-500 text-white")}>{apt.status.replace('_', ' ')}</Badge>
+                                                        </div>
+                                                        <p className="text-xl font-black text-primary font-mono tracking-tighter">{format(safeDate(apt.startTime), 'EEEE, MMM d @ h:mm a')}</p>
+                                                    </div>
+                                                </CardContent>
+                                                {isActionable && apt.status !== 'servicing' && apt.status !== 'ready_for_checkout' && (
+                                                    <div className="p-3 border-t bg-muted/5 grid grid-cols-2 gap-2">
+                                                        <Button variant="ghost" onClick={() => setAppointmentToReschedule(apt)} className="h-10 rounded-xl font-black uppercase text-[9px] tracking-widest hover:bg-primary/5 text-primary"><Undo2 className="w-3.5 h-3.5 mr-2" /> Reschedule</Button>
+                                                        <Button variant="ghost" onClick={() => setAppointmentToCancel(apt)} className="h-10 rounded-xl font-black uppercase text-[9px] tracking-widest hover:bg-destructive/5 text-destructive"><XCircle className="w-3.5 h-3.5 mr-2" /> Cancel</Button>
+                                                    </div>
+                                                )}
+                                                {apt.checkInToken && apt.status !== 'ready_for_checkout' && apt.status !== 'servicing' && (
+                                                    <div className="p-2 pt-0 border-t bg-muted/5">
+                                                        <Button asChild variant="ghost" className="w-full h-10 rounded-xl font-black uppercase text-[9px] tracking-widest text-primary hover:bg-primary/5">
+                                                            <Link href={`/check-in/${apt.checkInToken}`}>Open Digital Key <ArrowRight className="ml-2 h-3 w-3" /></Link>
+                                                        </Button>
+                                                    </div>
+                                                )}
+                                            </Card>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4"><Clock className="w-16 h-16" /><p className="text-[10px] font-black uppercase tracking-widest text-center px-8">No Upcoming Appointments</p></div>
+                            )}
+                        </div>
+
+                        <Separator className="border-dashed" />
+
+                        <div className="space-y-6 text-left">
+                            <div className="flex items-center gap-3 px-1 text-left">
+                                <History className="w-5 h-5 text-muted-foreground opacity-40" />
+                                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Technical History Archive</h3>
+                            </div>
+                            <div className="grid gap-4">
+                                {pastAppointments.slice(0, 10).map(apt => {
+                                    const svc = services?.find(s => s.id === apt.serviceId);
+                                    const pro = staff?.find(s => s.id === apt.staffId);
+                                    return (
+                                        <Card key={apt.id} className="border-2 rounded-[1.5rem] bg-white hover:bg-muted/5 transition-all overflow-hidden text-left">
+                                            <CardContent className="p-5 flex items-center justify-between gap-6 text-left">
+                                                <div className="flex items-center gap-4 min-w-0 flex-1 text-left">
+                                                    <div className="p-2.5 bg-muted/30 rounded-xl shrink-0"><CheckCircle2 className="w-5 h-5 text-slate-400" /></div>
+                                                    <div className="min-w-0 text-left">
+                                                        <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{svc?.name}</p>
+                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Verified with {pro?.name || 'Staff'}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right shrink-0 ml-4">
+                                                    <p className="text-[10px] font-black font-mono text-slate-600">{format(safeDate(apt.startTime), 'MMM d, yyyy')}</p>
+                                                    <Badge variant="outline" className="h-4 px-1.5 rounded-md border-none bg-muted/20 text-[7px] font-black uppercase mt-1">{(apt.status || 'UNKN').toUpperCase()}</Badge>
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </TabsContent>
+
+                    <TabsContent value="portfolio" className="space-y-12 animate-in fade-in duration-500 text-left">
+                        {activeMembership ? (
+                            <div className="space-y-12 text-left">
+                                <section className="space-y-6">
+                                    <div className="flex flex-col sm:flex-row items-center justify-between px-1 gap-4 text-left">
+                                        <div className="flex items-center gap-3 w-full sm:w-auto text-left">
+                                            <ShieldCheck className="w-5 h-5 text-indigo-600" />
+                                            <div className="text-left">
+                                                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 leading-tight">Active Allotment Matrix</h3>
+                                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Cycle: {format(cycleStart, 'MMM d')} - {client?.subscription?.nextBillingDate ? format(safeDate(client.subscription.nextBillingDate), 'MMM d, yyyy') : '...'}</p>
+                                            </div>
+                                        </div>
+                                        {loyaltyHubData && (<div className="w-full sm:w-auto flex items-center gap-2 px-4 py-2 rounded-2xl bg-green-500/5 border-2 border-green-500/10"><TrendingUp className="w-3.5 h-3.5 text-green-600" /><span className="text-[10px] font-black uppercase text-green-700">Value Secured: ${loyaltyHubData.cycleSavings.toFixed(0)}</span></div>)}
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        {perkAllotments.map(perk => {
+                                            const used = safeNumber(perk.used);
+                                            const total = safeNumber(perk.quantity);
+                                            const remaining = Math.max(0, total - used);
+                                            const isExhausted = used >= total;
+                                            return (
+                                                <Card key={perk.id} className={cn("border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all text-left", isExhausted && "opacity-60")}>
+                                                    <CardContent className="p-6 space-y-5 text-left">
+                                                        <div className="flex justify-between items-start gap-4">
+                                                            <div className="space-y-1 flex-1 min-w-0">
+                                                                <p className="font-black text-base uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{perk.name}</p>
+                                                                <p className={cn("text-[9px] font-black uppercase tracking-widest", perk.color)}>{perk.type} Allotment</p>
+                                                            </div>
+                                                            <div className={cn("p-3 rounded-2xl shadow-inner shrink-0", isExhausted ? "bg-green-500/10 text-green-600" : perk.bg + " " + perk.color)}>{isExhausted ? <CheckCircle2 className="w-6 h-6" /> : <perk.icon className="w-6 h-6" />}</div>
+                                                        </div>
+                                                        <div className="space-y-2">
+                                                            <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1"><span>Allotment State</span><div className="flex items-center gap-1.5"><span>Used {used} / {total}</span><Badge variant="outline" className={cn("h-4 border-none font-black", isExhausted ? "text-muted-foreground" : "text-primary")}>({remaining} LEFT)</Badge></div></div>
+                                                            <Progress value={perk.progress} className={cn("h-2 rounded-full bg-muted shadow-inner", isExhausted && "[&>div]:bg-green-500")} />
+                                                        </div>
+                                                    </CardContent>
+                                                </Card>
+                                            )
+                                        })}
+                                    </div>
+                                </section>
+                                <Separator className="border-dashed" />
+                                <section className="space-y-6 text-left">
+                                    <div className="flex items-center gap-3 px-1 text-left"><Activity className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Current Cycle Redemptions</h3></div>
+                                    {currentCycleActivity.all.length > 0 ? (
+                                        <div className="grid gap-3">
+                                            {currentCycleActivity.all.map((item: any) => {
+                                                const isRefreshment = !!item.itemName;
+                                                const date = safeDate(item.date || item.requestedAt);
+                                                return (
+                                                    <div key={item.id} className="flex items-center justify-between p-5 rounded-[1.5rem] border-2 bg-white shadow-sm hover:border-primary/20 transition-all text-left">
+                                                        <div className="flex items-center gap-4 min-w-0 flex-1">
+                                                            <div className={cn("p-3 rounded-2xl shadow-inner shrink-0", isRefreshment ? "bg-primary/10 text-primary" : "bg-indigo-500/10 text-indigo-600")}>{isRefreshment ? <Coffee className="w-5 h-5" /> : <Star className="w-5 h-5" />}</div>
+                                                            <div className="min-w-0 text-left">
+                                                                <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{isRefreshment ? item.itemName : item.serviceName}</p>
+                                                                <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Drawn from Membership Portfolio</p>
+                                                            </div>
+                                                        </div>
+                                                        <div className="text-right shrink-0 ml-4">
+                                                            <p className="font-black font-mono text-[11px] text-slate-900 leading-none">{format(date, 'MMM d, p')}</p>
+                                                            <Badge variant="outline" className="h-4 px-1 text-[7px] font-black uppercase mt-2 border-none bg-muted/20 text-muted-foreground shadow-sm">VERIFIED</Badge>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    ) : (<div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4"><History className="w-12 h-12" /><p className="text-[10px] font-black uppercase tracking-widest text-center px-8">No Activity Logged in Current Cycle</p></div>)}
+                                </section>
+                            </div>
+                        ) : (
+                            <div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                                <Award className="w-16 h-16" />
+                                <p className="text-xl font-black uppercase tracking-tighter text-slate-900">Portfolio Inactive</p>
+                                <Button asChild className="h-12 px-8 rounded-xl font-black uppercase text-[10px] tracking-widest mt-4">
+                                    <Link href={`/book/${tenantId}#memberships`}>Explore Tiers</Link>
+                                </Button>
+                            </div>
+                        )}
+                    </TabsContent>
+
+                    <TabsContent value="rewards" className="space-y-10 animate-in fade-in duration-500 text-left">
+                        {loyaltyHubData ? (
+                            <div className="space-y-10 text-left">
+                                <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden relative group text-left">
+                                    <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity"><Flame className="w-32 h-32 text-primary" /></div>
+                                    <CardHeader className="p-8 pb-2 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-[0.3em] text-primary flex items-center gap-2"><Sparkles className="w-3.5 h-3.5" /> Next Reward Protocol</CardTitle></CardHeader>
+                                    <CardContent className="p-8 pt-4 space-y-6 text-left">
+                                        <div className="text-left">
+                                            <p className="text-4xl md:text-6xl font-black text-primary tracking-tighter leading-none">{loyaltyHubData.visitsToNext}</p>
+                                            <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2">Sessions remaining until next reward</p>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Progress value={loyaltyHubData.progressToNextReward} className="h-2 rounded-full bg-white/40" />
+                                            <div className="flex justify-between text-[8px] font-black uppercase tracking-widest text-primary/60"><span>Active Progress</span><span>{Math.round(loyaltyHubData.progressToNextReward)}% Path</span></div>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                                <Card className="border-2 rounded-[2.5rem] overflow-hidden bg-white shadow-sm text-left">
+                                    <CardHeader className="p-8 pb-4 border-b bg-muted/5 flex flex-col md:flex-row md:items-center justify-between gap-6 text-left">
+                                        <div className="space-y-1 text-left"><CardTitle className="text-lg font-black uppercase tracking-tight flex items-center gap-3 text-left"><HeartHandshake className="w-5 h-5 text-primary" /> Advocacy Impact</CardTitle><CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 text-left">Revenue earned through guest referrals.</CardDescription></div>
+                                        <div className="text-right"><p className="text-[9px] font-black uppercase text-primary/60 tracking-widest mb-1">Total Credit Earned</p><p className="text-3xl font-black font-mono tracking-tighter text-primary leading-none">${loyaltyHubData.referralEarnings.toFixed(2)}</p></div>
+                                    </CardHeader>
+                                    <CardContent className="p-8 space-y-8 text-left">
+                                        {client.successfulReferrals?.length ? (
+                                            <div className="space-y-4">
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Converted Referrals</p>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                                    {client.successfulReferrals.map((name, idx) => (<div key={idx} className="flex items-center gap-3 p-3 rounded-xl border-2 bg-muted/5 text-left"><div className="p-2 bg-white rounded-lg shadow-sm shrink-0"><User className="w-3.5 h-3.5 text-primary opacity-40" /></div><span className="text-[10px] font-black uppercase text-slate-700 truncate">{name}</span></div>))}
+                                                </div>
+                                            </div>
+                                        ) : (<div className="py-12 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3"><PartyPopper className="w-10 h-10" /><p className="text-[10px] font-black uppercase tracking-widest">No Referrals Registered</p></div>)}
+                                        <div className="p-6 rounded-3xl border-2 border-dashed border-primary/20 bg-primary/[0.02] flex flex-col sm:flex-row items-center justify-between gap-6 text-left">
+                                            <div className="space-y-1 text-center sm:text-left">
+                                                <p className="text-sm font-black uppercase tracking-tight text-slate-900">Expand the Circle</p>
+                                                <p className="text-[10px] font-medium text-slate-500 leading-relaxed uppercase tracking-tight text-left">Share your referral code to earn instant studio credit.</p>
+                                            </div>
+                                            <div className="flex gap-2 w-full sm:w-auto"><div className="flex-1 p-3 px-5 rounded-xl bg-white border-2 border-primary/10 shadow-inner font-black font-mono text-primary uppercase text-sm tracking-widest text-center">{client.referralCode}</div><Button variant="outline" size="icon" className="h-12 w-12 rounded-xl border-2 bg-white" onClick={() => { navigator.clipboard.writeText(client.referralCode || ''); toast({ title: 'Code Copied' }); }}><Repeat className="w-5 h-5 opacity-40" /></Button></div>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            </div>
+                        ) : (
+                            <div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                                <Trophy className="w-16 h-16" />
+                                <p className="text-[10px] font-black uppercase tracking-widest text-center">Reward profile loading...</p>
+                            </div>
+                        )}
+                    </TabsContent>
+
+                    <TabsContent value="ledger" className="space-y-8 animate-in fade-in duration-500 text-left">
+                        <div className="space-y-6 text-left">
+                            <div className="flex items-center gap-3 px-1 text-left"><Landmark className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Accounting Manifest</h3></div>
+                            {client.unpaidFees?.length ? (
+                                <div className="grid gap-4">
+                                    {client.unpaidFees.map((fee) => (
+                                        <Card key={fee.feeId} className="border-4 border-destructive/20 bg-destructive/[0.02] rounded-3xl overflow-hidden shadow-xl shadow-destructive/5 text-left">
+                                            <CardContent className="p-6 flex flex-col sm:flex-row items-center justify-between gap-6 text-left">
+                                                <div className="flex items-center gap-4 text-left w-full sm:w-auto">
+                                                    <div className="p-3 bg-destructive rounded-2xl shadow-lg shadow-destructive/20 shrink-0"><AlertTriangle className="w-6 h-6 text-white" /></div>
+                                                    <div className="space-y-1 text-left text-left"><p className="font-black text-sm uppercase tracking-tight text-destructive">{fee.reason}</p><p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Incurred {format(safeDate(fee.appointmentDate), 'MMM d, yyyy')}</p></div>
+                                                </div>
+                                                <div className="text-center sm:text-right shrink-0"><p className="text-[9px] font-black uppercase text-destructive/60 tracking-widest mb-1">Fee Amount</p><p className="text-3xl font-black font-mono tracking-tighter text-destructive">${safeNumber(fee.feeAmount).toFixed(2)}</p></div>
+                                            </CardContent>
+                                        </Card>
+                                    ))}
+                                </div>
+                            ) : (<div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left"><ShieldCheck className="w-16 h-16 text-green-500" /><p className="text-[10px] font-black uppercase tracking-widest">Account Clear & Settled</p></div>)}
+                        </div>
+                    </TabsContent>
+                </Tabs>
+            </main>
+
+            <AnimatePresence>
+                {isBookingFlowOpen && (
+                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="fixed inset-0 z-[110] bg-background/95 backdrop-blur-3xl overflow-y-auto text-left">
+                        <div className="max-w-6xl mx-auto p-6 md:p-12 pb-32">
+                            <header className="flex justify-between items-center mb-12">
+                                <div className="space-y-1 text-left">
+                                    <h2 className="text-3xl font-black uppercase tracking-tighter text-slate-900">Secure New Session</h2>
+                                    <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest opacity-60">Choose your next technical protocol</p>
+                                </div>
+                                <button onClick={() => setIsBookingFlowOpen(false)} className="h-12 w-12 rounded-full hover:bg-muted flex items-center justify-center transition-all"><XCircle className="w-8 h-8 opacity-40"/></button>
+                            </header>
+                            <BookingServices 
+                                services={services || []} 
+                                onServiceSelect={(s) => { 
+                                    setSelectedServiceForBooking(s); 
+                                    setIsBookingSheetOpen(true); 
+                                }} 
+                                tenant={tenant}
+                            />
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            <Dialog open={isSettlementOpen} onOpenChange={setIsSettlementOpen}>
+                <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden bg-background text-left">
+                    <AnimatePresence mode="wait">
+                        {!settlementSuccess ? (
+                            <motion.div key="pay-form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                                <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left"><div className="flex items-center gap-3 mb-2"><ShieldCheck className="w-5 h-5 text-primary" /><span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Settlement</span></div><DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Account Reconciliation</DialogTitle></DialogHeader>
+                                <div className="p-8 space-y-8">
+                                    <div className="p-8 rounded-[3rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-inner">
+                                        <p className="text-[10px] font-black uppercase text-primary/60 tracking-[0.3em]">Total Arrears Balance</p>
+                                        <p className="text-6xl font-black text-primary tracking-tighter font-mono">${safeBalance.toFixed(2)}</p>
+                                    </div>
+                                    <div className="space-y-6 text-left">
+                                        <div className="space-y-3">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Distribution Method</Label>
+                                            {client.cardOnFile ? (
+                                                <div className="p-5 rounded-2xl border-2 bg-primary/[0.02] border-primary/10 flex items-center justify-between shadow-sm">
+                                                    <div className="flex items-center gap-4 text-left">
+                                                        <div className="p-2 bg-white rounded-xl shadow-sm border shrink-0"><CreditCard className="w-5 h-5 text-primary" /></div>
+                                                        <div className="text-left"><p className="font-black text-sm uppercase tracking-tight text-slate-900">{client.cardOnFile.brand} •••• {client.cardOnFile.last4}</p><p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Authorized Vault Card</p></div>
+                                                    </div>
+                                                    <Lock className="w-4 h-4 text-primary opacity-20" />
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-4">
+                                                    <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner bg-white/80" /></div>
+                                                    <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center" /></div><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center" /></div></div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                                <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex flex-col gap-3 text-left"><Button onClick={handleSettleArrears} disabled={isProcessing} className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all">{isProcessing ? <Loader className="animate-spin" /> : `Authorize $${safeBalance.toFixed(2)}`}</Button><Button variant="ghost" onClick={() => setIsSettlementOpen(false)} className="w-full font-black uppercase text-[10px] tracking-widest text-slate-400">Abort Protocol</Button></DialogFooter>
+                            </motion.div>
+                        ) : (<motion.div key="pay-success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-12 md:p-20 text-center space-y-10"><div className="w-32 h-32 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 rotate-6"><CheckCircle2 className="w-16 h-16 text-green-500 -rotate-6" /></div><div className="space-y-2"><h3 className="text-3xl font-black uppercase tracking-tighter">Settlement Certified</h3><p className="text-sm font-medium text-slate-500 uppercase tracking-tight leading-relaxed">Your studio account has been reconciled.</p></div><Button className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20" onClick={() => { setIsSettlementOpen(false); setSettlementSuccess(false); }}>Return to Dashboard</Button></motion.div>)}
+                    </AnimatePresence>
+                </DialogContent>
+            </Dialog>
+
+            <AlertDialog open={!!appointmentToCancel} onOpenChange={() => setAppointmentToCancel(null)}>
+                <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden bg-background text-left">
+                    <AlertDialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left"><div className="flex items-center gap-3 mb-2"><AlertTriangle className="w-5 h-5 text-destructive" /><span className="text-[10px] font-black uppercase tracking-[0.2em] text-destructive">Policy Enforcement</span></div><AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Authorize Cancellation</AlertDialogTitle></AlertDialogHeader>
+                    <div className="p-8 text-sm font-medium text-slate-600 leading-relaxed uppercase tracking-tight">
+                        Terminating your session at this stage may incur a recovery fee based on the proximity to your appointment time. Continue?
+                    </div>
+                    <AlertDialogFooter className="p-8 pt-4 bg-muted/5 border-t flex flex-col gap-3 text-left">
+                        <Button onClick={handleConfirmCancellation} disabled={isProcessing} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/30 bg-destructive text-white hover:bg-destructive/90">{isProcessing ? <Loader className="animate-spin" /> : 'Confirm Termination'}</Button>
+                        <AlertDialogCancel onClick={() => setAppointmentToCancel(null)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent text-left">Abort</AlertDialogCancel>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {appointmentToReschedule && (
+                <GuestRescheduleDialog 
+                    open={!!appointmentToReschedule} 
+                    onOpenChange={() => setAppointmentToReschedule(null)} 
+                    appointment={appointmentToReschedule} 
+                    client={client} 
+                    service={services?.find(s => s.id === appointmentToReschedule.serviceId)!} 
+                    appointments={appointments || []}
+                    services={services || []}
+                    tenant={tenant}
+                    staff={staff || []}
+                    scheduleProfiles={scheduleProfiles || []}
+                    inventory={inventory || []}
+                    onConfirm={handleRescheduleConfirm} 
+                />
+            )}
+
+            {selectedServiceForBooking && (
+                <BookingSheet
+          tenantId={tenantId}
+                    open={isBookingSheetOpen}
+                    onOpenChange={setIsBookingSheetOpen}
+                    service={selectedServiceForBooking}
+                    staff={staff || []}
+                    pricingTiers={pricingTiers || []}
+                    appointments={appointments || []}
+                    events={[]} // Handled in DB queries internally
+                    scheduleProfiles={scheduleProfiles || []}
+                    services={services || []}
+                    consentForms={[]}
+                    tenant={tenant || null}
+                    onConfirm={handleConfirmDirectBooking}
+                    bookingOutcome={bookingOutcome}
+                />
+            )}
+
+            <Dialog open={!!expandedImage} onOpenChange={(val) => !val && setExpandedImage(null)}>
+                <DialogContent className="max-w-fit p-0 border-none bg-transparent shadow-none overflow-hidden flex items-center justify-center">
+                    <DialogHeader className="sr-only">
+                        <DialogTitle>Image Expansion</DialogTitle>
+                        <DialogDescription>Full scale view of technical asset.</DialogDescription>
+                    </DialogHeader>
+                    <div className="relative rounded-[2.5rem] overflow-hidden border-4 border-white/20 shadow-2xl bg-black/40 backdrop-blur-xl max-w-[95vw] max-h-[95vh]">
+                        {expandedImage && <img src={expandedImage} alt="Expanded" className="block max-w-full max-h-[90vh] object-contain" />}
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
-      )}
-
-      <Footer tenant={tenant} style={resolvedStyle}/>
-    </div>
-  );
-}
-
-export default function BookingPage({ params }: { params: { tenantId: string } }) {
-  return <BookingPageContent tenantId={params.tenantId}/>;
+    );
 }
