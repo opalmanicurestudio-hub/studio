@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
     if (!ap.clientId) return bad('There’s no client record with a saved card for this booking.');
     const r = await internalPost(internalOrigin(null, req.nextUrl.origin), '/api/stripe/charge-card', {
       tenantId, clientId: ap.clientId, amountCents: cents, description: `Deposit — ${ap.serviceName || 'next visit'}`, category: 'Retainers',
-      appointmentId, reason: 'Front desk deposit (card on file)', mode: 'auto', kind: 'deposit' });
+      appointmentId, reason: 'Front desk deposit (card on file)', mode: 'auto', kind: 'deposit' }, { retries: 0 }); // never retry a charge
     if (!r.ok || !r.data?.ok) return NextResponse.json({ ok: false, error: r.data?.reason || r.data?.error || 'The card didn’t go through.', code: r.data?.code || 'declined' }, { status: 402 });
     return settle(cents, 'card_on_file', { stripePaymentIntentId: r.data?.paymentIntentId || null });
   }
