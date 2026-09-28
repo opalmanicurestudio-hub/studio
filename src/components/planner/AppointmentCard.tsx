@@ -305,7 +305,8 @@ export function AppointmentCard({
     if (appointment.isEscalated) push('esc', 'alert', ShieldAlert, 'Manager');
     if (appointment.issue && appointment.issue.status === 'open') push('issue', 'alert', AlertTriangle, 'Issue');
     if (appointment.status !== 'servicing' && appointment.status !== 'completed') {
-      if (appointment.checkInStatus === 'running_late') push('late', 'alert', Clock, `+${appointment.lateTimeMinutes}m`);
+      if ((appointment as any).studioAskedToMove) push('asked-move', 'alert', Clock, 'Asked to move');
+      else if (appointment.checkInStatus === 'running_late') push('late', 'alert', Clock, `+${appointment.lateTimeMinutes}m`);
       if (appointment.checkInStatus === 'arrived') push('here', 'good', MapPin, 'Here');
       if (appointment.checkInStatus === 'on_my_way') push('otw', 'info', Car, 'En route');
     }
