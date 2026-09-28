@@ -106,7 +106,8 @@ export async function POST(req: NextRequest) {
     const startMs = deadlineStart(tDoc, a).getTime();
     const insideWindow = Date.now() <= startMs - cancelHours * 3600000;
     // Moving it: the shared change rules (cutoff + how many times it's been moved).
-    const change = checkChange(tDoc, a, 'client');
+    // When WE asked them to move it (running late → "please pick a new time"), the usual cutoff and change limit don't apply.
+    const change = a.studioAskedToMove ? { ...checkChange(tDoc, a, 'client'), allowed: true, needsApproval: false, blocked: false, reason: null } : checkChange(tDoc, a, 'client');
     const insideRescheduleWindow = change.allowed;
     // Over the change limit and the business approves further moves → tell the team, ONCE, with the client's note.
     const requestChange = async (note: string | null) => {
@@ -268,6 +269,8 @@ export async function POST(req: NextRequest) {
         }
         const move = {
           ...chainAfterMove(a),   // remembers the original time + how many times it has moved
+          // A new time is a fresh start: no longer late, no longer asked to move.
+          studioAskedToMove: false, lateReply: null, checkInStatus: null, lateTimeMinutes: null, clientCheckInStatus: null, clientLateMinutes: null, clientEtaAt: null, etaAt: null, clientLateNote: null, clientTrip: null,
           startTime: newStart.toISOString(), endTime: newEnd.toISOString(),
           rescheduledAt: new Date().toISOString(), rescheduledBy: 'client_self_serve',
           previousStartTime: a.startTime,
