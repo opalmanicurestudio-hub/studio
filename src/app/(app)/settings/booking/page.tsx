@@ -374,6 +374,7 @@ export default function BookingSettingsPage() {
         <Card className="border-2 rounded-[2rem] bg-white">
           <CardContent className="p-5 space-y-4">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">What happens when</p>
+            <p className="text-xs text-muted-foreground">All your policies — cancellations, no-shows, rescheduling, late arrivals and what clients are told — are together in <a href="/settings/policies" className="underline">Booking policies</a>.</p>
             <NumRow k="paymentGraceHours" field="bookingMode.paymentGraceHours" unit="hours" label="You accept but their card does not go through"
               note="They keep the time this long to pay another way. Past it the booking is released and they are told, rather than turning up to nothing."
               zeroMeans="the time is released the moment a card fails" />
