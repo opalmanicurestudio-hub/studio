@@ -80,7 +80,7 @@
 // without looking at the published roster. That is the server being right and
 // the page being behind, and the fix is to pass that page the same data.
 
-import { placeOf, placeLine, arrivalLine, clientAddressOf } from '@/lib/service-place';
+import { placeOf, placeOptionsOf, placeLine, arrivalLine, clientAddressOf } from '@/lib/service-place';
 import { unpaidFeeRuleOf } from '@/lib/booking-policies';
 import { resolvePolicy } from '@/lib/booking-policies';
 import { checkChange, chainAfterMove } from '@/lib/change-rules';
@@ -302,7 +302,10 @@ export async function POST(req: NextRequest) {
 
     let svc = services.find((s: any) => s.id === serviceId);
     // A phone appointment where WE call them needs a number to call.
-    { const pl = placeOf(svc);
+    // Where it happens: the client's pick when the service lets them choose, otherwise its main option.
+    const placeOpts = placeOptionsOf(svc); const placeChoice = placeOpts.includes(body?.place) ? body.place : placeOpts[0];
+    const svcAsBooked: any = svc ? { ...svc, where: placeChoice } : svc;
+    { const pl = placeOf(svcAsBooked);
       if (pl.kind === 'phone' && pl.phoneWho !== 'they_call' && String(body?.client?.phone || '').replace(/\D/g, '').length < 7 && !String(body?.client?.id || ''))
         return NextResponse.json({ ok: false, error: 'This is a phone appointment — please add the number we should call you on.' }, { status: 400 }); }
     // A campaign offer code, if the client came from one — verified here.
@@ -697,7 +700,7 @@ export async function POST(req: NextRequest) {
       ];
       const staffSide = !!trust && STAFF_SOURCES.includes(String(source || '').toLowerCase());
       let plan = resolveBookingPlan({
-        tenant, service: svc,
+        tenant, service: svcAsBooked,   // paid in full when they chose video / phone
         // Only staff may set a price; everyone else pays the service's price.
         price: Number((trust ? body.price : undefined) ?? svc.price ?? 0),
         // From a campaign's Book button. The code is only stored if it names
@@ -721,6 +724,7 @@ export async function POST(req: NextRequest) {
       const shortCode = generateShortCode();
       const nowIso = new Date().toISOString();
       const payload: any = {
+        ...(placeOpts.length > 1 ? { place: placeChoice } : {}),   // their choice (in person / video / phone …)
         id: aptId, tenantId,
         clientId, clientName,
         serviceId, addOnIds: addOnIds.length > 0 ? addOnIds : null,
@@ -876,7 +880,7 @@ export async function POST(req: NextRequest) {
         const depCents = Number(r.plan?.depositCents) || 0;
         const policyLines: string[] = bookingPolicyLines(tAny, svc, { depositCents: depCents });
         // Where it happens (studio / online / at the client's place) — so online and mobile visits aren't told to "check in when you arrive".
-        const placeSvc: any = renterSvc || svc; const where = placeLine(placeSvc, clientAddressOf(body?.client), null, { timeZone: (tenant as any)?.timezone || null, clientPhone: phone || null, businessPhone: (tenant as any)?.phone || (tenant as any)?.twilioPhoneNumber || null });
+        const placeSvc: any = renterSvc || svcAsBooked; const where = placeLine(placeSvc, clientAddressOf(body?.client), null, { timeZone: (tenant as any)?.timezone || null, clientPhone: phone || null, businessPhone: (tenant as any)?.phone || (tenant as any)?.twilioPhoneNumber || null });
 
         // ── A RENTER'S booking is confirmed in the RENTER'S name ────────
         // With the two links a client actually needs: cancel (their own
@@ -935,7 +939,7 @@ export async function POST(req: NextRequest) {
               bodyLines: [
                 `Hi ${firstName} — we're holding ${whenStr} for your ${svcLabel}${staffName ? ` with ${staffName}` : ''}.`,
                 'Tap below to finish up (deposit and any forms) and lock it in. Your confirmation follows the moment it\'s done.',
-                ...(depCents > 0 ? [`Deposit: ${money$(depCents)} — it comes off your total on the day.`] : []),
+                ...(depCents > 0 ? [r.plan?.fullPayment ? `Payment: ${money$(depCents)} — paid in full, nothing more is due.` : `Deposit: ${money$(depCents)} — it comes off your total on the day.`] : []),
                 holdLine(tAny, trust && typeof body.holdUntil === 'string' && Date.parse(body.holdUntil) > Date.now() ? new Date(body.holdUntil) : null),
               ],
               cta: { label: 'Finish my booking', url: checkInUrl },
@@ -947,7 +951,7 @@ export async function POST(req: NextRequest) {
               bodyLines: [
                 `Hi ${firstName} — your ${svcLabel}${staffName ? ` with ${staffName}` : ''} is booked for ${whenStr}.`,
                 ...(where ? [where] : []),
-                ...(depCents > 0 && trust && body.depositPaid === true ? [`Your ${money$(depCents)} deposit is received — it comes off your total on the day.`] : []),
+                ...(depCents > 0 && trust && body.depositPaid === true ? [r.plan?.fullPayment ? `Your ${money$(depCents)} payment is received — paid in full.` : `Your ${money$(depCents)} deposit is received — it comes off your total on the day.`] : []),
                 arrivalLine(placeSvc),
                 ...policyLines,
               ],
