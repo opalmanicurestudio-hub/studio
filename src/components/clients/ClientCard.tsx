@@ -1,5 +1,6 @@
 'use client';
 
+import { hasRealCard } from '@/lib/card-on-file';
 import React, { useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -49,7 +50,7 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
 
     const hasDebt = safeBalance > 0;
     const isMember = !!(client.activeMembershipId || client.subscription);
-    const hasCardOnFile = !!(client.cardOnFile?.token || client.cardOnFile?.paymentMethodId);
+    const hasCardOnFile = !!hasRealCard(client);
 
     return (
         <Card className={cn(
