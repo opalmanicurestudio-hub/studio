@@ -69,6 +69,7 @@ export function useReschedule(props: Props) {
   const [day, setDay] = useState(''); const [time, setTime] = useState(''); const [custom, setCustom] = useState('');
   const [reason, setReason] = useState<string | null>(null); const [override, setOverride] = useState(false);
   const [applyFee, setApplyFee] = useState(true); const [notify, setNotify] = useState(true); const [busy, setBusy] = useState(false);
+  const [initiatedBy, setInitiatedBy] = useState<'client' | 'studio'>('client'); // who asked for this change
   const fee = Number(tenant?.rescheduleFee || 0), windowH = Number(tenant?.rescheduleFeeWindowHours || 0);
   // Counted from the ORIGINAL time (Booking policies) — the same way the server charges it.
   const feeEligible = fee > 0 && windowH > 0 && hoursToDeadline(tenant, appointment) < windowH;
@@ -88,7 +89,7 @@ export function useReschedule(props: Props) {
     } finally { setLoading(false); }
   }, [tenantId, appointment?.id, staffId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { if (!open) return; setStaffId(appointment?.staffId || ''); setDay(''); setTime(''); setCustom(''); setReason(null); setOverride(false); setApplyFee(true); setNotify(true); setMonth(startOfMonth(original < today ? today : original)); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!open) return; setStaffId(appointment?.staffId || ''); setDay(''); setTime(''); setCustom(''); setReason(null); setOverride(false); setApplyFee(true); setNotify(true); setInitiatedBy('client'); setMonth(startOfMonth(original < today ? today : original)); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (open && staffId) void ensure(original, 42, staffId); }, [open, staffId]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (open && staffId) void ensure(startOfMonth(month), differenceInCalendarDays(endOfMonth(month), startOfMonth(month)) + 1, staffId); }, [open, month, staffId]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { // "Another time" — checked live
@@ -117,7 +118,7 @@ export function useReschedule(props: Props) {
   const move = async (force = false) => {
     if (!time || !day || busy) return; setBusy(true);
     try {
-      const d = await api({ ...base, action: 'move', date: day, time, staffId, applyFee: feeEligible && applyFee, notify, override: force });
+      const d = await api({ ...base, action: 'move', date: day, time, staffId, applyFee: feeEligible && applyFee && initiatedBy === 'client', notify, override: force, initiatedBy });
       if (!d.ok) { if (d.canOverride) { setOverride(true); setReason(d.error); } else toast({ variant: 'destructive', title: 'Couldn’t move it', description: d.error || 'Please try another time.' }); return; }
       fetch('/api/opal/recovery-spawn', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, appointmentId: appointment.id, resolutionTicketId: d.auditId, clientId: client?.id || appointment.clientId, eventType: 'reschedule', vacatedSlotStart: appointment.startTime, vacatedSlotEnd: appointment.endTime, locationId: appointment.locationId || null }) }).catch(() => {});
       const told = [d.told?.email && 'email', d.told?.sms && 'text'].filter(Boolean).join(' + ');
@@ -190,7 +191,10 @@ export function useReschedule(props: Props) {
       </section>}
 
       {reason && <p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900" role="alert">{reason}</p>}
-      {feeEligible && <label className="flex items-center justify-between gap-3 rounded-xl border p-3"><span className="text-sm"><b>Reschedule fee</b> — ${fee.toFixed(2)} (moved within {windowH} hours)</span><Switch checked={applyFee} onCheckedChange={setApplyFee} /></label>}
+      <div className="space-y-1.5 rounded-xl border p-3"><p className="text-sm font-semibold">Who asked for this change?</p>
+        <div className="flex gap-2">{([['client', 'The client'], ['studio', 'We did']] as const).map(([v, l]) => <Button key={v} type="button" size="sm" variant={initiatedBy === v ? 'default' : 'outline'} onClick={() => setInitiatedBy(v)}>{l}</Button>)}</div>
+        {initiatedBy === 'studio' && <p className="text-xs text-muted-foreground">Our change: no reschedule fee, it doesn’t count toward their change limit, and their notice deadline starts from the new time.</p>}</div>
+      {feeEligible && initiatedBy === 'client' && <label className="flex items-center justify-between gap-3 rounded-xl border p-3"><span className="text-sm"><b>Reschedule fee</b> — ${fee.toFixed(2)} (moved within {windowH} hours)</span><Switch checked={applyFee} onCheckedChange={setApplyFee} /></label>}
       <label className="flex items-center justify-between gap-3 rounded-xl border p-3"><span className="text-sm"><b>Tell {first}</b> — email + text with the new time</span><Switch checked={notify} onCheckedChange={setNotify} /></label>
     </div>
   );
@@ -210,7 +214,7 @@ export function useReschedule(props: Props) {
     toast, original, usualTime, today, staffId, setStaffId, providers, setProviders,
     slots, setSlots, loading, setLoading, fetched, month, setMonth, day,
     setDay, time, setTime, custom, setCustom, reason, setReason, override,
-    setOverride, applyFee, setApplyFee, notify, setNotify, busy, setBusy, fee,
+    setOverride, applyFee, setApplyFee, notify, setNotify, busy, setBusy, fee, initiatedBy, setInitiatedBy,
     windowH, feeEligible, base, first, ensure, timesFor, suggestions, choose,
     move, cells, dayTimes, groups, who, body, footer, policyNote,
   };
@@ -222,7 +226,7 @@ export const RescheduleAppointmentDialog: React.FC<Props> = (props) => {
     toast, original, usualTime, today, staffId, setStaffId, providers, setProviders,
     slots, setSlots, loading, setLoading, fetched, month, setMonth, day,
     setDay, time, setTime, custom, setCustom, reason, setReason, override,
-    setOverride, applyFee, setApplyFee, notify, setNotify, busy, setBusy, fee,
+    setOverride, applyFee, setApplyFee, notify, setNotify, busy, setBusy, fee, initiatedBy, setInitiatedBy,
     windowH, feeEligible, base, first, ensure, timesFor, suggestions, choose,
     move, cells, dayTimes, groups, who, body, footer,
   } = useReschedule(props);
