@@ -105,7 +105,7 @@ async function callerTrust(req: NextRequest, tenantId: string, body: any): Promi
   if (secret && req.headers.get('x-cf-internal') === secret) return 'internal';
   if ((req.headers.get('authorization') || '').toLowerCase().startsWith('bearer ')) {
     const a = await verifyStaffActor(req, tenantId).catch(() => null);
-    if (a && (a as any).ok) return 'staff';
+    if (a && (a as any).ok) { (body as any).__staffActor = (a as any).actor; return 'staff'; }
   }
   const tok = typeof body?.renterToken === 'string' ? body.renterToken : '';
   if (tok) {
@@ -725,7 +725,12 @@ export async function POST(req: NextRequest) {
       action: 'appointment.booked',
       targetType: 'appointment', targetId: r.aptId,
       summary: `${r.clientName || 'Client'} booked ${svc.name || 'a service'} with ${staffName || 'staff'} — ${String(r.placedStartIso).slice(0, 16).replace('T', ' ')}${body.holdOnly ? ' (awaiting payment)' : ''}`,
-      actor: { type: 'user', name: r.clientName || null, role: 'client', via: source },
+      // Who actually booked it: the signed-in staff member, the renter, our server — or the client.
+      actor: trust === 'staff' && (body as any).__staffActor
+        ? { type: 'user', id: (body as any).__staffActor.uid || null, name: (body as any).__staffActor.name || 'Staff', role: (body as any).__staffActor.role || 'staff', via: source }
+        : trust === 'renter' ? { type: 'user', name: 'Renter', role: 'renter', via: source }
+        : trust === 'internal' ? { type: 'system' as const, name: `ClarityFlow (${source})` }
+        : { type: 'user', name: r.clientName || null, role: 'client', via: source },
     });
 
     // ── v16 — EVERY booking messages the client immediately. Confirmed
@@ -773,6 +778,17 @@ export async function POST(req: NextRequest) {
         const isHold = r.plan?.status === 'pending_payment';
         const checkInUrl = portalUrl;
         const svcLabel = svc.name || 'appointment';
+        // What the client should know, in plain words — from the business's own settings.
+        const tAny: any = tenant || {};
+        const windowH = Number((svc as any).cancellationWindowHours || tAny.cancellationWindowHours || 0);
+        const cxFee = Number((svc as any).customCancellationFee || tAny.cancellationFee || 0);
+        const graceMin = Number(tAny.lateArrivalGracePeriod || 0);
+        const money$ = (c: number) => `$${(c / 100).toFixed(2)}`;
+        const depCents = Number(r.plan?.depositCents) || 0;
+        const policyLines: string[] = [
+          windowH > 0 ? `Need to change or cancel? Do it from your visit link at least ${windowH} hours ahead${cxFee > 0 ? ` — inside that, a $${cxFee.toFixed(2)} cancellation fee applies` : ''}.` : 'Need to change or cancel? Do it any time from your visit link.',
+          `Running late? Tell us from the same link — we’ll let you know your options${graceMin > 0 ? ` (we can usually hold your time for ${graceMin} minutes)` : ''}.`,
+        ];
 
         // ── A RENTER'S booking is confirmed in the RENTER'S name ────────
         // With the two links a client actually needs: cancel (their own
@@ -830,6 +846,9 @@ export async function POST(req: NextRequest) {
               bodyLines: [
                 `Hi ${firstName} — we're holding ${whenStr} for your ${svcLabel}${staffName ? ` with ${staffName}` : ''}.`,
                 'Tap below to finish up (deposit and any forms) and lock it in. Your confirmation follows the moment it\'s done.',
+                ...(depCents > 0 ? [`Deposit: ${money$(depCents)} — it comes off your total on the day.`] : []),
+                (() => { const due = (trust && typeof body.holdUntil === 'string' && Date.parse(body.holdUntil) > Date.now()) ? new Date(body.holdUntil) : new Date(Date.now() + (Number(tAny.bookingMode?.holdMinutes) > 0 ? Number(tAny.bookingMode.holdMinutes) : 30) * 60000);
+                  return `We’re holding this time until ${due.toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZone: tAny.timezone || undefined })} — after that it goes back on sale.`; })(),
               ],
               cta: { label: 'Finish my booking', url: checkInUrl },
               footerNote: `Your spot is held for a limited time. Questions? Just reply or call — ${studioName}.`,
@@ -839,7 +858,9 @@ export async function POST(req: NextRequest) {
               title: "You're confirmed",
               bodyLines: [
                 `Hi ${firstName} — your ${svcLabel}${staffName ? ` with ${staffName}` : ''} is booked for ${whenStr}.`,
+                ...(depCents > 0 && trust && body.depositPaid === true ? [`Your ${money$(depCents)} deposit is received — it comes off your total on the day.`] : []),
                 'Show the code below when you arrive to check in.',
+                ...policyLines,
               ],
               bigCode: r.shortCode ? String(r.shortCode).toUpperCase() : undefined,
               cta: { label: 'Check in / manage my visit', url: portalUrl },
