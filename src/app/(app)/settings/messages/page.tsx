@@ -126,6 +126,20 @@ export default function MessageSettingsPage() {
           ))}
         </div>
       </header>
+      {/* When reminders go out — these were only readable by the daily job before; now they're yours to set. */}
+      <section aria-label="When reminders go out" className="mx-auto mt-4 max-w-2xl px-4">
+        <div className="space-y-3 rounded-3xl border bg-card p-5">
+          <p className="font-semibold">When reminders go out</p>
+          <label className="flex items-center justify-between gap-3 text-sm"><span>Send appointment reminders</span>
+            <input type="checkbox" className="h-5 w-5" disabled={!isMgr} checked={(selectedTenant as any)?.clientNotify?.enabled !== false} onChange={(e) => save('rem-on', 'clientNotify.enabled', e.target.checked, 'Reminders')} /></label>
+          <div className="flex flex-wrap items-center gap-2 text-sm"><span className="text-muted-foreground">Send them</span>
+            <select disabled={!isMgr} value={String((selectedTenant as any)?.clientNotify?.daysBefore ?? 1)} onChange={(e) => save('rem-days', 'clientNotify.daysBefore', Number(e.target.value), 'Reminder timing')} className="h-9 rounded-full border px-3">
+              {[[0, 'the same day'], [1, 'the day before'], [2, '2 days before'], [3, '3 days before'], [7, 'a week before']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+            <span className="text-muted-foreground">— in the morning.</span>
+          </div>
+          <p className="text-xs text-muted-foreground">Reminders include your policy wording, their visit link and anything still to do (forms or a deposit). Change the wording below.</p>
+        </div>
+      </section>
 
       <main className="max-w-2xl mx-auto px-4 py-6 space-y-3">
         {/* Quiet hours protect every kind at once — one setting instead of a
