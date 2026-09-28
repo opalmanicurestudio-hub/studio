@@ -278,6 +278,15 @@ export function useCancellationConfirm(
         }),
       });
 
+      // The client's visit link watches its check-in copy — mark it cancelled too,
+      // so nobody sees "your visit today" and turns up for a cancelled booking.
+      if (appointmentExists && (appointment as any).checkInToken) {
+        const tok = String((appointment as any).checkInToken);
+        const mirror = { status: 'cancelled', cancelledAt: now, studioCancelled: isStudioCancel, lateReply: null, studioAskedToMove: false };
+        batch.set(doc(firestore, 'appointmentCheckIns', tok), mirror, { merge: true });
+        batch.set(doc(firestore, `tenants/${tenantId}/appointmentCheckIns`, tok), mirror, { merge: true });
+      }
+
       // Always, for both entry points. set+merge rather than update: the
       // row is guaranteed to exist, but merge keeps this from being the
       // thing that fails a batch if it somehow does not.
