@@ -36,6 +36,7 @@
  *      returns already_enrolled rather than silently overwriting.
  */
 
+import { internalHeaders } from '@/lib/message-policy';
 import type { Firestore } from 'firebase-admin/firestore';
 import { nanoid } from 'nanoid';
 import { hasUsableCard as hasUsableCardCheck } from '@/lib/payments/has-usable-card';
@@ -107,7 +108,7 @@ export async function enrollMembership(
       try {
         const chargeRes = await fetch(`${appUrl}/api/stripe/charge-card`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...internalHeaders(String(`${appUrl}/api/stripe/charge-card`)) },
           body: JSON.stringify({
             tenantId,
             clientId,
@@ -246,7 +247,7 @@ export async function enrollPackage(
       try {
         const chargeRes = await fetch(`${appUrl}/api/stripe/charge-card`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...internalHeaders(String(`${appUrl}/api/stripe/charge-card`)) },
           body: JSON.stringify({
             tenantId,
             clientId,
