@@ -18,43 +18,43 @@ type Item = { title: string; meaning: string; href: string; words?: string };
 const T = (tab: string) => `/settings?tab=${tab}`;
 
 export const SETTINGS_INDEX: { question: string; icon: string; items: Item[] }[] = [
-  { question: 'How clients book', icon: '📅', items: [
-    { title: 'Your booking page', meaning: 'Choose its design (Classic or Studio) and preview it.', href: '/settings/booking', words: 'page design studio classic preview public website' },
-    { title: 'Booking policies', meaning: 'Deposits, cancellations, no-shows, rescheduling, late arrivals, how far ahead — and exactly what clients are told.', href: '/settings/policies', words: 'policy policies cancel cancellation no-show noshow late grace reschedule deposit refund credit window notice fee faq terms members limit' },
-    { title: 'Deposits & booking rules', meaning: 'Take a deposit when clients book, approve requests, and how far ahead they can book.', href: '/settings/booking', words: 'deposit hold approve request lead time advance release' },
-    { title: 'Page builder', meaning: 'The sections, photos and wording on your Classic booking page.', href: T('builder'), words: 'hero sections photos reviews theme layout' },
+  // ONE entry per place — no two entries lead to the same screen. Merged
+  // entries keep every search word, so nothing got harder to find.
+  { question: 'How clients book', icon: '', items: [
+    { title: 'Booking policies', meaning: 'Deposits, cancellations, no-shows, rescheduling, late arrivals, how far ahead clients can book — and exactly what clients are told.', href: '/settings/policies', words: 'policy policies cancel cancellation no-show noshow late grace reschedule deposit refund credit window notice fee faq terms members limit lead time advance release horizon hold' },
+    { title: 'How bookings come in', meaning: 'Book instantly, ask for your approval, or take a deposit first — plus card on file, deposits at the desk, blocked time and who can accept.', href: '/settings/booking#rules', words: 'instant approve approval request deposit required card on file desk block time authority accept guardian rebook' },
+    { title: 'Your booking page', meaning: 'Its design (Classic or Studio), the page builder, and a preview.', href: '/settings/booking#design', words: 'page design studio classic preview public website builder hero sections photos reviews theme layout' },
     { title: 'Services & prices', meaning: 'What clients can book, how long it takes and what it costs.', href: '/services', words: 'menu price duration add-ons' },
-    { title: 'Policies', meaning: 'Cancellations, late arrivals, no-shows and fees — in your own words.', href: T('policies'), words: 'cancellation no show late fee reschedule' },
   ] },
-  { question: 'How you get paid', icon: '💳', items: [
+  { question: 'How you get paid', icon: '', items: [
     { title: 'Payments & payouts', meaning: 'Connect Stripe so you can take cards, deposits and payouts to your bank.', href: T('payments'), words: 'stripe bank payout card connect' },
     { title: 'Card reader', meaning: 'Take in-person card payments with a reader.', href: T('terminal'), words: 'terminal tap to pay reader pos' },
-    { title: 'Missed payments & store credit', meaning: 'What happens when a payment fails, and store credit you give clients.', href: T('policies'), words: 'collections credit owed arrears recovery' },
+    { title: 'Money owed, credit & service recovery', meaning: 'Failed payments, store credit, and how far your team can go to make things right.', href: T('policies'), words: 'collections credit owed arrears recovery comp escalation refund apology goodwill store credit' },
   ] },
-  { question: 'What messages go out', icon: '✉️', items: [
+  { question: 'What messages go out', icon: '', items: [
     { title: 'Everything that runs automatically', meaning: 'Every message and automatic action, whether it’s working, and switches.', href: '/settings/automations', words: 'automation health reminders working needs setup' },
     { title: 'Message wording & timing', meaning: 'Change what confirmations and reminders say, and when they go.', href: '/settings/messages', words: 'reminder confirmation text sms email template wording' },
+    { title: 'Win back quiet clients', meaning: 'Gentle nudges to clients who are due or haven’t been in a while.', href: T('policies'), words: 'reconnect win back quiet lapsed nudge due missed renter campaigns texts' },
     { title: 'Message log', meaning: 'Every email and text that was sent, and whether it arrived.', href: '/message-log', words: 'sent delivered failed history' },
   ] },
-  { question: 'Your team & hours', icon: '👥', items: [
+  { question: 'Your team & hours', icon: '', items: [
     { title: 'Your team', meaning: 'People, roles, what they can do and their schedules.', href: '/staff', words: 'staff employees roles permissions availability' },
     { title: 'Opening hours', meaning: 'When the business is open.', href: T('hours'), words: 'hours open close holiday schedule' },
-    { title: 'Time clock', meaning: 'How the team clocks in and out.', href: T('timeclock'), words: 'clock in out timesheet pin' },
+    { title: 'Time clock', meaning: 'How the team clocks in and out.', href: T('timeclock'), words: 'clock in out timesheet pin geofence overtime' },
   ] },
-  { question: 'Your space & rentals', icon: '🪑', items: [
+  { question: 'Your space & rentals', icon: '', items: [
     { title: 'Locations', meaning: 'Your address and any other locations.', href: T('locations'), words: 'address location map' },
     { title: 'Booth rentals', meaning: 'Chairs and suites for rent, renters, leases and rent.', href: '/booths', words: 'booth chair suite rent renter lease tour' },
     { title: 'Check-in kiosk', meaning: 'The screen clients use to check themselves in.', href: T('kiosk'), words: 'kiosk check in station qr' },
-    { title: 'Guest comforts & Wi-Fi', meaning: 'Wi-Fi for guests, drinks and little extras.', href: T('experience'), words: 'wifi drinks refreshments hospitality' },
+    { title: 'Guest comforts & Wi-Fi', meaning: 'Wi-Fi for guests, drinks and little extras.', href: T('experience'), words: 'wifi drinks refreshments hospitality concierge' },
     { title: 'Floor map', meaning: 'A map of your space for the host screen.', href: '/settings/map', words: 'map floor tables stations' },
   ] },
-  { question: 'Your school', icon: '🎓', items: [
+  { question: 'Your school', icon: '', items: [
     { title: 'Academy', meaning: 'Courses, students, admissions, funding and your school website.', href: '/academy', words: 'school courses students admissions website funding' },
   ] },
-  { question: 'How your business looks', icon: '✨', items: [
+  { question: 'How your business looks', icon: '', items: [
     { title: 'Your business details', meaning: 'Name, logo, phone, email and address clients see.', href: T('profile'), words: 'name logo phone email address brand identity' },
     { title: 'How the app looks (Studio or Classic)', meaning: 'Warm and calm in your colour, or the classic look.', href: '/settings', words: 'look appearance theme studio classic colour color design app' },
-    { title: 'Booking page design', meaning: 'Classic (page builder) or Studio (warm, simple).', href: '/settings/booking', words: 'design look studio classic' },
   ] },
 ];
 
