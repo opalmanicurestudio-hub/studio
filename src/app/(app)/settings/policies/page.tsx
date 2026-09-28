@@ -174,6 +174,9 @@ export default function BookingPoliciesPage() {
             </Row>
             <Row label="Late arrivals, in your words"><Text field="lateArrivalPolicy" value={t.lateArrivalPolicy} label="Late arrival policy" placeholder="e.g. After 15 minutes we may need to shorten your service…" /></Row>
             <Row label="Missed appointments, in your words"><Text field="noShowPolicy" value={t.noShowPolicy} label="No-show policy" placeholder="e.g. Missed appointments are charged…" /></Row>
+            <Row label="Who can decide" note="When a client is running late, a provider is behind, or a payment is due. Owners, admins and managers can always decide; fees and provider changes stay with them.">
+              <Choice field="bookingPolicies.staffOpsLevel" value={t.bookingPolicies?.staffOpsLevel || 'decide_own'} label="Who can decide" options={[['decide_own', 'Staff decide for their own clients'], ['recommend', 'Staff can offer a reschedule only'], ['view', 'Staff view only']]} />
+            </Row>
             <Row label="Online check-in" note="Clients can tap “I’m here” on their visit link. Off: they check in at the front desk (running late and “on my way” still work).">
               <Choice field="bookingPolicies.onlineCheckIn" value={t.bookingPolicies?.onlineCheckIn !== false} label="Online check-in" options={[[true, 'On'], [false, 'Off — front desk only']]} />
             </Row>
