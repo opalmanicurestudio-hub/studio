@@ -53,6 +53,7 @@
  *   disposition: 'refund' | 'store_credit'
  */
 
+import { staffOrServer } from '@/lib/route-guard';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
@@ -121,6 +122,7 @@ export async function POST(req: NextRequest) {
     tenantId, clientId, appointmentId, disposition, staffId, reason,
     additionalCreditCents, additionalCreditReason,
   } = body;
+  if (!(await staffOrServer(req, String(tenantId || '')))) return NextResponse.json({ ok: false, error: 'Sign in to refund or credit a deposit.', code: 'unauthorized' }, { status: 401 });
 
   if (!tenantId || !clientId || !appointmentId || !disposition) {
     return NextResponse.json({ ok: false, error: 'Missing required fields' }, { status: 400 });
