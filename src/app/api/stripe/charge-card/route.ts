@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyStaffActor } from '@/lib/staff-auth';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
 
@@ -118,6 +119,15 @@ export async function POST(req: NextRequest) {
     checkoutSessionId = null,       // FIX: optional, forwarded into Stripe metadata + ledger
   } = parsed;
 
+  // ONLY staff of this business, or ClarityFlow's own server, may charge a
+  // client's saved card. (This route used to take any caller's word for it.)
+  {
+    const secret = process.env.CRON_SECRET;
+    const internal = !!secret && req.headers.get('x-cf-internal') === secret;
+    const staff = !internal && (req.headers.get('authorization') || '').toLowerCase().startsWith('bearer ')
+      ? await verifyStaffActor(req, String(tenantId || '')).then((a: any) => !!a?.ok).catch(() => false) : false;
+    if (!internal && !staff) return NextResponse.json({ ok: false, error: 'Sign in to take a card payment.', code: 'unauthorized' }, { status: 401 });
+  }
   if (!tenantId || !clientId || !amountCents || amountCents <= 0) {
     return NextResponse.json(
       { error: 'Missing tenantId, clientId, or amountCents' },
