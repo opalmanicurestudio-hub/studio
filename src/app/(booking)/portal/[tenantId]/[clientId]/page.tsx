@@ -354,156 +354,31 @@ export default function ClientPortalPage() {
     };
 
     const handleRescheduleConfirm = async (data: any) => {
-        if (!firestore || !tenantId || !client) return;
-
-        const { applyFee, feeAmount, paymentMethod, ...aptData } = data;
-        const now = new Date().toISOString();
-        const svc = services?.find(s => s.id === aptData.serviceId);
-
-        // Booking policies: the change cutoff and the change limit apply here too —
-        // checked BEFORE any fee is charged or anything is saved.
-        const moving: any = appointmentToReschedule || aptData;
-        const rule = checkChange(tenant, moving, 'client', svc);
-        if (!rule.allowed) {
-            if (rule.needsApproval && !moving.changeRequestedAt) {
-                try {
-                    const nRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
-                    await setDocCR(nRef, { id: nRef.id, userId: null, read: false, createdAt: now, type: 'change_request', link: 'pos',
-                        message: `${client?.name || 'A client'} wants to move their ${svc?.name || 'appointment'} again (already moved ${rule.count} time${rule.count === 1 ? '' : 's'}) — please move it for them.` });
-                } catch { /* the message below still tells them what to do */ }
-            }
-            toast({ variant: 'destructive', title: rule.needsApproval ? 'This one needs our OK' : 'Can’t move it online', description: rule.reason || '' });
-            return;
-        }
-
-        // v13 — CRITICAL FIX: previously, both 'settle_now' (charge card on
-        // file) and 'new_card' wrote a ledger income transaction with ZERO
-        // Stripe API call anywhere in this function — the fee was recorded
-        // as collected revenue whether or not any money actually moved.
-        // This is now a real charge attempt via the same
-        // /api/stripe/charge-card route (mode: 'auto', same pattern used
-        // for every other "client not present" charge in this codebase)
-        // BEFORE the batch commits, so the ledger only ever reflects what
-        // genuinely happened.
-        //
-        // 'new_card' is deliberately NOT wired to a real charge here — the
-        // dialog collects it via raw, untokenized text inputs, and
-        // charging that directly would mean handling a card number outside
-        // Stripe's Elements/tokenization flow, a real PCI problem. Until
-        // that's rebuilt with a proper Stripe Elements form (the same
-        // pattern CheckoutHub's EmbeddedCardForm already uses correctly),
-        // 'new_card' falls back to add_to_balance instead of silently
-        // faking success.
-        let actualPaymentMethod = paymentMethod;
-        let chargeSucceeded = false;
-        let stripePaymentIntentId: string | undefined;
-
-        if (applyFee && feeAmount > 0 && paymentMethod === 'settle_now') {
-            try {
-                const chargeRes = await fetch('/api/stripe/charge-card', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        tenantId,
-                        clientId: client.id,
-                        amountCents: Math.round(feeAmount * 100),
-                        description: `Reschedule fee — ${svc?.name || 'Service'}`,
-                        category: 'Adjustment Fee',
-                        appointmentId: aptData.id,
-                        reason: 'Guest self-service reschedule fee',
-                        mode: 'auto',
-                        kind: 'arrears_fee',
-                    }),
-                });
-                const chargeData = await chargeRes.json().catch(() => ({ ok: false }));
-                if (chargeData.ok) {
-                    chargeSucceeded = true;
-                    stripePaymentIntentId = chargeData.paymentIntentId;
-                }
-            } catch {
-                /* falls through to add_to_balance below, same as a declined card */
-            }
-            if (!chargeSucceeded) actualPaymentMethod = 'add_to_balance';
-        } else if (applyFee && feeAmount > 0 && paymentMethod === 'new_card') {
-            // See comment above — not a safe charge path yet. Recorded as
-            // owed, never as already-collected revenue.
-            actualPaymentMethod = 'add_to_balance';
-        }
-
-        setIsProcessing(true);
-        const batch = writeBatch(firestore);
-        const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, aptData.id);
-
-        const updates: any = {
-            startTime: aptData.startTime,
-            endTime: aptData.endTime,
-            ...chainAfterMove(moving),   // the original time + how many times it has moved
-        };
-
-        if (applyFee && feeAmount > 0) {
-            if (actualPaymentMethod === 'settle_now' && chargeSucceeded) {
-                const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-                batch.set(txnRef, {
-                    id: txnRef.id,
-                    date: now,
-                    description: `Reschedule Recovery: ${aptData.clientName}`,
-                    clientOrVendor: aptData.clientName || 'Client',
-                    clientId: client.id,
-                    type: 'income',
-                    context: 'Business',
-                    category: 'Adjustment Fee',
-                    amount: feeAmount,
-                    paymentMethod: 'Card on File (Stripe)',
-                    stripePaymentIntentId,
-                    hasReceipt: true,
-                    appointmentId: aptData.id,
-                    tenantId
-                });
-            } else if (actualPaymentMethod === 'add_to_session') {
-                updates['checkoutState.additionalCharge'] = increment(feeAmount);
-            } else {
-                const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
-                batch.update(clientRef, {
-                    outstandingBalance: increment(feeAmount),
-                    unpaidFees: arrayUnion({
-                        feeId: nanoid(),
-                        appointmentId: aptData.id,
-                        appointmentDate: safeDate(aptData.startTime).toISOString(),
-                        feeAmount: feeAmount,
-                        reason: "Late Reschedule Protocol Fee"
-                    })
-                });
-            }
-        }
-
-        batch.update(appointmentRef, updates);
-
-        // --- INTELLIGENCE ALERT DISPATCH ---
-        const adminsAndOwners = (staff || []).filter(s => s.role === 'admin' || s.role === 'owner');
-        const recipients = new Set(adminsAndOwners.map(s => s.id));
-        if (aptData.staffId) recipients.add(aptData.staffId);
-
-        recipients.forEach(rid => {
-            const notifRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
-            batch.set(notifRef, {
-                id: notifRef.id,
-                userId: rid,
-                type: 'reschedule',
-                message: `Reschedule: ${client.name} moved ${svc?.name || 'Session'} to ${format(safeDate(aptData.startTime), 'MMM d @ h:mm a')}`,
-                link: '/planner',
-                createdAt: now,
-                read: false
-            });
-        });
-
+        // Moves go through the server now (/api/appt), like the visit link: your
+        // change rules, the conflict check, the reschedule fee, the change history
+        // and the client's visit link all update in one place.
+        if (!tenantId || !appointmentToReschedule) return;
+        const moving: any = appointmentToReschedule;
+        const key = moving.checkInToken || moving.manageToken;
+        if (!key) { toast({ variant: 'destructive', title: 'Please call us to move this one' }); return; }
+        const tz = (tenant as any)?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const parts = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date(data.startTime));
+        const get = (t: string) => parts.find((x) => x.type === t)?.value || '';
+        const newDate = `${get('year')}-${get('month')}-${get('day')}`;
+        const newTime = `${get('hour') === '24' ? '00' : get('hour')}:${get('minute')}`;
         try {
-            await batch.commit();
-            toast({ title: "Session Shifted", description: applyFee ? "Protocol adjustment applied to ledger." : "Agenda updated." });
+            const res = await fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'reschedule', tenantId, apptId: moving.id, k: key, newDate, newTime }) });
+            const d = await res.json().catch(() => ({}));
+            if (!d?.ok) {
+                toast({ variant: 'destructive', title: d?.requested ? 'We’ll be in touch' : 'Couldn’t move it', description: d?.error || 'Please try another time, or call us.' });
+                if (d?.requested) setAppointmentToReschedule(null);
+                return;
+            }
+            toast({ title: 'Moved', description: `You’re now booked for ${d.whenLabel}${Number(d.feeApplied) > 0 ? ` — a $${Number(d.feeApplied).toFixed(2)} reschedule fee was added to your balance` : ''}.` });
             setAppointmentToReschedule(null);
-        } catch (e) {
-            toast({ variant: 'destructive', title: "Process Error" });
-        } finally {
-            setIsProcessing(false);
+        } catch {
+            toast({ variant: 'destructive', title: 'Couldn’t move it', description: 'Check your connection and try again, or call us.' });
         }
     };
 
