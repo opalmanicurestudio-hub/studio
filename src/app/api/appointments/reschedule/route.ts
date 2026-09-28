@@ -120,12 +120,13 @@ export async function POST(req: NextRequest) {
   batch.set(aRef, {
     startTime: start.toISOString(), endTime: end.toISOString(), staffId, ...(who?.name ? { staffName: who.name } : {}),
     rescheduledFromTime: appt.startTime, rescheduleCount: FieldValue.increment(1), originalStartTime: chainAfterMove(appt).originalStartTime,
-    ...(rule.staffNote ? { lastChangePastPolicy: rule.staffNote } : {}), changeRequestedAt: null, lastRescheduledAt: nowIso, lastRescheduledBy: actor.uid || actor.name || 'staff',
+    ...(rule.staffNote ? { lastChangePastPolicy: rule.staffNote } : {}), changeRequestedAt: null,
+    studioAskedToMove: false, lateReply: null, lateTimeMinutes: null, clientCheckInStatus: null, clientLateMinutes: null, clientEtaAt: null, etaAt: null, clientLateNote: null, clientTrip: null, lastRescheduledAt: nowIso, lastRescheduledBy: actor.uid || actor.name || 'staff',
     ...(['requested', 'pending_payment', 'cancelled'].includes(appt.status) ? {} : { status: 'confirmed' }), checkInStatus: 'pending',
     ...(applyFee ? { rescheduleFeeApplied: fee } : {}),
     rescheduleAuditTrail: FieldValue.arrayUnion({ id: auditId, fromTime: appt.startTime, toTime: start.toISOString(), at: nowIso, byId: actor.uid || null, byName: actor.name || null, feeApplied: applyFee ? fee : 0, ...(reason ? { overrode: reason } : {}) }),
   }, { merge: true });
-  if (appt.checkInToken) batch.set(db.doc(`appointmentCheckIns/${appt.checkInToken}`), { startTime: start.toISOString(), endTime: end.toISOString(), staffId }, { merge: true });
+  if (appt.checkInToken) batch.set(db.doc(`appointmentCheckIns/${appt.checkInToken}`), { studioAskedToMove: false, lateReply: null, startTime: start.toISOString(), endTime: end.toISOString(), staffId }, { merge: true });
   if (appt.clientId) batch.set(db.doc(`${T}/clients/${appt.clientId}`), { rescheduleCount: FieldValue.increment(1), ...(applyFee ? { outstandingBalance: FieldValue.increment(fee), unpaidFees: FieldValue.arrayUnion({ feeId: auditId, appointmentId, appointmentDate: nowIso, feeAmount: fee, reason: 'reschedule_fee' }) } : {}) }, { merge: true });
   await batch.commit();
 
