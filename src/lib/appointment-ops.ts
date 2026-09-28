@@ -105,3 +105,25 @@ export function providerDelayImpact(appts: any[], freeAt: Date, durOf: (a: any) 
   }
   return out;
 }
+
+// ── SERVICE RUNNING OVER (the service timer) ─────────────────────────────────
+/** How far a service in progress is past its planned finish. */
+export function serviceOverrun(a: any, plannedMinutes: number, now: Date = new Date()): { overMin: number; plannedEnd: Date } | null {
+  const st = String(a?.status || ''); if (st !== 'servicing' && st !== 'in_service') return null;
+  const s = Date.parse(a?.actualStartTime || a?.serviceStartTime || ''); if (!Number.isFinite(s)) return null;
+  const plannedEnd = new Date(s + Math.max(5, plannedMinutes) * 60000);
+  return { overMin: Math.max(0, Math.round((now.getTime() - plannedEnd.getTime()) / 60000)), plannedEnd };
+}
+/** Who's affected if this provider needs `extraMin` more (their later bookings today). */
+export function overrunImpact(allToday: any[], inService: any, extraMin: number, now: Date = new Date()) {
+  const upcoming = (allToday || []).filter((x: any) => x.staffId === inService?.staffId && x.id !== inService?.id
+    && ['confirmed', 'pending_payment', 'deposit_pending', 'waiting', 'checked_in'].includes(String(x.status || '')) && Date.parse(x.startTime) >= now.getTime() - 60 * 60000);
+  const durOf = (x: any) => Math.max(15, Math.round((Date.parse(x.endTime || x.startTime) - Date.parse(x.startTime)) / 60000) || 60);
+  return providerDelayImpact(upcoming, new Date(now.getTime() + extraMin * 60000), durOf);
+}
+/** Who can send the "running over" message (Booking policies → overrunMessages). */
+export const overrunMode = (tenant: any): 'staff' | 'manager' | 'auto' => (['staff', 'manager', 'auto'].includes(tenant?.bookingPolicies?.overrunMessages) ? tenant.bookingPolicies.overrunMessages : 'staff');
+export const canSendOverrun = (tenant: any, role: string | null | undefined) => {
+  const r = String(role || '').toLowerCase(); if (MANAGER_ROLES.includes(r)) return true;
+  return overrunMode(tenant) !== 'manager' && opsLevelOf(tenant) !== 'view';
+};
