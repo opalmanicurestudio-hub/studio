@@ -235,6 +235,8 @@ const buildTimelineEvents = (opts: {
   appointment: any; transactions: any[]; cancellationEvent: any;
   depositDecision: any; auditLogEntries: any[]; staff: any[];
   messages?: any[];
+  /** Activity-log entries for this appointment (tenants/{t}/auditLogs, targetId): who did what, and why. */
+  activity?: any[];
 }): TimelineEvent[] => {
   const { appointment, transactions, cancellationEvent, depositDecision, auditLogEntries, staff } = opts;
   if (!appointment) return [];
@@ -368,6 +370,17 @@ const buildTimelineEvents = (opts: {
     `Incident logged — ${appointment.incident.type}`, appointment.incident.severity,
     appointment.incident.severity === 'Severe' ? 'bad' : 'warn');
 
+  // WHO DID WHAT — every activity-log entry for this appointment (deposits taken
+  // at the desk, waivers and their reasons, desk check-ins, late decisions,
+  // reschedules, removals…). The summary is the record; the actor is shown.
+  for (const a of (opts.activity || [])) {
+    const act = String(a.action || '');
+    const icon = /deposit|fee|charge|refund|credit/.test(act) ? Wallet : /reschedul|move|late/.test(act) ? CalendarClock : /check.?in|arriv/.test(act) ? UserCheck
+      : /cancel|remov|waiv|no.?show/.test(act) ? Ban : /link|sent|message/.test(act) ? Send : /book/.test(act) ? CalendarClock : Activity;
+    const tone: 'good' | 'warn' | 'bad' | undefined = /paid|confirmed|charged|arrived|check/.test(act) ? 'good' : /waiv|late|link|override/.test(act) ? 'warn' : /cancel|remov|declin|fail/.test(act) ? 'bad' : undefined;
+    const who = a.actor?.name ? `by ${a.actor.name}${a.actor.via ? ` · ${a.actor.via}` : ''}` : undefined;
+    push(a.at || a.createdAt, icon, String(a.summary || act.replace(/[._]/g, ' ')), who, tone);
+  }
   const cancelAuditEntry = (auditLogEntries || []).find((a: any) => a.entityType === 'appointment_cancellation');
   if (cancelAuditEntry) {
     push(cancelAuditEntry.timestamp, Ban, cancelAuditEntry.summary || 'Appointment cancelled', undefined, 'bad');
@@ -1581,6 +1594,12 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     return query(collection(firestore, `tenants/${tenantId}/auditLog`), where('entityId', '==', appointment.id));
   }, [firestore, tenantId, appointment?.id]);
   const { data: auditLogDocs } = useCollection<any>(auditLogQuery);
+  // The activity log everyone else writes to (plural collection, targetId).
+  const activityQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId || !appointment?.id) return null;
+    return query(collection(firestore, `tenants/${tenantId}/auditLogs`), where('targetId', '==', appointment.id));
+  }, [firestore, tenantId, appointment?.id]);
+  const { data: activityDocs } = useCollection<any>(activityQuery);
 
   // v16 — every email/text this appointment triggered, live. Single
   // equality filter — no composite index needed.
@@ -1597,8 +1616,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const timelineEvents = useMemo(() => buildTimelineEvents({
     appointment, transactions: transactions || [], cancellationEvent,
     depositDecision: latestDepositDecision, auditLogEntries: auditLogDocs || [], staff: staff || [],
-    messages,
-  }), [appointment, transactions, cancellationEvent, latestDepositDecision, auditLogDocs, staff, messages]);
+    messages, activity: activityDocs || [],
+  }), [appointment, transactions, cancellationEvent, latestDepositDecision, auditLogDocs, staff, messages, activityDocs]);
 
   // v18 — STATUS AT A GLANCE. The four questions the front desk asks about
   // every appointment, answered without opening a single drawer. Color is
