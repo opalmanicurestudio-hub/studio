@@ -16,6 +16,7 @@
 //        capped, and rate-limited per tenant).
 // GET  ?tenantId=&token= — read one check-in (kiosk status screens).
 
+import { resolvePolicy } from '@/lib/booking-policies';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 
@@ -24,6 +25,7 @@ const ALLOWED_FIELDS = [
   'appointmentId', 'clientId', 'clientName', 'status', 'checkInToken',
   'checkedInAt', 'partySize', 'notes', 'serviceIds', 'staffId', 'source',
   'checkInStatus', 'lateTimeMinutes', // client self-service status ("on my way", "running late", "arrived")
+  'lateNote',                         // optional note with "running late"
 ];
 
 export async function POST(req: NextRequest) {
@@ -45,6 +47,35 @@ export async function POST(req: NextRequest) {
     await rlRef.set({ at: [...stamps, Date.now()].slice(-200) }, { merge: true });
 
     // Shape-validate: only allowed fields, strings capped.
+    // The token must belong to the booking named — otherwise anyone could mark
+    // someone else's appointment as arrived or running late.
+    let appt: any = null;
+    if (body.appointmentId) {
+      const snap = await db.doc(`tenants/${tenantId}/appointments/${String(body.appointmentId).slice(0, 120)}`).get();
+      appt = snap.exists ? (snap.data() as any) : null;
+      if (!appt || appt.checkInToken !== token) return NextResponse.json({ ok: false, error: 'This link doesn’t match that appointment.' }, { status: 403 });
+    }
+
+    // ── TRIP SHARING (opt-in; ends at check-in). We keep only HOW FAR and a
+    // rough ETA — never the client's coordinates.
+    if (body.trip !== undefined && appt) {
+      const aRef = db.doc(`tenants/${tenantId}/appointments/${String(body.appointmentId)}`);
+      if (body.trip === null || body.trip === 'stop') { await aRef.set({ clientTrip: null }, { merge: true }); return NextResponse.json({ ok: true, sharing: false }); }
+      const lat = Number(body.trip?.lat), lng = Number(body.trip?.lng);
+      const home = ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.studioLocation;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return NextResponse.json({ ok: false, error: 'Location unavailable.' }, { status: 400 });
+      if (appt.clientTrip?.at && Date.now() - Date.parse(appt.clientTrip.at) < 30000) return NextResponse.json({ ok: true, sharing: true, throttled: true });
+      let distanceKm: number | null = null, etaMin: number | null = null;
+      if (home && Number.isFinite(Number(home.lat)) && Number.isFinite(Number(home.lng))) {
+        const R = 6371, toR = (d: number) => d * Math.PI / 180, dLat = toR(lat - home.lat), dLng = toR(lng - home.lng);
+        const h = Math.sin(dLat / 2) ** 2 + Math.cos(toR(home.lat)) * Math.cos(toR(lat)) * Math.sin(dLng / 2) ** 2;
+        distanceKm = Math.round(2 * R * Math.asin(Math.sqrt(h)) * 10) / 10;
+        etaMin = Math.max(1, Math.round(distanceKm * 1.3 / 0.5));   // road ≈ 1.3× straight line, ~30 km/h in town
+      }
+      await aRef.set({ clientTrip: { distanceKm, etaMin, at: new Date().toISOString() } }, { merge: true });
+      return NextResponse.json({ ok: true, sharing: true, distanceKm, etaMin });
+    }
+
     const clean: any = { tenantId, checkInToken: token, updatedAt: new Date().toISOString() };
     for (const k of ALLOWED_FIELDS) {
       if (body[k] === undefined) continue;
@@ -56,6 +87,7 @@ export async function POST(req: NextRequest) {
     // Only default checkedInAt on an actual check-in (kiosk writes include
     // `status`) — a status-only update ("on my way") must NOT stamp arrival.
     if (!clean.checkedInAt && clean.status) clean.checkedInAt = new Date().toISOString();
+    if (clean.lateTimeMinutes !== undefined) clean.lateTimeMinutes = Math.max(0, Math.min(120, Math.round(Number(clean.lateTimeMinutes) || 0)));
 
     // Scoped write (the target state) + legacy mirror (compatibility).
     await db.doc(`tenants/${tenantId}/appointmentCheckIns/${token}`).set(clean, { merge: true });
@@ -88,6 +120,31 @@ export async function POST(req: NextRequest) {
     }
     await db.doc(`appointmentCheckIns/${token}`).set(clean, { merge: true }); // TODO: remove after legacy rule closes
 
+    // What the client should know back — their grace period (Booking policies).
+    let reply: any = {};
+    if (appt && clean.checkInStatus) {
+      const aRef = db.doc(`tenants/${tenantId}/appointments/${String(body.appointmentId)}`);
+      const t: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      const P = resolvePolicy(t);
+      const st = String(clean.checkInStatus); const mins = Number(clean.lateTimeMinutes) || 0;
+      const grace = Number(P.late.graceMinutes.value) || 0;
+      const nowIso = new Date().toISOString();
+      const etaAt = st === 'running_late' && appt.startTime ? new Date(Date.parse(appt.startTime) + mins * 60000).toISOString() : null;
+      if (!appt.isRenterBooking) await aRef.set({ clientCheckInStatus: st, clientStatusAt: nowIso,
+        ...(st === 'running_late' ? { clientLateMinutes: mins, clientEtaAt: etaAt, clientLateNote: clean.lateNote || null } : {}),
+        ...(st === 'arrived' ? { clientTrip: null } : {}) }, { merge: true });
+      else if (st === 'arrived') await aRef.set({ clientTrip: null }, { merge: true });
+      reply = { graceMinutes: grace, withinGrace: st !== 'running_late' || mins <= grace, lateFee: Number(P.late.fee.value) || 0 };
+      // Tell the studio (renters are told above, in their own name).
+      if (!appt.isRenterBooking && (st === 'running_late' || st === 'on_my_way')) {
+        const when = appt.startTime ? new Date(appt.startTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: t.timezone || undefined }) : '';
+        const who = appt.clientName || 'Your client';
+        const n = db.collection(`tenants/${tenantId}/notifications`).doc();
+        await n.set({ id: n.id, userId: appt.staffId || null, read: false, createdAt: nowIso, type: st === 'running_late' ? 'running_late' : 'on_my_way', link: 'pos', appointmentId: String(body.appointmentId),
+          message: st === 'running_late' ? `${who} is running ~${mins} min late for ${when}${mins > grace ? ` — past your ${grace}-minute grace` : ''}${clean.lateNote ? `: “${clean.lateNote}”` : ''}` : `${who} is on the way for ${when}` }).catch(() => {});
+      }
+    }
+
     // Owner-visible audit trail for self-service status changes.
     if (clean.checkInStatus) {
       try {
@@ -102,7 +159,7 @@ export async function POST(req: NextRequest) {
       } catch { /* audit failures are non-fatal */ }
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, ...reply });
   } catch (err) {
     console.error('[checkins] POST failed', err);
     return NextResponse.json({ ok: false, error: 'Could not record check-in.' }, { status: 500 });
