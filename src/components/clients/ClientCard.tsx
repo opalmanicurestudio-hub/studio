@@ -49,7 +49,7 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
 
     const hasDebt = safeBalance > 0;
     const isMember = !!(client.activeMembershipId || client.subscription);
-    const hasCardOnFile = !!client.cardOnFile?.token;
+    const hasCardOnFile = !!(client.cardOnFile?.token || client.cardOnFile?.paymentMethodId);
 
     return (
         <Card className={cn(
