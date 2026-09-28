@@ -659,13 +659,19 @@ export async function POST(req: NextRequest) {
         checkInToken: token, shortCode,
         checkInStatus: body.checkInStatus === 'arrived' ? 'arrived' : 'pending',
         depositAmountCents: plan.depositCents,
+        // Staff may hold an unpaid booking for longer than the online hold (e.g.
+        // "until the end of today" while the deposit goes on today's bill).
+        ...(trust && plan.status === 'pending_payment' && typeof body.holdUntil === 'string' && Date.parse(body.holdUntil) > Date.now()
+          ? { paymentDueAt: new Date(Math.min(Date.parse(body.holdUntil), Date.now() + 7 * 864e5)).toISOString() } : {}),
         // v14 — depositPaid:true = the caller is collecting the deposit at
         // booking time (card on file / terminal). Anything else that owes a
         // deposit starts 'pending'.
+        // Only staff/our server may say the deposit was collected — otherwise
+        // anyone could mark it paid and have it taken off their bill.
         depositStatus: plan.depositCents > 0
-          ? (body.depositPaid === true ? 'paid' : 'pending')
+          ? (trust && body.depositPaid === true ? 'paid' : 'pending')
           : 'none',
-        ...(body.depositPaid === true && plan.depositCents > 0
+        ...(trust && body.depositPaid === true && plan.depositCents > 0
           ? { depositPaidAt: nowIso } : {}),
         // ── Round V: the booking plan, recorded on the appointment itself ──
         // Written down rather than recomputed, so the queue, the emails, and
