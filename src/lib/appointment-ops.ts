@@ -49,6 +49,13 @@ export function opsStatus(a: any, now: Date = new Date(), opts: { graceMinutes?:
   if ((po?.status === 'declined' || po?.status === 'expired') && !a?.lateReply) return v('decision_needed', po.status === 'declined' ? 'Declined the provider change' : 'Provider offer no longer available', 'Decide what happens next — they’ll be told.', 'alert', true);
   if (a?.studioAskedToMove) return v('rescheduling_offered', 'Rescheduling offered', 'Waiting for them to choose a new time.', 'info');
   if (Number(a?.providerLateMinutes) > 0) return v('provider_late', `Provider running ${a.providerLateMinutes} min late`, 'Their guest may need an update.', 'warn', true);
+  const lc = a?.lateChoices;
+  if (lc && !lc.choice && ci === 'running_late') {
+    if (lc.status === 'prepared') return v('decision_needed', 'Options ready to send', 'They’re past the grace time — send them their choices, or decide yourself.', 'alert', true);
+    if (lc.status === 'sent') return Date.parse(lc.replyBy || '') < now.getTime()
+      ? v('decision_needed', 'No reply to their options', 'They haven’t chosen — decide what happens.', 'alert', true)
+      : v('running_late', 'Options sent — waiting for their choice', null, 'warn');
+  }
   if (ci === 'running_late') {
     const grace = Number(opts.graceMinutes) || 0;
     if (eta && now.getTime() > eta.getTime() + 5 * 60000) return v('eta_overdue', `ETA overdue (was ${hm(eta)})`, 'Their stated arrival time has passed — reassess.', 'alert', true);
