@@ -24,6 +24,7 @@
 // Every action stamps the appointment and writes the audit log — client
 // self-service leaves the same paper trail as front-desk service.
 
+import { resolvePolicy } from '@/lib/booking-policies';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
@@ -93,7 +94,8 @@ export async function POST(req: NextRequest) {
     // allow is a cancellation or no-show you avoided. Only cancellation
     // (money walking out) uses the longer fee window, and even then the
     // fee engine recovers the cost rather than forcing a phone call.
-    const rescheduleCutoffHours = Number.isFinite(Number(cfg.rescheduleCutoffHours)) ? Math.max(0, Number(cfg.rescheduleCutoffHours)) : 2;
+    // The one change cutoff, from Booking policies (reads this older setting too).
+    const rescheduleCutoffHours = Math.max(0, Number(resolvePolicy(tDoc).change.cutoffHours.value) || 0);
     const tzOffset = Number.isFinite(Number(cfg.tzOffsetMinutes)) ? Number(cfg.tzOffsetMinutes) : -300;
     // An IANA zone wins where the studio has set one; otherwise the legacy
     // offset above still drives everything, unchanged.
