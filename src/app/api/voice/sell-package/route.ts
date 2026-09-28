@@ -38,6 +38,7 @@
  * fires mid-call, not staff-triggered.
  */
 
+import { internalHeaders } from '@/lib/message-policy';
 import { NextRequest, NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -138,7 +139,7 @@ export async function POST(req: NextRequest) {
         // incorrectly park a declined purchase attempt as a debt.
         const chargeRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com'}/api/stripe/charge-card`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...internalHeaders(String(`${process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com'}/api/stripe/charge-card`)) },
           body: JSON.stringify({
             tenantId,
             clientId,
