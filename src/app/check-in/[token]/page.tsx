@@ -27,6 +27,7 @@
  *   day-of arrival (Hello + status buttons)
  */
 
+import { VisitShell, VisitCard, VisitButton, VisitMuted, brandOf, type VisitBrand } from '@/components/booking/VisitShell';
 import { DayOfView } from '@/components/booking/DayOfView';
 import { resolvePolicy } from '@/lib/booking-policies';
 import React, { useState, useMemo, useEffect } from 'react';
@@ -152,7 +153,9 @@ const CancelledView = ({
     token,
     completion,
     firestore,
+    brand,
 }: {
+    brand: VisitBrand;
     reason?: string;
     tenantId?: string;
     token?: string;
@@ -212,55 +215,32 @@ const CancelledView = ({
         setFeeSettled(true);
     };
 
+    const why = String(reason || '').replace(/_/g, ' ').trim();
+    const tel = brand.phone ? `tel:${String(brand.phone).replace(/[^\d+]/g, '')}` : null;
     return (
-        <ViewContainer>
-            <ViewHeader title="Session Void" subtitle="Protocol cancellation finalized" icon={XCircle} />
-            <CardContent className="p-10 md:p-16 text-center space-y-8">
-                <div className="w-24 h-24 bg-destructive/5 rounded-[2.5rem] flex items-center justify-center mx-auto opacity-40">
-                    <XCircle className="w-12 h-12 text-destructive" />
-                </div>
-                <div className="space-y-2 text-center">
-                    <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900 text-center">Record Voided</h3>
-                    <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-xs mx-auto text-center">
-                        This appointment is no longer active. Reason: <strong>{reason?.replace(/_/g, ' ') || 'Protocol Change'}</strong>.
-                    </p>
-                </div>
-
-                {owesFee && (
-                    <div className="p-6 md:p-8 rounded-[2rem] border-4 border-amber-200 bg-amber-50 space-y-5 text-left">
-                        <div className="text-center space-y-1">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Cancellation Fee Due</p>
-                            <p className="text-3xl font-black text-amber-700 font-mono tracking-tighter">${feeAmount.toFixed(2)}</p>
-                        </div>
-                        {clientSecret && stripePromise ? (
-                            <EmbeddedCheckoutProvider stripe={stripePromise} options={{ clientSecret, onComplete: handleFeePaid }}>
-                                <EmbeddedCheckout />
-                            </EmbeddedCheckoutProvider>
-                        ) : (
-                            <>
-                                {paymentError && <p className="text-xs font-bold text-destructive text-center">{paymentError}</p>}
-                                <Button
-                                    onClick={handleStartPayment}
-                                    disabled={isStartingPayment}
-                                    className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl bg-amber-600 hover:bg-amber-700"
-                                >
-                                    {isStartingPayment ? <Loader className="w-4 h-4 animate-spin" /> : 'Pay Cancellation Fee'}
-                                </Button>
-                            </>
-                        )}
-                    </div>
-                )}
-                {feeSettled && (
-                    <div className="p-4 rounded-2xl bg-green-50 border-2 border-green-200">
-                        <p className="text-xs font-black uppercase text-green-700">Fee paid — thank you</p>
-                    </div>
-                )}
-
-                <Button asChild className="w-full h-16 rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-xl">
-                    <Link href="/">Browse Availability</Link>
-                </Button>
-            </CardContent>
-        </ViewContainer>
+        <VisitShell brand={brand} title={<>This appointment is <b>cancelled</b></>} subtitle={why && !/protocol|void/i.test(why) ? `Reason: ${why}` : undefined}>
+            {owesFee && (
+                <VisitCard tone="warn">
+                    <p className="text-[15px] font-semibold">Cancellation fee: ${feeAmount.toFixed(2)}</p>
+                    {clientSecret && stripePromise ? (
+                        <EmbeddedCheckoutProvider stripe={stripePromise} options={{ clientSecret, onComplete: handleFeePaid }}>
+                            <EmbeddedCheckout />
+                        </EmbeddedCheckoutProvider>
+                    ) : (
+                        <>
+                            {paymentError && <p className="text-[13px] font-semibold text-red-700">{paymentError}</p>}
+                            <VisitButton onClick={handleStartPayment} disabled={isStartingPayment}>{isStartingPayment ? 'Opening…' : 'Pay the fee'}</VisitButton>
+                        </>
+                    )}
+                </VisitCard>
+            )}
+            {feeSettled && <VisitCard tone="ok"><p className="text-[15px]">Fee paid — thank you.</p></VisitCard>}
+            <VisitCard>
+                <p className="text-[15px]">We’d love to see you another time.</p>
+                {brand.bookHref && <VisitButton href={brand.bookHref}>Book a new time</VisitButton>}
+                {tel && <VisitButton quiet href={tel}>Call us</VisitButton>}
+            </VisitCard>
+        </VisitShell>
     );
 };
 
@@ -386,33 +366,15 @@ const NotificationPreferencesView = ({
 // TODAY, corrupting whatever no-show/attendance reporting reads that
 // field. This is a read-only, dead-end view — it doesn't write anything,
 // just stops the client from taking an action that no longer makes sense.
-const StaleAppointmentView = ({ tenantName, tenantPhone }: { tenantName?: string; tenantPhone?: string }) => (
-    <ViewContainer>
-        <ViewHeader title="Appointment Has Passed" subtitle="This link is no longer actionable" icon={Clock} />
-        <CardContent className="p-10 md:p-16 text-center space-y-8">
-            <div className="w-24 h-24 bg-muted/40 rounded-[2.5rem] flex items-center justify-center mx-auto opacity-60">
-                <Clock className="w-12 h-12 text-muted-foreground" />
-            </div>
-            <div className="space-y-2 text-center">
-                <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900 text-center">This appointment time has passed</h3>
-                <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-xs mx-auto text-center">
-                    If you still need this service, please book a new time{tenantName ? ` with ${tenantName}` : ''} or give us a call.
-                </p>
-            </div>
-            <div className="space-y-3">
-                <Button asChild className="w-full h-16 rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-xl">
-                    <Link href="/">Browse Availability</Link>
-                </Button>
-                {tenantPhone && (
-                    <Button asChild variant="outline" className="w-full h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm">
-                        <a href={`tel:${tenantPhone}`}><Phone className="w-4 h-4 mr-2" /> Call {tenantPhone}</a>
-                    </Button>
-                )}
-            </div>
-        </CardContent>
-    </ViewContainer>
+const StaleAppointmentView = ({ brand }: { brand: VisitBrand; tenantName?: string; tenantPhone?: string }) => (
+    <VisitShell brand={brand} title={<>This time has <b>passed</b></>} subtitle="This link was for an earlier appointment.">
+        <VisitCard>
+            <p className="text-[15px]">If you still need us, book a new time or get in touch.</p>
+            {brand.bookHref && <VisitButton href={brand.bookHref}>Book a new time</VisitButton>}
+            {brand.phone && <VisitButton quiet href={`tel:${String(brand.phone).replace(/[^\d+]/g, '')}`}>Call us</VisitButton>}
+        </VisitCard>
+    </VisitShell>
 );
-
 // v8 — NEW: the mirror image of StaleAppointmentView. Nothing previously
 // stopped a client from tapping "I Have Arrived" days before their actual
 // appointment date — the arrival buttons showed regardless of how far out
@@ -427,55 +389,30 @@ const StaleAppointmentView = ({ tenantName, tenantPhone }: { tenantName?: string
 // cancellation-fee policies are enforced by the flows these open — this
 // screen just gets clients to them.
 const TooEarlyView = ({
-    startTime, serviceName, onReschedule, onCancel, calendarUrl,
+    startTime, serviceName, onReschedule, onCancel, calendarUrl, brand, providerName,
 }: {
     startTime: string; serviceName?: string;
     onReschedule?: () => void; onCancel?: () => void; calendarUrl?: string | null;
+    brand: VisitBrand; providerName?: string | null;
 }) => (
-    <ViewContainer>
-        <ViewHeader title="Not Quite Yet" subtitle="Check-in opens on the day of your visit" icon={CalendarIcon} />
-        <CardContent className="p-10 md:p-16 text-center space-y-8">
-            <div className="w-24 h-24 bg-primary/5 rounded-[2.5rem] flex items-center justify-center mx-auto">
-                <CalendarIcon className="w-12 h-12 text-primary opacity-60" />
-            </div>
-            <div className="space-y-2 text-center">
-                <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900 text-center">You're all set</h3>
-                <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-xs mx-auto text-center">
-                    {serviceName ? `${serviceName} is` : 'Your appointment is'} scheduled for{' '}
-                    <strong className="text-slate-900">{format(safeDate(startTime), 'EEEE, MMMM d')}</strong>.
-                    Come back to this link on the day to check in.
-                </p>
-            </div>
-            <div className="space-y-3 max-w-sm mx-auto">
-                {calendarUrl && (
-                    <Button asChild className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-xl">
-                        <a href={calendarUrl}><CalendarIcon className="w-4 h-4 mr-2" /> Add to calendar</a>
-                    </Button>
-                )}
-                {onReschedule && (
-                    <button
-                        type="button"
-                        onClick={onReschedule}
-                        className="w-full text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest hover:text-primary transition-colors"
-                    >
-                        Need a different time? Reschedule
-                    </button>
-                )}
-                {onCancel && (
-                    <button
-                        type="button"
-                        onClick={onCancel}
-                        className="w-full text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest hover:text-destructive transition-colors"
-                    >
-                        Can't make it? Cancel appointment
-                    </button>
-                )}
-            </div>
-        </CardContent>
-    </ViewContainer>
+    <VisitShell brand={brand} title={<>You’re <b>booked</b></>} subtitle={format(safeDate(startTime), 'EEEE, MMMM d · h:mm a')}>
+        <VisitCard>
+            <p className="text-[18px] font-semibold">{serviceName || 'Your appointment'}</p>
+            {providerName && <VisitMuted>with {providerName}</VisitMuted>}
+            <VisitMuted>Check in from this link on the day.</VisitMuted>
+        </VisitCard>
+        {calendarUrl && <VisitButton href={calendarUrl}>Add to calendar</VisitButton>}
+        {(onReschedule || onCancel) && (
+            <p className="px-1 pt-1 text-center text-[14px]" style={{ color: 'var(--muted)' }}>
+                Need to change it?{' '}
+                {onReschedule && <button type="button" className="underline underline-offset-2" onClick={onReschedule}>Move it</button>}
+                {onReschedule && onCancel && ' · '}
+                {onCancel && <button type="button" className="underline underline-offset-2" onClick={onCancel}>Cancel</button>}
+            </p>
+        )}
+    </VisitShell>
 );
-
-const CompletedView = ({ tenant, client, appointment, service }: { tenant: Tenant | null, client: Client | null, appointment: Appointment, service: Service | null, staff: Staff | null }) => {
+const CompletedView = ({ tenant, client, appointment, service, brand }: { brand: VisitBrand; tenant: Tenant | null, client: Client | null, appointment: Appointment, service: Service | null, staff: Staff | null }) => {
     const { firestore } = useFirebase();
     const { toast } = useToast();
     const [rating, setRating] = useState(0);
@@ -502,85 +439,25 @@ const CompletedView = ({ tenant, client, appointment, service }: { tenant: Tenan
     };
 
     return (
-        <ViewContainer>
-            <ViewHeader title="Session Finalized" subtitle="Thank you for visiting us" icon={CheckCircle2} />
-            <CardContent className="p-0">
-                <AnimatePresence mode="wait">
-                    {!submitted ? (
-                        <motion.div key="review-form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-8 md:p-12 space-y-10">
-                            <div className="text-center space-y-4">
-                                <div className="w-20 h-20 bg-primary/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-6">
-                                    <Heart className="w-10 h-10 text-primary -rotate-6" />
-                                </div>
-                                <div className="space-y-1 text-center">
-                                    <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900 text-center">Rate your protocol</h3>
-                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-center">Your data helps us maintain excellence</p>
-                                </div>
-                            </div>
-
-                            <div className="flex justify-center gap-2">
-                                {[1, 2, 3, 4, 5].map((star) => (
-                                    <button 
-                                        key={star} 
-                                        onClick={() => setRating(star)}
-                                        className={cn(
-                                            "p-2 transition-all active:scale-90",
-                                            rating >= star ? "text-amber-400" : "text-muted-foreground opacity-20 hover:opacity-40"
-                                        )}
-                                    >
-                                        <Star className={cn("w-10 h-10 md:w-14 md:h-14", rating >= star && "fill-current")} />
-                                    </button>
-                                ))}
-                            </div>
-
-                            <div className="space-y-3 text-left">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Session Narrative</Label>
-                                <Textarea 
-                                    placeholder="Briefly describe your experience..." 
-                                    value={reviewText}
-                                    onChange={e => setReviewText(e.target.value)}
-                                    className="rounded-[2rem] border-2 bg-muted/5 p-6 font-medium leading-relaxed min-h-[120px] focus-visible:ring-primary/20"
-                                />
-                            </div>
-
-                            <Button 
-                                onClick={handleReviewSubmit} 
-                                disabled={rating === 0 || isSubmitting}
-                                className="w-full h-16 rounded-[2rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 group"
-                            >
-                                {isSubmitting ? <Loader className="animate-spin" /> : <>Archive Feedback <ArrowRight className="ml-2 w-5 h-5 transition-transform group-hover:translate-x-1" /></>}
-                            </Button>
-                        </motion.div>
-                    ) : (
-                        <motion.div key="success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-12 md:p-20 text-center space-y-8">
-                            <div className="w-20 h-20 md:w-24 md:h-24 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-xl">
-                                <CheckCircle2 className="w-12 h-12 text-green-500" />
-                            </div>
-                            <div className="space-y-2 text-center">
-                                <h3 className="text-2xl font-black uppercase tracking-tighter text-center leading-none">Feedback Certified</h3>
-                                <p className="text-sm font-medium text-slate-500 uppercase tracking-tight max-w-xs mx-auto text-center leading-relaxed">Your story has been established in our archive. We look forward to your next visit.</p>
-                            </div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-
-                <div className="p-8 bg-muted/5 border-t-2 border-dashed border-border/50 space-y-6">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <Button asChild variant="outline" className="h-14 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] bg-white shadow-sm">
-                            <Link href={`/book/${tenant?.id}`}>
-                                <Repeat className="w-4 h-4 mr-2" /> Book New Session
-                            </Link>
-                        </Button>
-                        <Button asChild variant="outline" className="h-14 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] bg-white shadow-sm">
-                            <Link href={`/portal/${tenant?.id}/${client?.id}`}>
-                                <LayoutDashboard className="w-4 h-4 mr-2 opacity-40" />
-                                Access Dashboard
-                            </Link>
-                        </Button>
+        <VisitShell brand={brand} title={<>Thanks for <b>visiting</b></>} subtitle={service?.name || undefined}>
+            {!submitted ? (
+                <VisitCard>
+                    <p className="text-[15px] font-semibold">How was it?</p>
+                    <div className="flex gap-1" role="radiogroup" aria-label="Your rating">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                            <button key={star} type="button" role="radio" aria-checked={rating === star} aria-label={`${star} star${star === 1 ? '' : 's'}`} onClick={() => setRating(star)}
+                                className="text-[32px] leading-none" style={{ color: rating >= star ? 'var(--accent)' : '#d6d0c8' }}>★</button>
+                        ))}
                     </div>
-                </div>
-            </CardContent>
-        </ViewContainer>
+                    <textarea value={reviewText} onChange={(e) => setReviewText(e.target.value)} rows={3} maxLength={1000} placeholder="Anything you’d like to tell us? (optional)"
+                        className="w-full rounded-xl p-3 text-[14px] outline-none" style={{ background: '#f1ece6' }} />
+                    <VisitButton onClick={handleReviewSubmit} disabled={rating === 0 || isSubmitting}>{isSubmitting ? 'Sending…' : 'Send'}</VisitButton>
+                </VisitCard>
+            ) : (
+                <VisitCard tone="ok"><p className="text-[15px]">Thank you — we’ve received your review.</p></VisitCard>
+            )}
+            {brand.bookHref && <VisitButton quiet={!submitted} href={brand.bookHref}>Book your next visit</VisitButton>}
+        </VisitShell>
     );
 };
 
@@ -2577,6 +2454,11 @@ const RescheduleGateView = ({
                         </p>
                     </div>
                 ) : null}
+                {canChange && Number(info?.policy?.rescheduleFee) > 0 && (
+                    <div className="p-4 rounded-2xl border-2 border-amber-200 bg-amber-50">
+                        <p className="text-sm text-amber-900">Moving it now carries a <b>${Number(info.policy.rescheduleFee).toFixed(2)}</b> reschedule fee, as it’s within {info.policy.rescheduleFeeWindowHours} hours of your appointment. It’s added to your balance and due at your visit.</p>
+                    </div>
+                )}
                 {!canChange && info?.policy?.changeRule?.needsApproval ? (
                     <AskToMove apptApi={apptApi} />
                 ) : canChange ? (
@@ -2809,7 +2691,7 @@ export default function CheckInPage() {
 
     if (appointmentData?.status === 'completed') {
         return (
-            <CompletedView 
+            <CompletedView brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)} 
                 tenant={tenant || null} 
                 client={client || null} 
                 appointment={appointmentData} 
@@ -2821,7 +2703,7 @@ export default function CheckInPage() {
 
     if (appointmentData?.status === 'cancelled') {
         return (
-            <CancelledView
+            <CancelledView brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)} 
                 reason={appointmentData.cancellationReason}
                 tenantId={tenantId}
                 token={token}
@@ -2968,7 +2850,7 @@ export default function CheckInPage() {
         : false;
 
     if (isStaleUnresolved) {
-        return <StaleAppointmentView tenantName={tenant?.name} tenantPhone={tenant?.twilioPhoneNumber} />;
+        return <StaleAppointmentView brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)} tenantName={tenant?.name} tenantPhone={tenant?.twilioPhoneNumber} />;
     }
 
     // v8 — NEW: the mirror check. isSameDay rather than an hours-based
@@ -2983,7 +2865,7 @@ export default function CheckInPage() {
 
     if (isTooEarly) {
         return (
-            <TooEarlyView
+            <TooEarlyView brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)} providerName={(assignedStaff as any)?.name ? String((assignedStaff as any).name).split(' ')[0] : null}
                 startTime={appointmentData!.startTime}
                 serviceName={service?.name}
                 onReschedule={() => setShowRescheduleFlow(true)}
