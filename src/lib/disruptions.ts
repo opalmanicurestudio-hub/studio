@@ -23,7 +23,7 @@ export const CALLOUT_REASON_LABEL: Record<CalloutReason, string> = { illness: 'I
 export function disruptionReason(kind: DisruptionKind, cause: string | null | undefined, providerFirst?: string | null): string {
   if (kind === 'callout') return `${providerFirst || 'Your provider'} is unexpectedly unavailable`;
   switch (String(cause || '')) {
-    case 'maintenance': return 'because of unexpected maintenance at the studio';
+    case 'maintenance': return 'because of maintenance work at the studio';
     case 'flood': case 'water': return 'because of water damage at the studio';
     case 'power': return 'because of a power outage at the studio';
     case 'weather': return 'for everyone’s safety, because of the weather';
