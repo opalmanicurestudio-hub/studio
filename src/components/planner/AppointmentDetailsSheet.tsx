@@ -1,5 +1,6 @@
 'use client';
 
+import { hasRealCard } from '@/lib/card-on-file';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { RequestDecisionPanel } from '@/components/appointments/RequestDecisionPanel';
 import { isAwaitingApproval } from '@/lib/booking-approval';
@@ -1834,7 +1835,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
   const { availableCredits, totalAvailable: totalStoreCreditAvailable } = useStoreCredit(client);
   const { hasDeposit: hasLiveDeposit, isLoadingDeposit: isLoadingLiveDeposit } = useDepositCredit(appointment?.clientId, client?.email, tenantId, true);
-  const cardSecured = !!(appointment?.cardOnFileSecured || client?.cardOnFile?.token || client?.cardOnFile?.paymentMethodId);
+  const cardSecured = !!(appointment?.cardOnFileSecured || hasRealCard(client));
   const depositOwedCents = safeNumber(appointment?.depositAmountCents);
   const depositUnpaid = depositOwedCents > 0 && appointment?.depositStatus !== 'paid' && !hasLiveDeposit && !isLoadingLiveDeposit;
   const depositActuallyMissing = !!appointment?.readinessFlags?.depositRequired && depositUnpaid;
@@ -2113,7 +2114,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         ? new Date(Number(client.cardOnFile.expYear), Number(client.cardOnFile.expMonth), 0)
         : null;
       const cardIsExpired = !!cardExp && cardExp < new Date();
-      const hasUsableCard = !!(client?.cardOnFile?.paymentMethodId || (client?.cardOnFile?.token || client?.cardOnFile?.paymentMethodId)) && !cardIsExpired;
+      const hasUsableCard = !!(client?.cardOnFile?.paymentMethodId || hasRealCard(client)) && !cardIsExpired;
       const batch = writeBatch(firestore);
       // merge: true — an appointment may already have a bookingCompletions
       // doc from booking time (e.g. deposit still pending); this must add
