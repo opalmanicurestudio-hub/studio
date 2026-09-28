@@ -172,7 +172,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
     open,
   );
 
-  const hasCardOnFile = !!client?.cardOnFile?.token;
+  const hasCardOnFile = !!(client?.cardOnFile?.token || client?.cardOnFile?.paymentMethodId);
   const tmhr = tenant?.tmhr || 50;
   const taxBurden = tenant?.employerTaxBurdenPct || 10;
 
