@@ -35,6 +35,7 @@
  * this has nothing to do with voice.
  */
 
+import { hasRealCard } from '@/lib/card-on-file';
 import { internalHeaders } from '@/lib/message-policy';
 import { NextRequest, NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
@@ -124,7 +125,7 @@ export async function POST(req: NextRequest) {
         : null;
       const cardIsExpired = !!cardExpDate && cardExpDate < now;
       const hasUsableCard = !!(
-        (client.cardOnFile?.paymentMethodId || (client.cardOnFile?.token || client.cardOnFile?.paymentMethodId)) &&
+        (client.cardOnFile?.paymentMethodId || hasRealCard(client)) &&
         (client.cardOnFile?.customerId || client.cardOnFile?.stripeCustomerId) &&
         !cardIsExpired
       );
