@@ -30,6 +30,7 @@ import { Counter } from './Counter';
 import { DeskDelay } from './DeskDelay';
 import { DeskReschedule } from './DeskReschedule';
 import { DeskFollowUp } from './DeskFollowUp';
+import { DeskCancel } from './DeskCancel';
 import { query, where } from 'firebase/firestore';
 
 type Stage = 'arriving' | 'waiting' | 'service' | 'ready' | 'done';
@@ -321,6 +322,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       <DeskDelay e={e} appt={lateFor?.appt || null} accent={accent} onClose={() => setLateFor(null)} onReschedule={(a) => setMoveAppt(a)} />
       <DeskReschedule e={e} appt={moveAppt} accent={accent} onClose={() => setMoveAppt(null)} />
       <DeskFollowUp e={e} visit={followFor} accent={accent} onClose={() => setFollowFor(null)} />
+      <DeskCancel e={e} accent={accent} onReschedule={(a: any) => setMoveAppt(a)} onOfferSlot={() => { setMoreTab('waitlist'); setMoreOpen(true); }} />
       <Drawer accent={accent} open={!!about} onClose={() => setAbout(null)} title="About this entry">
         {about && (() => { const r = about.appt || about.walkIn || {}; const created = toDate(r.createdAt || r.checkInTime); const paid = r.depositStatus === 'paid' || Number(r.amountPaid) > 0;
           const rows: [string, string][] = [['What it is', about.kind === 'appt' ? 'A booking' : 'A walk-in'], ['Name on it', r.clientName || r.customerName || '— none —'], ['Service', about.service], ['With', about.staffName || '— anyone —'],
