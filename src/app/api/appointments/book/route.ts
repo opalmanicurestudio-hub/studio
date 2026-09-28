@@ -80,6 +80,7 @@
 // without looking at the published roster. That is the server being right and
 // the page being behind, and the fix is to pass that page the same data.
 
+import { bookingPolicyLines, holdLine } from '@/lib/policy-copy';
 import { linkOrigin } from '@/lib/app-origin';
 import { offerProblem, walletStatus, offerLine } from '@/lib/offers';
 import { NextRequest, NextResponse } from 'next/server';
@@ -778,17 +779,12 @@ export async function POST(req: NextRequest) {
         const isHold = r.plan?.status === 'pending_payment';
         const checkInUrl = portalUrl;
         const svcLabel = svc.name || 'appointment';
-        // What the client should know, in plain words — from the business's own settings.
+        // What the client should know — one shared wording (src/lib/policy-copy.ts),
+        // from the business's own settings or their written policy.
         const tAny: any = tenant || {};
-        const windowH = Number((svc as any).cancellationWindowHours || tAny.cancellationWindowHours || 0);
-        const cxFee = Number((svc as any).customCancellationFee || tAny.cancellationFee || 0);
-        const graceMin = Number(tAny.lateArrivalGracePeriod || 0);
         const money$ = (c: number) => `$${(c / 100).toFixed(2)}`;
         const depCents = Number(r.plan?.depositCents) || 0;
-        const policyLines: string[] = [
-          windowH > 0 ? `Need to change or cancel? Do it from your visit link at least ${windowH} hours ahead${cxFee > 0 ? ` — inside that, a $${cxFee.toFixed(2)} cancellation fee applies` : ''}.` : 'Need to change or cancel? Do it any time from your visit link.',
-          `Running late? Tell us from the same link — we’ll let you know your options${graceMin > 0 ? ` (we can usually hold your time for ${graceMin} minutes)` : ''}.`,
-        ];
+        const policyLines: string[] = bookingPolicyLines(tAny, svc, { depositCents: depCents });
 
         // ── A RENTER'S booking is confirmed in the RENTER'S name ────────
         // With the two links a client actually needs: cancel (their own
@@ -847,8 +843,7 @@ export async function POST(req: NextRequest) {
                 `Hi ${firstName} — we're holding ${whenStr} for your ${svcLabel}${staffName ? ` with ${staffName}` : ''}.`,
                 'Tap below to finish up (deposit and any forms) and lock it in. Your confirmation follows the moment it\'s done.',
                 ...(depCents > 0 ? [`Deposit: ${money$(depCents)} — it comes off your total on the day.`] : []),
-                (() => { const due = (trust && typeof body.holdUntil === 'string' && Date.parse(body.holdUntil) > Date.now()) ? new Date(body.holdUntil) : new Date(Date.now() + (Number(tAny.bookingMode?.holdMinutes) > 0 ? Number(tAny.bookingMode.holdMinutes) : 30) * 60000);
-                  return `We’re holding this time until ${due.toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZone: tAny.timezone || undefined })} — after that it goes back on sale.`; })(),
+                holdLine(tAny, trust && typeof body.holdUntil === 'string' && Date.parse(body.holdUntil) > Date.now() ? new Date(body.holdUntil) : null),
               ],
               cta: { label: 'Finish my booking', url: checkInUrl },
               footerNote: `Your spot is held for a limited time. Questions? Just reply or call — ${studioName}.`,
