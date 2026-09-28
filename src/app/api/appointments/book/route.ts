@@ -80,6 +80,7 @@
 // without looking at the published roster. That is the server being right and
 // the page being behind, and the fix is to pass that page the same data.
 
+import { placeOf, placeLine, arrivalLine, clientAddressOf } from '@/lib/service-place';
 import { unpaidFeeRuleOf } from '@/lib/booking-policies';
 import { resolvePolicy } from '@/lib/booking-policies';
 import { checkChange, chainAfterMove } from '@/lib/change-rules';
@@ -870,6 +871,8 @@ export async function POST(req: NextRequest) {
         const money$ = (c: number) => `$${(c / 100).toFixed(2)}`;
         const depCents = Number(r.plan?.depositCents) || 0;
         const policyLines: string[] = bookingPolicyLines(tAny, svc, { depositCents: depCents });
+        // Where it happens (studio / online / at the client's place) — so online and mobile visits aren't told to "check in when you arrive".
+        const placeSvc: any = renterSvc || svc; const where = placeLine(placeSvc, clientAddressOf(body?.client));
 
         // ── A RENTER'S booking is confirmed in the RENTER'S name ────────
         // With the two links a client actually needs: cancel (their own
@@ -892,7 +895,8 @@ export async function POST(req: NextRequest) {
                  depositLine,
                  `Need to change it? Reschedule: ${rescheduleUrl}`,
                  `Can't make it? Cancel: ${cancelUrl}`,
-                 `Check in when you arrive: ${checkInUrl}`].filter(Boolean), 'renter_client_confirmed');
+                 where,
+                 placeOf(placeSvc).kind === 'studio' ? `Check in when you arrive: ${checkInUrl}` : `Your visit page: ${checkInUrl}`].filter(Boolean) as string[], 'renter_client_confirmed');
               sendStatus.emailSent = email.includes('@'); sendStatus.smsSent = !!phone;
             }
           } catch (e) { console.error('[book] renter confirmation', e); /* fall through to the studio's */ }
@@ -938,8 +942,9 @@ export async function POST(req: NextRequest) {
               title: "You're confirmed",
               bodyLines: [
                 `Hi ${firstName} — your ${svcLabel}${staffName ? ` with ${staffName}` : ''} is booked for ${whenStr}.`,
+                ...(where ? [where] : []),
                 ...(depCents > 0 && trust && body.depositPaid === true ? [`Your ${money$(depCents)} deposit is received — it comes off your total on the day.`] : []),
-                'Show the code below when you arrive to check in.',
+                arrivalLine(placeSvc),
                 ...policyLines,
               ],
               bigCode: r.shortCode ? String(r.shortCode).toUpperCase() : undefined,
