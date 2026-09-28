@@ -20,6 +20,7 @@
 // to find that spot.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { opsStatus } from '@/lib/appointment-ops';
 import React, { useState, useMemo, useEffect } from 'react';
 import { format, differenceInMinutes, parseISO, differenceInSeconds, addMinutes } from 'date-fns';
 import {
@@ -261,12 +262,18 @@ export function AppointmentCard({
   // here throws "Cannot access 'estimatedArrival' before initialization",
   // which is exactly what the minified stack trace ("Cannot access '_' before
   // initialization") was reporting.
+  // Estimated arrival: the time they told us (running late), or — on their way
+  // and sharing their trip — now + their rough travel time (if it's fresh).
+  const a0: any = appointment;
+  const tripFresh = !!a0.clientTrip?.at && Date.now() - Date.parse(a0.clientTrip.at) < 10 * 60000 && Number(a0.clientTrip?.etaMin) > 0;
   const estimatedArrival = useMemo(() => {
-      if (appointment.checkInStatus === 'running_late' && appointment.lateTimeMinutes) {
-          return format(addMinutes(safeDate(appointment.startTime), appointment.lateTimeMinutes), 'h:mm a');
+      if (appointment.checkInStatus === 'running_late') {
+          if (a0.etaAt) return format(safeDate(a0.etaAt), 'h:mm a');
+          if (appointment.lateTimeMinutes) return format(addMinutes(safeDate(appointment.startTime), appointment.lateTimeMinutes), 'h:mm a');
       }
+      if (appointment.checkInStatus === 'on_my_way' && tripFresh) return format(addMinutes(new Date(), Number(a0.clientTrip.etaMin)), 'h:mm a');
       return null;
-  }, [appointment.checkInStatus, appointment.lateTimeMinutes, appointment.startTime]);
+  }, [appointment.checkInStatus, appointment.lateTimeMinutes, appointment.startTime, a0.etaAt, tripFresh, a0.clientTrip?.etaMin]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const hasDeferredFee = safeNumber(appointment.checkoutState?.additionalCharge) > 0;
   const reqFiles = appointment.requirementFiles || [];
@@ -305,10 +312,12 @@ export function AppointmentCard({
     if (appointment.isEscalated) push('esc', 'alert', ShieldAlert, 'Manager');
     if (appointment.issue && appointment.issue.status === 'open') push('issue', 'alert', AlertTriangle, 'Issue');
     if (appointment.status !== 'servicing' && appointment.status !== 'completed') {
-      if ((appointment as any).studioAskedToMove) push('asked-move', 'alert', Clock, 'Asked to move');
-      else if (appointment.checkInStatus === 'running_late') push('late', 'alert', Clock, `+${appointment.lateTimeMinutes}m`);
+      const ops = opsStatus(appointment, new Date());
+      if (ops.status === 'eta_overdue' || ops.status === 'decision_needed' || ops.status === 'arrived_payment_required') push('ops', 'alert', AlertTriangle, ops.label);
+      else if ((appointment as any).studioAskedToMove) push('asked-move', 'alert', Clock, 'Asked to reschedule');
+      else if (appointment.checkInStatus === 'running_late') push('late', 'alert', Clock, estimatedArrival ? `Late · ~${estimatedArrival}` : `+${appointment.lateTimeMinutes}m`);
       if (appointment.checkInStatus === 'arrived') push('here', 'good', MapPin, 'Here');
-      if (appointment.checkInStatus === 'on_my_way') push('otw', 'info', Car, 'En route');
+      if (appointment.checkInStatus === 'on_my_way') push('otw', 'info', Car, tripFresh ? `En route · ~${a0.clientTrip.etaMin} min` : 'En route');
     }
     if (setupPending) push('prep', 'alert', AlertTriangle, 'Prep');
     if (profitTier === 'negative') push('cost', 'alert', TrendingDown, 'Below cost');
@@ -322,7 +331,7 @@ export function AppointmentCard({
     if (appointment.isWalkIn) push('walk', 'info', Users, 'Walk-in');
     if (isBirthdayToday) push('bday', 'info', Cake, 'Birthday');
     return out;
-  }, [appointment, setupPending, profitTier, awaitingReview, hasDeferredFee, isMember, hasPackage, hasInspiration, isBirthdayToday]);
+  }, [appointment, setupPending, profitTier, awaitingReview, hasDeferredFee, isMember, hasPackage, hasInspiration, isBirthdayToday, estimatedArrival, tripFresh]);
 
 
   const involvedStaff = useMemo(() => {
@@ -524,7 +533,7 @@ export function AppointmentCard({
             <div className="flex items-center gap-1.5 sm:gap-1.5">
                 <div className={cn("w-1.5 h-1.5 rounded-full shadow-sm", currentStatus?.dotColor)} />
                 <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest text-left">
-                    {appointment.checkInStatus === 'running_late' && estimatedArrival
+                    {(appointment.checkInStatus === 'running_late' || appointment.checkInStatus === 'on_my_way') && estimatedArrival
                         ? `Est ${estimatedArrival}`
                         : currentStatus?.text || ''
                     }
