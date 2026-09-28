@@ -106,7 +106,17 @@ function isCreditExpired(expiresAt: string | null | undefined): boolean {
 // (it counts toward the fee / becomes credit / is refunded). The preview (GET)
 // and the cancellation (POST) both use it, so what the client is shown is what
 // happens. Renter bookings keep their own (renter) rules — untouched here.
-async function planSelfCancel(db: any, tenantId: string, appointmentId: string, appt: any, tenant: any, service: any, client: any, isReschedule: boolean) {
+/** Late-cancellation grace the client can use themselves (Booking policies → grace → online). */
+async function selfCancelGrace(db: any, tenantId: string, tenant: any, appt: any) {
+  const { graceRule, graceRemaining, PERMIT_LABEL } = await import('@/lib/grace');
+  const r = graceRule(tenant, 'late_cancellation');
+  if (!r.enabled || !r.selfServe || !appt?.clientId) return null;
+  const uses = (await db.collection(`tenants/${tenantId}/graceUses`).where('clientId', '==', String(appt.clientId)).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+  const g = graceRemaining(tenant, 'late_cancellation', uses, { clientId: String(appt.clientId), serviceId: appt.serviceId || null, staffId: appt.staffId || null });
+  return g.remaining > 0 ? { ...g, permitLabel: PERMIT_LABEL[g.rule.permits] } : null;
+}
+
+async function planSelfCancel(db: any, tenantId: string, appointmentId: string, appt: any, tenant: any, service: any, client: any, isReschedule: boolean, grace?: { permits: string; reducePercent?: number } | null) {
   const P = resolvePolicy(tenant, service); const dp = resolveDepositPolicy(tenant);
   const windowHours = Number(P.cancel.windowHours.value) || 24;
   const hrs = hoursToDeadline(tenant, appt, service);
@@ -114,7 +124,10 @@ async function planSelfCancel(db: any, tenantId: string, appointmentId: string, 
   const price = Number(service?.price) || 0, val = Number(P.cancel.feeValue.value) || 0, mode = P.cancel.feeMode.value;
   // "Your costs" needs the cost model (front desk); online it falls back to your flat fee, else the service price — as before.
   const policyFee = mode === 'flat' ? val : mode === 'percentage' ? price * (val > 0 ? val : 100) / 100 : mode === 'none' ? 0 : (Number(tenant?.cancellationFee) || price);
-  const feeDollars = isLate && !isReschedule ? Math.round(policyFee * 100) / 100 : 0;
+  const baseFee = isLate && !isReschedule ? Math.round(policyFee * 100) / 100 : 0;
+  // Grace (their allowance): reduce the fee, or waive it (and optionally move the deposit to a new booking).
+  const feeDollars = grace?.permits === 'reduce_fee' ? Math.round(baseFee * (100 - (Number(grace.reducePercent) || 50))) / 100 : baseFee;
+  const graceWaives = grace?.permits === 'waive_fee' || grace?.permits === 'transfer_deposit';
   let credit: any = null;
   if (!isReschedule && !appt.isRenterBooking && appt.clientId) {
     try {
@@ -128,7 +141,7 @@ async function planSelfCancel(db: any, tenantId: string, appointmentId: string, 
   const pmId = client?.cardOnFile?.paymentMethodId || (hasRealCard(client) ? client?.cardOnFile?.token : null) || null;
   const cusId = client?.cardOnFile?.stripeCustomerId || client?.cardOnFile?.customerId || client?.stripeCustomerId || null;
   const hasCard = !!(pmId && cusId);
-  const plan = planCancellation({ who: 'client', feeDollars, policyFeeDollars: feeDollars, chargeFee: true, depositDollars: appt.isRenterBooking ? 0 : (credit?.amount || 0),
+  const plan = planCancellation({ who: 'client', feeDollars, policyFeeDollars: feeDollars, chargeFee: !graceWaives, transferDeposit: grace?.permits === 'transfer_deposit', depositDollars: appt.isRenterBooking ? 0 : (credit?.amount || 0),
     hoursUntilStart: hrs, depositPolicy: dp, collectPref: 'card', hasCard, cardLast4: client?.cardOnFile?.last4 || null, lateConsequence: P.cancel.lateConsequence.value });
   return { plan, credit, isLate, windowHours, hrs, hasCard, dp, feeDollars };
 }
@@ -168,10 +181,17 @@ export async function GET(req: NextRequest) {
   const pv = await planSelfCancel(db, tenantId, appointmentId, appt, tenant, service, clientDocG, false);
   const windowHours = pv.windowHours; const isLate = pv.isLate;
   const estimatedFee = appt.isRenterBooking ? (isLate ? (tenant.cancellationFee || service.price || 0) : 0) : pv.plan.due;
+  let gracePreview: any = null;
+  if (!appt.isRenterBooking && (pv.plan.due > 0 || pv.plan.fee > 0 || pv.plan.applied > 0)) {
+    const g = await selfCancelGrace(db, tenantId, tenant, appt);
+    if (g) { const pg = await planSelfCancel(db, tenantId, appointmentId, appt, tenant, service, clientDocG, false, { permits: g.rule.permits, reducePercent: g.rule.reducePercent });
+      gracePreview = { remaining: g.remaining, allowance: g.allowance, periodMonths: g.periodMonths, permitLabel: g.permitLabel, lines: cancellationOutcomeLines(pg.plan.outcome, { preview: true }), due: pg.plan.due }; }
+  }
 
   return NextResponse.json({
     // Exactly what will happen, in the business's policy wording — shown BEFORE they confirm.
     preview: appt.isRenterBooking ? null : { lines: cancellationOutcomeLines(pv.plan.outcome, { preview: true }), due: pv.plan.due, applied: pv.plan.applied, fee: pv.plan.fee },
+    grace: gracePreview,
     ok: true,
     appointment: {
       clientName: appt.clientName || null,
@@ -255,7 +275,8 @@ export async function POST(req: NextRequest) {
   const isReschedule = clientReason === 'rescheduled' && !!rescheduledToId;
   // Studio bookings: the shared plan (fee from Booking policies, minus any deposit
   // the policy counts toward it). Renter bookings keep their own rules.
-  const pv = appt.isRenterBooking ? null : await planSelfCancel(db, tenantId, appointmentId, appt, tenant, service, client, isReschedule);
+  const graceNow = (body as any)?.useGrace === true && !appt.isRenterBooking && !isReschedule ? await selfCancelGrace(db, tenantId, tenant, appt) : null;
+  const pv = appt.isRenterBooking ? null : await planSelfCancel(db, tenantId, appointmentId, appt, tenant, service, client, isReschedule, graceNow ? { permits: graceNow.rule.permits, reducePercent: graceNow.rule.reducePercent } : null);
   const feeAmount = pv ? pv.plan.due : (isLate && !isReschedule ? (tenant.cancellationFee || service.price || 0) : 0);
   const chargeFee = feeAmount > 0; // flagged, not waived, when inside the window
 
@@ -371,6 +392,13 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // Their grace allowance was used — recorded in the SAME batch, so it counts only if the cancellation saves.
+  if (graceNow && appt.clientId) {
+    const gRef = db.collection(`tenants/${tenantId}/graceUses`).doc();
+    batch.set(gRef, { id: gRef.id, tenantId, clientId: String(appt.clientId), event: 'late_cancellation', at: now, appointmentId, serviceId: appt.serviceId || null, staffId: appt.staffId || null,
+      permit: graceNow.rule.permits, reason: null, appliedBy: client?.name || appt.clientName || 'Client', appliedById: null, approvedBy: null, voidedAt: null, via: 'visit link' });
+  }
+
   // Audit log — same shape as every other cancellation path in this codebase.
   const auditRef = db.collection(`tenants/${tenantId}/auditLog`).doc();
   batch.set(auditRef, {
@@ -382,7 +410,7 @@ export async function POST(req: NextRequest) {
     actorId: appt.clientId || 'unknown_client',
     actorName: client?.name || appt.clientName || 'Client',
     timestamp: now,
-    summary: `${client?.name || appt.clientName || 'Client'} self-cancelled their appointment${chargeFee ? ` — $${feeAmount.toFixed(2)} late-cancellation fee` : ''}`,
+    summary: `${client?.name || appt.clientName || 'Client'} self-cancelled their appointment${graceNow ? ` — grace used (${String(graceNow.permitLabel).toLowerCase()})` : ''}${chargeFee ? ` — $${feeAmount.toFixed(2)} late-cancellation fee` : ''}`,
     detail: {
       clientId: appt.clientId || null,
       clientName: client?.name || appt.clientName || 'Unknown',
