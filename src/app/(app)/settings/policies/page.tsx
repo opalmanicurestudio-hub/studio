@@ -177,6 +177,9 @@ export default function BookingPoliciesPage() {
             <Row label="Who can decide" note="When a client is running late, a provider is behind, or a payment is due. Owners, admins and managers can always decide; fees and provider changes stay with them.">
               <Choice field="bookingPolicies.staffOpsLevel" value={t.bookingPolicies?.staffOpsLevel || 'decide_own'} label="Who can decide" options={[['decide_own', 'Staff decide for their own clients'], ['recommend', 'Staff can offer a reschedule only'], ['view', 'Staff view only']]} />
             </Row>
+            <Row label="When a provider runs late" note="Guests who choose to wait get this as account credit, as a thank-you. 0 = no credit.">
+              <Num field="bookingPolicies.providerDelayCredit" value={Number(t.bookingPolicies?.providerDelayCredit) || 0} unit="dollars credit" label="Thank-you credit" step={1} max={500} />
+            </Row>
             <Row label="Online check-in" note="Clients can tap “I’m here” on their visit link. Off: they check in at the front desk (running late and “on my way” still work).">
               <Choice field="bookingPolicies.onlineCheckIn" value={t.bookingPolicies?.onlineCheckIn !== false} label="Online check-in" options={[[true, 'On'], [false, 'Off — front desk only']]} />
             </Row>
