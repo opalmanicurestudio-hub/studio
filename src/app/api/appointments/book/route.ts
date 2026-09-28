@@ -301,6 +301,10 @@ export async function POST(req: NextRequest) {
     }
 
     let svc = services.find((s: any) => s.id === serviceId);
+    // A phone appointment where WE call them needs a number to call.
+    { const pl = placeOf(svc);
+      if (pl.kind === 'phone' && pl.phoneWho !== 'they_call' && String(body?.client?.phone || '').replace(/\D/g, '').length < 7 && !String(body?.client?.id || ''))
+        return NextResponse.json({ ok: false, error: 'This is a phone appointment — please add the number we should call you on.' }, { status: 400 }); }
     // A campaign offer code, if the client came from one — verified here.
     let pendingCode: string | null = null;
     if (typeof body.promoCode === 'string' && body.promoCode.trim()) {
@@ -872,7 +876,7 @@ export async function POST(req: NextRequest) {
         const depCents = Number(r.plan?.depositCents) || 0;
         const policyLines: string[] = bookingPolicyLines(tAny, svc, { depositCents: depCents });
         // Where it happens (studio / online / at the client's place) — so online and mobile visits aren't told to "check in when you arrive".
-        const placeSvc: any = renterSvc || svc; const where = placeLine(placeSvc, clientAddressOf(body?.client));
+        const placeSvc: any = renterSvc || svc; const where = placeLine(placeSvc, clientAddressOf(body?.client), null, { timeZone: (tenant as any)?.timezone || null, clientPhone: phone || null, businessPhone: (tenant as any)?.phone || (tenant as any)?.twilioPhoneNumber || null });
 
         // ── A RENTER'S booking is confirmed in the RENTER'S name ────────
         // With the two links a client actually needs: cancel (their own
