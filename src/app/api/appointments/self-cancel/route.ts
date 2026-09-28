@@ -204,7 +204,7 @@ export async function POST(req: NextRequest) {
   // over the top-level client.stripeCustomerId. These exact two values are
   // written onto the cancellationEvent below so onCancellationEvent can charge.
   const stripePaymentMethodId =
-    client?.cardOnFile?.paymentMethodId || client?.cardOnFile?.token || null;
+    client?.cardOnFile?.paymentMethodId || (client?.cardOnFile?.token || client?.cardOnFile?.paymentMethodId) || null;
   const stripeCustomerId =
     client?.cardOnFile?.stripeCustomerId ||
     client?.cardOnFile?.customerId ||
