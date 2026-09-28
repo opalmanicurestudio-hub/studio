@@ -1,29 +1,58 @@
-// src/lib/service-place.ts — WHERE A SERVICE HAPPENS: at the studio (default),
-// online (with a meeting link), or at the client's place (mobile). One source
-// for the words every message and the visit link use, so an online or mobile
-// appointment is never told to "check in when you arrive". Pure.
-export type PlaceKind = 'studio' | 'online' | 'client';
-export interface ServicePlace { kind: PlaceKind; meetingLink: string | null; ownLink?: boolean }
+// src/lib/service-place.ts — WHERE / HOW A SERVICE HAPPENS.
+//   studio → "In person" (at your business — the default)
+//   online → "Video call" (a meeting link; a booking can have its own)
+//   phone  → "Phone call" (we call them, or they call us)
+//   client → "At the client's location" (mobile — you go to them)
+// One source for the words every message and the visit link use, so remote and
+// mobile visits are never told to "check in when you arrive". Pure.
+export type PlaceKind = 'studio' | 'online' | 'phone' | 'client';
+export type PhoneWho = 'we_call' | 'they_call';
+export interface ServicePlace { kind: PlaceKind; meetingLink: string | null; ownLink?: boolean; phoneWho?: PhoneWho }
 const httpsOnly = (v: any) => (/^https:\/\//i.test(String(v || '').trim()) ? String(v).trim() : null);
 
-/** Where it happens. For online visits, a link set on THIS appointment wins over the service's shared one. */
+export const PLACE_LABEL: Record<PlaceKind, string> = { studio: 'In person', online: 'Video call', phone: 'Phone call', client: 'At the client’s location' };
+
+/** Where it happens. For video calls, a link set on THIS appointment wins over the service's shared one. */
 export function placeOf(svc: any, appt?: any): ServicePlace {
-  const k = svc?.where === 'online' || svc?.where === 'client' ? svc.where : 'studio';
+  const w = svc?.where;
+  const k: PlaceKind = w === 'online' || w === 'client' || w === 'phone' ? w : 'studio';
+  if (k === 'phone') return { kind: k, meetingLink: null, phoneWho: svc?.phoneWho === 'they_call' ? 'they_call' : 'we_call' };
   if (k !== 'online') return { kind: k, meetingLink: null };
   const own = httpsOnly(appt?.meetingLink);
   return { kind: k, meetingLink: own || httpsOnly(svc?.meetingLink), ownLink: !!own };
 }
-/** The extra line for confirmations and reminders (null for the studio). */
-export function placeLine(svc: any, clientAddress?: string | null, appt?: any): string | null {
+/** Video, phone and mobile visits have no arriving at your door — no check-in; staff start them directly. */
+export const skipsCheckIn = (kind: PlaceKind) => kind === 'online' || kind === 'phone' || kind === 'client';
+/** Remote visits may be joined from another time zone — say which one the times are in. */
+export const isRemote = (kind: PlaceKind) => kind === 'online' || kind === 'phone';
+
+/** "Eastern Time", "Central European Time" … (falls back to the zone id). */
+export function zoneLabel(timeZone?: string | null): string | null {
+  if (!timeZone) return null;
+  try {
+    const part = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'long' }).formatToParts(new Date()).find((x) => x.type === 'timeZoneName')?.value || '';
+    return part.replace(/\b(Standard|Daylight) /, '') || timeZone;   // "Eastern Time"; keeps "British Summer Time" whole
+  } catch { return timeZone; }
+}
+const tail4 = (p?: string | null) => { const d = String(p || '').replace(/\D/g, ''); return d.length >= 4 ? `the number ending ${d.slice(-4)}` : 'your number on file'; };
+
+/** The extra line for confirmations and reminders (null for in-person). */
+export function placeLine(svc: any, clientAddress?: string | null, appt?: any, opts: { timeZone?: string | null; clientPhone?: string | null; businessPhone?: string | null } = {}): string | null {
   const p = placeOf(svc, appt);
-  if (p.kind === 'online') return p.meetingLink ? `This is an online appointment — join here: ${p.meetingLink}` : 'This is an online appointment — we’ll send your link before it starts.';
+  const tz = isRemote(p.kind) ? zoneLabel(opts.timeZone) : null;
+  const zone = tz ? ` Times are in ${tz}.` : '';
+  // The link goes LAST, with nothing after it — a full stop right after a link breaks it in some text apps.
+  if (p.kind === 'online') return p.meetingLink ? `This is a video call${tz ? ` (times are in ${tz})` : ''} — join here: ${p.meetingLink}` : `This is a video call — we’ll send your link before it starts.${zone}`;
+  if (p.kind === 'phone') return (p.phoneWho === 'they_call'
+    ? `This is a phone call — please call us${opts.businessPhone ? ` at ${opts.businessPhone}` : ''} at your appointment time.`
+    : `This is a phone call — we’ll call you on ${tail4(opts.clientPhone)} at your appointment time.`) + zone;
   if (p.kind === 'client') return clientAddress ? `We’ll come to you at ${clientAddress}.` : 'We’ll come to you — we’ll confirm your address before your appointment.';
   return null;
 }
-/** Replaces "show the code when you arrive" for services that don't happen at the studio. */
+/** Replaces "show the code when you arrive" for visits that don't happen at your door. */
 export function arrivalLine(svc: any): string {
   const p = placeOf(svc);
-  return p.kind === 'online' ? 'Join from the link — no check-in needed.' : p.kind === 'client' ? 'We’ll come to you — no need to check in.' : 'Show the code below when you arrive to check in.';
+  return p.kind === 'online' ? 'Join from the link — no check-in needed.' : p.kind === 'phone' ? 'No check-in needed — just be near your phone.' : p.kind === 'client' ? 'We’ll come to you — no need to check in.' : 'Show the code below when you arrive to check in.';
 }
 /** A client's address, as one line (their profile). */
 export function clientAddressOf(c: any): string | null {
