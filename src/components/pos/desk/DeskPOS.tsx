@@ -134,6 +134,13 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
     const visits = c ? (e.appointmentsFromInventory || []).filter((x: any) => x.clientId === c.id && x.status === 'completed').length : 0;
     const bd = c?.birthday ? String(c.birthday).slice(5, 10) : null; const soon = bd ? [0, 1, 2, 3, 4, 5, 6].some((i) => { const d = new Date(now.getTime() + i * 864e5); return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` === bd; }) : false;
     const out: [string, 'soft' | 'warn' | 'ok' | 'accent'][] = [];
+    // What the client told us from their visit link — first, while they're on their way.
+    if (g.stage === 'arriving') {
+      if (a.clientCheckInStatus === 'running_late') out.push([`Late ~${Number(a.clientLateMinutes) || 10} min (told us)`, 'warn']);
+      else if (a.clientCheckInStatus === 'on_my_way') out.push(['On the way', 'ok']);
+      const tripAt = a.clientTrip?.at ? Date.parse(a.clientTrip.at) : 0;
+      if (a.clientTrip?.distanceKm != null && now.getTime() - tripAt < 10 * 60000) out.push([`${a.clientTrip.distanceKm} km away`, 'soft']);
+    }
     if (!c || visits === 0) out.push(['New client', 'accent']);
     if (a.completionStatus && a.completionStatus !== 'completed') out.push(['Forms not done', 'warn']);
     if ((c?.unpaidFees || []).length) out.push(['Owes', 'warn']);
