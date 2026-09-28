@@ -19,6 +19,7 @@
  *     client" (email + text), history and the activity log — all server-side.
  */
 
+import { checkChange, hoursToDeadline } from '@/lib/change-rules';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { addDays, addMonths, endOfMonth, format, isBefore, isSameDay, isSameMonth, parseISO, startOfDay, startOfMonth, differenceInHours, differenceInCalendarDays } from 'date-fns';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -69,7 +70,10 @@ export function useReschedule(props: Props) {
   const [reason, setReason] = useState<string | null>(null); const [override, setOverride] = useState(false);
   const [applyFee, setApplyFee] = useState(true); const [notify, setNotify] = useState(true); const [busy, setBusy] = useState(false);
   const fee = Number(tenant?.rescheduleFee || 0), windowH = Number(tenant?.rescheduleFeeWindowHours || 0);
-  const feeEligible = fee > 0 && windowH > 0 && differenceInHours(original, new Date()) < windowH;
+  // Counted from the ORIGINAL time (Booking policies) — the same way the server charges it.
+  const feeEligible = fee > 0 && windowH > 0 && hoursToDeadline(tenant, appointment) < windowH;
+  // Staff are never blocked — but they see when a move goes past your policy (and it's recorded).
+  const policyNote = useMemo(() => checkChange(tenant, appointment, 'staff').staffNote, [tenant, appointment]);
   const base = { tenantId, appointmentId: appointment?.id };
   const first = String(appointment?.clientName || client?.name || 'client').split(' ')[0];
 
@@ -130,6 +134,7 @@ export function useReschedule(props: Props) {
 
   const body = (
     <div className="space-y-5 px-1">
+      {policyNote && <p className="rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">{policyNote}</p>}
       <div className="flex items-center gap-3 rounded-2xl border bg-muted/20 p-4">
         <CalendarClock className="h-5 w-5 shrink-0 text-primary" />
         <div className="min-w-0 flex-1"><p className="text-xs text-muted-foreground">Currently</p><p className="truncate text-[15px] font-bold">{format(original, 'EEEE, MMM d · h:mm a')}</p><p className="truncate text-xs text-muted-foreground">{appointment?.serviceName || 'Service'}{appointment?.staffName ? ` with ${appointment.staffName}` : ''}</p></div>
@@ -207,7 +212,7 @@ export function useReschedule(props: Props) {
     setDay, time, setTime, custom, setCustom, reason, setReason, override,
     setOverride, applyFee, setApplyFee, notify, setNotify, busy, setBusy, fee,
     windowH, feeEligible, base, first, ensure, timesFor, suggestions, choose,
-    move, cells, dayTimes, groups, who, body, footer,
+    move, cells, dayTimes, groups, who, body, footer, policyNote,
   };
 }
 
