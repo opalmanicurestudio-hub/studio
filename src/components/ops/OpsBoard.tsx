@@ -9,7 +9,7 @@
 // Booking policies → "Who can decide". Live (Firestore listeners).
 
 import Link from 'next/link';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { collection, query, where } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
@@ -197,6 +197,35 @@ function CalloutRecords({ tenantId }: { tenantId: string }) {
   );
 }
 
+
+/** Refunds to process — deposits promised back (delays, callouts, closures, cancellations). Managers only. */
+function RefundQueue({ tenantId, role }: { tenantId: string; role: string }) {
+  const mgr = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
+  const [data, setData] = useState<any>(null); const [sel, setSel] = useState<string[]>([]); const [busy, setBusy] = useState(false); const [msg, setMsg] = useState<string | null>(null); const [arm, setArm] = useState<string | null>(null);
+  const load = async () => { const r = await staffPost('/api/deposits/refund-queue', { tenantId, action: 'list' }); if (r?.ok) setData(r); };
+  useEffect(() => { if (mgr && tenantId) void load(); }, [mgr, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!mgr || !data || !data.items.length) return null;
+  const go = async (opts: any, key: string) => { if (arm !== key) { setArm(key); return; } setArm(null); setBusy(true); setMsg(null);
+    const r = await staffPost('/api/deposits/refund-queue', { tenantId, action: 'process', ...opts }); setBusy(false);
+    setMsg(r?.ok ? `${r.done} done${r.failed ? ` · ${r.failed} didn’t go through (reasons below)` : ''}.` : r?.error || 'That didn’t work.'); setSel([]); await load(); };
+  const selTotal = data.items.filter((x: any) => sel.includes(x.id)).reduce((m: number, x: any) => m + x.amountDollars, 0);
+  return (
+    <section className="space-y-2 rounded-3xl border bg-card p-4">
+      <p className="font-semibold">Refunds to process · {data.items.length} · ${data.totalDollars.toFixed(2)}</p>
+      <p className="text-xs text-muted-foreground">Deposits you’ve promised back. Each goes back to the card it was paid with (processing fees aren’t returned by Stripe).</p>
+      <ul className="max-h-56 space-y-1 overflow-auto text-sm">{data.items.map((x: any) => <li key={x.id} className="flex items-start gap-2">
+        <input type="checkbox" className="mt-1" checked={sel.includes(x.id)} onChange={(e) => setSel((l) => (e.target.checked ? [...l, x.id] : l.filter((y) => y !== x.id)))} />
+        <span><b>${x.amountDollars.toFixed(2)}</b> · {x.clientName || 'Client'}{x.startTime ? ` · ${new Date(x.startTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''} · {x.why}{x.lastError ? <span className="block text-xs text-red-700">Last try: {x.lastError}</span> : null}</span></li>)}</ul>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" disabled={busy} onClick={() => go({ all: true }, 'all')} className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60">{busy ? 'Processing…' : arm === 'all' ? `Tap again — refund all $${data.totalDollars.toFixed(2)}` : `Refund all ($${data.totalDollars.toFixed(2)})`}</button>
+        {sel.length > 0 && <button type="button" disabled={busy} onClick={() => go({ ids: sel }, 'sel')} className="rounded-full border px-4 py-2 text-sm font-semibold disabled:opacity-60">{arm === 'sel' ? `Tap again — refund $${selTotal.toFixed(2)}` : `Refund selected ($${selTotal.toFixed(2)})`}</button>}
+        {sel.length > 0 && <button type="button" disabled={busy} onClick={() => go({ ids: sel, as: 'credit' }, 'credit')} className="rounded-full border px-4 py-2 text-sm disabled:opacity-60">{arm === 'credit' ? 'Tap again — give as credit' : 'Give selected as credit'}</button>}
+      </div>
+      {msg && <p className="text-sm font-semibold">{msg}</p>}
+    </section>
+  );
+}
+
 /** Services running over that affect a later guest (planned length = the booking's own length). */
 function overrunCases(appts: any[], now = new Date()) {
   return (appts || []).map((a: any) => { const planned = Math.max(15, Math.round((Date.parse(a.endTime || a.startTime) - Date.parse(a.startTime)) / 60000) || 60);
@@ -225,6 +254,7 @@ export function OpsBoard({ appts, staff, tenant, tenantId, role, uid }: { appts:
   return (
     <div className="space-y-4">
       <ProviderLate tenantId={tenantId} staff={(staff || []).filter((s: any) => s.isActive !== false)} role={role} uid={uid} tenant={tenant} />
+      <RefundQueue tenantId={tenantId} role={role} />
       <ReportCallout tenantId={tenantId} staff={(staff || []).filter((s: any) => s.isActive !== false)} role={role} uid={uid} tenant={tenant} />
       <CalloutRecords tenantId={tenantId} />
       {overrunCases(appts).map(({ a, ov }) => <OverrunPanel key={`ov-${a.id}`} tenant={tenant} tenantId={tenantId} role={role} inService={a} today={appts} overMin={ov.overMin} plannedEnd={ov.plannedEnd} providerName={staffById.get(a.staffId)?.name || null} />)}
