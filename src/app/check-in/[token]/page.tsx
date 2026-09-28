@@ -27,6 +27,7 @@
  *   day-of arrival (Hello + status buttons)
  */
 
+import { placeOf } from '@/lib/service-place';
 import { DisruptionCard } from '@/components/booking/DisruptionCard';
 import { VisitShell, VisitCard, VisitButton, VisitMuted, VisitLabel, VisitChoice, VisitSelect, VisitInput, brandOf, type VisitBrand } from '@/components/booking/VisitShell';
 import { DayOfView } from '@/components/booking/DayOfView';
@@ -2718,6 +2719,14 @@ export default function CheckInPage() {
 
     return (
         <DayOfView
+            place={placeOf(service)}
+            lateChoices={(appointmentData as any)?.lateChoices || null}
+            onLateChoice={async (choice) => {
+                const call = async (payload: any) => { try { const r = await fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, apptId: appointmentData?.id, k: token, ...payload }) }); return await r.json(); } catch { return { ok: false }; } };
+                const d = await call({ action: 'late_choice', choice });
+                if (d?.ok && d.next === 'accept_offer') { const acc = await call({ action: 'provider_offer_reply', choice: 'accept' }); return { ...d, accepted: !!acc?.ok, error: acc?.ok ? undefined : acc?.error }; }
+                return d;
+            }}
             accent={(tenant as any)?.bookingPageSettings?.cfPageConfig?.accentColor || (tenant as any)?.brandColor || '#7c3aed'}
             studioName={tenant?.name}
             first={String(client?.name || appointmentData?.clientName || '').split(' ')[0] || 'there'}
