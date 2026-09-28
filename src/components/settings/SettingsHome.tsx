@@ -6,6 +6,9 @@
 // shows only what's missing. Every link goes to the exact screen or tab where
 // the setting lives (the tabbed Settings page keeps working at ?tab=…).
 
+import { useFirebase } from '@/firebase';
+import { doc, updateDoc } from 'firebase/firestore';
+import React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { getAuth } from 'firebase/auth';
@@ -50,6 +53,7 @@ export const SETTINGS_INDEX: { question: string; icon: string; items: Item[] }[]
   ] },
   { question: 'How your business looks', icon: '✨', items: [
     { title: 'Your business details', meaning: 'Name, logo, phone, email and address clients see.', href: T('profile'), words: 'name logo phone email address brand identity' },
+    { title: 'How the app looks (Studio or Classic)', meaning: 'Warm and calm in your colour, or the classic look.', href: '/settings', words: 'look appearance theme studio classic colour color design app' },
     { title: 'Booking page design', meaning: 'Classic (page builder) or Studio (warm, simple).', href: '/settings/booking', words: 'design look studio classic' },
   ] },
 ];
@@ -80,7 +84,7 @@ export function SettingsHome({ tenant }: { tenant: any }) {
 
   return (
     <main className="mx-auto w-full max-w-4xl space-y-6 p-4 md:p-8">
-      <div><h1 className="text-2xl font-black">Settings</h1><p className="text-sm text-muted-foreground">Find anything by what you want to do — or search below.</p></div>
+      <div><h1 className="text-3xl font-light tracking-tight">Your <b className="font-semibold">settings</b></h1><p className="text-sm text-muted-foreground">Find anything by what you want to do — or search below.</p></div>
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search settings — e.g. deposit, reminder, logo, wifi" aria-label="Search settings" className="h-12 w-full rounded-2xl border-2 px-4 text-[15px]" />
       {q.trim().length >= 2 && (
         <section className="space-y-2" aria-label="Search results">
@@ -88,6 +92,7 @@ export function SettingsHome({ tenant }: { tenant: any }) {
             : results.map((r) => <Link key={`${r.question}-${r.title}`} href={r.href} className="block rounded-2xl border-2 p-3 transition hover:bg-muted/40"><p className="font-bold">{r.title} <span className="text-[12px] font-normal text-muted-foreground">· {r.question}</span></p><p className="text-sm text-muted-foreground">{r.meaning}</p></Link>)}
         </section>
       )}
+      {q.trim().length < 2 && <AppLook tenant={tenant} />}
       {q.trim().length < 2 && <>
         {todo.length > 0 ? (
           <section className="space-y-2 rounded-2xl border-2 border-amber-200 bg-amber-50/60 p-4" aria-label="Finish setting up">
@@ -103,5 +108,27 @@ export function SettingsHome({ tenant }: { tenant: any }) {
         ))}</div>
       </>}
     </main>
+  );
+}
+
+
+/** How the whole app looks for this business: Studio (warm, calm — like the
+ *  front desk and booking page) or Classic. Saved on the business; applied by
+ *  <StudioTheme/> everywhere. */
+function AppLook({ tenant }: { tenant: any }) {
+  const { firestore } = useFirebase() as any;
+  const [busy, setBusy] = React.useState(false);
+  const cur = tenant?.appAppearance === 'classic' ? 'classic' : 'studio';
+  const pick = async (v: 'studio' | 'classic') => {
+    if (!firestore || !tenant?.id || v === cur) return; setBusy(true);
+    try { await updateDoc(doc(firestore, 'tenants', tenant.id), { appAppearance: v }); } finally { setBusy(false); }
+  };
+  return (
+    <section aria-label="How the app looks" className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border bg-card p-4">
+      <div><p className="font-semibold">How the app looks</p><p className="text-sm text-muted-foreground">Studio is warm and calm, in your colour — like your front desk and booking page.</p></div>
+      <div className="flex gap-1 rounded-full bg-secondary p-1">{(['studio', 'classic'] as const).map((v) => (
+        <button key={v} type="button" disabled={busy} onClick={() => pick(v)} aria-pressed={cur === v}
+          className={`rounded-full px-4 py-1.5 text-sm transition ${cur === v ? 'bg-card font-semibold shadow-sm' : 'text-muted-foreground'}`}>{v === 'studio' ? 'Studio' : 'Classic'}</button>))}</div>
+    </section>
   );
 }
