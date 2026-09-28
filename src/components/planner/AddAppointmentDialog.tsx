@@ -1,5 +1,6 @@
 'use client';
 
+import { getAuth } from 'firebase/auth';
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
@@ -386,8 +387,10 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
     const remotePay = depositDetails && data.paymentMethod === 'none';
     if (!remotePay) {
       try {
+        // Signed-in staff are recognised as staff by the booking route.
+        const idTok = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
         const res = await fetch('/api/appointments/book', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json', ...(idTok ? { Authorization: `Bearer ${idTok}` } : {}) },
           body: JSON.stringify({
             tenantId, source: 'pos_add_appointment',
             serviceId: data.serviceId,
