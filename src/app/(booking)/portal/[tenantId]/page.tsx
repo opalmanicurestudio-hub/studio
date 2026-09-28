@@ -558,77 +558,6 @@ export default function ClientPortalPage() {
     ) => {
         if (!firestore || !tenantId || !client) return;
         setIsProcessing(true);
-
-        // v12 — race-proof path: the shared booking engine conflict-checks
-        // server-side in a transaction. On success, consents + the staff
-        // ping still write client-side; on 404/error we fall back to the
-        // legacy direct batch below unchanged.
-        try {
-            const ad: any = appointmentDetails;
-            if (ad?.serviceId && ad?.startTime) {
-                const res = await fetch('/api/appointments/book', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        tenantId,
-                        source: 'client-portal',
-                        serviceId: ad.serviceId,
-                        addOnIds: ad.addOnIds || [],
-                        staffId: ad.staffId || 'any',
-                        startTime: ad.startTime,
-                        client: { id: client.id },
-                    }),
-                });
-                if (res.status === 409) {
-                    const out = await res.json().catch(() => ({}));
-                    toast({ variant: 'destructive', title: 'That time was just taken', description: out?.error || 'Pick another slot and try again.' });
-                    setIsProcessing(false);
-                    return;
-                }
-                if (res.ok) {
-                    const out = await res.json().catch(() => null);
-                    if (out?.ok) {
-                        const sideBatch = writeBatch(firestore);
-                        const sideNow = new Date().toISOString();
-                        signedForms.forEach(form => {
-                            const consentDocRef = doc(collection(firestore, `tenants/${tenantId}/clients/${client.id}/signedConsents`));
-                            sideBatch.set(consentDocRef, { ...form, id: consentDocRef.id, clientId: client.id, signedAt: sideNow });
-                        });
-                        if (out.staffId) {
-                            const notificationRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
-                            sideBatch.set(notificationRef, {
-                                id: nanoid(),
-                                userId: out.staffId,
-                                type: 'new_appointment',
-                                message: `New booking: ${client.name} for ${selectedServiceForBooking?.name} on ${format(parseISO(out.startTime), 'MMM d @ h:mm a')}`,
-                                link: '/planner',
-                                createdAt: sideNow,
-                                read: false,
-                            });
-                        }
-                        await sideBatch.commit().catch(() => { /* side-writes are secondary */ });
-                        /* The SERVER decides what this became. This screen used
-                         * to say "Booking Confirmed!" for every outcome — so a
-                         * shop in approval mode told the client they were
-                         * booked while the planner showed the request still
-                         * waiting on a yes. */
-                        setBookingOutcome({
-                            status: String(out.status || 'confirmed'),
-                            notice: String(out.clientNotice || ''),
-                            depositCents: Number(out.depositCents) || 0,
-                        });
-                        toast({
-                            title: out.status === 'requested' ? 'Request sent'
-                                : out.status === 'pending_payment' ? 'Time held' : 'Booking confirmed',
-                        });
-                        setBookingStep('confirmation');
-                        setIsProcessing(false);
-                        return;
-                    }
-                }
-            }
-        } catch { /* fall back to the legacy direct write below */ }
-
         const batch = writeBatch(firestore);
         const now = new Date().toISOString();
 
@@ -637,9 +566,21 @@ export default function ClientPortalPage() {
             const newAppointmentId = appointmentRef.id;
             const checkInToken = nanoid(16);
 
-            const fallbackPlan = resolveBookingPlan({
+            /* ── THIS WRITE MUST OBEY THE SHOP'S BOOKING MODE ──────────────
+             * appointmentDetails arrives from BookingSheet with a hardcoded
+             * status: 'confirmed'. This surface writes straight to Firestore
+             * rather than through /api/appointments/book, so a studio running
+             * approval mode got a confirmed appointment on the calendar with
+             * no request to answer — the setting was on and the booking
+             * ignored it, on this one screen only.
+             *
+             * resolveBookingPlan is a pure function, so the same decision the
+             * server makes is made here. Same fix, same reasoning, as the
+             * public page's offline path. */
+            const planService = (services || []).find((sv: any) => sv.id === (appointmentDetails as any)?.serviceId) || {};
+            const plan = resolveBookingPlan({
                 tenant: tenant as any,
-                service: ((services || []).find((sv: any) => sv.id === (appointmentDetails as any)?.serviceId) || {}) as any,
+                service: planService as any,
                 price: Number((appointmentDetails as any)?.price ?? 0),
                 client: client as any,
                 byStaff: false,
@@ -654,14 +595,14 @@ export default function ClientPortalPage() {
                 clientEmail: client.email,
                 clientPhone: client.phone,
                 checkInToken: checkInToken,
-                status: fallbackPlan.status,
-                bookingMode: fallbackPlan.mode,
-                bookingReason: `${fallbackPlan.reason} (offline path)`,
-                requiresCardOnFile: !!fallbackPlan.requiresCardOnFile,
-                ...(fallbackPlan.status === 'requested' ? {
+                status: plan.status,
+                bookingMode: plan.mode,
+                bookingReason: plan.reason,
+                requiresCardOnFile: !!plan.requiresCardOnFile,
+                ...(plan.status === 'requested' ? {
                     requestedAt: now,
-                    requestExpiresAt: fallbackPlan.approvalExpiryHours > 0
-                        ? new Date(Date.now() + fallbackPlan.approvalExpiryHours * 3600000).toISOString()
+                    requestExpiresAt: plan.approvalExpiryHours > 0
+                        ? new Date(Date.now() + plan.approvalExpiryHours * 3600000).toISOString()
                         : null,
                 } : {}),
             };
@@ -694,13 +635,13 @@ export default function ClientPortalPage() {
             
             await batch.commit();
             setBookingOutcome({
-                status: fallbackPlan.status,
-                notice: fallbackPlan.clientNotice || '',
-                depositCents: fallbackPlan.depositCents || 0,
+                status: plan.status,
+                notice: plan.clientNotice || '',
+                depositCents: plan.depositCents || 0,
             });
             toast({
-                title: fallbackPlan.status === 'requested' ? 'Request sent'
-                    : fallbackPlan.status === 'pending_payment' ? 'Time held' : 'Booking confirmed',
+                title: plan.status === 'requested' ? 'Request sent'
+                    : plan.status === 'pending_payment' ? 'Time held' : 'Booking confirmed',
             });
             setBookingStep('confirmation');
         } catch (error) {
