@@ -2056,7 +2056,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         ? new Date(Number(client.cardOnFile.expYear), Number(client.cardOnFile.expMonth), 0)
         : null;
       const cardIsExpired = !!cardExp && cardExp < new Date();
-      const hasUsableCard = !!(client?.cardOnFile?.paymentMethodId || client?.cardOnFile?.token) && !cardIsExpired;
+      const hasUsableCard = !!(client?.cardOnFile?.paymentMethodId || (client?.cardOnFile?.token || client?.cardOnFile?.paymentMethodId)) && !cardIsExpired;
       const batch = writeBatch(firestore);
       // merge: true — an appointment may already have a bookingCompletions
       // doc from booking time (e.g. deposit still pending); this must add
