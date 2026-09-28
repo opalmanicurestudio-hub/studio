@@ -1,366 +1,48 @@
 'use client';
+// src/components/maintenance/InterruptionClients.tsx — an interruption's CLIENTS
+// and its RECORD: link the maintenance tickets that caused it, see who's
+// affected (studio + renter bookings), give studio clients their choices (a new
+// time or cancel — no fee), and watch the outcomes add up. The tallies come from
+// what actually happened to each appointment (kept on the interruption), so the
+// insurance packet and renter reimbursements are built from facts.
+import React, { useEffect, useState } from 'react';
+import { collection, onSnapshot } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
+import { disruptionTotals } from '@/lib/disruptions';
 
-// src/components/maintenance/InterruptionsCard.tsx
-//
-// A flood, a fire, a week with no power. This card is the filing cabinet that
-// gets filled in WHILE it is happening, so the packet an insurer asks for six
-// months later already exists: which days, which spaces, what each renter was
-// owed and given, what was done and when, and what the renters were told.
-//
-// Money leaves only through the Approve buttons. The card computes what each
-// affected renter would be owed at a day's rent per unusable day, priced off
-// their own lease, and waits. Nothing abates on a schedule.
+const money = (c: number) => `$${((c || 0) / 100).toFixed(2)}`;
+async function staffPost(url: string, body: any) { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
+  return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify(body) }).then((r) => r.json()).catch(() => ({})); }
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { collection, doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
-import {
-  INTERRUPTION_TYPE_LABEL, abatementProposals, exposureCents, interruptionDays, lossesByRenter, appointmentsInWindow, bookedValueCents,
-  type InterruptionRecord, type InterruptionType,
-} from '@/lib/interruptions';
-import { useInventory } from '@/context/InventoryContext';
-import { InterruptionClients } from '@/components/maintenance/InterruptionClients';
-
-const money = (c: number) => `$${(Math.round(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
-const todayIso = () => new Date().toISOString().slice(0, 10);
-
-export function InterruptionsCard({ tenantId, firestore, tenant, booths }: { tenantId: string; firestore: any; tenant: any; booths: any[] }) {
-  const [records, setRecords] = useState<InterruptionRecord[]>([]);
-  const [leases, setLeases] = useState<any[]>([]);
-  const [renters, setRenters] = useState<any[]>([]);
-  const [losses, setLosses] = useState<any[]>([]);
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ type: 'power' as InterruptionType, title: '', startDate: todayIso(), boothIds: [] as string[], note: '' });
-  const [busy, setBusy] = useState('');
-  const [remedyDraft, setRemedyDraft] = useState<Record<string, string>>({});
-  const [shareDraft, setShareDraft] = useState<Record<string, boolean>>({});
-  const [approveArm, setApproveArm] = useState('');
-  const [showResolved, setShowResolved] = useState(false);
-  const [cancelArm, setCancelArm] = useState('');
-  const [cancelResult, setCancelResult] = useState<Record<string, string>>({});
-  const { appointments: allAppointments, staff: allStaff } = useInventory();
-
-  useEffect(() => {
-    if (!firestore || !tenantId) return;
-    const unsubs = [
-      onSnapshot(collection(firestore, 'tenants', tenantId, 'interruptions'), (s) => setRecords(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as InterruptionRecord[]), () => setRecords([])),
-      onSnapshot(collection(firestore, 'tenants', tenantId, 'leases'), (s) => setLeases(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))), () => setLeases([])),
-      onSnapshot(collection(firestore, 'tenants', tenantId, 'renters'), (s) => setRenters(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))), () => setRenters([])),
-      onSnapshot(collection(firestore, 'tenants', tenantId, 'interruptionLosses'), (s) => setLosses(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))), () => setLosses([])),
-    ];
-    return () => unsubs.forEach((u) => u());
-  }, [firestore, tenantId]);
-
-  useEffect(() => { if (!approveArm) return; const t = setTimeout(() => setApproveArm(''), 5000); return () => clearTimeout(t); }, [approveArm]);
-  useEffect(() => { if (!cancelArm) return; const t = setTimeout(() => setCancelArm(''), 6000); return () => clearTimeout(t); }, [cancelArm]);
-  // Which booth a staff member works from, for closures scoped to spaces.
-  const staffBooth = useMemo(() => {
-    const m = new Map<string, string | null>();
-    for (const l of leases) if (['active', 'on_leave'].includes(String(l.status)) && l.renterId) {
-      const st = (allStaff || []).find((x: any) => x.renterId === l.renterId);
-      if (st) m.set(st.id, l.boothId || null);
-    }
-    return m;
-  }, [leases, allStaff]);
-
-  // ── The studio's own bookings inside the window ───────────────────────
-  // Cancelling is one move: status, audit, and the closure message to each
-  // client (Settings → Messages → "Cancelled — the studio is closed").
-  // Renter bookings are counted but never touched here — those are their
-  // clients, handled from their portals.
-  const cancelStudioBookings = async (rec: InterruptionRecord, list: any[]) => {
-    if (!firestore || !tenantId || list.length === 0) return;
-    setBusy(`cx-${rec.id}`);
-    let done = 0, told = 0;
-    try {
-      const nowIso = new Date().toISOString();
-      for (const a of list) {
-        if (a.status === 'cancelled' || a.status === 'completed') continue;
-        const depositCents = Number(a.depositAmountCents || 0);
-        const depositPaid = String(a.depositStatus || '') === 'paid' && depositCents > 0;
-        await updateDoc(doc(firestore, 'tenants', tenantId, 'appointments', a.id), {
-          status: 'cancelled', cancelledAt: nowIso, cancellationReason: 'business_interruption', interruptionId: rec.id, lostToInterruption: true,
-          cancellationAudit: { actorType: 'studio', reason: 'business_interruption', note: rec.title, timestamp: nowIso },
-          ...(depositPaid ? { depositRefundPending: true, depositRefundOwedCents: depositCents, depositRefundReason: 'studio_closed' } : {}),
-        }).catch(() => null);
-        done++;
-        try {
-          const res = await fetch('/api/appointments/notify-cancellation', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tenantId, appointmentId: a.id, reason: rec.title, kind: 'appointment_cancelled_closure' }) });
-          const d = await res.json().catch(() => null);
-          if (d?.ok && d.reachable) told++;
-        } catch { /* the cancellation stands */ }
-      }
-      setCancelResult((m) => ({ ...m, [rec.id]: `Cancelled ${done} · ${told} client${told === 1 ? '' : 's'} told` }));
-    } finally { setBusy(''); setCancelArm(''); }
-  };
-
-  const boothById = useMemo(() => { const m = new Map<string, any>(); for (const b of booths || []) m.set(b.id, b); return m; }, [booths]);
-  const renterById = useMemo(() => { const m = new Map<string, any>(); for (const r of renters) m.set(r.id, r); return m; }, [renters]);
-  const leasedBooths = useMemo(() => {
-    const ids = new Set(leases.filter((l) => l.status === 'active').map((l) => l.boothId));
-    return (booths || []).filter((b) => ids.has(b.id)).sort((a, b) => String(a.name).localeCompare(String(b.name)));
-  }, [booths, leases]);
-  const openRecords = useMemo(() => records.filter((r) => r.status === 'open').sort((a, b) => String(b.startDate).localeCompare(String(a.startDate))), [records]);
-  const doneRecords = useMemo(() => records.filter((r) => r.status === 'resolved').sort((a, b) => String(b.startDate).localeCompare(String(a.startDate))), [records]);
-
-  const create = async () => {
-    if (!firestore || !tenantId || !form.startDate) return;
-    setBusy('new');
-    try {
-      const nowIso = new Date().toISOString();
-      const ref = doc(collection(firestore, 'tenants', tenantId, 'interruptions'));
-      const rec: InterruptionRecord = {
-        id: ref.id, type: form.type,
-        title: form.title.trim() || INTERRUPTION_TYPE_LABEL[form.type],
-        startDate: form.startDate, endDate: null,
-        affectedBoothIds: form.boothIds, status: 'open',
-        note: form.note.trim().slice(0, 1200), remedy: [], abated: {},
-        createdAt: nowIso, resolvedAt: null,
-      };
-      await setDoc(ref, rec);
-      setOpen(false);
-      setForm({ type: 'power', title: '', startDate: todayIso(), boothIds: [], note: '' });
-    } finally { setBusy(''); }
-  };
-
-  const addRemedy = async (rec: InterruptionRecord) => {
-    const text = (remedyDraft[rec.id] || '').trim();
-    if (!firestore || !tenantId || !text) return;
-    setBusy(`rem-${rec.id}`);
-    try {
-      const share = !!shareDraft[rec.id];
-      const entry = { at: new Date().toISOString(), text: text.slice(0, 1200), sharedWithRenters: share };
-      await updateDoc(doc(firestore, 'tenants', tenantId, 'interruptions', rec.id), { remedy: [...(rec.remedy || []), entry] });
-      if (share) await tellRenters(rec, `Update on ${rec.title}: ${text}`);
-      setRemedyDraft((m) => ({ ...m, [rec.id]: '' }));
-    } finally { setBusy(''); }
-  };
-
-  // Every affected renter gets the same words, through the same door the rest
-  // of their messages come through — email, text, and a line in their thread.
-  // That is what makes it a record rather than a rumour.
-  const tellRenters = async (rec: InterruptionRecord, text: string) => {
-    const affected = abatementProposals(rec, leases, boothById, renterById, todayIso());
-    const byName = (tenant && (tenant.name || tenant.businessName)) || 'Studio';
-    await Promise.all(affected.map((p) => fetch('/api/booths/notify', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'renter-message', tenantId, renterId: p.renterId, text, byName }),
-    }).catch(() => null)));
-  };
-
-  const approve = async (rec: InterruptionRecord, p: { renterId: string; leaseId: string; boothId: string | null; days: number; owedCents: number; renterName: string }) => {
-    if (!firestore || !tenantId || p.owedCents <= 0) return;
-    setBusy(`ab-${rec.id}-${p.renterId}`);
-    try {
-      const nowIso = new Date().toISOString();
-      const ref = doc(collection(firestore, 'tenants', tenantId, 'rentLedger'));
-      await setDoc(ref, {
-        leaseId: p.leaseId, renterId: p.renterId, boothId: p.boothId,
-        type: 'rent_abatement', status: 'paid', amountCents: -p.owedCents,
-        description: `${rec.title} — space unusable ${p.days} day${p.days === 1 ? '' : 's'}`,
-        note: '', dueDate: null, paidAt: nowIso.slice(0, 10), method: 'abatement', interruptionId: rec.id,
-        stripePaymentIntentId: null, appliesToEntryIds: [], createdBy: 'owner', createdAt: nowIso, updatedAt: nowIso,
-      });
-      const prev = rec.abated?.[p.renterId];
-      await updateDoc(doc(firestore, 'tenants', tenantId, 'interruptions', rec.id), {
-        abated: { ...(rec.abated || {}), [p.renterId]: { cents: (Number(prev?.cents) || 0) + p.owedCents, days: p.days, at: nowIso } },
-      });
-    } finally { setBusy(''); setApproveArm(''); }
-  };
-
-  const resolve = async (rec: InterruptionRecord) => {
-    if (!firestore || !tenantId) return;
-    setBusy(`res-${rec.id}`);
-    try {
-      const nowIso = new Date().toISOString();
-      await updateDoc(doc(firestore, 'tenants', tenantId, 'interruptions', rec.id), { status: 'resolved', endDate: rec.endDate || todayIso(), resolvedAt: nowIso });
-    } finally { setBusy(''); }
-  };
-
-  const Rec = ({ rec }: { rec: InterruptionRecord }) => {
-    const props = abatementProposals(rec, leases, boothById, renterById, todayIso());
-    const exp = exposureCents(props);
-    const days = interruptionDays(rec.startDate, rec.endDate, todayIso());
-    const isOpen = rec.status === 'open';
-    const scope = (rec.affectedBoothIds || []).length === 0
-      ? 'Whole studio'
-      : rec.affectedBoothIds.map((id) => boothById.get(id)?.name || 'Space').join(', ');
-    return (
-      <div className={cn('rounded-2xl border-2 px-4 py-3 space-y-3', isOpen ? 'border-red-300 bg-red-50/60' : 'bg-white')}>
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-sm font-black truncate">{rec.title}</p>
-            <p className="text-[11px] font-bold text-slate-600">{INTERRUPTION_TYPE_LABEL[rec.type] || rec.type} · {rec.startDate}{rec.endDate ? ` → ${rec.endDate}` : ' → ongoing'} · {days} day{days === 1 ? '' : 's'} · {scope}</p>
-          </div>
-          <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest', isOpen ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-600')}>{isOpen ? 'Open' : 'Resolved'}</span>
-        </div>
-        {rec.note && <p className="text-[11px] font-medium text-slate-700">{rec.note}</p>}
-
-        {props.length > 0 && (
-          <div className="rounded-xl bg-white border-2 px-3 py-2.5 space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Rent owed back · a day's rent per unusable day</p>
-              <p className="text-[11px] font-black tabular-nums">{money(exp.owedCents)} to approve{exp.paidCents > 0 ? ` · ${money(exp.paidCents)} given` : ''}</p>
-            </div>
-            {props.map((p) => {
-              const key = `${rec.id}-${p.renterId}`;
-              const armed = approveArm === key;
-              return (
-                <div key={key} className="flex items-center justify-between gap-2">
-                  <p className="text-[11px] font-bold truncate">{p.renterName}<span className="text-slate-500 font-medium"> · {p.boothName} · {money(p.dailyCents)}/day</span></p>
-                  {p.owedCents > 0 ? (
-                    <button type="button" disabled={busy === `ab-${key}`}
-                      onClick={() => { if (armed) void approve(rec, p); else setApproveArm(key); }}
-                      className={cn('shrink-0 h-8 rounded-lg px-2.5 text-[9px] font-black uppercase tracking-widest disabled:opacity-40', armed ? 'bg-emerald-700 text-white' : 'border-2 border-emerald-300 text-emerald-800')}>
-                      {armed ? `Tap again · credit ${money(p.owedCents)}` : `Credit ${money(p.owedCents)}`}
-                    </button>
-                  ) : (
-                    <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-emerald-700">{money(p.paidCents)} credited</span>
-                  )}
-                </div>
-              );
-            })}
-            <p className="text-[9px] font-bold text-slate-400">Renters already on leave are left out — their rent is already paused or reduced, and crediting it again pays twice for one empty chair.</p>
-          </div>
-        )}
-
-        {(() => {
-          const inWin = appointmentsInWindow(allAppointments as any[], rec, staffBooth, todayIso());
-          const studioAp = inWin.filter((a) => !a.isRenterBooking);
-          const renterAp = inWin.filter((a) => a.isRenterBooking);
-          const live = studioAp.filter((a) => a.status !== 'cancelled' && a.status !== 'completed');
-          const alreadyCut = studioAp.filter((a) => a.status === 'cancelled' && a.interruptionId === rec.id);
-          if (studioAp.length === 0 && renterAp.length === 0) return null;
-          const byStaff = new Map<string, number>();
-          for (const a of studioAp) { const k = a.staffName || (allStaff || []).find((x: any) => x.id === a.staffId)?.name || 'Staff'; byStaff.set(k, (byStaff.get(k) || 0) + 1); }
-          const armed = cancelArm === rec.id;
-          return (
-            <>
-            {isOpen && <InterruptionClients tenantId={tenantId} firestore={firestore} rec={rec} />}
-            <div className="rounded-xl bg-white border-2 px-3 py-2.5 space-y-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Studio bookings inside the closure</p>
-                <p className="text-[11px] font-black tabular-nums">{studioAp.length} · {money(bookedValueCents(studioAp))} booked</p>
-              </div>
-              {byStaff.size > 0 && <p className="text-[10px] font-bold text-slate-600">{[...byStaff.entries()].map(([n, c]) => `${n} ${c}`).join(' · ')}</p>}
-              {alreadyCut.length > 0 && <p className="text-[10px] font-bold text-slate-500">{alreadyCut.length} already cancelled by this closure.</p>}
-              {isOpen && live.length > 0 && (
-                <button type="button" disabled={busy === `cx-${rec.id}`} onClick={() => { if (armed) void cancelStudioBookings(rec, live); else setCancelArm(rec.id); }}
-                  className={cn('h-9 w-full rounded-lg px-3 text-[9px] font-black uppercase tracking-widest disabled:opacity-40', armed ? 'bg-red-700 text-white' : 'border-2 border-red-300 text-red-800 bg-white')}>
-                  {busy === `cx-${rec.id}` ? 'Cancelling…' : armed ? `Tap again · cancel ${live.length} and tell each client` : `Cancel ${live.length} still-live booking${live.length === 1 ? '' : 's'} & tell the clients`}
-                </button>
-              )}
-              {cancelResult[rec.id] && <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">{cancelResult[rec.id]}</p>}
-              {renterAp.length > 0 && <p className="text-[10px] font-bold text-slate-500">{renterAp.length} renter booking{renterAp.length === 1 ? '' : 's'} also fall inside — their renters see and handle those from their portals; not touched here.</p>}
-              <p className="text-[9px] font-bold text-slate-400">This is the studio's own line for its insurer, beside the renters' lines below. Deposits already paid are flagged for refund on cancel.</p>
-            </div>
-            </>
-          );
-        })()}
-
-        {(() => {
-          const groups = lossesByRenter(losses.filter((l) => l.interruptionId === rec.id));
-          if (groups.length === 0) return null;
-          return (
-            <div className="rounded-xl bg-white border-2 px-3 py-2.5 space-y-1">
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">What renters say it cost them · their own logs, read-only</p>
-              {groups.map((g) => (
-                <p key={g.renterId} className="text-[11px] font-bold flex justify-between gap-2"><span className="truncate">{g.renterName}<span className="font-medium text-slate-500"> · {g.totals.days} day{g.totals.days === 1 ? '' : 's'} · {g.totals.appointmentsLost} appt{g.totals.appointmentsLost === 1 ? '' : 's'}</span></span><span className="tabular-nums">{money(g.totals.lostCents)}</span></p>
-              ))}
-              <p className="text-[9px] font-bold text-slate-400">Their figures for their own insurer — separate from rent, not owed by you.</p>
-            </div>
-          );
-        })()}
-
-        <div className="space-y-1.5">
-          <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">What's being done</p>
-          {(rec.remedy || []).length === 0 && <p className="text-[11px] font-medium text-slate-500">Nothing logged yet.</p>}
-          {(rec.remedy || []).map((r, i) => (
-            <p key={i} className="text-[11px] font-medium text-slate-700"><span className="font-black">{String(r.at).slice(0, 10)}</span> · {r.text}{r.sharedWithRenters && <span className="text-emerald-700 font-black"> · sent to renters</span>}</p>
-          ))}
-          {isOpen && (
-            <div className="space-y-1.5">
-              <textarea value={remedyDraft[rec.id] || ''} onChange={(e) => setRemedyDraft((m) => ({ ...m, [rec.id]: e.target.value }))} rows={2}
-                aria-label="Update on the remedy" placeholder="Plumber booked for Tuesday. Dryers back Thursday."
-                className="w-full rounded-xl border-2 bg-white px-3 py-2 text-sm" />
-              <div className="flex items-center gap-2">
-                <button type="button" aria-pressed={!!shareDraft[rec.id]} onClick={() => setShareDraft((m) => ({ ...m, [rec.id]: !m[rec.id] }))}
-                  className={cn('h-9 rounded-lg border-2 px-3 text-[9px] font-black uppercase tracking-widest', shareDraft[rec.id] ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600')}>
-                  {shareDraft[rec.id] ? 'Will message affected renters' : 'Keep internal'}
-                </button>
-                <Button onClick={() => addRemedy(rec)} disabled={busy === `rem-${rec.id}` || !(remedyDraft[rec.id] || '').trim()} className="h-9 flex-1 rounded-lg font-black uppercase text-[9px] tracking-widest">{busy === `rem-${rec.id}` ? '…' : 'Log it'}</Button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="flex gap-2">
-          <a href={`/api/booths/interruption-packet?tenantId=${encodeURIComponent(tenantId)}&id=${encodeURIComponent(rec.id)}`} target="_blank" rel="noopener"
-            className="h-9 inline-flex flex-1 items-center justify-center rounded-lg border-2 bg-white text-[9px] font-black uppercase tracking-widest text-slate-700">Print packet</a>
-          {isOpen && (
-            <Button variant="outline" onClick={() => resolve(rec)} disabled={busy === `res-${rec.id}`} className="h-9 flex-1 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest">{busy === `res-${rec.id}` ? '…' : 'Mark resolved · ends today'}</Button>
-          )}
-        </div>
-      </div>
-    );
-  };
-
+export function InterruptionClients({ tenantId, firestore, rec }: { tenantId: string; firestore: any; rec: any }) {
+  const [tickets, setTickets] = useState<any[]>([]); const [linked, setLinked] = useState<string[]>(rec.ticketIds || []);
+  const [prev, setPrev] = useState<any>(null); const [busy, setBusy] = useState(false); const [msg, setMsg] = useState<string | null>(null);
+  const [moved, setMoved] = useState<string[]>([]); // moved to another room instead — no client impact
+  useEffect(() => { if (!firestore || !tenantId) return; return onSnapshot(collection(firestore, `tenants/${tenantId}/tickets`), (s) => setTickets(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) })))); }, [firestore, tenantId]);
+  const relevant = tickets.filter((t) => linked.includes(t.id) || !['closed', 'done', 'resolved', 'cancelled'].includes(String(t.status || ''))).slice(0, 12);
+  const run = async (action: 'preview' | 'notify') => { setBusy(true); setMsg(null);
+    const r = await staffPost('/api/appointments/disruption', { tenantId, action, kind: 'interruption', interruptionId: rec.id, ticketIds: linked, movedRoomIds: moved }); setBusy(false);
+    if (!r?.ok) { setMsg(r?.error || 'That didn’t work.'); return; }
+    if (action === 'preview') setPrev(r); else { setPrev(null); setMsg(`Done — ${r.told} client${r.told === 1 ? '' : 's'} told and asked to choose; ${r.rentersTold} renter${r.rentersTold === 1 ? '' : 's'} told about their bookings. Outcomes will fill in below as clients choose.`); } };
+  const t = disruptionTotals(rec.affected);
   return (
-    <Card className="rounded-[2rem] border-2">
-      <CardHeader className="p-5 pb-2">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <CardTitle className="text-[11px] font-black uppercase tracking-widest">Business interruption</CardTitle>
-            <p className="text-[11px] font-bold text-slate-500">Flood, fire, power, weather, a forced closure. Record it while it happens: the days, the spaces, what renters are owed, what was done, what they were told. The packet your insurer asks for later is written now.</p>
-          </div>
-          {!open && <Button onClick={() => setOpen(true)} className="h-9 shrink-0 rounded-xl bg-red-700 hover:bg-red-800 font-black uppercase text-[9px] tracking-widest">Report one</Button>}
-        </div>
-      </CardHeader>
-      <CardContent className="p-5 pt-2 space-y-3">
-        {open && (
-          <div className="rounded-2xl border-2 border-red-300 bg-white px-4 py-3 space-y-2">
-            <div className="grid grid-cols-2 gap-2">
-              <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as InterruptionType }))} aria-label="What happened"
-                className="h-10 rounded-xl border-2 bg-white px-3 text-sm font-bold">
-                {(Object.keys(INTERRUPTION_TYPE_LABEL) as InterruptionType[]).map((t) => <option key={t} value={t}>{INTERRUPTION_TYPE_LABEL[t]}</option>)}
-              </select>
-              <input type="date" value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} aria-label="First day affected" className="h-10 rounded-xl border-2 bg-white px-3 text-sm font-bold" />
-            </div>
-            <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value.slice(0, 120) }))} aria-label="Short title" placeholder="Burst pipe in the back room" className="h-10 w-full rounded-xl border-2 bg-white px-3 text-sm font-bold" />
-            <div>
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-1">Spaces affected · none ticked means the whole studio</p>
-              <div className="flex flex-wrap gap-1.5">
-                {leasedBooths.map((b) => {
-                  const on = form.boothIds.includes(b.id);
-                  return (
-                    <button key={b.id} type="button" aria-pressed={on} onClick={() => setForm((f) => ({ ...f, boothIds: on ? f.boothIds.filter((x) => x !== b.id) : [...f.boothIds, b.id] }))}
-                      className={cn('h-9 rounded-full border-2 px-3 text-[10px] font-black uppercase tracking-widest', on ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600')}>{b.name}</button>
-                  );
-                })}
-                {leasedBooths.length === 0 && <p className="text-[11px] font-medium text-slate-500">No leased spaces right now — the record still keeps the dates and the remedy log.</p>}
-              </div>
-            </div>
-            <textarea value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value.slice(0, 1200) }))} rows={2} aria-label="What happened, in your words" placeholder="What happened, who found it, who has been called." className="w-full rounded-xl border-2 bg-white px-3 py-2 text-sm" />
-            <div className="flex gap-2">
-              <Button onClick={create} disabled={busy === 'new' || !form.startDate} className="h-10 flex-1 rounded-xl font-black uppercase text-[10px] tracking-widest">{busy === 'new' ? '…' : 'Open the record'}</Button>
-              <Button variant="outline" onClick={() => setOpen(false)} className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Cancel</Button>
-            </div>
-          </div>
-        )}
-        {openRecords.map((r) => <Rec key={r.id} rec={r} />)}
-        {openRecords.length === 0 && !open && <p className="text-[11px] font-medium text-slate-500">Nothing open. Good.</p>}
-        {doneRecords.length > 0 && (
-          <div className="space-y-2">
-            <button type="button" onClick={() => setShowResolved((v) => !v)} aria-expanded={showResolved} className="text-[9px] font-black uppercase tracking-widest text-slate-500">
-              {showResolved ? 'Hide' : 'Show'} {doneRecords.length} resolved
-            </button>
-            {showResolved && doneRecords.map((r) => <Rec key={r.id} rec={r} />)}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <div className="space-y-2 rounded-xl border-2 bg-white px-3 py-2.5">
+      <p className="text-sm font-semibold">Clients and records</p>
+      <div className="space-y-1"><p className="text-xs text-slate-500">Maintenance tickets behind this (for the insurance record):</p>
+        {relevant.length === 0 ? <p className="text-xs text-slate-500">No open tickets.</p> : relevant.map((tk) => <label key={tk.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={linked.includes(tk.id)} onChange={(e) => setLinked((l) => (e.target.checked ? [...l, tk.id] : l.filter((x) => x !== tk.id)))} /> {tk.title || 'Ticket'}{tk.category ? <span className="text-xs text-slate-500"> · {tk.category}</span> : null}</label>)}</div>
+      {!prev ? <button type="button" disabled={busy} onClick={() => run('preview')} className="h-9 rounded-lg border-2 px-3 text-sm font-semibold disabled:opacity-50">{busy ? 'Checking…' : 'See who’s affected'}</button> : <>
+        <p className="text-sm">{prev.totals.appointments} appointment{prev.totals.appointments === 1 ? '' : 's'} ({prev.totals.studio} studio, {prev.totals.renter} renter) · {money(prev.totals.bookedCents)} booked · {money(prev.totals.depositsCents)} deposits held</p>
+        <ul className="max-h-48 space-y-1 overflow-auto text-sm">{prev.affected.map((x: any) => <li key={x.appointmentId} className="flex flex-wrap items-center justify-between gap-2"><span>{new Date(x.startTime).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · {x.clientName || 'Client'}{x.isRenterBooking ? ' (renter — they’ll be told)' : ''}</span>
+          {!x.isRenterBooking && <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={moved.includes(x.appointmentId)} onChange={(e) => setMoved((m) => (e.target.checked ? [...m, x.appointmentId] : m.filter((y) => y !== x.appointmentId)))} /> Move room instead</label>}</li>)}</ul>
+        {moved.length > 0 && <p className="text-xs text-slate-500">{moved.length} moved to another room — they won’t be messaged; it’s recorded as “moved room”.</p>}
+        {prev.totals.appointments > 0 && <button type="button" disabled={busy} onClick={() => run('notify')} className="h-9 rounded-lg bg-slate-900 px-3 text-sm font-semibold text-white disabled:opacity-50">{busy ? 'Sending…' : `Give ${Math.max(0, prev.totals.studio - moved.length)} client${prev.totals.studio - moved.length === 1 ? '' : 's'} their choices (new time or cancel — no fee)`}</button>}
+      </>}
+      {msg && <p className="text-sm font-semibold text-emerald-700">{msg}</p>}
+      {t.appointments > 0 && <div className="rounded-lg bg-slate-50 p-2 text-sm">
+        <p className="font-semibold">So far</p>
+        <p>{t.rescheduled} rescheduled · {t.reassigned} with another provider · {t.cancelled} cancelled · {t.kept} kept · {t.pending} waiting</p>
+        <p>Refunds {money(t.refundsCents)} · credits {money(t.creditsCents)} · booked value lost {money(t.lostCents)}</p>
+      </div>}
+    </div>
   );
 }
