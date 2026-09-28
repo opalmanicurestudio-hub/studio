@@ -495,7 +495,7 @@ export function MyBook({ data, tenantId, token }: { data: any; tenantId: string;
   // once, as a move, not as a cancel-and-rebook.
   const bookViaEngine = async (client: { name: string; phone?: string; email?: string; id?: string }, serviceId: string, startIso: string) => {
     const res = await fetch('/api/appointments/book', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenantId, source: 'renter_portal', serviceId, staffId: book?.staffId, startTime: startIso, client }) });
+      body: JSON.stringify({ tenantId, source: 'renter_portal', serviceId, staffId: book?.staffId, startTime: startIso, client, renterToken: token }) });
     return res.json().catch(() => ({ ok: false, error: 'Could not book that.' }));
   };
   const submitWalkIn = () => run('walkin', async () => {
