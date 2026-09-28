@@ -8,7 +8,7 @@
 export type OpsStatus =
   | 'in_service' | 'checked_in' | 'arrived_payment_required' | 'decision_needed'
   | 'rescheduling_offered' | 'eta_overdue' | 'location_shared' | 'running_late'
-  | 'provider_late' | 'payment_required' | 'on_time' | 'finished';
+  | 'provider_late' | 'provider_offered' | 'payment_required' | 'on_time' | 'finished';
 
 export interface OpsView {
   status: OpsStatus;
@@ -43,6 +43,9 @@ export function opsStatus(a: any, now: Date = new Date(), opts: { graceMinutes?:
   if (arrived && a?.studioAskedToMove) return v('decision_needed', 'Arrived after reschedule offer', 'They’re here — decide with today’s schedule and your policy, and they’ll be updated.', 'alert', true);
   if (arrived && unpaid) return v('arrived_payment_required', 'Arrived — payment required', 'Collect the deposit or record an exception before starting.', 'warn', true);
   if (arrived) return v('checked_in', 'Checked in', null, 'ok');
+  const po = a?.providerOffer;
+  if (po?.status === 'pending') return v('provider_offered', `Offered ${String(po.toStaffName || 'another provider').split(' ')[0]} at ${hm(toDate(po.startAt))}`, 'Waiting for them to accept or decline.', 'info');
+  if ((po?.status === 'declined' || po?.status === 'expired') && !a?.lateReply) return v('decision_needed', po.status === 'declined' ? 'Declined the provider change' : 'Provider offer no longer available', 'Decide what happens next — they’ll be told.', 'alert', true);
   if (a?.studioAskedToMove) return v('rescheduling_offered', 'Rescheduling offered', 'Waiting for them to choose a new time.', 'info');
   if (Number(a?.providerLateMinutes) > 0) return v('provider_late', `Provider running ${a.providerLateMinutes} min late`, 'Their guest may need an update.', 'warn', true);
   if (ci === 'running_late') {
