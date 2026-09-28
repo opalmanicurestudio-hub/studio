@@ -1059,13 +1059,18 @@ export function internalOrigin(tenant?: any, requestOrigin?: string | null): str
 /** POST to one of our own routes with a bounded wait and one retry on a
  *  transport failure. A cold serverless start can exceed a default fetch's
  *  patience; a single retry costs a second and saves the charge. */
+/** Server-to-server proof header — only when calling one of ClarityFlow's own hosts. */
+export function internalHeaders(target: string): Record<string, string> {
+  return process.env.CRON_SECRET && isOwnHost(target) ? { 'x-cf-internal': process.env.CRON_SECRET } : {};
+}
+
 /** Is this one of ClarityFlow's own addresses (safe to receive the server secret)? */
 export function isOwnHost(origin: string): boolean {
   let host = ''; try { host = new URL(origin).host.toLowerCase(); } catch { return false; }
   const own = [process.env.VERCEL_PROJECT_PRODUCTION_URL, process.env.VERCEL_URL, process.env.VERCEL_BRANCH_URL,
     (() => { try { return process.env.NEXT_PUBLIC_APP_URL ? new URL(process.env.NEXT_PUBLIC_APP_URL).host : ''; } catch { return ''; } })()]
     .map((h) => String(h || '').toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')).filter(Boolean);
-  return own.includes(host) || /^localhost(:\d+)?$/.test(host) || /^127\.0\.0\.1(:\d+)?$/.test(host);
+  return own.includes(host) || host === 'app.clarityflow.com' || /^localhost(:\d+)?$/.test(host) || /^127\.0\.0\.1(:\d+)?$/.test(host);
 }
 
 export async function internalPost(
