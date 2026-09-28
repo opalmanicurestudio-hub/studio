@@ -178,39 +178,13 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
         depositAmountCents: completion?.depositAmountCents || 0,
       };
 
-      // 1) Immutable audit record
-      await addDoc(collection(db, `tenants/${tenantId}/completionSubmissions`), {
-        token, tenantId,
-        appointmentId: completion?.appointmentId || null,
-        clientId:      completion?.clientId || null,
-        clientName:    completion?.clientName || null,
-        clientEmail:   completion?.clientEmail || null,
-        signedForms, fileSubmissions, policyAcceptance,
-        submittedAt: nowISO,
-        cardAlreadyOnFile: skipCardStep,
-      });
-
-      // 2) Write onto appointment
-      try {
-        if (completion?.appointmentId) {
-          await setDoc(
-            doc(db, `tenants/${tenantId}/appointments/${completion.appointmentId}`),
-            { signedForms, policyAcceptance, requirementFiles: fileSubmissions, completionConsentsAt: nowISO },
-            { merge: true }
-          );
-        }
-      } catch { /* public write may be restricted — audit record is source of truth */ }
-
-      // ── Scenario C/D: card already on file — no Stripe step needed ──────────
-      if (skipCardStep) {
-        // Mark the completion as done
-        try {
-          await setDoc(
-            doc(db, `tenants/${tenantId}/bookingCompletions`, token),
-            { status: 'complete', completedAt: nowISO, formsSignedAt: nowISO },
-            { merge: true }
-          );
-        } catch { /* best-effort */ }
+      // Saved by the SERVER (the database refuses clients' own writes here): the
+      // audit record, the forms + policy on the appointment, and — when a card is
+      // already on file — the completion marked done.
+      const sub = await fetch('/api/completion/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, token, signedForms, fileSubmissions, policyAcceptance }) }).then((r) => r.json()).catch(() => null);
+      if (!sub?.ok) { setError(sub?.error || 'We couldn’t save that — please try again.'); setSubmitting(false); return; }
+      if (sub.done) {
         setReturnState('success');
         setSubmitting(false);
         return;
