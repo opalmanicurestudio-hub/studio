@@ -23,7 +23,7 @@ const NEXT = 'starts next update';
 type CtxT = { save: (field: string, value: any, label: string) => void; isMgr: boolean; busy: string | null };
 const Ctx = React.createContext<CtxT>({ save: () => {}, isMgr: false, busy: null });
 
-const Badge = ({ s }: { s: Source }) => <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-semibold ${s === 'default' ? 'bg-slate-100 text-slate-500' : 'bg-violet-100 text-violet-700'}`}>{sourceLabel(s)}</span>;
+const Badge = ({ s }: { s: Source }) => <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-semibold ${s === 'default' ? 'bg-secondary text-muted-foreground' : 'bg-primary/10 text-primary'}`}>{sourceLabel(s)}</span>;
 const Soon = () => <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">{NEXT}</span>;
 const Row = ({ label, note, children, source, soon }: { label: string; note?: string; children: React.ReactNode; source?: Source; soon?: boolean }) => (
   <div className="space-y-1.5 border-t py-4 first:border-t-0 first:pt-0">
@@ -49,7 +49,7 @@ const Text = ({ field, value, label, placeholder }: { field: string; value: stri
   return <textarea value={v} disabled={!isMgr} placeholder={placeholder} rows={3} onChange={(e) => setV(e.target.value)} onBlur={() => { if ((v || '') !== (value || '')) save(field, v.trim(), label); }} className="w-full rounded-xl border p-3 text-sm" />;
 };
 const Section = ({ n, q, children }: { n: number; q: string; children: React.ReactNode }) => (
-  <section className="rounded-3xl border bg-white p-5"><p className="mb-3 text-lg font-semibold"><span className="mr-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-sm">{n}</span>{q}</p>{children}</section>
+  <section className="rounded-3xl border bg-card p-5"><p className="mb-3 text-lg font-semibold"><span className="mr-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-secondary text-sm">{n}</span>{q}</p>{children}</section>
 );
 
 
@@ -90,7 +90,7 @@ export default function BookingPoliciesPage() {
         <div className="space-y-6">
           <Section n={1} q="What does the client owe?">
             <Row label="Deposits" note="Set on each service. These services take one:">
-              {depositServices.length ? depositServices.map((s: any) => <span key={s.id} className="rounded-full bg-slate-100 px-3 py-1 text-xs">{s.name} · {resolvePolicy(t, s).deposit.kind.value === 'percent' ? `${s.depositAmount}%` : resolvePolicy(t, s).deposit.kind.value === 'full' ? 'full price' : resolvePolicy(t, s).deposit.kind.value === 'breakeven' ? 'costs covered' : `$${Number(s.depositAmount).toFixed(2)}`}</span>)
+              {depositServices.length ? depositServices.map((s: any) => <span key={s.id} className="rounded-full bg-secondary px-3 py-1 text-xs">{s.name} · {resolvePolicy(t, s).deposit.kind.value === 'percent' ? `${s.depositAmount}%` : resolvePolicy(t, s).deposit.kind.value === 'full' ? 'full price' : resolvePolicy(t, s).deposit.kind.value === 'breakeven' ? 'costs covered' : `$${Number(s.depositAmount).toFixed(2)}`}</span>)
                 : <span className="text-sm text-muted-foreground">None yet.</span>}
               <Link href="/services" className="text-sm underline underline-offset-2">Edit on services →</Link>
             </Row>
@@ -181,10 +181,10 @@ export default function BookingPoliciesPage() {
         </div>
 
         <aside className="lg:sticky lg:top-4 lg:self-start">
-          <div className="rounded-3xl border bg-slate-50 p-5">
+          <div className="rounded-3xl border bg-secondary/60 p-5">
             <p className="text-sm font-semibold">What clients see</p>
             <p className="mb-3 text-xs text-muted-foreground">With a $20 deposit, on confirmations and your booking page — updates as you change things.</p>
-            <ul className="space-y-2 text-sm">{preview.map((l) => <li key={l} className="rounded-xl bg-white p-3">{l}</li>)}</ul>
+            <ul className="space-y-2 text-sm">{preview.map((l) => <li key={l} className="rounded-xl bg-card p-3">{l}</li>)}</ul>
           </div>
         </aside>
       </div>
