@@ -540,8 +540,8 @@ export async function sweepUnpaidAccepted(
           // Give the bank some daylight before asking again.
           if (Number.isFinite(failedAt) && (now - failedAt) > 6 * 3600000) {
             try {
-              const { internalPost } = await import('./message-policy');
-              const rr = await internalPost(origin, '/api/stripe/charge-card', {
+              const { internalPost, internalOrigin } = await import('./message-policy');
+              const rr = await internalPost(internalOrigin(null, origin), '/api/stripe/charge-card', { // our own host
                 tenantId, clientId: apt.clientId,
                 amountCents: Number(apt.depositAmountCents) || 0,
                 description: 'Deposit (retry)', category: 'Deposits',
