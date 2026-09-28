@@ -24,6 +24,7 @@
 // Every action stamps the appointment and writes the audit log — client
 // self-service leaves the same paper trail as front-desk service.
 
+import { internalPost, internalOrigin } from '@/lib/message-policy';
 import { resolvePolicy } from '@/lib/booking-policies';
 import { checkChange, chainAfterMove, deadlineStart, hoursToDeadline } from '@/lib/change-rules';
 import { FieldValue } from 'firebase-admin/firestore';
@@ -228,6 +229,50 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ...(alsoCancelled > 0 ? { alsoCancelled } : {}) });
     }
 
+    // We offered another provider → they accept (it's applied) or decline (back to the team).
+    if (action === 'provider_offer_reply') {
+      const po = a.providerOffer;
+      if (!po || po.status !== 'pending') return NextResponse.json({ ok: false, error: 'There’s no open offer on this appointment.' }, { status: 409 });
+      const choice = String(body.choice || ''); const nowIso = new Date().toISOString();
+      const mirrorSet = async (f: any) => { if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {}), db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {})]); };
+      const tellStaff = async (userId: string | null, message: string) => { const n = db.collection(`tenants/${tenantId}/notifications`).doc(); await n.set({ id: n.id, userId, read: false, createdAt: nowIso, type: 'provider_offer_reply', link: 'pos', appointmentId: apptId, message }).catch(() => {}); };
+      const when = new Date(po.startAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: zone || undefined });
+      if (choice === 'decline') {
+        const f = { providerOffer: { ...po, status: 'declined', answeredAt: nowIso } };
+        await ref.set(f, { merge: true }); await mirrorSet(f);
+        await tellStaff(po.fromStaffId || null, `${a.clientName || 'Your client'} declined ${po.toStaffName ? String(po.toStaffName).split(' ')[0] : 'the other provider'} at ${when} — decide what happens next (Operations).`);
+        await logAuditAdmin(db, tenantId, { action: 'appointment.provider_offer_declined', targetType: 'appointment', targetId: apptId, summary: `${a.clientName || 'Client'} declined ${po.toStaffName || 'another provider'} at ${when}`, actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'visit link' } }).catch(() => {});
+        return NextResponse.json({ ok: true, choice });
+      }
+      if (choice !== 'accept') return NextResponse.json({ ok: false, error: 'Accept or decline.' }, { status: 400 });
+      const durMs = Math.max(15 * 60000, (Date.parse(a.endTime || a.startTime) - Date.parse(a.startTime)) || 60 * 60000);
+      const s0 = Date.parse(po.startAt);
+      const { providerFree } = await import('@/lib/provider-availability');
+      if (!(await providerFree(db, `tenants/${tenantId}`, po.toStaffId, s0, s0 + durMs, apptId))) {
+        const f = { providerOffer: { ...po, status: 'expired', answeredAt: nowIso } };
+        await ref.set(f, { merge: true }); await mirrorSet(f);
+        await tellStaff(po.fromStaffId || null, `${a.clientName || 'Your client'} accepted ${po.toStaffName || 'the other provider'} at ${when}, but that time is no longer free — decide what happens next.`);
+        return NextResponse.json({ ok: false, error: 'Sorry — that time has just been taken. We’ll be in touch with another option.' }, { status: 409 });
+      }
+      // Apply it. The ORIGINAL time and provider are kept (history); the planner shows the new ones.
+      const applied = {
+        staffId: po.toStaffId, staffName: po.toStaffName || null,
+        startTime: new Date(s0).toISOString(), endTime: new Date(s0 + durMs).toISOString(),
+        originalScheduledTime: a.originalScheduledTime || a.startTime, originalStaffId: a.originalStaffId || a.staffId || null,
+        providerHistory: FieldValue.arrayUnion({ from: a.staffId || null, fromName: po.fromStaffName || null, to: po.toStaffId, toName: po.toStaffName || null, at: nowIso, by: 'client consent', offeredBy: po.by || null }),
+        providerOffer: { ...po, status: 'accepted', answeredAt: nowIso },
+        lateReply: { kind: 'switch', message: `Thanks — ${String(po.toStaffName || 'our team').split(' ')[0]} will see you at ${when}.`, at: nowIso, by: a.clientName || 'Client' },
+        studioAskedToMove: false,
+      };
+      await ref.set(applied, { merge: true });
+      await mirrorSet({ staffId: applied.staffId, staffName: applied.staffName, startTime: applied.startTime, endTime: applied.endTime, providerOffer: applied.providerOffer, lateReply: applied.lateReply, studioAskedToMove: false });
+      await tellStaff(po.toStaffId, `${a.clientName || 'A client'} is now with you at ${when} (moved from ${po.fromStaffName ? String(po.fromStaffName).split(' ')[0] : 'another provider'}).`);
+      if (po.fromStaffId) await tellStaff(po.fromStaffId, `${a.clientName || 'Your client'} accepted ${po.toStaffName ? String(po.toStaffName).split(' ')[0] : 'another provider'} at ${when} — they’re no longer on your schedule.`);
+      await logAuditAdmin(db, tenantId, { action: 'appointment.provider_changed', targetType: 'appointment', targetId: apptId,
+        summary: `${a.clientName || 'Client'} accepted ${po.toStaffName || 'another provider'} at ${when} (was ${po.fromStaffName || 'their provider'} at ${new Date(a.startTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: zone || undefined })}). Late fee and provider pay unchanged — review if needed.`,
+        actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'visit link' } }).catch(() => {});
+      return NextResponse.json({ ok: true, choice, startTime: applied.startTime, staffName: applied.staffName });
+    }
     // Their provider is running late → they choose: keep it, or cancel with no fee (reschedule uses the normal flow, unrestricted).
     if (action === 'provider_delay_reply') {
       const pd = a.providerDelay;
@@ -235,13 +280,20 @@ export async function POST(req: NextRequest) {
       const choice = String(body.choice || '');
       const nowIso = new Date().toISOString();
       if (choice === 'keep') {
-        const f = { providerDelay: { ...pd, reply: 'keep', replyAt: nowIso } };
+        // An optional thank-you credit for waiting (Booking policies) — issued once.
+        const creditCents = Math.round((Number(tDoc.bookingPolicies?.providerDelayCredit) || 0) * 100);
+        let credited = 0;
+        if (creditCents > 0 && a.clientId && !pd.creditIssued) {
+          const r = await internalPost(internalOrigin(tDoc, req.nextUrl.origin), '/api/credits/issue', { tenantId, clientId: a.clientId, amountCents: creditCents, type: 'courtesy', source: 'provider_delay', reason: `Thank you for waiting (${pd.minutes} min delay)`, createdBy: 'system' }, { retries: 0 });
+          if (r.ok && r.data?.ok !== false) credited = creditCents;
+        }
+        const f = { providerDelay: { ...pd, reply: 'keep', replyAt: nowIso, ...(credited ? { creditIssued: credited } : {}) } };
         await ref.set(f, { merge: true });
         if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {}), db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {})]);
         const n = db.collection(`tenants/${tenantId}/notifications`).doc();
         await n.set({ id: n.id, userId: a.staffId || null, read: false, createdAt: nowIso, type: 'provider_delay_reply', link: 'pos', appointmentId: apptId, message: `${a.clientName || 'Your client'} will wait — see them around ${new Date(pd.newStartAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: zone || undefined })}.` }).catch(() => {});
         await logAuditAdmin(db, tenantId, { action: 'appointment.provider_delay_reply', targetType: 'appointment', targetId: apptId, summary: `${a.clientName || 'Client'} chose to keep it (provider running ~${pd.minutes} min behind)`, actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'visit link' } }).catch(() => {});
-        return NextResponse.json({ ok: true, choice });
+        return NextResponse.json({ ok: true, choice, creditCents: credited });
       }
       if (choice === 'cancel') {
         const depositPaid = a.depositStatus === 'paid' || Number(a.depositAmountCents) > 0 && a.status !== 'pending_payment';
