@@ -8,6 +8,7 @@
 // new POS will too. Do not fork logic into a layout — add it here.
 
 
+import { staffAuthHeader } from '@/lib/staff-fetch';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import React, { useState, useEffect, useMemo, useCallback, Suspense, useRef } from 'react';
 import { useInventory } from '@/context/InventoryContext';
@@ -1099,8 +1100,8 @@ export function usePosEngine() {
     const offeringsToEnroll: { offeringType: 'membership' | 'package'; offeringId: string }[] = [];
     retailItems.forEach(item => {
       const productValue = item.price * item.quantity;
-      const itemCategory = item.type === 'service' ? 'Service Revenue' : item.type === 'membership' ? 'Membership Sales' : item.type === 'package' ? 'Package Sales' : item.type === 'rental' ? 'Space Rental' : 'Retail';
-      const itemDescription = item.type === 'service' ? `Service (POS): ${item.quantity}x ${item.name}` : item.type === 'membership' ? `Membership: ${item.name}` : item.type === 'package' ? `Package: ${item.name}` : item.type === 'rental' ? `Space rental: ${item.name}` : `Retail Product: ${item.quantity}x ${item.name}`;
+      const itemCategory = item.type === 'deposit' ? 'Retainers' : item.type === 'service' ? 'Service Revenue' : item.type === 'membership' ? 'Membership Sales' : item.type === 'package' ? 'Package Sales' : item.type === 'rental' ? 'Space Rental' : 'Retail';
+      const itemDescription = item.type === 'deposit' ? `Deposit: ${item.name}` : item.type === 'service' ? `Service (POS): ${item.quantity}x ${item.name}` : item.type === 'membership' ? `Membership: ${item.name}` : item.type === 'package' ? `Package: ${item.name}` : item.type === 'rental' ? `Space rental: ${item.name}` : `Retail Product: ${item.quantity}x ${item.name}`;
       if (!paymentData.skipLedger) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: itemDescription, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: itemCategory, amount: productValue, paymentMethod: paymentData.paymentMethod, hasReceipt: true, tenantId, checkoutSessionId }));
       if (item.type === 'product') { batch.set(doc(firestore, 'tenants', tenantId, 'inventory', item.id), { totalStock: increment(-item.quantity) }, { merge: true }); batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), sanitizeForFirestore(buildEntry({ productId: item.id, type: 'sold', delta: -item.quantity, reason: `Retail Sale: ${item.name} for ${clientObj?.name || 'Guest'}`, actorId: currentUser?.uid || 'staff', balanceAfter: Math.max(0, (Number(item.stock) || 0) - item.quantity) }))); }
       if (item.type === 'membership' || item.type === 'package') offeringsToEnroll.push({ offeringType: item.type, offeringId: item.id });
@@ -1169,6 +1170,21 @@ export function usePosEngine() {
     try {
       await batch.commit();
       toast({ title: "Checkout Successful" });
+      // A next visit's deposit taken on today's bill → confirm that booking
+      // (deposit paid + credit for the day, like an online deposit). The income
+      // line was written above, so the route adds no second one.
+      const depositLines = retailItems.filter((i: any) => i.type === 'deposit' && i.depositForAppointmentId);
+      if (depositLines.length) {
+        const auth = await staffAuthHeader();
+        for (const it of depositLines as any[]) {
+          try {
+            const r = await fetch('/api/appointments/desk-deposit', { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth },
+              body: JSON.stringify({ action: 'settled', tenantId, appointmentId: it.depositForAppointmentId, amountCents: Math.round(safeNumber(it.price) * 100) }) });
+            const d = await r.json().catch(() => ({}));
+            if (!d?.ok) toast({ variant: 'destructive', title: 'Next visit not confirmed', description: d?.error || `The deposit for ${it.name} was paid — confirm the booking from the planner.` });
+          } catch { toast({ variant: 'destructive', title: 'Next visit not confirmed', description: `The deposit for ${it.name} was paid — confirm the booking from the planner.` }); }
+        }
+      }
       // v17 — enroll any membership/package sold in this cart. Must run
       // AFTER the main batch commits (so we know the sale itself is
       // real), and always skipLedger:true — the forEach above already
