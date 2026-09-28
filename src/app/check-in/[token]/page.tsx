@@ -216,7 +216,6 @@ const CancelledView = ({
     };
 
     const why = String(reason || '').replace(/_/g, ' ').trim();
-    const tel = brand.phone ? `tel:${String(brand.phone).replace(/[^\d+]/g, '')}` : null;
     return (
         <VisitShell brand={brand} title={<>This appointment is <b>cancelled</b></>} subtitle={why && !/protocol|void/i.test(why) ? `Reason: ${why}` : undefined}>
             {owesFee && (
@@ -238,8 +237,7 @@ const CancelledView = ({
             <VisitCard>
                 <p className="text-[15px]">We’d love to see you another time.</p>
                 {brand.bookHref && <VisitButton href={brand.bookHref}>Book a new time</VisitButton>}
-                {tel && <VisitButton quiet href={tel}>Call us</VisitButton>}
-            </VisitCard>
+                            </VisitCard>
         </VisitShell>
     );
 };
@@ -369,9 +367,8 @@ const NotificationPreferencesView = ({
 const StaleAppointmentView = ({ brand }: { brand: VisitBrand; tenantName?: string; tenantPhone?: string }) => (
     <VisitShell brand={brand} title={<>This time has <b>passed</b></>} subtitle="This link was for an earlier appointment.">
         <VisitCard>
-            <p className="text-[15px]">If you still need us, book a new time or get in touch.</p>
+            <p className="text-[15px]">Book a new time whenever suits you.</p>
             {brand.bookHref && <VisitButton href={brand.bookHref}>Book a new time</VisitButton>}
-            {brand.phone && <VisitButton quiet href={`tel:${String(brand.phone).replace(/[^\d+]/g, '')}`}>Call us</VisitButton>}
         </VisitCard>
     </VisitShell>
 );
@@ -405,7 +402,7 @@ const TooEarlyView = ({
         {(onReschedule || onCancel) && (
             <p className="px-1 pt-1 text-center text-[14px]" style={{ color: 'var(--muted)' }}>
                 Need to change it?{' '}
-                {onReschedule && <button type="button" className="underline underline-offset-2" onClick={onReschedule}>Move it</button>}
+                {onReschedule && <button type="button" className="underline underline-offset-2" onClick={onReschedule}>Reschedule</button>}
                 {onReschedule && onCancel && ' · '}
                 {onCancel && <button type="button" className="underline underline-offset-2" onClick={onCancel}>Cancel</button>}
             </p>
@@ -2132,7 +2129,7 @@ const CancelGateView = ({
                 try { data = await res.json(); } catch {
                     setError(res.status === 404
                         ? 'Online cancellation isn\'t available right now — call or text the studio and we\'ll take care of it.'
-                        : `Something went wrong on our end (${res.status}) — try again in a moment, or call the studio.`);
+                        : `Something went wrong on our end (${res.status}) — please try again in a moment.`);
                     return;
                 }
                 if (!data.ok) { setError(data.error || 'This appointment could not be found.'); setDetails(data); return; }
@@ -2155,7 +2152,7 @@ const CancelGateView = ({
             if (!data.ok) { setError(data.error || 'Could not cancel this appointment.'); return; }
             setResult(data);
         } catch {
-            setError('Something went wrong. Please call the studio directly.');
+            setError('Something went wrong — please try again.');
         } finally {
             setIsSubmitting(false);
         }
@@ -2299,16 +2296,16 @@ const CancelGateView = ({
 // request (with an optional note) through /api/appt → the team is notified.
 const AskToMove = ({ apptApi }: { apptApi: (p: any) => Promise<any> }) => {
     const [note, setNote] = useState(''); const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle'); const [msg, setMsg] = useState('');
-    if (state === 'sent') return <div className="p-5 rounded-[2rem] border-2 border-green-200 bg-green-50"><p className="text-sm font-semibold text-green-800">{msg || 'Sent — we’ll get back to you to move it.'}</p></div>;
+    if (state === 'sent') return <div className="p-5 rounded-[2rem] border-2 border-green-200 bg-green-50"><p className="text-sm font-semibold text-green-800">{msg || 'Sent — we’ll get back to you with your new time.'}</p></div>;
     return (
         <div className="p-5 rounded-[2rem] border-2 space-y-3">
-            <p className="text-sm font-semibold text-slate-900">Ask us to move it</p>
+            <p className="text-sm font-semibold text-slate-900">Ask us to reschedule</p>
             <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={300} placeholder="When would suit you? (optional) — e.g. any weekday after 3pm" className="w-full rounded-2xl border p-3 text-sm" />
             {state === 'error' && <p className="text-xs font-semibold text-destructive">{msg}</p>}
             <Button className="w-full h-12 rounded-2xl" disabled={state === 'sending'} onClick={async () => {
                 setState('sending');
-                try { const d = await apptApi({ action: 'request_change', note }); if (d.ok) { setMsg(d.alreadyAsked ? 'We already have your request — we’ll be in touch soon.' : 'Sent — we’ll get back to you to move it.'); setState('sent'); } else { setMsg(d.error || 'That didn’t send — please call us.'); setState('error'); } }
-                catch { setMsg('That didn’t send — please call us.'); setState('error'); }
+                try { const d = await apptApi({ action: 'request_change', note }); if (d.ok) { setMsg(d.alreadyAsked ? 'We already have your request — we’ll be in touch soon.' : 'Sent — we’ll get back to you with your new time.'); setState('sent'); } else { setMsg(d.error || 'That didn’t send — please try again.'); setState('error'); } }
+                catch { setMsg('That didn’t send — please try again.'); setState('error'); }
             }}>{state === 'sending' ? 'Sending…' : 'Send my request'}</Button>
         </div>
     );
@@ -2345,7 +2342,7 @@ const RescheduleGateView = ({
         });
         try { return await res.json(); } catch {
             throw new Error(res.status === 404
-                ? 'Rescheduling is not available online right now — call the studio and we\'ll move it for you.'
+                ? 'Rescheduling isn’t available online for this appointment — you can ask us to reschedule it below.'
                 : `Server error (${res.status}) — try again in a moment.`);
         }
     };
@@ -2376,7 +2373,7 @@ const RescheduleGateView = ({
             const d = await apptApi({ action: 'reschedule', newDate, newTime });
             if (!d.ok) { setError(d.error || 'Could not move the appointment — try another time.'); return; }
             setResult(d);
-        } catch (e: any) { setError(e?.message || 'Something went wrong. Please call the studio directly.'); }
+        } catch (e: any) { setError(e?.message || 'Something went wrong — please try again.'); }
         finally { setIsSubmitting(false); }
     };
 
@@ -2450,7 +2447,7 @@ const RescheduleGateView = ({
                     <div className="p-6 rounded-[2rem] border-2 border-amber-200 bg-amber-50 flex items-start gap-3">
                         <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                         <p className="text-xs font-bold text-amber-700 uppercase tracking-tight leading-relaxed">
-                            {info?.policy?.changeRule?.reason || `Online rescheduling closes ${cutoffHours}h before your appointment — call the studio and we'll move it for you.`}
+                            {info?.policy?.changeRule?.reason || `Online rescheduling closes ${cutoffHours}h before your appointment.`}
                         </p>
                     </div>
                 ) : null}
@@ -2459,7 +2456,7 @@ const RescheduleGateView = ({
                         <p className="text-sm text-amber-900">Moving it now carries a <b>${Number(info.policy.rescheduleFee).toFixed(2)}</b> reschedule fee, as it’s within {info.policy.rescheduleFeeWindowHours} hours of your appointment. It’s added to your balance and due at your visit.</p>
                     </div>
                 )}
-                {!canChange && info?.policy?.changeRule?.needsApproval ? (
+                {!canChange && (info?.policy?.changeRule?.canRequest ?? info?.policy?.changeRule?.needsApproval) ? (
                     <AskToMove apptApi={apptApi} />
                 ) : canChange ? (
                     <>
@@ -2896,6 +2893,10 @@ export default function CheckInPage() {
             onNotifications={tenant?.notificationDefaults?.allowClientOverride !== false ? () => setShowNotificationSettings(true) : undefined}
             trip={tenantId && token && appointmentData?.id ? { tenantId, token, appointmentId: appointmentData.id } : null}
             reply={(appointmentData as any)?.lateReply || null}
+            status={(appointmentData as any)?.checkInStatus || null}
+            lateMinutes={(appointmentData as any)?.lateTimeMinutes ?? null}
+            etaAt={(appointmentData as any)?.etaAt || null}
+            selfCheckIn={(tenant as any)?.bookingPolicies?.onlineCheckIn !== false}
         />
     );
 }
