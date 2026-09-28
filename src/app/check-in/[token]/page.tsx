@@ -27,6 +27,7 @@
  *   day-of arrival (Hello + status buttons)
  */
 
+import { DisruptionCard } from '@/components/booking/DisruptionCard';
 import { VisitShell, VisitCard, VisitButton, VisitMuted, brandOf, type VisitBrand } from '@/components/booking/VisitShell';
 import { DayOfView } from '@/components/booking/DayOfView';
 import { resolvePolicy } from '@/lib/booking-policies';
@@ -386,13 +387,15 @@ const StaleAppointmentView = ({ brand }: { brand: VisitBrand; tenantName?: strin
 // cancellation-fee policies are enforced by the flows these open — this
 // screen just gets clients to them.
 const TooEarlyView = ({
-    startTime, serviceName, onReschedule, onCancel, calendarUrl, brand, providerName,
+    startTime, serviceName, onReschedule, onCancel, calendarUrl, brand, providerName, disruption, hasDeposit, onDisruptionCancel,
 }: {
     startTime: string; serviceName?: string;
     onReschedule?: () => void; onCancel?: () => void; calendarUrl?: string | null;
     brand: VisitBrand; providerName?: string | null;
+    disruption?: any; hasDeposit?: boolean; onDisruptionCancel?: (d: 'refund' | 'credit' | null) => Promise<any>;
 }) => (
     <VisitShell brand={brand} title={<>You’re <b>booked</b></>} subtitle={format(safeDate(startTime), 'EEEE, MMMM d · h:mm a')}>
+        {onDisruptionCancel && <DisruptionCard disruption={disruption} hasDeposit={!!hasDeposit} onReschedule={onReschedule} onCancel={onDisruptionCancel} />}
         <VisitCard>
             <p className="text-[18px] font-semibold">{serviceName || 'Your appointment'}</p>
             {providerName && <VisitMuted>with {providerName}</VisitMuted>}
@@ -2864,7 +2867,7 @@ export default function CheckInPage() {
 
     if (isTooEarly) {
         return (
-            <TooEarlyView brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)} providerName={(assignedStaff as any)?.name ? String((assignedStaff as any).name).split(' ')[0] : null}
+            <TooEarlyView disruption={(appointmentData as any)?.disruption || null} hasDeposit={(appointmentData as any)?.depositStatus === 'paid'} onDisruptionCancel={async (dep) => { try { const r = await fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'disruption_reply', tenantId, apptId: appointmentData?.id, k: token, choice: 'cancel', deposit: dep }) }); return await r.json(); } catch { return { ok: false }; } }} brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)} providerName={(assignedStaff as any)?.name ? String((assignedStaff as any).name).split(' ')[0] : null}
                 startTime={appointmentData!.startTime}
                 serviceName={service?.name}
                 onReschedule={() => setShowRescheduleFlow(true)}
@@ -2901,6 +2904,9 @@ export default function CheckInPage() {
             selfCheckIn={(tenant as any)?.bookingPolicies?.onlineCheckIn !== false}
             providerDelay={(appointmentData as any)?.providerDelay || null}
             providerOffer={(appointmentData as any)?.providerOffer || null}
+            disruption={(appointmentData as any)?.disruption || null}
+            hasDeposit={(appointmentData as any)?.depositStatus === 'paid'}
+            onDisruptionCancel={async (dep) => { try { const r = await fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'disruption_reply', tenantId, apptId: appointmentData?.id, k: token, choice: 'cancel', deposit: dep }) }); return await r.json(); } catch { return { ok: false }; } }}
             onOfferReply={async (choice) => { try { const r = await fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'provider_offer_reply', tenantId, apptId: appointmentData?.id, k: token, choice }) }); return await r.json(); } catch { return { ok: false }; } }}
             onProviderReply={async (choice) => { try { const r = await fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'provider_delay_reply', tenantId, apptId: appointmentData?.id, k: token, choice }) }); return await r.json(); } catch { return { ok: false }; } }}
         />
