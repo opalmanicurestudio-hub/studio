@@ -24,6 +24,7 @@
 // Every action stamps the appointment and writes the audit log — client
 // self-service leaves the same paper trail as front-desk service.
 
+import { graceRule, graceRemaining } from '@/lib/grace';
 import { internalPost, internalOrigin } from '@/lib/message-policy';
 import { resolvePolicy } from '@/lib/booking-policies';
 import { checkChange, chainAfterMove, deadlineStart, hoursToDeadline } from '@/lib/change-rules';
@@ -117,6 +118,12 @@ export async function POST(req: NextRequest) {
     // Your reschedule fee (Booking policies) — counted from the ORIGINAL time; none when WE asked them to move it; renters keep their own rules.
     const rp = resolvePolicy(tDoc).change;
     const rFee = Number(rp.fee.value) || 0, rWin = Number(rp.feeWindowHours.value) || 0;
+    // Late-reschedule grace the client can use themselves (Booking policies → grace → "online").
+    let selfGrace: { remaining: number; allowance: number; periodMonths: number } | null = null;
+    { const gr = graceRule(tDoc, 'late_reschedule');
+      if (gr.enabled && gr.selfServe && a.clientId) { const us = (await db.collection(`tenants/${tenantId}/graceUses`).where('clientId', '==', String(a.clientId)).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+        const g = graceRemaining(tDoc, 'late_reschedule', us, { clientId: String(a.clientId), serviceId: a.serviceId || null, staffId: a.staffId || null });
+        if (g.remaining > 0) selfGrace = { remaining: g.remaining, allowance: g.allowance, periodMonths: g.periodMonths }; } }
     const feeIfMovedNow = !studioCaused && !a.isRenterBooking && rFee > 0 && rWin > 0 && hoursToDeadline(tDoc, a) < rWin ? rFee : 0;
     // Over the change limit and the business approves further moves → tell the team, ONCE, with the client's note.
     const requestChange = async (note: string | null) => {
@@ -145,7 +152,7 @@ export async function POST(req: NextRequest) {
           cancelHours, canChange: insideWindow && !already, tzOffsetMinutes: tzOffset,
           rescheduleCutoffHours, canReschedule: insideRescheduleWindow && !already,
           changeRule: change.allowed ? null : { reason: change.reason, needsApproval: change.needsApproval, canRequest: change.canRequest, count: change.count, limit: change.limit },
-          rescheduleFee: feeIfMovedNow, rescheduleFeeWindowHours: rWin,
+          rescheduleFee: feeIfMovedNow, rescheduleFeeWindowHours: rWin, graceAvailable: feeIfMovedNow > 0 ? selfGrace : null,
           // The earliest date the CLIENT may pick, on the STUDIO's calendar.
           // The pages used to compute this from the browser's clock, so a
           // client travelling — or simply awake late — could be offered a
@@ -325,6 +332,7 @@ export async function POST(req: NextRequest) {
       // on the studio's wall — a fact only the server can turn into a moment,
       // because only it knows the zone and whether daylight saving applies on
       // that date. newStartIso stays accepted for pages served before this.
+      const usingGrace = body.useGrace === true && feeIfMovedNow > 0 && !!selfGrace;
       const newDate = String(body.newDate || '').slice(0, 10);
       const newTime = String(body.newTime || '').slice(0, 5);
       let newStart: Date;
@@ -359,7 +367,8 @@ export async function POST(req: NextRequest) {
         }
         const move = {
           ...chainAfterMove(a, { byStudio: studioCaused }),   // original time + count (not counted when WE asked them to reschedule)
-          ...(feeIfMovedNow > 0 ? { rescheduleFeeApplied: feeIfMovedNow } : {}),
+          ...(feeIfMovedNow > 0 && !usingGrace ? { rescheduleFeeApplied: feeIfMovedNow } : {}),
+          ...(usingGrace ? { rescheduleGraceUsed: true } : {}),
           // A new time is a fresh start: no longer late, no longer asked to move.
           studioAskedToMove: false, lateReply: null, providerDelay: null, providerLateMinutes: 0, checkInStatus: null, lateTimeMinutes: null, clientCheckInStatus: null, clientLateMinutes: null, clientEtaAt: null, etaAt: null, clientLateNote: null, clientTrip: null,
           startTime: newStart.toISOString(), endTime: newEnd.toISOString(),
@@ -377,7 +386,12 @@ export async function POST(req: NextRequest) {
         }
         return { conflict: false };
       });
-      if (!result.conflict && feeIfMovedNow > 0 && a.clientId) {
+      if (!result.conflict && usingGrace && a.clientId) {
+        const gRef = db.collection(`tenants/${tenantId}/graceUses`).doc(); const gNow = new Date().toISOString();
+        await gRef.set({ id: gRef.id, tenantId, clientId: String(a.clientId), event: 'late_reschedule', at: gNow, appointmentId: apptId, serviceId: a.serviceId || null, staffId: a.staffId || null, permit: 'free_reschedule', reason: null, appliedBy: a.clientName || 'Client', appliedById: null, approvedBy: null, voidedAt: null, via: 'visit link' });
+        await logAuditAdmin(db, tenantId, { action: 'grace.used', targetType: 'appointment', targetId: apptId, summary: `Grace used by the client — late reschedule: no fee. ${selfGrace!.remaining - 1} left in this ${selfGrace!.periodMonths}-month period.`, actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'visit link' } }).catch(() => {});
+      }
+      if (!result.conflict && feeIfMovedNow > 0 && !usingGrace && a.clientId) {
         const feeId = `rf_${Date.now().toString(36)}`;
         await db.doc(`tenants/${tenantId}/clients/${a.clientId}`).set({ outstandingBalance: FieldValue.increment(feeIfMovedNow),
           unpaidFees: FieldValue.arrayUnion({ feeId, appointmentId: apptId, appointmentDate: new Date().toISOString(), feeAmount: feeIfMovedNow, reason: 'reschedule_fee' }) }, { merge: true }).catch(() => {});
@@ -387,10 +401,10 @@ export async function POST(req: NextRequest) {
         `${a.clientName || 'A client'} moved their appointment${a.staffName ? ` with ${a.staffName}` : ''}: ${fmtWhen(a.startTime, tzOffset, zone)} → ${fmtWhen(newStart.toISOString(), tzOffset, zone)} (self-serve).`);
       await logAuditAdmin(db, tenantId, {
         action: 'appointment.client_rescheduled', targetType: 'appointment', targetId: apptId,
-        summary: `${a.clientName || 'Client'} self-rescheduled to ${fmtWhen(newStart.toISOString(), tzOffset, zone)}${feeIfMovedNow > 0 ? ` · $${feeIfMovedNow.toFixed(2)} reschedule fee added to their balance` : ''}${a.studioAskedToMove ? ' (we asked them to choose a new time)' : ''}`,
+        summary: `${a.clientName || 'Client'} self-rescheduled to ${fmtWhen(newStart.toISOString(), tzOffset, zone)}${usingGrace ? ' · grace used — no fee' : feeIfMovedNow > 0 ? ` · $${feeIfMovedNow.toFixed(2)} reschedule fee added to their balance` : ''}${a.studioAskedToMove ? ' (we asked them to choose a new time)' : ''}`,
         actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'manage-link' },
       });
-      return NextResponse.json({ ok: true, newStartIso: newStart.toISOString(), whenLabel: fmtWhen(newStart.toISOString(), tzOffset, zone), feeApplied: feeIfMovedNow });
+      return NextResponse.json({ ok: true, newStartIso: newStart.toISOString(), whenLabel: fmtWhen(newStart.toISOString(), tzOffset, zone), feeApplied: usingGrace ? 0 : feeIfMovedNow, graceUsed: usingGrace });
     }
 
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
