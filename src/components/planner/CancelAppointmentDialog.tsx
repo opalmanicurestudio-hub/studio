@@ -1,5 +1,6 @@
 'use client';
 
+import { hasRealCard } from '@/lib/card-on-file';
 import { hoursToDeadline } from '@/lib/change-rules';
 import React, { useState, useMemo, useEffect } from 'react';
 import {
@@ -168,7 +169,7 @@ export function useCancelDialog(props: CancelAppointmentDialogProps) {
     open,
   );
 
-  const hasCardOnFile = !!(client?.cardOnFile?.token || client?.cardOnFile?.paymentMethodId);
+  const hasCardOnFile = !!hasRealCard(client);
   const tmhr = tenant?.tmhr || 50;
   const taxBurden = tenant?.employerTaxBurdenPct || 10;
 
