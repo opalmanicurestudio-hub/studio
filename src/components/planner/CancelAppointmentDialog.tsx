@@ -1,5 +1,6 @@
 'use client';
 
+import { hoursToDeadline } from '@/lib/change-rules';
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   Dialog,
@@ -232,10 +233,8 @@ export function useCancelDialog(props: CancelAppointmentDialogProps) {
   // render where the effect's deps were evaluated before this declaration
   // was reached. Moving the declarations above the effect fixes it; nothing
   // about the calculation itself changed.
-  const hoursUntilAppt = useMemo(() => {
-    const st = appointment?.startTime ? new Date(appointment.startTime).getTime() : 0;
-    return st ? (st - Date.now()) / 3600000 : 0;
-  }, [appointment]);
+  // Counted from the ORIGINAL time (Booking policies → deadline), so a moved booking keeps its first deadline.
+  const hoursUntilAppt = useMemo(() => (appointment?.startTime ? hoursToDeadline(tenant, appointment) : 0), [appointment, tenant]);
 
   // A CANCELLATION fee follows the cancellation POLICY, not the full service
   // cost. (Full cost is no-show economics — handled in the isNoShow branch of
@@ -811,6 +810,116 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                         </Label>
                         <RadioGroup
                           value={paymentMethod}
+                          onValueChange={(v: any) => setPaymentMethod(v)}
+                          disabled={isSubmitting}
+                          className="grid grid-cols-2 gap-3"
+                        >
+                          <label
+                            htmlFor="pay-vault-cancel"
+                            className={cn(
+                              'cursor-pointer h-full',
+                              !hasCardOnFile && 'opacity-40 grayscale',
+                            )}
+                          >
+                            <RadioGroupItem
+                              value="card_on_file"
+                              id="pay-vault-cancel"
+                              className="peer sr-only"
+                              disabled={!hasCardOnFile}
+                            />
+                            <div
+                              className={cn(
+                                'flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all text-center h-full',
+                                paymentMethod === 'card_on_file'
+                                  ? 'border-primary bg-primary/5 shadow-lg'
+                                  : 'border-border bg-white shadow-sm',
+                              )}
+                            >
+                              {hasCardOnFile ? (
+                                <ShieldCheck className="w-6 h-6 mb-2 text-primary" />
+                              ) : (
+                                <Lock className="w-6 h-6 mb-2 text-slate-400" />
+                              )}
+                              <span className="text-[10px] font-black uppercase tracking-widest leading-none">
+                                Vault Card
+                              </span>
+                            </div>
+                          </label>
+                          <label htmlFor="pay-balance-cancel" className="cursor-pointer h-full">
+                            <RadioGroupItem
+                              value="add_to_balance"
+                              id="pay-balance-cancel"
+                              className="peer sr-only"
+                            />
+                            <div
+                              className={cn(
+                                'flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all text-center h-full',
+                                paymentMethod === 'add_to_balance'
+                                  ? 'border-primary bg-primary/5 shadow-lg'
+                                  : 'border-border bg-white shadow-sm',
+                              )}
+                            >
+                              <Landmark
+                                className={cn(
+                                  'w-6 h-6 mb-2 transition-colors',
+                                  paymentMethod === 'add_to_balance'
+                                    ? 'text-primary'
+                                    : 'text-muted-foreground opacity-40',
+                                )}
+                              />
+                              <span className="text-[10px] font-black uppercase tracking-widest leading-none">
+                                Client Arrears
+                              </span>
+                            </div>
+                          </label>
+                        </RadioGroup>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+        </ScrollArea>
+
+        <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex flex-col gap-3 shrink-0">
+          <div className="px-2 py-3 rounded-xl bg-muted/10 border border-dashed text-center">
+            <p className="text-[10px] font-bold text-slate-600 uppercase tracking-tight leading-relaxed">
+              {client?.name || appointment.clientName || 'Client'} will be {chargeFee && finalFeeAmount > 0
+                ? <>charged <span className="font-black text-primary">${finalFeeAmount.toFixed(2)}</span> via {paymentMethod === 'card_on_file' ? 'card on file' : 'balance owed'}</>
+                : <span className="font-black text-green-600">charged no fee</span>}
+              {actorType === 'studio' && depositCredit && (
+                <> · deposit {depositDisposition === 'refund' ? 'refunded' : 'converted to credit'}</>
+              )}
+            </p>
+          </div>
+          <Button
+            onClick={handleAction}
+            className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 group"
+            disabled={isSubmitting || (isOtherSelected && !customReason.trim())}
+          >
+            {isSubmitting ? (
+              <Loader className="w-6 h-6 animate-spin" />
+            ) : (
+              <>
+                Finalize Reversal{' '}
+                <ArrowRight className="ml-3 w-5 h-5 transition-transform group-hover:translate-x-1" />
+              </>
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => onOpenChange(false)}
+            className="w-full h-10 font-black uppercase tracking-widest text-[10px] text-slate-400"
+          >
+            Abort Protocol
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+            value={paymentMethod}
                           onValueChange={(v: any) => setPaymentMethod(v)}
                           disabled={isSubmitting}
                           className="grid grid-cols-2 gap-3"
