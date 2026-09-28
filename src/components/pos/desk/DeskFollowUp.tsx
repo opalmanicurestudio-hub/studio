@@ -32,10 +32,12 @@ export function DeskFollowUp({ e, visit, accent, onClose }: { e: any; visit: any
   const [staffId, setStaffId] = useState<string>(visit?.staffId || '');
   const [times, setTimes] = useState<Record<string, string[] | null>>({}); // `${staffId}|date` → times (null = loading)
   const [pick, setPick] = useState<{ date: string; time: string } | null>(null);
+  const [dep, setDep] = useState<{ appointmentId: string; cents: number; when: Date; staffName?: string } | null>(null);
+  const [depBusy, setDepBusy] = useState(''); const [waiveWhy, setWaiveWhy] = useState(''); const [depErr, setDepErr] = useState('');
   const [otherDate, setOtherDate] = useState(''); const [month, setMonth] = useState(() => startOfMonth(addDays(new Date(), 14))); const [busy, setBusy] = useState(false); const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const presets = useMemo(() => WEEKS.map((w) => ({ w, d: addDays(base, w * 7) })), [visit?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { if (visit) { setStaffId(visit.staffId || ''); setTimes({}); setPick(null); setOtherDate(''); setMsg(null); } }, [visit?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (visit) { setStaffId(visit.staffId || ''); setTimes({}); setPick(null); setOtherDate(''); setMsg(null); setDep(null); setDepErr(''); setWaiveWhy(''); } }, [visit?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const load = async (date: string, sid = staffId) => {
     const k = `${sid}|${date}`; if (times[k] !== undefined || !visit) return;
     setTimes((t) => ({ ...t, [k]: null }));
@@ -67,13 +69,63 @@ export function DeskFollowUp({ e, visit, accent, onClose }: { e: any; visit: any
     try {
       const start = new Date(`${pick.date}T${pick.time}:00`);
       const d = await staffPost('/api/appointments/book', { tenantId: e.tenantId, source: 'front_desk', serviceId: visit.serviceId, addOnIds: visit.addOnIds || [], staffId: staffId || 'any',
-        startTime: start.toISOString(), client: visit.clientId ? { id: visit.clientId } : { name: visit.clientName, email: visit.clientEmail, phone: visit.clientPhone }, notes: `Follow-up booked at the front desk after ${format(base, 'MMM d')}` });
+        startTime: start.toISOString(), client: visit.clientId ? { id: visit.clientId } : { name: visit.clientName, email: visit.clientEmail, phone: visit.clientPhone }, notes: `Follow-up booked at the front desk after ${format(base, 'MMM d')}`,
+        // If a deposit is due, hold it until the end of today (not the short online hold) while it's sorted below.
+        holdUntil: (() => { const x = new Date(); x.setHours(23, 59, 0, 0); return x.toISOString(); })() });
       if (!d.ok) { setMsg({ ok: false, text: d.error || 'That time was just taken — pick another.' }); setTimes((t) => { const n = { ...t }; delete n[`${staffId}|${pick.date}`]; return n; }); void load(pick.date); return; }
+      if (d.status === 'pending_payment' && Number(d.depositCents) > 0) { setDep({ appointmentId: d.appointmentId, cents: Number(d.depositCents), when: start, staffName: d.staffName }); return; }
       setMsg({ ok: true, text: `Booked ${first} · ${format(start, 'EEE, MMM d · h:mm a')}${d.staffName ? ` with ${String(d.staffName).split(' ')[0]}` : ''}` });
     } finally { setBusy(false); }
   };
 
   const Card = ({ children }: { children: React.ReactNode }) => <section className="space-y-2.5 rounded-3xl p-4" style={{ background: 'var(--card)' }}>{children}</section>;
+  // ── Deposit due on the new booking: the desk's four options ──────────────
+  const client = visit.clientId ? (e.clients || []).find((c: any) => c.id === visit.clientId) : null;
+  const card = client?.cardOnFile?.paymentMethodId ? client.cardOnFile : null;
+  const pref = String(e.selectedTenant?.deskDepositDefault || 'bill');
+  const money = dep ? `$${(dep.cents / 100).toFixed(2)}` : '';
+  const whenText = dep ? format(dep.when, 'EEE, MMM d · h:mm a') : '';
+  const deskDeposit = async (action: string, extra: any = {}) => {
+    if (!dep) return; setDepBusy(action); setDepErr('');
+    try {
+      const r = await staffPost('/api/appointments/desk-deposit', { action, tenantId: e.tenantId, appointmentId: dep.appointmentId, ...extra });
+      if (!r.ok) { setDepErr(r.error || 'That didn’t go through.'); return; }
+      const done = action === 'charge' ? `Deposit charged to ${card?.brand || 'their card'} •••• ${card?.last4 || ''} — ${first} is booked for ${whenText}.`
+        : action === 'link' ? `Pay link sent — ${whenText} is held until ${format(new Date(r.heldUntil), 'EEE h:mm a')}, then released if unpaid.`
+        : `${first} is booked for ${whenText} — no deposit (${extra.reason || 'recorded'}).`;
+      setDep(null); setMsg({ ok: true, text: done });
+    } finally { setDepBusy(''); }
+  };
+  const addToBill = () => {
+    if (!dep) return;
+    const line = { id: `deposit-${dep.appointmentId}`, name: `${svc(visit.serviceId)?.name || 'Next visit'} · ${format(dep.when, 'MMM d')}`, quantity: 1, price: dep.cents / 100, type: 'deposit', depositForAppointmentId: dep.appointmentId };
+    e.setRetailItems?.((prev: any[]) => [...(prev || []).filter((i: any) => i.id !== line.id), line]);
+    if (!e.selectedClientId && visit.clientId) e.setSelectedClientId?.(visit.clientId);
+    setDep(null); setMsg({ ok: true, text: `${money} deposit added to today’s bill — ${whenText} is held until tonight and confirmed when they pay.` });
+  };
+  if (dep && !msg) {
+    const opts: { k: string; el: React.ReactNode }[] = [
+      { k: 'bill', el: <div key="bill" className="flex items-center justify-between gap-3"><span className="text-[14px]"><b>Add to today’s bill</b><span className="block text-[12px]" style={{ color: 'var(--muted)' }}>Held until tonight; confirmed when they pay.</span></span><Btn onClick={addToBill}>Add {money}</Btn></div> },
+      ...(card ? [{ k: 'card', el: <div key="card" className="flex items-center justify-between gap-3"><span className="text-[14px]"><b>Charge their saved card</b><span className="block text-[12px]" style={{ color: 'var(--muted)' }}>{card.brand || 'Card'} •••• {card.last4} · confirmed now</span></span><Btn onClick={() => deskDeposit('charge')} disabled={!!depBusy}>{depBusy === 'charge' ? 'Charging…' : `Charge ${money}`}</Btn></div> }] : []),
+      { k: 'link', el: <div key="link" className="flex items-center justify-between gap-3"><span className="text-[14px]"><b>Send a pay link</b><span className="block text-[12px]" style={{ color: 'var(--muted)' }}>Email + text; held for your grace window.</span></span><Btn quiet onClick={() => deskDeposit('link')} disabled={!!depBusy}>{depBusy === 'link' ? 'Sending…' : 'Send link'}</Btn></div> },
+      { k: 'regulars', el: <div key="waive" className="space-y-2"><span className="text-[14px]"><b>No deposit</b><span className="block text-[12px]" style={{ color: 'var(--muted)' }}>{pref === 'regulars' ? 'For members & regulars — or a manager’s call, with a reason.' : 'A manager’s call, with a reason.'}</span></span>
+        <div className="flex gap-2"><input value={waiveWhy} onChange={(ev) => setWaiveWhy(ev.target.value)} placeholder={pref === 'regulars' ? 'Reason (optional for regulars)' : 'Reason'} className="h-9 min-w-0 flex-1 rounded-full px-3 text-[13px]" style={{ background: 'var(--soft)' }} />
+          <Btn quiet onClick={() => deskDeposit('waive', { reason: waiveWhy.trim() })} disabled={!!depBusy || (pref !== 'regulars' && !waiveWhy.trim())}>Confirm</Btn></div></div> },
+    ];
+    const order = [pref === 'regulars' ? 'regulars' : pref, 'bill', 'card', 'link', 'regulars'];
+    const sorted = order.map((k) => opts.find((o) => o.k === k)).filter((o, i, a) => o && a.indexOf(o) === i) as { k: string; el: React.ReactNode }[];
+    return (
+      <Drawer accent={accent} open onClose={onClose} title={`Deposit for ${first}’s next visit`}>
+        <div className="space-y-3">
+          <Card><p className="text-[12px]" style={{ color: 'var(--muted)' }}>Booked · held while the deposit is sorted</p><p className="text-[16px] font-semibold">{whenText}</p>
+            <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{svc(visit.serviceId)?.name || 'Their service'}{dep.staffName ? ` with ${String(dep.staffName).split(' ')[0]}` : ''} · deposit <b>{money}</b></p></Card>
+          <Card><div className="space-y-3">{sorted.map((o, i) => <div key={o.k} className={i ? 'border-t pt-3' : ''} style={{ borderColor: 'var(--line)' }}>{i === 0 && <p className="mb-1 text-[11px] font-semibold" style={{ color: 'var(--accent)' }}>Your usual</p>}{o.el}</div>)}</div></Card>
+          {depErr && <p className="text-[13px] font-semibold" style={{ color: 'var(--warn)' }}>{depErr}</p>}
+          <p className="text-[12px]" style={{ color: 'var(--muted)' }}>It’s booked — never a request. If nothing is done, the hold ends tonight and the time goes back on sale.</p>
+        </div>
+      </Drawer>
+    );
+  }
   return (
     <Drawer accent={accent} open={!!visit} onClose={onClose} title={`Book ${first}’s next visit`}>
       {msg?.ok ? <div className="space-y-4 py-8 text-center"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full text-[28px]" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>✓</div>
