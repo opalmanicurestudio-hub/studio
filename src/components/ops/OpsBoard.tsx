@@ -16,6 +16,7 @@ import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { opsStatus, fitCheck, opsCan, opsLevelOf, paymentOutstanding, serviceOverrun, overrunImpact, type OpsView } from '@/lib/appointment-ops';
 import { OverrunPanel } from '@/components/ops/OverrunPanel';
 import { disruptionTotals } from '@/lib/disruptions';
+import { moduleEnabled } from '@/lib/modules';
 import { resolvePolicy } from '@/lib/booking-policies';
 
 const hm = (v: any) => { if (!v) return ''; const d = new Date(v); return isNaN(d.getTime()) ? '' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); };
@@ -255,6 +256,38 @@ function UnpaidFees({ tenantId, role, tenant }: { tenantId: string; role: string
   );
 }
 
+
+/** Renters & academy — cases only those modules have. Shown only to businesses using them. */
+function ModuleCases({ tenantId, tenant, appts, staff }: { tenantId: string; tenant: any; appts: any[]; staff: any[] }) {
+  const { firestore } = useFirebase() as any;
+  const renters = moduleEnabled(tenant, 'booth_rental'); const academy = moduleEnabled(tenant, 'academy');
+  const leavesQ = useMemoFirebase(() => (renters && firestore && tenantId ? query(collection(firestore, `tenants/${tenantId}/renterLeaves`), where('status', '==', 'approved')) : null), [renters, firestore, tenantId]);
+  const leasesQ = useMemoFirebase(() => (renters && firestore && tenantId ? collection(firestore, `tenants/${tenantId}/leases`) : null), [renters, firestore, tenantId]);
+  const { data: leaves } = useCollection<any>(leavesQ); const { data: leases } = useCollection<any>(leasesQ);
+  const today = new Date(); const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const staffById = new Map((staff || []).map((x: any) => [x.id, x]));
+  const live = (a: any) => !['cancelled', 'canceled', 'no_show', 'declined', 'expired'].includes(String(a.status || ''));
+  // 1) A renter's booking on a day they're on approved leave.
+  const onLeave: { a: any; renter: string; until: string }[] = [];
+  if (renters) for (const a of appts || []) {
+    if (!live(a)) continue; const st: any = staffById.get(a.staffId); const rid = a.renterId || st?.renterId; if (!rid) continue;
+    const leaseIds = (leases || []).filter((l: any) => l.renterId === rid).map((l: any) => l.id);
+    const lv = (leaves || []).find((l: any) => (l.renterId === rid || leaseIds.includes(l.leaseId)) && String(l.startDate) <= ymd && ymd <= String(l.endDate));
+    if (lv) onLeave.push({ a, renter: String(st?.name || 'A renter'), until: String(lv.endDate) });
+  }
+  // 2) A student's finished service still waiting for an instructor's sign-off (checkout needs it).
+  const signOff = academy ? (appts || []).filter((a: any) => live(a) && staffById.get(a.staffId)?.isStudent && ['ready_for_checkout', 'servicing', 'in_service'].includes(String(a.status || '')) && !a.clinicCheckoff?.signedOff
+    && (String(a.status) === 'ready_for_checkout' || Date.parse(a.endTime || a.startTime) <= Date.now())) : [];
+  if (!onLeave.length && !signOff.length) return null;
+  return (
+    <section className="space-y-2 rounded-3xl border bg-card p-4">
+      <p className="font-semibold">Renters &amp; academy</p>
+      {onLeave.map(({ a, renter, until }) => <p key={`lv-${a.id}`} className="text-sm"><b>{a.clientName || 'A client'}</b> is booked with {renter.split(' ')[0]} at {hm(a.startTime)} — but {renter.split(' ')[0]} is on approved leave until {new Date(`${until}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}. Let {renter.split(' ')[0]} know so their client isn’t turned away.</p>)}
+      {signOff.map((a: any) => <p key={`so-${a.id}`} className="text-sm"><b>{a.clientName || 'A client'}</b>’s {a.serviceName || 'service'} with student {String(staffById.get(a.staffId)?.name || '').split(' ')[0]} needs an <b>instructor’s sign-off</b> before checkout — fetch an instructor so they aren’t kept waiting.</p>)}
+    </section>
+  );
+}
+
 /** Services running over that affect a later guest (planned length = the booking's own length). */
 function overrunCases(appts: any[], now = new Date()) {
   return (appts || []).map((a: any) => { const planned = Math.max(15, Math.round((Date.parse(a.endTime || a.startTime) - Date.parse(a.startTime)) / 60000) || 60);
@@ -285,6 +318,7 @@ export function OpsBoard({ appts, staff, tenant, tenantId, role, uid }: { appts:
       <ProviderLate tenantId={tenantId} staff={(staff || []).filter((s: any) => s.isActive !== false)} role={role} uid={uid} tenant={tenant} />
       <RefundQueue tenantId={tenantId} role={role} />
       <UnpaidFees tenantId={tenantId} role={role} tenant={tenant} />
+      <ModuleCases tenantId={tenantId} tenant={tenant} appts={appts} staff={staff} />
       <ReportCallout tenantId={tenantId} staff={(staff || []).filter((s: any) => s.isActive !== false)} role={role} uid={uid} tenant={tenant} />
       <CalloutRecords tenantId={tenantId} />
       {overrunCases(appts).map(({ a, ov }) => <OverrunPanel key={`ov-${a.id}`} tenant={tenant} tenantId={tenantId} role={role} inService={a} today={appts} overMin={ov.overMin} plannedEnd={ov.plannedEnd} providerName={staffById.get(a.staffId)?.name || null} />)}
