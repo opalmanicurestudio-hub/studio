@@ -1,5 +1,6 @@
 'use client';
 
+import { staffAuthHeader } from '@/lib/staff-fetch';
 import React, { useState, useMemo } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
@@ -114,7 +115,7 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
         try {
             const res = await fetch('/api/credits/issue', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
                 body: JSON.stringify({
                     tenantId,
                     clientId: client.id,
