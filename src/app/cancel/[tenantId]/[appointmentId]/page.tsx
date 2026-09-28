@@ -52,6 +52,8 @@ const safeDate = (val: any): Date => {
 };
 
 export default function SelfCancelPage() {
+    // The key from their confirmation link (their visit token) — needed to cancel.
+    const accessKey = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('k') || '' : '';
     const params = useParams<{ tenantId: string; appointmentId: string }>();
     const { tenantId, appointmentId } = params;
 
@@ -64,7 +66,7 @@ export default function SelfCancelPage() {
 
     useEffect(() => {
         if (!tenantId || !appointmentId) return;
-        fetch(`/api/appointments/self-cancel?tenantId=${tenantId}&appointmentId=${appointmentId}`)
+        fetch(`/api/appointments/self-cancel?tenantId=${tenantId}&appointmentId=${appointmentId}&k=${encodeURIComponent(accessKey)}`)
             .then(res => res.json())
             .then(data => {
                 if (!data.ok) { setError(data.error || 'This appointment could not be found.'); setDetails(data); return; }
@@ -81,7 +83,7 @@ export default function SelfCancelPage() {
             const res = await fetch('/api/appointments/self-cancel', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tenantId, appointmentId, clientReason: reason }),
+                body: JSON.stringify({ tenantId, appointmentId, k: accessKey, clientReason: reason }),
             });
             const data = await res.json();
             if (!data.ok) { setError(data.error || 'Could not cancel this appointment.'); return; }
