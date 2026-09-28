@@ -2,8 +2,9 @@
 
 import { hasRealCard } from '@/lib/card-on-file';
 import { checkChange, chainAfterMove } from '@/lib/change-rules';
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useRef, useMemo, useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
+import { bookThroughEngine, type ConfirmResult } from '@/lib/booking/engine-confirm';
 import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { doc, collection, query, where, writeBatch, increment, arrayUnion, deleteField, getDocs } from 'firebase/firestore';
 import { setDoc as setDocCR } from 'firebase/firestore';
@@ -350,103 +351,26 @@ export default function ClientPortalPage() {
             setIsProcessing(false);
         }
     };
+    // Booking goes through the shared engine (availability, booking mode, change
+    // rules, upcoming limit, deposits, card-on-file, messages, signed forms) —
+    // the same path as the public booking page. Never written from the browser.
+    const heldPortalPay = useRef<{ key: string; appointmentId: string } | null>(null);
     const handleConfirmDirectBooking = async (
-        formData: { clientName: string; clientEmail: string; clientPhone?: string },
-        appointmentDetails: Omit<Appointment, 'id' | 'clientId' | 'clientName' | 'clientEmail' | 'clientPhone'>,
+        formData: { clientName: string; clientEmail: string; clientPhone?: string; notes?: string },
+        appointmentDetails: any,
         signedForms: { formId: string; formTitle: string; formData: Record<string, any> }[],
         setBookingStep: (step: string) => void
-    ) => {
-        if (!firestore || !tenantId || !client) return;
+    ): Promise<ConfirmResult> => {
+        if (!tenantId) return { requiresPayment: true, error: 'Please try again.' };
         setIsProcessing(true);
-        const batch = writeBatch(firestore);
-        const now = new Date().toISOString();
-
         try {
-            const appointmentRef = doc(collection(firestore, `tenants/${tenantId}/appointments`));
-            const newAppointmentId = appointmentRef.id;
-            const checkInToken = nanoid(16);
-
-            /* ── THIS WRITE MUST OBEY THE SHOP'S BOOKING MODE ──────────────
-             * appointmentDetails arrives from BookingSheet with a hardcoded
-             * status: 'confirmed'. This surface writes straight to Firestore
-             * rather than through /api/appointments/book, so a studio running
-             * approval mode got a confirmed appointment on the calendar with
-             * no request to answer — the setting was on and the booking
-             * ignored it, on this one screen only.
-             *
-             * resolveBookingPlan is a pure function, so the same decision the
-             * server makes is made here. Same fix, same reasoning, as the
-             * public page's offline path. */
-            const planService = (services || []).find((sv: any) => sv.id === (appointmentDetails as any)?.serviceId) || {};
-            const plan = resolveBookingPlan({
-                tenant: tenant as any,
-                service: planService as any,
-                price: Number((appointmentDetails as any)?.price ?? 0),
-                client: client as any,
-                byStaff: false,
+            return await bookThroughEngine({
+                tenantId, source: 'client-portal',
+                formData: { ...formData, clientName: formData.clientName || client?.name || '', clientEmail: formData.clientEmail || client?.email || '', clientPhone: formData.clientPhone || client?.phone || '' },
+                apptDetails: appointmentDetails, signedForms, setStep: setBookingStep,
+                onOutcome: (x) => setBookingOutcome({ status: x.status, notice: x.notice, depositCents: x.depositCents }),
+                held: heldPortalPay,
             });
-
-            const newAppointment = {
-                ...appointmentDetails,
-                id: newAppointmentId,
-                tenantId: tenantId,
-                clientId: client.id,
-                clientName: client.name,
-                clientEmail: client.email,
-                clientPhone: client.phone,
-                checkInToken: checkInToken,
-                status: plan.status,
-                bookingMode: plan.mode,
-                bookingReason: plan.reason,
-                requiresCardOnFile: !!plan.requiresCardOnFile,
-                ...(plan.status === 'requested' ? {
-                    requestedAt: now,
-                    requestExpiresAt: plan.approvalExpiryHours > 0
-                        ? new Date(Date.now() + plan.approvalExpiryHours * 3600000).toISOString()
-                        : null,
-                } : {}),
-            };
-
-            batch.set(appointmentRef, newAppointment);
-            batch.set(doc(firestore, 'appointmentCheckIns', checkInToken), newAppointment);
-
-            signedForms.forEach(form => {
-                const consentDocRef = doc(collection(firestore, `tenants/${tenantId}/clients/${client.id}/signedConsents`));
-                batch.set(consentDocRef, {
-                    ...form,
-                    id: consentDocRef.id,
-                    clientId: client.id,
-                    signedAt: now,
-                });
-            });
-
-            if (newAppointment.staffId) {
-                const notificationRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
-                batch.set(notificationRef, {
-                    id: nanoid(),
-                    userId: newAppointment.staffId,
-                    type: 'new_appointment',
-                    message: `New booking: ${client.name} for ${selectedServiceForBooking?.name} on ${format(parseISO(newAppointment.startTime), 'MMM d @ h:mm a')}`,
-                    link: '/planner',
-                    createdAt: now,
-                    read: false,
-                });
-            }
-            
-            await batch.commit();
-            setBookingOutcome({
-                status: plan.status,
-                notice: plan.clientNotice || '',
-                depositCents: plan.depositCents || 0,
-            });
-            toast({
-                title: plan.status === 'requested' ? 'Request sent'
-                    : plan.status === 'pending_payment' ? 'Time held' : 'Booking confirmed',
-            });
-            setBookingStep('confirmation');
-        } catch (error) {
-            console.error(error);
-            toast({ variant: 'destructive', title: "Booking Failed" });
         } finally {
             setIsProcessing(false);
         }
