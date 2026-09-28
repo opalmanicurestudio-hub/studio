@@ -71,6 +71,7 @@
  * route) behave identically.
  */
 
+import { hasRealCard } from '@/lib/card-on-file';
 import { hoursToDeadline } from '@/lib/change-rules';
 import { logAuditClient } from '@/lib/audit-client';
 import { staffAuthHeader } from '@/lib/staff-fetch';
@@ -347,7 +348,7 @@ export function useCancellationConfirm(
         paymentMethod:         isStudioCancel ? 'waived' : paymentMethod,
         // Already charged at the desk → no card details, so the function never charges twice.
         stripeCustomerId:      alreadyChargedPaymentIntentId ? null : (client.cardOnFile?.customerId || client.stripeCustomerId || null),
-        stripePaymentMethodId: alreadyChargedPaymentIntentId ? null : (client.cardOnFile?.paymentMethodId || (client.cardOnFile?.token || client.cardOnFile?.paymentMethodId) || null),
+        stripePaymentMethodId: alreadyChargedPaymentIntentId ? null : (client.cardOnFile?.paymentMethodId || (hasRealCard(client) ? client.cardOnFile?.token : null) || null),
         ...(alreadyChargedPaymentIntentId ? { stripePaymentIntentId: alreadyChargedPaymentIntentId, chargedAt: new Date().toISOString(), chargedBy: 'front desk' } : {}),
 
         cancellationAudit,
