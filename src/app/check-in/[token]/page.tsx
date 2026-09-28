@@ -28,7 +28,7 @@
  */
 
 import { DisruptionCard } from '@/components/booking/DisruptionCard';
-import { VisitShell, VisitCard, VisitButton, VisitMuted, brandOf, type VisitBrand } from '@/components/booking/VisitShell';
+import { VisitShell, VisitCard, VisitButton, VisitMuted, VisitLabel, VisitChoice, VisitSelect, VisitInput, brandOf, type VisitBrand } from '@/components/booking/VisitShell';
 import { DayOfView } from '@/components/booking/DayOfView';
 import { resolvePolicy } from '@/lib/booking-policies';
 import React, { useState, useMemo, useEffect } from 'react';
@@ -260,10 +260,12 @@ const NotificationPreferencesView = ({
     tenantId,
     client,
     onBack,
+    brand,
 }: {
     tenantId: string;
     client: Client;
     onBack: () => void;
+    brand: VisitBrand;
 }) => {
     const { firestore } = useFirebase();
     const { toast } = useToast();
@@ -306,53 +308,23 @@ const NotificationPreferencesView = ({
     );
 
     return (
-        <ViewContainer>
-            <ViewHeader title="Notification Settings" subtitle="How and when we reach you" icon={Bell} />
-            <CardContent className="p-8 md:p-12 space-y-10 text-left">
-                <div className="space-y-3">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Booking confirmations</Label>
-                    <div className="flex gap-2 flex-wrap">
-                        {channelOption('sms', 'Text', confirmationChannel, setConfirmationChannel)}
-                        {channelOption('email', 'Email', confirmationChannel, setConfirmationChannel)}
-                        {channelOption('both', 'Both', confirmationChannel, setConfirmationChannel)}
-                        {channelOption('none', 'Off', confirmationChannel, setConfirmationChannel)}
-                    </div>
-                </div>
-
-                <div className="space-y-3">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Appointment reminders</Label>
-                    <div className="grid grid-cols-2 gap-2">
-                        {channelOption('voice', 'Phone call', reminderChannel, setReminderChannel)}
-                        {channelOption('sms', 'Text', reminderChannel, setReminderChannel)}
-                        {channelOption('email', 'Email', reminderChannel, setReminderChannel)}
-                        {channelOption('none', 'Off', reminderChannel, setReminderChannel)}
-                    </div>
-                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight opacity-60 px-1">
-                        "Phone call" means a friendly reminder call — you can reschedule or cancel right there if plans change.
-                    </p>
-                </div>
-
-                {reminderChannel !== 'none' && (
-                    <div className="space-y-3">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Remind me</Label>
-                        <select
-                            value={reminderHoursBefore}
-                            onChange={e => setReminderHoursBefore(Number(e.target.value))}
-                            className="w-full h-12 rounded-xl border-2 px-4 text-sm font-bold bg-white shadow-inner"
-                        >
-                            {REMINDER_HOUR_OPTIONS.map(opt => (
-                                <option key={opt.value} value={opt.value}>{opt.label}</option>
-                            ))}
-                        </select>
-                    </div>
-                )}
-
-                <Button onClick={handleSave} disabled={saving} className="w-full h-14 rounded-2xl font-black uppercase text-sm tracking-widest shadow-xl shadow-primary/20">
-                    {saving ? <Loader className="w-4 h-4 animate-spin" /> : saved ? <><Check className="w-4 h-4 mr-2" /> Saved</> : 'Save Preferences'}
-                </Button>
-                <Button variant="ghost" onClick={onBack} className="w-full text-slate-400">← Back</Button>
-            </CardContent>
-        </ViewContainer>
+        <VisitShell brand={brand} title={<>Your <b>messages</b></>} subtitle="How and when we reach you">
+            <VisitCard>
+                <VisitLabel>Booking confirmations</VisitLabel>
+                <VisitChoice value={confirmationChannel} onChange={setConfirmationChannel as any} options={[['sms', 'Text'], ['email', 'Email'], ['both', 'Both'], ['none', 'Off']]} />
+            </VisitCard>
+            <VisitCard>
+                <VisitLabel>Appointment reminders</VisitLabel>
+                <VisitChoice value={reminderChannel} onChange={setReminderChannel as any} cols={2} options={[['voice', 'Phone call'], ['sms', 'Text'], ['email', 'Email'], ['none', 'Off']]} />
+                <VisitMuted>A phone call is a friendly reminder — you can reschedule or cancel right there if plans change.</VisitMuted>
+                {reminderChannel !== 'none' && <>
+                    <VisitLabel>Remind me</VisitLabel>
+                    <VisitSelect label="When to remind me" value={reminderHoursBefore} onChange={(v) => setReminderHoursBefore(Number(v))} options={REMINDER_HOUR_OPTIONS} />
+                </>}
+            </VisitCard>
+            <VisitButton onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save'}</VisitButton>
+            <VisitButton quiet onClick={onBack}>Back</VisitButton>
+        </VisitShell>
     );
 };
 
@@ -1635,8 +1607,10 @@ const ConciergeExperienceView = ({
 // render this view at all in the "nothing" case -- see isCompletionPending
 // in the main component below).
 const CompletionGateView = ({
+    brand,
     tenant, tenantId, token, completion, forms, onDone,
 }: {
+    brand: VisitBrand;
     tenant: Tenant | null;
     tenantId: string;
     token: string;
@@ -1808,13 +1782,12 @@ const CompletionGateView = ({
     // Stripe embedded checkout step
     if (clientSecret) {
         return (
-            <ViewContainer>
-                <ViewHeader title="Payment & Card" subtitle="Secured by Stripe" icon={CreditCard} />
-                <CardContent className="p-6 md:p-10 space-y-5">
+            <VisitShell brand={brand} title={depositDollars > 0 ? <>Your <b>deposit</b></> : <>Save your <b>card</b></>} subtitle="Secured by Stripe">
+                <div className="space-y-4">
                     <p className="text-sm text-slate-500 text-center">
                         {depositDollars > 0 ? `Pay your $${depositDollars.toFixed(2)} deposit and save your card.` : 'Securely save your card to finish.'}
                     </p>
-                    <div className="bg-white rounded-2xl border-2 shadow-sm p-2 sm:p-4 min-h-[300px]">
+                    <div className="pub-card p-2 sm:p-4 min-h-[300px]">
                         {stripePromise
                             ? <EmbeddedCheckoutProvider stripe={stripePromise} options={{ clientSecret, onComplete: () => {
                                 // Completion is recorded by the Stripe webhook when payment/card is confirmed.
@@ -1827,28 +1800,23 @@ const CompletionGateView = ({
                     <p className="flex items-center justify-center gap-1.5 text-[10px] font-medium text-slate-400">
                         <Lock className="w-3 h-3" /> your card details never touch our servers
                     </p>
-                </CardContent>
-            </ViewContainer>
+                </div>
+            </VisitShell>
         );
     }
 
     return (
-        <ViewContainer>
-            <ViewHeader
-                title={skipCardStep ? 'Sign Your Forms' : 'Finish Your Booking'}
-                subtitle={skipCardStep ? 'Card already on file' : 'A couple of quick steps'}
-                icon={FileSignature}
-            />
-            <CardContent className="p-6 md:p-10 space-y-6">
+        <VisitShell brand={brand} title={skipCardStep ? <>Your <b>forms</b></> : <>Finish your <b>booking</b></>} subtitle={skipCardStep ? 'Your card is already on file — just a few details.' : 'A couple of quick steps.'}>
+            <div className="space-y-4">
                 {skipCardStep && (
                     <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-50 border-2 border-green-200">
                         <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
-                        <span className="text-[10px] font-black text-green-700 uppercase tracking-widest">Card on file — no payment needed</span>
+                        <span className="text-[13px] font-semibold text-green-800">Card on file — no payment needed</span>
                     </div>
                 )}
 
                 {!skipCardStep && depositDollars > 0 && (
-                    <div className="bg-white rounded-2xl border-2 shadow-sm p-5 flex items-center justify-between">
+                    <div className="pub-card p-5 flex items-center justify-between">
                         <div className="flex items-center gap-3">
                             <CreditCard className="w-5 h-5 text-primary" />
                             <div>
@@ -1856,17 +1824,17 @@ const CompletionGateView = ({
                                 <p className="text-[11px] text-slate-400">{completion?.serviceName || 'Your appointment'}</p>
                             </div>
                         </div>
-                        <p className="text-xl font-black text-slate-900">${depositDollars.toFixed(2)}</p>
+                        <p className="text-xl font-semibold">${depositDollars.toFixed(2)}</p>
                     </div>
                 )}
 
                 {forms.map((form: any) => (
-                    <div key={form.id} className="bg-white rounded-2xl border-2 shadow-sm p-6 space-y-5">
+                    <div key={form.id} className="pub-card p-6 space-y-5">
                         <div className="flex items-center gap-2 pb-3 border-b">
                             <FileSignature className="w-4 h-4 text-primary" />
-                            <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">{form.title}</h2>
+                            <h2 className="text-[16px] font-semibold">{form.title}</h2>
                             {form.requiresGuardianSignature && (
-                                <span className="text-[9px] font-black uppercase text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full ml-auto">Guardian signature required</span>
+                                <span className="text-[12px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full ml-auto">Guardian signature required</span>
                             )}
                         </div>
                         <div className="space-y-6">
@@ -1881,19 +1849,19 @@ const CompletionGateView = ({
                         </div>
                         {form.requiresGuardianSignature && (
                             <div className="pt-4 border-t border-dashed space-y-3 bg-amber-50/40 -mx-6 -mb-6 px-6 pb-6 rounded-b-2xl">
-                                <p className="text-[10px] font-black uppercase tracking-wide text-amber-700">Parent / Guardian Information</p>
+                                <p className="text-[14px] font-semibold text-amber-800">Parent / Guardian Information</p>
                                 <div className="grid grid-cols-2 gap-3">
                                     <input
                                         value={guardianInfo[form.id]?.name || ''}
                                         onChange={e => setGuardianInfo(prev => ({ ...prev, [form.id]: { name: e.target.value, relationship: prev[form.id]?.relationship || '', accepted: prev[form.id]?.accepted || false } }))}
                                         placeholder="Guardian full name"
-                                        className="h-10 rounded-xl border-2 px-3 text-xs"
+                                        className="h-10 rounded-2xl border px-3 text-xs"
                                     />
                                     <input
                                         value={guardianInfo[form.id]?.relationship || ''}
                                         onChange={e => setGuardianInfo(prev => ({ ...prev, [form.id]: { name: prev[form.id]?.name || '', relationship: e.target.value, accepted: prev[form.id]?.accepted || false } }))}
                                         placeholder="Relationship to client"
-                                        className="h-10 rounded-xl border-2 px-3 text-xs"
+                                        className="h-10 rounded-2xl border px-3 text-xs"
                                     />
                                 </div>
                                 <label className="flex items-start gap-2.5 cursor-pointer">
@@ -1916,10 +1884,10 @@ const CompletionGateView = ({
                     const min = cfg.minCount ?? 1;
                     const max = cfg.maxCount ?? 5;
                     return (
-                        <div key={fr.id} className="bg-white rounded-2xl border-2 shadow-sm p-6 space-y-4">
+                        <div key={fr.id} className="pub-card p-6 space-y-4">
                             <div className="flex items-center gap-2 pb-3 border-b">
                                 <ImageIcon className="w-4 h-4 text-primary" />
-                                <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">{cfg.prompt || fr.label || 'Share files'}</h2>
+                                <h2 className="text-[16px] font-semibold">{cfg.prompt || fr.label || 'Share files'}</h2>
                             </div>
                             <p className="text-xs text-slate-500">
                                 Add up to {max} {max > 1 ? 'files' : 'file'}{min > 0 ? ` (at least ${min})` : ''}. Images or PDFs, up to 10MB each.
@@ -1927,7 +1895,7 @@ const CompletionGateView = ({
                             {got.length > 0 && (
                                 <div className="grid grid-cols-3 gap-2">
                                     {got.map((f: any, i: number) => (
-                                        <div key={i} className="relative rounded-xl border-2 overflow-hidden bg-slate-50 aspect-square">
+                                        <div key={i} className="relative rounded-2xl border overflow-hidden bg-slate-50 aspect-square">
                                             {/\.(png|jpe?g|gif|webp)$/i.test(f.name)
                                                 ? <img src={(f as any).previewUrl || f.url} alt={f.name} className="w-full h-full object-cover" />
                                                 : <div className="flex items-center justify-center h-full text-[10px] p-2 text-center text-slate-500 break-all">{f.name}</div>}
@@ -1937,7 +1905,7 @@ const CompletionGateView = ({
                                 </div>
                             )}
                             {got.length < max && (
-                                <label className="flex items-center justify-center gap-2 h-12 rounded-xl border-2 border-dashed cursor-pointer text-xs font-bold text-slate-500 hover:bg-slate-50 transition-colors">
+                                <label className="flex items-center justify-center gap-2 h-12 rounded-2xl border border-dashed cursor-pointer text-[14px] text-slate-600 hover:bg-slate-50 transition-colors">
                                     <Upload className="w-4 h-4" /> {uploading ? 'Uploading…' : got.length > 0 ? 'Add more' : 'Add photos'}
                                     <input
                                         type="file" multiple
@@ -1957,10 +1925,10 @@ const CompletionGateView = ({
                     Text is fully staff-configured — see the request panel
                     in AppointmentDetailsSheet. */}
                 {acknowledgments.map((ack: any) => (
-                    <div key={ack.id} className="bg-white rounded-2xl border-2 shadow-sm p-6 space-y-3">
+                    <div key={ack.id} className="pub-card p-6 space-y-3">
                         <div className="flex items-center gap-2 pb-2 border-b">
                             <Info className="w-4 h-4 text-primary" />
-                            <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">Please Confirm</h2>
+                            <h2 className="text-[16px] font-semibold">Please confirm</h2>
                         </div>
                         <p className="text-sm text-slate-600 leading-relaxed">{ack.text}</p>
                         <label className="flex items-start gap-2.5 cursor-pointer pt-1">
@@ -1980,10 +1948,10 @@ const CompletionGateView = ({
                     rather than a checkbox so "no" is a real, equally
                     easy-to-select answer, not just an unchecked default. */}
                 {completion?.requestMarketingConsent && (
-                    <div className="bg-white rounded-2xl border-2 shadow-sm p-6 space-y-4">
+                    <div className="pub-card p-6 space-y-4">
                         <div className="flex items-center gap-2 pb-2 border-b">
                             <Camera className="w-4 h-4 text-primary" />
-                            <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">Photo & Marketing Consent</h2>
+                            <h2 className="text-[16px] font-semibold">Photos & marketing</h2>
                         </div>
                         <p className="text-xs text-slate-500 leading-relaxed">
                             Can {studioName} share before/after photos or mention your visit on social media or in marketing materials? You can change your answer anytime by asking the studio.
@@ -1992,14 +1960,14 @@ const CompletionGateView = ({
                             <button
                                 type="button"
                                 onClick={() => setMarketingConsent(true)}
-                                className={cn('h-12 rounded-xl border-2 text-xs font-black uppercase tracking-wide transition-colors', marketingConsent === true ? 'border-primary bg-primary/5 text-primary' : 'border-slate-200 text-slate-500')}
+                                className={cn('h-12 rounded-xl border-2 text-[14px] transition-colors', marketingConsent === true ? 'border-primary bg-primary/5 text-primary' : 'border-slate-200 text-slate-500')}
                             >
                                 Yes, that's fine
                             </button>
                             <button
                                 type="button"
                                 onClick={() => setMarketingConsent(false)}
-                                className={cn('h-12 rounded-xl border-2 text-xs font-black uppercase tracking-wide transition-colors', marketingConsent === false ? 'border-primary bg-primary/5 text-primary' : 'border-slate-200 text-slate-500')}
+                                className={cn('h-12 rounded-xl border-2 text-[14px] transition-colors', marketingConsent === false ? 'border-primary bg-primary/5 text-primary' : 'border-slate-200 text-slate-500')}
                             >
                                 No, please don't
                             </button>
@@ -2011,39 +1979,39 @@ const CompletionGateView = ({
                     not appointment-specific — captured once, then it's just
                     on file like phone/email. */}
                 {completion?.requestEmergencyContact && (
-                    <div className="bg-white rounded-2xl border-2 shadow-sm p-6 space-y-4">
+                    <div className="pub-card p-6 space-y-4">
                         <div className="flex items-center gap-2 pb-2 border-b">
                             <Phone className="w-4 h-4 text-primary" />
-                            <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">Emergency Contact</h2>
+                            <h2 className="text-[16px] font-semibold">Emergency contact</h2>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <input
                                 value={emergencyContact.name}
                                 onChange={e => setEmergencyContact(prev => ({ ...prev, name: e.target.value }))}
                                 placeholder="Full name"
-                                className="h-11 rounded-xl border-2 px-3 text-sm"
+                                className="h-11 rounded-2xl border px-3 text-sm"
                             />
                             <input
                                 value={emergencyContact.phone}
                                 onChange={e => setEmergencyContact(prev => ({ ...prev, phone: e.target.value }))}
                                 placeholder="Phone number"
-                                className="h-11 rounded-xl border-2 px-3 text-sm"
+                                className="h-11 rounded-2xl border px-3 text-sm"
                             />
                         </div>
                         <input
                             value={emergencyContact.relationship}
                             onChange={e => setEmergencyContact(prev => ({ ...prev, relationship: e.target.value }))}
                             placeholder="Relationship (optional)"
-                            className="w-full h-11 rounded-xl border-2 px-3 text-sm"
+                            className="w-full h-11 rounded-2xl border px-3 text-sm"
                         />
                     </div>
                 )}
 
                 {!skipCardStep && (
-                    <div className="bg-white rounded-2xl border-2 shadow-sm p-6 space-y-4">
+                    <div className="pub-card p-6 space-y-4">
                         <div className="flex items-center gap-2">
                             <ShieldCheck className="w-4 h-4 text-primary" />
-                            <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">Policy & Authorization</h2>
+                            <h2 className="text-[16px] font-semibold">Policy & card authorization</h2>
                         </div>
                         <div className="text-xs text-slate-500 leading-relaxed space-y-2 max-h-44 overflow-y-auto pr-1">
                             <p>{tenant?.cancellationPolicyText || `Deposits secure your appointment time. Cancellations made with adequate notice are handled per ${studioName}'s policy; late cancellations and no-shows may forfeit the deposit or incur a fee.`}</p>
@@ -2065,25 +2033,15 @@ const CompletionGateView = ({
                     </div>
                 )}
 
-                <Button
-                    onClick={handleSubmit}
-                    disabled={submitting || uploading || !allGuardianComplete || !allAcknowledged || !marketingConsentComplete || !emergencyContactComplete}
-                    className="w-full h-16 rounded-[2rem] text-sm md:text-lg font-black uppercase tracking-widest shadow-3xl shadow-primary/30"
-                >
-                    {submitting
-                        ? <><Loader className="w-5 h-5 animate-spin mr-2" /> Securing…</>
-                        : skipCardStep
-                            ? <>Submit & confirm</>
-                            : depositDollars > 0
-                                ? <>Pay ${depositDollars.toFixed(2)} & save card</>
-                                : <>Save card & finish</>}
-                </Button>
+                <VisitButton onClick={handleSubmit} disabled={submitting || uploading || !allGuardianComplete || !allAcknowledged || !marketingConsentComplete || !emergencyContactComplete}>
+                    {submitting ? 'Saving…' : skipCardStep ? 'Submit' : depositDollars > 0 ? `Continue to pay $${depositDollars.toFixed(2)}` : 'Continue to save your card'}
+                </VisitButton>
 
                 <p className="flex items-center justify-center gap-1.5 text-[10px] font-medium text-slate-400">
                     <Lock className="w-3 h-3" /> Your information is kept private and secure
                 </p>
-            </CardContent>
-        </ViewContainer>
+            </div>
+        </VisitShell>
     );
 };
 
@@ -2097,11 +2055,11 @@ const CompletionGateView = ({
 // (appointmentData.id is the appointmentId — it's on every appointment doc,
 // including the mirrored appointmentCheckIns copy this page reads from).
 const CLIENT_REASON_OPTIONS = [
-    { value: 'schedule_conflict', label: 'Schedule Conflict' },
-    { value: 'changed_mind', label: 'Changed Mind' },
-    { value: 'found_alternative', label: 'Found Alternative' },
-    { value: 'price_concern', label: 'Price Concern' },
-    { value: 'health_or_childcare', label: 'Health / Childcare' },
+    { value: 'schedule_conflict', label: 'Schedule conflict' },
+    { value: 'changed_mind', label: 'Changed my mind' },
+    { value: 'found_alternative', label: 'Found another option' },
+    { value: 'price_concern', label: 'Price' },
+    { value: 'health_or_childcare', label: 'Health or childcare' },
     { value: 'other', label: 'Other' },
 ];
 
@@ -2110,12 +2068,14 @@ const CancelGateView = ({
     appointmentId,
     onBack,
     accessKey,
+    brand,
 }: {
     tenantId: string;
     appointmentId: string;
     onBack: () => void;
     /** This page's visit token — proves it's their own link. */
     accessKey: string;
+    brand: VisitBrand;
 }) => {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -2134,7 +2094,7 @@ const CancelGateView = ({
                 let data: any = null;
                 try { data = await res.json(); } catch {
                     setError(res.status === 404
-                        ? 'Online cancellation isn\'t available right now — call or text the studio and we\'ll take care of it.'
+                        ? 'Online cancellation isn’t available right now — please try again in a moment.'
                         : `Something went wrong on our end (${res.status}) — please try again in a moment.`);
                     return;
                 }
@@ -2165,135 +2125,53 @@ const CancelGateView = ({
     };
 
     if (isLoading) {
-        return (
-            <ViewContainer>
-                <div className="p-16 flex flex-col items-center justify-center gap-4">
-                    <Loader className="h-8 w-8 animate-spin text-primary" />
-                    <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-60">Loading your appointment…</p>
-                </div>
-            </ViewContainer>
-        );
+        return <VisitShell brand={brand} title={<>Cancel your <b>appointment</b></>}><VisitCard><VisitMuted>Loading your appointment…</VisitMuted></VisitCard></VisitShell>;
     }
 
     if (error && !result) {
         return (
-            <ViewContainer>
-                <ViewHeader title="Can't Cancel Online" subtitle="Here's what happened" icon={AlertTriangle} />
-                <CardContent className="p-10 md:p-16 text-center space-y-8">
-                    <div className="w-24 h-24 bg-destructive/5 rounded-[2.5rem] flex items-center justify-center mx-auto opacity-40">
-                        <AlertTriangle className="w-12 h-12 text-destructive" />
-                    </div>
-                    <div className="space-y-2 text-center">
-                        <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">{error}</h3>
-                    </div>
-                    {details?.studioPhone && (
-                        <Button asChild className="w-full h-16 rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-xl">
-                            <a href={`tel:${details.studioPhone}`}><Phone className="w-4 h-4 mr-2" /> Call {details.studioPhone}</a>
-                        </Button>
-                    )}
-                    <Button variant="ghost" onClick={onBack} className="w-full text-slate-400">← Back</Button>
-                </CardContent>
-            </ViewContainer>
+            <VisitShell brand={brand} title={<>We couldn’t <b>cancel</b> it here</>}>
+                <VisitCard tone="warn"><p className="text-[15px]">{error}</p></VisitCard>
+                <VisitButton quiet onClick={onBack}>Back</VisitButton>
+            </VisitShell>
         );
     }
 
     if (result) {
         return (
-            <ViewContainer>
-                <ViewHeader title={result.alreadyCancelled ? 'Already Cancelled' : 'Session Voided'} subtitle="Cancellation confirmed" icon={CheckCircle2} />
-                <CardContent className="p-10 md:p-16 text-center space-y-8">
-                    <div className="w-24 h-24 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-xl">
-                        <CheckCircle2 className="w-12 h-12 text-green-500" />
-                    </div>
-                    <div className="space-y-2 text-center">
-                        <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Appointment Cancelled</h3>
-                        {!result.alreadyCancelled && (
-                            <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-sm mx-auto">
-                                {Array.isArray(result.lines) && result.lines.length ? result.lines.join(' ') : result.feeCharged
-                                    ? `Since this is within the studio's ${details?.windowHours}-hour cancellation window, a $${Number(result.feeAmount).toFixed(2)} cancellation fee applies.`
-                                    : "No cancellation fee applies — thanks for the advance notice."}
-                            </p>
-                        )}
-                    </div>
-                </CardContent>
-            </ViewContainer>
+            <VisitShell brand={brand} title={<>You’re <b>cancelled</b></>} subtitle={result.alreadyCancelled ? 'This appointment was already cancelled.' : undefined}>
+                {!result.alreadyCancelled && <VisitCard tone="ok">
+                    {Array.isArray(result.lines) && result.lines.length ? result.lines.map((l: string) => <p key={l} className="text-[15px]">{l}</p>)
+                        : <p className="text-[15px]">{result.feeCharged ? `As this is within the ${details?.windowHours}-hour cancellation window, a $${Number(result.feeAmount).toFixed(2)} cancellation fee applies.` : 'No cancellation fee — thanks for letting us know in advance.'}</p>}
+                </VisitCard>}
+                {brand.bookHref && <VisitButton href={brand.bookHref}>Book another time</VisitButton>}
+            </VisitShell>
         );
     }
 
+    const lines: string[] = Array.isArray(details?.preview?.lines) ? details.preview.lines : [];
+    const owes = Number(details?.preview?.due) > 0 || Number(details?.preview?.fee) > 0 || !!details?.isLate;
     return (
-        <ViewContainer>
-            <ViewHeader title="Cancel Appointment" subtitle="Confirm your cancellation below" icon={Ban} />
-            <CardContent className="p-8 md:p-12 space-y-10 text-left">
-                <div className="p-8 rounded-[3rem] bg-primary/5 border-2 border-primary/10 shadow-inner space-y-6">
-                    <CalendarIcon className="w-12 h-12 text-primary mx-auto opacity-40" />
-                    <div className="space-y-1.5 text-center">
-                        <p className="text-[10px] font-black uppercase text-primary tracking-[0.3em]">{details?.studioName}</p>
-                        <h3 className="text-2xl font-black uppercase text-slate-900 leading-tight">{details?.appointment?.serviceName}</h3>
-                        <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
-                            {details?.appointment?.startTime ? format(safeDate(details.appointment.startTime), 'EEEE, MMM d @ h:mm a') : ''}
-                        </p>
-                    </div>
-                </div>
-
-                <AnimatePresence mode="wait">
-                    {Array.isArray(details?.preview?.lines) && details.preview.lines.length ? (
-                        <motion.div key="plan" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={`p-5 rounded-[2rem] border-2 space-y-1.5 ${Number(details.preview.due) > 0 || Number(details.preview.fee) > 0 ? 'border-amber-200 bg-amber-50' : 'border-green-200 bg-green-50'}`}>
-                            <p className="text-sm font-semibold text-slate-900">If you cancel now</p>
-                            {details.preview.lines.map((l: string) => <p key={l} className="text-sm text-slate-700 leading-relaxed">{l}</p>)}
-                        </motion.div>
-                    ) : details?.isLate ? (
-                        <motion.div key="late" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-6 rounded-[2rem] border-2 border-amber-200 bg-amber-50 flex items-start gap-3">
-                            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                            <p className="text-xs font-bold text-amber-700 uppercase tracking-tight leading-relaxed">
-                                This is within the {details.windowHours}-hour cancellation window. A <span className="font-mono">${Number(details.estimatedFee).toFixed(2)}</span> cancellation fee will apply.
-                            </p>
-                        </motion.div>
-                    ) : (
-                        <motion.div key="ontime" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-6 rounded-[2rem] border-2 border-green-200 bg-green-50">
-                            <p className="text-xs font-bold text-green-700 uppercase tracking-tight">No cancellation fee — thanks for the advance notice.</p>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-
-                {details?.cancellationPolicyText && (
-                    <p className="text-[10px] text-muted-foreground leading-relaxed italic px-2">{details.cancellationPolicyText}</p>
-                )}
-
-                <div className="space-y-3">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Reason (optional)</Label>
-                    <select
-                        value={reason}
-                        onChange={e => setReason(e.target.value)}
-                        className="w-full h-14 rounded-2xl border-2 px-4 text-sm font-bold bg-white shadow-inner"
-                    >
-                        {CLIENT_REASON_OPTIONS.map(opt => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                        ))}
-                    </select>
-                </div>
-
-                {error && <p className="text-xs font-bold text-destructive text-center">{error}</p>}
-
-                <Button
-                    onClick={handleCancel}
-                    disabled={isSubmitting}
-                    variant="destructive"
-                    className="w-full h-16 rounded-[2rem] text-lg font-black uppercase tracking-widest shadow-2xl shadow-destructive/20 group"
-                >
-                    {isSubmitting ? <Loader className="w-5 h-5 animate-spin" /> : (
-                        <>Confirm Cancellation <ArrowRight className="ml-3 w-5 h-5 transition-transform group-hover:translate-x-1" /></>
-                    )}
-                </Button>
-
-                <Button variant="ghost" onClick={onBack} className="w-full text-slate-400">← Never mind, keep my appointment</Button>
-
-                {details?.studioPhone && (
-                    <p className="text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-                        Prefer to talk to someone? <a href={`tel:${details.studioPhone}`} className="text-primary">{details.studioPhone}</a>
-                    </p>
-                )}
-            </CardContent>
-        </ViewContainer>
+        <VisitShell brand={brand} title={<>Cancel your <b>appointment</b>?</>}>
+            <VisitCard>
+                <p className="text-[17px] font-semibold">{details?.appointment?.serviceName}</p>
+                <VisitMuted>{details?.appointment?.startTime ? format(safeDate(details.appointment.startTime), 'EEEE, MMMM d · h:mm a') : ''}</VisitMuted>
+            </VisitCard>
+            <VisitCard tone={owes ? 'warn' : 'ok'}>
+                <VisitLabel>If you cancel now</VisitLabel>
+                {lines.length ? lines.map((l) => <p key={l} className="text-[15px]">{l}</p>)
+                    : details?.isLate ? <p className="text-[15px]">This is within the {details.windowHours}-hour cancellation window, so a ${Number(details.estimatedFee).toFixed(2)} cancellation fee would apply.</p>
+                    : <p className="text-[15px]">There’s no cancellation fee — thanks for letting us know in advance.</p>}
+                {details?.cancellationPolicyText && <VisitMuted>{details.cancellationPolicyText}</VisitMuted>}
+            </VisitCard>
+            <VisitCard>
+                <VisitLabel>Reason (optional)</VisitLabel>
+                <VisitSelect label="Reason for cancelling" value={reason} onChange={setReason} options={CLIENT_REASON_OPTIONS} />
+            </VisitCard>
+            {error && <VisitCard tone="warn"><p className="text-[15px]">{error}</p></VisitCard>}
+            <VisitButton onClick={handleCancel} disabled={isSubmitting}>{isSubmitting ? 'Cancelling…' : 'Yes, cancel my appointment'}</VisitButton>
+            <VisitButton quiet onClick={onBack}>Keep my appointment</VisitButton>
+        </VisitShell>
     );
 };
 
@@ -2302,18 +2180,18 @@ const CancelGateView = ({
 // request (with an optional note) through /api/appt → the team is notified.
 const AskToMove = ({ apptApi }: { apptApi: (p: any) => Promise<any> }) => {
     const [note, setNote] = useState(''); const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle'); const [msg, setMsg] = useState('');
-    if (state === 'sent') return <div className="p-5 rounded-[2rem] border-2 border-green-200 bg-green-50"><p className="text-sm font-semibold text-green-800">{msg || 'Sent — we’ll get back to you with your new time.'}</p></div>;
+    if (state === 'sent') return <VisitCard tone="ok"><p className="text-[15px]">{msg || 'Sent — we’ll get back to you soon.'}</p></VisitCard>;
     return (
-        <div className="p-5 rounded-[2rem] border-2 space-y-3">
-            <p className="text-sm font-semibold text-slate-900">Ask us to reschedule</p>
-            <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={300} placeholder="When would suit you? (optional) — e.g. any weekday after 3pm" className="w-full rounded-2xl border p-3 text-sm" />
-            {state === 'error' && <p className="text-xs font-semibold text-destructive">{msg}</p>}
-            <Button className="w-full h-12 rounded-2xl" disabled={state === 'sending'} onClick={async () => {
+        <VisitCard>
+            <VisitLabel>Ask us to reschedule</VisitLabel>
+            <VisitInput multiline label="When would suit you?" value={note} onChange={(v) => setNote(v.slice(0, 300))} placeholder="When would suit you? (optional) — e.g. any weekday after 3pm" />
+            {state === 'error' && <p className="text-[14px]" style={{ color: '#b45309' }}>{msg}</p>}
+            <VisitButton disabled={state === 'sending'} onClick={async () => {
                 setState('sending');
-                try { const d = await apptApi({ action: 'request_change', note }); if (d.ok) { setMsg(d.alreadyAsked ? 'We already have your request — we’ll be in touch soon.' : 'Sent — we’ll get back to you with your new time.'); setState('sent'); } else { setMsg(d.error || 'That didn’t send — please try again.'); setState('error'); } }
+                try { const d = await apptApi({ action: 'request_change', note }); if (d.ok) { setMsg(d.alreadyAsked ? 'We already have your request — we’ll be in touch soon.' : 'Sent — we’ll get back to you soon.'); setState('sent'); } else { setMsg(d.error || 'That didn’t send — please try again.'); setState('error'); } }
                 catch { setMsg('That didn’t send — please try again.'); setState('error'); }
-            }}>{state === 'sending' ? 'Sending…' : 'Send my request'}</Button>
-        </div>
+            }}>{state === 'sending' ? 'Sending…' : 'Send my request'}</VisitButton>
+        </VisitCard>
     );
 };
 
@@ -2327,14 +2205,17 @@ const RescheduleGateView = ({
     appointmentId,
     k,
     onBack,
+    brand,
 }: {
     tenantId: string;
     appointmentId: string;
     k: string;
     onBack: () => void;
+    brand: VisitBrand;
 }) => {
     const [isLoading, setIsLoading] = useState(true);
     const [useGrace, setUseGrace] = useState(false);
+    const [slotDays, setSlotDays] = useState<{ date: string; times: string[] }[] | null>(null); // real open times
     const [error, setError] = useState<string | null>(null);
     const [info, setInfo] = useState<any>(null);
     const [newDate, setNewDate] = useState('');
@@ -2360,6 +2241,8 @@ const RescheduleGateView = ({
                 const d = await apptApi({ action: 'view' });
                 if (!d.ok) { setError(d.error || 'This appointment could not be loaded.'); return; }
                 setInfo(d);
+                const sl = await apptApi({ action: 'slots', from: d?.policy?.earliestDate || undefined, days: 14 }).catch(() => null);
+                setSlotDays(sl?.ok ? (sl.days || []).filter((x: any) => (x.times || []).length) : []);
             } catch (e: any) { setError(e?.message || 'Something went wrong loading your appointment.'); }
             finally { setIsLoading(false); }
         })();
@@ -2384,125 +2267,64 @@ const RescheduleGateView = ({
         finally { setIsSubmitting(false); }
     };
 
+    const clockLabel = (t: string) => { const [h, m] = t.split(':').map(Number); return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'pm' : 'am'}`; };
     if (isLoading) {
-        return (
-            <ViewContainer>
-                <div className="p-16 flex flex-col items-center justify-center gap-4">
-                    <Loader className="h-8 w-8 animate-spin text-primary" />
-                    <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-60">Loading your appointment…</p>
-                </div>
-            </ViewContainer>
-        );
+        return <VisitShell brand={brand} title={<>Pick a <b>new time</b></>}><VisitCard><VisitMuted>Loading your appointment…</VisitMuted></VisitCard></VisitShell>;
     }
-
     if (result) {
         return (
-            <ViewContainer>
-                <ViewHeader title="Rescheduled" subtitle="Your new time is locked in" icon={CheckCircle2} />
-                <CardContent className="p-10 md:p-16 text-center space-y-8">
-                    <div className="w-24 h-24 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-xl">
-                        <CheckCircle2 className="w-12 h-12 text-green-500" />
-                    </div>
-                    <div className="space-y-2 text-center">
-                        <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">See you {result.whenLabel || 'then'}</h3>
-                        <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-sm mx-auto">
-                            The studio's calendar is updated and your reminders follow the new time. This same link checks you in on the day.
-                        </p>
-                    </div>
-                    <Button onClick={onBack} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-xl">Done</Button>
-                </CardContent>
-            </ViewContainer>
+            <VisitShell brand={brand} title={<>You’re <b>rescheduled</b></>} subtitle={`See you ${result.whenLabel || 'then'}.`}>
+                <VisitCard tone="ok"><p className="text-[15px]">Our calendar is updated and your reminders follow the new time. This same link is your visit link on the day.</p></VisitCard>
+                <VisitButton onClick={onBack}>Done</VisitButton>
+            </VisitShell>
         );
     }
-
     if (error && !info) {
         return (
-            <ViewContainer>
-                <ViewHeader title="Can't Reschedule Online" subtitle="This link is no longer actionable" icon={AlertTriangle} />
-                <CardContent className="p-10 md:p-16 text-center space-y-8">
-                    <div className="w-24 h-24 bg-destructive/5 rounded-[2.5rem] flex items-center justify-center mx-auto opacity-40">
-                        <AlertTriangle className="w-12 h-12 text-destructive" />
-                    </div>
-                    <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{error}</h3>
-                    <Button variant="ghost" onClick={onBack} className="w-full text-slate-400">← Back</Button>
-                </CardContent>
-            </ViewContainer>
+            <VisitShell brand={brand} title={<>We couldn’t <b>reschedule</b> it here</>}>
+                <VisitCard tone="warn"><p className="text-[15px]">{error}</p></VisitCard>
+                <VisitButton quiet onClick={onBack}>Back</VisitButton>
+            </VisitShell>
         );
     }
-
-    // v19 — reschedule uses its OWN short cutoff (default 2h), separate
-    // from the cancellation fee window: a reschedule keeps the booking.
     const canChange = (info?.policy?.canReschedule ?? info?.policy?.canChange) !== false;
     const cutoffHours = info?.policy?.rescheduleCutoffHours ?? info?.policy?.cancelHours;
-
+    const dayTimes = (slotDays || []).find((x) => x.date === newDate)?.times || [];
     return (
-        <ViewContainer>
-            <ViewHeader title="Pick a New Time" subtitle="Same service, same provider" icon={Repeat} />
-            <CardContent className="p-8 md:p-12 space-y-8 text-left">
-                <div className="p-8 rounded-[3rem] bg-primary/5 border-2 border-primary/10 shadow-inner space-y-4">
-                    <CalendarIcon className="w-12 h-12 text-primary mx-auto opacity-40" />
-                    <div className="space-y-1.5 text-center">
-                        <p className="text-[10px] font-black uppercase text-primary tracking-[0.3em]">{info?.studioName}</p>
-                        <h3 className="text-2xl font-black uppercase text-slate-900 leading-tight">{info?.appt?.serviceName}</h3>
-                        <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
-                            Currently {info?.appt?.whenLabel}{info?.appt?.staffName ? ` · with ${info.appt.staffName}` : ''}
-                        </p>
-                    </div>
-                </div>
-
-                {!canChange ? (
-                    <div className="p-6 rounded-[2rem] border-2 border-amber-200 bg-amber-50 flex items-start gap-3">
-                        <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                        <p className="text-xs font-bold text-amber-700 uppercase tracking-tight leading-relaxed">
-                            {info?.policy?.changeRule?.reason || `Online rescheduling closes ${cutoffHours}h before your appointment.`}
-                        </p>
-                    </div>
-                ) : null}
-                {canChange && Number(info?.policy?.rescheduleFee) > 0 && (
-                    <div className="p-4 rounded-2xl border-2 border-amber-200 bg-amber-50 space-y-2">
-                        <p className="text-sm text-amber-900">{useGrace ? <>Using your grace allowance — <b>no reschedule fee</b> this time.</> : <>Rescheduling now carries a <b>${Number(info.policy.rescheduleFee).toFixed(2)}</b> fee, as it’s within {info.policy.rescheduleFeeWindowHours} hours of your appointment. It’s added to your balance and due at your visit.</>}</p>
-                        {info?.policy?.graceAvailable && <label className="flex items-center gap-2 text-sm text-amber-900"><input type="checkbox" checked={useGrace} onChange={(e) => setUseGrace(e.target.checked)} /> You have {info.policy.graceAvailable.remaining} grace reschedule{info.policy.graceAvailable.remaining === 1 ? '' : 's'} left (every {info.policy.graceAvailable.periodMonths} months) — use it and reschedule for free</label>}
-                    </div>
-                )}
-                {!canChange && (info?.policy?.changeRule?.canRequest ?? info?.policy?.changeRule?.needsApproval) ? (
-                    <AskToMove apptApi={apptApi} />
-                ) : canChange ? (
-                    <>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-2">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">New date</Label>
-                                <input type="date" value={newDate} min={info?.policy?.earliestDate || ''}
-                                    onChange={(e) => setNewDate(e.target.value)}
-                                    className="w-full h-14 rounded-2xl border-2 px-4 text-sm font-bold bg-white shadow-inner" />
-                            </div>
-                            <div className="space-y-2">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">New time</Label>
-                                <input type="time" value={newTime} step={900}
-                                    onChange={(e) => setNewTime(e.target.value)}
-                                    className="w-full h-14 rounded-2xl border-2 px-4 text-sm font-bold bg-white shadow-inner" />
-                            </div>
-                        </div>
-                        <p className="text-[10px] text-muted-foreground leading-relaxed italic px-2">
-                            We check {info?.appt?.staffName ? `${info.appt.staffName}'s` : 'the'} live calendar instantly — if the slot is taken you'll know right away.
-                        </p>
-
-                        {error && <p className="text-xs font-bold text-destructive text-center">{error}</p>}
-
-                        <Button
-                            onClick={handleReschedule}
-                            disabled={isSubmitting || !newDate || !newTime}
-                            className="w-full h-16 rounded-[2rem] text-lg font-black uppercase tracking-widest shadow-2xl group"
-                        >
-                            {isSubmitting ? <Loader className="w-5 h-5 animate-spin" /> : (
-                                <>Confirm New Time <ArrowRight className="ml-3 w-5 h-5 transition-transform group-hover:translate-x-1" /></>
-                            )}
-                        </Button>
-                    </>
-                ) : null}
-
-                <Button variant="ghost" onClick={onBack} className="w-full text-slate-400">← Never mind, keep my time</Button>
-            </CardContent>
-        </ViewContainer>
+        <VisitShell brand={brand} title={<>Pick a <b>new time</b></>} subtitle={info?.appt?.staffName ? `Same service, with ${String(info.appt.staffName).split(' ')[0]}` : 'Same service'}>
+            <VisitCard>
+                <p className="text-[17px] font-semibold">{info?.appt?.serviceName}</p>
+                <VisitMuted>Currently {info?.appt?.whenLabel}</VisitMuted>
+            </VisitCard>
+            {!canChange && <VisitCard tone="warn"><p className="text-[15px]">{info?.policy?.changeRule?.reason || `Online rescheduling closes ${cutoffHours} hours before your appointment.`}</p></VisitCard>}
+            {canChange && Number(info?.policy?.rescheduleFee) > 0 && (
+                <VisitCard tone="warn">
+                    <p className="text-[15px]">{useGrace ? <>Using your grace allowance — <b>no reschedule fee</b> this time.</> : <>Rescheduling now carries a <b>${Number(info.policy.rescheduleFee).toFixed(2)}</b> fee, as it’s within {info.policy.rescheduleFeeWindowHours} hours of your appointment. It’s added to your balance and due at your visit.</>}</p>
+                    {info?.policy?.graceAvailable && <label className="flex items-center gap-2 text-[15px]"><input type="checkbox" checked={useGrace} onChange={(e) => setUseGrace(e.target.checked)} /> You have {info.policy.graceAvailable.remaining} grace reschedule{info.policy.graceAvailable.remaining === 1 ? '' : 's'} left (every {info.policy.graceAvailable.periodMonths} months) — use it and reschedule for free</label>}
+                </VisitCard>
+            )}
+            {!canChange && (info?.policy?.changeRule?.canRequest ?? info?.policy?.changeRule?.needsApproval) ? <AskToMove apptApi={apptApi} />
+            : canChange ? <>
+                <VisitCard>
+                    <VisitLabel>Choose a day</VisitLabel>
+                    {slotDays === null ? <VisitMuted>Finding open times…</VisitMuted>
+                        : slotDays.length === 0 ? <VisitMuted>No open times in the next two weeks online.{brand.bookHref ? ' You can browse further ahead on our booking page.' : ''}</VisitMuted>
+                        : <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">{slotDays.map((x) => { const on = x.date === newDate; const d = safeDate(`${x.date}T12:00:00`);
+                            return <button key={x.date} type="button" aria-pressed={on} onClick={() => { setNewDate(x.date); setNewTime(''); }} className="min-w-[4.5rem] shrink-0 rounded-2xl px-3 py-2 text-center transition active:scale-[.98]"
+                                style={on ? { background: 'var(--accent)', color: '#fff' } : { background: '#fff', border: '1px solid #e7e2dc' }}>
+                                <span className="block text-[12px]">{format(d, 'EEE')}</span><span className="block text-[17px] font-semibold">{format(d, 'd')}</span><span className="block text-[11px]">{format(d, 'MMM')}</span></button>; })}</div>}
+                    {newDate && <>
+                        <VisitLabel>Choose a time</VisitLabel>
+                        <div className="grid grid-cols-3 gap-2">{dayTimes.map((tm) => { const on = tm === newTime;
+                            return <button key={tm} type="button" aria-pressed={on} onClick={() => setNewTime(tm)} className="h-11 rounded-full text-[14px] transition active:scale-[.98]"
+                                style={on ? { background: 'var(--accent)', color: '#fff', fontWeight: 600 } : { background: '#fff', border: '1px solid #e7e2dc' }}>{clockLabel(tm)}</button>; })}</div>
+                    </>}
+                </VisitCard>
+                {error && <VisitCard tone="warn"><p className="text-[15px]">{error}</p></VisitCard>}
+                <VisitButton onClick={handleReschedule} disabled={isSubmitting || !newDate || !newTime}>{isSubmitting ? 'Rescheduling…' : newDate && newTime ? `Reschedule to ${format(safeDate(`${newDate}T12:00:00`), 'EEE MMM d')}, ${clockLabel(newTime)}` : 'Pick a day and time'}</VisitButton>
+            </> : null}
+            <VisitButton quiet onClick={onBack}>Keep my current time</VisitButton>
+        </VisitShell>
     );
 };
 
@@ -2725,6 +2547,7 @@ export default function CheckInPage() {
     if (completionJustDone === null && isCompletionPending) {
         return (
             <CompletionGateView
+                brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)}
                 tenant={tenant || null}
                 tenantId={tenantId!}
                 token={token}
@@ -2762,6 +2585,7 @@ export default function CheckInPage() {
                 tenantId={tenantId}
                 appointmentId={appointmentData.id}
                 accessKey={token}
+                brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)}
                 onBack={() => setShowCancelFlow(false)}
             />
         );
@@ -2775,6 +2599,7 @@ export default function CheckInPage() {
                 tenantId={tenantId}
                 appointmentId={appointmentData.id}
                 k={token}
+                brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)}
                 onBack={() => setShowRescheduleFlow(false)}
             />
         );
@@ -2786,6 +2611,7 @@ export default function CheckInPage() {
                 tenantId={tenantId}
                 client={client}
                 onBack={() => setShowNotificationSettings(false)}
+                brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)}
             />
         );
     }
