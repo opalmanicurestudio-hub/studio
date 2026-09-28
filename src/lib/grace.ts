@@ -21,6 +21,7 @@ export interface GraceRule {
   approval?: 'staff' | 'manager';     // who can apply it
   reducePercent?: number;             // for reduce_fee
   extendMinutes?: number;             // for extend_window (late arrival)
+  selfServe?: boolean;                // clients can use it themselves online (e.g. a free late reschedule)
 }
 export const GRACE_EVENTS: { id: GraceEvent; label: string; permits: GracePermit[] }[] = [
   { id: 'late_arrival', label: 'Late arrival', permits: ['extend_window', 'waive_fee'] },
@@ -33,8 +34,8 @@ export const PERMIT_LABEL: Record<GracePermit, string> = {
   waive_fee: 'Waive the fee', reduce_fee: 'Reduce the fee', transfer_deposit: 'Move the deposit to a new booking',
   free_reschedule: 'A free reschedule', extend_window: 'Extra time to arrive',
 };
-const DEFAULT: Required<Omit<GraceRule, 'reducePercent' | 'extendMinutes'>> & { reducePercent: number; extendMinutes: number } = {
-  enabled: false, allowance: 1, periodMonths: 6, permits: 'waive_fee', scope: 'client', approval: 'staff', reducePercent: 50, extendMinutes: 10,
+const DEFAULT: Required<Omit<GraceRule, 'reducePercent' | 'extendMinutes' | 'selfServe'>> & { reducePercent: number; extendMinutes: number; selfServe: boolean } = {
+  enabled: false, allowance: 1, periodMonths: 6, permits: 'waive_fee', scope: 'client', approval: 'staff', reducePercent: 50, extendMinutes: 10, selfServe: false,
 };
 export function graceRule(tenant: any, ev: GraceEvent): typeof DEFAULT {
   const r: GraceRule = tenant?.bookingPolicies?.grace?.[ev] || {};
