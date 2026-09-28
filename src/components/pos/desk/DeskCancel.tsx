@@ -56,7 +56,8 @@ export function DeskCancel({ e, accent, onReschedule, onOfferSlot }: { e: any; a
     }
     const outcome: CancelOutcome = { ...o.outcome, collected };
     await e.handleCancellationConfirm({ ...data, feeAmount: o.outcome.who === 'studio' ? 0 : o.due, chargeFee: o.outcome.who !== 'studio' && o.due > 0 && collected !== 'waived',
-      paymentMethod: collected === 'waived' ? 'waived' : paymentMethod, alreadyChargedPaymentIntentId: intentId, notifiedByServer: tell });
+      paymentMethod: collected === 'waived' ? 'waived' : paymentMethod, alreadyChargedPaymentIntentId: intentId, notifiedByServer: tell,
+      depositOutcome: o.outcome.deposit?.outcome || null });
     if (collected === 'waived' && Number(o.outcome.feeDollars) > 0) logAuditClient(e.firestore, e.tenantId, { action: 'fee.waived', targetType: 'appointment', targetId: appt.id, amount: Number(o.outcome.feeDollars),
       summary: `${money(Number(o.outcome.feeDollars))} ${o.outcome.who === 'no_show' ? 'no-show' : 'cancellation'} fee waived — ${waiveWhy.trim()}`, actor: { type: 'user', id: e.currentUser?.uid || null, name: e.currentUser?.displayName || currentStaff?.name || 'Manager', role: e.role || 'manager', via: 'front desk' } } as any).catch(() => {});
     let told = false;
