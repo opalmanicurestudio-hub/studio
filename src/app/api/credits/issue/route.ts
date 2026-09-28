@@ -37,6 +37,7 @@
  *   }
  */
 
+import { staffOrServer } from '@/lib/route-guard';
 import { NextRequest, NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
 
@@ -80,6 +81,7 @@ export async function POST(req: NextRequest) {
     tenantId, clientId, amountCents, type, source, reason, createdBy,
     expiresAt, originalTransactionId, appointmentId,
   } = body;
+  if (!(await staffOrServer(req, String(tenantId || '')))) return NextResponse.json({ ok: false, error: 'Sign in to issue store credit.', code: 'unauthorized' }, { status: 401 });
 
   if (!tenantId || !clientId || !amountCents || amountCents <= 0 || !type || !source || !reason) {
     return NextResponse.json({ ok: false, error: 'Missing required fields' }, { status: 400 });
