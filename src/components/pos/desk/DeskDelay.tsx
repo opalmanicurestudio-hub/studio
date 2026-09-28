@@ -13,6 +13,7 @@
 
 import { getAuth } from 'firebase/auth';
 import { lateReplyText, type LateOption } from '@/lib/late-reply';
+import { opsCan, opsLevelOf } from '@/lib/appointment-ops';
 import { useEffect, useMemo, useState } from 'react';
 import { format, parseISO } from 'date-fns';
 import { writeBatch, doc, collection, arrayUnion, increment } from 'firebase/firestore';
@@ -58,6 +59,8 @@ export function DeskDelay({ e, appt, accent, onClose, onReschedule }: { e: any; 
 
   if (!appt || !model) return <Drawer accent={accent} open={false} onClose={onClose} title="Running late">{null}</Drawer>;
   const first = String(appt.clientName || 'the guest').split(' ')[0];
+  // Who can decide (Booking policies) — only offer what this person can do; the server enforces it too.
+  const canDo = (x: any) => opsCan(e.role, opsLevelOf(e.selectedTenant), appt.staffId === e.currentUser?.uid, x);
   const provider = (e.staff || []).find((s: any) => s.id === appt.staffId);
   const fullFits = model.fits(appt.staffId, []);
   const dropFits = drop.length > 0 && model.fits(appt.staffId, drop);
@@ -122,6 +125,7 @@ export function DeskDelay({ e, appt, accent, onClose, onReschedule }: { e: any; 
         <Box><div className="flex items-center justify-between gap-3"><H>Tell {first} what happens</H>
             <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={tellClient} onChange={(ev) => setTellClient(ev.target.checked)} /> Send</label></div>
           <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{tellClient ? `When you choose below, ${first} gets a text/email and their visit link updates — e.g. “${lateReplyText('keep', { first, studio: t.name || '', provider: provider?.name ? String(provider.name).split(' ')[0] : null, eta: hm(model.arrive) })}”` : `${first} won’t be messaged — tell them yourself.`}</p></Box>
+        {!canDo('keep') && <Box tone="warn"><p className="text-[14px]">{canDo('move') ? 'You can offer them a new time. Keeping, shortening or switching is decided by a manager or their provider.' : 'You can view this. A manager or their provider decides.'}</p></Box>}
         <Box><H>When will they arrive?</H>
           <div className="flex flex-wrap gap-1.5">{[5, 10, 15, 20, 30, 45].map((m) => <Btn key={m} quiet={late !== m} onClick={() => setLate(m)}>{m} min</Btn>)}</div>
           <p className="text-[14px]">Booked {hm(model.start)} → arriving about <b>{hm(model.arrive)}</b></p></Box>
@@ -134,17 +138,17 @@ export function DeskDelay({ e, appt, accent, onClose, onReschedule }: { e: any; 
 
         <Box><H>Options</H>
           <div className="space-y-2">
-            <div className="flex items-center justify-between gap-3"><span className="text-[14px]"><b>Keep the full service</b><span className="block text-[12px]" style={{ color: 'var(--muted)' }}>{fullFits ? `Finishes ${hm(endFor([]))}` : 'Doesn’t fit without affecting the next guest'}</span></span><Btn onClick={() => decide('keep')} disabled={!fullFits || busy}>Keep</Btn></div>
+            <div className="flex items-center justify-between gap-3"><span className="text-[14px]"><b>Keep the full service</b><span className="block text-[12px]" style={{ color: 'var(--muted)' }}>{fullFits ? `Finishes ${hm(endFor([]))}` : 'Doesn’t fit without affecting the next guest'}</span></span><Btn onClick={() => decide('keep')} disabled={!canDo('keep') || !fullFits || busy}>Keep</Btn></div>
             {model.addOns.length > 0 && <div className="space-y-1.5 rounded-2xl p-3" style={{ background: 'var(--soft)' }}>
               <p className="text-[14px] font-semibold">Condense — drop add-ons {model.canCondense && !drop.length && <button type="button" className="ml-1 text-[12px] underline" onClick={() => setDrop(model.suggest)}>suggest</button>}</p>
               {model.addOns.map((a) => <label key={a.id} className="flex items-center gap-2 text-[14px]"><input type="checkbox" checked={drop.includes(a.id)} onChange={(ev) => setDrop(ev.target.checked ? [...drop, a.id] : drop.filter((x) => x !== a.id))} /> {a.s.name} <span style={{ color: 'var(--muted)' }}>−{a.s.duration || 0} min</span></label>)}
               {drop.length > 0 && <><p className="text-[13px]">Finishes {hm(endFor(drop))} — {dropFits ? <span style={{ color: 'var(--ok)', fontWeight: 600 }}>fits</span> : <span style={{ color: 'var(--warn)', fontWeight: 600 }}>still doesn’t fit</span>}</p>
                 <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={agreed} onChange={(ev) => setAgreed(ev.target.checked)} /> {first} agreed to the shorter service</label>
-                <Btn onClick={() => decide('condense')} disabled={!dropFits || busy}>Drop and keep the time</Btn></>}
+                <Btn onClick={() => decide('condense')} disabled={!canDo('condense') || !dropFits || busy}>Drop and keep the time</Btn></>}
             </div>}
             {model.others.length > 0 && <div className="space-y-1.5"><p className="text-[14px] font-semibold">Switch provider — free for the whole service</p>
-              <div className="flex flex-wrap gap-1.5">{model.others.map((s: any) => <Btn key={s.id} quiet onClick={() => decide('switch', s)} disabled={busy}>Move to {String(s.name).split(' ')[0]}</Btn>)}</div></div>}
-            <div className="flex flex-wrap gap-2 pt-1"><Btn quiet onClick={askToMove} disabled={busy}>Ask them to pick a new time</Btn><Btn quiet onClick={() => { onClose(); if (onReschedule) onReschedule(appt); else { e.setSelectedAppointment(appt); e.setIsDetailsOpen(true); } }}>Move it myself…</Btn><Btn quiet onClick={() => { onClose(); e.handleCancelAction(appt.id, false); }}>Not today (cancel)…</Btn><Btn quiet onClick={() => decide('note')} disabled={busy}>Just note the ETA</Btn></div>
+              <div className="flex flex-wrap gap-1.5">{model.others.map((s: any) => <Btn key={s.id} quiet onClick={() => decide('switch', s)} disabled={!canDo('switch') || busy}>Move to {String(s.name).split(' ')[0]}</Btn>)}</div></div>}
+            <div className="flex flex-wrap gap-2 pt-1"><Btn quiet onClick={askToMove} disabled={busy || !canDo('move')}>Ask them to pick a new time</Btn><Btn quiet onClick={() => { onClose(); if (onReschedule) onReschedule(appt); else { e.setSelectedAppointment(appt); e.setIsDetailsOpen(true); } }}>Move it myself…</Btn><Btn quiet onClick={() => { onClose(); e.handleCancelAction(appt.id, false); }}>Not today (cancel)…</Btn><Btn quiet onClick={() => decide('note')} disabled={busy}>Just note the ETA</Btn></div>
           </div>
         </Box>
 
