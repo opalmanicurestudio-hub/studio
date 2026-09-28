@@ -2164,6 +2164,7 @@ const CancelGateView = ({
                 {lines.length ? lines.map((l) => <p key={l} className="text-[15px]">{l}</p>)
                     : details?.isLate ? <p className="text-[15px]">This is within the {details.windowHours}-hour cancellation window, so a ${Number(details.estimatedFee).toFixed(2)} cancellation fee would apply.</p>
                     : <p className="text-[15px]">There’s no cancellation fee — thanks for letting us know in advance.</p>}
+                {!graced && details?.unpaidLine && <VisitMuted>{details.unpaidLine}</VisitMuted>}
                 {details?.cancellationPolicyText && <VisitMuted>{details.cancellationPolicyText}</VisitMuted>}
             </VisitCard>
             {g && <VisitCard>
@@ -2174,8 +2175,9 @@ const CancelGateView = ({
                 <VisitLabel>Reason (optional)</VisitLabel>
                 <VisitSelect label="Reason for cancelling" value={reason} onChange={setReason} options={CLIENT_REASON_OPTIONS} />
             </VisitCard>
+            {details?.feeBlock && !(graced && Number(g?.due) === 0) && <VisitCard tone="warn"><p className="text-[15px]">{details.feeBlock}</p></VisitCard>}
             {error && <VisitCard tone="warn"><p className="text-[15px]">{error}</p></VisitCard>}
-            <VisitButton onClick={handleCancel} disabled={isSubmitting}>{isSubmitting ? 'Cancelling…' : 'Yes, cancel my appointment'}</VisitButton>
+            <VisitButton onClick={handleCancel} disabled={isSubmitting || (!!details?.feeBlock && !(graced && Number(g?.due) === 0))}>{isSubmitting ? 'Cancelling…' : 'Yes, cancel my appointment'}</VisitButton>
             <VisitButton quiet onClick={onBack}>Keep my appointment</VisitButton>
         </VisitShell>
     );
@@ -2305,7 +2307,8 @@ const RescheduleGateView = ({
             {!canChange && <VisitCard tone="warn"><p className="text-[15px]">{info?.policy?.changeRule?.reason || `Online rescheduling closes ${cutoffHours} hours before your appointment.`}</p></VisitCard>}
             {canChange && Number(info?.policy?.rescheduleFee) > 0 && (
                 <VisitCard tone="warn">
-                    <p className="text-[15px]">{useGrace ? <>Using your grace allowance — <b>no reschedule fee</b> this time.</> : <>Rescheduling now carries a <b>${Number(info.policy.rescheduleFee).toFixed(2)}</b> fee, as it’s within {info.policy.rescheduleFeeWindowHours} hours of your appointment. It’s added to your balance and due at your visit.</>}</p>
+                    <p className="text-[15px]">{useGrace ? <>Using your grace allowance — <b>no reschedule fee</b> this time.</> : <>Rescheduling now carries a <b>${Number(info.policy.rescheduleFee).toFixed(2)}</b> fee, as it’s within {info.policy.rescheduleFeeWindowHours} hours of your appointment. It’s charged to your card on file when you confirm.</>}</p>
+                    {!useGrace && info?.policy?.unpaidLine && <VisitMuted>{info.policy.unpaidLine}</VisitMuted>}
                     {info?.policy?.graceAvailable && <label className="flex items-center gap-2 text-[15px]"><input type="checkbox" checked={useGrace} onChange={(e) => setUseGrace(e.target.checked)} /> You have {info.policy.graceAvailable.remaining} grace reschedule{info.policy.graceAvailable.remaining === 1 ? '' : 's'} left (every {info.policy.graceAvailable.periodMonths} months) — use it and reschedule for free</label>}
                 </VisitCard>
             )}
