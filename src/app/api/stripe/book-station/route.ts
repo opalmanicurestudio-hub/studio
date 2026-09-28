@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyStaffActor } from '@/lib/staff-auth';
 import Stripe from 'stripe';
 
 // ─── /api/stripe/book-station/route.ts ─────────────────────────────────────
@@ -78,6 +79,14 @@ export async function POST(req: NextRequest) {
     rateType = 'hourly',       // 'hourly' | 'daily'
     mode = 'pos',                // 'pos' (renter present) | 'auto' (off-session)
   } = parsed;
+  // Charges a saved card — staff of this business (or our own server) only.
+  {
+    const secret = process.env.CRON_SECRET;
+    const internal = !!secret && req.headers.get('x-cf-internal') === secret;
+    const staff = !internal && (req.headers.get('authorization') || '').toLowerCase().startsWith('bearer ')
+      ? await verifyStaffActor(req, String(tenantId || '')).then((a: any) => !!a?.ok).catch(() => false) : false;
+    if (!internal && !staff) return NextResponse.json({ ok: false, error: 'Sign in to book and charge a station.', code: 'unauthorized' }, { status: 401 });
+  }
 
   if (!tenantId || !locationId || !boothId || !renterId || !startAt || !endAt) {
     return NextResponse.json(
