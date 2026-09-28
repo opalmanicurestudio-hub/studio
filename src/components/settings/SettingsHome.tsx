@@ -17,6 +17,7 @@ const T = (tab: string) => `/settings?tab=${tab}`;
 export const SETTINGS_INDEX: { question: string; icon: string; items: Item[] }[] = [
   { question: 'How clients book', icon: '📅', items: [
     { title: 'Your booking page', meaning: 'Choose its design (Classic or Studio) and preview it.', href: '/settings/booking', words: 'page design studio classic preview public website' },
+    { title: 'Booking policies', meaning: 'Deposits, cancellations, no-shows, rescheduling, late arrivals, how far ahead — and exactly what clients are told.', href: '/settings/policies', words: 'policy policies cancel cancellation no-show noshow late grace reschedule deposit refund credit window notice fee faq terms members limit' },
     { title: 'Deposits & booking rules', meaning: 'Take a deposit when clients book, approve requests, and how far ahead they can book.', href: '/settings/booking', words: 'deposit hold approve request lead time advance release' },
     { title: 'Page builder', meaning: 'The sections, photos and wording on your Classic booking page.', href: T('builder'), words: 'hero sections photos reviews theme layout' },
     { title: 'Services & prices', meaning: 'What clients can book, how long it takes and what it costs.', href: '/services', words: 'menu price duration add-ons' },
