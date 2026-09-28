@@ -49,6 +49,7 @@ function CaseCard({ a, ops, tenant, tenantId, staffById, next, role, uid, freeOt
   const decide = async (option: 'keep' | 'move') => { setBusy(option); setMsg(null); const r = await staffPost('/api/appointments/late-decision', { tenantId, appointmentId: a.id, option, tell }); setBusy(null); setMsg(r?.ok ? (tell ? `${first} has been told.` : 'Saved.') : r?.error || 'That didn’t save.'); };
   const pay = async (action: 'charge' | 'waive') => { setBusy(action); setMsg(null); const r = await staffPost('/api/appointments/desk-deposit', { tenantId, appointmentId: a.id, action, ...(action === 'waive' ? { reason: excWhy.trim() } : {}) }); setBusy(null); setMsg(r?.ok ? (action === 'charge' ? 'Deposit collected.' : 'Exception recorded.') : r?.error || 'That didn’t go through.'); };
   const late = a.checkInStatus === 'running_late' || ops.status === 'eta_overdue' || ops.status === 'decision_needed';
+  const callout = a.disruption?.status === 'pending' && a.disruption.kind === 'callout';
   const offer = async (toStaffId: string, startAt: string) => { setBusy(`offer:${toStaffId}`); setMsg(null); const r = await staffPost('/api/appointments/provider-offer', { tenantId, appointmentId: a.id, toStaffId, startAt, tell }); setBusy(null); setMsg(r?.ok ? `Offered — waiting for ${first} to accept.` : r?.error || 'That didn’t send.'); };
   return (
     <article className="space-y-3 rounded-3xl border bg-card p-4">
@@ -77,7 +78,7 @@ function CaseCard({ a, ops, tenant, tenantId, staffById, next, role, uid, freeOt
           {can('move') && <button type="button" disabled={!!busy} onClick={() => decide('move')} className="rounded-full border px-4 py-2 text-sm font-semibold disabled:opacity-60">{busy === 'move' ? 'Saving…' : 'Ask them to reschedule'}</button>}
           {can('condense') && <Link href="/pos" className="rounded-full border px-4 py-2 text-sm">Shorter visit or late fee →</Link>}
         </div>
-        {can('switch') && freeOthers.length > 0 && a.providerOffer?.status !== 'pending' && <div className="space-y-1"><p className="text-xs text-muted-foreground">Offer another provider (they accept or decline on their link):</p>
+        {(late || callout) && can('switch') && freeOthers.length > 0 && a.providerOffer?.status !== 'pending' && <div className="space-y-1"><p className="text-xs text-muted-foreground">Offer another provider (they accept or decline on their link):</p>
           <div className="flex flex-wrap gap-2">{freeOthers.slice(0, 4).map(({ staff: s0, startAt }) => <button key={s0.id} type="button" disabled={!!busy} onClick={() => offer(s0.id, startAt)} className="rounded-full border px-3 py-1.5 text-sm disabled:opacity-60">{busy === `offer:${s0.id}` ? 'Offering…' : `Offer ${String(s0.name).split(' ')[0]} at ${hm(startAt)}`}</button>)}</div></div>}
       </div>}
       {unpaid && ['arrived_payment_required', 'payment_required'].includes(ops.status) && <div className="space-y-2">
@@ -128,6 +129,39 @@ function ProviderLate({ tenantId, staff, role, uid, tenant }: { tenantId: string
 }
 
 
+
+function ReportCallout({ tenantId, staff, role, uid, tenant }: { tenantId: string; staff: any[]; role: string; uid?: string; tenant: any }) {
+  const mgr = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
+  const mine = staff.filter((s) => mgr || s.id === uid);
+  const [open, setOpen] = useState(false); const [pick, setPick] = useState(''); const [span, setSpan] = useState<'today' | 'tomorrow' | 'days'>('today'); const [days, setDays] = useState(2);
+  const [reason, setReason] = useState<string>('other'); const [prev, setPrev] = useState<any>(null); const [busy, setBusy] = useState(false); const [msg, setMsg] = useState<string | null>(null);
+  if (!mine.length || (opsLevelOf(tenant) === 'view' && !mgr)) return null;
+  const who = pick || (mine.length === 1 ? mine[0].id : '');
+  const range = () => { const s = new Date(); const e = new Date(); if (span === 'tomorrow') { s.setDate(s.getDate() + 1); s.setHours(0, 0, 0, 0); e.setDate(e.getDate() + 1); } if (span === 'days') e.setDate(e.getDate() + days - 1); e.setHours(23, 59, 59, 999); return { from: s.toISOString(), to: e.toISOString() }; };
+  const run = async (action: 'preview' | 'notify') => { setBusy(true); setMsg(null); const r = await staffPost('/api/appointments/disruption', { tenantId, action, kind: 'callout', staffId: who, reason, ...range() }); setBusy(false);
+    if (!r?.ok) { setMsg(r?.error || 'That didn’t work.'); return; } if (action === 'preview') setPrev(r); else { setPrev(null); setMsg(`Recorded. ${r.told} client${r.told === 1 ? '' : 's'} told and asked to choose${r.rentersTold ? `; ${r.rentersTold} renter${r.rentersTold === 1 ? '' : 's'} told about their bookings` : ''}. Offer another provider from each case below if someone’s free.`); } };
+  const money = (c: number) => `$${(c / 100).toFixed(2)}`;
+  if (!open) return <button type="button" onClick={() => setOpen(true)} className="w-full rounded-3xl border bg-card p-4 text-left text-sm"><b>Provider callout</b> — someone can’t work (illness, transport, family…)</button>;
+  return (
+    <section className="space-y-2 rounded-3xl border bg-card p-4">
+      <p className="font-semibold">Provider callout</p>
+      <p className="text-xs text-muted-foreground">No private details are needed — just who, and when.</p>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        {mine.length > 1 && <select value={pick} onChange={(e) => { setPick(e.target.value); setPrev(null); }} className="h-9 rounded-full border px-3"><option value="">Who?</option>{mine.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>}
+        {([['today', 'Rest of today'], ['tomorrow', 'Tomorrow'], ['days', 'Several days']] as const).map(([v, l]) => <button key={v} type="button" aria-pressed={span === v} onClick={() => { setSpan(v); setPrev(null); }} className={`rounded-full border px-3 py-1.5 ${span === v ? 'bg-primary text-primary-foreground' : ''}`}>{l}</button>)}
+        {span === 'days' && <label className="flex items-center gap-1">for <input type="number" min={2} max={14} value={days} onChange={(e) => { setDays(Math.max(2, Math.min(14, Number(e.target.value) || 2))); setPrev(null); }} className="h-9 w-16 rounded-full border px-2" /> days</label>}
+      </div>
+      <div className="flex flex-wrap gap-2 text-sm"><span className="text-muted-foreground">Reason (optional):</span>{(['illness', 'transport', 'family', 'other'] as const).map((r) => <button key={r} type="button" aria-pressed={reason === r} onClick={() => setReason(r)} className={`rounded-full border px-3 py-1 ${reason === r ? 'bg-secondary font-semibold' : ''}`}>{r[0].toUpperCase() + r.slice(1)}</button>)}</div>
+      {!prev ? <button type="button" disabled={!who || busy} onClick={() => run('preview')} className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60">{busy ? 'Checking…' : 'See who’s affected'}</button> : <>
+        <p className="text-sm"><b>{prev.totals.appointments}</b> appointment{prev.totals.appointments === 1 ? '' : 's'} ({prev.totals.studio} studio, {prev.totals.renter} renter) · booked value {money(prev.totals.bookedCents)} · deposits held {money(prev.totals.depositsCents)} · {prev.hoursLost} scheduled hours</p>
+        <ul className="max-h-40 space-y-0.5 overflow-auto text-sm">{prev.affected.map((x: any) => <li key={x.appointmentId}>{new Date(x.startTime).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })} · {x.clientName || 'Client'} · {x.serviceName || ''}{x.isRenterBooking ? ' (renter — they’ll be told)' : ''}</li>)}</ul>
+        {prev.totals.appointments > 0 ? <button type="button" disabled={busy} onClick={() => run('notify')} className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60">{busy ? 'Sending…' : 'Record it and tell clients'}</button> : <p className="text-sm">Nobody’s booked — nothing to send.</p>}
+      </>}
+      {msg && <p className="text-sm font-semibold">{msg}</p>}
+    </section>
+  );
+}
+
 /** Services running over that affect a later guest (planned length = the booking's own length). */
 function overrunCases(appts: any[], now = new Date()) {
   return (appts || []).map((a: any) => { const planned = Math.max(15, Math.round((Date.parse(a.endTime || a.startTime) - Date.parse(a.startTime)) / 60000) || 60);
@@ -149,13 +183,14 @@ export function OpsBoard({ appts, staff, tenant, tenantId, role, uid }: { appts:
       .map((s0: any) => ({ staff: s0, startAt: new Date(Math.ceil(start / 300000) * 300000).toISOString() }));
   };
   const nextFor = (a: any) => (appts || []).filter((x: any) => x.staffId === a.staffId && x.id !== a.id && Date.parse(x.startTime) > Date.parse(a.startTime) && !['cancelled', 'completed', 'no_show'].includes(String(x.status || ''))).sort((x: any, y: any) => Date.parse(x.startTime) - Date.parse(y.startTime))[0] || null;
-  const attention = rows.filter((r) => r.ops.needsDecision || ['running_late', 'eta_overdue', 'location_shared', 'rescheduling_offered', 'provider_late', 'provider_offered', 'arrived_payment_required', 'decision_needed', 'payment_required'].includes(r.ops.status));
+  const attention = rows.filter((r) => r.ops.needsDecision || ['running_late', 'eta_overdue', 'location_shared', 'rescheduling_offered', 'provider_late', 'provider_offered', 'disruption', 'arrived_payment_required', 'decision_needed', 'payment_required'].includes(r.ops.status));
   const shown = (view === 'attention' ? attention : rows.filter((r) => r.ops.status !== 'finished'))
     .sort((x, y) => Number(y.ops.needsDecision) - Number(x.ops.needsDecision) || Date.parse(x.a.startTime) - Date.parse(y.a.startTime));
   const decisions = attention.filter((r) => r.ops.needsDecision).length;
   return (
     <div className="space-y-4">
       <ProviderLate tenantId={tenantId} staff={(staff || []).filter((s: any) => s.isActive !== false)} role={role} uid={uid} tenant={tenant} />
+      <ReportCallout tenantId={tenantId} staff={(staff || []).filter((s: any) => s.isActive !== false)} role={role} uid={uid} tenant={tenant} />
       {overrunCases(appts).map(({ a, ov }) => <OverrunPanel key={`ov-${a.id}`} tenant={tenant} tenantId={tenantId} role={role} inService={a} today={appts} overMin={ov.overMin} plannedEnd={ov.plannedEnd} providerName={staffById.get(a.staffId)?.name || null} />)}
       <div className="flex flex-wrap items-center gap-2">
         {([['attention', `Needs attention · ${attention.length}`], ['all', 'All of today']] as const).map(([v, l]) => <button key={v} type="button" onClick={() => setView(v)} aria-pressed={view === v} className={`rounded-full border px-4 py-1.5 text-sm ${view === v ? 'bg-primary text-primary-foreground' : ''}`}>{l}</button>)}
@@ -174,7 +209,7 @@ export function opsAttentionCount(appts: any[], tenant: any): { attention: numbe
   let attention = 0, decisions = 0;
   for (const a of appts || []) { const o = opsStatus(a, now, { graceMinutes: grace });
     if (o.needsDecision) decisions++;
-    if (o.needsDecision || ['running_late', 'eta_overdue', 'location_shared', 'rescheduling_offered', 'provider_late', 'provider_offered', 'arrived_payment_required', 'decision_needed', 'payment_required'].includes(o.status)) attention++; }
+    if (o.needsDecision || ['running_late', 'eta_overdue', 'location_shared', 'rescheduling_offered', 'provider_late', 'provider_offered', 'disruption', 'arrived_payment_required', 'decision_needed', 'payment_required'].includes(o.status)) attention++; }
   const over = overrunCases(appts, now).filter((x) => !x.a.overrunNotifiedAt).length;
   return { attention: attention + over, decisions: decisions + over };
 }
