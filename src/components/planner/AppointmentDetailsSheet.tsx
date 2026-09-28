@@ -1490,6 +1490,44 @@ const MidServiceHandoffDialog = ({
 };
 
 // ─── Main component ────────────────────────────────────────────────────────────
+/** RUNNING LATE — decide on the planner, and the client is told straight away
+ *  (text/email + their visit link). The front desk's panel has the fuller
+ *  options (shorter visit, switch provider, late fee). */
+function LateBanner({ appointment, tenantId, onCancel, onDone }: { appointment: any; tenantId?: string; onCancel?: (id: string, walkIn: boolean) => void; onDone?: () => void }) {
+  const [tell, setTell] = React.useState(true); const [busy, setBusy] = React.useState<string | null>(null); const [msg, setMsg] = React.useState<string | null>(null);
+  const done = ['completed', 'cancelled', 'no_show', 'servicing'].includes(String(appointment?.status || ''));
+  if (!appointment || done || appointment.checkInStatus !== 'running_late') return null;
+  const first = String(appointment.clientName || 'They').split(' ')[0];
+  const mins = Number(appointment.clientLateMinutes || appointment.lateTimeMinutes) || 0;
+  const eta = appointment.etaAt || appointment.clientEtaAt;
+  const etaText = eta ? new Date(eta).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : null;
+  const reply = appointment.lateReply;
+  const send = async (option: 'keep' | 'move') => {
+    setBusy(option); setMsg(null);
+    try {
+      const { getAuth } = await import('firebase/auth'); const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
+      const r = await fetch('/api/appointments/late-decision', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, appointmentId: appointment.id, option, tell }) }).then((x) => x.json());
+      setMsg(r?.ok ? (tell ? `${first} has been told${r.told?.email || r.told?.sms ? '' : ' (no email or phone on file — tell them yourself)'}.` : 'Saved — tell them yourself.') : (r?.error || 'That didn’t save — please try again.'));
+      if (r?.ok) onDone?.();
+    } catch { setMsg('That didn’t save — please try again.'); } finally { setBusy(null); }
+  };
+  return (
+    <section aria-label="Running late" className="space-y-3 rounded-3xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
+      <div><p className="font-semibold">{first} is running {mins ? `~${mins} min ` : ''}late{etaText ? ` — arriving about ${etaText}` : ''}</p>
+        {appointment.clientLateNote && <p className="text-sm">“{appointment.clientLateNote}”</p>}</div>
+      {reply?.message && <p className="rounded-2xl bg-white/70 p-3 text-sm"><b>They’ve been told:</b> {reply.message}</p>}
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={tell} onChange={(e) => setTell(e.target.checked)} /> Tell {first} by text/email (their visit link updates too)</label>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" disabled={!!busy} onClick={() => send('keep')}>{busy === 'keep' ? 'Saving…' : 'Still see them'}</Button>
+        <Button size="sm" variant="outline" disabled={!!busy} onClick={() => send('move')}>{busy === 'move' ? 'Saving…' : 'Ask them to pick a new time'}</Button>
+        {onCancel && <Button size="sm" variant="outline" disabled={!!busy} onClick={() => onCancel(appointment.id, !!appointment.isWalkIn)}>Not today (cancel)…</Button>}
+      </div>
+      <p className="text-xs">Shorter visit, another provider or a late fee: use <b>Running late</b> at the front desk.</p>
+      {msg && <p className="text-sm font-semibold">{msg}</p>}
+    </section>
+  );
+}
+
 export const AppointmentDetailsSheet: React.FC<any> = ({
   open, onOpenChange, appointment: initialAppointment, client, service, tmhr,
   transactions, onStartService, onFinishService, onEdit, onDelete, onCancel,
@@ -2334,6 +2372,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const SheetBody = (
     <ScrollArea className="flex-1 overflow-y-auto">
       <div className="space-y-5 p-4 md:p-6 pb-6">
+        <LateBanner appointment={appointment} tenantId={tenantId} onCancel={onCancel ? (id: string, w: boolean) => { onOpenChange(false); onCancel(id, w); } : undefined} />
 
         {/* ── Status section ─────────────────────────────────────────────── */}
         {isCancelled
