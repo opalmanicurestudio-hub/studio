@@ -3013,6 +3013,7 @@ export default function CheckInPage() {
             portalHref={tenantId && clientId ? `/portal/${tenantId}/${clientId}` : null}
             onNotifications={tenant?.notificationDefaults?.allowClientOverride !== false ? () => setShowNotificationSettings(true) : undefined}
             trip={tenantId && token && appointmentData?.id ? { tenantId, token, appointmentId: appointmentData.id } : null}
+            reply={(appointmentData as any)?.lateReply || null}
         />
     );
 }
