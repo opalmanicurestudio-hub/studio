@@ -507,7 +507,7 @@ export default function ClientPortalPage() {
             context: 'Business',
             category: 'Fee Recovery',
             amount: amount,
-            paymentMethod: client.cardOnFile?.token ? 'Card on File' : 'Digital Gateway',
+            paymentMethod: (client.cardOnFile?.token || client.cardOnFile?.paymentMethodId) ? 'Card on File' : 'Digital Gateway',
             hasReceipt: false,
             tenantId
         });
