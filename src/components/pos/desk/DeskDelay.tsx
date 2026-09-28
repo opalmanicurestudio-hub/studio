@@ -75,6 +75,16 @@ export function DeskDelay({ e, appt, accent, onClose, onReschedule }: { e: any; 
       body: JSON.stringify({ tenantId: e.tenantId, appointmentId: appt.id, option, tell: tellClient }) }).then((x) => x.json()).catch(() => ({}));
     return r;
   };
+  // Offer another provider — with their consent (they accept or decline on their link).
+  const offerTo = async (toStaff: any) => {
+    setBusy(true); setErr('');
+    const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
+    const r = await fetch('/api/appointments/provider-offer', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) },
+      body: JSON.stringify({ tenantId: e.tenantId, appointmentId: appt.id, toStaffId: toStaff.id, startAt: model.arrive.toISOString(), tell: tellClient }) }).then((x) => x.json()).catch(() => ({}));
+    setBusy(false);
+    if (r?.ok) setSent(`Offered ${String(toStaff.name).split(' ')[0]} at ${hm(model.arrive)} — ${first} can accept or decline on their link${tellClient ? '' : ' (not messaged — tell them yourself)'}. Nothing changes until they accept.`);
+    else setErr(r?.error || 'That didn’t send — please try again.');
+  };
   const askToMove = async () => {
     setBusy(true); setErr('');
     const r = await tellThem('move');
@@ -94,7 +104,8 @@ export function DeskDelay({ e, appt, accent, onClose, onReschedule }: { e: any; 
       ...(option !== 'note' && model.fee > 0 ? { fee: charging ? model.fee : 0, feeWaived: !charging, waiveReason: charging ? null : waiveWhy.trim() } : {}) };
     const patch: any = { checkInStatus: 'running_late', lateTimeMinutes: late, etaAt: model.arrive.toISOString(), lateUpdatedAt: nowIso, lateDecision: decision,
       ...(option === 'condense' ? { addOnIds: (appt.addOnIds || []).filter((id: string) => !drop.includes(id)) } : {}),
-      ...(option === 'switch' ? { staffId: toStaff.id, staffName: toStaff.name } : {}) };
+      ...(option === 'switch' ? { staffId: toStaff.id, staffName: toStaff.name, originalStaffId: appt.originalStaffId || appt.staffId || null, originalScheduledTime: appt.originalScheduledTime || appt.startTime,
+        providerHistory: arrayUnion({ from: appt.staffId || null, to: toStaff.id, toName: toStaff.name || null, at: nowIso, by: 'client agreed in person', recordedBy: by }) } : {}) };
     try {
       const b = writeBatch(e.firestore);
       b.update(doc(e.firestore, 'tenants', e.tenantId, 'appointments', appt.id), patch);
@@ -147,7 +158,9 @@ export function DeskDelay({ e, appt, accent, onClose, onReschedule }: { e: any; 
                 <Btn onClick={() => decide('condense')} disabled={!canDo('condense') || !dropFits || busy}>Drop and keep the time</Btn></>}
             </div>}
             {model.others.length > 0 && <div className="space-y-1.5"><p className="text-[14px] font-semibold">Switch provider — free for the whole service</p>
-              <div className="flex flex-wrap gap-1.5">{model.others.map((s: any) => <Btn key={s.id} quiet onClick={() => decide('switch', s)} disabled={!canDo('switch') || busy}>Move to {String(s.name).split(' ')[0]}</Btn>)}</div></div>}
+              <div className="space-y-1.5">{model.others.map((s: any) => <div key={s.id} className="flex flex-wrap gap-1.5">
+                <Btn onClick={() => offerTo(s)} disabled={!canDo('switch') || busy}>Offer {String(s.name).split(' ')[0]} to them</Btn>
+                <Btn quiet onClick={() => decide('switch', s)} disabled={!canDo('switch') || busy}>They’ve agreed — switch to {String(s.name).split(' ')[0]}</Btn></div>)}</div></div>}
             <div className="flex flex-wrap gap-2 pt-1"><Btn quiet onClick={askToMove} disabled={busy || !canDo('move')}>Ask them to pick a new time</Btn><Btn quiet onClick={() => { onClose(); if (onReschedule) onReschedule(appt); else { e.setSelectedAppointment(appt); e.setIsDetailsOpen(true); } }}>Move it myself…</Btn><Btn quiet onClick={() => { onClose(); e.handleCancelAction(appt.id, false); }}>Not today (cancel)…</Btn><Btn quiet onClick={() => decide('note')} disabled={busy}>Just note the ETA</Btn></div>
           </div>
         </Box>
