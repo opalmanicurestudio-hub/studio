@@ -2327,7 +2327,7 @@ const CancelGateView = ({
                         <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Appointment Cancelled</h3>
                         {!result.alreadyCancelled && (
                             <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-sm mx-auto">
-                                {result.feeCharged
+                                {Array.isArray(result.lines) && result.lines.length ? result.lines.join(' ') : result.feeCharged
                                     ? `Since this is within the studio's ${details?.windowHours}-hour cancellation window, a $${Number(result.feeAmount).toFixed(2)} cancellation fee applies.`
                                     : "No cancellation fee applies — thanks for the advance notice."}
                             </p>
@@ -2354,7 +2354,12 @@ const CancelGateView = ({
                 </div>
 
                 <AnimatePresence mode="wait">
-                    {details?.isLate ? (
+                    {Array.isArray(details?.preview?.lines) && details.preview.lines.length ? (
+                        <motion.div key="plan" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={`p-5 rounded-[2rem] border-2 space-y-1.5 ${Number(details.preview.due) > 0 || Number(details.preview.fee) > 0 ? 'border-amber-200 bg-amber-50' : 'border-green-200 bg-green-50'}`}>
+                            <p className="text-sm font-semibold text-slate-900">If you cancel now</p>
+                            {details.preview.lines.map((l: string) => <p key={l} className="text-sm text-slate-700 leading-relaxed">{l}</p>)}
+                        </motion.div>
+                    ) : details?.isLate ? (
                         <motion.div key="late" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-6 rounded-[2rem] border-2 border-amber-200 bg-amber-50 flex items-start gap-3">
                             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                             <p className="text-xs font-bold text-amber-700 uppercase tracking-tight leading-relaxed">
@@ -2407,6 +2412,25 @@ const CancelGateView = ({
                 )}
             </CardContent>
         </ViewContainer>
+    );
+};
+
+// "Ask us to move it" — when the change limit needs the team's OK. Sends one
+// request (with an optional note) through /api/appt → the team is notified.
+const AskToMove = ({ apptApi }: { apptApi: (p: any) => Promise<any> }) => {
+    const [note, setNote] = useState(''); const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle'); const [msg, setMsg] = useState('');
+    if (state === 'sent') return <div className="p-5 rounded-[2rem] border-2 border-green-200 bg-green-50"><p className="text-sm font-semibold text-green-800">{msg || 'Sent — we’ll get back to you to move it.'}</p></div>;
+    return (
+        <div className="p-5 rounded-[2rem] border-2 space-y-3">
+            <p className="text-sm font-semibold text-slate-900">Ask us to move it</p>
+            <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={300} placeholder="When would suit you? (optional) — e.g. any weekday after 3pm" className="w-full rounded-2xl border p-3 text-sm" />
+            {state === 'error' && <p className="text-xs font-semibold text-destructive">{msg}</p>}
+            <Button className="w-full h-12 rounded-2xl" disabled={state === 'sending'} onClick={async () => {
+                setState('sending');
+                try { const d = await apptApi({ action: 'request_change', note }); if (d.ok) { setMsg(d.alreadyAsked ? 'We already have your request — we’ll be in touch soon.' : 'Sent — we’ll get back to you to move it.'); setState('sent'); } else { setMsg(d.error || 'That didn’t send — please call us.'); setState('error'); } }
+                catch { setMsg('That didn’t send — please call us.'); setState('error'); }
+            }}>{state === 'sending' ? 'Sending…' : 'Send my request'}</Button>
+        </div>
     );
 };
 
@@ -2546,10 +2570,13 @@ const RescheduleGateView = ({
                     <div className="p-6 rounded-[2rem] border-2 border-amber-200 bg-amber-50 flex items-start gap-3">
                         <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                         <p className="text-xs font-bold text-amber-700 uppercase tracking-tight leading-relaxed">
-                            Online rescheduling closes {cutoffHours}h before your appointment — call the studio and we'll move it for you.
+                            {info?.policy?.changeRule?.reason || `Online rescheduling closes ${cutoffHours}h before your appointment — call the studio and we'll move it for you.`}
                         </p>
                     </div>
-                ) : (
+                ) : null}
+                {!canChange && info?.policy?.changeRule?.needsApproval ? (
+                    <AskToMove apptApi={apptApi} />
+                ) : canChange ? (
                     <>
                         <div className="grid grid-cols-2 gap-3">
                             <div className="space-y-2">
@@ -2581,7 +2608,7 @@ const RescheduleGateView = ({
                             )}
                         </Button>
                     </>
-                )}
+                ) : null}
 
                 <Button variant="ghost" onClick={onBack} className="w-full text-slate-400">← Never mind, keep my time</Button>
             </CardContent>
