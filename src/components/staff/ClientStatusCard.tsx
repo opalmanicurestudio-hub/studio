@@ -7,6 +7,7 @@
 // link). The front desk has the fuller panel (shorter visit, switch, late fee).
 import React from 'react';
 import { getAuth } from 'firebase/auth';
+import { opsStatus } from '@/lib/appointment-ops';
 
 const hm = (iso?: string | null) => { if (!iso) return null; const d = new Date(iso); return isNaN(d.getTime()) ? null : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); };
 
@@ -27,11 +28,13 @@ export function ClientStatusCard({ apt, tenantId }: { apt: any; tenantId?: strin
       setMsg(r?.ok ? (tell ? `${first} has been told.` : 'Saved — tell them yourself.') : (r?.error || 'That didn’t save — please try again.'));
     } catch { setMsg('That didn’t save — please try again.'); } finally { setBusy(null); }
   };
+  const ops = opsStatus(apt, new Date());
   const tone = apt.studioAskedToMove || st === 'running_late' ? 'border-amber-200 bg-amber-50 text-amber-900' : st === 'arrived' ? 'border-green-200 bg-green-50 text-green-900' : 'border-blue-200 bg-blue-50 text-blue-900';
   return (
     <div className={`space-y-2 rounded-xl border p-3 text-[12px] ${tone}`} aria-live="polite">
+      {(ops.status === 'eta_overdue' || ops.status === 'decision_needed' || ops.status === 'arrived_payment_required') && <p className="rounded-lg bg-white/70 p-2 font-semibold">{ops.label}{ops.detail ? ` — ${ops.detail}` : ''}</p>}
       <p className="font-semibold">
-        {apt.studioAskedToMove ? `Asked ${first} to reschedule — waiting for their new time`
+        {apt.studioAskedToMove && st === 'arrived' ? `${first} is here (after a reschedule offer)` : apt.studioAskedToMove ? `Asked ${first} to reschedule — waiting for their new time`
           : st === 'arrived' ? `${first} is here`
           : st === 'running_late' ? `${first} is running late${eta ? ` — arriving about ${eta}` : apt.lateTimeMinutes ? ` (~${apt.lateTimeMinutes} min)` : ''}`
           : `${first} is on the way${trip?.etaMin ? ` · ~${trip.etaMin} min (${trip.distanceKm} km)` : ''}`}
