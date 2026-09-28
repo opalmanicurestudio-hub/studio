@@ -140,7 +140,7 @@ export const GuestRescheduleDialog = ({
 
     const publicScheduleProfile = useMemo(() => scheduleProfiles?.find((p: any) => p.isActive), [scheduleProfiles]);
     const assignedStaff = useMemo(() => staff?.find(s => s.id === appointment.staffId), [staff, appointment.staffId]);
-    const hasCardOnFile = !!client?.cardOnFile?.token;
+    const hasCardOnFile = !!(client?.cardOnFile?.token || client?.cardOnFile?.paymentMethodId);
 
     // SCHEDULING NAVIGATION
     const weekStart = useMemo(() => startOfWeek(rescheduleDate, { weekStartsOn: 0 }), [rescheduleDate]);
