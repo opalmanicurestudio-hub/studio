@@ -9,6 +9,7 @@
 // renter's card on file — see that route for the guest/no-card path,
 // which is a separate follow-up).
 
+import { staffAuthHeader } from '@/lib/staff-fetch';
 import { useMemo, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -79,7 +80,7 @@ export function QuickBookDialog({
     try {
       const res = await fetch('/api/stripe/book-station', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
         body: JSON.stringify({ tenantId, locationId, boothId, renterId, startAt, endAt, rateType, mode: 'pos' }),
       });
       const data = await res.json();
