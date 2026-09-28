@@ -52,7 +52,10 @@ export function DeskReschedule({ e, appt, accent, onClose }: { e: any; appt: any
 
         {r.policyNote && <p className="rounded-2xl p-3 text-[13px] font-semibold" style={{ background: 'color-mix(in srgb, var(--warn) 12%, var(--card))', color: 'var(--warn)' }}>{r.policyNote}</p>}
         <Card>
-          {r.feeEligible && <label className="flex items-center justify-between gap-3 text-[14px]"><span><b>Reschedule fee</b> · ${r.fee.toFixed(2)} (inside your {Number(e.selectedTenant?.rescheduleFeeWindowHours || 0)}-hour window)</span><input type="checkbox" checked={r.applyFee} onChange={(ev) => r.setApplyFee(ev.target.checked)} /></label>}
+          <div className="space-y-1.5"><p className="text-[14px] font-semibold">Who asked for this change?</p>
+            <div className="flex gap-1.5">{([['client', 'The client'], ['studio', 'We did']] as const).map(([v, l]) => <Btn key={v} quiet={r.initiatedBy !== v} onClick={() => r.setInitiatedBy(v)}>{l}</Btn>)}</div>
+            {r.initiatedBy === 'studio' && <p className="text-[12px]" style={{ color: 'var(--muted)' }}>Our change: no fee, not counted toward their change limit, and their notice deadline starts from the new time.</p>}</div>
+          {r.feeEligible && r.initiatedBy === 'client' && <label className="flex items-center justify-between gap-3 text-[14px]"><span><b>Reschedule fee</b> · ${r.fee.toFixed(2)} (inside your {Number(e.selectedTenant?.rescheduleFeeWindowHours || 0)}-hour window)</span><input type="checkbox" checked={r.applyFee} onChange={(ev) => r.setApplyFee(ev.target.checked)} /></label>}
           <label className="flex items-center justify-between gap-3 text-[14px]"><span><b>Tell {r.first}</b> · email + text with the new time</span><input type="checkbox" checked={r.notify} onChange={(ev) => r.setNotify(ev.target.checked)} /></label>
           {r.time && r.day && <p className="text-center text-[14px]"><span style={{ color: 'var(--muted)' }}>{format(r.original, 'EEE MMM d, h:mm a')} → </span><b>{format(new Date(`${r.day}T${r.time}`), 'EEE MMM d, h:mm a')}</b></p>}
           {r.override && r.reason ? <div className="space-y-2"><p className="rounded-2xl p-3 text-[13px]" style={{ background: 'color-mix(in srgb, var(--warn) 10%, var(--card))', color: 'var(--warn)' }}>{r.reason}</p>
