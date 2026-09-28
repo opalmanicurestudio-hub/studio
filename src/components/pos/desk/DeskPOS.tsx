@@ -35,7 +35,7 @@ import { DeskCancel } from './DeskCancel';
 import { DeskPayGate } from './DeskPayGate';
 import { OpsBoard, opsAttentionCount } from '@/components/ops/OpsBoard';
 import { OverrunPanel } from '@/components/ops/OverrunPanel';
-import { placeOf } from '@/lib/service-place';
+import { placeOf, skipsCheckIn } from '@/lib/service-place';
 import { serviceOverrun, overrunImpact, overrunMode } from '@/lib/appointment-ops';
 import { opsStatus, paymentOutstanding } from '@/lib/appointment-ops';
 import { resolvePolicy } from '@/lib/booking-policies';
@@ -221,7 +221,11 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const assign = (g: Guest, staffId: string) => { e.handleAssignStaff(g.walkIn, staffId); setAssigning(null); };
 
   const actionFor = (g: Guest) => {
-    if (g.stage === 'arriving') return <Btn quiet onClick={() => checkIn(g)}>Check in</Btn>;
+    if (g.stage === 'arriving') {
+      // Video, phone and at-home visits never arrive at your door — start them directly.
+      if (g.kind === 'appt' && skipsCheckIn(placeOf((e.services || []).find((x: any) => x.id === g.appt?.serviceId), g.appt).kind)) return <Btn quiet onClick={() => start(g)}>Start</Btn>;
+      return <Btn quiet onClick={() => checkIn(g)}>Check in</Btn>;
+    }
     if (g.stage === 'waiting') {
       if (g.kind === 'walkin' && !g.staffId) return assigning === g.key
         ? <div className="flex flex-wrap justify-end gap-1">{staffList.map((s) => <Btn key={s.id} quiet onClick={() => assign(g, s.id)}>{String(s.name).split(' ')[0]}</Btn>)}<Btn quiet onClick={() => setAssigning(null)} label="Cancel">✕</Btn></div>
