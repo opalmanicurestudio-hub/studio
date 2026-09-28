@@ -43,6 +43,75 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  // ── follow-ups on a recorded disruption: chase · reopen · cover requests · volunteers ──
+  if (['chase', 'reopen', 'cover_request', 'cover_volunteer'].includes(action)) {
+    const coll = kind === 'callout' ? 'providerCallouts' : 'interruptions';
+    const dRef = db.doc(`${T}/${coll}/${String(b.disruptionId || '')}`); const rec: any = (await dRef.get()).data();
+    if (!rec) return NextResponse.json({ ok: false, error: 'That record wasn’t found.' }, { status: 404 });
+    // Who may follow up: managers; for a callout, also the provider themself. Volunteering: any staff who isn't view-only.
+    const own = kind === 'callout' && rec.staffId === auth.actor.uid;
+    if (action === 'cover_volunteer' ? (opsLevelOf(tenant) === 'view' && !isMgr) : (!isMgr && !own)) return NextResponse.json({ ok: false, error: 'A manager does that.' }, { status: 403 });
+    const nowIso = new Date().toISOString(); const base = linkOrigin(tenant, req.nextUrl.origin); const studio = tenant.name || tenant.businessName || 'the studio';
+    const entries: any[] = Object.values(rec.affected || {});
+    const { sendNotification } = await import('@/lib/notify'); const { brandedEmailHtml } = await import('@/lib/email-template');
+    const pFirst = kind === 'callout' && rec.staffName ? String(rec.staffName).split(' ')[0] : null;
+    const tell = async (en: any, subject: string, text: string, cta: { label: string; url: string } | null) => {
+      const ap: any = ((await db.doc(`${T}/appointments/${en.appointmentId}`).get()).data() as any) || {};
+      const cl: any = ap.clientId ? (((await db.doc(`${T}/clients/${ap.clientId}`).get()).data() as any) || {}) : {};
+      const email = String(cl.email || ap.clientEmail || '').trim(), phone = String(cl.phone || ap.clientPhone || '').trim(); let ok = false;
+      if (email.includes('@')) ok = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject, kind: 'disruption_followup', html: brandedEmailHtml({ studioName: studio, title: subject, bodyLines: [text], cta }), appointmentId: en.appointmentId, clientId: ap.clientId || null, clientName: ap.clientName || null } as any))?.ok || ok;
+      if (phone) ok = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'disruption_followup', text: `${studio}: ${text}${cta ? ` ${cta.url}` : ''}`, appointmentId: en.appointmentId, clientId: ap.clientId || null, clientName: ap.clientName || null } as any))?.ok || ok;
+      return { ok, ap };
+    };
+    if (action === 'chase') {          // still undecided after 3h → remind (at most every 12h)
+      let n = 0;
+      for (const en of entries) {
+        if (en.isRenterBooking || en.outcome !== 'pending' || !en.notifiedAt || Date.now() - Date.parse(en.notifiedAt) < 3 * 3600000) continue;
+        if (en.chasedAt && Date.now() - Date.parse(en.chasedAt) < 12 * 3600000) continue;
+        const ap0: any = ((await db.doc(`${T}/appointments/${en.appointmentId}`).get()).data() as any) || {};
+        const link = ap0.checkInToken ? `${base}/check-in/${ap0.checkInToken}` : null;
+        const r = await tell(en, 'A reminder about your appointment', `Hi ${String(en.clientName || '').split(' ')[0] || 'there'} — just checking you saw our message: we can’t go ahead with your ${en.serviceName || 'appointment'} as booked. Please pick a new time or cancel (no fee) with the link below.`, link ? { label: 'Choose', url: link } : null);
+        if (r.ok) { n++; await dRef.set({ affected: { [en.appointmentId]: { chasedAt: nowIso } } }, { merge: true }); }
+      }
+      await logAuditAdmin(db, tenantId, { action: 'disruption.chased', targetType: kind === 'callout' ? 'staff' : 'interruption', targetId: String(b.disruptionId), summary: `Reminded ${n} client${n === 1 ? '' : 's'} who hadn’t chosen yet`, actor }).catch(() => {});
+      return NextResponse.json({ ok: true, chased: n });
+    }
+    if (action === 'reopen') {         // we're open again / they're back → cancelled + undecided clients get a booking link
+      let n = 0;
+      for (const en of entries) {
+        if (en.isRenterBooking || !['cancelled', 'pending'].includes(en.outcome) || en.reopenNotifiedAt) continue;
+        const ap0: any = ((await db.doc(`${T}/appointments/${en.appointmentId}`).get()).data() as any) || {};
+        const url = `${base}/book/${tenantId}${ap0.serviceId ? `?service=${encodeURIComponent(ap0.serviceId)}` : ''}`;
+        const r = await tell(en, kind === 'callout' ? `${pFirst || 'We’re'} back` : 'We’re open again', `Hi ${String(en.clientName || '').split(' ')[0] || 'there'} — ${kind === 'callout' ? `${pFirst || 'your provider'} is back and` : 'we’re open again and'} we’d love to see you. Book a time that suits you${en.outcome === 'pending' ? ' (or keep your new choice if you’ve already made one)' : ''}.`, { label: 'Book now', url });
+        if (r.ok) { n++; await dRef.set({ affected: { [en.appointmentId]: { reopenNotifiedAt: nowIso } } }, { merge: true }); }
+      }
+      await dRef.set({ reopenedAt: nowIso }, { merge: true });
+      await logAuditAdmin(db, tenantId, { action: 'disruption.reopened', targetType: kind === 'callout' ? 'staff' : 'interruption', targetId: String(b.disruptionId), summary: `${kind === 'callout' ? 'Provider back' : 'Open again'} — invited ${n} affected client${n === 1 ? '' : 's'} to rebook`, actor }).catch(() => {});
+      return NextResponse.json({ ok: true, invited: n });
+    }
+    if (action === 'cover_request') {  // ask free, active staff to cover the callout's appointments
+      if (kind !== 'callout') return NextResponse.json({ ok: false, error: 'Cover requests are for callouts.' }, { status: 400 });
+      if (!isMgr && rec.staffId !== auth.actor.uid) return NextResponse.json({ ok: false, error: 'A manager asks for cover.' }, { status: 403 });
+      const open = entries.filter((en) => !en.isRenterBooking && en.outcome === 'pending');
+      const staffDocs = (await db.collection(`${T}/staff`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((x: any) => x.isActive !== false && x.id !== rec.staffId && !x.renterId);
+      const list = open.map((en) => `${new Date(en.startTime).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZone: tenant.timezone || undefined })} ${en.serviceName || ''}`).join('; ');
+      for (const st of staffDocs) { const n = db.collection(`${T}/notifications`).doc();
+        await n.set({ id: n.id, userId: st.id, read: false, createdAt: nowIso, type: 'cover_request', link: 'pos', message: `Can you cover for ${rec.staffName || 'a colleague'}? ${open.length} appointment${open.length === 1 ? '' : 's'}: ${list}. Open Needs attention in the POS and tap “I can cover this”.` }).catch(() => {}); }
+      await dRef.set({ coverRequestedAt: nowIso }, { merge: true });
+      await logAuditAdmin(db, tenantId, { action: 'disruption.cover_requested', targetType: 'staff', targetId: String(rec.staffId), summary: `Asked ${staffDocs.length} team member${staffDocs.length === 1 ? '' : 's'} to cover ${open.length} appointment${open.length === 1 ? '' : 's'}`, actor }).catch(() => {});
+      return NextResponse.json({ ok: true, asked: staffDocs.length, appointments: open.length });
+    }
+    // cover_volunteer — "I can cover this" (recorded; a manager sends the client the offer)
+    const aid = String(b.appointmentId || '');
+    if (!rec.affected?.[aid]) return NextResponse.json({ ok: false, error: 'Not part of this callout.' }, { status: 404 });
+    if (auth.actor.uid === rec.staffId) return NextResponse.json({ ok: false, error: 'You’re the one who’s out.' }, { status: 400 });
+    const vols = Array.isArray(rec.affected[aid].volunteers) ? rec.affected[aid].volunteers : [];
+    if (!vols.some((v: any) => v.staffId === auth.actor.uid)) await dRef.set({ affected: { [aid]: { volunteers: [...vols, { staffId: auth.actor.uid, name: auth.actor.name, at: nowIso }] } } }, { merge: true });
+    await db.doc(`${T}/appointments/${aid}`).set({ coverVolunteers: [...vols.filter((v: any) => v.staffId !== auth.actor.uid), { staffId: auth.actor.uid, name: auth.actor.name, at: nowIso }] }, { merge: true });
+    await logAuditAdmin(db, tenantId, { action: 'disruption.cover_volunteer', targetType: 'appointment', targetId: aid, summary: `${auth.actor.name} offered to cover — a manager can send the client the offer`, actor }).catch(() => {});
+    return NextResponse.json({ ok: true });
+  }
+
   // ── the window + who's affected ──
   let fromMs: number, toMs: number, staffId: string | null = null, interruption: any = null, staff: any = null;
   if (kind === 'callout') {
@@ -90,6 +159,15 @@ export async function POST(req: NextRequest) {
   let ref: any; let id: string;
   if (kind === 'callout') { ref = db.collection(`${T}/providerCallouts`).doc(); id = ref.id;
     await ref.set({ id, tenantId, staffId, staffName: staff.name || null, reason, from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString(), reportedBy: auth.actor.name, reportedById: auth.actor.uid, createdAt: nowIso, hoursLost, affected: {} });
+    // Their calendar is blocked while they're out — nobody can book them online or at the desk.
+    // Whole days → an approved day off; part days → a timed block. Both are what the booking engine checks.
+    for (let d = new Date(fromMs); d.getTime() <= toMs; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
+      const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(), dayEnd = dayStart + 86400000 - 1;
+      const s0 = Math.max(fromMs, dayStart), e0 = Math.min(toMs, dayEnd); if (e0 <= s0) continue;
+      const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      if (s0 <= dayStart + 60000 && e0 >= dayEnd - 60000) await db.collection(`${T}/shiftDayOffBlocks`).doc(`callout_${id}_${ymd}`).set({ staffId, date: ymd, status: 'approved', reason: 'callout', calloutId: id, createdAt: nowIso });
+      else await db.collection(`${T}/staffBlocks`).doc(`callout_${id}_${ymd}`).set({ staffId, startTime: new Date(s0).toISOString(), duration: Math.round((e0 - s0) / 60000), reason: 'callout', calloutId: id, createdAt: nowIso });
+    }
   } else { ref = db.doc(`${T}/interruptions/${String(b.interruptionId)}`); id = String(b.interruptionId);
     const ticketIds = Array.isArray(b.ticketIds) ? b.ticketIds.map(String).slice(0, 20) : null;
     await ref.set({ appointmentsHandledAt: nowIso, ...(ticketIds ? { ticketIds } : {}) }, { merge: true });
