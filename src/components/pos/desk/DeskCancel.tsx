@@ -11,6 +11,7 @@
 //     told not to charge or message again)
 //   · "Move instead?" and, afterwards, "offer this slot to the waitlist"
 
+import { hoursToDeadline } from '@/lib/change-rules';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { format, parseISO } from 'date-fns';
 import { getAuth } from 'firebase/auth';
@@ -67,16 +68,17 @@ export function DeskCancel({ e, accent, onReschedule, onOfferSlot }: { e: any; a
   // ── The outcome, from your policy (what will happen, before anything does) ──
   const who: CancelOutcome['who'] = r.actorType === 'no_show' ? 'no_show' : r.actorType === 'studio' ? 'studio' : 'client';
   const start = toDate(appt?.startTime);
-  const hrsLeft = start ? (start.getTime() - Date.now()) / 3600000 : 0;
+  const hrsLeft = start ? (start.getTime() - Date.now()) / 3600000 : 0;          // shown ("5 hours away")
+  const hrsToDeadline = appt?.startTime ? hoursToDeadline(e.selectedTenant, appt) : 0;  // decides late/early
   const dp = resolveDepositPolicy(e.selectedTenant);
   const depDollars = r.hasDeposit ? Number(r.depositDollars) || 0 : 0;
   const policyFee = who === 'studio' ? 0 : (who === 'no_show' ? Number(r.finalFeeAmount) || 0 : Number(r.suggestedFeeTotal) || 0);
   const card = r.client?.cardOnFile;
   const plan = useMemo(() => planCancellation({ who, feeDollars: Number(r.finalFeeAmount) || 0, policyFeeDollars: policyFee, chargeFee: !!r.chargeFee,
-    depositDollars: r.hasDeposit ? Number(r.depositDollars) || 0 : 0, hoursUntilStart: hrsLeft, depositPolicy: dp,
+    depositDollars: r.hasDeposit ? Number(r.depositDollars) || 0 : 0, hoursUntilStart: hrsToDeadline, depositPolicy: dp,
     studioDisposition: r.depositDisposition, collectPref: collect, hasCard: !!r.hasCardOnFile, cardLast4: card?.last4 || null, goodwillDollars: Number(r.additionalCreditValue) || 0,
     lateConsequence: resolvePolicy(e.selectedTenant).cancel.lateConsequence.value }),
-  [who, r.finalFeeAmount, policyFee, r.chargeFee, r.hasDeposit, r.depositDollars, Math.round(hrsLeft), r.depositDisposition, collect, r.hasCardOnFile, card?.last4, r.additionalCreditValue]); // eslint-disable-line react-hooks/exhaustive-deps
+  [who, r.finalFeeAmount, policyFee, r.chargeFee, r.hasDeposit, r.depositDollars, Math.round(hrsToDeadline), r.depositDisposition, collect, r.hasCardOnFile, card?.last4, r.additionalCreditValue]); // eslint-disable-line react-hooks/exhaustive-deps
   const { outcome, due, applied, waived, fee } = plan;
   useEffect(() => { setSnap({ outcome, due }); }, [outcome, due]);
   useEffect(() => { if (appt) { setCollect(r.hasCardOnFile ? 'card' : 'balance'); setDone(null); setErr(''); setWaiveWhy(''); setTell(true); } }, [appt?.id, r.hasCardOnFile]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -120,7 +122,7 @@ export function DeskCancel({ e, accent, onReschedule, onOfferSlot }: { e: any; a
         </Card>
 
         {who !== 'studio' && (policyFee > 0 || fee > 0) && <Card tone={due > 0 ? 'warn' : undefined}><p className="text-[14px] font-semibold">Your policy</p>
-          <p className="text-[14px]">{who === 'no_show' ? 'Missed-appointment fee' : hrsLeft >= Number(e.selectedTenant?.cancellationWindowHours || 24) ? 'Enough notice — ' : 'Inside your notice window — '}<b>{money(waived ? policyFee : fee)}</b>{!waived && who === 'client' && r.isFeeOverridden ? <Pill tone="warn">changed from {money(Number(r.suggestedFeeTotal) || 0)}</Pill> : null}</p>
+          <p className="text-[14px]">{who === 'no_show' ? 'Missed-appointment fee' : hrsToDeadline >= Number(e.selectedTenant?.cancellationWindowHours || 24) ? 'Enough notice — ' : 'Inside your notice window — '}<b>{money(waived ? policyFee : fee)}</b>{!waived && who === 'client' && r.isFeeOverridden ? <Pill tone="warn">changed from {money(Number(r.suggestedFeeTotal) || 0)}</Pill> : null}</p>
           {applied > 0 && <p className="text-[14px]">Their {money(depDollars)} deposit is kept under your policy, so it counts toward this — <b>{due > 0 ? `${money(due)} left to collect` : 'fully covered'}</b>.</p>}
           {isMgr ? <div className="space-y-2">
             {who === 'client' && r.chargeFee && <label className="flex items-center gap-2 text-[13px]"><span style={{ color: 'var(--muted)' }}>Fee</span><input type="number" min={0} step="0.01" value={r.feeValue} onChange={(ev) => r.setFeeValue(Number(ev.target.value) || 0)} className="h-9 w-28 rounded-full px-3 text-[14px]" style={{ background: 'var(--soft)' }} /></label>}
