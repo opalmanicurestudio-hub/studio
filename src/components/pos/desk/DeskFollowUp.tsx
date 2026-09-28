@@ -9,6 +9,7 @@
 // (with the staff member's sign-in), so confirmations, check-in link and the
 // planner all behave like any other booking.
 
+import { logAuditClient } from '@/lib/audit-client';
 import { useEffect, useMemo, useState } from 'react';
 import { format, addDays, addMonths, parseISO, startOfMonth, endOfMonth, isBefore, isSameDay, startOfDay } from 'date-fns';
 import { getAuth } from 'firebase/auth';
@@ -101,6 +102,9 @@ export function DeskFollowUp({ e, visit, accent, onClose }: { e: any; visit: any
     const line = { id: `deposit-${dep.appointmentId}`, name: `${svc(visit.serviceId)?.name || 'Next visit'} · ${format(dep.when, 'MMM d')}`, quantity: 1, price: dep.cents / 100, type: 'deposit', depositForAppointmentId: dep.appointmentId };
     e.setRetailItems?.((prev: any[]) => [...(prev || []).filter((i: any) => i.id !== line.id), line]);
     if (!e.selectedClientId && visit.clientId) e.setSelectedClientId?.(visit.clientId);
+    // On the record now (not only when it's paid): who put it on today's bill.
+    if (e.firestore && e.tenantId) logAuditClient(e.firestore, e.tenantId, { action: 'deposit.added_to_bill', targetType: 'appointment', targetId: dep.appointmentId, amount: dep.cents / 100,
+      summary: `${money} deposit added to today’s bill — held until tonight, confirmed when paid`, actor: { type: 'user', id: e.currentUser?.uid || null, name: e.currentUser?.displayName || 'Front desk', role: e.role || 'staff', via: 'front desk' } } as any).catch(() => {});
     setDep(null); setMsg({ ok: true, text: `${money} deposit added to today’s bill — ${whenText} is held until tonight and confirmed when they pay.` });
   };
   if (dep && !msg) {
