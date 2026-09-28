@@ -51,7 +51,8 @@ export async function POST(req: NextRequest) {
     if (!canApply) return NextResponse.json({ ok: false, error: 'A manager approves grace for this.' }, { status: 403 });
     const ref = db.collection(`${T}/graceUses`).doc();
     const nowIso = new Date().toISOString();
-    const use = { id: ref.id, tenantId, clientId, event, at: nowIso, appointmentId: b.appointmentId || null, serviceId: ctx.serviceId, staffId: ctx.staffId,
+    const clientName = String(((await db.doc(`${T}/clients/${clientId}`).get()).data() as any)?.name || '') || null;
+    const use = { id: ref.id, tenantId, clientId, clientName, event, at: nowIso, appointmentId: b.appointmentId || null, serviceId: ctx.serviceId, staffId: ctx.staffId,
       permit: g.rule.permits, reason: String(b.reason || '').trim().slice(0, 200) || null, appliedBy: auth.actor.name, appliedById: auth.actor.uid,
       approvedBy: g.rule.approval === 'manager' ? auth.actor.name : null, voidedAt: null };
     await ref.set(use);
