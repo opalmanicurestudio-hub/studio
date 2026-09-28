@@ -178,8 +178,9 @@ export default function BookingSettingsPage() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-6 space-y-4">
+        <div id="design" className="scroll-mt-20" />
         {tenantId && <PageDesignPicker firestore={firestore as any} tenantId={tenantId} current={(selectedTenant as any)?.bookingPageSettings?.design} />}
-        <Card className="border-2 rounded-[2rem] bg-white">
+        <Card id="rules" className="scroll-mt-20 border-2 rounded-[2rem] bg-white">
           <CardContent className="p-5 space-y-3">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">How online bookings arrive</p>
             {MODES.map((m) => {
@@ -246,11 +247,12 @@ export default function BookingSettingsPage() {
               </div>
             )}
 
-            {!depositsLive && (
-              <p className="rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-2 text-[10px] font-bold leading-relaxed text-amber-800">
-                Deposits are currently switched off shop-wide, so no money is collected in any mode. Turn them on in payment settings when you are ready.
-              </p>
-            )}
+            {/* The master deposit switch lives HERE (it used to sit in the old Policies tab). */}
+            <label className={cn('flex items-center justify-between gap-3 rounded-xl border-2 px-3 py-2.5', depositsLive ? 'border-emerald-200 bg-emerald-50/50' : 'border-amber-300 bg-amber-50')}>
+              <span className="text-sm"><b>{depositsLive ? 'Collecting deposits' : 'Deposits are switched off'}</b>
+                <span className="block text-xs text-muted-foreground">{depositsLive ? 'Services with a deposit ask for it when clients book.' : 'No deposit is collected anywhere, whatever each service says — turn on when you’re ready.'}</span></span>
+              <input type="checkbox" className="h-5 w-5" checked={depositsLive} disabled={!isMgr || busy === 'depositsLive'} onChange={(e) => save('depositsLive', 'depositsLive', e.target.checked, 'Deposits')} aria-label="Collect deposits" />
+            </label>
             <p className="text-[10px] font-bold leading-relaxed text-muted-foreground">
               Individual services can override this, and a client marked trusted always books instantly — except when their own no-show history says otherwise.
             </p>
@@ -375,12 +377,6 @@ export default function BookingSettingsPage() {
           <CardContent className="p-5 space-y-4">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">What happens when</p>
             <p className="text-xs text-muted-foreground">All your policies — cancellations, no-shows, rescheduling, late arrivals and what clients are told — are together in <a href="/settings/policies" className="underline">Booking policies</a>.</p>
-            <NumRow k="paymentGraceHours" field="bookingMode.paymentGraceHours" unit="hours" label="You accept but their card does not go through"
-              note="They keep the time this long to pay another way. Past it the booking is released and they are told, rather than turning up to nothing."
-              zeroMeans="the time is released the moment a card fails" />
-            <NumRow k="holdMinutes" field="bookingMode.holdMinutes" unit="min" label="Someone starts paying and wanders off"
-              note="We keep the slot for them this long, then put it back on sale so nobody else is blocked out."
-              zeroMeans="the slot is never held" />
             <div className="space-y-2 border-t pt-4">
               <p className="text-sm font-bold">You book someone’s next visit at the desk</p>
               <p className="text-xs text-muted-foreground">If the service needs a deposit, this is what the desk offers first. Staff can pick another option when it suits — it never becomes a request.</p>
