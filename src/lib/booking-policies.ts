@@ -23,11 +23,12 @@ export interface BookingPoliciesSettings {
   rescheduleDeadline?: 'original' | 'new';                // default 'original' — moving can't push the deadline back
   maxUpcomingBookings?: number;                           // 0 = no limit (default)
   balanceDue?: 'visit' | 'booking';                       // default 'visit'
+  onlineCheckIn?: boolean;                                // clients can check themselves in from their link (default on)
   renterDeskSupport?: { billing: 'included' | 'per_booking' | 'monthly'; amount?: number }; // default included
 }
 export const POLICY_DEFAULTS: Required<Omit<BookingPoliciesSettings, 'renterDeskSupport'>> & { renterDeskSupport: { billing: 'included'; amount: number } } = {
   lateCancelConsequence: 'both', changeCutoffHours: 2, rescheduleLimit: 2, overLimit: 'approval', rescheduleDeadline: 'original',
-  maxUpcomingBookings: 0, balanceDue: 'visit', renterDeskSupport: { billing: 'included', amount: 0 },
+  maxUpcomingBookings: 0, balanceDue: 'visit', onlineCheckIn: true, renterDeskSupport: { billing: 'included', amount: 0 },
 };
 
 export interface EffectivePolicy {
