@@ -168,6 +168,16 @@ export async function POST(req: NextRequest) {
           message: st === 'running_late' ? `${who} is running ~${mins} min late for ${when}${mins > grace ? ` — past your ${grace}-minute grace` : ''}${clean.lateNote ? `: “${clean.lateNote}”` : ''} — decide what happens (front desk or planner) and they’ll be told.`
             : st === 'arrived' ? `${who} is here for ${when}` : `${who} is on the way for ${when}` }).catch(() => {});
       }
+      // Past the grace time → offer them their choices (Booking policies → "Offer late clients their choices").
+      if (!done && !appt.isRenterBooking && st === 'running_late' && mins > grace) {
+        const { lateChoicesModeOf } = await import('@/lib/late-choices');
+        const mode = lateChoicesModeOf(t);
+        if (mode !== 'off') {
+          const { internalPost, internalOrigin } = await import('@/lib/message-policy');
+          const lo = await internalPost(internalOrigin(t, req.nextUrl.origin), '/api/appointments/late-options', { tenantId, appointmentId: String(body.appointmentId), action: mode === 'send' ? 'send' : 'prepare' }, { retries: 0 });
+          if (lo.ok && lo.data?.needed && lo.data?.status === 'sent') reply = { ...reply, choicesSent: true };
+        }
+      }
     }
 
     // Owner-visible audit trail for self-service status changes.
