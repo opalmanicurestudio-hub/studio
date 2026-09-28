@@ -29,6 +29,7 @@ export function DeskDelay({ e, appt, accent, onClose, onReschedule }: { e: any; 
   const [late, setLate] = useState(10);
   const [drop, setDrop] = useState<string[]>([]); const [agreed, setAgreed] = useState(false);
   const [applyFee, setApplyFee] = useState(true); const [waiveWhy, setWaiveWhy] = useState('');
+  const [grace, setGrace] = useState<any>(null); const [graceOn, setGraceOn] = useState(false); // late-arrival grace allowance
   const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
   const [tellClient, setTellClient] = useState(true); const [sent, setSent] = useState<string | null>(null);
   useEffect(() => { if (appt) { const now = Date.now(), st = toDate(appt.startTime)?.getTime() || now; setTellClient(true); setSent(null); const told = Number(appt.clientLateMinutes || (appt.checkInStatus === 'running_late' ? appt.lateTimeMinutes : 0)) || 0; if (told > 0) { setLate([5, 10, 15, 20, 30, 45].reduce((b, m) => (Math.abs(m - told) < Math.abs(b - told) ? m : b), 10)); setDrop([]); setAgreed(false); setApplyFee(true); setWaiveWhy(''); setErr(''); return; } setLate(Math.max(5, Math.round((now - st) / 60000 / 5) * 5 || 10)); setDrop([]); setAgreed(false); setApplyFee(true); setWaiveWhy(''); setErr(''); } }, [appt?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -92,6 +93,20 @@ export function DeskDelay({ e, appt, accent, onClose, onReschedule }: { e: any; 
     if (r?.ok) { setSent(`${first} has been asked to choose a new time${tellClient ? '' : ' (not messaged — tell them yourself)'}. Their slot stays on the planner until they move it.`); }
     else setErr(r?.error || 'That didn’t send — please try again.');
   };
+  useEffect(() => {
+    setGrace(null); setGraceOn(false);
+    if (!appt?.clientId || !(model.fee > 0)) return;
+    let live = true;
+    (async () => { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
+      const g = await fetch('/api/grace', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) },
+        body: JSON.stringify({ tenantId: e.tenantId, action: 'check', event: 'late_arrival', clientId: appt.clientId, serviceId: appt.serviceId || null, staffId: appt.staffId || null }) }).then((x) => x.json()).catch(() => null);
+      if (live && g?.ok) setGrace(g); })();
+    return () => { live = false; };
+  }, [appt?.id, model.fee > 0]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Grace: extra time to arrive (fee only if they're past the extended window) or the fee waived.
+  const graceCovers = graceOn && grace?.rule && (grace.rule.permits !== 'extend_window' || late <= model.grace + (Number(grace.rule.extendMinutes) || 0));
+  const useGrace = (on: boolean) => { setGraceOn(on); const covers = on && (grace?.rule?.permits !== 'extend_window' || late <= model.grace + (Number(grace?.rule?.extendMinutes) || 0));
+    setApplyFee(!covers); setWaiveWhy(covers ? 'Grace allowance' : ''); };
   const decide = async (option: 'keep' | 'condense' | 'switch' | 'note', toStaff?: any) => {
     if (!e.firestore || !e.tenantId) return;
     if (option === 'condense' && !agreed) { setErr(`Confirm ${first} agreed to the shorter service.`); return; }
@@ -119,6 +134,11 @@ export function DeskDelay({ e, appt, accent, onClose, onReschedule }: { e: any; 
       await logAuditClient(e.firestore, e.tenantId, { action: 'appointment.late_decision', targetType: 'appointment', targetId: appt.id, amount: charging ? model.fee : undefined,
         summary: `${appt.clientName || 'Guest'} running ${late} min late — ${what}${model.fee > 0 && option !== 'note' ? (charging ? ` · late fee $${model.fee.toFixed(2)}` : ` · fee waived (${waiveWhy.trim()})`) : ''}`,
         actor: { type: 'user', id: e.currentUser?.uid || null, name: by, role: e.role || 'staff', via: 'front desk' } } as any);
+      if (option !== 'note' && graceCovers && appt.clientId) {
+        const gu = getAuth().currentUser; const gtk = gu ? await gu.getIdToken() : '';
+        await fetch('/api/grace', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${gtk}` },
+          body: JSON.stringify({ tenantId: e.tenantId, action: 'use', event: 'late_arrival', clientId: appt.clientId, appointmentId: appt.id, serviceId: appt.serviceId || null, staffId: appt.staffId || null }) }).catch(() => {});
+      }
       if (option !== 'note') await tellThem(option);
       onClose();
     } catch { setErr('That didn’t save — please try again.'); } finally { setBusy(false); }
@@ -166,6 +186,11 @@ export function DeskDelay({ e, appt, accent, onClose, onReschedule }: { e: any; 
         </Box>
 
         {model.fee > 0 && <Box><H>Your late policy</H>
+          {grace?.enabled && <div className="space-y-1 rounded-2xl p-3" style={{ background: 'var(--soft)' }}>
+            <p className="text-[13px]"><b>Grace allowance</b> · {grace.remaining} of {grace.allowance} left (every {grace.periodMonths} months) — {grace.rule?.permits === 'extend_window' ? `${grace.rule.extendMinutes} extra minutes to arrive` : String(grace.permitLabel || '').toLowerCase()}.</p>
+            {grace.remaining > 0 ? (grace.canApply ? <label className="flex items-center gap-2 text-[14px]"><input type="checkbox" checked={graceOn} onChange={(ev) => useGrace(ev.target.checked)} /> Use grace for this{graceOn && !graceCovers ? ' — still past the extended time, so the fee applies' : ''}</label>
+              : <p className="text-[12px]" style={{ color: 'var(--muted)' }}>A manager approves grace for this.</p>) : <p className="text-[12px]" style={{ color: 'var(--muted)' }}>None left — your standard late policy applies.</p>}
+          </div>}
           <p className="text-[14px]">{late} min is past your {model.grace}-min grace period. Late fee: <b>${model.fee.toFixed(2)}</b>{model.autoCancel ? ' · your settings suggest rescheduling or cancelling past the grace period' : ''}.</p>
           <label className="flex items-center gap-2 text-[14px]"><input type="checkbox" checked={applyFee} onChange={(ev) => setApplyFee(ev.target.checked)} /> Add the late fee to what {first} owes</label>
           {!applyFee && <input value={waiveWhy} onChange={(ev) => setWaiveWhy(ev.target.value)} placeholder="Reason for waiving (required)" className="h-11 w-full rounded-xl px-3 text-[14px] outline-none" style={{ background: 'var(--soft)' }} />}
