@@ -387,6 +387,8 @@ export interface BookingPlan {
   /** Why this plan came out the way it did — for the audit trail and for
    *  the owner staring at an appointment wondering what happened. */
   reason: string;
+  /** Video and phone visits: the whole price is paid when booking (not a deposit). */
+  fullPayment?: boolean;
 }
 
 /**
@@ -399,7 +401,20 @@ export function graceHoursOf(tenant: any): number {
   return Number.isFinite(v) && v >= 0 ? v : 24;
 }
 
+/** Video and phone visits are paid in full when booked (Booking policies; on by default, needs online payments). */
+export function remotePaidInFull(tenant: any, service: any, byStaff?: boolean): boolean {
+  const w = service?.where;
+  return (w === 'online' || w === 'phone') && !byStaff && !service?.collectsOwnPayment && !!tenant?.depositsLive && tenant?.bookingPolicies?.remotePayInFull !== false;
+}
+
 export function resolveBookingPlan(input: BookingPlanInput): BookingPlan {
+  const plan = resolveBookingPlanInner(input);
+  if (!remotePaidInFull(input.tenant, input.service, input.byStaff) || !(plan.depositCents > 0)) return plan;
+  // Say "payment", not "deposit" — it's the whole price, and nothing is due later.
+  return { ...plan, fullPayment: true, clientNotice: plan.clientNotice.replace(/\bdeposit\b/g, 'payment') };
+}
+
+function resolveBookingPlanInner(input: BookingPlanInput): BookingPlan {
   const { tenant, service, price, client, byStaff } = input;
 
   // ── Layer 0: independent providers collect their own money ────────────────
@@ -447,11 +462,12 @@ export function resolveBookingPlan(input: BookingPlanInput): BookingPlan {
     && (numOr(client.noShowCount, 0) + numOr(client.cancellationCount, 0)) > 2;
   const guardianActive = tenant?.guardianProtocolEnabled !== false;
 
-  const depositCents = computeDepositCents({
+  let depositCents = computeDepositCents({
     service, price, tenant,
     depositsLive: !!tenant?.depositsLive,
     poorHistory, guardianActive,
   });
+  const fullRemote = remotePaidInFull(tenant, service, byStaff) && Number(price) > 0;
 
   // ── Layer 2/3: overrides that can only ever RELAX or TIGHTEN explicitly ──
   // A service may force its own mode (a $400 full set can demand a deposit in
@@ -460,6 +476,12 @@ export function resolveBookingPlan(input: BookingPlanInput): BookingPlan {
   // history says otherwise.
   let mode = cfg.mode;
   let reason = `Shop default: ${cfg.mode.replace(/_/g, ' ')}`;
+  // Video / phone: the whole price, paid to confirm (a request stays a request — charged in full on acceptance).
+  if (fullRemote) {
+    depositCents = Math.round(Number(price) * 100);
+    mode = cfg.mode === 'approval' ? 'approval' : 'deposit_required';
+    reason = `${service?.where === 'phone' ? 'Phone' : 'Video'} appointment — paid in full when booked`;
+  }
 
   const svcMode = service?.bookingMode;
   if (['instant', 'deposit_required', 'card_on_file', 'approval'].includes(svcMode)) {
@@ -485,6 +507,8 @@ export function resolveBookingPlan(input: BookingPlanInput): BookingPlan {
     reason = 'Booked by the studio — no request needed';
   }
 
+  // Paid in full for video / phone wins over any relaxing above (a trusted client, a service's own "instant").
+  if (fullRemote && mode !== 'approval') { mode = 'deposit_required'; reason = `${service?.where === 'phone' ? 'Phone' : 'Video'} appointment — paid in full when booked`; }
   const money = `$${(depositCents / 100).toFixed(2)}`;
 
   /* A service may demand a card even when the shop does not (a $400 full set
