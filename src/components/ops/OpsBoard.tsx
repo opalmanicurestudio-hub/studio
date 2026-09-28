@@ -226,6 +226,35 @@ function RefundQueue({ tenantId, role }: { tenantId: string; role: string }) {
   );
 }
 
+
+/** Unpaid fees — clients with a balance (change fees their card couldn't pay, etc.). Managers only. */
+function UnpaidFees({ tenantId, role, tenant }: { tenantId: string; role: string; tenant: any }) {
+  const mgr = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
+  const { firestore } = useFirebase() as any;
+  const q = useMemoFirebase(() => (mgr && firestore && tenantId ? query(collection(firestore, `tenants/${tenantId}/clients`), where('outstandingBalance', '>', 0)) : null), [mgr, firestore, tenantId]);
+  const { data } = useCollection<any>(q);
+  const [busy, setBusy] = useState<string | null>(null); const [msg, setMsg] = useState<Record<string, string>>({});
+  if (!mgr || !(data || []).length) return null;
+  const blocks = tenant?.bookingPolicies?.unpaidFeeRule === 'before_booking';
+  const WHY: Record<string, string> = { reschedule_fee: 'late reschedule', late_cancellation: 'late cancellation', no_show: 'no-show' };
+  const list = (data || []).slice().sort((a: any, b: any) => Number(b.outstandingBalance) - Number(a.outstandingBalance)).slice(0, 25);
+  const total = list.reduce((m: number, c: any) => m + (Number(c.outstandingBalance) || 0), 0);
+  const charge = async (c: any) => { setBusy(c.id);
+    const r = await fetch('/api/portal/pay-balance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, clientId: c.id }) }).then((x) => x.json()).catch(() => ({}));
+    setBusy(null); setMsg((m) => ({ ...m, [c.id]: r?.ok ? `Paid — $${Number(r.paidDollars || 0).toFixed(2)} charged${r.last4 ? ` to •••• ${r.last4}` : ''}.` : r?.error || 'That didn’t go through.' })); };
+  return (
+    <section className="space-y-2 rounded-3xl border bg-card p-4">
+      <p className="font-semibold">Unpaid fees · {list.length} · ${total.toFixed(2)}</p>
+      {blocks && <p className="text-xs text-muted-foreground">Your rule: they pay before booking again online (they’re emailed a pay link when they try).</p>}
+      <ul className="space-y-2">{list.map((c: any) => { const why = Array.from(new Set((c.unpaidFees || []).map((f: any) => WHY[f.reason] || (String(f.reason || '').toLowerCase().includes('cancel') ? 'late cancellation' : 'fee')))).join(', ');
+        return <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+          <span><b>{c.name || 'Client'}</b> · ${Number(c.outstandingBalance).toFixed(2)}{why ? ` · ${why}` : ''}{blocks ? ' · can’t book online until paid' : ''}{msg[c.id] ? <span className="block text-xs font-semibold">{msg[c.id]}</span> : null}</span>
+          {c.cardOnFile?.paymentMethodId && !msg[c.id]?.startsWith('Paid') && <button type="button" disabled={!!busy} onClick={() => charge(c)} className="rounded-full border px-3 py-1 text-xs font-semibold disabled:opacity-60">{busy === c.id ? 'Charging…' : `Charge •••• ${c.cardOnFile.last4 || ''}`}</button>}
+        </li>; })}</ul>
+    </section>
+  );
+}
+
 /** Services running over that affect a later guest (planned length = the booking's own length). */
 function overrunCases(appts: any[], now = new Date()) {
   return (appts || []).map((a: any) => { const planned = Math.max(15, Math.round((Date.parse(a.endTime || a.startTime) - Date.parse(a.startTime)) / 60000) || 60);
@@ -255,6 +284,7 @@ export function OpsBoard({ appts, staff, tenant, tenantId, role, uid }: { appts:
     <div className="space-y-4">
       <ProviderLate tenantId={tenantId} staff={(staff || []).filter((s: any) => s.isActive !== false)} role={role} uid={uid} tenant={tenant} />
       <RefundQueue tenantId={tenantId} role={role} />
+      <UnpaidFees tenantId={tenantId} role={role} tenant={tenant} />
       <ReportCallout tenantId={tenantId} staff={(staff || []).filter((s: any) => s.isActive !== false)} role={role} uid={uid} tenant={tenant} />
       <CalloutRecords tenantId={tenantId} />
       {overrunCases(appts).map(({ a, ov }) => <OverrunPanel key={`ov-${a.id}`} tenant={tenant} tenantId={tenantId} role={role} inService={a} today={appts} overMin={ov.overMin} plannedEnd={ov.plannedEnd} providerName={staffById.get(a.staffId)?.name || null} />)}
