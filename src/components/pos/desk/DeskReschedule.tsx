@@ -50,6 +50,7 @@ export function DeskReschedule({ e, appt, accent, onClose }: { e: any; appt: any
             : r.groups.filter(([, l]: any) => l.length).map(([label, list]: [string, string[]]) => <div key={label} className="space-y-1.5"><p className="text-[12px]" style={{ color: 'var(--muted)' }}>{label}</p>
               <div className="flex flex-wrap gap-1.5">{list.map((t) => <Btn key={t} quiet={r.time !== t} onClick={() => r.choose(r.day, t)}>{clock(t)}</Btn>)}</div></div>)}</Card>}
 
+        {r.policyNote && <p className="rounded-2xl p-3 text-[13px] font-semibold" style={{ background: 'color-mix(in srgb, var(--warn) 12%, var(--card))', color: 'var(--warn)' }}>{r.policyNote}</p>}
         <Card>
           {r.feeEligible && <label className="flex items-center justify-between gap-3 text-[14px]"><span><b>Reschedule fee</b> · ${r.fee.toFixed(2)} (inside your {Number(e.selectedTenant?.rescheduleFeeWindowHours || 0)}-hour window)</span><input type="checkbox" checked={r.applyFee} onChange={(ev) => r.setApplyFee(ev.target.checked)} /></label>}
           <label className="flex items-center justify-between gap-3 text-[14px]"><span><b>Tell {r.first}</b> · email + text with the new time</span><input type="checkbox" checked={r.notify} onChange={(ev) => r.setNotify(ev.target.checked)} /></label>
