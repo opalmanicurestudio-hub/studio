@@ -261,7 +261,7 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
       <div role="dialog" aria-modal="true" aria-label="Book an appointment" onClick={(e) => e.stopPropagation()}
         className="flex h-full w-full max-w-xl flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
         <header className="flex items-center justify-between gap-2 px-5 pb-3 pt-5">
-          <div><p className="text-[20px] font-semibold">{done?.waitlist ? 'On the waitlist' : done?.callback ? 'Saved for a call-back' : done ? 'Booked' : resume ? 'Resume call-back' : 'Book'}</p>
+          <div><p className="text-[20px] font-semibold">{done?.waitlist ? 'On the waitlist' : done?.callback ? 'Saved for a call-back' : done ? 'Booked' : resume?.fromCheckout ? 'Book the next visit' : resume ? 'Resume call-back' : 'Book'}</p>
             {!done && <p className="text-[13px]" style={{ color: 'var(--muted)' }}>Checked and saved by the same booking system as online bookings.</p>}</div>
           <Btn quiet onClick={onClose} label="Close">Close</Btn>
         </header>
