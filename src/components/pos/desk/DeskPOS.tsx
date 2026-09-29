@@ -37,6 +37,7 @@ import { OpsBoard, opsAttentionCount } from '@/components/ops/OpsBoard';
 import { OverrunPanel } from '@/components/ops/OverrunPanel';
 import { placeOf, skipsCheckIn } from '@/lib/service-place';
 import { usePendingCallbacks, overdueCallbacks } from '@/components/ops/CallbackQueue';
+import { LogCallSheet, useOpenCalls, callsNeedingAttention } from '@/components/ops/CallLog';
 import { serviceOverrun, overrunImpact, overrunMode } from '@/lib/appointment-ops';
 import { opsStatus, paymentOutstanding } from '@/lib/appointment-ops';
 import { resolvePolicy } from '@/lib/booking-policies';
@@ -68,7 +69,9 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const todaysAppts = useMemo(() => { const d = new Date().toDateString(); return (e.appointmentsFromInventory || []).filter((a: any) => { const t = toDate(a.startTime); return t && t.toDateString() === d; }); }, [e.appointmentsFromInventory]);
   const opsBase = opsAttentionCount(todaysAppts, e.selectedTenant);
   const callbacks = usePendingCallbacks(e.tenantId);                       // overdue call-backs count too
-  const opsCount = { ...opsBase, attention: opsBase.attention + overdueCallbacks(callbacks) };
+  const openCalls = useOpenCalls(e.tenantId);                              // urgent / overdue / unacknowledged calls count too
+  const opsCount = { ...opsBase, attention: opsBase.attention + overdueCallbacks(callbacks) + callsNeedingAttention(openCalls.calls) };
+  const [logCallOpen, setLogCallOpen] = useState(false);
   const [overFor, setOverFor] = useState<any>(null); // a service running over → tell the next guests
   const [mode, setMode] = useState<'desk' | 'counter'>('desk');
   const [about, setAbout] = useState<Guest | null>(null);
@@ -327,6 +330,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
           {mode === 'desk' && <Seg label="View" value={shown} onChange={pickView} options={views.map(([k, l]) => [k, k === recommended ? `${l} ★` : l]) as [View, string][]} />}
           {kioskOn && <Btn quiet onClick={() => e.setIsScanLookupOpen?.(true)}>Scan / find</Btn>}
           <Btn quiet onClick={() => e.setIsQuickBookOpen(true)}>Book</Btn>
+          <Btn quiet onClick={() => setLogCallOpen(true)}>Log a call</Btn>
           <Btn quiet={!opsCount.attention} onClick={() => setAttnOpen(true)}>{opsCount.decisions ? `Needs a decision · ${opsCount.decisions}` : `Needs attention${opsCount.attention ? ` · ${opsCount.attention}` : ''}`}</Btn>
           {mode === 'desk' && readyIds.length > 0 && <Btn onClick={() => setCheckoutOpen(true)}>Checkout · {readyIds.length}</Btn>}
           <Btn quiet onClick={() => e.setIsTillManagementOpen(true)}>Till</Btn>
@@ -379,6 +383,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
         {overFor && (() => { const ov = serviceOverrun(overFor.appt, minsOf(overFor), now); return <OverrunPanel tenant={e.selectedTenant} tenantId={e.tenantId} role={e.role} inService={overFor.appt} today={todaysAppts} overMin={ov?.overMin || 0} plannedEnd={ov?.plannedEnd || null} providerName={staffName(overFor.appt.staffId || null)} />; })()}
       </Drawer>
       <Drawer accent={accent} open={attnOpen} onClose={() => setAttnOpen(false)} title="Needs attention">
+        <LogCallSheet open={logCallOpen} onClose={() => setLogCallOpen(false)} tenantId={e.tenantId} tenant={e.selectedTenant} clients={e.clients || []} staff={e.staff || []} appointments={e.appointmentsFromInventory || []} uid={e.currentUser?.uid || null} />
         {attnOpen && <OpsBoard appts={todaysAppts} staff={(e.staff || []).filter((s: any) => s.isActive !== false)} tenant={e.selectedTenant} tenantId={e.tenantId} role={e.role} uid={e.currentUser?.uid} />}
       </Drawer>
       <DeskCancel e={e} accent={accent} onReschedule={(a: any) => setMoveAppt(a)} onOfferSlot={() => { setMoreTab('waitlist'); setMoreOpen(true); }} />
