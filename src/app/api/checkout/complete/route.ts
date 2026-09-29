@@ -9,6 +9,7 @@
 // Then: memberships / packages enrolled, and any next-visit deposit confirmed.
 // The screen uses the same calculation (lib/checkout-calc), so the totals match; if they ever don't, the sale is
 // still recorded exactly as worked out here and flagged for review — never silently.
+import { consumeApproval, isApprover } from '@/lib/approvals';
 import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -127,10 +128,43 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   const waivedIds: string[] = Array.isArray(b.waivedAppointmentIds) ? b.waivedAppointmentIds.map(String) : [];
   const tipAllocations: Record<string, number> = b.tipAllocations && typeof b.tipAllocations === 'object' ? b.tipAllocations : {};
   const tip = Math.max(0, num(b.tip));
-  const calc = computeCheckout({ tenant, visits, staff, redeemedOffer, waivedIds, items, fees, discounts, client, memberships, tip, storeCredit: Math.max(0, num(b.storeCredit)) });
+  const sdIn = b.staffDiscount && ['pct', 'amt'].includes(b.staffDiscount.kind) && num(b.staffDiscount.value) > 0 ? { kind: b.staffDiscount.kind as 'pct' | 'amt', value: Math.max(0, num(b.staffDiscount.value)) } : null;
+  const calc = computeCheckout({ tenant, visits, staff, redeemedOffer, waivedIds, items, fees, discounts, client, memberships, tip, storeCredit: Math.max(0, num(b.storeCredit)), staffDiscount: sdIn });
   const recoveryAmount = Math.min(Math.max(0, num(b.recovery?.amount)), calc.subtotal);
   const recoveryReason = String(b.recovery?.reason || 'Service Recovery Adjustment').slice(0, 200);
   const cardSurcharge = Math.max(0, num(pay.cardSurcharge));
+  // ── Approvals (checked HERE — the browser can't skip them). Managers checking out approve by being signed in. ──
+  const actorIsManager = isApprover(auth.actor.role);
+  const approvedWaivers: Record<string, { by: string; reason: string | null }> = {};
+  for (const id of waivedIds) {
+    if (actorIsManager) { approvedWaivers[id] = { by: auth.actor.name, reason: b.waivers?.[id]?.reason || null }; continue; }
+    const ok = await consumeApproval(db, tenantId, b.waivers?.[id]?.approvalToken, { kind: 'waive', ref: id });
+    if (!ok) { await failPending('A fee waiver wasn’t approved by a manager.'); return json({ ok: false, error: 'Waiving fees needs a manager’s approval — ask a manager to enter their PIN.' }, 403); }
+    approvedWaivers[id] = { by: ok.approverName, reason: ok.reason || b.waivers?.[id]?.reason || null };
+  }
+  // Staff discount: front desk up to the business's limit (10% by default); above it, a manager approves. Managers aren't limited.
+  let staffDiscountApprovedBy: string | null = null;
+  const staffDiscountReason = String(b.staffDiscount?.reason || '').trim().slice(0, 200);
+  if (calc.staffDiscount > 0) {
+    if (!staffDiscountReason) return json({ ok: false, error: 'A staff discount needs a reason.' }, 400);
+    const limitPct = Number.isFinite(Number(tenant?.approvalRules?.staffDiscountLimitPct)) ? Number(tenant.approvalRules.staffDiscountLimitPct) : 10;
+    const pctGiven = calc.subtotal > 0 ? (calc.staffDiscount / calc.subtotal) * 100 : 0;
+    if (!actorIsManager && pctGiven > limitPct + 0.001) {
+      const ok = await consumeApproval(db, tenantId, b.staffDiscount?.approvalToken, { kind: 'discount', amount: calc.staffDiscount });
+      if (!ok) { await failPending('A staff discount over the limit wasn’t approved.'); return json({ ok: false, error: `That discount is over your ${limitPct}% limit — a manager needs to approve it.` }, 403); }
+      staffDiscountApprovedBy = ok.approverName;
+    } else if (actorIsManager) staffDiscountApprovedBy = auth.actor.name;
+  }
+  let recoveryApprovedBy: string | null = null;
+  if (recoveryAmount > 0) {
+    const limit = num(tenant.maxAutonomousRecoveryAmount), pctLimit = num(tenant.maxAutonomousRecoveryPercent);
+    const over = (limit > 0 && recoveryAmount > limit) || (pctLimit > 0 && calc.subtotal > 0 && (recoveryAmount / calc.subtotal) * 100 > pctLimit);
+    if (over && !actorIsManager) {
+      const ok = await consumeApproval(db, tenantId, b.recovery?.approvalToken, { kind: 'recovery', amount: recoveryAmount });
+      if (!ok) { await failPending('Service recovery above the limit wasn’t approved.'); return json({ ok: false, error: `Service recovery over your limit needs a manager’s approval ($${recoveryAmount.toFixed(2)}).` }, 403); }
+      recoveryApprovedBy = ok.approverName;
+    } else if (over) recoveryApprovedBy = auth.actor.name;
+  }
   const expected = num(b.expectedTotal); const mismatch = Number.isFinite(expected) && b.expectedTotal !== undefined && Math.abs(expected - calc.total) > 0.01;
 
   // ── Deposit credit (newest available, not expired) ──
@@ -150,7 +184,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   const credit = (cid: string, amt: number) => { spend[cid] = (spend[cid] || 0) + amt; };
   let totalLtvIncrease = 0, totalCashIncrease = 0, cashTipsTotal = 0;
   const add = (amt: number) => { totalLtvIncrease += amt; if (method === 'cash') totalCashIncrease += amt; };
-  const cashTipsByStaff: Record<string, any> = {};
+  const cashTipsByStaff: Record<string, any> = {}; const cashTipsPlain: Record<string, number> = {};
   const tmhr = num(tenant.tmhr) || 50;
   for (const [idx, v] of visits.entries()) {
     const vc = calc.visits[idx]; const a = v.appointment; const mainStaff = staff.find((s: any) => s.id === vc.mainStaffId);
@@ -172,10 +206,10 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     for (const r of vc.refreshments) { const amt = r.price * r.qty; if (amt > 0) { add(amt); txn({ ...forHad, description: `Concierge: ${r.name} (x${r.qty})`, type: 'income', context: 'Business', category: 'Hospitality Revenue', taxBucket: 'revenue', amount: amt, paymentMethod: method, appointmentId: a.id, hasReceipt: false }); } }
     credit(had.id, totalLtvIncrease - before);   // the visit's value counts for the person who had it
     const revenue = vc.mainPrice + vc.addOns.reduce((s: number, x: any) => s + x.price, 0);
-    const waiver = vc.waived ? (b.waivers?.[a.id] || {}) : null;   // who approved waiving this visit's fees, and why
-    batch.set(db.doc(`${T}/appointments/${a.id}`), clean({ status: 'completed', revenue, actualEndTime: now, checkoutSessionId, checkedOutAt: now, checkedOutBy: auth.actor.name,
-      ...(waiver ? { feesWaived: { by: String(waiver.authorizerId || auth.actor.uid || ''), byName: staff.find((s: any) => s.id === waiver.authorizerId)?.name || auth.actor.name, reason: String(waiver.reason || '').slice(0, 200) || null, at: now } } : {}) }), { merge: true });
-    if (waiver) await logAuditAdmin(db, tenantId, { action: 'checkout.fees_waived', targetType: 'appointment', targetId: a.id, summary: `Fees waived for ${had.name || 'a client'} — approved by ${staff.find((s: any) => s.id === waiver.authorizerId)?.name || 'a manager'}${waiver.reason ? `: ${waiver.reason}` : ''}`, actor: { type: 'user', id: auth.actor.uid, name: auth.actor.name, role: auth.actor.role } } as any).catch(() => {});
+    const waiver = vc.waived ? { authorizerId: b.waivers?.[a.id]?.authorizerId, reason: approvedWaivers[a.id]?.reason || b.waivers?.[a.id]?.reason, verifiedBy: approvedWaivers[a.id]?.by } : null;   // who approved (verified above), and why
+    batch.set(db.doc(`${T}/appointments/${a.id}`), clean({ status: 'completed', statusBeforeCheckout: a.status || 'checked_in', revenue, actualEndTime: now, checkoutSessionId, checkedOutAt: now, checkedOutBy: auth.actor.name,
+      ...(waiver ? { feesWaived: { by: String(waiver.authorizerId || auth.actor.uid || ''), byName: waiver.verifiedBy || staff.find((s: any) => s.id === waiver.authorizerId)?.name || auth.actor.name, reason: String(waiver.reason || '').slice(0, 200) || null, at: now } } : {}) }), { merge: true });
+    if (waiver) await logAuditAdmin(db, tenantId, { action: 'checkout.fees_waived', targetType: 'appointment', targetId: a.id, summary: `Fees waived for ${had.name || 'a client'} — approved by ${waiver.verifiedBy || staff.find((s: any) => s.id === waiver.authorizerId)?.name || 'a manager'}${waiver.reason ? `: ${waiver.reason}` : ''}`, actor: { type: 'user', id: auth.actor.uid, name: auth.actor.name, role: auth.actor.role } } as any).catch(() => {});
     if (a.checkInToken) { batch.set(db.doc(`appointmentCheckIns/${a.checkInToken}`), { status: 'completed', tenantId }, { merge: true }); batch.set(db.doc(`${T}/appointmentCheckIns/${a.checkInToken}`), { status: 'completed' }, { merge: true }); }
     const involved = new Set<string>([a.staffId, vc.mainStaffId, ...vc.addOns.map((x: any) => x.staffId)].filter(Boolean));
     for (const sid of involved) batch.set(db.doc(`${T}/staff/${sid}`), { status: 'available', lastWalkInCompletedAt: now }, { merge: true });
@@ -185,7 +219,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     const value = it.price * it.quantity;
     const category = it.type === 'deposit' ? 'Retainers' : it.type === 'service' ? 'Service Revenue' : it.type === 'membership' ? 'Membership Sales' : it.type === 'package' ? 'Package Sales' : it.type === 'rental' ? 'Space Rental' : 'Retail';
     const description = it.type === 'deposit' ? `Deposit: ${it.name}` : it.type === 'service' ? `Service (POS): ${it.quantity}x ${it.name}` : it.type === 'membership' ? `Membership: ${it.name}` : it.type === 'package' ? `Package: ${it.name}` : it.type === 'rental' ? `Space rental: ${it.name}` : `Retail Product: ${it.quantity}x ${it.name}`;
-    txn({ description, type: 'income', context: 'Business', category, amount: value, paymentMethod: method, hasReceipt: true });
+    txn({ description, type: 'income', context: 'Business', category, amount: value, paymentMethod: method, hasReceipt: true, itemId: it.id, itemType: it.type, quantity: it.quantity });
     if (it.type === 'product') {
       batch.set(db.doc(`${T}/inventory/${it.id}`), { totalStock: FieldValue.increment(-it.quantity) }, { merge: true });
       const sc = db.collection(`${T}/stockCorrections`).doc();
@@ -203,7 +237,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       batch.set(db.doc(`${T}/clients/${ownerId}`), { unpaidFees: (owner.unpaidFees || []).filter((f: any) => !ids.has(f.feeId)), outstandingBalance: FieldValue.increment(-theirs) }, { merge: true });
     }
     if (method === 'cash') totalCashIncrease += settled;
-    for (const f of fees) txn({ clientId: f.__owner, clientOrVendor: people[f.__owner]?.name || 'Client', description: `Debt Settlement: ${f.reason || 'fee'}`, type: 'income', context: 'Business', category: 'Fee Recovery', taxBucket: 'adjustment', amount: num(f.feeAmount), paymentMethod: method, hasReceipt: false });
+    for (const f of fees) txn({ feeId: f.feeId, feeReason: f.reason || null, clientId: f.__owner, clientOrVendor: people[f.__owner]?.name || 'Client', description: `Debt Settlement: ${f.reason || 'fee'}`, type: 'income', context: 'Business', category: 'Fee Recovery', taxBucket: 'adjustment', amount: num(f.feeAmount), paymentMethod: method, hasReceipt: false });
     totalLtvIncrease += settled;
   }
   // Client: lifetime value, last visit, package session / membership perk used.
@@ -235,23 +269,40 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   if (tip > 0 && !Object.keys(alloc).length) alloc[visits[0] ? calc.visits[0].mainStaffId : (auth.actor.uid || 'unassigned')] = tip;
   for (const [sid, amount] of Object.entries(alloc)) { const amt = num(amount); if (amt <= 0) continue;
     txn({ description: sid === '__school' ? 'Gratuity — school (student salon)' : 'Gratuity', type: 'income', context: 'Business', category: 'Tips', taxBucket: 'gratuity', amount: amt, paymentMethod: method, staffId: sid, hasReceipt: true });
-    if (method === 'cash') { cashTipsTotal += amt; cashTipsByStaff[sid] = FieldValue.increment(amt); } }
-  if (calc.discount > 0) txn({ description: 'Promotion Applied', clientOrVendor: 'Internal', type: 'expense', context: 'Business', category: 'Discounts', taxBucket: 'adjustment', amount: calc.discount, paymentMethod: 'Internal', hasReceipt: false });
-  if (recoveryAmount > 0) txn({ description: `Service Recovery: ${recoveryReason}`, type: 'expense', context: 'Business', category: 'Discounts', taxBucket: 'adjustment', amount: recoveryAmount, notes: recoveryReason, paymentMethod: 'Internal', hasReceipt: false });
+    if (method === 'cash') { cashTipsTotal += amt; cashTipsByStaff[sid] = FieldValue.increment(amt); cashTipsPlain[sid] = (cashTipsPlain[sid] || 0) + amt; } }
+  if (calc.codeDiscount > 0) txn({ description: 'Promotion Applied', clientOrVendor: 'Internal', type: 'expense', context: 'Business', category: 'Discounts', taxBucket: 'adjustment', amount: calc.codeDiscount, paymentMethod: 'Internal', hasReceipt: false });
+  if (calc.staffDiscount > 0) txn({ description: `Staff discount — ${staffDiscountReason}${staffDiscountApprovedBy ? ` · approved by ${staffDiscountApprovedBy}` : ''}`, type: 'expense', context: 'Business', category: 'Discounts', taxBucket: 'adjustment', amount: calc.staffDiscount, paymentMethod: 'Internal', hasReceipt: false, notes: staffDiscountReason, discountKind: 'staff', givenBy: auth.actor.name, ...(staffDiscountApprovedBy ? { approvedBy: staffDiscountApprovedBy } : {}) });
+  if (recoveryAmount > 0) txn({ description: `Service Recovery: ${recoveryReason}`, type: 'expense', context: 'Business', category: 'Discounts', taxBucket: 'adjustment', amount: recoveryAmount, notes: recoveryReason, paymentMethod: 'Internal', hasReceipt: false, ...(recoveryApprovedBy ? { approvedBy: recoveryApprovedBy } : {}) });
   if (calc.tax > 0) txn({ description: calc.taxLabel, type: 'income', context: 'Business', category: 'Tax Collected', taxBucket: 'tax_collected', amount: calc.tax, paymentMethod: method, hasReceipt: false });
   if (cardSurcharge > 0) { txn({ description: 'Card Processing Fee (passed to client)', type: 'income', context: 'Business', category: 'Card Processing Fee', taxBucket: 'revenue', amount: cardSurcharge, paymentMethod: method, hasReceipt: false }); totalLtvIncrease += cardSurcharge; }
   let cashDepositOffset = 0;
   if (depositCredit && depositCreditDollars > 0) {
-    txn({ description: 'Deposit applied (prepaid online)', type: 'expense', context: 'Business', category: 'Deposit Applied', taxBucket: 'adjustment', amount: depositCreditDollars, paymentMethod: 'Deposit', hasReceipt: false });
+    txn({ depositCreditId: depositCredit.ref.id, description: 'Deposit applied (prepaid online)', type: 'expense', context: 'Business', category: 'Deposit Applied', taxBucket: 'adjustment', amount: depositCreditDollars, paymentMethod: 'Deposit', hasReceipt: false });
     batch.set(depositCredit.ref, { status: 'consumed', consumedAt: now, appointmentId: apptIds[0] || null }, { merge: true });
     cashDepositOffset = Math.min(depositCreditDollars, totalCashIncrease);
   }
-  if (method === 'cash' && b.tillId) batch.set(db.doc(`${T}/tillSessions/${String(b.tillId)}`), { expectedCash: FieldValue.increment(totalCashIncrease + cashTipsTotal - cashDepositOffset), totalCashSales: FieldValue.increment(totalCashIncrease - cashDepositOffset), totalCashTips: FieldValue.increment(cashTipsTotal), ...(Object.keys(cashTipsByStaff).length ? { cashTipsByStaff } : {}) }, { merge: true });   // nested, so each provider's cash tips really add up
+  // Cash into the till = what the client actually handed over: the sale total (tax included; discounts and recovery
+  // taken off) less any deposit they'd already paid. (The old way added up line prices — tax was missed and
+  // discounts ignored, so the till's expected cash drifted.) Split into sales and tips.
+  const depositUsed = depositCredit && depositCreditDollars > 0 ? Math.min(depositCreditDollars, calc.total) : 0;
+  const cashIn = method === 'cash' ? Math.max(0, Math.round((calc.total - depositUsed) * 100) / 100) : 0;
+  const cashSalesAmt = Math.max(0, Math.round((cashIn - cashTipsTotal) * 100) / 100);
+  void cashDepositOffset;
+  if (method === 'cash' && b.tillId) batch.set(db.doc(`${T}/tillSessions/${String(b.tillId)}`), { expectedCash: FieldValue.increment(cashIn), totalCashSales: FieldValue.increment(cashSalesAmt), totalCashTips: FieldValue.increment(cashTipsTotal), ...(Object.keys(cashTipsByStaff).length ? { cashTipsByStaff } : {}) }, { merge: true });   // nested, so each provider's cash tips really add up
   // The receipt.
   const receiptRef = db.collection(`${T}/receipts`).doc();
   const tendered = num(pay.amountTendered);
-  batch.set(receiptRef, clean({ id: receiptRef.id, checkoutSessionId, clientId, clientName: client.name || 'Guest', tenantId, date: now, paymentMethod: method, amountTendered: tendered, change: Math.max(0, tendered - calc.total),
+  batch.set(receiptRef, clean({ id: receiptRef.id, viewKey: `${rid()}${rid()}`, checkoutSessionId, clientId, clientName: client.name || 'Guest', tenantId, date: now, paymentMethod: method, amountTendered: tendered, change: Math.max(0, tendered - calc.total),
     paidBy: client.name || 'Guest', people: Object.values(people).map((p: any) => p.name).filter(Boolean),
+    // Everything a void needs to undo this sale exactly.
+    reversal: { method, tillId: method === 'cash' ? (b.tillId || null) : null, cashIn, cashSales: cashSalesAmt, cashTips: method === 'cash' ? cashTipsTotal : 0, cashTipsByStaff: cashTipsPlain,
+      spend, products: items.filter((x) => x.type === 'product').map((x) => ({ id: x.id, name: x.name, quantity: x.quantity })),
+      fees: fees.map((f: any) => ({ feeId: f.feeId, feeAmount: num(f.feeAmount), reason: f.reason || null, owner: f.__owner, fee: (({ __owner, ...rest }) => rest)(f) })),
+      depositCreditId: depositCredit && depositCreditDollars > 0 ? depositCredit.ref.id : null,
+      redeemed: redeemedOffer ? { ...redeemedOffer, clientId: usedBy.id } : null,
+      discountIds: (discounts as any[]).map((d) => d.id), memberships: items.filter((x) => x.type === 'membership' || x.type === 'package').map((x) => ({ type: x.type, id: x.id, name: x.name })),
+      visits: visits.map((v) => ({ id: v.appointment.id, statusBefore: v.appointment.status || 'checked_in', checkInToken: v.appointment.checkInToken || null, clientId: v.appointment.clientId || clientId })),
+      stripePaymentIntentId: pay.stripePaymentIntentId || null },
     subtotal: calc.subtotal, tax: calc.tax, taxLabel: calc.taxLabel, tip: calc.tip, discount: calc.discount + calc.memberDiscount, total: calc.total, cashierName: auth.actor.name || '', stripePaymentIntentId: pay.stripePaymentIntentId || null,
     ...(mismatch ? { needsReview: true, screenTotal: expected, reviewNote: `The screen showed $${expected.toFixed(2)}; recorded $${calc.total.toFixed(2)}.` } : {}),
     lineItems: [...visits.flatMap((v, idx) => { const vc = calc.visits[idx]; const forWho = whoHad(v).id !== clientId ? firstName(whoHad(v).name) : undefined; return [{ label: v.service?.name || 'Service', amount: vc.mainPrice, type: 'service', staff: firstName(staff.find((s: any) => s.id === vc.mainStaffId)?.name), for: forWho },
