@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
+import { StaffBookSheet } from '@/components/pos/desk/StaffBookSheet';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import React, { useState, useEffect, useMemo, useCallback, Suspense, useRef } from 'react';
 import { useInventory } from '@/context/InventoryContext';
@@ -88,6 +89,14 @@ function POSPage() {
     resolveScanCode, scanTimerRef, handleScanInput, handleScanConfirm, handleOpenTill, handleCloseTill, handleVoidTransaction, resolveRetailScan,
     checkoutHubProps, getPreviousFormula, getVisitCount, waitingNowCount, cartItemCount, walkInGroupSizes,
   } = __engine;
+  const [classicOpen, setClassicOpen] = useState(false);
+  const [resumeDraft, setResumeDraft] = useState<any>(null);
+  // "Resume" in POS → Needs attention → Callbacks reopens the booking with what was saved.
+  useEffect(() => {
+    const on = (ev: any) => { setResumeDraft(ev?.detail || null); setIsQuickBookOpen(true); };
+    window.addEventListener('cf:resume-callback', on as any);
+    return () => window.removeEventListener('cf:resume-callback', on as any);
+  }, [setIsQuickBookOpen]);
   if (isInventoryLoading) return <div className="h-screen w-full flex flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Initializing Terminal...</p></div>;
 
   return (
@@ -194,7 +203,12 @@ function POSPage() {
       </Dialog>
 
       {/* ── QUICK BOOK SHEET — now uses upgraded QuickBookForm ───────────────── */}
-      <Sheet open={isQuickBookOpen} onOpenChange={setIsQuickBookOpen}>
+      {/* Booking at the desk — the shared booking engine (C1). The classic form stays reachable until it's retired. */}
+      <StaffBookSheet open={isQuickBookOpen} onClose={() => { setIsQuickBookOpen(false); setResumeDraft(null); }}
+        tenantId={tenantId || ''} tenant={selectedTenant} clients={clients || []} services={services || []} staff={staff || []}
+        role={role} uid={currentUser?.uid || null} resume={resumeDraft}
+        onClassic={() => { setIsQuickBookOpen(false); setClassicOpen(true); }} />
+      <Sheet open={classicOpen} onOpenChange={setClassicOpen}>
         <SheetContent side="right" className="w-full sm:max-w-xl flex flex-col p-0 overflow-hidden">
           <SheetHeader className="p-6 border-b bg-muted/5 flex-shrink-0">
             <SheetTitle className="text-xl font-black uppercase tracking-tighter flex items-center gap-2"><BookOpen className="w-5 h-5 text-primary" /> Quick Book — Call-In</SheetTitle>
@@ -219,8 +233,8 @@ function POSPage() {
               packages={packages || []}
               memberships={memberships || []}
               discounts={discounts || []}
-              onSuccess={() => { setIsQuickBookOpen(false); toast({ title: "Appointment Booked" }); }}
-              onCancel={() => setIsQuickBookOpen(false)}
+              onSuccess={() => { setClassicOpen(false); toast({ title: "Appointment Booked" }); }}
+              onCancel={() => setClassicOpen(false)}
             />
           </div>
         </SheetContent>
