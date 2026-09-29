@@ -1,6 +1,7 @@
-
 'use client';
 
+import { useTenant } from '@/context/TenantContext';
+import { approveWithPin } from '@/lib/approve-client';
 import React, { useState } from 'react';
 import {
   Dialog,
@@ -36,6 +37,7 @@ export const OverrideCancellationDialog: React.FC<OverrideCancellationDialogProp
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
 
+  const { selectedTenant: approvalTenant } = useTenant();   // the current business (for the server approval)
   const handleConfirm = async () => {
     if (!pin || pin.length < 4) {
       toast({ variant: 'destructive', title: 'Invalid PIN', description: 'Please enter a 4-digit PIN.' });
@@ -47,7 +49,9 @@ export const OverrideCancellationDialog: React.FC<OverrideCancellationDialogProp
     }
 
     // Identify staff by PIN
-    const authorizedStaff = staff.find(s => s.pin === pin && (s.role === 'admin' || s.role === 'staff')); // In real world, only admin/owner can override
+    // A MANAGER's PIN, checked on the server (it used to accept any staff member's PIN, in the browser).
+    const ap = await approveWithPin(String(approvalTenant?.id || ''), pin, { kind: 'cancel_override', reason });
+    const authorizedStaff: any = ap.ok && ap.approver ? { ...ap.approver, approvalToken: ap.token } : null;
     
     if (!authorizedStaff) {
         toast({ variant: 'destructive', title: 'Unauthorized', description: 'Incorrect PIN or unauthorized staff member.' });
