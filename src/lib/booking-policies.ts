@@ -124,11 +124,12 @@ export const seriesDepositDaysOf = (tenant: any) => Math.max(1, Math.min(30, Num
 export type SeriesDepositFailed = 'link_flag' | 'release' | 'keep_flag';
 export const seriesDepositFailedOf = (tenant: any): SeriesDepositFailed => (['link_flag', 'release', 'keep_flag'].includes(tenant?.bookingPolicies?.seriesDepositFailed) ? tenant.bookingPolicies.seriesDepositFailed : 'link_flag');
 
-export type UnpaidFeeRule = 'next_visit' | 'before_booking' | 'keep_booking';
-export const unpaidFeeRuleOf = (tenant: any): UnpaidFeeRule => (['next_visit', 'before_booking', 'keep_booking'].includes(tenant?.bookingPolicies?.unpaidFeeRule) ? tenant.bookingPolicies.unpaidFeeRule : 'next_visit');
+export type UnpaidFeeRule = 'next_visit' | 'before_booking' | 'keep_booking' | 'with_deposit';
+export const unpaidFeeRuleOf = (tenant: any): UnpaidFeeRule => (['next_visit', 'before_booking', 'keep_booking', 'with_deposit'].includes(tenant?.bookingPolicies?.unpaidFeeRule) ? tenant.bookingPolicies.unpaidFeeRule : 'next_visit');
 /** What clients are told (before booking, and at the change). */
 export function unpaidFeeLine(rule: UnpaidFeeRule): string {
   return rule === 'keep_booking' ? 'Change fees are charged to your card on file; if it can’t be charged, your appointment stays as it is.'
     : rule === 'before_booking' ? 'Change fees are charged to your card on file; if it can’t be charged, the fee needs to be paid before you book again.'
+    : rule === 'with_deposit' ? 'Change fees are charged to your card on file; if it can’t be charged, it’s paid together with the deposit when you next book.'
     : 'Change fees are charged to your card on file; if it can’t be charged, the fee is added to your next visit.';
 }
