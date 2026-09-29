@@ -1,5 +1,6 @@
 'use client';
 
+import { PosCatalog } from '@/components/pos/PosCatalog';
 import { useClientScreen } from '@/components/pos/ClientScreen';
 import { SaleComplete } from '@/components/pos/SaleComplete';
 import { DESK_CSS } from '@/components/pos/desk/kit';
@@ -506,6 +507,8 @@ export const CheckoutHub = ({
   taxLabel,
   lastSale,
   clearLastSale,
+  onAddItem,
+  onPosScan,
   moments,
   momentReward,
   momentDiscountValue,
@@ -575,6 +578,7 @@ export const CheckoutHub = ({
   const [overridePin,       setOverridePin]        = useState('');
   const [overrideReason,    setOverrideReason]     = useState('');
   const [recoveryApprovalToken, setRecoveryApprovalToken] = useState<string | null>(null);   // a manager's approval for recovery above the limit
+  const [addOpen, setAddOpen] = useState(false);   // "Add to this sale" — the catalog inside checkout
   const [sdOpen, setSdOpen] = useState(false); const [sdKind, setSdKind] = useState<'pct' | 'amt'>('pct'); const [sdValue, setSdValue] = useState(0); const [sdReason, setSdReason] = useState(''); const [sdPin, setSdPin] = useState('');
   const [isOverrideUnlocked,setIsOverrideUnlocked]= useState(false);
 
@@ -1015,7 +1019,14 @@ export const CheckoutHub = ({
             </section>
           )}
           <section className={card} style={cardStyle} aria-label="On this ticket">
-            <p className={h}>On this ticket</p>
+            <div className="flex flex-wrap items-center justify-between gap-2"><p className={h}>On this ticket</p>
+              <div className="flex gap-1.5">
+                {onAddItem && <button type="button" aria-expanded={addOpen} onClick={() => setAddOpen((v) => !v)} className="h-9 rounded-full px-3.5 text-[13px] font-semibold" style={addOpen ? { background: 'var(--accent)', color: 'var(--accent-ink)' } : { background: 'var(--soft)' }}>{addOpen ? 'Done adding' : 'Add to this sale'}</button>}
+                {onScanClick && <button type="button" onClick={onScanClick} className="h-9 rounded-full px-3.5 text-[13px] font-semibold" style={{ background: 'var(--soft)' }}>Scan</button>}
+              </div></div>
+            {addOpen && onAddItem && <div className="rounded-2xl p-3" style={{ background: 'var(--paper)' }}>
+              <PosCatalog compact inventory={inventory || []} services={services || []} memberships={memberships || []} packages={packages || []} cart={cart || []} onAdd={(i: any) => onAddItem(i)} onScan={onPosScan ? (c: string) => onPosScan(c) : undefined} />
+            </div>}
             {isCartEmpty ? <p className="text-[14px]" style={muted}>Nothing yet — pick a visit, scan a ticket, or add items from the counter.</p> : <div className="space-y-2">
               {appointmentsData.map((data: any) => {
                 const isRedeemed = redeemedOffer?.itemId === data.service.id;
