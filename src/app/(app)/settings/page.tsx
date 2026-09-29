@@ -1,5 +1,6 @@
 'use client';
 
+import { SalesTaxCard } from '@/components/settings/SalesTaxCard';
 import { PayLaterCard } from '@/components/settings/PayLaterCard';
 import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -260,7 +261,7 @@ const dayOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'satur
 function SettingsPageImpl() {
   const { toast }      = useToast();
   const { firestore }  = useFirebase();
-  const { selectedTenant, isLoading: isTenantContextLoading } = useTenant();
+  const { selectedTenant, isLoading: isTenantContextLoading, role } = useTenant() as any;
   const { scheduleProfiles, services, inventory, isLoading: isInventoryLoading } = useInventory();
   const searchParams   = useSearchParams();
   const tabParam       = searchParams.get('tab');
@@ -518,6 +519,7 @@ function SettingsPageImpl() {
 
             {/* ── PAYMENTS ── */}
             <TabsContent value="payments" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
+              {tenantId && <SalesTaxCard tenantId={tenantId} tenant={selectedTenant} canEdit={['owner', 'admin', 'manager'].includes(String((role as any) || '').toLowerCase())} />}
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                 <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
                   <SectionHeader icon={DollarSign} title="Payments & Payouts" />
