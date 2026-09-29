@@ -250,7 +250,7 @@ export default function BookingPoliciesPage() {
               {(t.bookingPolicies?.lateChoices || 'off') !== 'off' && <Num field="bookingPolicies.lateChoicesWaitMinutes" value={Number(t.bookingPolicies?.lateChoicesWaitMinutes) || 10} unit="minutes to reply, then staff decide" label="Wait for a reply" min={5} max={60} />}
             </Row>
             <Row label="If a change fee can’t be charged" note="Cancel and reschedule fees inside your window are charged to the client’s card on file straight away. When there’s no card, or it’s declined:">
-              <Choice field="bookingPolicies.unpaidFeeRule" value={t.bookingPolicies?.unpaidFeeRule || 'next_visit'} label="Unpaid change fee" options={[['next_visit', 'Add it to their next visit'], ['before_booking', 'They pay it before booking again'], ['keep_booking', 'Don’t make the change']]} />
+              <Choice field="bookingPolicies.unpaidFeeRule" value={t.bookingPolicies?.unpaidFeeRule || 'next_visit'} label="Unpaid change fee" options={[['next_visit', 'Add it to their next visit'], ['before_booking', 'They pay it before booking again'], ['with_deposit', 'Collect it with their next booking’s deposit'], ['keep_booking', 'Don’t make the change']]} />
             </Row>
             <Row label="Who can decide" note="When a client is running late, a provider is behind, or a payment is due. Owners, admins and managers can always decide; fees and provider changes stay with them.">
               <Choice field="bookingPolicies.staffOpsLevel" value={t.bookingPolicies?.staffOpsLevel || 'decide_own'} label="Who can decide" options={[['decide_own', 'Staff decide for their own clients'], ['recommend', 'Staff can offer a reschedule only'], ['view', 'Staff view only']]} />
