@@ -869,7 +869,7 @@ export const CheckoutHub = ({
           <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="mb-2">
             <div className="flex items-center gap-2 px-1 py-2 rounded-xl bg-primary/5 border border-primary/20">
               <Users className="w-3.5 h-3.5 text-primary shrink-0" />
-              <p className="text-[9px] font-black uppercase tracking-widest text-primary">Select primary payer for this group</p>
+              <p className="text-[11px] font-semibold text-primary">Who’s paying? Anyone can — search any client. Each person’s visit still counts for them.</p>
             </div>
           </motion.div>
         )}
