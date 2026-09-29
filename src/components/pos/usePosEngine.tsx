@@ -8,6 +8,7 @@
 // new POS will too. Do not fork logic into a layout — add it here.
 
 
+import { identifyPosScan, onHand } from '@/lib/pos-scan';
 import { momentsFor, bestMomentReward } from '@/lib/moments';
 import { groupDiscountFor, groupDiscountAmount } from '@/lib/team-discount';
 import { ToastAction } from '@/components/ui/toast';
@@ -1417,11 +1418,38 @@ export function usePosEngine() {
     }
   }, [inventory, handleAddToCart, toast]);
 
+  // ── One scan, anywhere on the POS (lib/pos-scan): products first, then tickets ──
+  const [variantChoice, setVariantChoice] = useState<{ parent: any; variants: any[] } | null>(null);
+  const addProductChecked = useCallback((item: any) => {
+    const inCart = (retailItems || []).find((i: any) => i.id === item.id)?.quantity || 0;
+    const left = onHand(item) - inCart;
+    handleAddToCart(item);
+    if (item.type === 'retail' || item.msrp) {
+      if (left <= 0) toast({ variant: 'destructive', title: `${item.name} added`, description: 'None on the shelf on record — check the shelf, and receive stock if it’s there.' });
+      else if (left <= 2) toast({ title: `${item.name} added`, description: `Only ${left - 1 <= 0 ? 'this one' : `${left - 1} more`} on the shelf after this.` });
+      else toast({ title: `${item.name} added` });
+    }
+  }, [retailItems, handleAddToCart, toast]);
+  const handlePosScan = useCallback((raw: string) => {
+    const hit = identifyPosScan(raw, { inventory: inventory || [], appointments: appointmentsFromInventory || [], walkIns: (walkIns as any[]) || [] });
+    if (hit.kind === 'empty') return;
+    if (hit.kind === 'product') { addProductChecked(hit.item); return; }
+    if (hit.kind === 'choose') { if (!hit.variants.length) { toast({ variant: 'destructive', title: `${hit.parent.name} has no sizes set up`, description: 'Add its variants in Inventory.' }); return; } setVariantChoice({ parent: hit.parent, variants: hit.variants }); return; }
+    if (hit.kind === 'ticket') {
+      const r: any = hit.record;
+      const ready = !hit.walkIn && (readyForCheckoutAppointments || []).some((a: any) => a.id === r.id);
+      if (ready) { if (!selectedAppointmentIds.has(r.id)) handleSelectAppointment(r.id); window.dispatchEvent(new CustomEvent('cf:open-checkout')); toast({ title: `${r.clientName || 'Visit'} added to checkout` }); return; }
+      setScanMode('checkin'); setScanQuery(String(r.shortCode || r.checkInToken || '')); setScanResult(hit.walkIn ? { ...r, __walkIn: true } : { ...r }); setScanNotFound(false); setIsScanLookupOpen(true); return;
+    }
+    setScanMode('checkin'); setScanQuery(hit.value); resolveScanCode(hit.value); setIsScanLookupOpen(true);   // not in today's list — ask the server
+  }, [inventory, appointmentsFromInventory, walkIns, addProductChecked, readyForCheckoutAppointments, selectedAppointmentIds, handleSelectAppointment, resolveScanCode, toast]);
+
   const checkoutHubProps = {
     cart: retailItems, onCartChange: setRetailItems, appointmentsData: readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)), onSelectAppointment: handleSelectAppointment,
     clients: clients || [], isGroupCheckout: selectedAppointmentIds.size > 1, payerOptions: payerOptions || [], selectedClientId, setSelectedClientId,
     onAddClientClick: () => setIsAddClientOpen(true),
     onScanClick: () => { setScanMode('checkout'); setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsCameraScanOpen(true); },
+    onAddItem: addProductChecked, onPosScan: handlePosScan, variantChoice, setVariantChoice,
     subtotal: subtotalCalc, tax: taxCalc, taxLabel, total: totalCalc, lastSale, clearLastSale: () => setLastSale(null), moments, momentReward, momentDiscountValue, staffDiscount, setStaffDiscount, staffDiscountValue, groupInfo, groupDiscountRaw, groupDiscountValue, skipGroupDiscount, setSkipGroupDiscount, tipAmount, setTipAmount, onCheckout: handleCheckout,
     appliedDiscountCodes, setAppliedDiscountCodes, discount: discountValue, membershipDiscount: membershipDiscountValue,
     walletOffers, offerClientId, offerServiceIds,
@@ -1498,7 +1526,9 @@ export function usePosEngine() {
     autoAppliedOfferRef, discountValue, membershipDiscountValue, taxCalc, totalCalc, payerOptions, handleSelectAppointment, handleAddToCart,
     earlyStart, setEarlyStart, handleStartService, handleSendToFrontDesk, handleAssignStaff, autoAssignedIds, handleAssignNext, handleUpdateStatus,
     handleCheckout, recoveryApprovalRef, handleCancelAction, onCancellationConfirm, handleCancellationConfirm, handleConfirmRefund, handleResolveCheckInConfirmation, handleRevertToService, handleRevertToReady,
+    handlePosScan, addProductChecked, variantChoice, setVariantChoice,
     resolveScanCode, scanTimerRef, handleScanInput, handleScanConfirm, handleOpenTill, handleCloseTill, handleVoidTransaction, resolveRetailScan,
     checkoutHubProps, getPreviousFormula, getVisitCount, waitingNowCount, cartItemCount, walkInGroupSizes,
   };
 }
+p
