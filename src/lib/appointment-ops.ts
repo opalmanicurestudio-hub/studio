@@ -45,6 +45,8 @@ export function opsStatus(a: any, now: Date = new Date(), opts: { graceMinutes?:
   if (arrived) return v('checked_in', 'Checked in', null, 'ok');
   if (a?.disruption?.status === 'pending') return v('disruption', a.disruption.kind === 'callout' ? 'Callout — waiting for their choice' : 'Closure — waiting for their choice', a.disruption.reasonLabel ? `Told: ${a.disruption.reasonLabel}. They choose a new time or cancel (no fee).` : null, 'warn');
   const po = a?.providerOffer;
+  if (po?.status === 'asking_provider') return v('provider_offered', `Asking ${String(po.toStaffName || 'another provider').split(' ')[0]} to take them`, po.answerBy ? `Waiting for their answer until ${hm(toDate(po.answerBy))}.` : 'Waiting for their answer.', 'info');
+  if (po?.status === 'provider_declined' && !a?.lateReply) return v('decision_needed', 'No one could take them', po.note ? `${po.note}. Decide what happens.` : 'Decide what happens.', 'alert', true);
   if (po?.status === 'pending') return v('provider_offered', `Offered ${String(po.toStaffName || 'another provider').split(' ')[0]} at ${hm(toDate(po.startAt))}`, 'Waiting for them to accept or decline.', 'info');
   if ((po?.status === 'declined' || po?.status === 'expired') && !a?.lateReply) return v('decision_needed', po.status === 'declined' ? 'Declined the provider change' : 'Provider offer no longer available', 'Decide what happens next — they’ll be told.', 'alert', true);
   if (a?.studioAskedToMove) return v('rescheduling_offered', 'Rescheduling offered', 'Waiting for them to choose a new time.', 'info');
