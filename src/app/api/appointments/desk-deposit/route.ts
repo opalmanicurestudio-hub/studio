@@ -18,6 +18,7 @@
 // A deposit that arrives after the hold was released does NOT revive the
 // booking (the time may be taken) — it is flagged, like online.
 
+import { balanceDueWith, settleCollectedBalance } from '@/lib/balance-with-deposit';
 import { bookingPolicyLines, holdLine } from '@/lib/policy-copy';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -87,6 +88,9 @@ export async function POST(req: NextRequest) {
   if (action === 'settled') {
     const cents = Math.round(Number(b.amountCents) || Number(ap.depositAmountCents) || 0);
     if (cents <= 0) return bad('No deposit amount.');
+    // Paid at the desk covers a balance collected with this deposit too.
+    const bal = balanceDueWith(ap);
+    if (bal > 0) await settleCollectedBalance(db, tenantId, appointmentId, bal, { paymentMethod: 'Paid at the desk', via: 'front desk', actorName: auth.actor.name });
     return settle(cents, 'checkout');
   }
 
@@ -94,10 +98,21 @@ export async function POST(req: NextRequest) {
     const cents = Math.round(Number(ap.depositAmountCents) || 0);
     if (cents <= 0) return bad('This booking has no deposit to take.');
     if (!ap.clientId) return bad('There’s no client record with a saved card for this booking.');
+    // One charge for the deposit AND any balance collected with it; the ledger line is split afterwards.
+    const bal = balanceDueWith(ap);
     const r = await internalPost(internalOrigin(null, req.nextUrl.origin), '/api/stripe/charge-card', {
-      tenantId, clientId: ap.clientId, amountCents: cents, description: `Deposit — ${ap.serviceName || 'next visit'}`, category: 'Retainers',
+      tenantId, clientId: ap.clientId, amountCents: cents + bal, description: bal ? `Deposit — ${ap.serviceName || 'next visit'} + $${(bal / 100).toFixed(2)} balance` : `Deposit — ${ap.serviceName || 'next visit'}`, category: 'Retainers',
       appointmentId, reason: 'Front desk deposit (card on file)', mode: 'auto', kind: 'deposit' }, { retries: 0 }); // never retry a charge
     if (!r.ok || !r.data?.ok) return NextResponse.json({ ok: false, error: r.data?.reason || r.data?.error || 'The card didn’t go through.', code: r.data?.code || 'declined' }, { status: 402 });
+    if (bal > 0 && r.data?.paymentIntentId) {
+      // charge-card recorded the whole charge as a deposit line — make that line the deposit part only,
+      // and record the balance part as the fee payment it is (the total still equals what was charged).
+      for (const id of [`card_charge__${r.data.paymentIntentId}`, `pos_cof__${r.data.paymentIntentId}`]) {
+        const tRef = db.doc(`${T}/transactions/${id}`);
+        if ((await tRef.get()).exists) { await tRef.set({ amount: cents / 100, description: `Deposit — ${ap.serviceName || 'next visit'}` }, { merge: true }); break; }
+      }
+      await settleCollectedBalance(db, tenantId, appointmentId, bal, { paymentMethod: 'Card on file (Stripe)', via: 'card on file', chargeId: null, actorName: auth.actor.name });
+    }
     return settle(cents, 'card_on_file', { stripePaymentIntentId: r.data?.paymentIntentId || null });
   }
 
