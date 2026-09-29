@@ -76,7 +76,8 @@ export async function POST(req: NextRequest) {
           text: q.text || null, signature: sig, signedAt: now(), via: 'client_screen', screenId, screenName: s.name || null, requestedBy: q.requestedBy || null });
         answer.consentId = cRef.id;
       }
-    } else return NextResponse.json({ ok: false, error: 'Nothing to answer.' }, { status: 409 });
+    } else if (q.kind === 'change') { answer.keep = b.keep === true; answer.change = num(q.change); }
+    else return NextResponse.json({ ok: false, error: 'Nothing to answer.' }, { status: 409 });
     await ref.update({ request: { ...q, answeredAt: now() }, response: answer, lastSeen: now() });   // replace, never merge
     return NextResponse.json({ ok: true });
   }
@@ -106,7 +107,7 @@ export async function POST(req: NextRequest) {
   const settings = clientScreenSettingsOf(t);
   if (action === 'push') {
     const tk = b.ticket || null;
-    const ticket = tk ? { clientFirst: String(tk.clientFirst || '').slice(0, 40), lines: (Array.isArray(tk.lines) ? tk.lines : []).slice(0, 40).map((l: any) => ({ label: String(l.label || '').slice(0, 80), amount: num(l.amount), note: l.note ? String(l.note).slice(0, 60) : null })),
+    const ticket = tk ? { clientFirst: String(tk.clientFirst || '').slice(0, 40), moments: (Array.isArray(tk.moments) ? tk.moments : []).slice(0, 2).map((m: any) => String(m).slice(0, 90)), lines: (Array.isArray(tk.lines) ? tk.lines : []).slice(0, 40).map((l: any) => ({ label: String(l.label || '').slice(0, 80), amount: num(l.amount), note: l.note ? String(l.note).slice(0, 60) : null })),
       subtotal: num(tk.subtotal), discount: num(tk.discount), tax: num(tk.tax), taxLabel: String(tk.taxLabel || 'Tax').slice(0, 60), tip: num(tk.tip), total: num(tk.total), paid: num(tk.paid), due: num(tk.due) } : null;
     // A new ticket replaces a finished sale's thank-you screen.
     await ref.update({ ticket, brand, settings: { welcome: settings.welcome, reviewTicket: settings.reviewTicket }, updatedAt: now(), ...(ticket ? (s.request?.kind === 'thanks' ? { request: null, response: null, phase: 'ticket' } : {}) : { phase: 'idle' }) });
@@ -114,12 +115,14 @@ export async function POST(req: NextRequest) {
   }
   if (action === 'request') {
     const kind = String(b.kind || '');
-    if (!['tip', 'approve', 'thanks', 'idle'].includes(kind)) return NextResponse.json({ ok: false, error: 'Unknown request.' }, { status: 400 });
+    if (!['tip', 'approve', 'thanks', 'idle', 'cash', 'change'].includes(kind)) return NextResponse.json({ ok: false, error: 'Unknown request.' }, { status: 400 });
     const q: any = { id: rid(), kind, at: now(), requestedBy: auth.actor.name };
     if (kind === 'tip') { q.base = Math.max(0, num(b.base)); q.presets = settings.tipPresets; q.allowCustom = settings.allowCustomTip; q.showNoTip = settings.showNoTip; q.tipOn = settings.tipOn; }
     if (kind === 'approve') { q.amount = num(b.amount); q.cardLabel = String(b.cardLabel || '').slice(0, 40) || 'your card on file'; q.clientId = b.clientId || null; q.clientName = b.clientName || null;
       q.signature = settings.signCardOnFile && (!settings.signOver || q.amount >= settings.signOver);
       q.text = `I authorise ${brand.name || 'the business'} to charge $${q.amount.toFixed(2)} to ${q.cardLabel}.`; }
+    if (kind === 'cash') { q.due = num(b.due); }
+    if (kind === 'change') { q.due = num(b.due); q.tendered = num(b.tendered); q.change = num(b.change); q.offerKeep = (t?.clientScreen?.offerKeepChange !== false); }
     if (kind === 'thanks') { q.receiptId = b.receiptId || null; q.offerReceipt = settings.offerReceipt; q.total = num(b.total); q.clientFirst = String(b.clientFirst || '').slice(0, 40); }
     await ref.update({ phase: kind === 'idle' ? 'idle' : kind, request: kind === 'idle' ? null : q, response: null, brand, ...(kind === 'idle' || kind === 'thanks' ? { ticket: null } : {}), updatedAt: now() });   // replace, never merge
     return NextResponse.json({ ok: true, requestId: q.id });
