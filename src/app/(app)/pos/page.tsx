@@ -229,8 +229,8 @@ function POSPage() {
             setIsCameraScanOpen(false);
             const code = raw.trim().toUpperCase();
 
-            if (scanMode === 'retail') {
-              resolveRetailScan(code);
+            if (scanMode === 'retail' || scanMode === 'checkout') {
+              (__engine as any).handlePosScan(raw);   // products first, then tickets (lib/pos-scan)
               return;
             }
 
