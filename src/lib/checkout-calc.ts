@@ -3,6 +3,7 @@
 // Same rules as the POS has always used, with two corrections:
 //   • fees are never taxed (unpaid fees, and the reschedule fee on the visit)
 //   • only real products are taxed as products (memberships, packages, deposits and rentals aren't)
+import { groupDiscountFor, groupDiscountAmount } from '@/lib/team-discount';
 import { getServicePrice } from '@/lib/data';
 import { posTaxAmount, posTaxLabel } from '@/lib/pos-tax';
 
@@ -16,6 +17,7 @@ export interface CalcInput {
   items: CalcItem[]; fees: { feeId: string; feeAmount: number }[]; discounts: any[]; client: any | null; memberships: any[];
   tip: number; storeCredit: number;
   staffDiscount?: { kind: 'pct' | 'amt'; value: number } | null;   // a staff discount — never a price change
+  skipGroupDiscount?: boolean;   // "don't apply the team / family discount this time"
 }
 export interface VisitCalc { appointmentId: string; mainStaffId: string; mainPrice: number; mainRedeemed: boolean; addOns: { addon: any; staffId: string; price: number; redeemed: boolean }[];
   rescheduleFee: number; timeOverage: number; materialOverage: number; additionalCharge: number; refreshments: { name: string; qty: number; price: number }[]; waived: boolean }
@@ -46,9 +48,15 @@ export function computeCheckout(i: CalcInput) {
   taxableServices += (i.items || []).filter((it) => it.type === 'service').reduce((s, it) => s + num(it.price) * num(it.quantity), 0);
   const feeSub = (i.fees || []).reduce((s, f) => s + num(f.feeAmount), 0);
   const subtotal = round2(servicesSub + retailSub + feeSub);
-  const codeDiscount = round2((i.discounts || []).reduce((s, d: any) => s + (d.type === 'percentage' ? subtotal * (num(d.value) / 100) : num(d.value)), 0));
+  let codeDiscount = round2((i.discounts || []).reduce((s, d: any) => s + (d.type === 'percentage' ? subtotal * (num(d.value) / 100) : num(d.value)), 0));
+  // Team / family & friends: services (not fees) and real products only; within the monthly cap; by default it
+  // doesn't combine with codes — whichever is bigger applies.
+  const group = i.skipGroupDiscount ? null : groupDiscountFor(i.tenant, i.client);
+  const eligibleServices = visits.reduce((s, v) => s + v.mainPrice + v.addOns.reduce((a, x) => a + x.price, 0), 0) + (i.items || []).filter((it) => it.type === 'service').reduce((s, it) => s + num(it.price) * num(it.quantity), 0);
+  let groupDiscount = groupDiscountAmount(group, { services: eligibleServices, products: taxableProducts });
+  if (group && groupDiscount > 0 && codeDiscount > 0 && !group.stackWithCodes) { if (groupDiscount >= codeDiscount) codeDiscount = 0; else groupDiscount = 0; }
   const sd = i.staffDiscount; const staffDiscount = sd ? round2(Math.min(subtotal, sd.kind === 'pct' ? subtotal * (num(sd.value) / 100) : num(sd.value))) : 0;
-  const discount = round2(codeDiscount + staffDiscount);
+  const discount = round2(codeDiscount + staffDiscount + groupDiscount);
   // A member's retail discount (their plan's %, on eligible items).
   let memberDiscount = 0;
   const c = i.client; const mId = c?.activeMembershipId || c?.subscription?.membershipId;
@@ -60,5 +68,5 @@ export function computeCheckout(i: CalcInput) {
   const tax = posTaxAmount(i.tenant, { services: taxableServices, products: taxableProducts });
   const tip = round2(num(i.tip)); const storeCredit = round2(num(i.storeCredit));
   const total = round2(Math.max(0, subtotal + tax + tip - discount - memberDiscount - storeCredit));
-  return { visits, servicesSub: round2(servicesSub), retailSub: round2(retailSub), feeSub: round2(feeSub), subtotal, discount, codeDiscount, staffDiscount, memberDiscount, tax, taxLabel: posTaxLabel(i.tenant), tip, storeCredit, total };
+  return { visits, servicesSub: round2(servicesSub), retailSub: round2(retailSub), feeSub: round2(feeSub), subtotal, discount, codeDiscount, staffDiscount, groupDiscount, group: group && groupDiscount > 0 ? { type: group.type, label: group.label, staffId: group.staffId } : null, memberDiscount, tax, taxLabel: posTaxLabel(i.tenant), tip, storeCredit, total };
 }
