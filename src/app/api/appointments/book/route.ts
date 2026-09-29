@@ -349,7 +349,10 @@ export async function POST(req: NextRequest) {
       const a = services.find((s: any) => s.id === id);
       if (a) addOnMinutes += Number((a as any).duration) || 0;
     }
-    const duration = (Number(svc.duration) || 60) + addOnMinutes;
+    // Staff may set a custom length (5–600 min); the clash check below uses it too.
+    const staffSet = trust === 'staff' || trust === 'internal';
+    const customLen = staffSet && Number.isFinite(Number(body.durationMinutes)) && Number(body.durationMinutes) >= 5 && Number(body.durationMinutes) <= 600 ? Math.round(Number(body.durationMinutes)) : null;
+    const duration = customLen ?? ((Number(svc.duration) || 60) + addOnMinutes);
     const padBefore = Number(svc.padBefore) || 0;
     const padAfter = Number(svc.padAfter) || 0;
 
@@ -546,7 +549,7 @@ export async function POST(req: NextRequest) {
         // the house list, which doesn't contain it — so every renter booking
         // died with "Service not found" at the last step. The engine sees
         // the service that was actually chosen.
-        services: renterSvc ? [...services, renterSvc] : services,
+        services: (renterSvc ? [...services, renterSvc] : services).map((x: any) => (customLen && x.id === serviceId ? { ...x, duration: Math.max(5, customLen - addOnMinutes) } : x)),
         staff: roster,
         appointments: liveAppointments,
         events,
@@ -589,6 +592,11 @@ export async function POST(req: NextRequest) {
         if (!firstReason) firstReason = attempt.error;
         if (!flexible) break;
       }
+      // A manager may book over a clash on purpose — a named provider, with a reason, recorded on the booking.
+      const actorRole = String((body as any).__staffActor?.role || '').toLowerCase();
+      const overrideReason = trust === 'staff' && ['owner', 'admin', 'manager'].includes(actorRole) && requestedStaffId !== 'any'
+        ? String(body?.overrideConflict?.reason || '').trim().slice(0, 200) : '';
+      if (!staffId && overrideReason) { staffId = requestedStaffId; placedStartMs = start.getTime(); }
       if (!staffId) {
         const hours = Math.max(1, Math.round(flexWindowMin / 60));
         const who = requestedStaffId !== 'any'
@@ -724,6 +732,13 @@ export async function POST(req: NextRequest) {
       const shortCode = generateShortCode();
       const nowIso = new Date().toISOString();
       const payload: any = {
+        ...(overrideReason ? { conflictOverride: { reason: overrideReason, by: (body as any).__staffActor?.name || 'Manager', clash: firstReason || null, at: nowIso } } : {}),
+        ...(customLen ? { durationMinutes: customLen, customLength: true } : {}),
+        ...(staffSet && typeof body.internalNotes === 'string' && body.internalNotes.trim() ? { internalNotes: body.internalNotes.trim().slice(0, 2000) } : {}),
+        // Linked bookings: a repeat series, a group, or one guest's visit with several providers.
+        ...(staffSet && typeof body.seriesId === 'string' ? { seriesId: body.seriesId.slice(0, 64), seriesIndex: Number(body.seriesIndex) || 0 } : {}),
+        ...(staffSet && typeof body.groupId === 'string' ? { groupId: body.groupId.slice(0, 64), groupRole: body.groupRole === 'organizer' ? 'organizer' : 'guest', ...(body.groupName ? { groupName: String(body.groupName).slice(0, 80) } : {}) } : {}),
+        ...(staffSet && typeof body.visitId === 'string' ? { visitId: body.visitId.slice(0, 64), visitStep: Number(body.visitStep) || 0 } : {}),
         ...(placeOpts.length > 1 ? { place: placeChoice } : {}),   // their choice (in person / video / phone …)
         id: aptId, tenantId,
         clientId, clientName,
@@ -838,9 +853,33 @@ export async function POST(req: NextRequest) {
     // as not-sent so staff can fix the address and resend. Every send —
     // and its delivery/opened/clicked journey via the provider webhooks —
     // lands in messageLog for the appointment timeline.
+    // ── Staff extras, after the booking exists ──
+    let packageRedeemed: boolean | null = null;
+    if (staffSet && typeof body.redeemPackageId === 'string' && body.redeemPackageId && r.clientId) {
+      // One session off the client's package — on the server, and only if one is left.
+      try {
+        const cRef = db.doc(`tenants/${tenantId}/clients/${r.clientId}`);
+        packageRedeemed = await db.runTransaction(async (tx: any) => {
+          const c: any = (await tx.get(cRef)).data() || {};
+          const list: any[] = Array.isArray(c.activePackages) ? c.activePackages : [];
+          const i = list.findIndex((x: any) => x.packageId === body.redeemPackageId && Number(x.sessionsRemaining) > 0);
+          if (i < 0) return false;
+          const next = list.map((x: any, j: number) => (j === i ? { ...x, sessionsRemaining: Number(x.sessionsRemaining) - 1 } : x)).filter((x: any) => Number(x.sessionsRemaining) > 0);
+          tx.set(cRef, { activePackages: next }, { merge: true });
+          tx.set(db.doc(`tenants/${tenantId}/appointments/${r.aptId}`), { redeemedPackageId: body.redeemPackageId, redeemedPackageName: list[i].name || list[i].packageName || null }, { merge: true });
+          return true;
+        });
+      } catch (e) { console.error('[book] package redemption', e); packageRedeemed = false; }
+    }
+    if (staffSet && typeof body.callbackDraftId === 'string' && body.callbackDraftId) {
+      // Booked from a saved call-back → close it as booked.
+      await db.doc(`tenants/${tenantId}/callBackDrafts/${body.callbackDraftId}`).set({ status: 'resolved', outcome: 'booked', outcomeNote: 'Booked from the call-back', resolvedAt: new Date().toISOString(), resolvedBy: (body as any).__staffActor?.name || 'Staff', bookedAppointmentId: r.aptId }, { merge: true }).catch(() => {});
+    }
+
     const sendStatus = { smsSent: false, emailSent: false };
     let renterConfirmed = false;
-    {
+    // A group / multi-provider booking holds its messages until every part is booked (staff only).
+    if (!(staffSet && body.quiet === true)) {
       try {
         const clientDoc = r.clientId
           ? ((await db.doc(`tenants/${tenantId}/clients/${r.clientId}`).get()).data() as any) || {}
@@ -1147,6 +1186,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
+      ...(packageRedeemed !== null ? { packageRedeemed } : {}),
       appointmentId: r.aptId,
       checkInToken: r.token,
       shortCode: r.shortCode,
