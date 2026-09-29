@@ -11,7 +11,7 @@ import { useMemo, useState } from 'react';
 import { format, isToday, parseISO } from 'date-fns';
 import { moduleEnabled } from '@/lib/modules';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
-import { RetailCatalog } from '@/components/pos/RetailCatalog';
+import { PosCatalog } from '@/components/pos/PosCatalog';
 import { Btn, Pill, Empty, Panel } from './kit';
 
 const toDate = (v: any): Date | null => { if (!v) return null; try { const d = v?.toDate ? v.toDate() : v instanceof Date ? v : typeof v === 'string' ? parseISO(v) : new Date(v); return isNaN(d.getTime()) ? null : d; } catch { return null; } };
@@ -89,9 +89,10 @@ export function Counter({ e, onFollowUp }: { e: any; onFollowUp?: (visit: any) =
           </section>
         )}
         {(retailOn || membershipsOn) && <section className="rounded-3xl p-4" style={{ background: 'var(--card)' }} aria-label="Add to the sale">
-          <p className="mb-3 text-[15px] font-semibold">Add to the sale</p>
-          <RetailCatalog services={e.services || []} inventory={retailOn ? e.inventory || [] : []} memberships={membershipsOn ? e.memberships || [] : []} packages={membershipsOn ? e.packages || [] : []}
-            onAddToCart={e.handleAddToCart} onScanClick={() => { e.setScanMode?.('retail'); e.setIsCameraScanOpen?.(true); }} />
+          <div className="mb-3 flex items-center justify-between gap-2"><p className="text-[15px] font-semibold">Add to the sale</p>
+            <Btn quiet onClick={() => { e.setScanMode?.('retail'); e.setIsCameraScanOpen?.(true); }}>Scan with camera</Btn></div>
+          <PosCatalog services={e.services || []} inventory={retailOn ? e.inventory || [] : []} memberships={membershipsOn ? e.memberships || [] : []} packages={membershipsOn ? e.packages || [] : []}
+            cart={e.checkoutHubProps?.cart || []} onAdd={(i: any) => e.addProductChecked(i)} onScan={(c: string) => e.handlePosScan(c)} />
         </section>}
       </div>
       <section className="rounded-3xl p-4 lg:sticky lg:top-2 lg:self-start" style={{ background: 'var(--card)' }} aria-label="Checkout">
