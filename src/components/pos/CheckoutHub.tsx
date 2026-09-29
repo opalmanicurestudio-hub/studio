@@ -1,5 +1,7 @@
 'use client';
 
+import { DESK_CSS } from '@/components/pos/desk/kit';
+import { approveWithPin } from '@/lib/approve-client';
 import { CheckoutNudge } from '@/components/pos/CheckoutNudge';
 import { hasRealCard } from '@/lib/card-on-file';
 import { staffAuthHeader } from '@/lib/staff-fetch';
@@ -149,15 +151,17 @@ const LineItem = ({ icon: Icon, label, sub, amount, tone = 'muted', strike = fal
 };
 
 // ─── WaiveFeeDialog ───────────────────────────────────────────────────────────
-const WaiveFeeDialog = ({ open, onOpenChange, staff, onConfirm, title = 'Admin Override', description = 'Authorize fee waiver with manager PIN.' }: any) => {
+const WaiveFeeDialog = ({ open, onOpenChange, staff, onConfirm, title = 'Admin Override', description = 'Authorize fee waiver with manager PIN.', tenantIdForApproval, approvalKind, approvalRef }: any) => {
   const [pin, setPin] = useState('');
   const [reason, setReason] = useState('');
   const { toast } = useToast();
 
-  const handleConfirm = () => {
-    const authorizedStaff = staff.find((s: any) => s.pin === pin && (s.role === 'admin' || s.role === 'owner'));
-    if (!authorizedStaff) { toast({ variant: 'destructive', title: 'Unauthorized', description: 'Manager authorization required.' }); return; }
+  const handleConfirm = async () => {
     if (!reason.trim()) { toast({ variant: 'destructive', title: 'Reason Required' }); return; }
+    // The PIN is checked on the server (PINs are never on this device); the approval is single-use.
+    const r = await approveWithPin(tenantIdForApproval || '', pin, { kind: approvalKind || 'waive', ref: approvalRef || null, reason });
+    if (!r.ok || !r.approver) { toast({ variant: 'destructive', title: 'Not approved', description: r.error || 'Manager authorization required.' }); return; }
+    const authorizedStaff: any = { ...r.approver, approvalToken: r.token };
     onConfirm(authorizedStaff, reason);
     setPin(''); setReason('');
   };
@@ -498,6 +502,9 @@ export const CheckoutHub = ({
   subtotal,
   tax,
   taxLabel,
+  staffDiscount,
+  setStaffDiscount,
+  staffDiscountValue,
   total,
   tipAmount,
   setTipAmount,
@@ -554,6 +561,8 @@ export const CheckoutHub = ({
   const [showPinEntry,      setShowPinEntry]       = useState(false);
   const [overridePin,       setOverridePin]        = useState('');
   const [overrideReason,    setOverrideReason]     = useState('');
+  const [recoveryApprovalToken, setRecoveryApprovalToken] = useState<string | null>(null);   // a manager's approval for recovery above the limit
+  const [sdOpen, setSdOpen] = useState(false); const [sdKind, setSdKind] = useState<'pct' | 'amt'>('pct'); const [sdValue, setSdValue] = useState(0); const [sdReason, setSdReason] = useState(''); const [sdPin, setSdPin] = useState('');
   const [isOverrideUnlocked,setIsOverrideUnlocked]= useState(false);
 
   // ── Card payment sub-mode ──────────────────────────────────────────────────
@@ -744,7 +753,7 @@ export const CheckoutHub = ({
 
   const handleConfirmWaive = (authorizer: Staff, reason: string) => {
     if (pendingWaiveAptId) {
-      onWaiveFeeToggle(pendingWaiveAptId, true, authorizer.id, reason);
+      onWaiveFeeToggle(pendingWaiveAptId, true, authorizer.id, reason, (authorizer as any).approvalToken);
       setIsPointOfSaleWaiveAuthOpen(false);
       setPendingWaiveAptId(null);
       toast({ title: 'Fees Absorbed' });
@@ -822,7 +831,7 @@ export const CheckoutHub = ({
         toast({ title: 'Card Charged', description: `$${amountToCharge.toFixed(2)} charged successfully.` });
         // Proceed with the rest of the checkout flow using 'card_on_file' as payment method
         // Save COF payment intent id for after signature
-        await onCheckout({ paymentMethod: 'card_on_file', amountTendered: amountToCharge, recoveryAmount, recoveryReason, stripePaymentIntentId: data.paymentIntentId, skipLedger: true, cardSurcharge });
+        await onCheckout({ paymentMethod: 'card_on_file', amountTendered: amountToCharge, recoveryAmount, recoveryReason, recoveryApprovalToken, stripePaymentIntentId: data.paymentIntentId, skipLedger: true, cardSurcharge });
         setCardMode('select');
       } else {
         toast({ variant: 'destructive', title: 'Charge Failed', description: data.reason || 'Could not charge card on file.' });
@@ -851,7 +860,7 @@ export const CheckoutHub = ({
       saveCard:    saveNewCard && !!selectedClient,
     });
     if (result.ok) {
-      await onCheckout({ paymentMethod: 'terminal', amountTendered: amountToCharge, recoveryAmount, recoveryReason, stripePaymentIntentId: result.paymentIntentId, skipLedger: false, cardSurcharge });
+      await onCheckout({ paymentMethod: 'terminal', amountTendered: amountToCharge, recoveryAmount, recoveryReason, recoveryApprovalToken, stripePaymentIntentId: result.paymentIntentId, skipLedger: false, cardSurcharge });
       setCardMode('select');
     }
   };
@@ -861,18 +870,45 @@ export const CheckoutHub = ({
 
 
 
+  const coMoney = (n: any) => `$${safeNumber(n).toFixed(2)}`;
+  const firstOf = (n: any) => String(n || '').split(' ')[0];
+  const sdLimitRaw = (selectedTenant as any)?.approvalRules?.staffDiscountLimitPct;
+  const sdLimitPct = Number.isFinite(Number(sdLimitRaw)) && sdLimitRaw !== null && sdLimitRaw !== undefined ? Number(sdLimitRaw) : 10;
+  const sdIsManager = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
+  const sdDraftDollars = !sdValue ? 0 : Math.min(safeNumber(subtotal), sdKind === 'pct' ? safeNumber(subtotal) * (safeNumber(sdValue) / 100) : safeNumber(sdValue));
+  const sdDraftPct = safeNumber(subtotal) > 0 ? (sdDraftDollars / safeNumber(subtotal)) * 100 : 0;
+  const sdNeedsApproval = !sdIsManager && sdDraftPct > sdLimitPct + 0.001;
+  const applyStaffDiscount = async () => {
+    if (!sdDraftDollars || !sdReason.trim()) { toast({ variant: 'destructive', title: 'Add an amount and a reason' }); return; }
+    let approvalToken: string | null = null; let approvedBy: string | null = null;
+    if (sdNeedsApproval) {
+      const ap = await approveWithPin(tenantId, sdPin, { kind: 'discount', amount: Number(sdDraftDollars.toFixed(2)), reason: sdReason.trim() });
+      if (!ap.ok || !ap.approver) { toast({ variant: 'destructive', title: 'Not approved', description: ap.error || 'A manager needs to approve this discount.' }); return; }
+      approvalToken = ap.token || null; approvedBy = ap.approver.name;
+    }
+    setStaffDiscount?.({ kind: sdKind, value: safeNumber(sdValue), reason: sdReason.trim(), approvalToken, approvedBy });
+    setSdOpen(false); setSdPin('');
+  };
+  const card = 'space-y-3 rounded-3xl p-4';
+  const cardStyle = { background: 'var(--card)', border: '1px solid var(--line)' } as React.CSSProperties;
+  const h = 'text-[15px] font-semibold';
+  const muted = { color: 'var(--muted)' } as React.CSSProperties;
+  const inputCls = 'h-11 w-full rounded-xl px-3.5 text-[16px] outline-none';
+  const inputStyle = { background: 'var(--paper)', border: '1px solid var(--line)', color: 'var(--ink)' } as React.CSSProperties;
+  const pill = (on: boolean) => `rounded-full px-3.5 py-2 text-[13px] font-medium transition ${on ? '' : ''}`;
+  const pillStyle = (on: boolean) => (on ? { background: 'var(--accent)', color: 'var(--accent-ink)' } : { background: 'var(--soft)', color: 'var(--ink)' }) as React.CSSProperties;
+  const rowBtn = 'flex w-full items-center justify-between gap-3 rounded-2xl p-4 text-left transition active:scale-[.99]';
+  const dueNow = isCardTab ? amountToCharge : finalTotal;
+  const payBlocked = isCartEmpty || (isGroupCheckout && !selectedClientId) || (isOverAutonomy && !isOverrideUnlocked);
+  const accentVar = (selectedTenant as any)?.bookingPageSettings?.cfPageConfig?.accentColor || (selectedTenant as any)?.brandColor || null;
   return (
-    <div className="flex flex-col space-y-6 md:space-y-10 text-left">
-
-      <div className="flex-shrink-0 text-left">
-        {isGroupCheckout && !selectedClientId && !isCartEmpty && (
-          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="mb-2">
-            <div className="flex items-center gap-2 px-1 py-2 rounded-xl bg-primary/5 border border-primary/20">
-              <Users className="w-3.5 h-3.5 text-primary shrink-0" />
-              <p className="text-[11px] font-semibold text-primary">Who’s paying? Anyone can — search any client. Each person’s visit still counts for them.</p>
-            </div>
-          </motion.div>
-        )}
+    <div className="desk co" style={{ background: 'transparent', ...(accentVar ? { ['--accent' as any]: accentVar } : {}) }}>
+      <style>{DESK_CSS}{`.co{container-type:inline-size;container-name:co}.co-grid{display:grid;gap:12px;grid-template-columns:minmax(0,1fr)}@container co (min-width:700px){.co-grid{grid-template-columns:minmax(0,1fr) 340px}.co-right{position:sticky;top:0;align-self:start}}`}</style>
+      <div className="co-grid">
+        <div className="co-left min-w-0 space-y-3">
+          <section className={card} style={cardStyle} aria-label="Who's paying">
+            <p className={h}>Who’s paying</p>
+            {isGroupCheckout && !selectedClientId && !isCartEmpty && <p className="text-[13px]" style={muted}>Anyone can pay — search any client. Each person’s visit still counts for them.</p>}
         <GuestSearch
           clients={clients || []}
           selectedClientId={selectedClientId}
@@ -881,325 +917,123 @@ export const CheckoutHub = ({
           isGroupCheckout={isGroupCheckout}
           payerOptions={payerOptions || []}
         />
-      </div>
-
-      {!isCartEmpty && (
-        <div className="flex items-center px-1">
-          <button
-            type="button"
-            onClick={() => setIsRecoveryDialogOpen(true)}
-            className={cn(
-              'flex items-center gap-2 h-9 px-3.5 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest transition-all',
-              recoveryAmount > 0
-                ? 'border-amber-300 bg-amber-50 text-amber-700'
-                : 'border-border bg-white text-muted-foreground hover:border-primary/20 hover:text-primary'
-            )}
-          >
-            <ShieldAlert className="w-3.5 h-3.5" />
-            {recoveryAmount > 0 ? `Recovery Applied — -$${safeNumber(recoveryAmount).toFixed(2)}` : 'Apply Recovery / Comp'}
-          </button>
-        </div>
-      )}
-
-      <Dialog open={isRecoveryDialogOpen} onOpenChange={setIsRecoveryDialogOpen}>
-        <DialogContent className="sm:max-w-lg rounded-[2.5rem] border-4 shadow-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader className="p-2 pb-0 text-left">
-            <DialogTitle className="flex items-center gap-2 text-lg font-black uppercase tracking-tight text-slate-900"><ShieldAlert className="w-5 h-5 text-primary" /> Recovery / Comp</DialogTitle>
-            <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Reduce or comp this checkout for a service issue.</DialogDescription>
-            {(autonomyLimit > 0 || autonomyPercent > 0) && <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tight pt-1">Autonomy limit: ${autonomyLimit} / {autonomyPercent}%</p>}
-          </DialogHeader>
-          <div className="space-y-6 py-4">
-            {isOverAutonomy && !isOverrideUnlocked && (
-              <Alert variant="destructive" className="border-2 rounded-2xl p-4 bg-destructive/10">
-                <AlertTriangle className="h-4 w-4" />
-                <AlertTitle className="text-[10px] font-black uppercase">Threshold Exceeded</AlertTitle>
-                <AlertDescription className="text-[9px] font-bold leading-tight uppercase opacity-80 mt-1">This adjustment requires a manager override to finalize.</AlertDescription>
-              </Alert>
-            )}
-            <div className="space-y-3">
-              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Quick Presets</p>
-              <div className="flex flex-wrap gap-2">
-                {(selectedTenant?.recoveryPresets || []).map((preset: RecoveryPreset) => (
-                  <Button type="button" key={preset.id} variant="outline" size="sm" onClick={() => handleApplyRecoveryPreset(preset)} className="h-8 rounded-xl border-2 font-black uppercase text-[9px] tracking-tight bg-white shadow-sm hover:border-primary/40">{preset.label}</Button>
-                ))}
+          </section>
+          {selectedClient && tenantId && <CheckoutNudge tenantId={tenantId} client={selectedClient} cart={cart || []} onCartChange={onCartChange} />}
+          {selectedClient && isBirthdayToday && <section className={card} style={cardStyle}><p className={h}>🎂 It’s {firstOf(selectedClient.name)}’s birthday</p><p className="text-[14px]" style={muted}>A small treat or a birthday note goes a long way.</p></section>}
+          {selectedClient && availableEntitlements.length > 0 && (
+            <section className={card} style={cardStyle} aria-label="Benefits">
+              <p className={h}>Their benefits</p>
+              <div className="grid gap-2">
+                {availableEntitlements.map((ent: any, idx: number) => {
+                  const on = redeemedOffer?.itemId === ent.itemId;
+                  return <button key={idx} type="button" disabled={ent.exhausted || on} onClick={() => handleRedeem(ent)} className={rowBtn} style={{ background: on ? 'color-mix(in srgb, var(--ok) 10%, transparent)' : 'var(--soft)', opacity: ent.exhausted ? 0.55 : 1 }}>
+                    <span><span className="block text-[15px] font-semibold">{ent.label}</span><span className="block text-[13px]" style={muted}>{ent.subLabel}{ent.usage ? ` · ${ent.usage}` : ''}</span></span>
+                    <span className="text-[13px] font-semibold">{on ? 'Applied' : ent.exhausted ? 'Used up' : 'Use'}</span>
+                  </button>;
+                })}
               </div>
-            </div>
-            <div className="space-y-3">
-              <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Amount ($)</Label>
-              <div className="relative">
-                <DollarSign className={cn('absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 opacity-40', isOverAutonomy && !isOverrideUnlocked ? 'text-destructive' : 'text-primary')} />
-                <Input type="number" aria-label="Recovery amount in dollars" value={recoveryAmount || ''} onChange={e => setRecoveryAmount(parseFloat(e.target.value) || 0)} placeholder="0.00" className={cn('h-14 pl-12 rounded-2xl border-2 bg-white font-black text-xl font-mono', isOverAutonomy && !isOverrideUnlocked ? 'border-destructive/20 text-destructive' : 'border-primary/20 text-primary')} />
-              </div>
-            </div>
-            <div className="space-y-3">
-              <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Reason</Label>
-              <Textarea value={recoveryReason} onChange={e => setRecoveryReason(e.target.value)} placeholder="Detail the service issue..." aria-label="Service issue details" className="rounded-2xl border-2 bg-white min-h-[100px] font-medium" />
-            </div>
-            {isOverAutonomy && !isOverrideUnlocked && !showPinEntry && (
-              <Button type="button" variant="destructive" onClick={() => setShowPinEntry(true)} className="w-full h-12 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-destructive/20 group">
-                <Lock className="w-4 h-4 mr-2" />Request Override<ArrowRight className="ml-2 w-3.5 h-3.5 transition-transform group-hover:translate-x-1" />
-              </Button>
-            )}
-            {isOverAutonomy && showPinEntry && !isOverrideUnlocked && (
-              <div className="pt-2 space-y-3 border-t border-dashed">
-                <p className="text-[9px] font-black uppercase text-destructive tracking-widest pt-2">Manager Authorization Required</p>
-                <Input type="number" inputMode="numeric" placeholder="Enter PIN" aria-label="Manager PIN" maxLength={4} value={overridePin} onChange={e => setOverridePin(e.target.value.slice(0, 4))} className="h-14 text-center text-2xl font-black border-2 rounded-2xl tracking-widest bg-white" />
-                <Textarea value={overrideReason} onChange={e => setOverrideReason(e.target.value)} placeholder="Justification for this override..." aria-label="Justification for this override" className="rounded-2xl border-2 bg-white min-h-[80px] font-medium" />
-                <div className="flex gap-2">
-                  <Button type="button" variant="ghost" onClick={() => { setShowPinEntry(false); setOverridePin(''); setOverrideReason(''); }} className="flex-1 h-11 rounded-xl font-black uppercase text-[9px] border-2">Cancel</Button>
-                  <Button type="button" variant="destructive" disabled={overridePin.length < 4 || !overrideReason.trim()} onClick={() => {
-                    const auth = (staff || []).find((s: any) => s.pin === overridePin && (s.role === 'admin' || s.role === 'owner'));
-                    if (!auth) { toast({ variant: 'destructive', title: 'Unauthorized', description: 'PIN not recognized.' }); return; }
-                    const finalReason = overrideReason.trim() || recoveryReason.trim() || 'Service Recovery Override';
-                    const finalAmount  = recoveryAmount > 0 ? recoveryAmount : Number(subtotal.toFixed(2));
-                    setIsOverrideUnlocked(true); setShowPinEntry(false); setRecoveryReason(finalReason); setRecoveryAmount(finalAmount);
-                    toast({ title: 'Override Authorized', description: `Approved by ${auth.name}. $${finalAmount.toFixed(2)} comped.` });
-                  }} className="flex-[2] h-11 rounded-xl font-black uppercase text-[9px] tracking-widest">
-                    <ShieldCheck className="w-3.5 h-3.5 mr-1.5" />Authorize
-                  </Button>
-                </div>
-              </div>
-            )}
-            {isOverrideUnlocked && (
-              <div className="flex items-center justify-between p-3 bg-green-50 border-2 border-green-200 rounded-2xl">
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
-                  <div>
-                    <p className="text-[10px] font-black uppercase text-green-700">Override Authorized</p>
-                    <p className="text-[8px] font-bold text-green-600 opacity-70 uppercase">-${safeNumber(recoveryAmount).toFixed(2)} — {recoveryReason || 'Service Recovery'}</p>
+            </section>
+          )}
+          <section className={card} style={cardStyle} aria-label="On this ticket">
+            <p className={h}>On this ticket</p>
+            {isCartEmpty ? <p className="text-[14px]" style={muted}>Nothing yet — pick a visit, scan a ticket, or add items from the counter.</p> : <div className="space-y-2">
+              {appointmentsData.map((data: any) => {
+                const isRedeemed = redeemedOffer?.itemId === data.service.id;
+                const addOns = (data.appointment.addOnIds || []).map((id: any) => services.find((s: any) => s.id === id)).filter(Boolean);
+                const refreshmentsInSession = data.appointment.checkoutState?.refreshments || [];
+                const overrides = data.appointment.checkoutState?.serviceStaffOverrides || {};
+                const mainStaffMember = staff.find((s: any) => s.id === (overrides[data.service.id] || data.appointment.staffId));
+                const adjustments = data.appointment.checkoutState?.adjustments;
+                const additionalCharge = safeNumber(data.appointment.checkoutState?.additionalCharge);
+                const isWaived = waivedAppointmentFees.has(data.appointment.id);
+                const lateFeesForApt = Array.from(appliedAdjustments).map((id: any) => clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id)).filter((fee: any) => fee && fee.appointmentId === data.appointment.id);
+                const feeRows: [string, number][] = isWaived ? [] : [['Reschedule fee', safeNumber(adjustments?.rescheduleFee)], ['Extra time', safeNumber(adjustments?.timeOverage)], ['Extra materials', safeNumber(adjustments?.materialOverage)], ...(!adjustments && additionalCharge > 0 ? [['Adjustment', additionalCharge] as [string, number]] : [])].filter(([, v]) => Number(v) > 0) as [string, number][];
+                const forWho = data.appointment.clientId && data.appointment.clientId !== selectedClientId ? (clients.find((c: any) => c.id === data.appointment.clientId)?.name || data.appointment.clientName) : null;
+                return <div key={data.appointment.id} className="space-y-1.5 rounded-2xl p-3" style={{ background: 'var(--soft)' }}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0"><p className="text-[15px] font-semibold">{data.service.name}{isRedeemed ? ' · benefit' : ''}</p>
+                      <p className="text-[13px]" style={muted}>{firstOf(mainStaffMember?.name) || 'Provider'} · {data.service.duration}m{forWho ? ` · for ${firstOf(forWho)}` : ''}</p></div>
+                    <div className="flex shrink-0 items-center gap-1"><p className="text-[15px] font-semibold tabular-nums">{isRedeemed ? <s style={muted}>{coMoney(getServicePrice(data.service, data.staff))}</s> : coMoney(getServicePrice(data.service, data.staff))}</p>
+                      <button type="button" onClick={() => onSelectAppointment(data.appointment.id)} aria-label={`Take ${data.service.name} off this ticket`} className="flex h-9 w-9 items-center justify-center rounded-full" style={{ background: 'var(--card)' }}>✕</button></div>
                   </div>
+                  {addOns.map((addon: any) => { const as = staff.find((s: any) => s.id === (overrides[addon.id] || data.appointment.staffId)); const red = redeemedOffer?.itemId === addon.id;
+                    return <div key={addon.id} className="flex justify-between gap-2 text-[14px]"><span>+ {addon.name}{as ? <span style={muted}> · {firstOf(as.name)}</span> : null}</span><span className="tabular-nums">{red ? <s style={muted}>{coMoney(getServicePrice(addon, data.staff))}</s> : coMoney(getServicePrice(addon, data.staff))}</span></div>; })}
+                  {refreshmentsInSession.map((r: any, idx: number) => { const q = safeNumber(r.quantity || 1); return <div key={`ref-${idx}`} className="flex justify-between gap-2 text-[14px]"><span>{r.name}{q > 1 ? ` ×${q}` : ''}</span><span className="tabular-nums">{safeNumber(r.price) > 0 ? coMoney(safeNumber(r.price) * q) : 'Free'}</span></div>; })}
+                  {!isWaived && lateFeesForApt.map((fee: any) => <div key={fee.feeId} className="flex items-center justify-between gap-2 text-[14px]" style={{ color: 'var(--warn)' }}><span>{fee.reason}</span><span className="flex items-center gap-1 tabular-nums">{coMoney(fee.feeAmount)}<button type="button" onClick={() => onApplyAdjustmentToggle(fee.feeId, false)} aria-label={`Remove ${fee.reason}`} className="h-8 w-8 rounded-full" style={{ background: 'var(--card)' }}>✕</button></span></div>)}
+                  {feeRows.map(([l, v]) => <div key={l} className="flex justify-between gap-2 text-[14px]" style={{ color: 'var(--warn)' }}><span>{l}</span><span className="tabular-nums">{coMoney(v)}</span></div>)}
+                  {!isWaived && (feeRows.length > 0) && <button type="button" onClick={() => handleWaiveClick(data.appointment.id)} className="text-[13px] font-semibold underline underline-offset-4">Waive these fees{isOwnerOrAdmin ? '' : ' (a manager approves)'}</button>}
+                  {isWaived && <div className="flex items-center justify-between text-[13px]" style={{ color: 'var(--ok)' }}><span>Fees waived</span><button type="button" onClick={() => onWaiveFeeToggle(data.appointment.id, false)} className="font-semibold underline underline-offset-4">Undo</button></div>}
+                </div>;
+              })}
+              {cart.map((item: any) => <div key={item.id} className="flex items-center justify-between gap-2 rounded-2xl p-3" style={{ background: 'var(--soft)' }}>
+                <div className="min-w-0"><p className="truncate text-[15px] font-semibold">{item.name}</p><p className="text-[13px] capitalize" style={muted}>{item.type || 'item'} · {coMoney(item.price)} each</p></div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button type="button" onClick={() => handleUpdateQuantity(item.id, item.quantity - 1)} aria-label={`One fewer ${item.name}`} className="h-9 w-9 rounded-full text-[18px]" style={{ background: 'var(--card)' }}>−</button>
+                  <span className="w-6 text-center text-[15px] font-semibold tabular-nums">{item.quantity}</span>
+                  <button type="button" onClick={() => handleUpdateQuantity(item.id, item.quantity + 1)} aria-label={`One more ${item.name}`} className="h-9 w-9 rounded-full text-[18px]" style={{ background: 'var(--card)' }}>+</button>
+                  <span className="w-16 text-right text-[15px] font-semibold tabular-nums">{coMoney(safeNumber(item.price) * item.quantity)}</span>
+                  <button type="button" onClick={() => handleUpdateQuantity(item.id, 0)} aria-label={`Remove ${item.name}`} className="h-9 w-9 rounded-full" style={{ background: 'var(--card)' }}>✕</button>
                 </div>
-                <Button type="button" variant="ghost" size="sm" onClick={() => { setIsOverrideUnlocked(false); setRecoveryAmount(0); setRecoveryReason(''); setOverridePin(''); setOverrideReason(''); }} className="h-7 px-2 text-[8px] font-black uppercase text-destructive hover:bg-destructive/5">Undo</Button>
-              </div>
-            )}
-          </div>
-          <DialogFooter className="flex-col gap-2 sm:flex-col">
-            {recoveryAmount > 0 && (
-              <Button type="button" variant="ghost" onClick={() => { setRecoveryAmount(0); setRecoveryReason(''); setShowPinEntry(false); setOverridePin(''); setOverrideReason(''); setIsOverrideUnlocked(false); }} className="w-full h-10 rounded-xl font-black uppercase text-[10px] text-destructive hover:bg-destructive/5">Clear Recovery</Button>
-            )}
-            <Button onClick={() => setIsRecoveryDialogOpen(false)} className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest">Done</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {selectedClient && tenantId && <CheckoutNudge tenantId={tenantId} client={selectedClient} cart={cart || []} onCartChange={onCartChange} />}
-      {selectedClient && isBirthdayToday && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-4">
-          <Alert className="bg-pink-500/5 border-pink-500/20 border-2 rounded-2xl p-4 shadow-lg shadow-pink-500/5">
-            <Cake className="h-5 w-5 text-pink-500" />
-            <AlertTitle className="text-[10px] font-black uppercase text-pink-600 tracking-widest">Birthday Protocol Active</AlertTitle>
-            <AlertDescription className="text-[10px] font-bold uppercase text-slate-600 opacity-80 leading-tight mt-1">It's {selectedClient.name.split(' ')[0]}'s special day. Consider a complimentary enhancement or birthday gift.</AlertDescription>
-          </Alert>
-        </motion.div>
-      )}
-
-      {selectedClient && availableEntitlements.length > 0 && (
-        <div className="space-y-4">
-          <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2 ml-1"><Award className="w-3 h-3" />Available Benefits</p>
-          <div className="grid gap-2">
-            {availableEntitlements.map((ent: any, idx: number) => (
-              <Button key={idx} variant="outline" disabled={ent.exhausted || redeemedOffer?.itemId === ent.itemId} onClick={() => handleRedeem(ent)} className={cn('h-auto py-3 px-4 rounded-2xl border-2 flex justify-between items-center transition-all', redeemedOffer?.itemId === ent.itemId ? 'bg-green-500/5 border-green-500/20 text-green-700' : ent.exhausted ? 'opacity-50 bg-muted/30 grayscale border-dashed cursor-not-allowed' : 'bg-white border-indigo-500/10 hover:border-primary/30 shadow-sm')}>
-                <div className="text-left min-w-0 flex-1">
-                  <p className="text-[11px] font-black uppercase tracking-tight truncate">{ent.label}</p>
-                  <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{ent.subLabel}</p>
-                </div>
-                <div className="text-right ml-4 shrink-0">
-                  {redeemedOffer?.itemId === ent.itemId ? <Badge className="bg-green-500 text-white border-none h-5 px-2 font-black text-[8px] uppercase">Applied</Badge> : ent.exhausted ? <div className="flex flex-col items-end gap-1"><Badge variant="destructive" className="h-5 px-2 font-black text-[8px] uppercase border-none animate-pulse">Exhausted</Badge><span className="text-[7px] font-black uppercase opacity-40">{ent.usage}</span></div> : <Badge variant="outline" className="h-5 px-2 font-black text-[8px] uppercase border-2 text-indigo-600 border-indigo-500/20">{ent.usage}</Badge>}
-                </div>
-              </Button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="space-y-4">
-        <div className="flex items-center gap-2 px-1">
-          <ShoppingCart className="w-4 h-4 text-primary" />
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Order Summary</h3>
-        </div>
-        {isCartEmpty ? (
-          <div className="py-12 md:py-16 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
-            <ShoppingCart className="w-10 h-10 md:w-12 md:h-12" />
-            <div className="space-y-1 text-center">
-              <p className="text-sm font-black uppercase tracking-widest">Cart Empty</p>
-              <p className="text-[10px] font-bold uppercase tracking-tight px-4 text-center leading-relaxed">Scan a ticket or select retail items from the catalog.</p>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {appointmentsData.map((data: any) => {
-              const isRedeemed            = redeemedOffer?.itemId === data.service.id;
-              const addOns                = (data.appointment.addOnIds || []).map((id: any) => services.find((s: any) => s.id === id)).filter(Boolean);
-              const refreshmentsInSession = data.appointment.checkoutState?.refreshments || [];
-              const overrides             = data.appointment.checkoutState?.serviceStaffOverrides || {};
-              const mainStaffId           = overrides[data.service.id] || data.appointment.staffId;
-              const mainStaffMember       = staff.find((s: any) => s.id === mainStaffId);
-              const adjustments           = data.appointment.checkoutState?.adjustments;
-              const additionalCharge      = safeNumber(data.appointment.checkoutState?.additionalCharge);
-              const isWaived              = waivedAppointmentFees.has(data.appointment.id);
-              // Late-arrival fees live on the client record (client.unpaidFees), not on
-              // this appointment's checkoutState — but each fee carries the appointmentId
-              // it was generated from, so we can surface it here, attached to the service
-              // that actually caused it, instead of as an unrelated floating card.
-              const lateFeesForApt = Array.from(appliedAdjustments)
-                .map((id: any) => clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id))
-                .filter((fee: any) => fee && fee.appointmentId === data.appointment.id);
-              const hasAnySubItems = addOns.length > 0 || refreshmentsInSession.length > 0 || lateFeesForApt.length > 0 || (!isWaived && (adjustments || additionalCharge > 0)) || isWaived;
-              return (
-                <Card key={data.appointment.id} className={cn('overflow-hidden rounded-[1.5rem] md:rounded-[2rem] border-2 shadow-sm transition-all', isRedeemed ? 'border-primary bg-primary/5 shadow-lg' : 'border-border/50 bg-muted/5')}>
-                  <CardContent className="p-4 md:p-5 space-y-3">
-                    <div className="flex justify-between items-start gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <p className="font-black text-xs md:text-sm uppercase tracking-tight text-slate-900 truncate">{data.service.name}</p>
-                          {isRedeemed && <Badge className="bg-primary text-white border-none text-[7px] h-4 px-1.5 font-black uppercase tracking-widest">Entitlement</Badge>}
-                        </div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-primary/60">{mainStaffMember?.name?.split(' ')[0] || 'Tech'} · {data.service.duration}m</p>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <p className={cn('font-black font-mono text-base md:text-lg tracking-tighter', isRedeemed ? 'line-through text-muted-foreground opacity-40' : 'text-slate-900')}>${safeNumber(getServicePrice(data.service, data.staff)).toFixed(2)}</p>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive -mr-2" onClick={() => onSelectAppointment(data.appointment.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
-                      </div>
-                    </div>
-
-                    {hasAnySubItems && (
-                      <div className="pt-3 border-t border-dashed space-y-1 pl-1">
-                        {addOns.map((addon: any) => {
-                          const addonStaffId = overrides[addon.id] || data.appointment.staffId;
-                          const addonStaff   = staff.find((s: any) => s.id === addonStaffId);
-                          const isAddonRedeemed = redeemedOffer?.itemId === addon.id;
-                          return (
-                            <LineItem
-                              key={addon.id}
-                              icon={Plus}
-                              label={addon.name}
-                              sub={addonStaff?.name?.split(' ')[0]}
-                              amount={safeNumber(getServicePrice(addon, data.staff))}
-                              tone={isAddonRedeemed ? 'primary' : 'muted'}
-                              strike={isAddonRedeemed}
-                            />
-                          );
-                        })}
-
-                        {refreshmentsInSession.map((item: any, idx: number) => {
-                          const qty = safeNumber(item.quantity || 1);
-                          return (
-                            <LineItem
-                              key={`ref-${idx}`}
-                              icon={Coffee}
-                              label={qty > 1 ? `${item.name} ×${qty}` : item.name}
-                              amount={safeNumber(item.price) > 0 ? safeNumber(item.price) * qty : 0}
-                              tone="muted"
-                            />
-                          );
-                        })}
-
-                        {!isWaived && lateFeesForApt.map((fee: any) => (
-                          <div key={fee.feeId} className="flex items-center justify-between gap-2 py-0.5">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <Clock className="w-3 h-3 shrink-0 text-amber-600" />
-                              <span className="text-[10px] font-bold uppercase tracking-tight truncate text-amber-600">{fee.reason}</span>
-                            </div>
-                            <div className="flex items-center gap-1 shrink-0">
-                              <span className="text-[10px] font-black font-mono text-amber-600">${safeNumber(fee.feeAmount).toFixed(2)}</span>
-                              <Button variant="ghost" size="icon" className="h-5 w-5 text-amber-600/50 hover:text-destructive" onClick={() => onApplyAdjustmentToggle(fee.feeId, false)}><X className="h-3 w-3" /></Button>
-                            </div>
-                          </div>
-                        ))}
-
-                        {!isWaived && adjustments && safeNumber(adjustments.rescheduleFee) > 0 && (
-                          <LineItem icon={AlertTriangle} label="Reschedule fee" amount={safeNumber(adjustments.rescheduleFee)} tone="warning" />
-                        )}
-                        {!isWaived && adjustments && safeNumber(adjustments.timeOverage) > 0 && (
-                          <LineItem icon={AlertTriangle} label="Extra time charge" amount={safeNumber(adjustments.timeOverage)} tone="warning" />
-                        )}
-                        {!isWaived && adjustments && safeNumber(adjustments.materialOverage) > 0 && (
-                          <LineItem icon={AlertTriangle} label="Extra materials charge" amount={safeNumber(adjustments.materialOverage)} tone="warning" />
-                        )}
-                        {!isWaived && !adjustments && additionalCharge > 0 && (
-                          <LineItem icon={AlertTriangle} label="Adjustment" amount={additionalCharge} tone="warning" />
-                        )}
-                        {!isWaived && isOwnerOrAdmin && (adjustments || additionalCharge > 0) && (
-                          <Button variant="ghost" size="sm" className="h-6 px-2 text-[8px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50 w-full mt-1" onClick={() => handleWaiveClick(data.appointment.id)}>Absorb Charges</Button>
-                        )}
-                        {isWaived && (
-                          <div className="flex justify-between items-center bg-green-50/50 p-2 rounded-xl border border-green-100">
-                            <div className="flex items-center gap-2"><CheckCircle className="w-3 h-3 text-green-600" /><span className="text-[10px] font-black uppercase text-green-700">Fees absorbed</span></div>
-                            <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[8px] font-black uppercase text-primary underline" onClick={() => onWaiveFeeToggle(data.appointment.id, false)}>Restore</Button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })}
-            {cart.map((item: any) => (
-              <div key={item.id} className="p-3 md:p-4 rounded-2xl md:rounded-3xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all flex items-center gap-3 md:gap-4 group shadow-sm">
-                <div className="flex-1 min-w-0"><p className="font-black text-[11px] md:text-xs uppercase tracking-tight text-slate-900 truncate">{item.name}</p><p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest opacity-60">{item.type}</p></div>
-                <div className="flex items-center gap-2 md:gap-3">
-                  <div className="flex items-center bg-background rounded-xl border-2 h-8 md:h-9 px-1 shadow-sm">
-                    <Button variant="ghost" size="icon" className="h-6 w-6 md:h-7 md:w-7 rounded-lg hover:bg-primary/5" onClick={() => handleUpdateQuantity(item.id, item.quantity - 1)}><Minus className="h-3 w-3" /></Button>
-                    <span className="w-6 md:w-8 text-center text-xs font-black">{item.quantity}</span>
-                    <Button variant="ghost" size="icon" className="h-6 w-6 md:h-7 md:w-7 rounded-lg hover:bg-primary/5" onClick={() => handleUpdateQuantity(item.id, item.quantity + 1)}><Plus className="h-3 w-3" /></Button>
-                  </div>
-                  <p className="font-black font-mono text-sm tracking-tighter w-14 md:w-16 text-right text-slate-900">${(safeNumber(item.price) * item.quantity).toFixed(2)}</p>
-                </div>
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={() => handleUpdateQuantity(item.id, 0)}><Trash2 className="w-4 h-4" /></Button>
-              </div>
-            ))}
-            {Array.from(appliedAdjustments).filter((id: any) => {
-              const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
-              return !fee || !appointmentsData.some((d: any) => d.appointment.id === fee.appointmentId);
-            }).map((id: any) => {
-              const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
-              return (
-                <div key={id} className="p-3 md:p-4 rounded-2xl md:rounded-[2rem] border-2 border-amber-200 bg-amber-50 flex items-center gap-3 md:gap-4 animate-in fade-in slide-in-from-left-2 shadow-sm">
-                  <div className="p-2 bg-amber-100 rounded-xl shadow-inner"><Clock className="w-4 h-4 md:w-5 md:h-5 text-amber-600" /></div>
-                  <div className="flex-1 min-w-0"><p className="font-black text-[11px] md:text-xs uppercase tracking-tight text-amber-700 truncate">{fee?.reason}</p><p className="text-[9px] font-black text-amber-600/70 uppercase tracking-widest">Outstanding balance</p></div>
-                  <p className="font-black font-mono text-sm tracking-tighter text-amber-700">${safeNumber(fee?.feeAmount).toFixed(2)}</p>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-amber-600 shrink-0" onClick={() => onApplyAdjustmentToggle(id, false)}><XCircle className="h-4 w-4" /></Button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      <div className="space-y-3">
-        {walletOffers.filter((w: any) => !appliedDiscountCodes.map((c: string) => c.toUpperCase()).includes(String(w.code).toUpperCase())).length > 0 && (
-          <div className="glass relative space-y-2 overflow-hidden rounded-3xl p-4 shadow-[0_8px_30px_-12px_rgba(16,185,129,0.35)]">
-            <div aria-hidden className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-gradient-to-br from-emerald-200/70 to-amber-200/50 blur-2xl" />
-            <p className="relative text-[10px] font-black uppercase tracking-[0.2em] text-emerald-800">🎁 Offer waiting for this client</p>
+              </div>)}
+              {Array.from(appliedAdjustments).filter((id: any) => { const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id); return !fee || !appointmentsData.some((d: any) => d.appointment.id === fee.appointmentId); }).map((id: any) => {
+                const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
+                return <div key={id} className="flex items-center justify-between gap-2 rounded-2xl p-3" style={{ background: 'var(--soft)' }}>
+                  <div><p className="text-[15px] font-semibold">{fee?.reason || 'Owed balance'}</p><p className="text-[13px]" style={muted}>Owed from before</p></div>
+                  <div className="flex items-center gap-1"><span className="text-[15px] font-semibold tabular-nums">{coMoney(fee?.feeAmount)}</span><button type="button" onClick={() => onApplyAdjustmentToggle(id, false)} aria-label="Leave this balance for later" className="h-9 w-9 rounded-full" style={{ background: 'var(--card)' }}>✕</button></div>
+                </div>;
+              })}
+            </div>}
+          </section>
+          {!isCartEmpty && <section className={card} style={cardStyle} aria-label="Discounts">
+            <p className={h}>Discounts</p>
             {walletOffers.filter((w: any) => !appliedDiscountCodes.map((c: string) => c.toUpperCase()).includes(String(w.code).toUpperCase())).map((w: any) => (
-              <div key={w.id} className="relative flex items-center justify-between gap-2">
-                <p className="min-w-0 text-xs font-bold text-emerald-900">{w.line}{w.campaignName ? <span className="font-medium opacity-70"> · from “{w.campaignName}”</span> : null}</p>
-                <Button size="sm" onClick={() => handleApplyDiscount(String(w.code))} className="h-8 shrink-0 rounded-xl text-[10px] font-black uppercase tracking-widest">Apply</Button>
-              </div>
-            ))}
-          </div>
-        )}
-        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-1">Promo Code</Label>
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <Tag className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
-            <input type="text" placeholder="ENTER CODE..." value={promoCodeInput} onChange={e => setPromoCodeInput(e.target.value.toUpperCase())} onKeyDown={e => e.key === 'Enter' && handleApplyDiscount(promoCodeInput)} className="flex h-12 w-full rounded-2xl border-2 bg-white/80 pl-10 pr-4 py-2 text-sm font-black uppercase tracking-widest focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:border-primary transition-all shadow-inner" />
-          </div>
-          <Button variant="outline" onClick={() => handleApplyDiscount(promoCodeInput)} className="h-12 px-4 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm hover:border-primary/40">Apply</Button>
-          <Button variant="outline" onClick={() => setIsDiscountBrowserOpen(true)} className="h-12 px-4 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm hover:border-primary/40"><Percent className="w-4 h-4" /></Button>
-        </div>
-      {appliedDiscountCodes.length > 0 && (
-           <div className="flex flex-wrap gap-2">
-             {appliedDiscountCodes.map((code: string) => (
-               <Badge key={code} variant="secondary" className="h-7 px-3 rounded-xl border-2 border-primary/20 bg-primary/5 text-primary font-black uppercase text-[10px] tracking-widest flex items-center gap-2">
-                 {code}
-                 <button onClick={() => setAppliedDiscountCodes(appliedDiscountCodes.filter((c: string) => c !== code))} className="hover:text-destructive transition-colors"><X className="w-3 h-3" /></button>
-               </Badge>
-             ))}
-           </div>
-         )}
-       </div>
-
+              <div key={w.id} className="flex items-center justify-between gap-2 rounded-2xl p-3" style={{ background: 'color-mix(in srgb, var(--accent) 8%, transparent)' }}>
+                <p className="text-[14px]"><b>Offer waiting:</b> {w.line}{w.campaignName ? <span style={muted}> · {w.campaignName}</span> : null}</p>
+                <button type="button" onClick={() => handleApplyDiscount(String(w.code))} className={pill(true)} style={pillStyle(true)}>Apply</button>
+              </div>))}
+            <div className="flex gap-2">
+              <input value={promoCodeInput} onChange={(e) => setPromoCodeInput(e.target.value.toUpperCase())} onKeyDown={(e) => { if (e.key === 'Enter') handleApplyDiscount(promoCodeInput); }} placeholder="Discount code" aria-label="Discount code" autoCapitalize="characters" className={inputCls} style={inputStyle} />
+              <button type="button" onClick={() => handleApplyDiscount(promoCodeInput)} className="shrink-0 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Apply</button>
+              <button type="button" onClick={() => setIsDiscountBrowserOpen(true)} className="shrink-0 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Browse</button>
+            </div>
+            {appliedDiscountCodes.length > 0 && <div className="flex flex-wrap gap-1.5">{appliedDiscountCodes.map((code: string) => <span key={code} className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-semibold" style={{ background: 'var(--soft)' }}>{code}<button type="button" aria-label={`Remove code ${code}`} onClick={() => setAppliedDiscountCodes(appliedDiscountCodes.filter((c: string) => c !== code))}>✕</button></span>)}</div>}
+            {staffDiscount ? <div className="flex items-center justify-between gap-2 rounded-2xl p-3" style={{ background: 'var(--soft)' }}>
+                <p className="text-[14px]"><b>Staff discount {staffDiscount.kind === 'pct' ? `${staffDiscount.value}%` : coMoney(staffDiscount.value)}</b> (−{coMoney(staffDiscountValue)}) · {staffDiscount.reason}{staffDiscount.approvedBy ? ` · approved by ${firstOf(staffDiscount.approvedBy)}` : ''}</p>
+                <button type="button" onClick={() => setStaffDiscount?.(null)} className="shrink-0 text-[13px] font-semibold underline underline-offset-4">Remove</button></div>
+              : !sdOpen ? <button type="button" onClick={() => setSdOpen(true)} className="text-[14px] font-semibold underline underline-offset-4">Give a staff discount</button>
+              : <div className="space-y-2 rounded-2xl p-3" style={{ background: 'var(--soft)' }}>
+                <div className="flex gap-2"><div className="flex shrink-0 gap-1 rounded-full p-1" style={{ background: 'var(--card)' }}>{(['pct', 'amt'] as const).map((k) => <button key={k} type="button" aria-pressed={sdKind === k} onClick={() => setSdKind(k)} className={pill(sdKind === k)} style={pillStyle(sdKind === k)}>{k === 'pct' ? '%' : '$'}</button>)}</div>
+                  <input value={sdValue || ''} onChange={(e) => setSdValue(parseFloat(e.target.value) || 0)} inputMode="decimal" type="number" placeholder={sdKind === 'pct' ? 'e.g. 10' : 'e.g. 5.00'} aria-label="Discount amount" className={inputCls} style={inputStyle} /></div>
+                <input value={sdReason} onChange={(e) => setSdReason(e.target.value)} placeholder="Reason (e.g. redo, loyalty, staff friend)" aria-label="Discount reason" className={inputCls} style={inputStyle} />
+                {sdDraftDollars > 0 && <p className="text-[13px]" style={muted}>−{coMoney(sdDraftDollars)} ({sdDraftPct.toFixed(0)}% of the ticket){!sdIsManager ? ` · you can give up to ${sdLimitPct}% yourself` : ''}</p>}
+                {sdNeedsApproval && <input value={sdPin} onChange={(e) => setSdPin(e.target.value.replace(/\D/g, '').slice(0, 8))} type="password" inputMode="numeric" placeholder="Manager PIN to approve" aria-label="Manager PIN" className={inputCls} style={inputStyle} />}
+                <div className="flex gap-2"><button type="button" onClick={applyStaffDiscount} disabled={!sdDraftDollars || !sdReason.trim() || (sdNeedsApproval && sdPin.length < 4)} className="h-11 flex-1 rounded-full text-[14px] font-semibold disabled:opacity-40" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>{sdNeedsApproval ? 'Approve and apply' : 'Apply'}</button>
+                  <button type="button" onClick={() => { setSdOpen(false); setSdPin(''); }} className="h-11 rounded-full px-4 text-[14px]" style={{ background: 'var(--card)' }}>Cancel</button></div>
+              </div>}
+            {!isRecoveryDialogOpen && recoveryAmount === 0 ? <button type="button" onClick={() => setIsRecoveryDialogOpen(true)} className="block text-[14px] font-semibold underline underline-offset-4">Make it right (service recovery)</button>
+              : <div className="space-y-2 rounded-2xl p-3" style={{ background: recoveryAmount > 0 ? 'color-mix(in srgb, var(--warn) 8%, transparent)' : 'var(--soft)' }}>
+                <p className="text-[14px] font-semibold">Service recovery{(autonomyLimit > 0 || autonomyPercent > 0) ? <span className="font-normal" style={muted}> · you can give up to {autonomyLimit > 0 ? coMoney(autonomyLimit) : ''}{autonomyLimit > 0 && autonomyPercent > 0 ? ' / ' : ''}{autonomyPercent > 0 ? `${autonomyPercent}%` : ''}</span> : null}</p>
+                {(selectedTenant?.recoveryPresets || []).length > 0 && <div className="flex flex-wrap gap-1.5">{(selectedTenant?.recoveryPresets || []).map((preset: RecoveryPreset) => <button key={preset.id} type="button" onClick={() => handleApplyRecoveryPreset(preset)} className={pill(false)} style={pillStyle(false)}>{preset.label}</button>)}</div>}
+                <input type="number" inputMode="decimal" value={recoveryAmount || ''} onChange={(e) => setRecoveryAmount(parseFloat(e.target.value) || 0)} placeholder="Amount ($)" aria-label="Recovery amount in dollars" className={inputCls} style={inputStyle} />
+                <input value={recoveryReason} onChange={(e) => setRecoveryReason(e.target.value)} placeholder="What went wrong?" aria-label="Service issue details" className={inputCls} style={inputStyle} />
+                {isOverAutonomy && !isOverrideUnlocked && <div className="space-y-2">
+                  <p className="text-[13px] font-semibold" style={{ color: 'var(--warn)' }}>Over your limit — a manager approves.</p>
+                  <input type="password" inputMode="numeric" placeholder="Manager PIN" aria-label="Manager PIN" value={overridePin} onChange={(e) => setOverridePin(e.target.value.replace(/\D/g, '').slice(0, 8))} className={inputCls} style={inputStyle} />
+                  <input value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} placeholder="Why (recorded)" aria-label="Justification for this override" className={inputCls} style={inputStyle} />
+                  <button type="button" disabled={overridePin.length < 4 || !overrideReason.trim()} onClick={async () => {
+                    const finalReason = overrideReason.trim() || recoveryReason.trim() || 'Service Recovery Override';
+                    const finalAmount = recoveryAmount > 0 ? recoveryAmount : Number(subtotal.toFixed(2));
+                    const ap = await approveWithPin(tenantId, overridePin, { kind: 'recovery', amount: finalAmount, reason: finalReason });
+                    if (!ap.ok || !ap.approver) { toast({ variant: 'destructive', title: 'Not approved', description: ap.error || 'PIN not recognized.' }); return; }
+                    setRecoveryApprovalToken(ap.token || null); setIsOverrideUnlocked(true); setShowPinEntry(false); setRecoveryReason(finalReason); setRecoveryAmount(finalAmount);
+                    toast({ title: 'Approved', description: `${ap.approver.name} approved ${coMoney(finalAmount)}.` });
+                  }} className="h-11 w-full rounded-full text-[14px] font-semibold disabled:opacity-40" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>Approve</button>
+                </div>}
+                {isOverrideUnlocked && <p className="text-[13px] font-semibold" style={{ color: 'var(--ok)' }}>Approved — −{coMoney(recoveryAmount)}</p>}
+                <div className="flex gap-2"><button type="button" onClick={() => setIsRecoveryDialogOpen(false)} className="h-10 flex-1 rounded-full text-[14px] font-semibold" style={{ background: 'var(--card)' }}>Done</button>
+                  {recoveryAmount > 0 && <button type="button" onClick={() => { setRecoveryAmount(0); setRecoveryReason(''); setShowPinEntry(false); setOverridePin(''); setOverrideReason(''); setIsOverrideUnlocked(false); setIsRecoveryDialogOpen(false); }} className="h-10 rounded-full px-4 text-[14px]" style={{ background: 'var(--card)' }}>Remove</button>}</div>
+              </div>}
+          </section>}
        {selectedClient && !isCartEmpty && (
          <StoreCreditPanel
            client={selectedClient}
@@ -1213,99 +1047,30 @@ export const CheckoutHub = ({
            }}
          />
        )}
-
-      <div className="space-y-4">
-        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-1">Payment Protocol</Label>
-        <Tabs value={paymentTab} onValueChange={v => { setPaymentTab(v); setCardMode('select'); }} className="w-full">
-          <TabsList className="grid w-full grid-cols-3 h-12 rounded-2xl bg-muted/30 p-1 border-2 border-muted shadow-inner">
-            <TabsTrigger value="card"  className="rounded-xl font-black text-[9px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-md"><CreditCard className="w-3 h-3 mr-1.5" /> CARD</TabsTrigger>
-            <TabsTrigger value="cash"  className="rounded-xl font-black text-[9px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-md"><Banknote className="w-3 h-3 mr-1.5" /> CASH</TabsTrigger>
-            <TabsTrigger value="other" className="rounded-xl font-black text-[9px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-md"><Landmark className="w-3 h-3 mr-1.5" /> OTHER</TabsTrigger>
-          </TabsList>
-
-          {isCardTab && cardSurchargeEnabled && cardSurcharge > 0 && (
-            <div className="mt-3 flex items-center justify-between px-4 py-3 rounded-xl bg-amber-50 border-2 border-amber-200">
-              <span className="text-[10px] font-black uppercase tracking-widest text-amber-700 flex items-center gap-1.5">
-                <Receipt className="w-3.5 h-3.5" /> Card Processing Fee ({(cardSurchargeRate * 100).toFixed(1)}%)
-              </span>
-              <span className="text-[10px] font-black font-mono text-amber-700">+${cardSurcharge.toFixed(2)}</span>
+        </div>
+        <div className="co-right min-w-0 space-y-3">
+          {!isCartEmpty && paymentTab !== 'card' && !studentsNoTips && <section className={card} style={cardStyle} aria-label="Tip">
+            <p className={h}>Tip</p>
+            <div className="flex flex-wrap gap-1.5">{[0, 15, 18, 20, 25].map((pct) => { const amt = Number((safeNumber(subtotal) * pct / 100).toFixed(2)); const on = pct === 0 ? tipAmount === 0 : Math.abs(tipAmount - amt) < 0.01;
+              return <button key={pct} type="button" aria-pressed={on} onClick={() => handleTotalTipChange(amt)} className={pill(on)} style={pillStyle(on)}>{pct === 0 ? 'No tip' : `${pct}% · ${coMoney(amt)}`}</button>; })}</div>
+            <input type="number" inputMode="decimal" value={tipAmount || ''} onChange={(e) => handleTotalTipChange(parseFloat(e.target.value) || 0)} placeholder="Or an amount ($)" aria-label="Tip amount in dollars" className={inputCls} style={inputStyle} />
+          </section>}
+          <section className={card} style={cardStyle} aria-label="Pay">
+            <p className={h}>How they’re paying</p>
+            <div role="tablist" aria-label="Payment method" className="grid grid-cols-3 gap-1 rounded-full p-1" style={{ background: 'var(--soft)' }}>
+              {([['card', 'Card'], ['cash', 'Cash'], ['other', 'Other']] as const).map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={paymentTab === k} onClick={() => { setPaymentTab(k); setCardMode('select'); }} className="h-11 rounded-full text-[15px] font-semibold" style={paymentTab === k ? { background: 'var(--card)', boxShadow: '0 1px 2px rgba(0,0,0,.08)' } : { color: 'var(--muted)' }}>{l}</button>)}
             </div>
-          )}
-
-          <AnimatePresence mode="wait">
-            {paymentTab === 'card' && cardMode === 'select' && (
-              <motion.div key="card-select" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="pt-4 space-y-3">
-
-                {hasCardOnFile && (
-                  <button onClick={() => setCardMode('cof_tip')}
-                    className="w-full flex items-center justify-between p-4 rounded-2xl border-2 border-primary/20 bg-primary/[0.02] hover:border-primary/40 hover:bg-primary/5 transition-all group text-left">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-white rounded-xl shadow-sm border border-primary/10">
-                        <CreditCard className="w-5 h-5 text-primary" />
-                      </div>
-                      <div>
-                        <p className="text-[11px] font-black uppercase tracking-tight text-slate-900">
-                          {String(selectedClient?.cardOnFile?.brand || 'Card')} •••• {String(selectedClient?.cardOnFile?.last4 || '****')}
-                        </p>
-                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Card on File · Tap to charge</p>
-                      </div>
-                    </div>
-                    <ArrowRight className="w-4 h-4 text-primary opacity-40 group-hover:opacity-100 transition-opacity shrink-0" />
-                  </button>
-                )}
-
-                <button onClick={handleTerminalPayment}
-                  disabled={!readerConnected}
-                  className={cn('w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all group text-left',
-                    readerConnected
-                      ? 'border-green-200 bg-green-50/50 hover:border-green-300 hover:bg-green-50'
-                      : 'border-border bg-muted/10 opacity-50 cursor-not-allowed')}>
-                  <div className="flex items-center gap-3">
-                    <div className={cn('p-2 rounded-xl shadow-sm border', readerConnected ? 'bg-white border-green-200' : 'bg-muted/20 border-border')}>
-                      <Monitor className={cn('w-5 h-5', readerConnected ? 'text-green-600' : 'text-muted-foreground')} />
-                    </div>
-                    <div>
-                      <p className="text-[11px] font-black uppercase tracking-tight text-slate-900">
-                        {readerConnected ? terminal?.connectedReader?.label || 'Terminal Reader' : 'Terminal Reader'}
-                      </p>
-                      <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">
-                        {readerConnected ? 'Tap / Insert / Swipe' : 'No reader paired — configure in Settings'}
-                      </p>
-                    </div>
-                  </div>
-                  {readerConnected
-                    ? <ArrowRight className="w-4 h-4 text-green-600 opacity-40 group-hover:opacity-100 transition-opacity shrink-0" />
-                    : <Badge variant="outline" className="border-2 font-black text-[8px] uppercase h-5 px-2">Setup</Badge>}
-                </button>
-
-                <button onClick={() => setCardMode('new_card')}
-                  className="w-full flex items-center justify-between p-4 rounded-2xl border-2 border-border bg-white hover:border-primary/20 hover:bg-primary/[0.01] transition-all group text-left">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-muted/20 rounded-xl shadow-sm border border-border">
-                      <Plus className="w-5 h-5 text-slate-500" />
-                    </div>
-                    <div>
-                      <p className="text-[11px] font-black uppercase tracking-tight text-slate-900">New Card</p>
-                      <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Enter card details manually</p>
-                    </div>
-                  </div>
-                  <ArrowRight className="w-4 h-4 text-muted-foreground opacity-40 group-hover:opacity-100 transition-opacity shrink-0" />
-                </button>
-
-                {selectedClient && (
-                  <button type="button" onClick={() => setSaveNewCard(v => !v)}
-                    className={cn('w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 transition-all text-left', saveNewCard ? 'border-primary/20 bg-primary/5' : 'border-border bg-white')}>
-                    <span className="text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
-                      <Lock className="w-3 h-3 text-primary" /> Save card to profile
-                    </span>
-                    <div className={cn('w-9 h-5 rounded-full relative transition-colors shrink-0', saveNewCard ? 'bg-primary' : 'bg-slate-200')}>
-                      <div className={cn('absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all', saveNewCard ? 'left-[18px]' : 'left-0.5')} />
-                    </div>
-                  </button>
-                )}
-              </motion.div>
-            )}
-
+            {isCardTab && cardSurchargeEnabled && cardSurcharge > 0 && <p className="text-[13px]" style={muted}>Card fee {(cardSurchargeRate * 100).toFixed(1)}% · +{coMoney(cardSurcharge)}</p>}
+            <AnimatePresence mode="wait">
+              {paymentTab === 'card' && cardMode === 'select' && <div className="grid gap-2">
+                {hasCardOnFile && <button type="button" onClick={() => setCardMode('cof_tip')} className={rowBtn} style={{ background: 'var(--soft)' }}>
+                  <span><span className="block text-[15px] font-semibold">{String(selectedClient?.cardOnFile?.brand || 'Card')} ending {String(selectedClient?.cardOnFile?.last4 || '••••')}</span><span className="block text-[13px]" style={muted}>Card on file — they choose a tip, then you charge</span></span><span aria-hidden>→</span></button>}
+                <button type="button" onClick={handleTerminalPayment} disabled={!readerConnected} className={rowBtn} style={{ background: 'var(--soft)', opacity: readerConnected ? 1 : 0.55 }}>
+                  <span><span className="block text-[15px] font-semibold">{readerConnected ? terminal?.connectedReader?.label || 'Card reader' : 'Card reader'}</span><span className="block text-[13px]" style={muted}>{readerConnected ? 'Tap, insert or swipe' : 'No reader paired — set one up in Settings'}</span></span><span aria-hidden>{readerConnected ? '→' : ''}</span></button>
+                <button type="button" onClick={() => setCardMode('new_card')} className={rowBtn} style={{ background: 'var(--soft)' }}>
+                  <span><span className="block text-[15px] font-semibold">Type in a card</span><span className="block text-[13px]" style={muted}>Enter the card details</span></span><span aria-hidden>→</span></button>
+                {selectedClient && <label className="flex items-center gap-2 px-1 text-[14px]"><input type="checkbox" checked={saveNewCard} onChange={() => setSaveNewCard((v: boolean) => !v)} /> Save a typed card to their profile</label>}
+              </div>}
             {paymentTab === 'card' && cardMode === 'cof_tip' && selectedClient && (() => {
               const presets = [0, 10, 18, 20, 25];
               const baseForTip = subtotal; // tip on pre-tax subtotal
@@ -1402,7 +1167,6 @@ export const CheckoutHub = ({
                 </motion.div>
               );
             })()}
-
             {paymentTab === 'card' && cardMode === 'cof_confirm' && selectedClient && (
               <motion.div key="cof-confirm" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="pt-4">
                 <CardOnFileConfirm
@@ -1415,7 +1179,6 @@ export const CheckoutHub = ({
                 />
               </motion.div>
             )}
-
             {paymentTab === 'card' && cardMode === 'terminal' && (
               <motion.div key="terminal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                 <TerminalPaymentUI
@@ -1425,7 +1188,6 @@ export const CheckoutHub = ({
                 />
               </motion.div>
             )}
-
             {paymentTab === 'card' && cardMode === 'new_card' && tenantId && (
               <motion.div key="new-card" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                 <EmbeddedCardForm
@@ -1436,14 +1198,13 @@ export const CheckoutHub = ({
                   saveCard={saveNewCard && !!selectedClient}
                   onSuccess={async (paymentIntentId) => {
                     toast({ title: 'Card Charged', description: `$${amountToCharge.toFixed(2)} collected.` });
-                    await onCheckout({ paymentMethod: 'card', amountTendered: amountToCharge, recoveryAmount, recoveryReason, stripePaymentIntentId: paymentIntentId, cardSurcharge });
+                    await onCheckout({ paymentMethod: 'card', amountTendered: amountToCharge, recoveryAmount, recoveryReason, recoveryApprovalToken, stripePaymentIntentId: paymentIntentId, cardSurcharge });
                     setCardMode('select');
                   }}
                   onCancel={() => setCardMode('select')}
                 />
               </motion.div>
             )}
-
             {paymentTab === 'cash' && (
               <motion.div key="cash" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="pt-4">
                 <CashCheckout
@@ -1454,7 +1215,7 @@ export const CheckoutHub = ({
                   setAmountTendered={setAmountTendered}
                   tipAmount={tipAmount}
                   onTipChange={handleTotalTipChange}
-                  onCheckout={() => onCheckout({ paymentMethod: 'cash', amountTendered, recoveryAmount, recoveryReason, isEscalated: isOverrideUnlocked })}
+                  onCheckout={() => onCheckout({ paymentMethod: 'cash', amountTendered, recoveryAmount, recoveryReason, recoveryApprovalToken, isEscalated: isOverrideUnlocked })}
                   isSubmitting={isSubmitting}
                   isCartEmpty={isCartEmpty}
                   isGroupCheckout={isGroupCheckout}
@@ -1502,102 +1263,35 @@ export const CheckoutHub = ({
                 />
               </motion.div>
             )}
-          </AnimatePresence>
-        </Tabs>
-      </div>
-
-      <div className="space-y-4 pt-4 border-t border-dashed">
-        <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60">
-          <p>Subtotal</p>
-          <p className="font-mono text-[11px] md:text-xs">${safeNumber(subtotal).toFixed(2)}</p>
-        </div>
-        {finalTotal > 0 && (
-          <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60">
-            <p>{taxLabel || 'Sales tax'}</p>
-            <p className="font-mono text-[11px] md:text-xs">${(Number(tax) || 0).toFixed(2)}</p>
-          </div>
-        )}
-        {totalDiscount > 0 && recoveryAmount === 0 && (
-          <div className="flex justify-between items-center text-[10px] text-primary font-black uppercase tracking-tighter">
-            <span className="flex items-center gap-2"><Percent className="w-3.5 h-3.5" /> Discount</span>
-            <span className="font-mono text-[11px] md:text-xs">-${safeNumber(totalDiscount).toFixed(2)}</span>
-          </div>
-        )}
-        {recoveryAmount > 0 && (
-          <div className="flex justify-between items-center text-[10px] text-amber-600 font-black uppercase tracking-tighter">
-            <span className="flex items-center gap-2"><ShieldAlert className="w-3.5 h-3.5" /> Recovery/Comp {recoveryReason ? `— ${recoveryReason.slice(0, 30)}${recoveryReason.length > 30 ? '...' : ''}` : ''}</span>
-            <span className="font-mono text-[11px] md:text-xs shrink-0 ml-2">-${safeNumber(recoveryAmount).toFixed(2)}</span>
-          </div>
-        )}
-        {totalPaidDeposits > 0 && (
-          <div className="flex justify-between items-center text-[10px] text-green-600 font-black uppercase tracking-tighter">
-            <span className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5" /> Deposit Applied</span>
-            <span className="font-mono text-[11px] md:text-xs">-${totalPaidDeposits.toFixed(2)}</span>
-          </div>
-        )}
-        {cardSurcharge > 0 && (
-          <div className="flex justify-between items-center text-[10px] text-amber-600 font-black uppercase tracking-tighter">
-            <span className="flex items-center gap-2"><Receipt className="w-3.5 h-3.5" /> Card Processing Fee ({(cardSurchargeRate * 100).toFixed(1)}%)</span>
-            <span className="font-mono text-[11px] md:text-xs">+${cardSurcharge.toFixed(2)}</span>
-          </div>
-        )}
-        {safeNumber(storeCreditApplied) > 0 && (
-          <div className="flex justify-between items-center text-[10px] text-green-600 font-black uppercase tracking-tighter">
-            <span className="flex items-center gap-2"><Wallet className="w-3.5 h-3.5" /> Store Credit Applied</span>
-            <span className="font-mono text-[11px] md:text-xs">-${safeNumber(storeCreditApplied).toFixed(2)}</span>
-          </div>
-        )}
-      </div>
-
-      <div className="sticky bottom-0 -mx-6 px-6 pt-4 pb-6 mt-2 space-y-4 bg-white/95 backdrop-blur-md border-t-4 border-primary/10 shadow-[0_-12px_30px_-15px_rgba(0,0,0,0.15)] z-30">
-        <div className="flex justify-between items-center py-1 md:py-2">
-          <p className="font-black uppercase font-bold text-[10px] tracking-[0.2em] text-muted-foreground">Gratuity</p>
-          <div className="relative w-32 md:w-36">
-            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 md:h-4 md:w-4 text-primary font-black" />
-            <Input type="number" aria-label="Tip amount in dollars" value={tipAmount || ''} onChange={(e) => handleTotalTipChange(parseFloat(e.target.value) || 0)} className="h-9 md:h-11 text-right pr-4 pl-9 font-black text-base md:text-xl border-2 rounded-xl md:rounded-2xl shadow-inner focus-visible:ring-primary/20 bg-muted/5" placeholder="0.00" />
-          </div>
-        </div>
-        <div className="flex justify-between items-baseline font-black text-xl md:text-4xl text-primary tracking-tighter px-1 pt-3 border-t border-border/50">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground opacity-60">Total Due</p>
-          <p className="font-mono text-2xl md:text-4xl">${safeNumber(isCardTab ? amountToCharge : finalTotal).toFixed(2)}</p>
-        </div>
-
-        <div className="pt-2">
-          {isOverAutonomy && !isOverrideUnlocked && (
-            <div className="flex items-center gap-2 p-3 rounded-2xl bg-destructive/10 border-2 border-destructive/20 mb-3">
-              <Lock className="w-4 h-4 text-destructive shrink-0" />
-              <p className="text-[10px] font-black uppercase text-destructive tracking-widest">Manager override required before checkout</p>
+            </AnimatePresence>
+            {paymentTab === 'other' && <p className="text-[14px]" style={muted}>For payments taken outside the app (a bank transfer, a cheque, a voucher). Record it with the button below.</p>}
+          </section>
+          <section className={card} style={cardStyle} aria-label="Totals">
+            <div className="space-y-1.5 text-[14px]">
+              <div className="flex justify-between"><span>Subtotal</span><span className="tabular-nums">{coMoney(subtotal)}</span></div>
+              {totalDiscount > 0 && recoveryAmount === 0 && <div className="flex justify-between"><span>Discounts</span><span className="tabular-nums">−{coMoney(totalDiscount)}</span></div>}
+              {totalDiscount > 0 && recoveryAmount > 0 && <div className="flex justify-between"><span>Discounts</span><span className="tabular-nums">−{coMoney(totalDiscount)}</span></div>}
+              {recoveryAmount > 0 && <div className="flex justify-between"><span>Service recovery{recoveryReason ? <span style={muted}> · {recoveryReason.slice(0, 28)}{recoveryReason.length > 28 ? '…' : ''}</span> : null}</span><span className="tabular-nums">−{coMoney(recoveryAmount)}</span></div>}
+              {finalTotal > 0 && <div className="flex justify-between"><span>{taxLabel || 'Sales tax'}</span><span className="tabular-nums">{coMoney(tax)}</span></div>}
+              {tipAmount > 0 && <div className="flex justify-between"><span>Tip</span><span className="tabular-nums">{coMoney(tipAmount)}</span></div>}
+              {totalPaidDeposits > 0 && <div className="flex justify-between" style={{ color: 'var(--ok)' }}><span>Deposit already paid</span><span className="tabular-nums">−{coMoney(totalPaidDeposits)}</span></div>}
+              {safeNumber(storeCreditApplied) > 0 && <div className="flex justify-between" style={{ color: 'var(--ok)' }}><span>Store credit</span><span className="tabular-nums">−{coMoney(storeCreditApplied)}</span></div>}
+              {cardSurcharge > 0 && <div className="flex justify-between"><span>Card fee ({(cardSurchargeRate * 100).toFixed(1)}%)</span><span className="tabular-nums">+{coMoney(cardSurcharge)}</span></div>}
             </div>
-          )}
-          {paymentTab === 'other' && (
-            <Button
-              className="w-full h-14 md:h-16 text-base md:text-xl font-black rounded-2xl md:rounded-3xl shadow-2xl shadow-primary/30 transition-all hover:scale-105 active:scale-95 uppercase tracking-tight"
-              onClick={() => onCheckout({ paymentMethod: paymentTab, amountTendered, recoveryAmount, recoveryReason, isEscalated: isOverrideUnlocked })}
-              disabled={
-                isSubmitting ||
-                isCartEmpty ||
-                (isGroupCheckout && !selectedClientId) ||
-                (isOverAutonomy && !isOverrideUnlocked)
-              }
-            >
-              {isSubmitting
-                ? <Loader className="animate-spin h-6 w-6 md:h-7 md:w-7" />
-                : finalTotal <= 0
-                ? 'Finalize Free Session'
-                : `Charge $${safeNumber(finalTotal).toFixed(2)}`}
-            </Button>
-          )}
-          {paymentTab === 'card' && cardMode === 'select' && (
-            <div className="p-4 rounded-2xl border-2 border-dashed border-primary/20 text-center">
-              <p className="text-[10px] font-black uppercase tracking-widest text-primary/40">Select a payment method above to proceed</p>
-            </div>
-          )}
+          </section>
         </div>
       </div>
-
+      <div className="sticky bottom-0 z-10 -mx-5 mt-3 px-5 pb-1 pt-3" style={{ background: 'var(--paper)', borderTop: '1px solid var(--line)' }}>
+        <div className="flex items-center justify-between gap-3">
+          <div><p className="text-[12px]" style={muted}>{isCardTab ? 'To charge' : 'Due'}</p><p className="text-[26px] font-semibold tabular-nums leading-tight">{coMoney(dueNow)}</p></div>
+          {paymentTab === 'other' ? <button type="button" onClick={() => onCheckout({ paymentMethod: paymentTab, amountTendered, recoveryAmount, recoveryReason, recoveryApprovalToken, isEscalated: isOverrideUnlocked })} disabled={isSubmitting || payBlocked}
+              className="h-12 rounded-full px-6 text-[15px] font-semibold disabled:opacity-40" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>{isSubmitting ? 'Saving…' : finalTotal <= 0 ? 'Complete (nothing to pay)' : `Record ${coMoney(finalTotal)}`}</button>
+            : <p className="max-w-[55%] text-right text-[13px]" style={muted}>{payBlocked ? (isOverAutonomy && !isOverrideUnlocked ? 'A manager needs to approve the recovery first' : isGroupCheckout && !selectedClientId ? 'Choose who’s paying' : 'Add something to the ticket') : paymentTab === 'cash' ? 'Enter the cash given above to finish' : cardMode === 'select' ? 'Choose how they pay by card above' : 'Finish the card payment above'}</p>}
+        </div>
+      </div>
       <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={handleApplyDiscount} cartServiceIds={cartServiceIds} />
-      <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsPointOfSaleWaiveAuthOpen} staff={staff} onConfirm={handleConfirmWaive} title="Admin Override" description="Authorize fee waiver with manager PIN." />
-
+      <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsPointOfSaleWaiveAuthOpen} staff={staff} onConfirm={handleConfirmWaive} tenantIdForApproval={tenantId} approvalKind="waive" approvalRef={pendingWaiveAptId} title="Admin Override" description="Authorize fee waiver with manager PIN." />
     </div>
   );
+
 };
