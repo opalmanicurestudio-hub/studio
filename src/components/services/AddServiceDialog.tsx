@@ -1,5 +1,6 @@
 'use client';
 
+import { approveWithPin } from '@/lib/approve-client';
 import { hasRealCard } from '@/lib/card-on-file';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -113,12 +114,15 @@ const safeDate = (val: any): Date => {
 
 // ─── WaiveFeeDialog ───────────────────────────────────────────────────────────
 const WaiveFeeDialog = ({ open, onOpenChange, staff, onConfirm, title = 'Admin Override', description = 'Authorize fee waiver with manager PIN.' }: any) => {
+  const { selectedTenant: approvalTenant } = useTenant();   // the current business (for the server approval)
   const [pin, setPin] = useState('');
   const [reason, setReason] = useState('');
   const { toast } = useToast();
 
-  const handleConfirm = () => {
-    const authorizedStaff = staff.find((s: any) => s.pin === pin && (s.role === 'admin' || s.role === 'owner'));
+  const handleConfirm = async () => {
+    const tidForApproval = String(approvalTenant?.id || '');
+    const ap = await approveWithPin(tidForApproval, pin, { kind: 'service_override', reason, requireReason: false });   // checked on the server
+    const authorizedStaff: any = ap.ok && ap.approver ? { ...ap.approver, approvalToken: ap.token } : null;
     if (!authorizedStaff) { toast({ variant: 'destructive', title: 'Unauthorized', description: 'Manager authorization required.' }); return; }
     if (!reason.trim()) { toast({ variant: 'destructive', title: 'Reason Required' }); return; }
     onConfirm(authorizedStaff, reason);
@@ -845,8 +849,10 @@ export const CheckoutHub = ({
                         <Textarea value={overrideReason} onChange={e => setOverrideReason(e.target.value)} placeholder="Justification for this override..." className="rounded-2xl border-2 bg-white min-h-[80px] font-medium" />
                         <div className="flex gap-2">
                           <Button type="button" variant="ghost" onClick={() => { setShowPinEntry(false); setOverridePin(''); setOverrideReason(''); }} className="flex-1 h-11 rounded-xl font-black uppercase text-[9px] border-2">Cancel</Button>
-                          <Button type="button" variant="destructive" disabled={overridePin.length < 4 || !overrideReason.trim()} onClick={() => {
-                            const auth = (staff || []).find((s: any) => s.pin === overridePin && (s.role === 'admin' || s.role === 'owner'));
+                          <Button type="button" variant="destructive" disabled={overridePin.length < 4 || !overrideReason.trim()} onClick={async () => {
+                            const tidForApproval = String(selectedTenant?.id || '');
+                            const ap = await approveWithPin(tidForApproval, overridePin, { kind: 'service_override', reason: overrideReason });   // checked on the server
+                            const auth: any = ap.ok && ap.approver ? ap.approver : null;
                             if (!auth) { toast({ variant: 'destructive', title: 'Unauthorized', description: 'PIN not recognized.' }); return; }
                             const finalReason = overrideReason.trim() || recoveryReason.trim() || 'Service Recovery Override';
                             const finalAmount  = recoveryAmount > 0 ? recoveryAmount : Number(subtotal.toFixed(2));
