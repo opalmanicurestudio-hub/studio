@@ -385,228 +385,54 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
     // shared fairness rotation, no double-booking. Remote-payment bookings
     // (status deposit_pending) and any API failure fall through to the
     // legacy direct write below, unchanged.
-    const remotePay = depositDetails && data.paymentMethod === 'none';
-    if (!remotePay) {
-      try {
-        // Signed-in staff are recognised as staff by the booking route.
-        const idTok = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
-        const res = await fetch('/api/appointments/book', {
-          method: 'POST', headers: { 'Content-Type': 'application/json', ...(idTok ? { Authorization: `Bearer ${idTok}` } : {}) },
-          body: JSON.stringify({
-            tenantId, source: 'pos_add_appointment',
-            serviceId: data.serviceId,
-            staffId: data.staffId || 'any',
-            startTime: startDateTime.toISOString(),
-            client: data.clientId === 'new'
-              ? { name: data.newClientName, email: data.newClientEmail, phone: data.newClientPhone }
-              : { id: data.clientId },
-            depositCents: depositDetails ? Math.round(depositDetails.amount * 100) : 0,
-            depositPaid: !!(depositDetails && data.paymentMethod !== 'none'),
-            inspirationPhotoUrl: inspirationPhotoUrl || undefined,
-          }),
-        });
-        if (res.status === 409) {
-          const out = await res.json().catch(() => ({}));
-          toast({ variant: 'destructive', title: 'That time was just taken', description: out?.error || 'Pick another slot.' });
-          setStep('timing');
-          setIsSubmitting(false);
-          return;
-        }
-        if (res.ok) {
-          const out = await res.json().catch(() => null);
-          if (out?.ok) {
-            setAssignedStaffId(out.staffId);
-            setCheckInToken(out.checkInToken);
-            if (depositDetails && data.paymentMethod !== 'none') {
-              try {
-                const b2 = writeBatch(firestore!);
-                const txnRef2 = doc(collection(firestore!, `tenants/${tenantId}/transactions`));
-                b2.set(txnRef2, sanitizeForFirestore({
-                  id: txnRef2.id,
-                  date: new Date().toISOString(),
-                  description: `Retainer: ${selectedService?.name}`,
-                  clientOrVendor: selectedClient?.name || data.newClientName,
-                  clientId: out.clientId || undefined,
-                  type: 'income', context: 'Business', category: 'Retainers',
-                  amount: depositDetails.amount,
-                  paymentMethod: data.paymentMethod === 'card_on_file' ? 'Vault' : 'Manual Entry',
-                  appointmentId: out.appointmentId,
-                  kind: 'deposit',
-                  staffId: out.staffId,
-                }));
-                b2.set(doc(firestore!, `tenants/${tenantId}/appointments`, out.appointmentId),
-                  sanitizeForFirestore({ depositTransactionId: txnRef2.id }), { merge: true });
-                await b2.commit();
-              } catch { /* booking exists — retainer can be logged from the ledger */ }
-            }
-            setStep('success');
-            setIsSubmitting(false);
-            return;
-          }
-        }
-      } catch { /* fall through to the legacy write */ }
-    }
-
-    const batch = writeBatch(firestore!);
-    const now = new Date().toISOString();
-    
-    let finalClientId = data.clientId;
-    let finalClientName = selectedClient?.name || data.newClientName;
-
-    if (finalClientId === 'new') {
-        const newClientRef = doc(collection(firestore!, `tenants/${tenantId}/clients`));
-        finalClientId = newClientRef.id;
-        batch.set(newClientRef, sanitizeForFirestore({
-            id: finalClientId,
-            name: data.newClientName,
-            email: data.newClientEmail,
-            phone: data.newClientPhone,
-            avatarUrl: `https://picsum.photos/seed/${finalClientId}/100`,
-            lifetimeValue: 0,
-            lastAppointment: now,
-            status: 'active'
-        }));
-    }
-
-    let finalStaffId = data.staffId;
-    if (finalStaffId === 'any') {
-        const candidates = qualifiedStaff.filter(s => {
-            const dayName = format(startDateTime, 'eeee').toLowerCase();
-            const sDaySched = s.availability?.week?.[dayName as keyof typeof s.availability.week] || publicScheduleProfile?.week?.[dayName];
-            if (!data.overrideBusinessHours) {
-                if (!sDaySched?.enabled) return false;
-                const openT = timeStringToDate(sDaySched.start, startDateTime);
-                const closeT = timeStringToDate(sDaySched.end, startDateTime);
-                if (startDateTime < openT || endDateTime > closeT) return false;
-            }
-            return !appointmentsFromDB?.some(apt => apt.staffId === s.id && apt.status !== 'cancelled' && areIntervalsOverlapping({ start: startDateTime, end: endDateTime }, { start: safeDate(apt.startTime), end: safeDate(apt.endTime) }, { inclusive: false }));
-        });
-        if (candidates.length > 0) {
-            const fairKey = (s: any) => {
-                const v = s.lastBookingAssignedAt || s.lastServedTimestamp;
-                return v ? safeDate(v).getTime() : 0;
-            };
-            candidates.sort((a, b) => fairKey(a) - fairKey(b));
-            finalStaffId = candidates[0].id;
-        } else {
-            setIsSubmitting(false);
-            return toast({ variant: 'destructive', title: 'No one available', description: 'No providers are free at that time — try another slot.' });
-        }
-    }
-
-    setAssignedStaffId(finalStaffId);
-    
-    const aptId = nanoid();
-    const token = nanoid(16);
-    setCheckInToken(token);
-    const aptRef = doc(firestore!, `tenants/${tenantId}/appointments`, aptId);
-    const checkInRef = doc(firestore!, 'appointmentCheckIns', token);
-
-    const isRemotePayment = depositDetails && data.paymentMethod === 'none';
-
-    const depositCentsForApt = depositDetails ? Math.round(depositDetails.amount * 100) : 0;
-    const payload = {
-        id: aptId,
-        tenantId,
-        clientId: finalClientId,
-        clientName: finalClientName,
-        serviceId: data.serviceId,
-        staffId: finalStaffId,
-        startTime: startDateTime.toISOString(),
-        endTime: endDateTime.toISOString(),
-        status: isRemotePayment ? 'deposit_pending' : 'confirmed',
-        source: 'manual',
-        checkInToken: token,
-        checkInStatus: 'pending',
-        depositAmountCents: depositCentsForApt,
-        // v14 — double-charge fix: a deposit collected AT booking is PAID.
-        // 'pending' belongs only to the send-a-payment-link path. Writing
-        // 'pending' here made the detail sheet show an unpaid deposit that
-        // staff would then collect a second time.
-        depositStatus: depositDetails ? (isRemotePayment ? 'pending' : 'paid') : 'none',
-        ...(depositDetails && !isRemotePayment ? {
-            depositPaidAt: now,
-            depositPaymentMethod: data.paymentMethod === 'card_on_file' ? 'Vault' : 'Terminal',
-        } : {}),
-        inspirationPhotoUrl: inspirationPhotoUrl || undefined
-    };
-
-    batch.set(aptRef, sanitizeForFirestore(payload));
-    batch.set(checkInRef, sanitizeForFirestore(payload));
-
-    // v11 — same fairness ledger QuickBook uses, so "Smart Rotation" here and
-    // "First available" there rotate through ONE shared queue, not two.
-    if (data.staffId === 'any' && finalStaffId) {
-        batch.set(doc(firestore!, `tenants/${tenantId}/staff`, finalStaffId),
-            { lastBookingAssignedAt: now }, { merge: true });
-    }
-
-    if (depositDetails && data.paymentMethod !== 'none') {
-        const txnRef = doc(collection(firestore!, `tenants/${tenantId}/transactions`));
-        batch.set(txnRef, sanitizeForFirestore({
-            id: txnRef.id,
-            date: now,
-            description: `Retainer: ${selectedService?.name}`,
-            clientOrVendor: finalClientName,
-            clientId: finalClientId,
-            type: 'income',
-            context: 'Business',
-            category: 'Retainers',
-            amount: depositDetails.amount,
-            paymentMethod: data.paymentMethod === 'card_on_file' ? 'Vault' : 'Manual Entry',
-            appointmentId: aptId,
-            kind: 'deposit',
-            staffId: finalStaffId
-        }));
-        // Cross-link so any 'collect deposit' surface can see it's already done.
-        batch.set(aptRef, sanitizeForFirestore({ depositTransactionId: txnRef.id }), { merge: true });
-    }
-
+    // Every booking goes through the shared booking engine (availability, rules,
+    // messages, visit link) — never written from the browser. Then the deposit,
+    // through the desk's deposit route: charge the card on file, mark it paid,
+    // or leave it for the client to pay from the link the engine just sent them.
+    const idTok = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
+    const auth = { 'Content-Type': 'application/json', ...(idTok ? { Authorization: `Bearer ${idTok}` } : {}) };
+    const payLater = !!depositDetails && data.paymentMethod === 'none';
+    let out: any = null;
     try {
-        await batch.commit();
-        setStep('success');
-
-        // v15 — AUTO-NOTIFY on the legacy/direct-write paths too. The
-        // server booking engine sends its own confirmations, but bookings
-        // that land HERE (remote-payment deposits, or the fallback when
-        // the engine call fails) used to send NOTHING. Best-effort — a
-        // failed send never affects the booking.
-        const contactEmail = String((data.clientId === 'new' ? data.newClientEmail : selectedClient?.email) || '').trim();
-        const contactPhone = String((data.clientId === 'new' ? data.newClientPhone : selectedClient?.phone) || '').trim();
-        if (isRemotePayment) {
-            // Not confirmed yet — send the pay-your-deposit / check-in link,
-            // not a "you're confirmed" message.
-            try {
-                await fetch('/api/notifications/send-completion-link', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        link: `${window.location.origin}/check-in/${token}`,
-                        clientName: finalClientName,
-                        clientEmail: contactEmail,
-                        clientPhone: contactPhone,
-                        studioName: selectedTenant?.name,
-                    }),
-                });
-            } catch { /* non-fatal */ }
-            toast({ title: 'Payment link sent', description: 'The client got the check-in link to pay their deposit. You can also copy it from the success screen.' });
-        } else {
-            try {
-                await fetch('/api/notifications/resend-confirmation', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        tenantId,
-                        appointmentId: aptId,
-                        clientEmail: contactEmail,
-                        clientPhone: contactPhone,
-                    }),
-                });
-            } catch { /* non-fatal */ }
-        }
-    } catch (e) {
-        toast({ variant: 'destructive', title: 'Booking failed', description: 'Nothing was saved — try again.' });
-    } finally {
+      const res = await fetch('/api/appointments/book', {
+        method: 'POST', headers: auth,
+        body: JSON.stringify({
+          tenantId, source: 'planner',
+          serviceId: data.serviceId,
+          staffId: data.staffId || 'any',
+          startTime: startDateTime.toISOString(),
+          client: data.clientId === 'new'
+            ? { name: data.newClientName, email: data.newClientEmail, phone: data.newClientPhone }
+            : { id: data.clientId },
+          inspirationPhotoUrl: inspirationPhotoUrl || undefined,
+          // A desk booking waiting for the client's deposit is held for a day, not the online few minutes.
+          ...(payLater ? { holdUntil: new Date(Date.now() + 24 * 3600000).toISOString() } : {}),
+        }),
+      });
+      out = await res.json().catch(() => null);
+      if (!res.ok || !out?.ok) {
+        toast({ variant: 'destructive', title: res.status === 409 ? 'That time was just taken' : 'Not booked', description: out?.error || 'Nothing was saved — please try again.' });
+        if (res.status === 409) setStep('timing');
         setIsSubmitting(false);
+        return;
+      }
+    } catch {
+      toast({ variant: 'destructive', title: 'Not booked', description: 'We couldn’t reach the booking system — check your connection. Nothing was saved.' });
+      setIsSubmitting(false);
+      return;
     }
+    setAssignedStaffId(out.staffId);
+    setCheckInToken(out.checkInToken);
+    if (depositDetails && !payLater) {
+      const action = data.paymentMethod === 'card_on_file' ? 'charge' : 'settled';
+      const d = await fetch('/api/appointments/desk-deposit', { method: 'POST', headers: auth, body: JSON.stringify({ tenantId, appointmentId: out.appointmentId, action, ...(action === 'settled' ? { amountCents: Math.round(depositDetails.amount * 100) } : {}) }) })
+        .then((r) => r.json()).catch(() => ({}));
+      if (!d?.ok) toast({ variant: 'destructive', title: 'Booked — deposit not taken', description: `${d?.error || 'The deposit step didn’t go through.'} Take it from the booking when you’re ready.` });
+    } else if (payLater) {
+      toast({ title: 'Payment link sent', description: 'The client got a link to pay their deposit and finish up. The time is held for 24 hours.' });
+    }
+    setStep('success');
+    setIsSubmitting(false)
   };
 
   const handleCopyLink = () => {
