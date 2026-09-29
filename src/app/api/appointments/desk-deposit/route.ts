@@ -54,8 +54,11 @@ export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
   const tenantId = String(b.tenantId || ''), appointmentId = String(b.appointmentId || ''), action = String(b.action || '');
   if (!tenantId || !appointmentId) return bad('Missing details.');
-  const auth: any = await verifyStaffActor(req, tenantId);
+  // Staff — or the server itself (the nightly job taking a repeat visit's scheduled deposit).
+  const internal = !!process.env.CRON_SECRET && req.headers.get('x-cf-internal') === process.env.CRON_SECRET;
+  const auth: any = internal ? { ok: true, actor: { uid: 'system', name: 'Scheduled deposit', role: 'system' } } : await verifyStaffActor(req, tenantId);
   if (!auth.ok) return bad(auth.error || 'Sign in to do that.', auth.status || 401);
+  if (internal && !['charge', 'link'].includes(action)) return bad('Not allowed.', 403);
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
   const aRef = db.doc(`${T}/appointments/${appointmentId}`);
   const ap: any = { id: appointmentId, ...(((await aRef.get()).data() as any) || {}) };
