@@ -232,6 +232,14 @@ export default function BookingPoliciesPage() {
             </Row>
             <Row label="Late arrivals, in your words"><Text field="lateArrivalPolicy" value={t.lateArrivalPolicy} label="Late arrival policy" placeholder="e.g. After 15 minutes we may need to shorten your service…" /></Row>
             <Row label="Missed appointments, in your words"><Text field="noShowPolicy" value={t.noShowPolicy} label="No-show policy" placeholder="e.g. Missed appointments are charged…" /></Row>
+            <Row label="Offering another provider" note="When a client can’t be seen as booked, the desk sees a ranked shortlist: free for the whole visit (using each provider’s own recorded time), then a fair turn. The client always chooses.">
+              <Choice field="bookingPolicies.providerOffers.who" value={t.bookingPolicies?.providerOffers?.who || 'managers'} label="Who can offer" options={[['managers', 'Managers'], ['desk', 'Managers and front desk']]} />
+              <Choice field="bookingPolicies.providerOffers.employees" value={t.bookingPolicies?.providerOffers?.employees || 'assign'} label="Employees" options={[['assign', 'Assign them (the client still chooses)'], ['ask', 'Ask them first']]} />
+              <Choice field="bookingPolicies.providerOffers.answerMinutes" value={Number(t.bookingPolicies?.providerOffers?.answerMinutes) || 10} label="Time to answer" options={[[5, '5 minutes'], [10, '10 minutes'], [15, '15 minutes']]} />
+              <Choice field="bookingPolicies.providerOffers.onNoAnswer" value={t.bookingPolicies?.providerOffers?.onNoAnswer || 'next'} label="If they decline or don’t answer" options={[['next', 'Ask the next suggestion'], ['manager', 'Tell a manager']]} />
+              <Choice field="bookingPolicies.providerOffers.rank" value={t.bookingPolicies?.providerOffers?.rank || 'fair'} label="Suggestions" options={[['fair', 'Fit, then a fair turn'], ['fit', 'Fit only — fastest first']]} />
+              <Choice field="bookingPolicies.providerOffers.renters" value={t.bookingPolicies?.providerOffers?.renters !== false} label="Renters" options={[[true, 'Offer to renters who’ve opted in (always asked first)'], [false, 'Never offer to renters']]} />
+            </Row>
             <Row label="Repeat bookings: how the series is secured" note="For visits booked every few weeks at the desk. Each visit still follows your cancellation rules on its own.">
               <Choice field="bookingPolicies.seriesDeposit" value={t.bookingPolicies?.seriesDeposit || 'first'} label="Repeat bookings deposit" options={[
                 ['first', 'First visit’s deposit; card on file holds the rest'], ['before_each', 'Each visit’s deposit, taken before it'],
