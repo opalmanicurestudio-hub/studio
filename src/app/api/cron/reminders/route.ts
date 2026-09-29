@@ -113,6 +113,36 @@ export async function GET(req: NextRequest) {
         const v = s.exists ? (s.data() as any)?.lastRunAt : null;
         if (v) lastRunMs = new Date(v).getTime() || 0;
       } catch { /* treat as never run */ }
+      // Bookings with their OWN reminder timing — set at the desk, or the client's own "remind me X hours before"
+      // (copied onto the booking when it's made). Checked every hour, not only at the business's sending hour;
+      // the daily batch below skips them, so nobody is reminded twice.
+      try {
+        const nowMs = Date.now(); const ownBase = linkOrigin(tdata, '');
+        const own = await db.collection(`tenants/${tid}/appointments`).where('ownReminder', '==', true).get();
+        for (const d of own.docs) {
+          const a: any = d.data();
+          if (a.reminderSentAt || !a.startTime || ['cancelled', 'canceled', 'no_show', 'completed', 'declined', 'expired'].includes(String(a.status || ''))) continue;
+          const start = Date.parse(a.startTime); const hrs = Math.min(168, Math.max(1, Number(a.reminderHoursBefore) || 0));
+          if (!(start > nowMs) || nowMs < start - hrs * 3600000) continue;
+          const cl: any = a.clientId ? (((await db.doc(`tenants/${tid}/clients/${a.clientId}`).get()).data() as any) || {}) : {};
+          const phone = String(cl.phone || a.clientPhone || '').trim(), email = String(cl.email || a.clientEmail || '').trim();
+          if (!phone && !email.includes('@')) continue;
+          const at = new Date(start); const dayOfZ = (x: Date) => x.toLocaleDateString('en-US', { timeZone: zone });
+          const time = at.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: zone });
+          const when = dayOfZ(at) === dayOfZ(new Date(nowMs)) ? `today at ${time}` : dayOfZ(at) === dayOfZ(new Date(nowMs + 864e5)) ? `tomorrow at ${time}` : `${at.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: zone })} at ${time}`;
+          const svcDoc: any = a.serviceId ? (((await db.doc(`tenants/${tid}/services/${a.serviceId}`).get()).data() as any) || {}) : {};
+          const whereLine = placeLine(svcDoc, null, a, { timeZone: tdata.timezone || null, clientPhone: phone || null, businessPhone: tdata.phone || tdata.twilioPhoneNumber || null });
+          const link = a.checkInToken && ownBase ? ` Your visit: ${ownBase}/check-in/${a.checkInToken}` : '';
+          const text = `Reminder — your ${svcDoc.name || a.serviceName || 'appointment'}${a.staffName ? ` with ${String(a.staffName).split(' ')[0]}` : ''} is ${when}.${whereLine ? ` ${whereLine}` : ''}${link}`;
+          let ok = false;
+          if (phone && smsConfigured()) ok = (await sendTenantSms(db, tid, phone, text, { email, subject: 'Appointment reminder' })).ok;
+          if (!ok && email.includes('@')) {
+            const { sendNotification } = await import('@/lib/notify');
+            ok = !!(await sendNotification(db, { tenantId: tid, channel: 'email', to: email, subject: 'Appointment reminder', kind: 'appointment_reminder', text, appointmentId: d.id, clientId: a.clientId || null, clientName: a.clientName || null } as any))?.ok;
+          }
+          if (ok) await d.ref.set({ reminderSentAt: new Date().toISOString(), reminderSentBy: 'own_timing' }, { merge: true });
+        }
+      } catch (e) { console.error('[cron] own-timing reminders', tid, e); }
       const localHour = hourOfLocal(nowInstant);
       const atChosenHour = localHour === sendHour;
       const aDayStale = (Date.now() - lastRunMs) >= 20 * 3600000;
@@ -227,6 +257,7 @@ export async function GET(req: NextRequest) {
         const a = aDoc.data() as any;
         try {
           if (!a.startTime || a.reminderSentAt) continue;
+          if (a.ownReminder === true) continue;   // reminded on its own timing (above); older bookings keep the daily reminder
           if (['cancelled', 'canceled', 'no_show', 'completed'].includes(String(a.status || ''))) continue;
           // The appointment's LOCAL day must match the target day.
           const at = new Date(a.startTime);
