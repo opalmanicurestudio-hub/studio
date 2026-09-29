@@ -12,6 +12,14 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { logAuditAdmin } from '@/lib/audit';
 import { internalOrigin } from '@/lib/message-policy';
+import { hasRealCard } from '@/lib/card-on-file';
+import { seriesDepositOf, seriesDepositDaysOf } from '@/lib/booking-policies';
+
+async function seriesServiceTakesDeposit(db: any, T: string, serviceId?: string) {
+  if (!serviceId) return false;
+  const s: any = ((await db.doc(`${T}/services/${serviceId}`).get()).data() as any) || {};
+  return !!s.depositType && s.depositType !== 'none';
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -36,21 +44,36 @@ export async function POST(req: NextRequest) {
   const actor = { type: 'user' as const, id: auth.actor.uid, name: auth.actor.name, role: auth.actor.role };
 
   if (kind === 'series') {
+    // How the series is secured (Booking policies → Repeat bookings); the desk may choose "all now" for one booking.
+    const policy = seriesDepositOf(tenant, b.seriesDeposit);
+    const daysBefore = seriesDepositDaysOf(tenant);
+    if (policy === 'first' || policy === 'before_each') {
+      const cid = items[0]?.client?.id ? String(items[0].client.id) : null;
+      const cl: any = cid ? (((await db.doc(`${T}/clients/${cid}`).get()).data() as any) || {}) : {};
+      const needsDeposit = await seriesServiceTakesDeposit(db, T, items[0]?.serviceId);
+      if (needsDeposit && !hasRealCard(cl)) return NextResponse.json({ ok: false, needsCard: true, error: `Repeat bookings are held by a card on file, and ${String(cl.name || 'this client').split(' ')[0]} doesn’t have one. Save a card first — or take every visit’s deposit now.` }, { status: 400 });
+    }
     const results: any[] = [];
     for (let i = 0; i < items.length; i++) {
-      const r = await book({ ...items[i], seriesId: linkId, seriesIndex: i, quiet: i > 0 });
+      const later = i > 0;
+      const secure = !later && policy !== 'none' ? {}
+        : policy === 'all_now' ? {}
+        : policy === 'before_each' ? { depositScheduledAt: new Date(Date.parse(items[i].startTime) - daysBefore * 864e5).toISOString() }
+        : { depositCovered: true, depositCoveredBy: linkId };
+      const r = await book({ ...items[i], ...secure, seriesId: linkId, seriesIndex: i, quiet: i > 0 });
       results.push({ startTime: items[i].startTime, ok: r.ok, appointmentId: r.data?.appointmentId || null, error: r.ok ? null : r.data?.error || 'Not booked' });
     }
     const made = results.filter((x) => x.ok).length;
     await logAuditAdmin(db, tenantId, { action: 'appointment.series_booked', targetType: 'series', targetId: linkId, summary: `Repeat booking — ${made} of ${results.length} booked${made < results.length ? ` (${results.length - made} dates weren’t free)` : ''}`, actor }).catch(() => {});
-    return NextResponse.json({ ok: made > 0, linkId, booked: made, results, ...(made ? {} : { error: results[0]?.error || 'None of those dates were free.' }) });
+    return NextResponse.json({ ok: made > 0, linkId, booked: made, results, depositPolicy: policy, ...(made ? {} : { error: results[0]?.error || 'None of those dates were free.' }) });
   }
 
   // group / visit — all or nothing
   const made: { appointmentId: string; checkInToken?: string }[] = [];
   for (let i = 0; i < items.length; i++) {
     const link = kind === 'group' ? { groupId: linkId, groupRole: i === 0 ? 'organizer' : 'guest', groupName: b.groupName || null } : { visitId: linkId, visitStep: i };
-    const r = await book({ ...items[i], ...link, quiet: true });
+    // One deposit for the whole group / visit, held on the first booking (who pays per guest comes with the group rebuild).
+    const r = await book({ ...items[i], ...link, quiet: true, ...(i > 0 ? { depositCovered: true, depositCoveredBy: linkId } : {}) });
     if (!r.ok) {
       // Undo the parts already made — nothing was sent for them.
       for (const m of made) {
