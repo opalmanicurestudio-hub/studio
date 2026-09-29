@@ -8,6 +8,7 @@
 // new POS will too. Do not fork logic into a layout — add it here.
 
 
+import { groupDiscountFor, groupDiscountAmount } from '@/lib/team-discount';
 import { ToastAction } from '@/components/ui/toast';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
@@ -494,7 +495,8 @@ export function usePosEngine() {
 
   const selectedClient = useMemo(() => clients.find((c: Client) => c.id === selectedClientId), [selectedClientId, clients]);
 
-  const taxPartsRef = useRef<{ services: number; products: number }>({ services: 0, products: 0 });   // what's taxable (fees never are)
+  const taxPartsRef = useRef<{ services: number; products: number }>({ services: 0, products: 0 });
+  const eligibleServicesRef = useRef(0);   // services + add-ons + counter services (what a team / family discount applies to)   // what's taxable (fees never are)
   const subtotalCalc = useMemo(() => {
     const servicesSub = readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).reduce((acc, data) => {
       const isServiceRedeemed = redeemedOffer?.itemId === data.service.id;
@@ -515,6 +517,8 @@ export function usePosEngine() {
     const rescheduleFees = readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).reduce((acc, d) => acc + (waivedAppointmentFees.has(d.appointment.id) ? 0 : safeNumber(d.appointment.checkoutState?.adjustments?.rescheduleFee)), 0);
     const itemSum = (t: string) => retailItems.filter((it: any) => it.type === t).reduce((acc, it: any) => acc + (safeNumber(it.price) * safeNumber(it.quantity)), 0);
     taxPartsRef.current = { services: safeNumber(servicesSub - rescheduleFees + itemSum('service')), products: safeNumber(itemSum('product')) };
+    eligibleServicesRef.current = readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).reduce((acc, d) => { const o = d.appointment.checkoutState?.serviceStaffOverrides || {}; const who = (id: string) => (staff || []).find((m: any) => m.id === (o[id] || d.appointment.staffId));
+      return acc + (redeemedOffer?.itemId === d.service?.id ? 0 : safeNumber(getServicePrice(d.service, who(d.service?.id)))) + (d.appointment.addOnIds || []).reduce((x: number, id: string) => { const ad = (services || []).find((sv: any) => sv.id === id); return x + (ad && redeemedOffer?.itemId !== id ? safeNumber(getServicePrice(ad, who(id))) : 0); }, 0); }, 0) + itemSum('service');
     return safeNumber(servicesSub + retailSub + adjustmentSub);
   }, [readyForCheckoutAppointments, selectedAppointmentIds, retailItems, appliedAdjustments, clients, waivedAppointmentFees, staff, redeemedOffer]);
 
@@ -553,7 +557,15 @@ export function usePosEngine() {
   // A staff discount (% or $, with a reason; a manager approves over the staff limit) — never a price change.
   const [staffDiscount, setStaffDiscount] = useState<{ kind: 'pct' | 'amt'; value: number; reason: string; approvalToken?: string | null; approvedBy?: string | null } | null>(null);
   const staffDiscountValue = useMemo(() => !staffDiscount ? 0 : Math.round(Math.min(subtotalCalc, staffDiscount.kind === 'pct' ? subtotalCalc * (safeNumber(staffDiscount.value) / 100) : safeNumber(staffDiscount.value)) * 100) / 100, [staffDiscount, subtotalCalc]);
-  const discountValue = useMemo(() => safeNumber(appliedDiscountCodes.reduce((acc, code) => { const d = (discounts || []).find((dis: any) => dis.code.toUpperCase() === code.toUpperCase()); if (!d) return acc; return acc + (d.type === 'percentage' ? subtotalCalc * (d.value / 100) : d.value); }, 0) + staffDiscountValue), [appliedDiscountCodes, discounts, subtotalCalc, staffDiscountValue]);
+  const codeDiscountRaw = useMemo(() => safeNumber(appliedDiscountCodes.reduce((acc, code) => { const d = (discounts || []).find((dis: any) => dis.code.toUpperCase() === code.toUpperCase()); if (!d) return acc; return acc + (d.type === 'percentage' ? subtotalCalc * (d.value / 100) : d.value); }, 0)), [appliedDiscountCodes, discounts, subtotalCalc]);
+  // Team / family & friends discount — the same rules as the server (lib/team-discount): automatic, can be skipped for one sale.
+  const [skipGroupDiscount, setSkipGroupDiscount] = useState(false);
+  const groupClient = useMemo(() => (clients || []).find((c: any) => c.id === (selectedClientId ?? readyForCheckoutAppointments.find(a => selectedAppointmentIds.has(a.id))?.appointment?.clientId)) || null, [clients, selectedClientId, readyForCheckoutAppointments, selectedAppointmentIds]);
+  const groupInfo = useMemo(() => groupDiscountFor(selectedTenant, groupClient), [selectedTenant, groupClient]);
+  const groupDiscountRaw = useMemo(() => (skipGroupDiscount ? 0 : groupDiscountAmount(groupInfo, { services: eligibleServicesRef.current, products: taxPartsRef.current.products })), [groupInfo, skipGroupDiscount, subtotalCalc]); // eslint-disable-line react-hooks/exhaustive-deps
+  const groupWins = !!groupInfo && groupDiscountRaw > 0 && (groupInfo.stackWithCodes || groupDiscountRaw >= codeDiscountRaw);
+  const groupDiscountValue = groupWins ? groupDiscountRaw : 0;
+  const discountValue = useMemo(() => safeNumber((groupInfo && !groupInfo.stackWithCodes && groupWins ? 0 : codeDiscountRaw) + staffDiscountValue + groupDiscountValue), [codeDiscountRaw, staffDiscountValue, groupDiscountValue, groupInfo, groupWins]);
 
   const membershipDiscountValue = useMemo(() => {
     if (!selectedClient || !memberships || !packages) return 0;
@@ -1070,6 +1082,7 @@ export function usePosEngine() {
     items: retailItems.map((it: any) => ({ id: it.id, type: it.type, quantity: it.quantity, price: it.price, name: it.name, reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null })),
     feeIds: Array.from(appliedAdjustments), discountCodes: appliedDiscountCodes, redeemedOffer: redeemedOffer || null, waivedAppointmentIds: Array.from(waivedAppointmentFees.keys()), waivers: Object.fromEntries(waivedAppointmentFees),   // who approved each waiver, and why
     tipAllocations, tip: tipAmount, storeCredit: storeCreditApplied,
+    skipGroupDiscount,
     staffDiscount: staffDiscount ? { kind: staffDiscount.kind, value: staffDiscount.value, reason: staffDiscount.reason, approvalToken: staffDiscount.approvalToken || null } : null,
     recovery: { amount: safeNumber(paymentData?.recoveryAmount), reason: paymentData?.recoveryReason || '', approvalToken: paymentData?.recoveryApprovalToken || recoveryApprovalRef.current || null },
     payment: { method: paymentData?.paymentMethod || 'card', amountTendered: safeNumber(paymentData?.amountTendered), stripePaymentIntentId: paymentData?.stripePaymentIntentId || null, cardSurcharge: safeNumber(paymentData?.cardSurcharge), skipLedger: paymentData?.skipLedger === true },
@@ -1102,7 +1115,7 @@ export function usePosEngine() {
       if (out.mismatch) toast({ title: 'Total recorded differently', description: `Recorded $${Number(out.total).toFixed(2)} (the screen showed $${safeNumber(payload.expectedTotal).toFixed(2)}) — it’s flagged on the receipt for review.` });
       for (const w of (out.warnings || [])) toast({ variant: 'destructive', title: 'Needs a look', description: w });
       pendingIdRef.current = null; lastCheckoutRef.current = null;
-      setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setStoreCreditApplied(0); setStaffDiscount(null);
+      setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setStoreCreditApplied(0); setStaffDiscount(null); setSkipGroupDiscount(false);
       return true;
     } catch (e: any) {
       console.error('[checkout] failed', e);
@@ -1395,7 +1408,7 @@ export function usePosEngine() {
     clients: clients || [], isGroupCheckout: selectedAppointmentIds.size > 1, payerOptions: payerOptions || [], selectedClientId, setSelectedClientId,
     onAddClientClick: () => setIsAddClientOpen(true),
     onScanClick: () => { setScanMode('checkout'); setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsCameraScanOpen(true); },
-    subtotal: subtotalCalc, tax: taxCalc, taxLabel, total: totalCalc, staffDiscount, setStaffDiscount, staffDiscountValue, tipAmount, setTipAmount, onCheckout: handleCheckout,
+    subtotal: subtotalCalc, tax: taxCalc, taxLabel, total: totalCalc, staffDiscount, setStaffDiscount, staffDiscountValue, groupInfo, groupDiscountRaw, groupDiscountValue, skipGroupDiscount, setSkipGroupDiscount, tipAmount, setTipAmount, onCheckout: handleCheckout,
     appliedDiscountCodes, setAppliedDiscountCodes, discount: discountValue, membershipDiscount: membershipDiscountValue,
     walletOffers, offerClientId, offerServiceIds,
     isSubmitting, paymentTab, setPaymentTab, discounts: discounts || [], amountTendered, setAmountTendered,
