@@ -85,6 +85,9 @@ export async function POST(req: NextRequest) {
       batch.set(db.doc(`${T}/clients/${R.redeemed.clientId}`), { activePackages: has ? list.map((p: any) => (p.packageId === R.redeemed.id ? { ...p, sessionsRemaining: num(p.sessionsRemaining) + 1 } : p)) : [...list, { packageId: R.redeemed.id, sessionsRemaining: 1, restoredByVoid: receiptId }] }, { merge: true });
     } else batch.set(db.doc(`${T}/clients/${R.redeemed.clientId}`), { subscription: { perkUsage: { [String(R.redeemed.itemId)]: FieldValue.increment(-1) } } }, { merge: true });
   }
+  // This month's team / family discount use given back.
+  if (R.groupDiscount?.clientId && num(R.groupDiscount.amount) > 0) { const gc: any = ((await db.doc(`${T}/clients/${R.groupDiscount.clientId}`).get()).data() as any) || {};
+    if (gc.teamDiscountUsage?.month === R.groupDiscount.month) batch.set(db.doc(`${T}/clients/${R.groupDiscount.clientId}`), { teamDiscountUsage: { amount: FieldValue.increment(-num(R.groupDiscount.amount)) } }, { merge: true }); }
   // Discount-code use reversed.
   for (const id of R.discountIds || []) batch.set(db.doc(`${T}/discounts/${id}`), { usageCount: FieldValue.increment(-1) }, { merge: true });
   // Lifetime value taken back.
