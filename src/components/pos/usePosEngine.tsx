@@ -8,6 +8,7 @@
 // new POS will too. Do not fork logic into a layout — add it here.
 
 
+import { momentsFor, bestMomentReward } from '@/lib/moments';
 import { groupDiscountFor, groupDiscountAmount } from '@/lib/team-discount';
 import { ToastAction } from '@/components/ui/toast';
 import { staffAuthHeader } from '@/lib/staff-fetch';
@@ -565,7 +566,14 @@ export function usePosEngine() {
   const groupDiscountRaw = useMemo(() => (skipGroupDiscount ? 0 : groupDiscountAmount(groupInfo, { services: eligibleServicesRef.current, products: taxPartsRef.current.products })), [groupInfo, skipGroupDiscount, subtotalCalc]); // eslint-disable-line react-hooks/exhaustive-deps
   const groupWins = !!groupInfo && groupDiscountRaw > 0 && (groupInfo.stackWithCodes || groupDiscountRaw >= codeDiscountRaw);
   const groupDiscountValue = groupWins ? groupDiscountRaw : 0;
-  const discountValue = useMemo(() => safeNumber((groupInfo && !groupInfo.stackWithCodes && groupWins ? 0 : codeDiscountRaw) + staffDiscountValue + groupDiscountValue), [codeDiscountRaw, staffDiscountValue, groupDiscountValue, groupInfo, groupWins]);
+  // Moments (birthday / first visit / milestone) — the same rules as the server (lib/moments).
+  const momentVisits = useMemo(() => !groupClient ? 0 : (appointmentsFromInventory || []).filter((a: any) => a.clientId === groupClient.id && a.status === 'completed' && !selectedAppointmentIds.has(a.id)).length, [groupClient, appointmentsFromInventory, selectedAppointmentIds]);
+  const moments = useMemo(() => momentsFor(selectedTenant, groupClient, momentVisits, new Date(), selectedAppointmentIds.size > 0), [selectedTenant, groupClient, momentVisits, selectedAppointmentIds]);
+  const momentReward = bestMomentReward(moments);
+  const codeAndGroup = (groupInfo && !groupInfo.stackWithCodes && groupWins ? 0 : codeDiscountRaw) + groupDiscountValue;
+  const momentRaw = momentReward ? Math.round(eligibleServicesRef.current * momentReward.rewardPct) / 100 : 0;
+  const momentDiscountValue = momentRaw > codeAndGroup ? momentRaw : 0;   // never combines — the bigger applies
+  const discountValue = useMemo(() => safeNumber((momentDiscountValue ? 0 : codeAndGroup) + staffDiscountValue + momentDiscountValue), [codeAndGroup, staffDiscountValue, momentDiscountValue]);
 
   const membershipDiscountValue = useMemo(() => {
     if (!selectedClient || !memberships || !packages) return 0;
@@ -1414,7 +1422,7 @@ export function usePosEngine() {
     clients: clients || [], isGroupCheckout: selectedAppointmentIds.size > 1, payerOptions: payerOptions || [], selectedClientId, setSelectedClientId,
     onAddClientClick: () => setIsAddClientOpen(true),
     onScanClick: () => { setScanMode('checkout'); setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsCameraScanOpen(true); },
-    subtotal: subtotalCalc, tax: taxCalc, taxLabel, total: totalCalc, lastSale, clearLastSale: () => setLastSale(null), staffDiscount, setStaffDiscount, staffDiscountValue, groupInfo, groupDiscountRaw, groupDiscountValue, skipGroupDiscount, setSkipGroupDiscount, tipAmount, setTipAmount, onCheckout: handleCheckout,
+    subtotal: subtotalCalc, tax: taxCalc, taxLabel, total: totalCalc, lastSale, clearLastSale: () => setLastSale(null), moments, momentReward, momentDiscountValue, staffDiscount, setStaffDiscount, staffDiscountValue, groupInfo, groupDiscountRaw, groupDiscountValue, skipGroupDiscount, setSkipGroupDiscount, tipAmount, setTipAmount, onCheckout: handleCheckout,
     appliedDiscountCodes, setAppliedDiscountCodes, discount: discountValue, membershipDiscount: membershipDiscountValue,
     walletOffers, offerClientId, offerServiceIds,
     isSubmitting, paymentTab, setPaymentTab, discounts: discounts || [], amountTendered, setAmountTendered,
