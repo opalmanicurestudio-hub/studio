@@ -46,6 +46,7 @@ import { buildEntry } from '@/lib/stock-ledger';
 // because Firestore equality is case-sensitive.
 import { parseScan, codeVariants } from '@/lib/scan-codes';
 import { type Transaction } from '@/lib/financial-data';
+import { posTaxAmount, posTaxLabel } from '@/lib/pos-tax';
 import { resolveDepositPolicy, resolveDepositOutcome, hoursUntilStart, rolloverExpiryISO, isCreditExpired, computeDepositCents } from '@/lib/deposit-policy';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AppointmentDetailsSheet } from '@/components/planner/AppointmentDetailsSheet';
@@ -489,6 +490,7 @@ export function usePosEngine() {
 
   const selectedClient = useMemo(() => clients.find((c: Client) => c.id === selectedClientId), [selectedClientId, clients]);
 
+  const taxPartsRef = useRef<{ services: number; products: number }>({ services: 0, products: 0 });   // what's taxable (fees never are)
   const subtotalCalc = useMemo(() => {
     const servicesSub = readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).reduce((acc, data) => {
       const isServiceRedeemed = redeemedOffer?.itemId === data.service.id;
@@ -505,6 +507,7 @@ export function usePosEngine() {
     }, 0);
     const retailSub = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
     const adjustmentSub = Array.from(appliedAdjustments).reduce((acc, id) => { const fee = clients.flatMap(c => c.unpaidFees || []).find(f => f.feeId === id); return acc + safeNumber(fee?.feeAmount); }, 0);
+    taxPartsRef.current = { services: safeNumber(servicesSub), products: safeNumber(retailSub) };
     return safeNumber(servicesSub + retailSub + adjustmentSub);
   }, [readyForCheckoutAppointments, selectedAppointmentIds, retailItems, appliedAdjustments, clients, waivedAppointmentFees, staff, redeemedOffer]);
 
@@ -552,7 +555,8 @@ export function usePosEngine() {
     return retailItems.reduce((acc, item) => { const isEligible = eligibleProductIds.length === 0 || eligibleProductIds.includes(item.id); return isEligible ? acc + (item.price * item.quantity * (bestDiscountPct / 100)) : acc; }, 0);
   }, [selectedClient, memberships, packages, retailItems]);
 
-  const taxCalc = subtotalCalc * 0.07;
+  const taxCalc = posTaxAmount(selectedTenant, taxPartsRef.current);   // Settings → Payments → Sales tax
+  const taxLabel = posTaxLabel(selectedTenant);
   const totalCalc = Math.max(0, subtotalCalc + taxCalc + tipAmount - discountValue - membershipDiscountValue - storeCreditApplied);
 
   const payerOptions = useMemo(() => { const clientIds = new Set<string>(); readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).forEach(data => { if (data.client?.id) clientIds.add(data.client.id); }); return (clients || []).filter(c => clientIds.has(c.id)); }, [readyForCheckoutAppointments, selectedAppointmentIds, clients]);
@@ -1162,8 +1166,8 @@ export function usePosEngine() {
     if (!paymentData.skipLedger) {
       if (discountValue > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: effectiveClientId, type: 'expense', context: 'Business', category: 'Discounts', taxBucket: 'adjustment', amount: discountValue, paymentMethod: 'Internal', hasReceipt: false, tenantId, checkoutSessionId }));
       if (recoveryAmount > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Service Recovery: ${recoveryReason}`, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'expense', context: 'Business', category: 'Discounts', taxBucket: 'adjustment', amount: recoveryAmount, notes: recoveryReason, paymentMethod: 'Internal', hasReceipt: false, tenantId, checkoutSessionId }));
-      const taxAmount = Number((subtotalCalc * 0.07).toFixed(2));
-      if (taxAmount > 0) { batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Sales Tax (7%)`, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Tax Collected', taxBucket: 'tax_collected', amount: taxAmount, paymentMethod: paymentData.paymentMethod, hasReceipt: false, tenantId, checkoutSessionId })); totalLtvIncrease += taxAmount; }
+      const taxAmount = posTaxAmount(selectedTenant, taxPartsRef.current);
+      if (taxAmount > 0) { batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: taxLabel, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Tax Collected', taxBucket: 'tax_collected', amount: taxAmount, paymentMethod: paymentData.paymentMethod, hasReceipt: false, tenantId, checkoutSessionId })); totalLtvIncrease += taxAmount; }
       const cardSurchargeAmt = safeNumber((paymentData as any).cardSurcharge);
       if (cardSurchargeAmt > 0) { batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: 'Card Processing Fee (passed to client)', clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Card Processing Fee', taxBucket: 'revenue', amount: cardSurchargeAmt, paymentMethod: paymentData.paymentMethod, hasReceipt: false, tenantId, checkoutSessionId })); totalLtvIncrease += cardSurchargeAmt; }
     }
@@ -1528,7 +1532,7 @@ export function usePosEngine() {
     clients: clients || [], isGroupCheckout: selectedAppointmentIds.size > 1, payerOptions: payerOptions || [], selectedClientId, setSelectedClientId,
     onAddClientClick: () => setIsAddClientOpen(true),
     onScanClick: () => { setScanMode('checkout'); setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsCameraScanOpen(true); },
-    subtotal: subtotalCalc, tax: taxCalc, total: totalCalc, tipAmount, setTipAmount, onCheckout: handleCheckout,
+    subtotal: subtotalCalc, tax: taxCalc, taxLabel, total: totalCalc, tipAmount, setTipAmount, onCheckout: handleCheckout,
     appliedDiscountCodes, setAppliedDiscountCodes, discount: discountValue, membershipDiscount: membershipDiscountValue,
     walletOffers, offerClientId, offerServiceIds,
     isSubmitting, paymentTab, setPaymentTab, discounts: discounts || [], amountTendered, setAmountTendered,
