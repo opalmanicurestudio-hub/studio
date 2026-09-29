@@ -696,7 +696,7 @@ export async function POST(req: NextRequest) {
       const STAFF_SOURCES = [
         'manual', 'front-desk', 'terminal', 'walk-in', 'walkin-kiosk', 'lounge',
         'foundation', 'recovery', 'goodwill', 'starter', 'event', 'retell', 'waitlist',
-        'renter_portal', 'front_desk',
+        'renter_portal', 'front_desk', 'planner', 'pos_add_appointment',   // the planner's "Add appointment" is the desk too
       ];
       const staffSide = !!trust && STAFF_SOURCES.includes(String(source || '').toLowerCase());
       let plan = resolveBookingPlan({
