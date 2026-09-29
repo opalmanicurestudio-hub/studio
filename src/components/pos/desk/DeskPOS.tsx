@@ -385,9 +385,9 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       <Drawer accent={accent} open={!!overFor} onClose={() => setOverFor(null)} title="Running over">
         {overFor && (() => { const ov = serviceOverrun(overFor.appt, minsOf(overFor), now); return <OverrunPanel tenant={e.selectedTenant} tenantId={e.tenantId} role={e.role} inService={overFor.appt} today={todaysAppts} overMin={ov?.overMin || 0} plannedEnd={ov?.plannedEnd || null} providerName={staffName(overFor.appt.staffId || null)} />; })()}
       </Drawer>
+      <TodaysSales open={salesOpen} onClose={() => setSalesOpen(false)} tenantId={e.tenantId} tenant={e.selectedTenant} transactions={e.transactions || []} staff={e.staff || []} role={(e as any).role || null} />
+      <LogCallSheet open={logCallOpen} onClose={() => setLogCallOpen(false)} tenantId={e.tenantId} tenant={e.selectedTenant} clients={e.clients || []} staff={e.staff || []} appointments={e.appointmentsFromInventory || []} uid={e.currentUser?.uid || null} />
       <Drawer accent={accent} open={attnOpen} onClose={() => setAttnOpen(false)} title="Needs attention">
-        <TodaysSales open={salesOpen} onClose={() => setSalesOpen(false)} tenantId={e.tenantId} tenant={e.selectedTenant} role={(e as any).role || null} />
-        <LogCallSheet open={logCallOpen} onClose={() => setLogCallOpen(false)} tenantId={e.tenantId} tenant={e.selectedTenant} clients={e.clients || []} staff={e.staff || []} appointments={e.appointmentsFromInventory || []} uid={e.currentUser?.uid || null} />
         {attnOpen && <OpsBoard appts={todaysAppts} staff={(e.staff || []).filter((s: any) => s.isActive !== false)} tenant={e.selectedTenant} tenantId={e.tenantId} role={e.role} uid={e.currentUser?.uid} />}
       </Drawer>
       <DeskCancel e={e} accent={accent} onReschedule={(a: any) => setMoveAppt(a)} onOfferSlot={() => { setMoreTab('waitlist'); setMoreOpen(true); }} />
@@ -416,7 +416,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       <Drawer accent={accent} wide open={checkoutOpen} onClose={() => setCheckoutOpen(false)} title="Checkout">
         {(() => { const ids: string[] = Array.from(e.selectedAppointmentIds || []); const v = ids.length === 1 ? (e.appointmentsFromInventory || []).find((a: any) => a.id === ids[0]) : null;
           return v ? <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl p-3" style={{ background: 'var(--card)' }}><span className="text-[14px]">Before they go — <b>book their next visit?</b></span><Btn quiet onClick={() => setFollowFor(v)}>Book next visit</Btn></div> : null; })()}
-        <CheckoutHub {...e.checkoutHubProps} /></Drawer>
+        <CheckoutHub {...e.checkoutHubProps} onDone={() => setCheckoutOpen(false)} /></Drawer>
 
     </DeskFrame>
   );
