@@ -1,6 +1,8 @@
 'use client';
 // src/components/pos/desk/TodaysSales.tsx — TODAY'S SALES, and VOIDING ONE (with a manager's approval).
 // Cash voids tell the desk exactly how much to hand back and what happened to the till; card voids are refunded.
+import { receiptCall, openReceipt } from '@/lib/receipt-client';
+import { groupDaySales } from '@/lib/day-sales';
 import * as React from 'react';
 import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
@@ -9,15 +11,6 @@ import { DESK_CSS, Btn, Seg } from '@/components/pos/desk/kit';
 import { approveWithPin, askManagerPhone } from '@/lib/approve-client';
 
 const money = (n: any) => `$${(Number(n) || 0).toFixed(2)}`;
-async function receiptCall(body: any) {
-  const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
-  return fetch('/api/receipts', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify(body) }).then((r) => r.json()).catch(() => ({ ok: false, error: 'We couldn’t reach the server.' }));
-}
-/** Open the printable receipt / void slip in a new tab (opened first, so pop-up blockers allow it). */
-async function openReceipt(tenantId: string, receiptId: string) {
-  const w = window.open('', '_blank'); const r: any = await receiptCall({ tenantId, receiptId, action: 'link' });
-  if (r?.ok && w) w.location.href = r.url; else w?.close();
-}
 function SendToClient({ tenantId, receiptId }: { tenantId: string; receiptId: string }) {
   const [ch, setCh] = React.useState<'email' | 'sms'>('email'); const [to, setTo] = React.useState(''); const [msg, setMsg] = React.useState<string | null>(null); const [busy, setBusy] = React.useState(false);
   return <div className="space-y-2 rounded-3xl p-4" style={{ background: 'var(--card)' }}>
@@ -30,7 +23,7 @@ function SendToClient({ tenantId, receiptId }: { tenantId: string; receiptId: st
 }
 const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.toISOString(); };
 
-export function TodaysSales({ open, onClose, tenantId, tenant, role }: { open: boolean; onClose: () => void; tenantId: string; tenant: any; role?: string | null }) {
+export function TodaysSales({ open, onClose, tenantId, tenant, role, transactions, staff }: { open: boolean; onClose: () => void; tenantId: string; tenant: any; role?: string | null; transactions?: any[]; staff?: any[] }) {
   const { firestore } = useFirebase() as any;
   const q = useMemoFirebase(() => (open && firestore && tenantId ? query(collection(firestore, `tenants/${tenantId}/receipts`), where('date', '>=', startOfToday())) : null), [open, firestore, tenantId]);
   const { data } = useCollection<any>(q);
@@ -40,9 +33,10 @@ export function TodaysSales({ open, onClose, tenantId, tenant, role }: { open: b
   const [phoneId, setPhoneId] = React.useState<string | null>(null); const [phoneStatus, setPhoneStatus] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState<string | null>(null); const [done, setDone] = React.useState<any>(null);
   React.useEffect(() => { if (!phoneId || !firestore) return; return onSnapshot(doc(firestore, `tenants/${tenantId}/approvals/${phoneId}`), (s) => setPhoneStatus((s.data() as any)?.status || null)); }, [phoneId, firestore, tenantId]);
+  const [filter, setFilter] = React.useState<'all' | 'checkout' | 'online' | 'fees' | 'voided'>('all'); const [search, setSearch] = React.useState(''); const [openKey, setOpenKey] = React.useState<string | null>(null);
+  const day = React.useMemo(() => { const from = new Date(); from.setHours(0, 0, 0, 0); const to = new Date(); to.setHours(23, 59, 59, 999); return groupDaySales(transactions || [], data || [], from, to); }, [transactions, data]);
   const reset = () => { setSel(null); setReason(''); setPin(''); setPhoneId(null); setPhoneStatus(null); setErr(null); setDone(null); setHow('pin'); };
   if (!open) return null;
-  const list = (data || []).slice().sort((a: any, b: any) => Date.parse(b.date) - Date.parse(a.date));
   const doVoid = async (approvalToken?: string | null) => {
     setBusy(true); setErr(null);
     const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
@@ -104,13 +98,41 @@ export function TodaysSales({ open, onClose, tenantId, tenant, role }: { open: b
             {!(how === 'phone' && phoneId) && <Btn big onClick={approveAndVoid} disabled={busy || !reason.trim() || (!isManager && how === 'pin' && pin.length < 4)}>{busy ? 'Working…' : isManager ? 'Void the sale' : how === 'pin' ? 'Approve and void' : 'Ask a manager'}</Btn>}
             <Btn quiet onClick={reset}>Back</Btn>
           </> : <>
-            {!list.length && <p className="text-[15px]" style={{ color: 'var(--muted)' }}>No sales yet today.</p>}
-            {list.map((r: any) => <div key={r.id} className="flex items-center justify-between gap-2 rounded-2xl p-3" style={{ background: 'var(--card)', opacity: r.voided ? 0.6 : 1 }}>
-              <div><p className="text-[15px] font-semibold">{r.clientName || 'Guest'} · {money(r.total)}</p>
-                <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{new Date(r.date).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} · {String(r.paymentMethod) === 'cash' ? 'Cash' : 'Card'}{r.voided ? ` · voided (${r.voidReason || 'no reason'})` : ''}{r.needsReview ? ' · needs review' : ''}</p></div>
-              <div className="flex gap-1.5"><Btn quiet onClick={() => openReceipt(tenantId, r.id)}>{r.voided ? 'Void slip' : 'Receipt'}</Btn>{!r.voided && r.reversal && <Btn quiet onClick={() => { reset(); setSel(r); }}>Void sale</Btn>}</div>
-            </div>)}
-            <p className="pt-2 text-[12px]" style={{ color: 'var(--muted)' }}>Sales can be voided on the day. After that, refund them instead.</p>
+            <section className="grid grid-cols-3 gap-2">
+              {([['Taken today', money(day.summary.total)], ['Sales', String(day.summary.count)], ['Average', money(day.summary.average)]] as const).map(([l, v]) =>
+                <div key={l} className="rounded-2xl p-3" style={{ background: 'var(--card)' }}><p className="text-[12px]" style={{ color: 'var(--muted)' }}>{l}</p><p className="text-[20px] font-semibold tabular-nums">{v}</p></div>)}
+            </section>
+            <p className="text-[13px]" style={{ color: 'var(--muted)' }}>Cash {money(day.summary.cash)} · Card {money(day.summary.card)} · Online {money(day.summary.online)}{day.summary.other ? ` · Other ${money(day.summary.other)}` : ''} · Tips {money(day.summary.tips)}{day.summary.voidedCount ? ` · ${day.summary.voidedCount} voided (${money(day.summary.voidedTotal)})` : ''}</p>
+            <Seg label="Show" value={filter} onChange={(v) => setFilter(v)} options={[['all', 'All'], ['checkout', 'Checkout'], ['online', 'Online & deposits'], ['fees', 'Fees & balances'], ['voided', 'Voided']]} />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Find a client" aria-label="Find a client" className={inp} style={inpS} />
+            {(() => {
+              const t = search.trim().toLowerCase();
+              const rows = day.sales.filter((x: any) => (filter === 'all' ? true : filter === 'voided' ? x.voided : filter === 'checkout' ? (x.source === 'checkout' || x.source === 'planner') : filter === 'online' ? (x.method === 'online' || x.source === 'deposit' || x.source === 'order') : (x.source === 'fee' || x.source === 'balance'))
+                && (!t || String(x.clientName || '').toLowerCase().includes(t) || String(x.paidBy || '').toLowerCase().includes(t)));
+              if (!rows.length) return <p className="text-[15px]" style={{ color: 'var(--muted)' }}>{day.sales.length ? 'Nothing matches.' : 'No sales yet today.'}</p>;
+              const who = (id: string) => String((staff || []).find((m: any) => m.id === id)?.name || '').split(' ')[0];
+              return rows.map((x: any) => {
+                const openRow = openKey === x.key; const r = x.receipt;
+                return <div key={x.key} className="rounded-2xl" style={{ background: 'var(--card)', opacity: x.voided ? 0.6 : 1 }}>
+                  <button type="button" aria-expanded={openRow} onClick={() => setOpenKey(openRow ? null : x.key)} className="flex w-full items-center justify-between gap-3 p-3 text-left">
+                    <span className="min-w-0"><span className="block truncate text-[15px] font-semibold">{x.clientName || 'Guest'}{x.paidBy && x.paidBy !== x.clientName ? <span className="font-normal" style={{ color: 'var(--muted)' }}> · paid by {x.paidBy}</span> : null}</span>
+                      <span className="block text-[13px]" style={{ color: 'var(--muted)' }}>{new Date(x.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} · {x.label} · {x.method === 'cash' ? 'Cash' : x.method === 'card' ? 'Card' : x.method === 'online' ? 'Online' : 'Other'}{x.staffIds.length ? ` · ${x.staffIds.map(who).filter(Boolean).join(', ')}` : ''}{x.voided ? ' · voided' : ''}{r?.needsReview ? ' · needs review' : ''}</span></span>
+                    <span className="shrink-0 text-[16px] font-semibold tabular-nums">{x.voided ? <s>{money(x.total)}</s> : money(x.total)}</span>
+                  </button>
+                  {openRow && <div className="space-y-2 px-3 pb-3">
+                    {x.lines.length > 0 && <div className="space-y-1 rounded-xl p-2.5 text-[13px]" style={{ background: 'var(--soft)' }}>
+                      {x.lines.map((t: any) => <div key={t.id} className="flex justify-between gap-2"><span className="min-w-0 truncate">{t.description}{t.staffId && who(t.staffId) ? <span style={{ color: 'var(--muted)' }}> · {who(t.staffId)}</span> : null}{t.voided ? ' (void)' : ''}</span><span className="tabular-nums">{t.type === 'expense' ? '−' : ''}{money(t.amount)}</span></div>)}
+                    </div>}
+                    <div className="flex flex-wrap gap-1.5">
+                      {r && <Btn quiet onClick={() => openReceipt(tenantId, r.id)}>{r.voided ? 'Void slip' : 'Receipt'}</Btn>}
+                      {r && !r.voided && r.reversal && <Btn quiet onClick={() => { reset(); setSel(r); }}>Void sale</Btn>}
+                      {!r && <p className="text-[12px]" style={{ color: 'var(--muted)' }}>{x.source === 'planner' ? 'Completed from the planner — no receipt was made.' : x.method === 'online' ? 'Paid online — refunds are made from the payment’s page in Money.' : 'Recorded outside checkout — see it in Money.'}</p>}
+                    </div>
+                  </div>}
+                </div>;
+              });
+            })()}
+            <p className="pt-2 text-[12px]" style={{ color: 'var(--muted)' }}>Checkout sales can be voided on the day. After that, refund them instead.</p>
           </>}
         </div>
       </div>
