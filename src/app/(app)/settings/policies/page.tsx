@@ -232,6 +232,16 @@ export default function BookingPoliciesPage() {
             </Row>
             <Row label="Late arrivals, in your words"><Text field="lateArrivalPolicy" value={t.lateArrivalPolicy} label="Late arrival policy" placeholder="e.g. After 15 minutes we may need to shorten your service…" /></Row>
             <Row label="Missed appointments, in your words"><Text field="noShowPolicy" value={t.noShowPolicy} label="No-show policy" placeholder="e.g. Missed appointments are charged…" /></Row>
+            <Row label="Repeat bookings: how the series is secured" note="For visits booked every few weeks at the desk. Each visit still follows your cancellation rules on its own.">
+              <Choice field="bookingPolicies.seriesDeposit" value={t.bookingPolicies?.seriesDeposit || 'first'} label="Repeat bookings deposit" options={[
+                ['first', 'First visit’s deposit; card on file holds the rest'], ['before_each', 'Each visit’s deposit, taken before it'],
+                ['all_now', 'Every visit’s deposit, taken when booked'], ['none', 'Card on file only — no deposits']]} />
+              {(t.bookingPolicies?.seriesDeposit || 'first') === 'before_each' && <Num field="bookingPolicies.seriesDepositDaysBefore" value={Number(t.bookingPolicies?.seriesDepositDaysBefore) || 7} unit="days before each visit" label="Days before" min={1} max={30} />}
+            </Row>
+            {(t.bookingPolicies?.seriesDeposit || 'first') === 'before_each' && <Row label="If a repeat visit’s deposit can’t be taken" note="Only that visit is affected — never the rest of the series. It also shows in POS → Needs attention.">
+              <Choice field="bookingPolicies.seriesDepositFailed" value={t.bookingPolicies?.seriesDepositFailed || 'link_flag'} label="Failed repeat deposit" options={[
+                ['link_flag', 'Send them a pay link and flag it'], ['keep_flag', 'Keep the visit and flag it'], ['release', 'Release that visit']]} />
+            </Row>}
             <Row label="Video and phone appointments" note="Paid in full when booked — there’s no desk to pay at afterwards. Needs online payments switched on.">
               <Choice field="bookingPolicies.remotePayInFull" value={t.bookingPolicies?.remotePayInFull !== false} label="Video and phone appointments" options={[[true, 'Paid in full when booked'], [false, 'Your usual deposit rules']]} />
             </Row>
