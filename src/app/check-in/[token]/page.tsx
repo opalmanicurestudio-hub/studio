@@ -2083,6 +2083,7 @@ const CancelGateView = ({
     const [details, setDetails] = useState<any>(null);
     const [reason, setReason] = useState('schedule_conflict');
     const [useGrace, setUseGrace] = useState(false); // their late-cancellation grace, if the business allows it online
+    const [scope, setScope] = useState<'one' | 'series'>('one'); // a repeat series: this visit, or this and all later ones
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [result, setResult] = useState<any>(null);
 
@@ -2114,7 +2115,7 @@ const CancelGateView = ({
             const res = await fetch('/api/appointments/self-cancel', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tenantId, appointmentId, clientReason: reason, k: accessKey, useGrace: useGrace && !!details?.grace }),
+                body: JSON.stringify({ tenantId, appointmentId, clientReason: reason, k: accessKey, useGrace: useGrace && !!details?.grace, ...(details?.series?.later ? { scope } : {}) }),
             });
             const data = await res.json();
             if (!data.ok) { setError(data.error || 'Could not cancel this appointment.'); return; }
@@ -2146,6 +2147,10 @@ const CancelGateView = ({
                     {Array.isArray(result.lines) && result.lines.length ? result.lines.map((l: string) => <p key={l} className="text-[15px]">{l}</p>)
                         : <p className="text-[15px]">{result.feeCharged ? `As this is within the ${details?.windowHours}-hour cancellation window, a $${Number(result.feeAmount).toFixed(2)} cancellation fee applies.` : 'No cancellation fee — thanks for letting us know in advance.'}</p>}
                 </VisitCard>}
+                {(Number(result.laterCancelled) > 0 || result.depositMovedTo) && <VisitCard tone="ok">
+                    {Number(result.laterCancelled) > 0 && <p className="text-[15px]">Your {result.laterCancelled} later visit{result.laterCancelled === 1 ? ' is' : 's are'} cancelled too — no fees.</p>}
+                    {result.depositMovedTo && <p className="text-[15px]">Your deposit has moved to your next visit.</p>}
+                </VisitCard>}
                 {brand.bookHref && <VisitButton href={brand.bookHref}>Book another time</VisitButton>}
             </VisitShell>
         );
@@ -2171,6 +2176,12 @@ const CancelGateView = ({
             {g && <VisitCard>
                 <label className="flex items-start gap-2 text-[15px]"><input type="checkbox" className="mt-1" checked={useGrace} onChange={(e) => setUseGrace(e.target.checked)} />
                     <span>You have {g.remaining} grace cancellation{g.remaining === 1 ? '' : 's'} left (every {g.periodMonths} months) — use it: {String(g.permitLabel || '').toLowerCase()}.</span></label>
+            </VisitCard>}
+            {Number(details?.series?.later) > 0 && <VisitCard>
+                <VisitLabel>This is part of a repeat booking</VisitLabel>
+                <VisitChoice cols={2} value={scope} onChange={setScope as any} options={[['one', 'This visit only'], ['series', `This and all later visits (${details.series.later})`]]} />
+                {scope === 'series' && <VisitMuted>Your {details.series.later} later visit{details.series.later === 1 ? ' is' : 's are'} cancelled too — no fees for {details.series.later === 1 ? 'it' : 'them'}.</VisitMuted>}
+                {scope === 'one' && details.series.depositMoves && !details?.isLate && <VisitMuted>Your deposit moves to your next visit.</VisitMuted>}
             </VisitCard>}
             <VisitCard>
                 <VisitLabel>Reason (optional)</VisitLabel>
