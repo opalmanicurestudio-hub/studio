@@ -17,6 +17,7 @@ import { opsStatus, fitCheck, opsCan, opsLevelOf, paymentOutstanding, serviceOve
 import { OverrunPanel } from '@/components/ops/OverrunPanel';
 import { disruptionTotals } from '@/lib/disruptions';
 import { moduleEnabled } from '@/lib/modules';
+import { CallbackQueue } from '@/components/ops/CallbackQueue';
 import { resolvePolicy } from '@/lib/booking-policies';
 
 const hm = (v: any) => { if (!v) return ''; const d = new Date(v); return isNaN(d.getTime()) ? '' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); };
@@ -328,6 +329,7 @@ export function OpsBoard({ appts, staff, tenant, tenantId, role, uid }: { appts:
     <div className="space-y-4">
       <ProviderLate tenantId={tenantId} staff={(staff || []).filter((s: any) => s.isActive !== false)} role={role} uid={uid} tenant={tenant} />
       <RefundQueue tenantId={tenantId} role={role} />
+      <CallbackQueue tenantId={tenantId} uid={uid} />
       <UnpaidFees tenantId={tenantId} role={role} tenant={tenant} />
       <ModuleCases tenantId={tenantId} tenant={tenant} appts={appts} staff={staff} />
       <ReportCallout tenantId={tenantId} staff={(staff || []).filter((s: any) => s.isActive !== false)} role={role} uid={uid} tenant={tenant} />
@@ -337,7 +339,7 @@ export function OpsBoard({ appts, staff, tenant, tenantId, role, uid }: { appts:
         {([['attention', `Needs attention · ${attention.length}`], ['all', 'All of today']] as const).map(([v, l]) => <button key={v} type="button" onClick={() => setView(v)} aria-pressed={view === v} className={`rounded-full border px-4 py-1.5 text-sm ${view === v ? 'bg-primary text-primary-foreground' : ''}`}>{l}</button>)}
         {decisions > 0 && <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-800">{decisions} decision{decisions === 1 ? '' : 's'} needed</span>}
       </div>
-      {shown.length === 0 ? <p className="rounded-3xl border bg-card p-8 text-center text-muted-foreground">{view === 'attention' ? 'All calm — nothing needs attention right now.' : 'No appointments today.'}</p> : (
+      {shown.length === 0 ? <p className="rounded-3xl border bg-card p-8 text-center text-muted-foreground">{view === 'attention' ? 'No appointments need attention right now.' : 'No appointments today.'}</p> : (
         <div className="grid gap-4">{shown.map(({ a, ops }) => <CaseCard key={a.id} a={a} ops={ops} tenant={tenant} tenantId={tenantId} staffById={staffById} next={nextFor(a)} role={role} uid={uid} freeOthers={freeFor(a)} />)}</div>
       )}
     </div>
