@@ -1092,7 +1092,8 @@ export function usePosEngine() {
   // Before any card is charged, the ticket is saved on the server as "started" — so if the sale then fails to save,
   // it can be recorded later (Needs attention → Sales not recorded) and never twice.
   const pendingIdRef = useRef<string | null>(null);
-  const recoveryApprovalRef = useRef<string | null>(null);   // set by the POS recovery-override prompt (manager approval)
+  const recoveryApprovalRef = useRef<string | null>(null);
+  const [lastSale, setLastSale] = useState<any>(null);   // the sale just finished — shown until New sale / Done   // set by the POS recovery-override prompt (manager approval)
   const lastCheckoutRef = useRef<any>(null);
   useEffect(() => {
     if (paymentTab !== 'card' || !tenantId || !checkoutClientId || (!selectedAppointmentIds.size && !retailItems.length)) return;
@@ -1115,6 +1116,11 @@ export function usePosEngine() {
       if (out.mismatch) toast({ title: 'Total recorded differently', description: `Recorded $${Number(out.total).toFixed(2)} (the screen showed $${safeNumber(payload.expectedTotal).toFixed(2)}) — it’s flagged on the receipt for review.` });
       for (const w of (out.warnings || [])) toast({ variant: 'destructive', title: 'Needs a look', description: w });
       pendingIdRef.current = null; lastCheckoutRef.current = null;
+      { const payer: any = (clients || []).find((c: any) => c.id === payload.clientId) || {}; const firstVisit = readyForCheckoutAppointments.find((a: any) => (payload.appointmentIds || []).includes(a.appointment.id));
+        const tendered = safeNumber(payload.payment?.amountTendered); const collected = safeNumber(out.collected ?? out.total);
+        setLastSale({ receiptId: out.receiptId || null, total: safeNumber(out.total), collected, depositUsed: safeNumber(out.depositUsed), method: payload.payment?.method === 'cash' ? 'cash' : payload.payment?.method === 'other' ? 'other' : 'card',
+          tendered, change: payload.payment?.method === 'cash' ? Math.max(0, Math.round((tendered - collected) * 100) / 100) : 0, clientId: payload.clientId || null, clientName: payer.name || null, email: payer.email || '', phone: payer.phone || '',
+          serviceId: firstVisit?.service?.id || firstVisit?.appointment?.serviceId || null, warnings: out.warnings || [], at: new Date().toISOString() }); }
       setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setStoreCreditApplied(0); setStaffDiscount(null); setSkipGroupDiscount(false);
       return true;
     } catch (e: any) {
@@ -1408,7 +1414,7 @@ export function usePosEngine() {
     clients: clients || [], isGroupCheckout: selectedAppointmentIds.size > 1, payerOptions: payerOptions || [], selectedClientId, setSelectedClientId,
     onAddClientClick: () => setIsAddClientOpen(true),
     onScanClick: () => { setScanMode('checkout'); setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsCameraScanOpen(true); },
-    subtotal: subtotalCalc, tax: taxCalc, taxLabel, total: totalCalc, staffDiscount, setStaffDiscount, staffDiscountValue, groupInfo, groupDiscountRaw, groupDiscountValue, skipGroupDiscount, setSkipGroupDiscount, tipAmount, setTipAmount, onCheckout: handleCheckout,
+    subtotal: subtotalCalc, tax: taxCalc, taxLabel, total: totalCalc, lastSale, clearLastSale: () => setLastSale(null), staffDiscount, setStaffDiscount, staffDiscountValue, groupInfo, groupDiscountRaw, groupDiscountValue, skipGroupDiscount, setSkipGroupDiscount, tipAmount, setTipAmount, onCheckout: handleCheckout,
     appliedDiscountCodes, setAppliedDiscountCodes, discount: discountValue, membershipDiscount: membershipDiscountValue,
     walletOffers, offerClientId, offerServiceIds,
     isSubmitting, paymentTab, setPaymentTab, discounts: discounts || [], amountTendered, setAmountTendered,
