@@ -127,6 +127,7 @@
  *   regardless of `willChargeNow`.
  */
 
+import { callbackReasonsFor, callbackReason, callbackTargetIso } from '@/lib/callback-reasons';
 import { DESK_CSS, Btn, Seg } from '@/components/pos/desk/kit';
 import { hasRealCard } from '@/lib/card-on-file';
 import { staffAuthHeader } from '@/lib/staff-fetch';
@@ -1369,8 +1370,9 @@ export function QuickBookForm({
   const [draftCallerPhone, setDraftCallerPhone] = React.useState('');
   const [draftNote, setDraftNote] = React.useState('');
   // The callback queue: who calls back, by when, how, and what the caller was told.
-  const [draftDue, setDraftDue] = React.useState<'1h' | 'today' | 'tomorrow' | 'pick'>('1h');
-  const [draftDueAt, setDraftDueAt] = React.useState('');                 // "pick a time" (datetime-local)
+  const [draftReason, setDraftReason] = React.useState<string>('book');   // what they're calling about (sets the internal target)
+  const [draftPromise, setDraftPromise] = React.useState<'none' | 'pick'>('none'); // only a time staff pick is ever promised
+  const [draftDueAt, setDraftDueAt] = React.useState('');                 // the promised time (datetime-local)
   const [draftContact, setDraftContact] = React.useState<'call' | 'text' | 'email'>('call');
   const [draftPromised, setDraftPromised] = React.useState('');
   const [draftTell, setDraftTell] = React.useState(true);
@@ -1570,6 +1572,8 @@ export function QuickBookForm({
     setDraftOwner(cur ? (cur.ownerId || '') : (currentStaffId || ''));
     if (cur?.contactBy) setDraftContact(cur.contactBy);
     if (cur?.promised) setDraftPromised(cur.promised);
+    setDraftReason((cur as any)?.reason || (selectedService ? 'book' : 'other'));
+    setDraftPromise((cur as any)?.timePromised ? 'pick' : 'none');
     setDraftError(null);
     setShowSaveDraftModal(true);
   };
@@ -2145,12 +2149,9 @@ export function QuickBookForm({
     setNewClientEmail(snap.newClientEmail || '');
   };
 
-  /** When the call-back is due, from the choice in the save box. */
+  /** When it's due: a time staff chose to promise, otherwise the reason's internal target (never told to the client). */
   const draftCallbackDueIso = (): string | null => {
-    const d = new Date();
-    if (draftDue === '1h') return new Date(Date.now() + 3600000).toISOString();
-    if (draftDue === 'today') { d.setHours(17, 0, 0, 0); return (d.getTime() > Date.now() ? d : new Date(Date.now() + 3600000)).toISOString(); }
-    if (draftDue === 'tomorrow') { d.setDate(d.getDate() + 1); d.setHours(10, 0, 0, 0); return d.toISOString(); }
+    if (draftPromise === 'none') return callbackTargetIso(draftReason);
     const t = Date.parse(draftDueAt); return Number.isFinite(t) && t > Date.now() ? new Date(t).toISOString() : null;
   };
 
@@ -2166,7 +2167,7 @@ export function QuickBookForm({
       const callerPhone = draftCallerPhone.trim() || selectedClient?.phone || newClientPhone.trim() || '';
       const callerEmail = (draftEmail.trim() || selectedClient?.email || newClientEmail.trim() || '').toLowerCase();
       const dueIso = draftCallbackDueIso();
-      if (!dueIso) { setDraftError('Pick when to call back.'); setIsSavingDraft(false); return; }
+      if (!dueIso) { setDraftError('Pick the time you promised — it needs to be later than now.'); setIsSavingDraft(false); return; }
       if (draftContact === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(callerEmail)) { setDraftError('They prefer email — add their email address.'); setIsSavingDraft(false); return; }
       if (draftContact !== 'email' && callerPhone.replace(/\D/g, '').length < 7) { setDraftError(`They prefer ${draftContact === 'text' ? 'a text' : 'a call'} — add their phone number.`); setIsSavingDraft(false); return; }
       const owner = draftOwner ? (staff || []).find((m: any) => m.id === draftOwner) : null;
@@ -2190,6 +2191,8 @@ export function QuickBookForm({
           callerEmail: callerEmail || null,
           ownerId: owner ? owner.id : null, ownerName: owner ? (owner.name || null) : null,
           dueAt: dueIso,
+          timePromised: draftPromise === 'pick',
+          reason: draftReason, reasonLabel: callbackReason(draftReason).label, urgent: !!callbackReason(draftReason).urgent,
           contactBy: draftContact,
           promised: draftPromised.trim() || null,
         }),
@@ -2203,7 +2206,7 @@ export function QuickBookForm({
         } catch { /* the call-back is saved; the message is a courtesy */ }
       }
       toast({ title: 'Saved for a call-back', description: `${callerName} is in POS → Needs attention → Callbacks${toldBy ? ` — we ${toldBy === 'email' ? 'emailed' : 'texted'} them when to expect you` : ''}.` });
-      setDraftError(null); setDraftPromised(''); setDraftDue('1h'); setDraftDueAt('');
+      setDraftError(null); setDraftPromised(''); setDraftPromise('none'); setDraftDueAt('');
       setShowSaveDraftModal(false);
       setDraftNote('');
       setDraftCallerPhone('');
@@ -2284,9 +2287,21 @@ export function QuickBookForm({
         </div>
 
         <div className="space-y-2">
-          <p className="text-[13px] font-semibold">Call back by</p>
-          <Seg label="Call back by" value={draftDue} onChange={(v) => setDraftDue(v)} options={[['1h', 'In an hour'], ['today', 'Today, 5pm'], ['tomorrow', 'Tomorrow, 10am'], ['pick', 'Pick a time']]} />
-          {draftDue === 'pick' && <input type="datetime-local" value={draftDueAt} onChange={(e) => setDraftDueAt(e.target.value)} className={deskInput} style={deskInputStyle} />}
+          <p className="text-[13px] font-semibold">What’s it about?</p>
+          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="What’s it about?">
+            {callbackReasonsFor(tenant).map((r) => { const on = draftReason === r.id;
+              return <button key={r.id} type="button" role="radio" aria-checked={on} onClick={() => setDraftReason(r.id)}
+                className="rounded-full px-3 py-1.5 text-[13px] font-medium transition"
+                style={on ? { background: 'var(--accent)', color: 'var(--accent-ink)' } : { background: 'var(--soft)', color: 'var(--ink)' }}>{r.label}</button>; })}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-[13px] font-semibold">Promise a time?</p>
+          <Seg label="Promise a time?" value={draftPromise} onChange={(v) => setDraftPromise(v)} options={[['none', 'No set time'], ['pick', 'A set time']]} />
+          {draftPromise === 'pick'
+            ? <input type="datetime-local" value={draftDueAt} onChange={(e) => setDraftDueAt(e.target.value)} className={deskInput} style={deskInputStyle} />
+            : <p className="text-[13px]" style={{ color: 'var(--muted)' }}>We’ll say we’ll get back to them as soon as we can.{callbackReason(draftReason).urgent ? ' This goes to the top of the Callbacks list.' : ''}</p>}
         </div>
 
         <div className="space-y-2">
@@ -2302,7 +2317,7 @@ export function QuickBookForm({
         <label className="flex items-start gap-3 rounded-2xl p-3.5" style={{ background: 'var(--card)', border: '1px solid var(--line)', opacity: draftCanTell ? 1 : .6 }}>
           <input type="checkbox" checked={draftTell && draftCanTell} disabled={!draftCanTell} onChange={(e) => setDraftTell(e.target.checked)} className="mt-0.5 h-4 w-4" style={{ accentColor: 'var(--accent)' }} />
           <span className="text-[14px]"><b>Let them know when to expect us</b><br />
-            <span style={{ color: 'var(--muted)' }}>{draftCanTell ? `We’ll ${draftContact === 'email' ? 'email' : 'text'} them who’s getting back to them and by when.` : `Add their ${draftContact === 'email' ? 'email' : 'phone number'} to send this.`}</span></span>
+            <span style={{ color: 'var(--muted)' }}>{draftCanTell ? `We’ll ${draftContact === 'email' ? 'email' : 'text'} them who’s getting back to them${draftPromise === 'pick' ? ' and by when' : ''}.` : `Add their ${draftContact === 'email' ? 'email' : 'phone number'} to send this.`}</span></span>
         </label>
 
         {draftError && <p role="alert" className="text-[14px] font-semibold" style={{ color: 'var(--warn)' }}>{draftError}</p>}
