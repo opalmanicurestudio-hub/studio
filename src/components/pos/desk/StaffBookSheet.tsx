@@ -10,6 +10,8 @@ import * as React from 'react';
 import { getAuth } from 'firebase/auth';
 import { DESK_CSS, Btn, Seg } from '@/components/pos/desk/kit';
 import { placeOptionsOf, PLACE_LABEL } from '@/lib/service-place';
+import { unpaidFeeRuleOf, seriesDepositOf, seriesDepositDaysOf } from '@/lib/booking-policies';
+import { hasRealCard } from '@/lib/card-on-file';
 import { callbackReasonsFor, callbackReason } from '@/lib/callback-reasons';
 
 type Mode = 'one' | 'repeat' | 'group' | 'steps';
@@ -41,6 +43,8 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
   const [q, setQ] = React.useState(''); const [client, setClient] = React.useState<any>(null);
   const [isNew, setIsNew] = React.useState(false); const [nName, setNName] = React.useState(''); const [nPhone, setNPhone] = React.useState(''); const [nEmail, setNEmail] = React.useState('');
   const [owesOk, setOwesOk] = React.useState(false); const [owesReason, setOwesReason] = React.useState(''); const [owesMsg, setOwesMsg] = React.useState<string | null>(null);
+  const [owesOpen, setOwesOpen] = React.useState(false); const [owesVia, setOwesVia] = React.useState<'cash' | 'terminal' | 'other'>('cash'); const [owesBusy, setOwesBusy] = React.useState(false);
+  const [allNow, setAllNow] = React.useState(false);   // repeat: take every visit's deposit now (instead of the business setting)
   // ── service ──
   const [serviceId, setServiceId] = React.useState(''); const [addOnIds, setAddOnIds] = React.useState<string[]>([]);
   const [lenAdj, setLenAdj] = React.useState(0); const [price, setPrice] = React.useState('');
@@ -65,7 +69,7 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
   const [draftId, setDraftId] = React.useState<string | null>(null);
 
   const reset = React.useCallback(() => {
-    setQ(''); setClient(null); setIsNew(false); setNName(''); setNPhone(''); setNEmail(''); setOwesOk(false); setOwesReason(''); setOwesMsg(null);
+    setQ(''); setClient(null); setIsNew(false); setNName(''); setNPhone(''); setNEmail(''); setOwesOk(false); setOwesReason(''); setOwesMsg(null); setOwesOpen(false); setAllNow(false);
     setServiceId(''); setAddOnIds([]); setLenAdj(0); setPrice(''); setStaffId('any'); setDate(todayStr()); setTime(''); setTimes(null); setOwnTime(false);
     setClash(null); setOverrideReason(''); setMode('one'); setGuests([]); setSteps([]); setGroupName(''); setDeposit('link'); setPkg(''); setPromo(''); setPlace('');
     setNotes(''); setPrivateNotes(''); setError(null); setDone(null); setCbOpen(false); setDraftId(null);
@@ -116,6 +120,10 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
     return (clients || []).filter((c: any) => (p.length >= 7 && digits(c.phone).endsWith(p.slice(-7))) || (e && String(c.email || '').toLowerCase() === e) || (n.length > 3 && String(c.name || '').toLowerCase() === n)).slice(0, 3);
   }, [isNew, nPhone, nEmail, nName, clients]);
   const owes = Number(client?.outstandingBalance) || 0;
+  const owesRule = unpaidFeeRuleOf(tenant);                      // next_visit · keep_booking · before_booking
+  const owesBlocks = owes > 0 && owesRule === 'before_booking' && !owesOk;
+  const cardLabel = hasRealCard(client) ? `Charge ${client?.cardOnFile?.last4 ? `•••• ${client.cardOnFile.last4}` : 'their saved card'}` : null;
+  const seriesPolicy = seriesDepositOf(tenant); const seriesDays = seriesDepositDaysOf(tenant);
   const packages = (Array.isArray(client?.activePackages) ? client.activePackages : []).filter((p: any) => Number(p.sessionsRemaining) > 0);
   const hasDeposit = !!svc && svc.depositType && svc.depositType !== 'none';
   const placeOpts = svc ? placeOptionsOf(svc) : [];
@@ -134,7 +142,7 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
   const validate = (): string | null => {
     if (!client && !(isNew && nName.trim())) return 'Choose a client, or add a new one.';
     if (!client && isNew && digits(nPhone).length < 7 && !/@/.test(nEmail)) return 'Add a phone number or email for the new client.';
-    if (owes > 0 && !owesOk) return `${client?.name?.split(' ')[0] || 'They'} owe ${money(owes)} — charge it, or choose “Book anyway” with a reason.`;
+    if (owesBlocks) return `${client?.name?.split(' ')[0] || 'They'} owe ${money(owes)}, and your policy is to take it before booking again. Take the payment${isManager ? ', or book anyway with a reason' : ', or ask a manager'}.`;
     if (!svc) return 'Choose a service.';
     if (!time) return 'Choose a time.';
     if (mode === 'group' && !guests.length) return 'Add at least one guest, or choose “Just this one”.';
@@ -147,7 +155,7 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
     tenantId, source: 'front-desk', serviceId, staffId, startTime: new Date(`${date}T${time}:00`).toISOString(), client: clientBody(), addOnIds,
     ...(lenAdj ? { durationMinutes: length } : {}), ...(price.trim() && Number(price) >= 0 ? { price: Number(price) } : {}),
     ...(notes.trim() ? { notes: notes.trim() } : {}),
-    internalNotes: [privateNotes.trim(), owes > 0 && owesOk ? `Booked with ${money(owes)} owed — ${owesReason.trim()}` : ''].filter(Boolean).join(' · '),
+    internalNotes: [privateNotes.trim(), owes > 0 && owesOk && owesReason.trim() ? `Booked with ${money(owes)} owed (manager) — ${owesReason.trim()}` : ''].filter(Boolean).join(' · '),
     ...(promo.trim() ? { promoCode: promo.trim() } : {}), ...(pkg ? { redeemPackageId: pkg } : {}), ...(place ? { place } : {}),
     ...(draftId ? { callbackDraftId: draftId } : {}),
     ...(hasDeposit && deposit === 'link' ? { holdUntil: new Date(Date.now() + 24 * 3600000).toISOString() } : {}),
@@ -163,7 +171,8 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
     else if (mode === 'repeat') {
       const n = Math.max(2, Math.min(26, Number(count) || 2)), w = Math.max(1, Math.min(12, Number(every) || 1));
       const items = Array.from({ length: n }, (_, i) => { const st = new Date(new Date(`${date}T${time}:00`).getTime() + i * w * 7 * 864e5); const b = oneBody({ startTime: st.toISOString() }); delete (b as any).tenantId; return b; });
-      out = await staffJson('/api/appointments/book-many', { tenantId, kind: 'series', items });
+      out = await staffJson('/api/appointments/book-many', { tenantId, kind: 'series', items, ...(allNow ? { seriesDeposit: 'all_now' } : {}) });
+      if (!out?.ok && out?.needsCard) { setBusy(false); setError(out.error); return; }
     } else if (mode === 'group') {
       const main = oneBody(); delete (main as any).tenantId;
       const items = [main, ...guests.map((g) => ({ source: 'front-desk', serviceId: g.serviceId, staffId: g.staffId || 'any', startTime: main.startTime, client: { name: g.name.trim(), phone: g.phone.trim() } }))];
@@ -185,11 +194,17 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
     // Deposit, through the desk's deposit route (single bookings; linked ones use the pay link in their messages).
     let depositNote: string | null = null;
     const firstId = out.appointmentId || out.appointments?.[0]?.appointmentId || out.results?.find((x: any) => x.ok)?.appointmentId;
-    if (hasDeposit && deposit !== 'link' && firstId) {
+    // Which bookings owe a deposit now: every visit for "all now"; otherwise just the first (the rest are covered or scheduled).
+    const dueNow: string[] = mode === 'repeat' && (allNow || out.depositPolicy === 'all_now') ? (out.results || []).filter((x: any) => x.ok).map((x: any) => x.appointmentId) : firstId ? [firstId] : [];
+    if (hasDeposit && deposit !== 'link' && dueNow.length) {
       const action = deposit === 'charge' ? 'charge' : deposit === 'paid' ? 'settled' : 'waive';
-      const d = await staffJson('/api/appointments/desk-deposit', { tenantId, appointmentId: firstId, action });
-      depositNote = d?.ok ? (deposit === 'charge' ? 'Deposit charged to their card.' : deposit === 'paid' ? 'Deposit marked as paid.' : 'Deposit waived.') : `Booked — but the deposit step didn’t go through: ${d?.error || 'try again from the booking'}.`;
+      let okCount = 0; let lastErr = '';
+      for (const id of dueNow) { const d = await staffJson('/api/appointments/desk-deposit', { tenantId, appointmentId: id, action }); if (d?.ok) okCount++; else lastErr = d?.error || ''; }
+      const what = deposit === 'charge' ? 'charged to their card' : deposit === 'paid' ? 'marked as paid' : 'waived';
+      depositNote = okCount === dueNow.length ? `${dueNow.length > 1 ? `${dueNow.length} deposits` : 'Deposit'} ${what}.` : `Booked — but ${dueNow.length - okCount} deposit${dueNow.length - okCount === 1 ? '' : 's'} didn’t go through${lastErr ? `: ${lastErr}` : ''}. Take it from the booking.`;
     } else if (hasDeposit && deposit === 'link') depositNote = 'They’ve been sent a link to pay the deposit — the time is held for 24 hours.';
+    if (hasDeposit && mode === 'repeat' && !(allNow || out.depositPolicy === 'all_now')) depositNote = `${depositNote ? `${depositNote} ` : ''}${out.depositPolicy === 'before_each' ? `Each later visit’s deposit is taken ${seriesDays} days before it.` : 'Later visits are held by their card on file — no more deposits.'}`;
+    if (hasDeposit && (mode === 'group' || mode === 'steps')) depositNote = `${depositNote ? `${depositNote} ` : ''}One deposit covers the whole ${mode === 'group' ? 'group' : 'visit'}.`;
     setBusy(false);
     setDone({ ...out, firstId, depositNote, when: new Date(`${date}T${time}:00`), who: client?.name || nName.trim() });
   };
@@ -292,14 +307,31 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
                   </div>
                 )}
                 {owes > 0 && !owesOk && (
-                  <div className="space-y-2 rounded-2xl p-3" style={{ background: 'color-mix(in srgb, var(--warn) 10%, transparent)' }}>
-                    <p className="text-[14px]"><b>{client.name.split(' ')[0]} owes {money(owes)}.</b> Take it now, or book anyway with a reason.</p>
-                    <div className="flex flex-wrap gap-2">
-                      <Btn onClick={async () => { setOwesMsg(null); const r: any = await fetch('/api/portal/pay-balance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, clientId: client.id }) }).then((x) => x.json()).catch(() => ({}));
-                        if (r?.ok) { setOwesOk(true); setOwesMsg(`Paid — ${money(Number(r.paidDollars) || owes)} charged${r.last4 ? ` to •••• ${r.last4}` : ''}.`); setClient({ ...client, outstandingBalance: 0 }); } else setOwesMsg(r?.error || 'The card didn’t go through.'); }}>Charge their card</Btn>
-                    </div>
-                    <input value={owesReason} onChange={(e) => setOwesReason(e.target.value)} placeholder="Or book anyway — reason (e.g. paying at the visit)" className={inp} style={inpS} />
-                    <Btn quiet disabled={!owesReason.trim()} onClick={() => setOwesOk(true)}>Book anyway</Btn>
+                  <div className="space-y-2 rounded-2xl p-3" style={{ background: owesRule === 'before_booking' ? 'color-mix(in srgb, var(--warn) 10%, transparent)' : 'var(--soft)' }}>
+                    <p className="text-[14px]"><b>{client.name.split(' ')[0]} owes {money(owes)}.</b>{' '}
+                      {owesRule === 'before_booking' ? 'Your policy: it’s paid before booking again.' : owesRule === 'next_visit' ? 'Your policy: it’s added to this visit’s bill — nothing to do now.' : 'Your policy: it stays on their account — nothing to do now.'}</p>
+                    {owesRule !== 'before_booking' && !owesOpen ? <button type="button" className="text-[13px] underline" onClick={() => setOwesOpen(true)}>Settle it now instead</button> : <>
+                      <div className="flex flex-wrap gap-2">
+                        {cardLabel && <Btn disabled={owesBusy} onClick={async () => { setOwesBusy(true); setOwesMsg(null); const r: any = await fetch('/api/portal/pay-balance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, clientId: client.id }) }).then((x) => x.json()).catch(() => ({})); setOwesBusy(false);
+                          if (r?.ok) { setOwesOk(true); setOwesMsg(`Paid — ${money(Number(r.paidDollars) || owes)} charged${r.last4 ? ` to •••• ${r.last4}` : ''}.`); setClient({ ...client, outstandingBalance: 0 }); } else setOwesMsg('The card didn’t go through — take it another way.'); }}>{cardLabel}</Btn>}
+                        <Btn quiet disabled={owesBusy} onClick={async () => { setOwesBusy(true); setOwesMsg(null); const r: any = await staffJson('/api/clients/balance', { tenantId, clientId: client.id, action: 'link' }); setOwesBusy(false);
+                          setOwesMsg(r?.ok ? `Pay link sent by ${r.sentTo === 'email' ? 'email' : 'text'}.${owesRule === 'before_booking' ? ' They can be booked once it’s paid.' : ''}` : r?.error || 'The link didn’t send.'); }}>Send a pay link</Btn>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Seg label="Paid at the desk by" value={owesVia} onChange={(v) => setOwesVia(v)} options={[['cash', 'Cash'], ['terminal', 'Card terminal'], ['other', 'Other']]} />
+                        <Btn quiet disabled={owesBusy} onClick={async () => { setOwesBusy(true); setOwesMsg(null); const r: any = await staffJson('/api/clients/balance', { tenantId, clientId: client.id, action: 'settled', via: owesVia }); setOwesBusy(false);
+                          if (r?.ok) { setOwesOk(true); setOwesMsg(`Recorded — ${money(owes)} paid at the desk.`); setClient({ ...client, outstandingBalance: 0 }); } else setOwesMsg(r?.error || 'That didn’t save.'); }}>Paid at the desk</Btn>
+                      </div>
+                      {isManager && <div className="space-y-1.5">
+                        <input value={owesReason} onChange={(e) => setOwesReason(e.target.value)} placeholder="Manager: reason to book anyway or waive" className={inp} style={inpS} />
+                        <div className="flex flex-wrap gap-2">
+                          {owesRule === 'before_booking' && <Btn quiet disabled={!owesReason.trim()} onClick={() => setOwesOk(true)}>Book anyway</Btn>}
+                          <Btn quiet disabled={!owesReason.trim() || owesBusy} onClick={async () => { setOwesBusy(true); const r: any = await staffJson('/api/clients/balance', { tenantId, clientId: client.id, action: 'waive', reason: owesReason.trim() }); setOwesBusy(false);
+                            if (r?.ok) { setOwesOk(true); setOwesMsg(`${money(owes)} waived.`); setClient({ ...client, outstandingBalance: 0 }); setOwesReason(''); } else setOwesMsg(r?.error || 'That didn’t save.'); }}>Waive it</Btn>
+                        </div>
+                      </div>}
+                      {!isManager && owesRule === 'before_booking' && <p className="text-[13px]" style={{ color: 'var(--muted)' }}>Only a manager can book them before it’s paid.</p>}
+                    </>}
                     {owesMsg && <p className="text-[13px] font-semibold">{owesMsg}</p>}
                   </div>
                 )}
@@ -353,11 +385,15 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
               {/* ── Booking type ── */}
               {svc && <Card>
                 <H>Booking type</H>
-                <Seg label="Booking type" value={mode} onChange={(v) => setMode(v)} options={[['one', 'Just this one'], ['repeat', 'Repeat'], ['group', 'Group'], ['steps', 'More providers']]} />
+                <Seg label="Booking type" value={mode} onChange={(v) => { setMode(v); if ((v === 'group' || v === 'steps') && deposit === 'link') setDeposit('charge'); }} options={[['one', 'Just this one'], ['repeat', 'Repeat'], ['group', 'Group'], ['steps', 'More providers']]} />
                 {mode === 'repeat' && <div className="flex flex-wrap items-center gap-2 text-[14px]">Every
                   <select value={every} onChange={(e) => setEvery(e.target.value)} className="h-9 rounded-xl px-2" style={inpS}>{['1', '2', '3', '4', '6', '8'].map((w) => <option key={w} value={w}>{w} week{w === '1' ? '' : 's'}</option>)}</select>
                   for <select value={count} onChange={(e) => setCount(e.target.value)} className="h-9 rounded-xl px-2" style={inpS}>{['2', '3', '4', '6', '8', '10', '12'].map((c) => <option key={c} value={c}>{c} visits</option>)}</select>
-                  <span className="w-full text-[13px]" style={{ color: 'var(--muted)' }}>Same time and provider. Any date that isn’t free is skipped and listed. Only the first sends a confirmation.</span></div>}
+                  <span className="w-full text-[13px]" style={{ color: 'var(--muted)' }}>Same time and provider. Any date that isn’t free is skipped and listed. Only the first sends a confirmation.</span>
+                  {hasDeposit && <span className="w-full space-y-1 text-[13px]">
+                    <span className="block">{allNow || seriesPolicy === 'all_now' ? `Every visit’s deposit is taken now (${count} visits).` : seriesPolicy === 'before_each' ? `First deposit now; each later visit’s is taken ${seriesDays} days before it. Needs a card on file.` : seriesPolicy === 'none' ? 'No deposits — their card on file holds the series.' : 'First visit’s deposit now; their card on file holds the rest.'}</span>
+                    {seriesPolicy !== 'all_now' && <label className="flex items-center gap-2"><input type="checkbox" checked={allNow} onChange={(e) => { setAllNow(e.target.checked); if (e.target.checked && deposit === 'link') setDeposit('charge'); }} style={{ accentColor: 'var(--accent)' }} /> Take every visit’s deposit now instead</label>}
+                  </span>}</div>}
                 {mode === 'group' && <div className="space-y-2">
                   <input value={groupName} onChange={(e) => setGroupName(e.target.value)} placeholder="Group name (optional) — e.g. Ana’s bridal party" className={inp} style={inpS} />
                   {guests.map((g, i) => <div key={i} className="space-y-1.5 rounded-2xl p-3" style={{ background: 'var(--soft)' }}>
@@ -384,7 +420,9 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
               {svc && <Card>
                 <H>Payment &amp; notes</H>
                 {hasDeposit && <><p className="text-[13px]" style={{ color: 'var(--muted)' }}>This service takes a deposit.</p>
-                  <Seg label="Deposit" value={deposit} onChange={(v) => setDeposit(v)} options={[['link', 'Send a pay link'], ['charge', 'Charge card on file'], ['paid', 'Paid at the desk'], ...(isManager ? [['waive', 'Waive'] as ['waive', string]] : [])]} /></>}
+                  <Seg label="Deposit" value={deposit} onChange={(v) => setDeposit(v)} options={[
+                    ...((mode === 'group' || mode === 'steps' || (mode === 'repeat' && (allNow || seriesPolicy === 'all_now'))) ? [] : [['link', 'Send a pay link'] as ['link', string]]),
+                    ['charge', 'Charge card on file'], ['paid', 'Paid at the desk'], ...(isManager ? [['waive', 'Waive'] as ['waive', string]] : [])]} /></>}
                 {packages.length > 0 && <select value={pkg} onChange={(e) => setPkg(e.target.value)} className={inp} style={inpS}>
                   <option value="">Don’t use a package</option>
                   {packages.map((p: any) => <option key={p.packageId} value={p.packageId}>Use {p.name || p.packageName || 'package'} — {p.sessionsRemaining} left</option>)}
