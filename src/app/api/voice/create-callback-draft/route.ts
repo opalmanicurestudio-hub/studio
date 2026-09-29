@@ -193,6 +193,8 @@ export async function POST(req: NextRequest) {
         step,
         snapshot,
         status: 'pending',
+        // The callback queue: due in 2 hours, unassigned for the desk to claim, call them back.
+        dueAt: new Date(Date.now() + 2 * 3600000).toISOString(), ownerId: null, ownerName: null, contactBy: 'call',
         // Additive fields — panel ignores them, analytics thank you later:
         source: 'ai_receptionist',
         retellCallId: retellCallId || undefined, // links draft → recording
