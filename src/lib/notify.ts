@@ -219,6 +219,8 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
             subject: input.subject || 'A note from your studio',
             html,
             ...(input.text ? { text: input.text } : {}),
+            // Replies go to the business (when it has an email), not the sending address.
+            ...((input as any).replyTo && /@/.test(String((input as any).replyTo)) ? { reply_to: String((input as any).replyTo) } : {}),
           }),
         });
         const body: any = await res.json().catch(() => null);
