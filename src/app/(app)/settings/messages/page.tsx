@@ -408,6 +408,25 @@ export default function MessageSettingsPage() {
           );
         })}
 
+        {/* The confirmation a caller gets when the desk saves a call-back (POS → Save for a call-back). */}
+        <Card id="callback-confirmations" className="rounded-3xl">
+          <CardContent className="space-y-3 p-5">
+            <div><p className="font-semibold">Call-back confirmations</p>
+              <p className="text-sm text-muted-foreground">When the desk saves a call-back and ticks “Let them know when to expect us”, the caller gets a short message. Choose what it includes.</p></div>
+            {([
+              ['summary', 'What we’ll follow up about', 'From the reason the desk chose — never the private notes. Left out when the reason is “Something else”.'],
+              ['callerId', 'The number we’ll call from', 'Your business phone, so they recognise the call.'],
+              ['links', 'A relevant link', 'Your booking page, for booking or change questions.'],
+              ['addDetails', 'An “Add details” link', 'A private page where they can add a few lines before you call. It shows on the call-back.'],
+            ] as const).map(([k, label, note]) => {
+              const on = (selectedTenant as any)?.callbackEmail?.[k] !== false;
+              return <label key={k} className="flex items-start gap-3 text-sm"><input type="checkbox" className="mt-1" checked={on} disabled={!isMgr || !!busy}
+                onChange={(e) => save(`cb-${k}`, `callbackEmail.${k}`, e.target.checked, label)} />
+                <span><b>{label}</b><br /><span className="text-muted-foreground">{note}</span></span></label>;
+            })}
+            <p className="text-xs text-muted-foreground">Replies to the email go to your business email, when one is set. The caller is never promised a time unless the desk chose one.</p>
+          </CardContent>
+        </Card>
         {tenantId && <div id="win-back" className="space-y-2 pt-4"><h2 className="px-2 text-lg font-semibold">Winning clients back · renter campaigns</h2>
           <WinBackSettings tenantId={tenantId} tenant={selectedTenant} canEdit={isMgr} /></div>}
 
