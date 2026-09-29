@@ -13,6 +13,7 @@
 //   In service with a provider                       → Finish (provider review → ready to pay)
 //   Ready      ready for checkout                    → Check out (checkout drawer)
 
+import { useClientScreen, ClientScreenPanel } from '@/components/pos/ClientScreen';
 import { TodaysSales } from '@/components/pos/desk/TodaysSales';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getAuth } from 'firebase/auth';
@@ -74,6 +75,8 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const opsCount = { ...opsBase, attention: opsBase.attention + overdueCallbacks(callbacks) + callsNeedingAttention(openCalls.calls) };
   const [logCallOpen, setLogCallOpen] = useState(false);
   const [salesOpen, setSalesOpen] = useState(false);
+  const [screenOpen, setScreenOpen] = useState(false);
+  const clientScreen = useClientScreen(e.tenantId);
   const [overFor, setOverFor] = useState<any>(null); // a service running over → tell the next guests
   const [mode, setMode] = useState<'desk' | 'counter'>('desk');
   const [about, setAbout] = useState<Guest | null>(null);
@@ -334,6 +337,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
           <Btn quiet onClick={() => e.setIsQuickBookOpen(true)}>Book</Btn>
           <Btn quiet onClick={() => setLogCallOpen(true)}>Log a call</Btn>
           <Btn quiet onClick={() => setSalesOpen(true)}>Today’s sales</Btn>
+          <Btn quiet onClick={() => setScreenOpen(true)}><span aria-hidden style={{ color: clientScreen.connected ? (clientScreen.online ? 'var(--ok)' : 'var(--warn)') : 'var(--muted)' }}>●</span> Client screen</Btn>
           <Btn quiet={!opsCount.attention} onClick={() => setAttnOpen(true)}>{opsCount.decisions ? `Needs a decision · ${opsCount.decisions}` : `Needs attention${opsCount.attention ? ` · ${opsCount.attention}` : ''}`}</Btn>
           {mode === 'desk' && readyIds.length > 0 && <Btn onClick={() => setCheckoutOpen(true)}>Checkout · {readyIds.length}</Btn>}
           <Btn quiet onClick={() => e.setIsTillManagementOpen(true)}>Till</Btn>
@@ -387,6 +391,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       </Drawer>
       <TodaysSales open={salesOpen} onClose={() => setSalesOpen(false)} tenantId={e.tenantId} tenant={e.selectedTenant} transactions={e.transactions || []} staff={e.staff || []} role={(e as any).role || null} />
       <LogCallSheet open={logCallOpen} onClose={() => setLogCallOpen(false)} tenantId={e.tenantId} tenant={e.selectedTenant} clients={e.clients || []} staff={e.staff || []} appointments={e.appointmentsFromInventory || []} uid={e.currentUser?.uid || null} />
+      <Drawer accent={accent} open={screenOpen} onClose={() => setScreenOpen(false)} title="Client screen"><ClientScreenPanel tenantId={e.tenantId} /></Drawer>
       <Drawer accent={accent} open={attnOpen} onClose={() => setAttnOpen(false)} title="Needs attention">
         {attnOpen && <OpsBoard appts={todaysAppts} staff={(e.staff || []).filter((s: any) => s.isActive !== false)} tenant={e.selectedTenant} tenantId={e.tenantId} role={e.role} uid={e.currentUser?.uid} />}
       </Drawer>
