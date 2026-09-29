@@ -15,6 +15,7 @@ export interface CalcInput {
   tenant: any; visits: CalcVisit[]; staff: any[]; redeemedOffer: { type: string; id: string; itemId?: string } | null; waivedIds: string[];
   items: CalcItem[]; fees: { feeId: string; feeAmount: number }[]; discounts: any[]; client: any | null; memberships: any[];
   tip: number; storeCredit: number;
+  staffDiscount?: { kind: 'pct' | 'amt'; value: number } | null;   // a staff discount — never a price change
 }
 export interface VisitCalc { appointmentId: string; mainStaffId: string; mainPrice: number; mainRedeemed: boolean; addOns: { addon: any; staffId: string; price: number; redeemed: boolean }[];
   rescheduleFee: number; timeOverage: number; materialOverage: number; additionalCharge: number; refreshments: { name: string; qty: number; price: number }[]; waived: boolean }
@@ -45,7 +46,9 @@ export function computeCheckout(i: CalcInput) {
   taxableServices += (i.items || []).filter((it) => it.type === 'service').reduce((s, it) => s + num(it.price) * num(it.quantity), 0);
   const feeSub = (i.fees || []).reduce((s, f) => s + num(f.feeAmount), 0);
   const subtotal = round2(servicesSub + retailSub + feeSub);
-  const discount = round2((i.discounts || []).reduce((s, d: any) => s + (d.type === 'percentage' ? subtotal * (num(d.value) / 100) : num(d.value)), 0));
+  const codeDiscount = round2((i.discounts || []).reduce((s, d: any) => s + (d.type === 'percentage' ? subtotal * (num(d.value) / 100) : num(d.value)), 0));
+  const sd = i.staffDiscount; const staffDiscount = sd ? round2(Math.min(subtotal, sd.kind === 'pct' ? subtotal * (num(sd.value) / 100) : num(sd.value))) : 0;
+  const discount = round2(codeDiscount + staffDiscount);
   // A member's retail discount (their plan's %, on eligible items).
   let memberDiscount = 0;
   const c = i.client; const mId = c?.activeMembershipId || c?.subscription?.membershipId;
@@ -57,5 +60,5 @@ export function computeCheckout(i: CalcInput) {
   const tax = posTaxAmount(i.tenant, { services: taxableServices, products: taxableProducts });
   const tip = round2(num(i.tip)); const storeCredit = round2(num(i.storeCredit));
   const total = round2(Math.max(0, subtotal + tax + tip - discount - memberDiscount - storeCredit));
-  return { visits, servicesSub: round2(servicesSub), retailSub: round2(retailSub), feeSub: round2(feeSub), subtotal, discount, memberDiscount, tax, taxLabel: posTaxLabel(i.tenant), tip, storeCredit, total };
+  return { visits, servicesSub: round2(servicesSub), retailSub: round2(retailSub), feeSub: round2(feeSub), subtotal, discount, codeDiscount, staffDiscount, memberDiscount, tax, taxLabel: posTaxLabel(i.tenant), tip, storeCredit, total };
 }
