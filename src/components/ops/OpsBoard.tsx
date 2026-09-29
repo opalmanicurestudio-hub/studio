@@ -18,6 +18,7 @@ import { OverrunPanel } from '@/components/ops/OverrunPanel';
 import { disruptionTotals } from '@/lib/disruptions';
 import { moduleEnabled } from '@/lib/modules';
 import { CallbackQueue } from '@/components/ops/CallbackQueue';
+import { CallsPanel } from '@/components/ops/CallLog';
 import { ProviderShortlist, tickProviderAsks } from '@/components/ops/ProviderShortlist';
 import { resolvePolicy } from '@/lib/booking-policies';
 
@@ -385,6 +386,7 @@ export function OpsBoard({ appts, staff, tenant, tenantId, role, uid }: { appts:
     <div className="space-y-4">
       <ProviderLate tenantId={tenantId} staff={(staff || []).filter((s: any) => s.isActive !== false)} role={role} uid={uid} tenant={tenant} />
       <RefundQueue tenantId={tenantId} role={role} />
+      <CallsPanel tenantId={tenantId} uid={uid} role={role} staff={staff} />
       <CallbackQueue tenantId={tenantId} uid={uid} />
       <SeriesDepositsFailed tenantId={tenantId} />
       <UnpaidFees tenantId={tenantId} role={role} tenant={tenant} />
