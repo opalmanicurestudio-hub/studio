@@ -56,7 +56,6 @@ import { PrintTicket } from '@/components/planner/PrintTicket';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // ── NEW IMPORTS — four feature additions ──────────────────────────────────────
-import { QuickBookForm } from '@/components/pos/QuickBookForm';
 import { WaitlistManager } from '@/components/pos/WaitlistManager';
 import { useWaitlist } from '@/hooks/useWaitlist';
 import { QRScanner } from '@/components/pos/QRScanner';
@@ -89,7 +88,6 @@ function POSPage() {
     resolveScanCode, scanTimerRef, handleScanInput, handleScanConfirm, handleOpenTill, handleCloseTill, handleVoidTransaction, resolveRetailScan,
     checkoutHubProps, getPreviousFormula, getVisitCount, waitingNowCount, cartItemCount, walkInGroupSizes,
   } = __engine;
-  const [classicOpen, setClassicOpen] = useState(false);
   const [resumeDraft, setResumeDraft] = useState<any>(null);
   // "Resume" in POS → Needs attention → Callbacks reopens the booking with what was saved.
   useEffect(() => {
@@ -203,43 +201,10 @@ function POSPage() {
       </Dialog>
 
       {/* ── QUICK BOOK SHEET — now uses upgraded QuickBookForm ───────────────── */}
-      {/* Booking at the desk — the shared booking engine (C1). The classic form stays reachable until it's retired. */}
+      {/* Booking at the desk — the shared booking engine (C1). */}
       <StaffBookSheet open={isQuickBookOpen} onClose={() => { setIsQuickBookOpen(false); setResumeDraft(null); }}
         tenantId={tenantId || ''} tenant={selectedTenant} clients={clients || []} services={services || []} staff={staff || []}
-        role={role} uid={currentUser?.uid || null} resume={resumeDraft}
-        onClassic={() => { setIsQuickBookOpen(false); setClassicOpen(true); }} />
-      <Sheet open={classicOpen} onOpenChange={setClassicOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-xl flex flex-col p-0 overflow-hidden">
-          <SheetHeader className="p-6 border-b bg-muted/5 flex-shrink-0">
-            <SheetTitle className="text-xl font-black uppercase tracking-tighter flex items-center gap-2"><BookOpen className="w-5 h-5 text-primary" /> Quick Book — Call-In</SheetTitle>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 mt-1">Book an appointment directly from the POS for walk-in or call-in guests.</p>
-          </SheetHeader>
-          <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            {/* FIX: previously omitted currentStaffId, packages, memberships, and
-                discounts — all four already exist in this component's own scope
-                (useInventory() already destructures memberships/packages/discounts,
-                and currentUser is right there from useFirebase()), so every
-                package/membership nudge and auto-listed-discount feature built into
-                QuickBookForm was silently inert: the data simply never arrived. */}
-            <QuickBookForm
-              clients={clients || []}
-              services={services || []}
-              staff={staff || []}
-              tenantId={tenantId || ''}
-              tenant={selectedTenant}
-              firestore={firestore}
-              appointments={appointmentsFromInventory || []}
-              currentStaffId={currentUser?.uid}
-              packages={packages || []}
-              memberships={memberships || []}
-              discounts={discounts || []}
-              onSuccess={() => { setClassicOpen(false); toast({ title: "Appointment Booked" }); }}
-              onCancel={() => setClassicOpen(false)}
-            />
-          </div>
-        </SheetContent>
-      </Sheet>
-
+        appointments={appointmentsFromInventory || []} role={role} uid={currentUser?.uid || null} resume={resumeDraft} />
       <Dialog open={!!pendingRefund} onOpenChange={(o) => { if (!o) setPendingRefund(null); }}>
         <DialogContent className="sm:max-w-md rounded-[2rem] border-4 shadow-2xl">
           <DialogHeader className="p-6 pb-0">
