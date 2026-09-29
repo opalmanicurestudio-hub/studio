@@ -4,9 +4,9 @@
 import { receiptCall, openReceipt } from '@/lib/receipt-client';
 import { groupDaySales } from '@/lib/day-sales';
 import * as React from 'react';
-import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
-import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
+import { useFirebase } from '@/firebase';
 import { DESK_CSS, Btn, Seg } from '@/components/pos/desk/kit';
 import { approveWithPin, askManagerPhone } from '@/lib/approve-client';
 
@@ -25,8 +25,14 @@ const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); retur
 
 export function TodaysSales({ open, onClose, tenantId, tenant, role, transactions, staff }: { open: boolean; onClose: () => void; tenantId: string; tenant: any; role?: string | null; transactions?: any[]; staff?: any[] }) {
   const { firestore } = useFirebase() as any;
-  const q = useMemoFirebase(() => (open && firestore && tenantId ? query(collection(firestore, `tenants/${tenantId}/receipts`), where('date', '>=', startOfToday())) : null), [open, firestore, tenantId]);
-  const { data } = useCollection<any>(q);
+  // Today's receipts come from the server (reliable; refreshed when a sale lands or after a void).
+  const [data, setData] = React.useState<any[] | null>(null); const [loadErr, setLoadErr] = React.useState<string | null>(null);
+  const loadReceipts = React.useCallback(async () => { if (!tenantId) return;
+    const from = new Date(); from.setHours(0, 0, 0, 0); const to = new Date(); to.setHours(23, 59, 59, 999);
+    const r: any = await receiptCall({ tenantId, action: 'today', from: from.toISOString(), to: to.toISOString() });
+    if (r?.ok) { setData(r.receipts || []); setLoadErr(null); } else setLoadErr(r?.error || 'Couldn’t load today’s receipts.'); }, [tenantId]);
+  const txCount = (transactions || []).length;
+  React.useEffect(() => { if (open) loadReceipts(); }, [open, txCount, loadReceipts]);
   const isManager = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
   const [sel, setSel] = React.useState<any>(null); const [reason, setReason] = React.useState('');
   const [how, setHow] = React.useState<'pin' | 'phone'>('pin'); const [pin, setPin] = React.useState('');
@@ -43,7 +49,7 @@ export function TodaysSales({ open, onClose, tenantId, tenant, role, transaction
     const r = await fetch('/api/checkout/void', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, receiptId: sel.id, reason, approvalToken }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'We couldn’t reach the server.' }));
     setBusy(false);
     if (!r?.ok) { setErr(r?.error || 'The void didn’t go through.'); return; }
-    setDone(r);
+    setDone(r); loadReceipts();
   };
   const approveAndVoid = async () => {
     if (!reason.trim()) { setErr('Say why the sale is being voided.'); return; }
@@ -103,6 +109,7 @@ export function TodaysSales({ open, onClose, tenantId, tenant, role, transaction
                 <div key={l} className="rounded-2xl p-3" style={{ background: 'var(--card)' }}><p className="text-[12px]" style={{ color: 'var(--muted)' }}>{l}</p><p className="text-[20px] font-semibold tabular-nums">{v}</p></div>)}
             </section>
             <p className="text-[13px]" style={{ color: 'var(--muted)' }}>Cash {money(day.summary.cash)} · Card {money(day.summary.card)} · Online {money(day.summary.online)}{day.summary.other ? ` · Other ${money(day.summary.other)}` : ''} · Tips {money(day.summary.tips)}{day.summary.voidedCount ? ` · ${day.summary.voidedCount} voided (${money(day.summary.voidedTotal)})` : ''}</p>
+            {loadErr && <p className="text-[13px] font-semibold" style={{ color: 'var(--warn)' }}>{loadErr} Receipts and voids may not show — close and reopen.</p>}
             <Seg label="Show" value={filter} onChange={(v) => setFilter(v)} options={[['all', 'All'], ['checkout', 'Checkout'], ['online', 'Online & deposits'], ['fees', 'Fees & balances'], ['voided', 'Voided']]} />
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Find a client" aria-label="Find a client" className={inp} style={inpS} />
             {(() => {
@@ -116,7 +123,7 @@ export function TodaysSales({ open, onClose, tenantId, tenant, role, transaction
                 return <div key={x.key} className="rounded-2xl" style={{ background: 'var(--card)', opacity: x.voided ? 0.6 : 1 }}>
                   <button type="button" aria-expanded={openRow} onClick={() => setOpenKey(openRow ? null : x.key)} className="flex w-full items-center justify-between gap-3 p-3 text-left">
                     <span className="min-w-0"><span className="block truncate text-[15px] font-semibold">{x.clientName || 'Guest'}{x.paidBy && x.paidBy !== x.clientName ? <span className="font-normal" style={{ color: 'var(--muted)' }}> · paid by {x.paidBy}</span> : null}</span>
-                      <span className="block text-[13px]" style={{ color: 'var(--muted)' }}>{new Date(x.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} · {x.label} · {x.method === 'cash' ? 'Cash' : x.method === 'card' ? 'Card' : x.method === 'online' ? 'Online' : 'Other'}{x.staffIds.length ? ` · ${x.staffIds.map(who).filter(Boolean).join(', ')}` : ''}{x.voided ? ' · voided' : ''}{r?.needsReview ? ' · needs review' : ''}</span></span>
+                      <span className="block text-[13px]" style={{ color: 'var(--muted)' }}>{new Date(x.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} · {x.label} · {x.method === 'cash' ? 'Cash' : x.method === 'card' ? 'Card' : x.method === 'online' ? 'Online' : 'Other'}{x.staffIds.map(who).filter(Boolean).length ? ` · ${x.staffIds.map(who).filter(Boolean).join(', ')}` : ''}{x.voided ? ' · voided' : ''}{r?.needsReview ? ' · needs review' : ''}</span></span>
                     <span className="shrink-0 text-[16px] font-semibold tabular-nums">{x.voided ? <s>{money(x.total)}</s> : money(x.total)}</span>
                   </button>
                   {openRow && <div className="space-y-2 px-3 pb-3">
