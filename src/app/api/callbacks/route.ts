@@ -9,6 +9,7 @@
 //   resolve — close it with an outcome (required) and a note
 //   reopen  — back to the queue
 // Staff only.
+import { linkOrigin } from '@/lib/app-origin';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
@@ -90,12 +91,35 @@ export async function POST(req: NextRequest) {
         const studio = tenant.name || 'us';
         const text = `Thanks for calling ${studio}${d.callerName && d.callerName !== 'Unknown caller' ? `, ${String(d.callerName).split(' ')[0]}` : ''}. ${owner ? String(owner).split(' ')[0] : 'We'} will get back to you${when ? ` by ${when}` : ' as soon as we can'}.`;
         const { sendNotification } = await import('@/lib/notify');
+        // The richer email (Settings → Messages → Call-back confirmations; each part can be switched off).
+        const cfg = { summary: true, callerId: true, links: true, addDetails: true, ...(tenant.callbackEmail || {}) };
+        const bizPhone = String(tenant.phone || tenant.twilioPhoneNumber || '').trim() || null;
+        const bizEmail = String(tenant.email || tenant.contactEmail || tenant.ownerEmail || '').trim() || null;
+        const origin = linkOrigin(tenant, req.nextUrl.origin);
+        const reasonId = String(d.reason || '');
+        const about = cfg.summary && reasonId && reasonId !== 'other' ? (d.reasonLabel || '').toLowerCase() : '';
+        const bookLink = cfg.links && ['book', 'change', 'running_late', 'service_question', 'clinic'].includes(reasonId) ? `${origin}/book/${tenantId}` : null;
+        let detailsLink: string | null = null;
+        if (cfg.addDetails) {
+          const tok = d.detailsToken || `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+          if (!d.detailsToken) await ref.set({ detailsToken: tok }, { merge: true });
+          detailsLink = `${origin}/callback/${tenantId}/${id}?k=${tok}`;
+        }
         if (contact === 'email' && email.includes('@')) {
           const { brandedEmailHtml } = await import('@/lib/email-template');
-          told = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `We’ll get back to you — ${studio}`, kind: 'callback_confirmation', html: brandedEmailHtml({ studioName: studio, title: 'Thanks for calling', bodyLines: [text] } as any), clientId: d.clientId || null, clientName: who } as any))?.ok;
+          const lines = [text,
+            ...(about ? [`We’ll be following up about: ${about}.`] : []),
+            ...(cfg.callerId && contact === 'email' && bizPhone && (f.contactBy || d.contactBy) !== 'email' ? [`We’ll call from ${bizPhone}.`] : []),
+            ...(detailsLink ? ['Before we get back to you, you can add a little more detail — only if you’d like to.'] : []),
+            bizEmail ? `If it becomes urgent, or the time no longer works, just reply to this email${bizPhone ? ` or call us at ${bizPhone}` : ''}.` : bizPhone ? `If it becomes urgent, call us at ${bizPhone}.` : ''].filter(Boolean);
+          told = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `We’ll get back to you — ${studio}`, kind: 'callback_confirmation',
+            html: brandedEmailHtml({ studioName: studio, title: 'Thanks for calling', bodyLines: lines,
+              ...(detailsLink ? { cta: { label: 'Add details', url: detailsLink } } : {}), ...(bookLink ? { secondaryCta: { label: 'Book online', url: bookLink } } : {}) } as any),
+            ...(bizEmail ? { replyTo: bizEmail } : {}), clientId: d.clientId || null, clientName: who } as any))?.ok;
           if (told) toldBy = 'email';
         } else if (contact !== 'email' && phone) {
-          told = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'callback_confirmation', text, clientId: d.clientId || null, clientName: who } as any))?.ok;
+          const smsText = `${text}${about ? ` It’s about ${about}.` : ''}${cfg.callerId && contact === 'call' && bizPhone ? ` We’ll call from ${bizPhone}.` : ''}${detailsLink ? ` Add details (optional): ${detailsLink}` : ''}`;
+          told = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'callback_confirmation', text: smsText, clientId: d.clientId || null, clientName: who } as any))?.ok;
           if (told) toldBy = 'sms';
         }
         if (told) await ref.set({ confirmationSentAt: nowIso, confirmationSentBy: toldBy }, { merge: true });
