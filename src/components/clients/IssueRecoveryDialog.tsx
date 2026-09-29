@@ -1,5 +1,6 @@
 'use client';
 
+import { approveWithPin } from '@/lib/approve-client';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import React, { useState, useMemo } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -86,7 +87,8 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
   const handleAction = async () => {
     if (!firestore || !tenantId || !user) return;
     
-    const authorizer = staff.find((s: any) => s.pin === pin && (s.role === 'admin' || s.role === 'owner'));
+    const ap = await approveWithPin(tenantId, pin, { kind: 'client_recovery', requireReason: false });   // checked on the server
+    const authorizer: any = ap.ok && ap.approver ? { ...ap.approver, approvalToken: ap.token } : null;
     if (!authorizer) {
         toast({ variant: 'destructive', title: 'Invalid PIN', description: 'Manager authorization required for post-op recovery.' });
         return;
