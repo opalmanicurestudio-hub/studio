@@ -387,6 +387,10 @@ type CallBackDraft = {
   step: 1 | 2 | 3;
   snapshot: any;
   status: 'pending' | 'resolved';
+  // The callback queue (all optional — older drafts don't have them).
+  ownerId?: string | null; ownerName?: string | null; dueAt?: string | null; contactBy?: 'call' | 'text' | 'email'; promised?: string | null;
+  attempts?: { at: string; by: string; note: string }[]; outcome?: string | null; outcomeNote?: string | null; resolvedAt?: string | null; resolvedBy?: string | null;
+  source?: string; callSummary?: string;
 };
 
 function CommandBar({
@@ -1363,6 +1367,11 @@ export function QuickBookForm({
   const [showSaveDraftModal, setShowSaveDraftModal] = React.useState(false);
   const [draftCallerPhone, setDraftCallerPhone] = React.useState('');
   const [draftNote, setDraftNote] = React.useState('');
+  // The callback queue: who calls back, by when, how, and what the caller was told.
+  const [draftDue, setDraftDue] = React.useState<'1h' | 'today' | 'tomorrow'>('1h');
+  const [draftContact, setDraftContact] = React.useState<'call' | 'text' | 'email'>('call');
+  const [draftPromised, setDraftPromised] = React.useState('');
+  const [draftTell, setDraftTell] = React.useState(true);
   const [isSavingDraft, setIsSavingDraft] = React.useState(false);
   const [discardingDraftId, setDiscardingDraftId] = React.useState<string | null>(null);
 
@@ -2149,10 +2158,21 @@ export function QuickBookForm({
           step,
           snapshot: buildSnapshot(),
           status: 'pending',
+          ownerId: existing?.ownerId ?? (currentStaffId || null),
+          dueAt: (() => { const d = new Date(); if (draftDue === '1h') return new Date(Date.now() + 3600000).toISOString();
+            if (draftDue === 'today') { d.setHours(17, 0, 0, 0); return (d.getTime() > Date.now() ? d : new Date(Date.now() + 3600000)).toISOString(); }
+            d.setDate(d.getDate() + 1); d.setHours(10, 0, 0, 0); return d.toISOString(); })(),
+          contactBy: draftContact,
+          promised: draftPromised.trim() || null,
         }),
       );
 
-      toast({ title: 'Saved for call-back', description: `${callerName} will appear in the pending call-backs list.` });
+      if (draftTell && callerPhone) {
+        try { const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
+          await fetch('/api/callbacks', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, id: draftId, action: 'update', ownerId: currentStaffId || null, tellCaller: true }) });
+        } catch { /* the call-back is saved; the text is a courtesy */ }
+      }
+      toast({ title: 'Saved for call-back', description: `${callerName} is in the callback queue (POS → Needs attention).` });
       setShowSaveDraftModal(false);
       setDraftNote('');
       setDraftCallerPhone('');
@@ -2212,6 +2232,16 @@ export function QuickBookForm({
             onChange={(v) => setDraftCallerPhone(v || '')}
             placeholder="(555) 000-0000"
           />
+        </div>
+        <div className="space-y-1.5 text-xs">
+          <p className="font-semibold text-slate-700">Call back by</p>
+          <div className="grid grid-cols-3 gap-1.5">{([['1h', 'In an hour'], ['today', 'Today, 5pm'], ['tomorrow', 'Tomorrow 10am']] as const).map(([k, l]) =>
+            <button key={k} type="button" aria-pressed={draftDue === k} onClick={() => setDraftDue(k)} className={`h-8 rounded-lg border ${draftDue === k ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>)}</div>
+          <p className="font-semibold text-slate-700 pt-1">They prefer</p>
+          <div className="grid grid-cols-3 gap-1.5">{([['call', 'A call'], ['text', 'A text'], ['email', 'An email']] as const).map(([k, l]) =>
+            <button key={k} type="button" aria-pressed={draftContact === k} onClick={() => setDraftContact(k)} className={`h-8 rounded-lg border ${draftContact === k ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>)}</div>
+          <input value={draftPromised} onChange={(e) => setDraftPromised(e.target.value)} placeholder="What you told them — e.g. Jessica will call about a gel set" className="h-9 w-full rounded-lg border px-3 outline-none" />
+          <label className="flex items-center gap-2 pt-1"><input type="checkbox" checked={draftTell} onChange={(e) => setDraftTell(e.target.checked)} /> Text them when to expect us</label>
         </div>
         <textarea
           aria-label="Quick note about this enquiry"
