@@ -1419,5 +1419,36 @@ export async function GET(req: NextRequest) {
   }
 
   console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate, '· leases renewed', leasesRenewed, '· lease windows synced', leaseWindowsSynced, '· profile mirrors', profileMirrorsSynced, '· rental days granted', rentalDaysGranted, '· tours flagged', toursFlagged, '· reminders', reminderTotals, '· no-shows', noShowTotals, '· plans', planTotals, '· sla', slaTotals, '· stock holds', stockTotals, '· retail sweeps', retailTotals);
+  // ── Repeat bookings: take each visit's scheduled deposit when it's due (Booking policies → Repeat bookings).
+  // A failure never touches the rest of the series; it follows the business's choice for that one visit.
+  let seriesDepositsTaken = 0, seriesDepositsFailed = 0;
+  try {
+    const { internalPost, internalOrigin } = await import('@/lib/message-policy');
+    const { seriesDepositFailedOf } = await import('@/lib/booking-policies');
+    for (const tDoc of (await db.collection('tenants').get()).docs) {
+      const t: any = tDoc.data() || {}; const T = `tenants/${tDoc.id}`;
+      const due = await db.collection(`${T}/appointments`).where('depositStatus', '==', 'scheduled').limit(200).get();
+      for (const d of due.docs) {
+        const a: any = d.data();
+        if (a.status !== 'confirmed' || !(Date.parse(a.depositDueAt || '') <= Date.now())) continue;
+        const origin = internalOrigin(t, req.nextUrl.origin);
+        const r = await internalPost(origin, '/api/appointments/desk-deposit', { tenantId: tDoc.id, appointmentId: d.id, action: 'charge' }, { retries: 0 });
+        if (r.ok && r.data?.ok) { seriesDepositsTaken++; continue; }
+        seriesDepositsFailed++;
+        const rule = seriesDepositFailedOf(t); const nowIso = new Date().toISOString();
+        const why = String(r.data?.error || 'the card didn’t go through').slice(0, 200);
+        if (rule === 'release') {
+          const f = { status: 'cancelled', cancelledAt: nowIso, cancellationReason: `Deposit not received — ${why}`, cancelledBy: 'system', depositStatus: 'failed' };
+          await d.ref.set(f, { merge: true });
+          if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {}), db.doc(`${T}/appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {})]);
+        } else {
+          if (rule === 'link_flag') await internalPost(origin, '/api/appointments/desk-deposit', { tenantId: tDoc.id, appointmentId: d.id, action: 'link' }, { retries: 0 });
+          await d.ref.set({ depositStatus: 'failed', depositFailedAt: nowIso, depositFailedReason: why, needsAttention: 'series_deposit_failed', needsAttentionAt: nowIso }, { merge: true });
+        }
+      }
+    }
+  } catch (e) { console.error('[nightly] series deposits', e); }
+  results.seriesDeposits = { taken: seriesDepositsTaken, failed: seriesDepositsFailed };
+
   return NextResponse.json({ ok: true, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, leaseWindowsSynced, profileMirrorsSynced, rentalDaysGranted, toursFlagged, reminderTotals, noShowTotals, planTotals, slaTotals, stockTotals, retailTotals, results });
 }
