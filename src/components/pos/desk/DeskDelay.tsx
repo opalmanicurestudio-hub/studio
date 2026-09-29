@@ -11,6 +11,7 @@
 // or cancelled silently. The decision is stored on the appointment, the
 // provider(s) told, and the next client warned only if still at risk.
 
+import { ProviderShortlist } from '@/components/ops/ProviderShortlist';
 import { getAuth } from 'firebase/auth';
 import { lateReplyText, type LateOption } from '@/lib/late-reply';
 import { opsCan, opsLevelOf } from '@/lib/appointment-ops';
@@ -177,10 +178,9 @@ export function DeskDelay({ e, appt, accent, onClose, onReschedule }: { e: any; 
                 <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={agreed} onChange={(ev) => setAgreed(ev.target.checked)} /> {first} agreed to the shorter service</label>
                 <Btn onClick={() => decide('condense')} disabled={!canDo('condense') || !dropFits || busy}>Drop and keep the time</Btn></>}
             </div>}
-            {model.others.length > 0 && <div className="space-y-1.5"><p className="text-[14px] font-semibold">Switch provider — free for the whole service</p>
-              <div className="space-y-1.5">{model.others.map((s: any) => <div key={s.id} className="flex flex-wrap gap-1.5">
-                <Btn onClick={() => offerTo(s)} disabled={!canDo('switch') || busy}>Offer {String(s.name).split(' ')[0]} to them</Btn>
-                <Btn quiet onClick={() => decide('switch', s)} disabled={!canDo('switch') || busy}>They’ve agreed — switch to {String(s.name).split(' ')[0]}</Btn></div>)}</div></div>}
+            {canDo('switch') && <div className="space-y-1.5"><p className="text-[14px] font-semibold">Another provider — who could take them</p>
+              <ProviderShortlist tenantId={e.tenantId} appointmentId={appt.id} startAt={model.arrive.toISOString()} clientFirst={first} tell={tellClient}
+                onDirectSwitch={(st) => decide('switch', st)} onDone={(m) => setSent(m)} /></div>}
             <div className="flex flex-wrap gap-2 pt-1"><Btn quiet onClick={askToMove} disabled={busy || !canDo('move')}>Ask them to pick a new time</Btn><Btn quiet onClick={() => { onClose(); if (onReschedule) onReschedule(appt); else { e.setSelectedAppointment(appt); e.setIsDetailsOpen(true); } }}>Move it myself…</Btn><Btn quiet onClick={() => { onClose(); e.handleCancelAction(appt.id, false); }}>Not today (cancel)…</Btn><Btn quiet onClick={() => decide('note')} disabled={busy}>Just note the ETA</Btn></div>
           </div>
         </Box>
