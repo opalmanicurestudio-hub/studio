@@ -44,21 +44,36 @@ export async function POST(req: NextRequest) {
     if (b.promised !== undefined) f.promised = String(b.promised || '').slice(0, 200) || null;
     if (b.note !== undefined) f.note = String(b.note || '').slice(0, 1000);
     await ref.set(f, { merge: true });
-    // Optionally, text the caller what to expect ("…will get back to you by 3:00 PM").
-    let told = false;
+    // Optionally, tell the caller what to expect — the way they asked to be reached
+    // (email if they prefer email; otherwise a text).
+    let told = false; let toldBy: 'sms' | 'email' | null = null;
     const phone = String(d.callerPhone || '').trim();
-    if (b.tellCaller === true && phone) {
+    const contact = f.contactBy || d.contactBy || 'call';
+    if (b.tellCaller === true) {
       try {
         const tenant: any = ((await db.doc(T).get()).data() as any) || {};
+        const cl: any = d.clientId ? (((await db.doc(`${T}/clients/${d.clientId}`).get()).data() as any) || {}) : {};
+        const email = String(d.callerEmail || cl.email || '').trim();
         const due = f.dueAt || d.dueAt; const owner = f.ownerName ?? d.ownerName;
-        const when = due ? new Date(due).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tenant.timezone || undefined }) : null;
-        const text = `Thanks for calling ${tenant.name || 'us'}${d.callerName ? `, ${String(d.callerName).split(' ')[0]}` : ''}. ${owner ? String(owner).split(' ')[0] : 'We'} will get back to you${when ? ` by ${when}` : ' soon'}.`;
+        const tz = tenant.timezone || undefined;
+        const dayOf = (x: Date) => x.toLocaleDateString('en-US', { timeZone: tz });
+        const when = due ? (() => { const t = new Date(due); const time = t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz });
+          return dayOf(t) === dayOf(new Date()) ? time : `${t.toLocaleDateString('en-US', { weekday: 'long', timeZone: tz })} at ${time}`; })() : null;
+        const studio = tenant.name || 'us';
+        const text = `Thanks for calling ${studio}${d.callerName && d.callerName !== 'Unknown caller' ? `, ${String(d.callerName).split(' ')[0]}` : ''}. ${owner ? String(owner).split(' ')[0] : 'We'} will get back to you${when ? ` by ${when}` : ' soon'}.`;
         const { sendNotification } = await import('@/lib/notify');
-        told = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'callback_confirmation', text, clientId: d.clientId || null, clientName: who } as any))?.ok;
-        if (told) await ref.set({ confirmationSentAt: nowIso }, { merge: true });
+        if (contact === 'email' && email.includes('@')) {
+          const { brandedEmailHtml } = await import('@/lib/email-template');
+          told = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `We’ll get back to you — ${studio}`, kind: 'callback_confirmation', html: brandedEmailHtml({ studioName: studio, title: 'Thanks for calling', bodyLines: [text] } as any), clientId: d.clientId || null, clientName: who } as any))?.ok;
+          if (told) toldBy = 'email';
+        } else if (contact !== 'email' && phone) {
+          told = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'callback_confirmation', text, clientId: d.clientId || null, clientName: who } as any))?.ok;
+          if (told) toldBy = 'sms';
+        }
+        if (told) await ref.set({ confirmationSentAt: nowIso, confirmationSentBy: toldBy }, { merge: true });
       } catch (e) { console.error('[callbacks] confirmation failed', e); }
     }
-    return NextResponse.json({ ok: true, told });
+    return NextResponse.json({ ok: true, told, toldBy });
   }
   if (action === 'attempt') {
     const note = String(b.note || '').trim().slice(0, 200) || 'Tried — no answer';
