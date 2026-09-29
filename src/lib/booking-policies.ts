@@ -113,6 +113,17 @@ export const sourceLabel = (s: Source) => ({ default: 'ClarityFlow default', bus
 //   next_visit     → added to their balance, due at their next visit (default)
 //   before_booking → added to their balance; they must pay it before booking again
 //   keep_booking   → the change isn't made; their appointment stays as it was
+/** How a repeat series is secured (Booking policies → Repeat bookings). */
+export type SeriesDeposit = 'first' | 'before_each' | 'all_now' | 'none';
+export const seriesDepositOf = (tenant: any, override?: any): SeriesDeposit => {
+  const ok = (v: any) => ['first', 'before_each', 'all_now', 'none'].includes(v);
+  return ok(override) ? override : ok(tenant?.bookingPolicies?.seriesDeposit) ? tenant.bookingPolicies.seriesDeposit : 'first';
+};
+export const seriesDepositDaysOf = (tenant: any) => Math.max(1, Math.min(30, Number(tenant?.bookingPolicies?.seriesDepositDaysBefore) || 7));
+/** When a visit's scheduled deposit can't be taken. */
+export type SeriesDepositFailed = 'link_flag' | 'release' | 'keep_flag';
+export const seriesDepositFailedOf = (tenant: any): SeriesDepositFailed => (['link_flag', 'release', 'keep_flag'].includes(tenant?.bookingPolicies?.seriesDepositFailed) ? tenant.bookingPolicies.seriesDepositFailed : 'link_flag');
+
 export type UnpaidFeeRule = 'next_visit' | 'before_booking' | 'keep_booking';
 export const unpaidFeeRuleOf = (tenant: any): UnpaidFeeRule => (['next_visit', 'before_booking', 'keep_booking'].includes(tenant?.bookingPolicies?.unpaidFeeRule) ? tenant.bookingPolicies.unpaidFeeRule : 'next_visit');
 /** What clients are told (before booking, and at the change). */
