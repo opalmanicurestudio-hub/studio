@@ -2,6 +2,7 @@
 // /screen — THE CLIENT SCREEN (an iPad at the desk). Pair once with a 6-digit code; then it shows the business's welcome,
 // the live ticket, asks for a tip, gets card-on-file approval (and a signature when required), and says thank you with a
 // receipt offer. Everything it shows comes from its own document; everything the client does goes through the server.
+import { ClientPayForm } from '@/components/pay/ClientPayForm';
 import * as React from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { useFirebase } from '@/firebase';
@@ -50,8 +51,11 @@ export default function ClientScreenPage() {
   React.useEffect(() => { let lock: any = null; const ask = async () => { try { lock = await (navigator as any).wakeLock?.request('screen'); } catch { /* not supported */ } };
     ask(); const vis = () => { if (document.visibilityState === 'visible') ask(); }; document.addEventListener('visibilitychange', vis); return () => { document.removeEventListener('visibilitychange', vis); try { lock?.release(); } catch { /* */ } }; }, []);
   React.useEffect(() => { if (!id || !s?.tenantId) return; call({ action: 'ping', screenId: id }); const t = setInterval(() => call({ action: 'ping', screenId: id }), 60000); return () => clearInterval(t); }, [id, s?.tenantId]);
+  const [payWay, setPayWay] = React.useState<'here' | 'phone' | null>(null); const [qr, setQr] = React.useState<string | null>(null);
   const [thanksOver, setThanksOver] = React.useState<string | null>(null);   // the thank-you goes back to the welcome after a minute
   const q = s?.request;
+  React.useEffect(() => { setPayWay(null); setQr(null); if (q?.kind !== 'pay' || !q.phoneUrl) return;
+    import('qrcode').then((m: any) => (m.default || m).toDataURL(q.phoneUrl, { width: 520, margin: 1 })).then((u: string) => setQr(u)).catch(() => setQr(null)); }, [q?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => { if (q?.kind !== 'thanks' || !q.id) return; const t = setTimeout(() => setThanksOver(q.id), 60000); return () => clearTimeout(t); }, [q?.kind, q?.id]);
   React.useEffect(() => { setCustom(''); setSig(null); setRch(null); setRto(''); setRmsg(null); setErr(null); }, [q?.id]);
   const accent = s?.brand?.accent || '#1c1917';
@@ -109,6 +113,23 @@ export default function ClientScreenPage() {
     </div>
   </>);
   if ((q?.kind === 'tip' || q?.kind === 'approve') && q.answeredAt) return shell(<>{brandTop}<p className="text-center text-[30px] font-semibold">Thank you</p><p className="text-center text-[20px]" style={{ color: '#78716c' }}>Just a moment…</p></>);
+  // Pay on the iPad, or on their own phone (QR)
+  if (q?.kind === 'pay' && !q.answeredAt) {
+    const both = q.payOnScreen !== false && q.payOnPhone !== false; const way = payWay || (both ? null : q.payOnPhone === false ? 'here' : 'phone');
+    return shell(<>{brandTop}
+      <p className="text-center text-[22px]" style={{ color: '#57534e' }}>Total to pay</p>
+      <p className="text-center text-[56px] font-semibold tabular-nums">{money(q.amount)}</p>
+      {!way && <div className="grid grid-cols-2 gap-3">
+        <button type="button" onClick={() => setPayWay('here')} className={`${big} min-h-[120px]`} style={{ background: accent, color: '#fff' }}>Pay here<span className="block text-[16px] font-normal opacity-80">card</span></button>
+        <button type="button" onClick={() => setPayWay('phone')} className={`${big} min-h-[120px]`} style={{ background: '#fff', border: '2px solid #e7e2dc' }}>Pay on your phone<span className="block text-[16px] font-normal" style={{ color: '#78716c' }}>Apple Pay · Google Pay</span></button>
+      </div>}
+      {way === 'here' && <div className="rounded-3xl p-5" style={{ background: '#fff', border: '1px solid #e7e2dc' }}><ClientPayForm screenId={id} requestId={q.id} big onPaid={() => { /* the screen updates when the server confirms */ }} /></div>}
+      {way === 'phone' && <div className="space-y-3 text-center">{qr ? <img src={qr} alt="Scan to pay on your phone" className="mx-auto h-72 w-72 rounded-3xl bg-white p-3" /> : <p>Making your code…</p>}
+        <p className="text-[20px]">Scan with your phone’s camera to pay</p></div>}
+      {both && way && <button type="button" onClick={() => setPayWay(null)} className="mx-auto block text-[17px] font-semibold underline underline-offset-4" style={{ color: '#57534e' }}>Pay another way</button>}
+    </>);
+  }
+  if (q?.kind === 'pay' && q.answeredAt) return shell(<>{brandTop}<p className="text-center text-[34px] font-semibold">Paid — thank you!</p>{s.response?.saved ? <p className="text-center text-[18px]" style={{ color: '#57534e' }}>Your card is saved for next time.</p> : null}</>);
   // Cash: what's due, then their change (with "keep it as a tip")
   if (q?.kind === 'cash') return shell(<>{brandTop}
     <p className="text-center text-[22px]" style={{ color: '#57534e' }}>Paying cash</p>
