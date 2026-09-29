@@ -238,6 +238,9 @@ export default function BookingPoliciesPage() {
                 ['all_now', 'Every visit’s deposit, taken when booked'], ['none', 'Card on file only — no deposits']]} />
               {(t.bookingPolicies?.seriesDeposit || 'first') === 'before_each' && <Num field="bookingPolicies.seriesDepositDaysBefore" value={Number(t.bookingPolicies?.seriesDepositDaysBefore) || 7} unit="days before each visit" label="Days before" min={1} max={30} />}
             </Row>
+            <Row label="Repeat bookings: a visit holding the deposit is cancelled in good time" note="Clients and the desk can also cancel “this and all later visits” — later visits are cancelled with no fees.">
+              <Choice field="bookingPolicies.seriesMoveDeposit" value={t.bookingPolicies?.seriesMoveDeposit !== false} label="Move the series deposit" options={[[true, 'Move the deposit to the next visit (kept as credit)'], [false, 'Follow your normal refund or credit rule']]} />
+            </Row>
             {(t.bookingPolicies?.seriesDeposit || 'first') === 'before_each' && <Row label="If a repeat visit’s deposit can’t be taken" note="Only that visit is affected — never the rest of the series. It also shows in POS → Needs attention.">
               <Choice field="bookingPolicies.seriesDepositFailed" value={t.bookingPolicies?.seriesDepositFailed || 'link_flag'} label="Failed repeat deposit" options={[
                 ['link_flag', 'Send them a pay link and flag it'], ['keep_flag', 'Keep the visit and flag it'], ['release', 'Release that visit']]} />
