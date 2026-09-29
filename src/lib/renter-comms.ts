@@ -82,12 +82,13 @@ export function membershipWelcomeLines(v: RenterVoice, m: { name: string; includ
 // messages → "Tell me when…". Defaults: requests and cancellations by text
 // and email (they need action or change the day), everything else inbox-only.
 
-export type RenterNotifyKind = 'new_booking' | 'request' | 'cancelled' | 'rescheduled' | 'running_late' | 'arrived' | 'money' | 'offers';
+export type RenterNotifyKind = 'new_booking' | 'request' | 'cancelled' | 'rescheduled' | 'running_late' | 'arrived' | 'money' | 'offers' | 'desk_messages';
 export type RenterChannel = 'off' | 'inbox' | 'sms' | 'email' | 'both';
 
 export const RENTER_NOTIFY_DEFAULTS: Record<RenterNotifyKind, RenterChannel> = {
   new_booking: 'sms', request: 'both', cancelled: 'both', rescheduled: 'sms', running_late: 'sms', arrived: 'inbox', money: 'inbox',
   offers: 'off',   // OPT-IN: renters receive front-desk client offers only once they switch this on
+  desk_messages: 'sms',
 };
 export const RENTER_NOTIFY_LABELS: Record<RenterNotifyKind, string> = {
   new_booking: 'Someone books with me',
@@ -98,6 +99,7 @@ export const RENTER_NOTIFY_LABELS: Record<RenterNotifyKind, string> = {
   arrived: 'A client checks in',
   money: 'Packages, memberships and payments',
   offers: 'The front desk offers me a client (I can accept or decline)',
+  desk_messages: 'The front desk passes on a message or call for me',
 };
 
 export function channelFor(prefs: any, kind: RenterNotifyKind): RenterChannel {
