@@ -90,6 +90,16 @@ import {
 } from 'firebase/firestore';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
+
+/** Firestore refuses a write that contains an empty (undefined) value anywhere — the whole cancel then
+ *  failed with "WriteBatch.update() called with invalid data". Strip them from plain data; keep the
+ *  database's special values (increment, arrayUnion, timestamps) exactly as they are. */
+const clean = (v: any): any => {
+  if (Array.isArray(v)) return v.filter((x) => x !== undefined).map(clean);
+  if (v && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype)
+    return Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined).map(([key, x]) => [key, clean(x)]));
+  return v;
+};
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
 import type { Appointment, Client } from '@/lib/data';
@@ -265,7 +275,7 @@ export function useCancellationConfirm(
         catch { appointmentExists = false; }
       }
 
-      if (appointmentExists) batch.update(appointmentRef, {
+      if (appointmentExists) batch.update(appointmentRef, clean({
         status:                  'cancelled',
         cancelledAt:             now,
         cancellationAudit,
@@ -277,7 +287,7 @@ export function useCancellationConfirm(
           studioCancelled:        true,
           depositDisposition:     depositDisposition || 'none',
         }),
-      });
+      }));
 
       // The client's visit link watches its check-in copy — mark it cancelled too,
       // so nobody sees "your visit today" and turns up for a cancelled booking.
@@ -299,7 +309,7 @@ export function useCancellationConfirm(
       // Balance update only for client/no-show paths with a fee
       if (!isStudioCancel && chargeFee && feeAmount > 0 && paymentMethod === 'add_to_balance') {
         const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
-        batch.update(clientRef, {
+        batch.update(clientRef, clean({
           outstandingBalance: increment(feeAmount),
           // Previously missing — outstandingBalance went up but nothing was
           // ever pushed to unpaidFees, so the Ledger's Bad Debt Aging widget
@@ -312,12 +322,12 @@ export function useCancellationConfirm(
             feeAmount,
             reason: isNoShowCancel ? 'No-Show Fee' : `Cancellation Fee — ${cancellationAudit?.reason || 'client cancellation'}`,
           }),
-        });
+        }));
       }
 
       // Audit log
       const auditRef = doc(collection(firestore, `tenants/${tenantId}/auditLog`));
-      batch.set(auditRef, { id: auditRef.id, tenantId, ...auditLogEntry, createdAt: now });
+      batch.set(auditRef, clean({ id: auditRef.id, tenantId, ...auditLogEntry, createdAt: now }));
 
       // cancellationEvent → triggers onCancellationEvent Firebase Function
       // For studio cancellations, chargeFee is always false (client not charged)
@@ -326,7 +336,7 @@ export function useCancellationConfirm(
         `tenants/${tenantId}/cancellationEvents`,
         eventId,
       );
-      batch.set(eventRef, {
+      batch.set(eventRef, clean({
         id:                    eventId,
         tenantId,
         appointmentId:         appointmentDocId,
@@ -365,7 +375,7 @@ export function useCancellationConfirm(
         processedAt:    null,
         stripeChargeId: null,
         errorMessage:   null,
-      });
+      }));
 
       try {
         await batch.commit();
