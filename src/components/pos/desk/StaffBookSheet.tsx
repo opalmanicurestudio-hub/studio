@@ -11,6 +11,7 @@ import { getAuth } from 'firebase/auth';
 import { DESK_CSS, Btn, Seg } from '@/components/pos/desk/kit';
 import { placeOptionsOf, PLACE_LABEL } from '@/lib/service-place';
 import { unpaidFeeRuleOf, seriesDepositOf, seriesDepositDaysOf } from '@/lib/booking-policies';
+import { computeDepositCents } from '@/lib/deposit-policy';
 import { hasRealCard } from '@/lib/card-on-file';
 import { callbackReasonsFor, callbackReason } from '@/lib/callback-reasons';
 
@@ -122,6 +123,9 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
   const owes = Number(client?.outstandingBalance) || 0;
   const owesRule = unpaidFeeRuleOf(tenant);                      // next_visit · keep_booking · before_booking
   const owesBlocks = owes > 0 && owesRule === 'before_booking' && !owesOk;
+  // "Collected with the deposit": what this booking's deposit is, and the one payment it makes with the balance.
+  const depCentsNow = svc ? computeDepositCents({ service: svc, price: Number(price) || Number(svc.price) || 0, tenant, depositsLive: true } as any) : 0;
+  const withDeposit = owes > 0 && owesRule === 'with_deposit' && !owesOk && mode === 'one' && depCentsNow > 0 && deposit !== 'waive';
   const cardLabel = hasRealCard(client) ? `Charge ${client?.cardOnFile?.last4 ? `•••• ${client.cardOnFile.last4}` : 'their saved card'}` : null;
   const seriesPolicy = seriesDepositOf(tenant); const seriesDays = seriesDepositDaysOf(tenant);
   const packages = (Array.isArray(client?.activePackages) ? client.activePackages : []).filter((p: any) => Number(p.sessionsRemaining) > 0);
@@ -309,7 +313,9 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
                 {owes > 0 && !owesOk && (
                   <div className="space-y-2 rounded-2xl p-3" style={{ background: owesRule === 'before_booking' ? 'color-mix(in srgb, var(--warn) 10%, transparent)' : 'var(--soft)' }}>
                     <p className="text-[14px]"><b>{client.name.split(' ')[0]} owes {money(owes)}.</b>{' '}
-                      {owesRule === 'before_booking' ? 'Your policy: it’s paid before booking again.' : owesRule === 'next_visit' ? 'Your policy: it’s added to this visit’s bill — nothing to do now.' : 'Your policy: it stays on their account — nothing to do now.'}</p>
+                      {owesRule === 'before_booking' ? 'Your policy: it’s paid before booking again.'
+                        : owesRule === 'with_deposit' ? (withDeposit ? `Your policy: it’s collected with this booking’s deposit — ${money(depCentsNow / 100)} + ${money(owes)} = ${money(depCentsNow / 100 + owes)}, in one payment. The balance part isn’t refundable.` : svc ? 'Your policy: it’s collected with the deposit — this booking has none due, so it’s added to this visit’s bill.' : 'Your policy: it’s collected with this booking’s deposit.')
+                        : 'Your policy: it’s added to this visit’s bill — nothing to do now.'}</p>
                     {owesRule !== 'before_booking' && !owesOpen ? <button type="button" className="text-[13px] underline" onClick={() => setOwesOpen(true)}>Settle it now instead</button> : <>
                       <div className="flex flex-wrap gap-2">
                         {cardLabel && <Btn disabled={owesBusy} onClick={async () => { setOwesBusy(true); setOwesMsg(null); const r: any = await fetch('/api/portal/pay-balance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, clientId: client.id }) }).then((x) => x.json()).catch(() => ({})); setOwesBusy(false);
@@ -423,6 +429,7 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
                   <Seg label="Deposit" value={deposit} onChange={(v) => setDeposit(v)} options={[
                     ...((mode === 'group' || mode === 'steps' || (mode === 'repeat' && (allNow || seriesPolicy === 'all_now'))) ? [] : [['link', 'Send a pay link'] as ['link', string]]),
                     ['charge', 'Charge card on file'], ['paid', 'Paid at the desk'], ...(isManager ? [['waive', 'Waive'] as ['waive', string]] : [])]} /></>}
+                {owes > 0 && owesRule === 'with_deposit' && deposit === 'waive' && <p className="text-[13px]" style={{ color: 'var(--muted)' }}>Waiving the deposit doesn’t waive their {money(owes)} balance — it stays on their account.</p>}
                 {packages.length > 0 && <select value={pkg} onChange={(e) => setPkg(e.target.value)} className={inp} style={inpS}>
                   <option value="">Don’t use a package</option>
                   {packages.map((p: any) => <option key={p.packageId} value={p.packageId}>Use {p.name || p.packageName || 'package'} — {p.sessionsRemaining} left</option>)}
