@@ -18,6 +18,7 @@ export interface CalcInput {
   tip: number; storeCredit: number;
   staffDiscount?: { kind: 'pct' | 'amt'; value: number } | null;   // a staff discount — never a price change
   skipGroupDiscount?: boolean;   // "don't apply the team / family discount this time"
+  momentReward?: { pct: number; label: string; key: string } | null;   // birthday / milestone treat (lib/moments)
 }
 export interface VisitCalc { appointmentId: string; mainStaffId: string; mainPrice: number; mainRedeemed: boolean; addOns: { addon: any; staffId: string; price: number; redeemed: boolean }[];
   rescheduleFee: number; timeOverage: number; materialOverage: number; additionalCharge: number; refreshments: { name: string; qty: number; price: number }[]; waived: boolean }
@@ -56,7 +57,10 @@ export function computeCheckout(i: CalcInput) {
   let groupDiscount = groupDiscountAmount(group, { services: eligibleServices, products: taxableProducts });
   if (group && groupDiscount > 0 && codeDiscount > 0 && !group.stackWithCodes) { if (groupDiscount >= codeDiscount) codeDiscount = 0; else groupDiscount = 0; }
   const sd = i.staffDiscount; const staffDiscount = sd ? round2(Math.min(subtotal, sd.kind === 'pct' ? subtotal * (num(sd.value) / 100) : num(sd.value))) : 0;
-  const discount = round2(codeDiscount + staffDiscount + groupDiscount);
+  // A birthday / milestone treat (% off services) never combines — it applies only if it's bigger than the code + team discount.
+  let momentDiscount = i.momentReward && i.momentReward.pct > 0 ? round2(eligibleServices * (i.momentReward.pct / 100)) : 0;
+  if (momentDiscount > 0) { if (momentDiscount > codeDiscount + groupDiscount) { codeDiscount = 0; groupDiscount = 0; } else momentDiscount = 0; }
+  const discount = round2(codeDiscount + staffDiscount + groupDiscount + momentDiscount);
   // A member's retail discount (their plan's %, on eligible items).
   let memberDiscount = 0;
   const c = i.client; const mId = c?.activeMembershipId || c?.subscription?.membershipId;
@@ -68,5 +72,5 @@ export function computeCheckout(i: CalcInput) {
   const tax = posTaxAmount(i.tenant, { services: taxableServices, products: taxableProducts });
   const tip = round2(num(i.tip)); const storeCredit = round2(num(i.storeCredit));
   const total = round2(Math.max(0, subtotal + tax + tip - discount - memberDiscount - storeCredit));
-  return { visits, servicesSub: round2(servicesSub), retailSub: round2(retailSub), feeSub: round2(feeSub), subtotal, discount, codeDiscount, staffDiscount, groupDiscount, group: group && groupDiscount > 0 ? { type: group.type, label: group.label, staffId: group.staffId } : null, memberDiscount, tax, taxLabel: posTaxLabel(i.tenant), tip, storeCredit, total };
+  return { visits, servicesSub: round2(servicesSub), retailSub: round2(retailSub), feeSub: round2(feeSub), subtotal, discount, codeDiscount, staffDiscount, groupDiscount, momentDiscount, moment: momentDiscount > 0 && i.momentReward ? i.momentReward : null, group: group && groupDiscount > 0 ? { type: group.type, label: group.label, staffId: group.staffId } : null, memberDiscount, tax, taxLabel: posTaxLabel(i.tenant), tip, storeCredit, total };
 }
