@@ -24,8 +24,8 @@ export function ClientScreenCard({ tenantId, tenant, canEdit }: { tenantId: stri
         <p className="text-sm text-muted-foreground">An iPad at the desk facing the client: they see the ticket as you ring it up, choose a tip, approve card-on-file charges (and sign), and get their receipt. Pair it from the POS → Client screen.</p></div>
       <div className="space-y-2 text-sm"><p className="font-semibold">How it runs</p>
         {check('auto', 'Run it automatically', 'the iPad follows the checkout: welcome → ticket → tip → approve / cash → thank you. Staff only step in when something needs a decision.')}
-        {s.auto && <div className="space-y-2 pl-6">{check('autoTip', 'Ask for the tip automatically', 'when staff choose Cash or Card on file, once per ticket')}
-          {check('offerKeepChange', 'Offer “Keep the change as a tip” on cash sales')}</div>}
+        {s.auto && <div className="space-y-2 pl-6">{check('autoTip', 'Ask for the tip automatically on card-on-file charges', 'once per ticket, before they approve')}
+          {check('offerKeepChange', 'Cash: show the total, then their change with “Keep it as a tip” / “My change, please”')}</div>}
       </div>
       <div className="space-y-3 text-sm"><p className="font-semibold">Moments</p>
         <div className="space-y-2 rounded-2xl bg-slate-50 p-3">
@@ -49,6 +49,12 @@ export function ClientScreenCard({ tenantId, tenant, canEdit }: { tenantId: stri
           <button key={k} type="button" disabled={!canEdit} aria-pressed={s.tipOn === k} onClick={() => save({ ...s, tipOn: k })} className={`rounded-full border px-4 py-1.5 ${s.tipOn === k ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>)}</div>
         {check('allowCustomTip', 'Let them enter another amount')}
         {check('showNoTip', 'Show “No tip”')}
+      </div>
+      <div className="space-y-2 text-sm"><p className="font-semibold">Paying on the iPad</p>
+        {check('payOnScreen', 'Let clients pay on the iPad', 'Stripe’s secure card form — card details never touch your system')}
+        {check('payOnPhone', 'Let clients pay on their phone', 'a QR code on the iPad; Apple Pay and Google Pay on their own phone')}
+        {check('offerSaveCard', 'Offer “Save my card for next time”', 'their own tick box — recorded as their consent')}
+        <p className="text-xs text-muted-foreground">Needs Stripe connected (Settings → Payments). Your Stripe card reader works from the desk as before.</p>
       </div>
       <div className="space-y-2 text-sm"><p className="font-semibold">Card on file</p>
         {check('signCardOnFile', 'Ask for a signature when approving a card-on-file charge', 'saved as a signed approval (useful if a charge is ever disputed)')}
