@@ -1449,7 +1449,7 @@ export function usePosEngine() {
     clients: clients || [], isGroupCheckout: selectedAppointmentIds.size > 1, payerOptions: payerOptions || [], selectedClientId, setSelectedClientId,
     onAddClientClick: () => setIsAddClientOpen(true),
     onScanClick: () => { setScanMode('checkout'); setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsCameraScanOpen(true); },
-    onAddItem: addProductChecked, onPosScan: handlePosScan, variantChoice, setVariantChoice,
+    onAddItem: addProductChecked, onPosScan: handlePosScan, variantChoice, setVariantChoice, getPendingId: () => pendingIdRef.current,
     subtotal: subtotalCalc, tax: taxCalc, taxLabel, total: totalCalc, lastSale, clearLastSale: () => setLastSale(null), moments, momentReward, momentDiscountValue, staffDiscount, setStaffDiscount, staffDiscountValue, groupInfo, groupDiscountRaw, groupDiscountValue, skipGroupDiscount, setSkipGroupDiscount, tipAmount, setTipAmount, onCheckout: handleCheckout,
     appliedDiscountCodes, setAppliedDiscountCodes, discount: discountValue, membershipDiscount: membershipDiscountValue,
     walletOffers, offerClientId, offerServiceIds,
@@ -1531,4 +1531,3 @@ export function usePosEngine() {
     checkoutHubProps, getPreviousFormula, getVisitCount, waitingNowCount, cartItemCount, walkInGroupSizes,
   };
 }
-p
