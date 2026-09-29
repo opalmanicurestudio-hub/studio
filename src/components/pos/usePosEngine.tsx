@@ -507,7 +507,10 @@ export function usePosEngine() {
     }, 0);
     const retailSub = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
     const adjustmentSub = Array.from(appliedAdjustments).reduce((acc, id) => { const fee = clients.flatMap(c => c.unpaidFees || []).find(f => f.feeId === id); return acc + safeNumber(fee?.feeAmount); }, 0);
-    taxPartsRef.current = { services: safeNumber(servicesSub), products: safeNumber(retailSub) };
+    // Taxable amounts — the same rules as lib/checkout-calc (the server): fees never (incl. the reschedule fee), only real products as products.
+    const rescheduleFees = readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).reduce((acc, d) => acc + (waivedAppointmentFees.has(d.appointment.id) ? 0 : safeNumber(d.appointment.checkoutState?.adjustments?.rescheduleFee)), 0);
+    const itemSum = (t: string) => retailItems.filter((it: any) => it.type === t).reduce((acc, it: any) => acc + (safeNumber(it.price) * safeNumber(it.quantity)), 0);
+    taxPartsRef.current = { services: safeNumber(servicesSub - rescheduleFees + itemSum('service')), products: safeNumber(itemSum('product')) };
     return safeNumber(servicesSub + retailSub + adjustmentSub);
   }, [readyForCheckoutAppointments, selectedAppointmentIds, retailItems, appliedAdjustments, clients, waivedAppointmentFees, staff, redeemedOffer]);
 
@@ -1051,213 +1054,41 @@ export function usePosEngine() {
     batch.commit().then(() => toast({ title: "Status Updated" }));
   };
 
+  // Checkout is saved ON THE SERVER (/api/checkout/complete): prices, tax, fees, deposits, tips, stock, the till,
+  // the receipt and memberships are all worked out and written there, together — never from this browser.
   const handleCheckout = async (paymentData: { paymentMethod: string, amountTendered: number, recoveryAmount?: number, recoveryReason?: string, skipLedger?: boolean, stripePaymentIntentId?: string, cardSurcharge?: number }) => {
     const effectiveClientId = selectedClientId ?? readyForCheckoutAppointments.find(a => selectedAppointmentIds.has(a.id))?.appointment?.clientId ?? null;
-    if (!effectiveClientId || !firestore || !tenantId) return;
+    if (!effectiveClientId || !tenantId) return;
     setIsSubmitting(true);
-    const batch = writeBatch(firestore); const now = new Date().toISOString();
-    const clientObj = (clients || []).find(c => c.id === effectiveClientId);
-    const checkoutSessionId = nanoid();
-    let depositCredit: { ref: any; amountCents?: number; amountDollars?: number; createdAt?: any } | null = null;
     try {
-      const creditsCol = collection(firestore, `tenants/${tenantId}/depositCredits`);
-      let creditSnap = await getDocs(query(creditsCol, where('status', '==', 'available'), where('clientId', '==', effectiveClientId)));
-      if (creditSnap.empty && clientObj?.email) creditSnap = await getDocs(query(creditsCol, where('status', '==', 'available'), where('clientEmail', '==', String(clientObj.email).toLowerCase().trim())));
-      if (!creditSnap.empty) { const found = creditSnap.docs.map(d => ({ ref: d.ref, ...(d.data() as any) })).filter((c: any) => !isCreditExpired(c.expiresAt)); found.sort((a, b) => safeDate(b.createdAt).getTime() - safeDate(a.createdAt).getTime()); depositCredit = found[0] || null; }
-    } catch (e) { console.warn('[deposit-credit lookup]', e); }
-    const depositCreditDollars = depositCredit ? safeNumber((depositCredit as any).amountDollars ?? ((depositCredit as any).amountCents || 0) / 100) : 0;
-    const recoveryAmount = safeNumber(paymentData.recoveryAmount);
-    const recoveryReason = paymentData.recoveryReason || 'Service Recovery Adjustment';
-    let totalLtvIncrease = 0; let totalCashIncrease = 0; let cashTipsTotal = 0;
-    const cashTipsByStaffUpdate: Record<string, number> = {};
-
-    for (const aptData of readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id))) {
-      const { appointment: apt, service, addOnServices } = aptData;
-      const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', apt.id);
-      const checkoutState = apt.checkoutState || {}; const overrides = checkoutState.serviceStaffOverrides || {};
-      const isWaived = waivedAppointmentFees.has(apt.id);
-      const mainStaffId = overrides[service.id] || apt.staffId;
-      const isMainRedeemed = redeemedOffer?.itemId === service.id;
-      const mainStaffMember = staff.find(s => s.id === mainStaffId);
-      const mainPartRevenue = isMainRedeemed ? 0 : getServicePrice(service, mainStaffMember);
-      totalLtvIncrease += mainPartRevenue; if (paymentData.paymentMethod === 'cash') totalCashIncrease += mainPartRevenue;
-      if (!paymentData.skipLedger) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: isMainRedeemed ? `Redemption: ${service.name}` : `Service: ${service.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Service Revenue', taxBucket: 'revenue', amount: mainPartRevenue, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: true, tenantId, checkoutSessionId }));
-      if (isMainRedeemed) { const redemptionCost = computeServiceCost(service, apt, mainStaffMember, inventory || [], selectedTenant?.tmhr || 50); if (redemptionCost.total > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Redemption Cost: ${service.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'expense', context: 'Business', category: 'Comp & Redemption Cost', taxBucket: 'operating_cost', amount: redemptionCost.total, paymentMethod: 'Internal', staffId: mainStaffId, appointmentId: apt.id, hasReceipt: false, tenantId, checkoutSessionId, notes: `Materials $${redemptionCost.materials.toFixed(2)} · Overhead $${redemptionCost.overhead.toFixed(2)} · Labor $${redemptionCost.labor.toFixed(2)}` })); }
-      addOnServices.forEach((addon: any) => { const isAddonRedeemedForCost = redeemedOffer?.itemId === addon.id; if (!isAddonRedeemedForCost) return; const addonStaffIdForCost = overrides[addon.id] || apt.staffId; const addonStaffForCost = staff.find((s: any) => s.id === addonStaffIdForCost); const addonCost = computeServiceCost(addon, apt, addonStaffForCost, inventory || [], selectedTenant?.tmhr || 50); if (addonCost.total > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Redemption Cost: ${addon.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'expense', context: 'Business', category: 'Comp & Redemption Cost', taxBucket: 'operating_cost', amount: addonCost.total, paymentMethod: 'Internal', staffId: addonStaffIdForCost, appointmentId: apt.id, hasReceipt: false, tenantId, checkoutSessionId, notes: `Materials $${addonCost.materials.toFixed(2)} · Overhead $${addonCost.overhead.toFixed(2)} · Labor $${addonCost.labor.toFixed(2)}` })); });
-      if (!paymentData.skipLedger) {
-        if (!isWaived && checkoutState.adjustments) {
-          const { rescheduleFee, timeOverage, materialOverage } = checkoutState.adjustments;
-          if (safeNumber(rescheduleFee) > 0) { const amt = safeNumber(rescheduleFee); totalLtvIncrease += amt; if (paymentData.paymentMethod === 'cash') totalCashIncrease += amt; batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Reschedule Recovery: ${service.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Protocol Recovery', taxBucket: 'adjustment', amount: amt, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: false, tenantId, checkoutSessionId })); }
-          if (safeNumber(timeOverage) > 0) { const amt = safeNumber(timeOverage); totalLtvIncrease += amt; if (paymentData.paymentMethod === 'cash') totalCashIncrease += amt; batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Time Floor Overage: ${service.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Strategic Adjustment', taxBucket: 'adjustment', amount: amt, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: false, tenantId, checkoutSessionId })); }
-          if (safeNumber(materialOverage) > 0) { const amt = safeNumber(materialOverage); totalLtvIncrease += amt; if (paymentData.paymentMethod === 'cash') totalCashIncrease += amt; batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Material Protocol Overage: ${service.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Strategic Adjustment', taxBucket: 'adjustment', amount: amt, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: false, tenantId, checkoutSessionId })); }
-        } else if (!isWaived && safeNumber(checkoutState.additionalCharge) > 0) {
-          const amt = safeNumber(checkoutState.additionalCharge); totalLtvIncrease += amt; if (paymentData.paymentMethod === 'cash') totalCashIncrease += amt;
-          batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Strategic Adjustment Fee`, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Adjustment Fee', taxBucket: 'adjustment', amount: amt, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: false, tenantId, checkoutSessionId }));
-        }
-        addOnServices.forEach((addon: any) => { const addonStaffId = overrides[addon.id] || apt.staffId; const isAddonRedeemed = redeemedOffer?.itemId === addon.id; const addonStaff = staff.find((s: any) => s.id === addonStaffId); const addonPrice = isAddonRedeemed ? 0 : getServicePrice(addon, addonStaff); totalLtvIncrease += addonPrice; if (paymentData.paymentMethod === 'cash') totalCashIncrease += addonPrice; batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: isAddonRedeemed ? `Redemption: ${addon.name}` : `Add-on: ${addon.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Service Revenue', taxBucket: 'revenue', amount: addonPrice, paymentMethod: paymentData.paymentMethod, staffId: addonStaffId, appointmentId: apt.id, hasReceipt: true, tenantId, checkoutSessionId })); });
-        (checkoutState.refreshments || []).forEach((amenity: any) => { const qty = safeNumber(amenity.quantity || 1); const amenityPrice = safeNumber(amenity.price) * qty; if (amenityPrice > 0) { totalLtvIncrease += amenityPrice; if (paymentData.paymentMethod === 'cash') totalCashIncrease += amenityPrice; batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Concierge: ${amenity.name} (x${qty})`, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Hospitality Revenue', taxBucket: 'revenue', amount: amenityPrice, paymentMethod: paymentData.paymentMethod, appointmentId: apt.id, hasReceipt: false, tenantId, checkoutSessionId })); } });
-      } else {
-        if (!isWaived && checkoutState.adjustments) { const { rescheduleFee, timeOverage, materialOverage } = checkoutState.adjustments; totalLtvIncrease += safeNumber(rescheduleFee) + safeNumber(timeOverage) + safeNumber(materialOverage); }
-        else if (!isWaived) totalLtvIncrease += safeNumber(checkoutState.additionalCharge);
-        addOnServices.forEach((addon: any) => { const isAddonRedeemed = redeemedOffer?.itemId === addon.id; const addonStaff = staff.find((s: any) => s.id === (overrides[addon.id] || apt.staffId)); totalLtvIncrease += isAddonRedeemed ? 0 : getServicePrice(addon, addonStaff); });
+      const auth = await staffAuthHeader();
+      const res = await fetch('/api/checkout/complete', { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify({
+        tenantId, clientId: effectiveClientId,
+        appointmentIds: readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).map(a => a.appointment.id),
+        items: retailItems.map((it: any) => ({ id: it.id, type: it.type, quantity: it.quantity, price: it.price, name: it.name, reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null })),
+        feeIds: Array.from(appliedAdjustments), discountCodes: appliedDiscountCodes, redeemedOffer: redeemedOffer || null, waivedAppointmentIds: Array.from(waivedAppointmentFees),
+        tipAllocations, tip: tipAmount, storeCredit: storeCreditApplied,
+        recovery: { amount: safeNumber(paymentData.recoveryAmount), reason: paymentData.recoveryReason || '' },
+        payment: { method: paymentData.paymentMethod, amountTendered: safeNumber(paymentData.amountTendered), stripePaymentIntentId: paymentData.stripePaymentIntentId || null, cardSurcharge: safeNumber((paymentData as any).cardSurcharge), skipLedger: paymentData.skipLedger === true },
+        tillId: paymentTab === 'cash' && activeTill ? activeTill.id : null,
+        expectedTotal: totalCalc,
+      }) });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok || !out?.ok) {
+        // A card may already have been charged (card payments are taken before the sale is saved) — never invite a second charge.
+        const charged = !!paymentData.stripePaymentIntentId;
+        toast({ variant: 'destructive', title: charged ? 'Paid — but the sale didn’t save' : 'Checkout didn’t save',
+          description: charged ? `The card payment went through (ref ${String(paymentData.stripePaymentIntentId).slice(-8)}). Don’t charge again — tell a manager so the sale can be recorded.${out?.error ? ` (${out.error})` : ''}` : (out?.error || 'Nothing was recorded — please try again.') });
+        return;
       }
-      batch.set(appointmentRef, sanitizeForFirestore({ status: 'completed', revenue: mainPartRevenue + addOnServices.reduce((s: number, a: any) => s + getServicePrice(a, staff.find(st => st.id === (overrides[a.id] || apt.staffId))), 0), actualEndTime: now }), { merge: true });
-      if (apt.checkInToken) batch.set(doc(firestore, 'appointmentCheckIns', apt.checkInToken), sanitizeForFirestore({ status: 'completed', tenantId }), { merge: true });
-      const involvedIds = new Set<string>(); if (apt.staffId) involvedIds.add(apt.staffId); if (overrides) Object.values(overrides).forEach((id: any) => { if (id && typeof id === 'string') involvedIds.add(id); }); involvedIds.forEach(sid => { if (sid) batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'available', lastWalkInCompletedAt: now }, { merge: true }); });
-    }
-
-    // v17 — track any membership/package items so they can be properly
-    // ENROLLED after this batch commits, not just recorded as revenue.
-    // The forEach below already writes the correct ledger line for these
-    // (unchanged) — this only collects which ones need the actual
-    // enrollment write that was previously missing entirely.
-    const offeringsToEnroll: { offeringType: 'membership' | 'package'; offeringId: string }[] = [];
-    retailItems.forEach(item => {
-      const productValue = item.price * item.quantity;
-      const itemCategory = item.type === 'deposit' ? 'Retainers' : item.type === 'service' ? 'Service Revenue' : item.type === 'membership' ? 'Membership Sales' : item.type === 'package' ? 'Package Sales' : item.type === 'rental' ? 'Space Rental' : 'Retail';
-      const itemDescription = item.type === 'deposit' ? `Deposit: ${item.name}` : item.type === 'service' ? `Service (POS): ${item.quantity}x ${item.name}` : item.type === 'membership' ? `Membership: ${item.name}` : item.type === 'package' ? `Package: ${item.name}` : item.type === 'rental' ? `Space rental: ${item.name}` : `Retail Product: ${item.quantity}x ${item.name}`;
-      if (!paymentData.skipLedger) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: itemDescription, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: itemCategory, amount: productValue, paymentMethod: paymentData.paymentMethod, hasReceipt: true, tenantId, checkoutSessionId }));
-      if (item.type === 'product') { batch.set(doc(firestore, 'tenants', tenantId, 'inventory', item.id), { totalStock: increment(-item.quantity) }, { merge: true }); batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), sanitizeForFirestore(buildEntry({ productId: item.id, type: 'sold', delta: -item.quantity, reason: `Retail Sale: ${item.name} for ${clientObj?.name || 'Guest'}`, actorId: currentUser?.uid || 'staff', balanceAfter: Math.max(0, (Number(item.stock) || 0) - item.quantity) }))); }
-      if (item.type === 'membership' || item.type === 'package') offeringsToEnroll.push({ offeringType: item.type, offeringId: item.id });
-      // A space rental taken at the desk was recorded as owed. Paying for it
-      // here is what closes that loop — without this the reservation stays
-      // 'unpaid' forever and the same money looks outstanding on the Booths
-      // page while sitting in the till. Rentals never touch inventory and are
-      // never enrolled, so the branches above correctly skip them.
-      if (item.type === 'rental' && item.reservationId) {
-        batch.set(doc(firestore, `tenants/${tenantId}/boothReservations`, item.reservationId),
-          { paymentStatus: 'paid', paidAt: now, paidVia: 'pos' }, { merge: true });
-      }
-      totalLtvIncrease += productValue; if (paymentData.paymentMethod === 'cash') totalCashIncrease += productValue;
-    });
-
-    if (clientObj && appliedAdjustments.size > 0) {
-      const currentUnpaid = clientObj.unpaidFees || [];
-      const settledTotal = Array.from(appliedAdjustments).reduce((sum, id) => { const fee = currentUnpaid.find(f => f.feeId === id); return sum + safeNumber(fee?.feeAmount); }, 0);
-      batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientObj.id), { unpaidFees: currentUnpaid.filter(f => !appliedAdjustments.has(f.feeId)), outstandingBalance: increment(-settledTotal) }, { merge: true });
-      if (paymentData.paymentMethod === 'cash') totalCashIncrease += settledTotal;
-      appliedAdjustments.forEach(id => { const fee = currentUnpaid.find(f => f.feeId === id); if (fee) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Debt Settlement: ${fee.reason}`, clientOrVendor: clientObj.name, clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Fee Recovery', taxBucket: 'adjustment', amount: fee.feeAmount, paymentMethod: paymentData.paymentMethod, hasReceipt: false, tenantId, checkoutSessionId })); });
-      totalLtvIncrease += settledTotal;
-    }
-
-    if (clientObj) {
-      const finalLtvDelta = Math.max(0, totalLtvIncrease - discountValue - membershipDiscountValue - recoveryAmount);
-      const updates: any = { lifetimeValue: increment(finalLtvDelta), lastAppointment: now };
-      if (redeemedOffer) {
-        const redemptionRef = doc(collection(firestore, `tenants/${tenantId}/clients/${effectiveClientId}/redemptions`));
-        const offeringName = redeemedOffer.type === 'membership' ? memberships?.find(m => m.id === redeemedOffer.id)?.name : packages?.find(p => p.id === redeemedOffer.id)?.name;
-        batch.set(redemptionRef, sanitizeForFirestore({ id: redemptionRef.id, clientId: effectiveClientId, type: redeemedOffer.type, offeringId: redeemedOffer.id, offeringName: offeringName || 'Offer', serviceId: redeemedOffer.itemId, serviceName: services?.find(s => s.id === redeemedOffer.itemId)?.name || 'Service', date: now, staffId: currentUser?.uid, tenantId }));
-        if (redeemedOffer.type === 'package') updates.activePackages = (clientObj.activePackages || []).map(p => p.packageId === redeemedOffer.id ? { ...p, sessionsRemaining: p.sessionsRemaining - 1 } : p).filter(p => p.sessionsRemaining > 0);
-        else { updates[`subscription.perkUsage.${redeemedOffer.itemId}`] = increment(1); updates['subscription.perkLastUsed'] = now; }
-      }
-      batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientObj.id), updates, { merge: true });
-    }
-
-    const effectiveTipAllocations = { ...tipAllocations };
-    if (tipAmount > 0 && Object.keys(effectiveTipAllocations).length === 0) { const fallbackStaff = (staff || []).find((s: any) => s.active) || null; const fallbackId = fallbackStaff?.id || currentUser?.uid || 'unassigned'; effectiveTipAllocations[fallbackId] = tipAmount; }
-    Object.entries(effectiveTipAllocations).forEach(([staffId, amount]) => {
-      const finalAmount = safeNumber(amount);
-      if (finalAmount > 0) {
-        if (!paymentData.skipLedger) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: staffId === '__school' ? 'Gratuity — school (student salon)' : 'Gratuity', clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Tips', taxBucket: 'gratuity', amount: finalAmount, paymentMethod: paymentData.paymentMethod, staffId, hasReceipt: true, tenantId, checkoutSessionId }));
-        if (paymentData.paymentMethod === 'cash') { cashTipsTotal += finalAmount; cashTipsByStaffUpdate[`cashTipsByStaff.${staffId}`] = increment(finalAmount); }
-      }
-    });
-
-    if (!paymentData.skipLedger) {
-      if (discountValue > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: effectiveClientId, type: 'expense', context: 'Business', category: 'Discounts', taxBucket: 'adjustment', amount: discountValue, paymentMethod: 'Internal', hasReceipt: false, tenantId, checkoutSessionId }));
-      if (recoveryAmount > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Service Recovery: ${recoveryReason}`, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'expense', context: 'Business', category: 'Discounts', taxBucket: 'adjustment', amount: recoveryAmount, notes: recoveryReason, paymentMethod: 'Internal', hasReceipt: false, tenantId, checkoutSessionId }));
-      const taxAmount = posTaxAmount(selectedTenant, taxPartsRef.current);
-      if (taxAmount > 0) { batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: taxLabel, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Tax Collected', taxBucket: 'tax_collected', amount: taxAmount, paymentMethod: paymentData.paymentMethod, hasReceipt: false, tenantId, checkoutSessionId })); totalLtvIncrease += taxAmount; }
-      const cardSurchargeAmt = safeNumber((paymentData as any).cardSurcharge);
-      if (cardSurchargeAmt > 0) { batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: 'Card Processing Fee (passed to client)', clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Card Processing Fee', taxBucket: 'revenue', amount: cardSurchargeAmt, paymentMethod: paymentData.paymentMethod, hasReceipt: false, tenantId, checkoutSessionId })); totalLtvIncrease += cardSurchargeAmt; }
-    }
-
-    let cashDepositOffset = 0;
-    if (depositCredit && depositCreditDollars > 0) {
-      const firstAptId = readyForCheckoutAppointments.find(a => selectedAppointmentIds.has(a.id))?.appointment?.id || null;
-      if (!paymentData.skipLedger) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: 'Deposit applied (prepaid online)', clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'expense', context: 'Business', category: 'Deposit Applied', taxBucket: 'adjustment', amount: depositCreditDollars, paymentMethod: 'Deposit', hasReceipt: false, tenantId, checkoutSessionId }));
-      batch.set((depositCredit as any).ref, sanitizeForFirestore({ status: 'consumed', consumedAt: now, appointmentId: firstAptId }), { merge: true });
-      cashDepositOffset = Math.min(depositCreditDollars, totalCashIncrease);
-    }
-    if (paymentTab === 'cash' && activeTill) { const finalCashInput = totalCashIncrease + cashTipsTotal - cashDepositOffset; batch.set(doc(firestore, `tenants/${tenantId}/tillSessions`, activeTill.id), sanitizeForFirestore({ expectedCash: increment(finalCashInput), totalCashSales: increment(totalCashIncrease - cashDepositOffset), totalCashTips: increment(cashTipsTotal), ...cashTipsByStaffUpdate }), { merge: true }); }
-
-    try {
-      await batch.commit();
-      toast({ title: "Checkout Successful" });
-      // A next visit's deposit taken on today's bill → confirm that booking
-      // (deposit paid + credit for the day, like an online deposit). The income
-      // line was written above, so the route adds no second one.
-      const depositLines = retailItems.filter((i: any) => i.type === 'deposit' && i.depositForAppointmentId);
-      if (depositLines.length) {
-        const auth = await staffAuthHeader();
-        for (const it of depositLines as any[]) {
-          try {
-            const r = await fetch('/api/appointments/desk-deposit', { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth },
-              body: JSON.stringify({ action: 'settled', tenantId, appointmentId: it.depositForAppointmentId, amountCents: Math.round(safeNumber(it.price) * 100) }) });
-            const d = await r.json().catch(() => ({}));
-            if (!d?.ok) toast({ variant: 'destructive', title: 'Next visit not confirmed', description: d?.error || `The deposit for ${it.name} was paid — confirm the booking from the planner.` });
-          } catch { toast({ variant: 'destructive', title: 'Next visit not confirmed', description: `The deposit for ${it.name} was paid — confirm the booking from the planner.` }); }
-        }
-      }
-      // v17 — enroll any membership/package sold in this cart. Must run
-      // AFTER the main batch commits (so we know the sale itself is
-      // real), and always skipLedger:true — the forEach above already
-      // wrote (or correctly skipped) this item's ledger line; this call
-      // performs ONLY the enrollment write that was previously missing
-      // entirely for a brand-new purchase.
-      for (const offering of offeringsToEnroll) {
-        try {
-          const enrollRes = await fetch('/api/memberships/enroll', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              tenantId,
-              clientId: effectiveClientId,
-              offeringType: offering.offeringType,
-              offeringId: offering.offeringId,
-              paymentMethod: 'already_charged',
-              existingPaymentIntentId: paymentData.stripePaymentIntentId,
-              source: 'pos_checkout',
-              skipLedger: true,
-            }),
-          });
-          const enrollData = await enrollRes.json().catch(() => ({ ok: false }));
-          if (!enrollData.ok) {
-            console.error('[handleCheckout] enrollment failed', offering, enrollData);
-            toast({ variant: 'destructive', title: 'Enrollment issue', description: `${offering.offeringType === 'membership' ? 'Membership' : 'Package'} was sold but not activated — please check the client profile.` });
-          }
-        } catch (e) {
-          console.error('[handleCheckout] enrollment call failed', offering, e);
-        }
-      }
-      try {
-        const receiptRef = doc(collection(firestore, `tenants/${tenantId}/receipts`));
-        const receiptData = { id: receiptRef.id, checkoutSessionId, clientId: effectiveClientId, clientName: clientObj?.name || 'Guest', tenantId, date: now, paymentMethod: paymentData.paymentMethod, amountTendered: safeNumber(paymentData.amountTendered), change: Math.max(0, safeNumber(paymentData.amountTendered) - totalCalc), subtotal: subtotalCalc, tax: taxCalc, tip: tipAmount, discount: discountValue + membershipDiscountValue, total: totalCalc, cashierName: (staff || []).find((s: any) => s.id === currentUser?.uid)?.name || '', stripePaymentIntentId: paymentData.stripePaymentIntentId || null, lineItems: [...readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).flatMap(a => { const overrides = a.appointment.checkoutState?.serviceStaffOverrides || {}; const mainStaffMember = staff.find((s: any) => s.id === (overrides[a.service?.id] || a.appointment.staffId)); const lines: any[] = [{ label: a.service?.name || 'Service', amount: getServicePrice(a.service, a.staff), type: 'service', staff: mainStaffMember?.name?.split(' ')[0] }]; (a.addOnServices || []).forEach((addon: any) => { const addonStaff = staff.find((s: any) => s.id === (overrides[addon.id] || a.appointment.staffId)); lines.push({ label: `+ ${addon.name}`, amount: getServicePrice(addon, addonStaff), type: 'addon', staff: addonStaff?.name?.split(' ')[0] }); }); return lines; }), ...retailItems.map((item: any) => ({ label: item.name, amount: item.price * item.quantity, type: item.type || 'retail' }))] };
-        setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/receipts`, receiptRef.id), receiptData, {});
-      } catch (e) { console.warn('[receipt save]', e); }
-      // Record every offer used: the discount's usage (limits and "once per
-      // client" depend on it), the client's wallet, and the campaign's results.
-      // Before this, the POS never recorded a code as used at all.
-      try {
-        const usedAppts = readyForCheckoutAppointments.filter((a: any) => selectedAppointmentIds.has(a.id)).map((a: any) => a.appointment);
-        const saleTotal = safeNumber(totalCalc);
-        for (const code of appliedDiscountCodes) {
-          const d: any = (discounts || []).find((x: any) => String(x.code || '').toUpperCase() === String(code).toUpperCase());
-          if (!d?.id) continue;
-          const ob = writeBatch(firestore);
-          ob.update(doc(firestore, `tenants/${tenantId}/discounts`, d.id), { usageCount: increment(1), usedByClientIds: arrayUnion(String(effectiveClientId)) });
-          const w = walletOffers.find((x: any) => String(x.code || '').toUpperCase() === String(code).toUpperCase());
-          if (w) {
-            ob.update(doc(firestore, `tenants/${tenantId}/clientOffers`, w.id), { status: 'redeemed', redeemedAt: now, appointmentId: usedAppts[0]?.id || null, saleTotal });
-            if (w.campaignId) ob.set(doc(firestore, `tenants/${tenantId}/campaigns`, w.campaignId), { offersRedeemed: increment(1), offerRevenueCents: increment(Math.round(saleTotal * 100)) }, { merge: true });
-          }
-          for (const a of usedAppts) if (a?.pendingDiscountCode) ob.update(doc(firestore, `tenants/${tenantId}/appointments`, a.id), { pendingDiscountCode: deleteField(), discountCodeUsed: String(code) });
-          await ob.commit();
-        }
-      } catch (e) { console.warn('[offer redemption]', e); }
+      toast({ title: 'Checkout successful' });
+      if (out.mismatch) toast({ title: 'Total recorded differently', description: `Recorded $${Number(out.total).toFixed(2)} (the screen showed $${safeNumber(totalCalc).toFixed(2)}) — it’s flagged on the receipt for review.` });
+      for (const w of (out.warnings || [])) toast({ variant: 'destructive', title: 'Needs a look', description: w });
       setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setStoreCreditApplied(0);
-    } catch (e: any) { console.error('[handleCheckout] batch.commit failed:', e?.message, e?.code, e); toast({ variant: 'destructive', title: 'Checkout Failed', description: e?.message || 'Firestore batch error' }); }
-    finally { setIsSubmitting(false); }
+    } catch (e: any) {
+      console.error('[handleCheckout] failed', e);
+      toast({ variant: 'destructive', title: paymentData.stripePaymentIntentId ? 'Paid — but the sale didn’t save' : 'Checkout didn’t save', description: paymentData.stripePaymentIntentId ? `The card payment went through (ref ${String(paymentData.stripePaymentIntentId).slice(-8)}). Don’t charge again — tell a manager so the sale can be recorded.` : 'We couldn’t reach the server — nothing was recorded. Please try again.' });
+    } finally { setIsSubmitting(false); }
   };
 
   const handleCancelAction = (id: string, isWalkIn: boolean) => {
