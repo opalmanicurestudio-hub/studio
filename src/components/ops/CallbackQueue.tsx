@@ -62,11 +62,13 @@ export function CallbackQueue({ tenantId, uid }: { tenantId: string; uid?: strin
               {d.source === 'ai_receptionist' ? 'From the AI receptionist · ' : ''}{d.ownerName ? `${String(d.ownerName).split(' ')[0]} is calling back` : 'Unassigned'}
               {d.contactBy && d.contactBy !== 'call' ? ` · prefers ${d.contactBy === 'text' ? 'a text' : 'an email'}` : ''}
               {Array.isArray(d.attempts) && d.attempts.length ? ` · ${d.attempts.length} tr${d.attempts.length === 1 ? 'y' : 'ies'} (last: ${d.attempts[d.attempts.length - 1].note})` : ''}
+              {d.confirmationSentAt ? ` · we ${d.confirmationSentBy === 'email' ? 'emailed' : 'texted'} them when to expect us` : ''}
               {d.snapshot ? ' · booking details saved — resume from Quick book' : ''}
             </p>
             <div className="flex flex-wrap gap-2">
               {tel && <a href={`tel:${tel}`} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground">Call</a>}
               {tel && <a href={`sms:${tel}`} className="rounded-full border px-3 py-1.5 text-xs font-semibold">Text</a>}
+              {d.callerEmail && <a href={`mailto:${d.callerEmail}`} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${d.contactBy === 'email' && !tel ? 'bg-primary text-primary-foreground' : 'border'}`}>Email</a>}
               {uid && d.ownerId !== uid && <button type="button" disabled={!!busy} onClick={() => act(d.id, 'mine', { action: 'update', ownerId: uid }, 'It’s yours.')} className="rounded-full border px-3 py-1.5 text-xs">Assign to me</button>}
               <button type="button" disabled={!!busy} onClick={() => act(d.id, 'try', { action: 'attempt', note: 'Tried — no answer', nextDueAt: new Date(Date.now() + 3600000).toISOString() }, 'Noted — due again in an hour.')} className="rounded-full border px-3 py-1.5 text-xs">Tried — no answer</button>
               <button type="button" onClick={() => { setOpenDone(openDone === d.id ? null : d.id); setOutcome('booked'); setNote(''); }} className="rounded-full border px-3 py-1.5 text-xs font-semibold">Done…</button>
