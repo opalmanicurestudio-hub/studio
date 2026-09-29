@@ -373,6 +373,10 @@ export async function POST(req: NextRequest) {
       });
 
       await batch.commit();
+      try {
+        const { sendRefundNotice } = await import('@/lib/refund-notice');
+        await sendRefundNotice(db, tenantId, { key: `credit_${credit.id}_${appointmentId}`, kind: 'credit', amountCents: Math.round(totalCreditDollars * 100), clientId, appointmentId, reason: reason || null });
+      } catch (e) { console.error('[studio-cancel-refund] credit notice', e); }
       return NextResponse.json({
         ok: true, disposition: 'store_credit', creditId: credit.id,
         amount: dollars, additionalCredit: extraDollars, totalCredit: totalCreditDollars,
