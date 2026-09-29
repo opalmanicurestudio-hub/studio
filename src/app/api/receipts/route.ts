@@ -32,6 +32,16 @@ export async function POST(req: NextRequest) {
   const auth: any = await verifyStaffActor(req, tenantId);
   if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error || 'Sign in to do that.' }, { status: auth.status || 401 });
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
+  // Today's receipts, straight from the server (so Today's sales never depends on a browser query).
+  if (action === 'today') {
+    const from = String(b.from || ''), to = String(b.to || '');
+    if (!from || !to) return NextResponse.json({ ok: false, error: 'Missing the day.' }, { status: 400 });
+    const snap = await db.collection(`${T}/receipts`).where('date', '>=', from).where('date', '<=', to).get();
+    const receipts = snap.docs.map((d: any) => { const r: any = d.data();
+      return { id: d.id, checkoutSessionId: r.checkoutSessionId || null, date: r.date, total: r.total, tip: r.tip || 0, clientName: r.clientName || null, clientId: r.clientId || null, paidBy: r.paidBy || null,
+        paymentMethod: r.paymentMethod, voided: !!r.voided, voidReason: r.voidReason || null, needsReview: !!r.needsReview, reversal: !!r.reversal }; });
+    return NextResponse.json({ ok: true, receipts });
+  }
   const ref = db.doc(`${T}/receipts/${receiptId}`); const r: any = (await ref.get()).data();
   if (!r) return NextResponse.json({ ok: false, error: 'That receipt wasn’t found.' }, { status: 404 });
   let viewKey = r.viewKey; if (!viewKey) { viewKey = key(); await ref.set({ viewKey }, { merge: true }); }
