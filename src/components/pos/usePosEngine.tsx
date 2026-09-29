@@ -166,15 +166,18 @@ export const KpiCard = ({ title, value, icon, description, iconBgColor }: { titl
   </Card>
 );
 
-export const RecoveryOverrideDialog = ({ open, onOpenChange, staff, onConfirm }: any) => {
+export const RecoveryOverrideDialog = ({ open, onOpenChange, staff, onConfirm, tenantId }: any) => {
   const [pin, setPin] = useState('');
   const [reason, setReason] = useState('');
   const { toast } = useToast();
   const pinInputRef = React.useRef<HTMLInputElement>(null);
   React.useEffect(() => { if (open) { setTimeout(() => pinInputRef.current?.focus(), 150); } else { setPin(''); setReason(''); } }, [open]);
-  const handleConfirm = () => {
-    const authorizedStaff = (staff || []).find((s: any) => s.pin === pin && (s.role === 'admin' || s.role === 'owner'));
-    if (!authorizedStaff) { toast({ variant: 'destructive', title: 'Unauthorized', description: 'Manager PIN not recognized.' }); return; }
+  const handleConfirm = async () => {
+    // Checked on the server (PINs are never on this device).
+    const { approveWithPin } = await import('@/lib/approve-client');
+    const r = await approveWithPin(String(tenantId || ''), pin, { kind: 'recovery', reason: reason || 'Service recovery override', requireReason: false });
+    if (!r.ok || !r.approver) { toast({ variant: 'destructive', title: 'Not approved', description: r.error || 'Manager PIN not recognized.' }); return; }
+    const authorizedStaff: any = { ...r.approver, approvalToken: r.token };
     if (!reason.trim()) { toast({ variant: 'destructive', title: 'Reason Required' }); return; }
     onConfirm(authorizedStaff, reason); setPin(''); setReason('');
   };
@@ -547,7 +550,10 @@ export function usePosEngine() {
     toast({ title: 'Offer applied', description: `${offerLine(d)} — they booked with it.` });
   }, [selectedAppointmentIds, readyForCheckoutAppointments, discounts]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const discountValue = useMemo(() => safeNumber(appliedDiscountCodes.reduce((acc, code) => { const d = (discounts || []).find((dis: any) => dis.code.toUpperCase() === code.toUpperCase()); if (!d) return acc; return acc + (d.type === 'percentage' ? subtotalCalc * (d.value / 100) : d.value); }, 0)), [appliedDiscountCodes, discounts, subtotalCalc]);
+  // A staff discount (% or $, with a reason; a manager approves over the staff limit) — never a price change.
+  const [staffDiscount, setStaffDiscount] = useState<{ kind: 'pct' | 'amt'; value: number; reason: string; approvalToken?: string | null; approvedBy?: string | null } | null>(null);
+  const staffDiscountValue = useMemo(() => !staffDiscount ? 0 : Math.round(Math.min(subtotalCalc, staffDiscount.kind === 'pct' ? subtotalCalc * (safeNumber(staffDiscount.value) / 100) : safeNumber(staffDiscount.value)) * 100) / 100, [staffDiscount, subtotalCalc]);
+  const discountValue = useMemo(() => safeNumber(appliedDiscountCodes.reduce((acc, code) => { const d = (discounts || []).find((dis: any) => dis.code.toUpperCase() === code.toUpperCase()); if (!d) return acc; return acc + (d.type === 'percentage' ? subtotalCalc * (d.value / 100) : d.value); }, 0) + staffDiscountValue), [appliedDiscountCodes, discounts, subtotalCalc, staffDiscountValue]);
 
   const membershipDiscountValue = useMemo(() => {
     if (!selectedClient || !memberships || !packages) return 0;
@@ -1064,7 +1070,8 @@ export function usePosEngine() {
     items: retailItems.map((it: any) => ({ id: it.id, type: it.type, quantity: it.quantity, price: it.price, name: it.name, reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null })),
     feeIds: Array.from(appliedAdjustments), discountCodes: appliedDiscountCodes, redeemedOffer: redeemedOffer || null, waivedAppointmentIds: Array.from(waivedAppointmentFees.keys()), waivers: Object.fromEntries(waivedAppointmentFees),   // who approved each waiver, and why
     tipAllocations, tip: tipAmount, storeCredit: storeCreditApplied,
-    recovery: { amount: safeNumber(paymentData?.recoveryAmount), reason: paymentData?.recoveryReason || '' },
+    staffDiscount: staffDiscount ? { kind: staffDiscount.kind, value: staffDiscount.value, reason: staffDiscount.reason, approvalToken: staffDiscount.approvalToken || null } : null,
+    recovery: { amount: safeNumber(paymentData?.recoveryAmount), reason: paymentData?.recoveryReason || '', approvalToken: paymentData?.recoveryApprovalToken || recoveryApprovalRef.current || null },
     payment: { method: paymentData?.paymentMethod || 'card', amountTendered: safeNumber(paymentData?.amountTendered), stripePaymentIntentId: paymentData?.stripePaymentIntentId || null, cardSurcharge: safeNumber(paymentData?.cardSurcharge), skipLedger: paymentData?.skipLedger === true },
     tillId: paymentTab === 'cash' && activeTill ? activeTill.id : null,
     expectedTotal: totalCalc,
@@ -1072,6 +1079,7 @@ export function usePosEngine() {
   // Before any card is charged, the ticket is saved on the server as "started" — so if the sale then fails to save,
   // it can be recorded later (Needs attention → Sales not recorded) and never twice.
   const pendingIdRef = useRef<string | null>(null);
+  const recoveryApprovalRef = useRef<string | null>(null);   // set by the POS recovery-override prompt (manager approval)
   const lastCheckoutRef = useRef<any>(null);
   useEffect(() => {
     if (paymentTab !== 'card' || !tenantId || !checkoutClientId || (!selectedAppointmentIds.size && !retailItems.length)) return;
@@ -1094,7 +1102,7 @@ export function usePosEngine() {
       if (out.mismatch) toast({ title: 'Total recorded differently', description: `Recorded $${Number(out.total).toFixed(2)} (the screen showed $${safeNumber(payload.expectedTotal).toFixed(2)}) — it’s flagged on the receipt for review.` });
       for (const w of (out.warnings || [])) toast({ variant: 'destructive', title: 'Needs a look', description: w });
       pendingIdRef.current = null; lastCheckoutRef.current = null;
-      setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setStoreCreditApplied(0);
+      setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setStoreCreditApplied(0); setStaffDiscount(null);
       return true;
     } catch (e: any) {
       console.error('[checkout] failed', e);
@@ -1347,9 +1355,10 @@ export function usePosEngine() {
 
   const handleVoidTransaction = async (txId: string, authorizerPin: string, reason: string) => {
     if (!firestore || !tenantId) return;
-    const authSnap = await getDocs(query(collection(firestore, `tenants/${tenantId}/staff`), where('pin', '==', authorizerPin)));
-    const authorizer = authSnap.docs[0];
-    if (!authorizer || !['admin','owner'].includes(authorizer.data().role)) { toast({ variant: 'destructive', title: 'Unauthorized', description: 'Manager PIN required to void transactions.' }); return; }
+    const { approveWithPin } = await import('@/lib/approve-client');
+    const ap = await approveWithPin(tenantId, authorizerPin, { kind: 'void', ref: txId, reason });
+    if (!ap.ok || !ap.approver) { toast({ variant: 'destructive', title: 'Not approved', description: ap.error || 'Manager PIN required to void transactions.' }); return; }
+    const authorizer = { id: ap.approver.id, data: () => ({ name: ap.approver!.name, role: ap.approver!.role }) };
     const txRef = doc(firestore, `tenants/${tenantId}/transactions`, txId);
     const batch = writeBatch(firestore);
     batch.update(txRef, sanitizeForFirestore({ voided: true, voidedAt: new Date().toISOString(), voidedBy: authorizer.id, voidReason: reason }));
@@ -1386,14 +1395,14 @@ export function usePosEngine() {
     clients: clients || [], isGroupCheckout: selectedAppointmentIds.size > 1, payerOptions: payerOptions || [], selectedClientId, setSelectedClientId,
     onAddClientClick: () => setIsAddClientOpen(true),
     onScanClick: () => { setScanMode('checkout'); setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsCameraScanOpen(true); },
-    subtotal: subtotalCalc, tax: taxCalc, taxLabel, total: totalCalc, tipAmount, setTipAmount, onCheckout: handleCheckout,
+    subtotal: subtotalCalc, tax: taxCalc, taxLabel, total: totalCalc, staffDiscount, setStaffDiscount, staffDiscountValue, tipAmount, setTipAmount, onCheckout: handleCheckout,
     appliedDiscountCodes, setAppliedDiscountCodes, discount: discountValue, membershipDiscount: membershipDiscountValue,
     walletOffers, offerClientId, offerServiceIds,
     isSubmitting, paymentTab, setPaymentTab, discounts: discounts || [], amountTendered, setAmountTendered,
     appliedAdjustments, onApplyAdjustmentToggle: (id: string, apply: boolean) => { const next = new Set(appliedAdjustments); if (apply) next.add(id); else next.delete(id); setAppliedAdjustments(next); },
     redeemedOffer, setRedeemedOffer, memberships: memberships || [], packages: packages || [],
     allowStacking: selectedTenant?.allowDiscountStacking || false, showTitle: false,
-    waivedAppointmentFees, onWaiveFeeToggle: (id: string, waive: boolean, authorizerId?: string, reason?: string) => { setWaivedAppointmentFees(prev => { const next = new Map(prev); if (waive && authorizerId && reason) next.set(id, { authorizerId, reason }); else next.delete(id); return next; }); },
+    waivedAppointmentFees, onWaiveFeeToggle: (id: string, waive: boolean, authorizerId?: string, reason?: string, approvalToken?: string) => { setWaivedAppointmentFees(prev => { const next = new Map(prev); if (waive && authorizerId && reason) next.set(id, { authorizerId, reason, approvalToken } as any); else next.delete(id); return next; }); },
     tipAllocations, setTipAllocations, activeTill, staff, role,
     onRequestOverride: () => { setIsCartSheetOpen(false); setTimeout(() => setIsRecoveryOverrideOpen(true), 300); },
     tenantId,
@@ -1461,7 +1470,7 @@ export function usePosEngine() {
     readyForCheckoutAppointments, kpiData, selectedClient, subtotalCalc, offerClientId, offerServiceIds, walletOffers, setWalletOffers,
     autoAppliedOfferRef, discountValue, membershipDiscountValue, taxCalc, totalCalc, payerOptions, handleSelectAppointment, handleAddToCart,
     earlyStart, setEarlyStart, handleStartService, handleSendToFrontDesk, handleAssignStaff, autoAssignedIds, handleAssignNext, handleUpdateStatus,
-    handleCheckout, handleCancelAction, onCancellationConfirm, handleCancellationConfirm, handleConfirmRefund, handleResolveCheckInConfirmation, handleRevertToService, handleRevertToReady,
+    handleCheckout, recoveryApprovalRef, handleCancelAction, onCancellationConfirm, handleCancellationConfirm, handleConfirmRefund, handleResolveCheckInConfirmation, handleRevertToService, handleRevertToReady,
     resolveScanCode, scanTimerRef, handleScanInput, handleScanConfirm, handleOpenTill, handleCloseTill, handleVoidTransaction, resolveRetailScan,
     checkoutHubProps, getPreviousFormula, getVisitCount, waitingNowCount, cartItemCount, walkInGroupSizes,
   };
