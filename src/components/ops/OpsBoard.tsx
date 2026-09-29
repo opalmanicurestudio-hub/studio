@@ -18,6 +18,7 @@ import { OverrunPanel } from '@/components/ops/OverrunPanel';
 import { disruptionTotals } from '@/lib/disruptions';
 import { moduleEnabled } from '@/lib/modules';
 import { CallbackQueue } from '@/components/ops/CallbackQueue';
+import { ProviderShortlist, tickProviderAsks } from '@/components/ops/ProviderShortlist';
 import { resolvePolicy } from '@/lib/booking-policies';
 
 const hm = (v: any) => { if (!v) return ''; const d = new Date(v); return isNaN(d.getTime()) ? '' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); };
@@ -88,8 +89,8 @@ function CaseCard({ a, ops, tenant, tenantId, staffById, next, role, uid, freeOt
         </div>}
         {callout && Array.isArray(a.coverVolunteers) && a.coverVolunteers.length > 0 && <p className="text-xs"><b>Offered to cover:</b> {a.coverVolunteers.map((v: any) => String(v.name || '').split(' ')[0]).join(', ')}{can('switch') ? ' — send them the offer below' : ''}</p>}
         {callout && uid && uid !== a.staffId && !(a.coverVolunteers || []).some((v: any) => v.staffId === uid) && opsLevelOf(tenant) !== 'view' && <button type="button" disabled={!!busy} onClick={async () => { setBusy('vol'); const r = await staffPost('/api/appointments/disruption', { tenantId, action: 'cover_volunteer', kind: 'callout', disruptionId: a.disruption.id, appointmentId: a.id }); setBusy(null); setMsg(r?.ok ? 'Thanks — a manager will send them the offer.' : r?.error || 'That didn’t send.'); }} className="rounded-full border px-4 py-2 text-sm font-semibold disabled:opacity-60">I can cover this</button>}
-        {(late || callout) && can('switch') && freeOthers.length > 0 && a.providerOffer?.status !== 'pending' && <div className="space-y-1"><p className="text-xs text-muted-foreground">Offer another provider (they accept or decline on their link):</p>
-          <div className="flex flex-wrap gap-2">{freeOthers.slice(0, 4).map(({ staff: s0, startAt }) => <button key={s0.id} type="button" disabled={!!busy} onClick={() => offer(s0.id, startAt)} className="rounded-full border px-3 py-1.5 text-sm disabled:opacity-60">{busy === `offer:${s0.id}` ? 'Offering…' : `Offer ${String(s0.name).split(' ')[0]} at ${hm(startAt)}`}</button>)}</div></div>}
+        {(late || callout) && can('switch') && !['pending', 'asking_provider'].includes(String(a.providerOffer?.status || '')) && <div className="space-y-1"><p className="text-xs text-muted-foreground">Another provider — who could take them:</p>
+          <ProviderShortlist tenantId={tenantId} appointmentId={a.id} startAt={String(a.etaAt || a.startTime)} clientFirst={first} onDone={(m) => setMsg(m)} limit={3} /></div>}
       </div>}
       {unpaid && ['arrived_payment_required', 'payment_required'].includes(ops.status) && <div className="space-y-2">
         <div className="flex flex-wrap gap-2">
@@ -362,6 +363,8 @@ function overrunCases(appts: any[], now = new Date()) {
 /** The Needs-attention board: provider running late + today's cases. Fed the
  *  data by its host (the POS panel), so it shows exactly what the desk sees. */
 export function OpsBoard({ appts, staff, tenant, tenantId, role, uid }: { appts: any[]; staff: any[]; tenant: any; tenantId: string; role: string; uid?: string }) {
+  // Asks to other providers have an answer time — move unanswered ones along while the desk is open.
+  useEffect(() => { if (!tenantId) return; tickProviderAsks(tenantId, appts); const t = setInterval(() => tickProviderAsks(tenantId, appts), 60000); return () => clearInterval(t); }, [tenantId, appts]);
   const [view, setView] = useState<'attention' | 'all'>('attention');
   const staffById = useMemo(() => new Map((staff || []).map((s: any) => [s.id, s])), [staff]);
   const grace = Number(resolvePolicy(tenant).late.graceMinutes.value) || 0;
