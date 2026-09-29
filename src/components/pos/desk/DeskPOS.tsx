@@ -13,6 +13,7 @@
 //   In service with a provider                       → Finish (provider review → ready to pay)
 //   Ready      ready for checkout                    → Check out (checkout drawer)
 
+import { TodaysSales } from '@/components/pos/desk/TodaysSales';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getAuth } from 'firebase/auth';
 import { LayoutGroup } from 'framer-motion';
@@ -72,6 +73,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const openCalls = useOpenCalls(e.tenantId);                              // urgent / overdue / unacknowledged calls count too
   const opsCount = { ...opsBase, attention: opsBase.attention + overdueCallbacks(callbacks) + callsNeedingAttention(openCalls.calls) };
   const [logCallOpen, setLogCallOpen] = useState(false);
+  const [salesOpen, setSalesOpen] = useState(false);
   const [overFor, setOverFor] = useState<any>(null); // a service running over → tell the next guests
   const [mode, setMode] = useState<'desk' | 'counter'>('desk');
   const [about, setAbout] = useState<Guest | null>(null);
@@ -331,6 +333,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
           {kioskOn && <Btn quiet onClick={() => e.setIsScanLookupOpen?.(true)}>Scan / find</Btn>}
           <Btn quiet onClick={() => e.setIsQuickBookOpen(true)}>Book</Btn>
           <Btn quiet onClick={() => setLogCallOpen(true)}>Log a call</Btn>
+          <Btn quiet onClick={() => setSalesOpen(true)}>Today’s sales</Btn>
           <Btn quiet={!opsCount.attention} onClick={() => setAttnOpen(true)}>{opsCount.decisions ? `Needs a decision · ${opsCount.decisions}` : `Needs attention${opsCount.attention ? ` · ${opsCount.attention}` : ''}`}</Btn>
           {mode === 'desk' && readyIds.length > 0 && <Btn onClick={() => setCheckoutOpen(true)}>Checkout · {readyIds.length}</Btn>}
           <Btn quiet onClick={() => e.setIsTillManagementOpen(true)}>Till</Btn>
@@ -383,6 +386,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
         {overFor && (() => { const ov = serviceOverrun(overFor.appt, minsOf(overFor), now); return <OverrunPanel tenant={e.selectedTenant} tenantId={e.tenantId} role={e.role} inService={overFor.appt} today={todaysAppts} overMin={ov?.overMin || 0} plannedEnd={ov?.plannedEnd || null} providerName={staffName(overFor.appt.staffId || null)} />; })()}
       </Drawer>
       <Drawer accent={accent} open={attnOpen} onClose={() => setAttnOpen(false)} title="Needs attention">
+        <TodaysSales open={salesOpen} onClose={() => setSalesOpen(false)} tenantId={e.tenantId} tenant={e.selectedTenant} role={(e as any).role || null} />
         <LogCallSheet open={logCallOpen} onClose={() => setLogCallOpen(false)} tenantId={e.tenantId} tenant={e.selectedTenant} clients={e.clients || []} staff={e.staff || []} appointments={e.appointmentsFromInventory || []} uid={e.currentUser?.uid || null} />
         {attnOpen && <OpsBoard appts={todaysAppts} staff={(e.staff || []).filter((s: any) => s.isActive !== false)} tenant={e.selectedTenant} tenantId={e.tenantId} role={e.role} uid={e.currentUser?.uid} />}
       </Drawer>
@@ -409,7 +413,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
         {moreTabs.length > 1 && <div className="mb-4"><Seg label="More" value={(moreTabs.some(([k]) => k === moreTab) ? moreTab : moreTabs[0][0]) as any} onChange={(v) => setMoreTab(v as any)} options={moreTabs.map(([k, l]) => [k, l]) as any} /></div>}
         {(moreTabs.find(([k]) => k === moreTab) || moreTabs[0])?.[2]}
       </Drawer>
-      <Drawer accent={accent} open={checkoutOpen} onClose={() => setCheckoutOpen(false)} title="Checkout">
+      <Drawer accent={accent} wide open={checkoutOpen} onClose={() => setCheckoutOpen(false)} title="Checkout">
         {(() => { const ids: string[] = Array.from(e.selectedAppointmentIds || []); const v = ids.length === 1 ? (e.appointmentsFromInventory || []).find((a: any) => a.id === ids[0]) : null;
           return v ? <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl p-3" style={{ background: 'var(--card)' }}><span className="text-[14px]">Before they go — <b>book their next visit?</b></span><Btn quiet onClick={() => setFollowFor(v)}>Book next visit</Btn></div> : null; })()}
         <CheckoutHub {...e.checkoutHubProps} /></Drawer>
