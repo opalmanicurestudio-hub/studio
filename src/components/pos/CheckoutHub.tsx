@@ -1,5 +1,6 @@
 'use client';
 
+import { SaleComplete } from '@/components/pos/SaleComplete';
 import { DESK_CSS } from '@/components/pos/desk/kit';
 import { approveWithPin } from '@/lib/approve-client';
 import { CheckoutNudge } from '@/components/pos/CheckoutNudge';
@@ -502,6 +503,9 @@ export const CheckoutHub = ({
   subtotal,
   tax,
   taxLabel,
+  lastSale,
+  clearLastSale,
+  onDone,
   staffDiscount,
   setStaffDiscount,
   staffDiscountValue,
@@ -872,6 +876,7 @@ export const CheckoutHub = ({
 
   // Reset card mode when payment tab changes
   useEffect(() => { setCardMode('select'); }, [paymentTab]);
+  if (lastSale && isCartEmpty) return <div className="desk" style={{ background: 'transparent' }}><style>{DESK_CSS}</style><SaleComplete sale={lastSale} tenantId={tenantId} onNewSale={() => clearLastSale?.()} onDone={onDone} /></div>;   // after the last hook
 
 
 
@@ -1059,7 +1064,7 @@ export const CheckoutHub = ({
        )}
         </div>
         <div className="co-right min-w-0 space-y-3">
-          {!isCartEmpty && paymentTab !== 'card' && !studentsNoTips && <section className={card} style={cardStyle} aria-label="Tip">
+          {!isCartEmpty && !studentsNoTips && !(paymentTab === 'card' && cardMode !== 'select') && <section className={card} style={cardStyle} aria-label="Tip">
             <p className={h}>Tip</p>
             <div className="flex flex-wrap gap-1.5">{[0, 15, 18, 20, 25].map((pct) => { const amt = Number((safeNumber(subtotal) * pct / 100).toFixed(2)); const on = pct === 0 ? tipAmount === 0 : Math.abs(tipAmount - amt) < 0.01;
               return <button key={pct} type="button" aria-pressed={on} onClick={() => handleTotalTipChange(amt)} className={pill(on)} style={pillStyle(on)}>{pct === 0 ? 'No tip' : `${pct}% · ${coMoney(amt)}`}</button>; })}</div>
