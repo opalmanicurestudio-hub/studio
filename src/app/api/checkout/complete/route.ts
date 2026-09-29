@@ -338,5 +338,5 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   await logAuditAdmin(db, tenantId, { action: 'checkout.completed', targetType: 'client', targetId: clientId, amount: calc.total,
     summary: `Checkout — ${client.name || 'client'} · $${calc.total.toFixed(2)} (${method})${mismatch ? ` · the screen showed $${expected.toFixed(2)} — flagged for review` : ''}`, actor: { type: 'user', id: auth.actor.uid, name: auth.actor.name, role: auth.actor.role } } as any).catch(() => {});
   if (pendingRef) await pendingRef.set({ status: 'completed', completedAt: now, receiptId: receiptRef.id, checkoutSessionId, total: calc.total, ...(pay.stripePaymentIntentId ? { paymentIntentId: String(pay.stripePaymentIntentId) } : {}) }, { merge: true }).catch(() => {});
-  return json({ ok: true, checkoutSessionId, receiptId: receiptRef.id, total: calc.total, subtotal: calc.subtotal, tax: calc.tax, mismatch, warnings });
+  return json({ ok: true, checkoutSessionId, receiptId: receiptRef.id, total: calc.total, collected: Math.max(0, Math.round((calc.total - depositUsed) * 100) / 100), depositUsed, subtotal: calc.subtotal, tax: calc.tax, mismatch, warnings });
 }
