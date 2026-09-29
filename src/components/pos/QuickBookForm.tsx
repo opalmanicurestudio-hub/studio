@@ -127,6 +127,7 @@
  *   regardless of `willChargeNow`.
  */
 
+import { DESK_CSS, Btn, Seg } from '@/components/pos/desk/kit';
 import { hasRealCard } from '@/lib/card-on-file';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import React from 'react';
@@ -1368,10 +1369,15 @@ export function QuickBookForm({
   const [draftCallerPhone, setDraftCallerPhone] = React.useState('');
   const [draftNote, setDraftNote] = React.useState('');
   // The callback queue: who calls back, by when, how, and what the caller was told.
-  const [draftDue, setDraftDue] = React.useState<'1h' | 'today' | 'tomorrow'>('1h');
+  const [draftDue, setDraftDue] = React.useState<'1h' | 'today' | 'tomorrow' | 'pick'>('1h');
+  const [draftDueAt, setDraftDueAt] = React.useState('');                 // "pick a time" (datetime-local)
   const [draftContact, setDraftContact] = React.useState<'call' | 'text' | 'email'>('call');
   const [draftPromised, setDraftPromised] = React.useState('');
   const [draftTell, setDraftTell] = React.useState(true);
+  const [draftName, setDraftName] = React.useState('');
+  const [draftEmail, setDraftEmail] = React.useState('');
+  const [draftOwner, setDraftOwner] = React.useState<string>('');          // '' = anyone at the desk
+  const [draftError, setDraftError] = React.useState<string | null>(null);
   const [isSavingDraft, setIsSavingDraft] = React.useState(false);
   const [discardingDraftId, setDiscardingDraftId] = React.useState<string | null>(null);
 
@@ -1556,7 +1562,15 @@ export function QuickBookForm({
     ? `${selectedSvc.name}${grandTotal > 0 ? ` · $${grandTotal.toFixed(0)}` : ''}`
     : 'No service selected yet';
   const openSaveDraftModal = () => {
-    setDraftCallerPhone(selectedClient?.phone || newClientPhone || '');
+    // Start from what we already know about the caller; you're calling back unless you change it.
+    const cur = currentDraftId ? callBackDrafts.find((d) => d.id === currentDraftId) : null;
+    setDraftCallerPhone(cur?.callerPhone || selectedClient?.phone || newClientPhone || '');
+    setDraftName(cur?.callerName && cur.callerName !== 'Unknown caller' ? cur.callerName : (selectedClient?.name || newClientName || ''));
+    setDraftEmail((cur as any)?.callerEmail || selectedClient?.email || newClientEmail || '');
+    setDraftOwner(cur ? (cur.ownerId || '') : (currentStaffId || ''));
+    if (cur?.contactBy) setDraftContact(cur.contactBy);
+    if (cur?.promised) setDraftPromised(cur.promised);
+    setDraftError(null);
     setShowSaveDraftModal(true);
   };
 
@@ -2131,6 +2145,15 @@ export function QuickBookForm({
     setNewClientEmail(snap.newClientEmail || '');
   };
 
+  /** When the call-back is due, from the choice in the save box. */
+  const draftCallbackDueIso = (): string | null => {
+    const d = new Date();
+    if (draftDue === '1h') return new Date(Date.now() + 3600000).toISOString();
+    if (draftDue === 'today') { d.setHours(17, 0, 0, 0); return (d.getTime() > Date.now() ? d : new Date(Date.now() + 3600000)).toISOString(); }
+    if (draftDue === 'tomorrow') { d.setDate(d.getDate() + 1); d.setHours(10, 0, 0, 0); return d.toISOString(); }
+    const t = Date.parse(draftDueAt); return Number.isFinite(t) && t > Date.now() ? new Date(t).toISOString() : null;
+  };
+
   const handleSaveDraft = async () => {
     if (!firestore || !tenantId) return;
     setIsSavingDraft(true);
@@ -2139,8 +2162,14 @@ export function QuickBookForm({
       const now = new Date().toISOString();
       const draftId = currentDraftId || _nanoid();
       const existing = callBackDrafts.find(d => d.id === draftId);
-      const callerName = selectedClient?.name || newClientName.trim() || 'Unknown caller';
+      const callerName = draftName.trim() || selectedClient?.name || newClientName.trim() || 'Unknown caller';
       const callerPhone = draftCallerPhone.trim() || selectedClient?.phone || newClientPhone.trim() || '';
+      const callerEmail = (draftEmail.trim() || selectedClient?.email || newClientEmail.trim() || '').toLowerCase();
+      const dueIso = draftCallbackDueIso();
+      if (!dueIso) { setDraftError('Pick when to call back.'); setIsSavingDraft(false); return; }
+      if (draftContact === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(callerEmail)) { setDraftError('They prefer email — add their email address.'); setIsSavingDraft(false); return; }
+      if (draftContact !== 'email' && callerPhone.replace(/\D/g, '').length < 7) { setDraftError(`They prefer ${draftContact === 'text' ? 'a text' : 'a call'} — add their phone number.`); setIsSavingDraft(false); return; }
+      const owner = draftOwner ? (staff || []).find((m: any) => m.id === draftOwner) : null;
 
       await setDoc(
         doc(firestore, `tenants/${tenantId}/callBackDrafts`, draftId),
@@ -2158,21 +2187,23 @@ export function QuickBookForm({
           step,
           snapshot: buildSnapshot(),
           status: 'pending',
-          ownerId: existing?.ownerId ?? (currentStaffId || null),
-          dueAt: (() => { const d = new Date(); if (draftDue === '1h') return new Date(Date.now() + 3600000).toISOString();
-            if (draftDue === 'today') { d.setHours(17, 0, 0, 0); return (d.getTime() > Date.now() ? d : new Date(Date.now() + 3600000)).toISOString(); }
-            d.setDate(d.getDate() + 1); d.setHours(10, 0, 0, 0); return d.toISOString(); })(),
+          callerEmail: callerEmail || null,
+          ownerId: owner ? owner.id : null, ownerName: owner ? (owner.name || null) : null,
+          dueAt: dueIso,
           contactBy: draftContact,
           promised: draftPromised.trim() || null,
         }),
       );
 
-      if (draftTell && callerPhone) {
+      let toldBy: string | null = null;
+      if (draftTell && (draftContact === 'email' ? callerEmail : callerPhone)) {
         try { const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
-          await fetch('/api/callbacks', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, id: draftId, action: 'update', ownerId: currentStaffId || null, tellCaller: true }) });
-        } catch { /* the call-back is saved; the text is a courtesy */ }
+          const r = await fetch('/api/callbacks', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, id: draftId, action: 'update', tellCaller: true }) }).then((x) => x.json()).catch(() => ({}));
+          if (r?.told) toldBy = r.toldBy || null;
+        } catch { /* the call-back is saved; the message is a courtesy */ }
       }
-      toast({ title: 'Saved for call-back', description: `${callerName} is in the callback queue (POS → Needs attention).` });
+      toast({ title: 'Saved for a call-back', description: `${callerName} is in POS → Needs attention → Callbacks${toldBy ? ` — we ${toldBy === 'email' ? 'emailed' : 'texted'} them when to expect you` : ''}.` });
+      setDraftError(null); setDraftPromised(''); setDraftDue('1h'); setDraftDueAt('');
       setShowSaveDraftModal(false);
       setDraftNote('');
       setDraftCallerPhone('');
@@ -2211,53 +2242,73 @@ export function QuickBookForm({
     }
   };
 
+  // ── Save for a call-back — in the POS look (warm paper, soft choices, accent buttons) ──
+  const draftCanTell = draftContact === 'email'
+    ? /@/.test(draftEmail || selectedClient?.email || newClientEmail || '')
+    : (draftCallerPhone || selectedClient?.phone || newClientPhone || '').replace(/\D/g, '').length >= 7;
+  const deskInput = 'h-11 w-full rounded-xl px-3.5 text-[15px] outline-none';
+  const deskInputStyle = { background: 'var(--card)', border: '1px solid var(--line)', color: 'var(--ink)' } as React.CSSProperties;
   const saveDraftModal = showSaveDraftModal ? (
-    <div
-      className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
-      onClick={() => setShowSaveDraftModal(false)}
-    >
-      <div className="bg-white rounded-2xl p-5 w-full max-w-sm space-y-4" onClick={e => e.stopPropagation()}>
+    <div className="desk fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4" style={{ background: 'rgba(28,25,23,.45)', ['--accent' as any]: (tenant as any)?.bookingPageSettings?.cfPageConfig?.accentColor || (tenant as any)?.brandColor || 'hsl(var(--primary))', ['--accent-ink' as any]: '#fff' }}
+      onClick={() => setShowSaveDraftModal(false)}>
+      <style>{DESK_CSS}</style>
+      <div role="dialog" aria-modal="true" aria-label="Save for a call-back" onClick={(e) => e.stopPropagation()}
+        className="max-h-[92dvh] w-full max-w-md space-y-5 overflow-y-auto rounded-t-3xl p-5 sm:rounded-3xl"
+        style={{ background: 'var(--paper)', color: 'var(--ink)', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
         <div>
-          <p className="text-sm font-semibold text-slate-900">Save & call back later</p>
-          <p className="text-xs text-slate-400 mt-1">
-            Everything entered so far is saved. Any staff member can pull this up from "Pending call-backs"
-            and pick up exactly where you left off.
-          </p>
+          <p className="text-[18px] font-semibold">Save for a call-back</p>
+          <p className="mt-1 text-[13px]" style={{ color: 'var(--muted)' }}>Everything entered so far is kept. It goes to <b>POS → Needs attention → Callbacks</b>, where anyone can pick it up.</p>
         </div>
-        <div className="h-10 rounded-md border border-input bg-background px-3 flex items-center text-sm [&_input]:border-none [&_input]:bg-transparent [&_input]:outline-none [&_input]:h-full [&_input]:w-full [&_input]:text-sm [&_.PhoneInputCountry]:mr-2">
-          <PhoneInput
-            international
-            defaultCountry="US"
-            value={draftCallerPhone}
-            onChange={(v) => setDraftCallerPhone(v || '')}
-            placeholder="(555) 000-0000"
-          />
+
+        <div className="space-y-2">
+          <p className="text-[13px] font-semibold">Who called</p>
+          <input value={draftName} onChange={(e) => setDraftName(e.target.value)} placeholder="Their name" className={deskInput} style={deskInputStyle} />
+          <div className={`${deskInput} flex items-center [&_input]:border-none [&_input]:bg-transparent [&_input]:outline-none`} style={deskInputStyle}>
+            <PhoneInput international defaultCountry="US" value={draftCallerPhone} onChange={(v) => setDraftCallerPhone(v || '')} placeholder="Phone" />
+          </div>
+          <input type="email" value={draftEmail} onChange={(e) => setDraftEmail(e.target.value)} placeholder="Email (if they’d like an email)" className={deskInput} style={deskInputStyle} />
         </div>
-        <div className="space-y-1.5 text-xs">
-          <p className="font-semibold text-slate-700">Call back by</p>
-          <div className="grid grid-cols-3 gap-1.5">{([['1h', 'In an hour'], ['today', 'Today, 5pm'], ['tomorrow', 'Tomorrow 10am']] as const).map(([k, l]) =>
-            <button key={k} type="button" aria-pressed={draftDue === k} onClick={() => setDraftDue(k)} className={`h-8 rounded-lg border ${draftDue === k ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>)}</div>
-          <p className="font-semibold text-slate-700 pt-1">They prefer</p>
-          <div className="grid grid-cols-3 gap-1.5">{([['call', 'A call'], ['text', 'A text'], ['email', 'An email']] as const).map(([k, l]) =>
-            <button key={k} type="button" aria-pressed={draftContact === k} onClick={() => setDraftContact(k)} className={`h-8 rounded-lg border ${draftContact === k ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>)}</div>
-          <input value={draftPromised} onChange={(e) => setDraftPromised(e.target.value)} placeholder="What you told them — e.g. Jessica will call about a gel set" className="h-9 w-full rounded-lg border px-3 outline-none" />
-          <label className="flex items-center gap-2 pt-1"><input type="checkbox" checked={draftTell} onChange={(e) => setDraftTell(e.target.checked)} /> Text them when to expect us</label>
+
+        <div className="space-y-2">
+          <p className="text-[13px] font-semibold">What do they need?</p>
+          <textarea aria-label="What do they need?" value={draftNote} onChange={(e) => setDraftNote(e.target.value)} rows={2}
+            placeholder="e.g. Gel set Friday — checking with her partner first" className="w-full resize-none rounded-xl px-3.5 py-2.5 text-[15px] outline-none" style={deskInputStyle} />
         </div>
-        <textarea
-          aria-label="Quick note about this enquiry"
-          value={draftNote}
-          onChange={e => setDraftNote(e.target.value)}
-          placeholder="Quick note — e.g. checking with husband, will call back after 5pm"
-          rows={2}
-          className="w-full rounded-lg border px-3 py-2 text-xs resize-none outline-none focus:border-blue-300 bg-white"
-        />
-        <div className="flex gap-2">
-          <Button variant="outline" className="flex-1 h-10" onClick={() => setShowSaveDraftModal(false)}>
-            Cancel
-          </Button>
-          <Button className="flex-1 h-10" onClick={handleSaveDraft} disabled={isSavingDraft}>
-            {isSavingDraft ? <Loader className="w-4 h-4 animate-spin" /> : 'Save & close'}
-          </Button>
+
+        <div className="space-y-2">
+          <p className="text-[13px] font-semibold">Who’s calling back</p>
+          <select value={draftOwner} onChange={(e) => setDraftOwner(e.target.value)} className={deskInput} style={deskInputStyle}>
+            <option value="">Anyone at the desk</option>
+            {(staff || []).filter((m: any) => m.isActive !== false && m.active !== false).map((m: any) => <option key={m.id} value={m.id}>{m.id === currentStaffId ? `Me (${String(m.name || '').split(' ')[0]})` : m.name}</option>)}
+          </select>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-[13px] font-semibold">Call back by</p>
+          <Seg label="Call back by" value={draftDue} onChange={(v) => setDraftDue(v)} options={[['1h', 'In an hour'], ['today', 'Today, 5pm'], ['tomorrow', 'Tomorrow, 10am'], ['pick', 'Pick a time']]} />
+          {draftDue === 'pick' && <input type="datetime-local" value={draftDueAt} onChange={(e) => setDraftDueAt(e.target.value)} className={deskInput} style={deskInputStyle} />}
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-[13px] font-semibold">How to reach them</p>
+          <Seg label="How to reach them" value={draftContact} onChange={(v) => setDraftContact(v)} options={[['call', 'Call'], ['text', 'Text'], ['email', 'Email']]} />
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-[13px] font-semibold">What you told them <span className="font-normal" style={{ color: 'var(--muted)' }}>— optional</span></p>
+          <input value={draftPromised} onChange={(e) => setDraftPromised(e.target.value)} placeholder="e.g. Jessica will call about Friday" className={deskInput} style={deskInputStyle} />
+        </div>
+
+        <label className="flex items-start gap-3 rounded-2xl p-3.5" style={{ background: 'var(--card)', border: '1px solid var(--line)', opacity: draftCanTell ? 1 : .6 }}>
+          <input type="checkbox" checked={draftTell && draftCanTell} disabled={!draftCanTell} onChange={(e) => setDraftTell(e.target.checked)} className="mt-0.5 h-4 w-4" style={{ accentColor: 'var(--accent)' }} />
+          <span className="text-[14px]"><b>Let them know when to expect us</b><br />
+            <span style={{ color: 'var(--muted)' }}>{draftCanTell ? `We’ll ${draftContact === 'email' ? 'email' : 'text'} them who’s getting back to them and by when.` : `Add their ${draftContact === 'email' ? 'email' : 'phone number'} to send this.`}</span></span>
+        </label>
+
+        {draftError && <p role="alert" className="text-[14px] font-semibold" style={{ color: 'var(--warn)' }}>{draftError}</p>}
+        <div className="grid grid-cols-2 gap-2 pb-1">
+          <Btn quiet big onClick={() => { setShowSaveDraftModal(false); setDraftError(null); }}>Cancel</Btn>
+          <Btn big onClick={handleSaveDraft} disabled={isSavingDraft}>{isSavingDraft ? 'Saving…' : 'Save call-back'}</Btn>
         </div>
       </div>
     </div>
