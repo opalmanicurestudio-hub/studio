@@ -309,6 +309,13 @@ export async function POST(req: NextRequest) {
         const f = { providerOffer: { ...po, status: 'declined', answeredAt: nowIso } };
         await ref.set(f, { merge: true }); await mirrorSet(f);
         await tellStaff(po.fromStaffId || null, `${a.clientName || 'Your client'} declined ${po.toStaffName ? String(po.toStaffName).split(' ')[0] : 'the other provider'} at ${when} — decide what happens next (Operations).`);
+        // The provider who accepted is told their slot is free again (renters through their portal / chosen channel).
+        if (po.providerAcceptedAt && po.toStaffId) {
+          const freeMsg = `${String(a.clientName || 'The client').split(' ')[0]} decided to keep their original booking — your ${new Date(po.startAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} is free again.`;
+          await tellStaff(po.toStaffId, freeMsg);
+          try { const st: any = ((await db.doc(`tenants/${tenantId}/staff/${po.toStaffId}`).get()).data() as any) || {};
+            if (st.renterId) { const { notifyRenter } = await import('@/lib/renter-comms'); await notifyRenter(db, tenantId, String(st.renterId), 'offers', freeMsg, { tone: 'slate' } as any); } } catch { /* best-effort */ }
+        }
         await logAuditAdmin(db, tenantId, { action: 'appointment.provider_offer_declined', targetType: 'appointment', targetId: apptId, summary: `${a.clientName || 'Client'} declined ${po.toStaffName || 'another provider'} at ${when}`, actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'visit link' } }).catch(() => {});
         return NextResponse.json({ ok: true, choice });
       }
