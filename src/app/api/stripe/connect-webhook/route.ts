@@ -653,6 +653,13 @@ export async function POST(req: NextRequest) {
 
         const latestRefund = charge.refunds?.data?.[0];
         if (!latestRefund) break;
+        // Tell the client their refund is on its way (once per refund — covers refunds made in Stripe too).
+        try {
+          const { sendRefundNotice } = await import('@/lib/refund-notice');
+          await sendRefundNotice(db, tenant.id, { key: `refund_${latestRefund.id}`, kind: 'refund', amountCents: Number(latestRefund.amount) || 0,
+            clientId: (charge.metadata as any)?.clientId || null, appointmentId: (charge.metadata as any)?.appointmentId || null,
+            email: charge.billing_details?.email || charge.receipt_email || null, last4: (charge.payment_method_details as any)?.card?.last4 || null });
+        } catch (e) { console.error('[connect-webhook] refund notice', e); }
 
         const refundBalTxnId = typeof latestRefund.balance_transaction === 'string'
           ? latestRefund.balance_transaction
