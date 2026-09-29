@@ -8,6 +8,7 @@
 // new POS will too. Do not fork logic into a layout — add it here.
 
 
+import { ToastAction } from '@/components/ui/toast';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import React, { useState, useEffect, useMemo, useCallback, Suspense, useRef } from 'react';
@@ -1056,39 +1057,61 @@ export function usePosEngine() {
 
   // Checkout is saved ON THE SERVER (/api/checkout/complete): prices, tax, fees, deposits, tips, stock, the till,
   // the receipt and memberships are all worked out and written there, together — never from this browser.
-  const handleCheckout = async (paymentData: { paymentMethod: string, amountTendered: number, recoveryAmount?: number, recoveryReason?: string, skipLedger?: boolean, stripePaymentIntentId?: string, cardSurcharge?: number }) => {
-    const effectiveClientId = selectedClientId ?? readyForCheckoutAppointments.find(a => selectedAppointmentIds.has(a.id))?.appointment?.clientId ?? null;
-    if (!effectiveClientId || !tenantId) return;
-    setIsSubmitting(true);
+  const checkoutClientId = selectedClientId ?? readyForCheckoutAppointments.find(a => selectedAppointmentIds.has(a.id))?.appointment?.clientId ?? null;
+  const buildCheckoutPayload = (paymentData?: any) => ({
+    tenantId, clientId: checkoutClientId,
+    appointmentIds: readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).map(a => a.appointment.id),
+    items: retailItems.map((it: any) => ({ id: it.id, type: it.type, quantity: it.quantity, price: it.price, name: it.name, reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null })),
+    feeIds: Array.from(appliedAdjustments), discountCodes: appliedDiscountCodes, redeemedOffer: redeemedOffer || null, waivedAppointmentIds: Array.from(waivedAppointmentFees.keys()), waivers: Object.fromEntries(waivedAppointmentFees),   // who approved each waiver, and why
+    tipAllocations, tip: tipAmount, storeCredit: storeCreditApplied,
+    recovery: { amount: safeNumber(paymentData?.recoveryAmount), reason: paymentData?.recoveryReason || '' },
+    payment: { method: paymentData?.paymentMethod || 'card', amountTendered: safeNumber(paymentData?.amountTendered), stripePaymentIntentId: paymentData?.stripePaymentIntentId || null, cardSurcharge: safeNumber(paymentData?.cardSurcharge), skipLedger: paymentData?.skipLedger === true },
+    tillId: paymentTab === 'cash' && activeTill ? activeTill.id : null,
+    expectedTotal: totalCalc,
+  });
+  // Before any card is charged, the ticket is saved on the server as "started" — so if the sale then fails to save,
+  // it can be recorded later (Needs attention → Sales not recorded) and never twice.
+  const pendingIdRef = useRef<string | null>(null);
+  const lastCheckoutRef = useRef<any>(null);
+  useEffect(() => {
+    if (paymentTab !== 'card' || !tenantId || !checkoutClientId || (!selectedAppointmentIds.size && !retailItems.length)) return;
+    const t = setTimeout(async () => {
+      try { const auth = await staffAuthHeader();
+        const r = await fetch('/api/checkout/complete', { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify({ ...buildCheckoutPayload(), action: 'prepare', pendingId: pendingIdRef.current }) }).then((x) => x.json()).catch(() => ({}));
+        if (r?.pendingId) pendingIdRef.current = r.pendingId;
+      } catch { /* best-effort: the sale itself still saves normally */ }
+    }, 600);
+    return () => clearTimeout(t);
+  }, [paymentTab, tenantId, checkoutClientId, selectedAppointmentIds, retailItems, appliedAdjustments, appliedDiscountCodes, tipAmount, totalCalc]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const sendCheckout = async (payload: any, charged: boolean): Promise<boolean> => {
     try {
       const auth = await staffAuthHeader();
-      const res = await fetch('/api/checkout/complete', { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify({
-        tenantId, clientId: effectiveClientId,
-        appointmentIds: readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).map(a => a.appointment.id),
-        items: retailItems.map((it: any) => ({ id: it.id, type: it.type, quantity: it.quantity, price: it.price, name: it.name, reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null })),
-        feeIds: Array.from(appliedAdjustments), discountCodes: appliedDiscountCodes, redeemedOffer: redeemedOffer || null, waivedAppointmentIds: Array.from(waivedAppointmentFees),
-        tipAllocations, tip: tipAmount, storeCredit: storeCreditApplied,
-        recovery: { amount: safeNumber(paymentData.recoveryAmount), reason: paymentData.recoveryReason || '' },
-        payment: { method: paymentData.paymentMethod, amountTendered: safeNumber(paymentData.amountTendered), stripePaymentIntentId: paymentData.stripePaymentIntentId || null, cardSurcharge: safeNumber((paymentData as any).cardSurcharge), skipLedger: paymentData.skipLedger === true },
-        tillId: paymentTab === 'cash' && activeTill ? activeTill.id : null,
-        expectedTotal: totalCalc,
-      }) });
+      const res = await fetch('/api/checkout/complete', { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify(payload) });
       const out = await res.json().catch(() => ({}));
-      if (!res.ok || !out?.ok) {
-        // A card may already have been charged (card payments are taken before the sale is saved) — never invite a second charge.
-        const charged = !!paymentData.stripePaymentIntentId;
-        toast({ variant: 'destructive', title: charged ? 'Paid — but the sale didn’t save' : 'Checkout didn’t save',
-          description: charged ? `The card payment went through (ref ${String(paymentData.stripePaymentIntentId).slice(-8)}). Don’t charge again — tell a manager so the sale can be recorded.${out?.error ? ` (${out.error})` : ''}` : (out?.error || 'Nothing was recorded — please try again.') });
-        return;
-      }
-      toast({ title: 'Checkout successful' });
-      if (out.mismatch) toast({ title: 'Total recorded differently', description: `Recorded $${Number(out.total).toFixed(2)} (the screen showed $${safeNumber(totalCalc).toFixed(2)}) — it’s flagged on the receipt for review.` });
+      if (!res.ok || !out?.ok) throw new Error(out?.error || 'save failed');
+      toast({ title: out.already ? 'Already recorded' : 'Checkout successful', description: out.already ? 'This sale was already saved — nothing was added twice.' : undefined });
+      if (out.mismatch) toast({ title: 'Total recorded differently', description: `Recorded $${Number(out.total).toFixed(2)} (the screen showed $${safeNumber(payload.expectedTotal).toFixed(2)}) — it’s flagged on the receipt for review.` });
       for (const w of (out.warnings || [])) toast({ variant: 'destructive', title: 'Needs a look', description: w });
+      pendingIdRef.current = null; lastCheckoutRef.current = null;
       setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setStoreCreditApplied(0);
+      return true;
     } catch (e: any) {
-      console.error('[handleCheckout] failed', e);
-      toast({ variant: 'destructive', title: paymentData.stripePaymentIntentId ? 'Paid — but the sale didn’t save' : 'Checkout didn’t save', description: paymentData.stripePaymentIntentId ? `The card payment went through (ref ${String(paymentData.stripePaymentIntentId).slice(-8)}). Don’t charge again — tell a manager so the sale can be recorded.` : 'We couldn’t reach the server — nothing was recorded. Please try again.' });
-    } finally { setIsSubmitting(false); }
+      console.error('[checkout] failed', e);
+      if (charged) {
+        lastCheckoutRef.current = payload;
+        toast({ variant: 'destructive', title: 'Paid — but the sale didn’t save', duration: 60000,
+          description: `The card payment went through (ref ${String(payload.payment?.stripePaymentIntentId || '').slice(-8)}). Don’t charge again. Tap “Save again” — it won’t charge the card. If it still won’t save, it’s in Needs attention → Sales not recorded.`,
+          action: <ToastAction altText="Save the sale again without charging" onClick={() => { if (lastCheckoutRef.current) sendCheckout(lastCheckoutRef.current, true); }}>Save again</ToastAction> as any });
+      } else toast({ variant: 'destructive', title: 'Checkout didn’t save', description: `${e?.message && e.message !== 'save failed' ? `${e.message} ` : ''}Nothing was recorded — please try again.` });
+      return false;
+    }
+  };
+  const handleCheckout = async (paymentData: { paymentMethod: string, amountTendered: number, recoveryAmount?: number, recoveryReason?: string, skipLedger?: boolean, stripePaymentIntentId?: string, cardSurcharge?: number }) => {
+    if (!checkoutClientId || !tenantId) return;
+    setIsSubmitting(true);
+    try { await sendCheckout({ ...buildCheckoutPayload(paymentData), pendingId: pendingIdRef.current }, !!paymentData.stripePaymentIntentId); }
+    finally { setIsSubmitting(false); }
   };
 
   const handleCancelAction = (id: string, isWalkIn: boolean) => {
