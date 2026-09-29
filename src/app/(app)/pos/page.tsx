@@ -150,7 +150,7 @@ function POSPage() {
         )}
       </AnimatePresence>
 
-      <RecoveryOverrideDialog open={isRecoveryOverrideOpen} onOpenChange={setIsRecoveryOverrideOpen} staff={staff || []} onConfirm={(authorizer: any, reason: string) => { setIsRecoveryOverrideOpen(false); toast({ title: "Override Authorized", description: `Approved by ${authorizer.name}. Proceed with adjustment.` }); }} />
+      <RecoveryOverrideDialog tenantId={tenantId} open={isRecoveryOverrideOpen} onOpenChange={setIsRecoveryOverrideOpen} staff={staff || []} onConfirm={(authorizer: any, reason: string) => { if (authorizer?.approvalToken) (__engine as any).recoveryApprovalRef.current = authorizer.approvalToken; setIsRecoveryOverrideOpen(false); toast({ title: "Override Authorized", description: `Approved by ${authorizer.name}. Proceed with adjustment.` }); }} />
       <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={() => {}} />
       <AlertDialog open={!!earlyStart} onOpenChange={(o) => { if (!o) setEarlyStart(null); }}>
         <AlertDialogContent className="rounded-3xl">
