@@ -9,6 +9,7 @@
 // Then: memberships / packages enrolled, and any next-visit deposit confirmed.
 // The screen uses the same calculation (lib/checkout-calc), so the totals match; if they ever don't, the sale is
 // still recorded exactly as worked out here and flagged for review — never silently.
+import { monthKey } from '@/lib/team-discount';
 import { consumeApproval, isApprover } from '@/lib/approvals';
 import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
@@ -129,7 +130,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   const tipAllocations: Record<string, number> = b.tipAllocations && typeof b.tipAllocations === 'object' ? b.tipAllocations : {};
   const tip = Math.max(0, num(b.tip));
   const sdIn = b.staffDiscount && ['pct', 'amt'].includes(b.staffDiscount.kind) && num(b.staffDiscount.value) > 0 ? { kind: b.staffDiscount.kind as 'pct' | 'amt', value: Math.max(0, num(b.staffDiscount.value)) } : null;
-  const calc = computeCheckout({ tenant, visits, staff, redeemedOffer, waivedIds, items, fees, discounts, client, memberships, tip, storeCredit: Math.max(0, num(b.storeCredit)), staffDiscount: sdIn });
+  const calc = computeCheckout({ tenant, visits, staff, redeemedOffer, waivedIds, items, fees, discounts, client, memberships, tip, storeCredit: Math.max(0, num(b.storeCredit)), staffDiscount: sdIn, skipGroupDiscount: b.skipGroupDiscount === true });
   const recoveryAmount = Math.min(Math.max(0, num(b.recovery?.amount)), calc.subtotal);
   const recoveryReason = String(b.recovery?.reason || 'Service Recovery Adjustment').slice(0, 200);
   const cardSurcharge = Math.max(0, num(pay.cardSurcharge));
@@ -246,6 +247,9 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   for (const [cid, amt] of Object.entries(spend)) if (cid !== clientId) batch.set(db.doc(`${T}/clients/${cid}`), { lifetimeValue: FieldValue.increment(Math.max(0, amt)), lastAppointment: now }, { merge: true });
   const payerHadVisit = !visits.length || visits.some((v) => whoHad(v).id === clientId);   // someone who only paid didn't visit
   const clientUpd: any = { lifetimeValue: FieldValue.increment(Math.max(0, spend[clientId] || 0)), ...(payerHadVisit ? { lastAppointment: now } : {}) };
+  // This month's team / family discount use (for the monthly cap).
+  const gMonth = monthKey(new Date(now));
+  if (calc.groupDiscount > 0) clientUpd.teamDiscountUsage = client.teamDiscountUsage?.month === gMonth ? { month: gMonth, amount: FieldValue.increment(calc.groupDiscount) } : { month: gMonth, amount: calc.groupDiscount };
   // A package session / membership perk comes off the account of whoever used it.
   const usedBy: any = redeemedOffer ? (visits.map((v) => ({ v, has: [v.service?.id, ...(v.addOnServices || []).map((x: any) => x.id)].includes(redeemedOffer.itemId) })).find((x) => x.has) ? whoHad(visits.find((v) => [v.service?.id, ...(v.addOnServices || []).map((x: any) => x.id)].includes(redeemedOffer.itemId))) : client) : client;
   if (redeemedOffer && usedBy.id !== clientId) {
@@ -271,6 +275,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     txn({ description: sid === '__school' ? 'Gratuity — school (student salon)' : 'Gratuity', type: 'income', context: 'Business', category: 'Tips', taxBucket: 'gratuity', amount: amt, paymentMethod: method, staffId: sid, hasReceipt: true });
     if (method === 'cash') { cashTipsTotal += amt; cashTipsByStaff[sid] = FieldValue.increment(amt); cashTipsPlain[sid] = (cashTipsPlain[sid] || 0) + amt; } }
   if (calc.codeDiscount > 0) txn({ description: 'Promotion Applied', clientOrVendor: 'Internal', type: 'expense', context: 'Business', category: 'Discounts', taxBucket: 'adjustment', amount: calc.codeDiscount, paymentMethod: 'Internal', hasReceipt: false });
+  if (calc.groupDiscount > 0 && calc.group) txn({ description: `${calc.group.label} — ${client.name || 'client'}`, type: 'expense', context: 'Business', category: 'Discounts', taxBucket: 'adjustment', amount: calc.groupDiscount, paymentMethod: 'Internal', hasReceipt: false, discountKind: calc.group.type === 'team' ? 'team' : 'family', linkedStaffId: calc.group.staffId || null });
   if (calc.staffDiscount > 0) txn({ description: `Staff discount — ${staffDiscountReason}${staffDiscountApprovedBy ? ` · approved by ${staffDiscountApprovedBy}` : ''}`, type: 'expense', context: 'Business', category: 'Discounts', taxBucket: 'adjustment', amount: calc.staffDiscount, paymentMethod: 'Internal', hasReceipt: false, notes: staffDiscountReason, discountKind: 'staff', givenBy: auth.actor.name, ...(staffDiscountApprovedBy ? { approvedBy: staffDiscountApprovedBy } : {}) });
   if (recoveryAmount > 0) txn({ description: `Service Recovery: ${recoveryReason}`, type: 'expense', context: 'Business', category: 'Discounts', taxBucket: 'adjustment', amount: recoveryAmount, notes: recoveryReason, paymentMethod: 'Internal', hasReceipt: false, ...(recoveryApprovedBy ? { approvedBy: recoveryApprovedBy } : {}) });
   if (calc.tax > 0) txn({ description: calc.taxLabel, type: 'income', context: 'Business', category: 'Tax Collected', taxBucket: 'tax_collected', amount: calc.tax, paymentMethod: method, hasReceipt: false });
@@ -300,7 +305,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       fees: fees.map((f: any) => ({ feeId: f.feeId, feeAmount: num(f.feeAmount), reason: f.reason || null, owner: f.__owner, fee: (({ __owner, ...rest }) => rest)(f) })),
       depositCreditId: depositCredit && depositCreditDollars > 0 ? depositCredit.ref.id : null,
       redeemed: redeemedOffer ? { ...redeemedOffer, clientId: usedBy.id } : null,
-      discountIds: (discounts as any[]).map((d) => d.id), memberships: items.filter((x) => x.type === 'membership' || x.type === 'package').map((x) => ({ type: x.type, id: x.id, name: x.name })),
+      discountIds: (discounts as any[]).map((d) => d.id), groupDiscount: calc.groupDiscount > 0 ? { amount: calc.groupDiscount, month: gMonth, clientId } : null, memberships: items.filter((x) => x.type === 'membership' || x.type === 'package').map((x) => ({ type: x.type, id: x.id, name: x.name })),
       visits: visits.map((v) => ({ id: v.appointment.id, statusBefore: v.appointment.status || 'checked_in', checkInToken: v.appointment.checkInToken || null, clientId: v.appointment.clientId || clientId })),
       stripePaymentIntentId: pay.stripePaymentIntentId || null },
     subtotal: calc.subtotal, tax: calc.tax, taxLabel: calc.taxLabel, tip: calc.tip, discount: calc.discount + calc.memberDiscount, total: calc.total, cashierName: auth.actor.name || '', stripePaymentIntentId: pay.stripePaymentIntentId || null,
