@@ -21,10 +21,36 @@ const CONTACT = ['call', 'text', 'email'] as const;
 export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
   const tenantId = String(b.tenantId || ''), id = String(b.id || ''), action = String(b.action || '');
-  if (!tenantId || !id) return NextResponse.json({ ok: false, error: 'Missing details.' }, { status: 400 });
+  if (!tenantId || (!id && action !== 'create')) return NextResponse.json({ ok: false, error: 'Missing details.' }, { status: 400 });
   const auth: any = await verifyStaffActor(req, tenantId);
   if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error || 'Sign in to do that.' }, { status: auth.status || 401 });
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
+  // create — a new call-back from the desk's booking sheet (saved on the server, with what's needed to resume it).
+  if (action === 'create') {
+    const { callbackReason, callbackTargetIso } = await import('@/lib/callback-reasons');
+    const nowIso0 = new Date().toISOString();
+    const reason = String(b.reason || 'other'); const promised = b.timePromised === true && Number.isFinite(Date.parse(String(b.dueAt || '')));
+    const contactBy = CONTACT.includes(b.contactBy) ? b.contactBy : 'call';
+    const phone = String(b.callerPhone || '').trim().slice(0, 40), email = String(b.callerEmail || '').trim().toLowerCase().slice(0, 160);
+    if (contactBy === 'email' ? !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) : phone.replace(/\D/g, '').length < 7)
+      return NextResponse.json({ ok: false, error: contactBy === 'email' ? 'They prefer email — add their email address.' : 'Add their phone number.' }, { status: 400 });
+    if (promised && Date.parse(String(b.dueAt)) <= Date.now()) return NextResponse.json({ ok: false, error: 'The promised time needs to be later than now.' }, { status: 400 });
+    const owner: any = b.ownerId ? (b.ownerId === auth.actor.uid ? { name: auth.actor.name } : ((await db.doc(`${T}/staff/${String(b.ownerId)}`).get()).data() as any)) : null;
+    const ref0 = id ? db.doc(`${T}/callBackDrafts/${id}`) : db.collection(`${T}/callBackDrafts`).doc();
+    const prev: any = id ? ((await ref0.get()).data() || {}) : {};
+    await ref0.set({
+      id: ref0.id, tenantId, createdAt: prev.createdAt || nowIso0, updatedAt: nowIso0, createdByStaffId: prev.createdByStaffId || auth.actor.uid,
+      callerName: String(b.callerName || '').trim().slice(0, 80) || 'Unknown caller', callerPhone: phone, callerEmail: email || null,
+      clientId: b.clientId ? String(b.clientId) : null, clientName: String(b.callerName || '').trim().slice(0, 80),
+      note: String(b.note || '').slice(0, 1000), promised: String(b.promised || '').trim().slice(0, 200) || null,
+      reason, reasonLabel: callbackReason(reason).label, urgent: !!callbackReason(reason).urgent,
+      timePromised: promised, dueAt: promised ? new Date(Date.parse(String(b.dueAt))).toISOString() : callbackTargetIso(reason),
+      contactBy, ownerId: owner ? String(b.ownerId) : null, ownerName: owner?.name || null,
+      snapshot: b.snapshot && typeof b.snapshot === 'object' && JSON.stringify(b.snapshot).length <= 20000 ? b.snapshot : (prev.snapshot || null),
+      snapshotKind: 'staff_book_sheet', status: 'pending', source: 'desk',
+    }, { merge: true });
+    return NextResponse.json({ ok: true, id: ref0.id });
+  }
   const ref = db.doc(`${T}/callBackDrafts/${id}`); const d: any = (await ref.get()).data();
   if (!d) return NextResponse.json({ ok: false, error: 'That call-back wasn’t found.' }, { status: 404 });
   const nowIso = new Date().toISOString(); const me = { id: auth.actor.uid, name: auth.actor.name };
@@ -39,7 +65,7 @@ export async function POST(req: NextRequest) {
         if (!st) return NextResponse.json({ ok: false, error: 'That team member wasn’t found.' }, { status: 400 });
         f.ownerId = String(b.ownerId); f.ownerName = st.name || null; }
     }
-    if (b.dueAt !== undefined) { const t = Date.parse(String(b.dueAt)); if (!Number.isFinite(t)) return NextResponse.json({ ok: false, error: 'Pick a due time.' }, { status: 400 }); f.dueAt = new Date(t).toISOString(); }
+    if (b.dueAt !== undefined) { const t = Date.parse(String(b.dueAt)); if (!Number.isFinite(t)) return NextResponse.json({ ok: false, error: 'Pick a due time.' }, { status: 400 }); f.dueAt = new Date(t).toISOString(); if (typeof b.timePromised === 'boolean') f.timePromised = b.timePromised; }
     if (b.contactBy !== undefined) { if (!CONTACT.includes(b.contactBy)) return NextResponse.json({ ok: false, error: 'Choose call, text or email.' }, { status: 400 }); f.contactBy = b.contactBy; }
     if (b.promised !== undefined) f.promised = String(b.promised || '').slice(0, 200) || null;
     if (b.note !== undefined) f.note = String(b.note || '').slice(0, 1000);
@@ -57,10 +83,12 @@ export async function POST(req: NextRequest) {
         const due = f.dueAt || d.dueAt; const owner = f.ownerName ?? d.ownerName;
         const tz = tenant.timezone || undefined;
         const dayOf = (x: Date) => x.toLocaleDateString('en-US', { timeZone: tz });
-        const when = due ? (() => { const t = new Date(due); const time = t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz });
+        // Only a time staff chose to promise is ever told to the caller — otherwise "as soon as we can".
+        const promisedTime = (f.timePromised ?? d.timePromised) === true;
+        const when = due && promisedTime ? (() => { const t = new Date(due); const time = t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz });
           return dayOf(t) === dayOf(new Date()) ? time : `${t.toLocaleDateString('en-US', { weekday: 'long', timeZone: tz })} at ${time}`; })() : null;
         const studio = tenant.name || 'us';
-        const text = `Thanks for calling ${studio}${d.callerName && d.callerName !== 'Unknown caller' ? `, ${String(d.callerName).split(' ')[0]}` : ''}. ${owner ? String(owner).split(' ')[0] : 'We'} will get back to you${when ? ` by ${when}` : ' soon'}.`;
+        const text = `Thanks for calling ${studio}${d.callerName && d.callerName !== 'Unknown caller' ? `, ${String(d.callerName).split(' ')[0]}` : ''}. ${owner ? String(owner).split(' ')[0] : 'We'} will get back to you${when ? ` by ${when}` : ' as soon as we can'}.`;
         const { sendNotification } = await import('@/lib/notify');
         if (contact === 'email' && email.includes('@')) {
           const { brandedEmailHtml } = await import('@/lib/email-template');
