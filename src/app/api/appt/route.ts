@@ -40,9 +40,16 @@ const overlaps = (s1: number, e1: number, s2: number, e2: number) => s1 < e2 && 
 
 async function loadAuthed(db: any, tenantId: string, apptId: string, k: any) {
   if (!tenantId || !apptId || !k || String(k).length < 16) return null;
-  const ref = db.doc(`tenants/${tenantId}/appointments/${apptId}`);
-  const snap = await ref.get();
-  if (!snap.exists) return null;
+  let ref = db.doc(`tenants/${tenantId}/appointments/${apptId}`);
+  let snap = await ref.get();
+  // The visit link's page loads its own copy (stored under the link's key), and older bookings' copies
+  // don't carry the appointment id — so it sent the KEY as the id and every action said "no longer valid".
+  // The key itself proves it's their link: find the appointment through it.
+  if (!snap.exists) {
+    const m: any = ((await db.doc(`appointmentCheckIns/${String(k)}`).get()).data() as any) || ((await db.doc(`tenants/${tenantId}/appointmentCheckIns/${String(k)}`).get()).data() as any) || {};
+    if (m.appointmentId && (!m.tenantId || m.tenantId === tenantId)) { ref = db.doc(`tenants/${tenantId}/appointments/${String(m.appointmentId)}`); snap = await ref.get(); }
+    if (!snap.exists) return null;
+  }
   const a = snap.data() as any;
   // v18 — two accepted keys: the manageToken (from email links) OR the
   // appointment's checkInToken (the master /check-in portal's own token),
@@ -51,7 +58,7 @@ async function loadAuthed(db: any, tenantId: string, apptId: string, k: any) {
   const key = String(k);
   const ok = (a.manageToken && a.manageToken === key) || (a.checkInToken && a.checkInToken === key);
   if (!ok) return null;
-  return { ref, a };
+  return { ref, a, id: String(ref.id) };
 }
 
 async function notifyStaffAndOwner(db: any, tenantId: string, a: any, message: string) {
@@ -82,12 +89,14 @@ const fmtWhen = (iso: string, tzOffset: number, zone?: string | null) => {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { action, tenantId, apptId } = body || {};
+    const { action, tenantId } = body || {};
+    let apptId: string = body?.apptId;
     if (!action || !tenantId || !apptId) return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
     const db = getAdminDb();
     const authed = await loadAuthed(db, tenantId, apptId, body.k);
     if (!authed) return NextResponse.json({ ok: false, error: 'This link is no longer valid — please open the link in your most recent confirmation.' }, { status: 401 });
     const { ref, a } = authed;
+    apptId = authed.id;   // the real appointment id, even when the page sent its link key
 
     const tDoc = (await db.doc(`tenants/${tenantId}`).get()).data() as any || {};
     const studioName = tDoc.name || tDoc.businessName || 'The studio';
