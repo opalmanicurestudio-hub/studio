@@ -496,6 +496,7 @@ export const CheckoutHub = ({
   onScanClick,
   subtotal,
   tax,
+  taxLabel,
   total,
   tipAmount,
   setTipAmount,
@@ -771,7 +772,7 @@ export const CheckoutHub = ({
 
   const finalTotal        = isFullyComped
     ? Math.max(0, tipAmount)
-    : Math.max(0, subtotal - totalWithRecovery + (subtotal * 0.07) + tipAmount - totalPaidDeposits);
+    : Math.max(0, subtotal - totalWithRecovery + (Number(tax) || 0) + tipAmount - totalPaidDeposits);
 
   // ── Card processing fee passthrough ─────────────────────────────────────────
   // Opt-in per studio via tenant.cardSurchargeEnabled. Rate defaults to 3% if
@@ -1371,7 +1372,7 @@ export const CheckoutHub = ({
                     </div>
                     <div className="flex justify-between text-[11px] text-muted-foreground">
                       <span className="font-bold uppercase">Tax</span>
-                      <span className="font-mono">${(subtotal * 0.07).toFixed(2)}</span>
+                      <span className="font-mono">${(Number(tax) || 0).toFixed(2)}</span>
                     </div>
                     {tipAmount > 0 && (
                       <div className="flex justify-between text-[11px] text-primary">
@@ -1446,7 +1447,7 @@ export const CheckoutHub = ({
                 <CashCheckout
                   finalTotal={finalTotal}
                   subtotal={subtotal}
-                  tax={subtotal * 0.07}
+                  tax={(Number(tax) || 0)}
                   amountTendered={amountTendered}
                   setAmountTendered={setAmountTendered}
                   tipAmount={tipAmount}
@@ -1510,8 +1511,8 @@ export const CheckoutHub = ({
         </div>
         {finalTotal > 0 && (
           <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60">
-            <p>Sales Tax (7%)</p>
-            <p className="font-mono text-[11px] md:text-xs">${(subtotal * 0.07).toFixed(2)}</p>
+            <p>{taxLabel || 'Sales tax'}</p>
+            <p className="font-mono text-[11px] md:text-xs">${(Number(tax) || 0).toFixed(2)}</p>
           </div>
         )}
         {totalDiscount > 0 && recoveryAmount === 0 && (
