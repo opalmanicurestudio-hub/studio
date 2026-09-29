@@ -110,12 +110,14 @@ export function Panel({ title, count, children, className = '' }: { title: strin
 export function Drawer({ open, onClose, title, children, wide, accent }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean; accent?: string | null }) {
   useEffect(() => { if (!open) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [open, onClose]);
   if (typeof document === 'undefined') return null;
+  // Phones: appear in place — no slide. (Movement animations have stranded panels off-screen on iPhone before.)
+  const still = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 639px)').matches;
   return createPortal(
     <AnimatePresence>{open && (
       <div className="desk fixed inset-0 z-[80]" style={{ background: 'transparent', ...(accent ? { ['--accent' as any]: accent } : {}) }}>
         <style>{DESK_CSS}</style>
-        <motion.div className="absolute inset-0 bg-black/30" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} aria-hidden />
-        <motion.aside role="dialog" aria-label={title} initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', stiffness: 380, damping: 40 }}
+        <motion.div className="absolute inset-0 bg-black/30" initial={still ? false : { opacity: 0 }} animate={{ opacity: 1 }} exit={still ? undefined : { opacity: 0 }} onClick={onClose} aria-hidden />
+        <motion.aside role="dialog" aria-label={title} initial={still ? false : { x: '100%' }} animate={{ x: 0 }} exit={still ? undefined : { x: '100%' }} transition={{ type: 'spring', stiffness: 380, damping: 40 }}
           className={`absolute inset-y-0 right-0 flex w-full flex-col ${wide ? 'sm:max-w-3xl' : 'sm:max-w-xl'} sm:rounded-l-[28px]`} style={{ background: 'var(--paper)', boxShadow: '-24px 0 48px -24px rgba(0,0,0,.35)', paddingTop: 'env(safe-area-inset-top,0px)' }}>
           <header className="flex items-center justify-between gap-3 px-5 py-4" style={{ borderBottom: '1px solid var(--line)' }}>
             <p className="text-[17px] font-semibold">{title}</p>
