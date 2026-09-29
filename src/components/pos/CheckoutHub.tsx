@@ -1,5 +1,6 @@
 'use client';
 
+import { CheckoutNudge } from '@/components/pos/CheckoutNudge';
 import { hasRealCard } from '@/lib/card-on-file';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { offerProblem } from '@/lib/offers';
@@ -981,6 +982,7 @@ export const CheckoutHub = ({
         </DialogContent>
       </Dialog>
 
+      {selectedClient && tenantId && <CheckoutNudge tenantId={tenantId} client={selectedClient} cart={cart || []} onCartChange={onCartChange} />}
       {selectedClient && isBirthdayToday && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-4">
           <Alert className="bg-pink-500/5 border-pink-500/20 border-2 rounded-2xl p-4 shadow-lg shadow-pink-500/5">
