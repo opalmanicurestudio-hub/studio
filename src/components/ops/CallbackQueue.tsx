@@ -61,6 +61,10 @@ export function CallbackQueue({ tenantId, uid }: { tenantId: string; uid?: strin
             </div>
             {(d.callSummary || d.note) && <p className="text-sm">{d.callSummary || d.note}</p>}
             {d.promised && <p className="text-xs text-muted-foreground"><b>They were told:</b> {d.promised}</p>}
+            {Array.isArray(d.callerAdded) && d.callerAdded.length > 0 && <div className="rounded-xl bg-secondary p-2 text-sm">
+              <p className="text-xs font-semibold">They added (from their link):</p>
+              {d.callerAdded.slice(-3).map((x: any, i: number) => <p key={i} className="whitespace-pre-wrap">“{x.text}”</p>)}
+            </div>}
             <p className="text-xs text-muted-foreground">
               {d.source === 'ai_receptionist' ? 'From the AI receptionist · ' : ''}{d.ownerName ? `${String(d.ownerName).split(' ')[0]} is calling back` : 'Unassigned'}
               {d.contactBy && d.contactBy !== 'call' ? ` · prefers ${d.contactBy === 'text' ? 'a text' : 'an email'}` : ''}
