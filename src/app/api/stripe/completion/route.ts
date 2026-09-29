@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { balanceDueWith } from '@/lib/balance-with-deposit';
 import Stripe from 'stripe';
 
 function getAdminDb() {
@@ -40,6 +41,8 @@ export async function POST(req: NextRequest) {
     const rec: any = cSnap.data() || {};
     const depositAmount = (Number(rec.depositAmountCents) || 0) / 100;
     const appointmentId = rec.owedFeeAppointmentId || rec.appointmentId || null;
+    // Any balance being collected with this booking's deposit (read from the appointment, never the browser).
+    const balCents = !rec.owedFeeAppointmentId && rec.appointmentId ? balanceDueWith(((await db.doc(`tenants/${tenantId}/appointments/${rec.appointmentId}`).get()).data() as any) || {}) : 0;
     const clientId = rec.clientId || null, clientName = rec.clientName || '', serviceName = rec.serviceName || '';
     const clientEmail = rec.clientEmail || body.clientEmail || null;
     if (!clientEmail) return NextResponse.json({ error: 'We need an email on your booking to take payment — please contact the studio.' }, { status: 400 });
@@ -113,6 +116,8 @@ export async function POST(req: NextRequest) {
                 },
                 quantity: 1,
               },
+              // A balance collected with this deposit (unpaid-fee rule "with the deposit") — its own line.
+              ...(balCents > 0 ? [{ price_data: { currency: 'usd', unit_amount: balCents, product_data: { name: 'Balance from a previous visit', description: 'Clears what you owe — not part of your deposit.' } }, quantity: 1 }] : []),
             ],
             payment_intent_data: { setup_future_usage: 'off_session' },
             metadata:    { ...metadata, type: 'completion' },
