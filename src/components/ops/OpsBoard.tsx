@@ -241,28 +241,51 @@ function UnpaidFees({ tenantId, role, tenant }: { tenantId: string; role: string
   const q = useMemoFirebase(() => (mgr && firestore && tenantId ? query(collection(firestore, `tenants/${tenantId}/clients`), where('outstandingBalance', '>', 0)) : null), [mgr, firestore, tenantId]);
   const { data } = useCollection<any>(q);
   const [busy, setBusy] = useState<string | null>(null); const [msg, setMsg] = useState<Record<string, string>>({});
+  const [open, setOpen] = useState<{ id: string; kind: 'desk' | 'waive' } | null>(null);
+  const [via, setVia] = useState<'cash' | 'terminal' | 'other'>('cash'); const [reason, setReason] = useState('');
   if (!mgr || !(data || []).length) return null;
-  const blocks = tenant?.bookingPolicies?.unpaidFeeRule === 'before_booking';
+  const rule = String(tenant?.bookingPolicies?.unpaidFeeRule || 'next_visit');
+  const next = rule === 'before_booking' ? 'Can’t book online until it’s paid.' : rule === 'with_deposit' ? 'Collected with their next booking’s deposit.' : 'Added at their next checkout.';
   const WHY: Record<string, string> = { reschedule_fee: 'late reschedule', late_cancellation: 'late cancellation', no_show: 'no-show' };
-  const list = (data || []).slice().sort((a: any, b: any) => Number(b.outstandingBalance) - Number(a.outstandingBalance)).slice(0, 25);
+  const list = (data || []).slice().sort((x: any, y: any) => Number(y.outstandingBalance) - Number(x.outstandingBalance)).slice(0, 25);
   const total = list.reduce((m: number, c: any) => m + (Number(c.outstandingBalance) || 0), 0);
-  const charge = async (c: any) => { setBusy(c.id);
+  const say = (id: string, t: string) => setMsg((m) => ({ ...m, [id]: t }));
+  const charge = async (c: any) => { setBusy(`${c.id}:charge`);
     const r = await fetch('/api/portal/pay-balance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, clientId: c.id }) }).then((x) => x.json()).catch(() => ({}));
-    setBusy(null); setMsg((m) => ({ ...m, [c.id]: r?.ok ? `Paid — $${Number(r.paidDollars || 0).toFixed(2)} charged${r.last4 ? ` to •••• ${r.last4}` : ''}.` : r?.error || 'That didn’t go through.' })); };
+    setBusy(null); say(c.id, r?.ok ? `Paid — $${Number(r.paidDollars || 0).toFixed(2)} charged${r.last4 ? ` to •••• ${r.last4}` : ''}.` : 'The card didn’t go through — send a pay link or take it at the desk.'); };
+  const balance = async (c: any, action: 'link' | 'settled' | 'waive', extra: any, ok: (r: any) => string) => { setBusy(`${c.id}:${action}`);
+    const r = await staffPost('/api/clients/balance', { tenantId, clientId: c.id, action, ...extra }); setBusy(null);
+    say(c.id, r?.ok ? ok(r) : r?.error || 'That didn’t go through.'); if (r?.ok) { setOpen(null); setReason(''); } };
+  const btn = 'rounded-full border px-3 py-1 text-xs font-semibold disabled:opacity-50';
   return (
     <section className="space-y-2 rounded-3xl border bg-card p-4">
       <p className="font-semibold">Unpaid fees · {list.length} · ${total.toFixed(2)}</p>
-      {blocks && <p className="text-xs text-muted-foreground">Your rule: they pay before booking again online (they’re emailed a pay link when they try).</p>}
-      <ul className="space-y-2">{list.map((c: any) => { const why = Array.from(new Set((c.unpaidFees || []).map((f: any) => WHY[f.reason] || (String(f.reason || '').toLowerCase().includes('cancel') ? 'late cancellation' : 'fee')))).join(', ');
-        return <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
-          <span><b>{c.name || 'Client'}</b> · ${Number(c.outstandingBalance).toFixed(2)}{why ? ` · ${why}` : ''}{blocks ? ' · can’t book online until paid' : ''}{msg[c.id] ? <span className="block text-xs font-semibold">{msg[c.id]}</span> : null}</span>
-          {c.cardOnFile?.paymentMethodId && !msg[c.id]?.startsWith('Paid') && <button type="button" disabled={!!busy} onClick={() => charge(c)} className="rounded-full border px-3 py-1 text-xs font-semibold disabled:opacity-60">{busy === c.id ? 'Charging…' : `Charge •••• ${c.cardOnFile.last4 || ''}`}</button>}
+      <p className="text-xs text-muted-foreground">Your rule: {next}</p>
+      <ul className="space-y-2">{list.map((c: any) => {
+        const why = Array.from(new Set((c.unpaidFees || []).map((f: any) => WHY[f.reason] || (String(f.reason || '').toLowerCase().includes('cancel') ? 'cancellation' : 'fee')))).join(', ');
+        const hasCard = !!c.cardOnFile?.paymentMethodId; const paid = /^(Paid|Recorded|Waived)/.test(msg[c.id] || '');
+        return <li key={c.id} className="space-y-1.5 rounded-2xl border p-3 text-sm">
+          <p><b>{c.name || 'Client'}</b> · ${Number(c.outstandingBalance).toFixed(2)}{why ? ` · ${why}` : ''}</p>
+          <p className="text-xs text-muted-foreground">{hasCard ? `Card on file${c.cardOnFile?.last4 ? ` •••• ${c.cardOnFile.last4}` : ''}` : 'No card on file'}{c.balanceLinkSentAt ? ` · pay link sent ${new Date(c.balanceLinkSentAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}</p>
+          {!paid && <div className="flex flex-wrap gap-2">
+            {hasCard && <button type="button" disabled={!!busy} onClick={() => charge(c)} className="rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground disabled:opacity-50">{busy === `${c.id}:charge` ? 'Charging…' : `Charge${c.cardOnFile?.last4 ? ` •••• ${c.cardOnFile.last4}` : ' card'}`}</button>}
+            <button type="button" disabled={!!busy} onClick={() => balance(c, 'link', {}, (r) => `Pay link sent by ${r.sentTo === 'email' ? 'email' : 'text'}.`)} className={btn}>{busy === `${c.id}:link` ? 'Sending…' : 'Send a pay link'}</button>
+            <button type="button" disabled={!!busy} onClick={() => setOpen(open?.id === c.id && open?.kind === 'desk' ? null : { id: c.id, kind: 'desk' })} className={btn}>Paid at the desk…</button>
+            <button type="button" disabled={!!busy} onClick={() => { setOpen(open?.id === c.id && open?.kind === 'waive' ? null : { id: c.id, kind: 'waive' }); setReason(''); }} className={btn}>Waive…</button>
+          </div>}
+          {open?.id === c.id && open?.kind === 'desk' && <div className="flex flex-wrap items-center gap-2 rounded-xl bg-secondary p-2">
+            {(['cash', 'terminal', 'other'] as const).map((v) => <button key={v} type="button" aria-pressed={via === v} onClick={() => setVia(v)} className={`rounded-full border px-3 py-1 text-xs ${via === v ? 'bg-slate-900 text-white' : 'bg-white'}`}>{v === 'cash' ? 'Cash' : v === 'terminal' ? 'Card terminal' : 'Other'}</button>)}
+            <button type="button" disabled={!!busy} onClick={() => balance(c, 'settled', { via }, () => `Recorded — $${Number(c.outstandingBalance).toFixed(2)} paid at the desk.`)} className="rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground">Record payment</button>
+          </div>}
+          {open?.id === c.id && open?.kind === 'waive' && <div className="flex flex-wrap items-center gap-2 rounded-xl bg-secondary p-2">
+            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (recorded)" className="h-8 flex-1 rounded-lg border px-2 text-xs" />
+            <button type="button" disabled={!!busy || !reason.trim()} onClick={() => balance(c, 'waive', { reason: reason.trim() }, () => `Waived — $${Number(c.outstandingBalance).toFixed(2)}.`)} className="rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground disabled:opacity-50">Waive it</button>
+          </div>}
+          {msg[c.id] && <p className="text-xs font-semibold">{msg[c.id]}</p>}
         </li>; })}</ul>
     </section>
   );
 }
-
-
 
 /** Repeat visits whose scheduled deposit couldn't be taken — any date, not just today. */
 function SeriesDepositsFailed({ tenantId }: { tenantId: string }) {
