@@ -10,6 +10,8 @@ import * as React from 'react';
 import { getAuth } from 'firebase/auth';
 import { DESK_CSS, Btn, Seg } from '@/components/pos/desk/kit';
 import { placeOptionsOf, PLACE_LABEL } from '@/lib/service-place';
+import { useClientIntelligence } from '@/hooks/useClientIntelligence';
+import { ClientIntelligencePanel } from '@/components/pos/ClientIntelligencePanel';
 import { unpaidFeeRuleOf, seriesDepositOf, seriesDepositDaysOf } from '@/lib/booking-policies';
 import { computeDepositCents } from '@/lib/deposit-policy';
 import { hasRealCard } from '@/lib/card-on-file';
@@ -35,9 +37,9 @@ const digits = (v: string) => String(v || '').replace(/\D/g, '');
 const money = (n: number) => `$${Number(n || 0).toFixed(2)}`;
 const addMinutes = (date: string, time: string, min: number) => new Date(new Date(`${date}T${time}:00`).getTime() + min * 60000);
 
-export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, services, staff, role, uid, resume, onClassic }: {
+export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, services, staff, appointments, role, uid, resume }: {
   open: boolean; onClose: () => void; tenantId: string; tenant: any; clients: any[]; services: any[]; staff: any[];
-  role?: string | null; uid?: string | null; resume?: any | null; onClassic?: () => void;
+  appointments?: any[]; role?: string | null; uid?: string | null; resume?: any | null;
 }) {
   const isManager = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
   // ── client ──
@@ -62,6 +64,7 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
   const [deposit, setDeposit] = React.useState<'link' | 'charge' | 'paid' | 'waive'>('link');
   const [pkg, setPkg] = React.useState(''); const [promo, setPromo] = React.useState(''); const [place, setPlace] = React.useState('');
   const [notes, setNotes] = React.useState(''); const [privateNotes, setPrivateNotes] = React.useState('');
+  const [reminder, setReminder] = React.useState('');   // '' = the business's usual reminder
   // ── flow ──
   const [busy, setBusy] = React.useState(false); const [error, setError] = React.useState<string | null>(null);
   const [done, setDone] = React.useState<any>(null);
@@ -69,11 +72,14 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
   const [cb, setCb] = React.useState({ reason: 'book', promise: 'none' as 'none' | 'pick', dueAt: '', contactBy: 'call' as 'call' | 'text' | 'email', ownerId: uid || '', promised: '', note: '', tell: true });
   const [draftId, setDraftId] = React.useState<string | null>(null);
 
+  // Client insights (history, habits, suggestions) — from data already loaded, no extra reads.
+  const intel = useClientIntelligence(client, appointments || [], services || []);
+
   const reset = React.useCallback(() => {
     setQ(''); setClient(null); setIsNew(false); setNName(''); setNPhone(''); setNEmail(''); setOwesOk(false); setOwesReason(''); setOwesMsg(null); setOwesOpen(false); setAllNow(false);
     setServiceId(''); setAddOnIds([]); setLenAdj(0); setPrice(''); setStaffId('any'); setDate(todayStr()); setTime(''); setTimes(null); setOwnTime(false);
     setClash(null); setOverrideReason(''); setMode('one'); setGuests([]); setSteps([]); setGroupName(''); setDeposit('link'); setPkg(''); setPromo(''); setPlace('');
-    setNotes(''); setPrivateNotes(''); setError(null); setDone(null); setCbOpen(false); setDraftId(null);
+    setNotes(''); setPrivateNotes(''); setReminder(''); setError(null); setDone(null); setCbOpen(false); setDraftId(null);
   }, []);
 
   // Resume a saved call-back (this sheet's own snapshot, or the old form's).
@@ -161,6 +167,7 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
     ...(notes.trim() ? { notes: notes.trim() } : {}),
     internalNotes: [privateNotes.trim(), owes > 0 && owesOk && owesReason.trim() ? `Booked with ${money(owes)} owed (manager) — ${owesReason.trim()}` : ''].filter(Boolean).join(' · '),
     ...(promo.trim() ? { promoCode: promo.trim() } : {}), ...(pkg ? { redeemPackageId: pkg } : {}), ...(place ? { place } : {}),
+    ...(reminder ? { reminderHoursBefore: Number(reminder) } : {}),
     ...(draftId ? { callbackDraftId: draftId } : {}),
     ...(hasDeposit && deposit === 'link' ? { holdUntil: new Date(Date.now() + 24 * 3600000).toISOString() } : {}),
     ...(clash && overrideReason.trim() ? { overrideConflict: { reason: overrideReason.trim() } } : {}),
@@ -310,6 +317,9 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
                     <Btn quiet onClick={() => { setIsNew(true); setNName(q && !/\d|@/.test(q) ? q : ''); setNPhone(/\d/.test(q) ? q : ''); setNEmail(/@/.test(q) ? q : ''); }}>+ New client</Btn>
                   </div>
                 )}
+                {client && <ClientIntelligencePanel intel={intel} staff={staff} onActionClick={(insight: any) => {
+                  if (insight?.actionData?.serviceId) { setServiceId(String(insight.actionData.serviceId)); setAddOnIds([]); setLenAdj(0); setTime(''); }
+                }} />}
                 {owes > 0 && !owesOk && (
                   <div className="space-y-2 rounded-2xl p-3" style={{ background: owesRule === 'before_booking' ? 'color-mix(in srgb, var(--warn) 10%, transparent)' : 'var(--soft)' }}>
                     <p className="text-[14px]"><b>{client.name.split(' ')[0]} owes {money(owes)}.</b>{' '}
@@ -435,6 +445,11 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
                   {packages.map((p: any) => <option key={p.packageId} value={p.packageId}>Use {p.name || p.packageName || 'package'} — {p.sessionsRemaining} left</option>)}
                 </select>}
                 <input value={promo} onChange={(e) => setPromo(e.target.value.toUpperCase())} placeholder="Promo code (optional)" className={inp} style={inpS} />
+                <select value={reminder} onChange={(e) => setReminder(e.target.value)} className={inp} style={inpS} aria-label="Reminder">
+                  <option value="">{client?.notificationPreferences?.reminderHoursBefore ? `Reminder: their preference (${client.notificationPreferences.reminderHoursBefore} hours before)` : 'Reminder: your usual timing'}</option>
+                  <option value="1">Reminder 1 hour before</option><option value="2">Reminder 2 hours before</option>
+                  <option value="24">Reminder 24 hours before</option><option value="48">Reminder 48 hours before</option>
+                </select>
                 <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Note for the booking (the client can see this)" className="w-full resize-none rounded-xl px-3.5 py-2.5 text-[15px] outline-none" style={inpS} />
                 <textarea value={privateNotes} onChange={(e) => setPrivateNotes(e.target.value)} rows={2} placeholder="Private note (team only)" className="w-full resize-none rounded-xl px-3.5 py-2.5 text-[15px] outline-none" style={inpS} />
               </Card>}
@@ -463,7 +478,6 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
                 <Btn quiet big onClick={() => { setCbOpen(true); setError(null); }}>Save for a call-back</Btn>
                 <Btn big onClick={book} disabled={busy}>{busy ? 'Booking…' : mode === 'repeat' ? `Book ${count} visits` : mode === 'group' ? `Book ${guests.length + 1} guests` : mode === 'steps' ? `Book ${steps.length + 1} steps` : 'Book'}</Btn>
               </div>}
-              {onClassic && !resume && <button type="button" className="text-[12px] underline" style={{ color: 'var(--muted)' }} onClick={onClassic}>Use the classic booking form</button>}
             </footer>
           </>
         )}
