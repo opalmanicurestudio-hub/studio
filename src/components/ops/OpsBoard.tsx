@@ -294,12 +294,12 @@ function UnpaidFees({ tenantId, role, tenant }: { tenantId: string; role: string
 function SalesNotRecorded({ tenantId, role }: { tenantId: string; role: string }) {
   const mgr = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
   const { firestore } = useFirebase() as any;
-  const q = useMemoFirebase(() => (mgr && firestore && tenantId ? query(collection(firestore, `tenants/${tenantId}/pendingCheckouts`), where('status', 'in', ['prepared', 'failed'])) : null), [mgr, firestore, tenantId]);
+  const q = useMemoFirebase(() => (mgr && firestore && tenantId ? query(collection(firestore, `tenants/${tenantId}/pendingCheckouts`), where('status', 'in', ['prepared', 'failed', 'paid_waiting'])) : null), [mgr, firestore, tenantId]);
   const { data } = useCollection<any>(q);
   const [busy, setBusy] = useState<string | null>(null); const [msg, setMsg] = useState<Record<string, string>>({}); const [why, setWhy] = useState<Record<string, string>>({});
   if (!mgr) return null;
   const now = Date.now();
-  const list = (data || []).filter((p: any) => p.status === 'failed' || (now - Date.parse(p.updatedAt || p.preparedAt) > 10 * 60000 && now - Date.parse(p.preparedAt) < 24 * 3600000))
+  const list = (data || []).filter((p: any) => p.status === 'failed' || (p.status === 'paid_waiting' && now - Date.parse(p.paidAt || p.updatedAt) > 2 * 60000) || (now - Date.parse(p.updatedAt || p.preparedAt) > 10 * 60000 && now - Date.parse(p.preparedAt) < 24 * 3600000))
     .sort((x: any, y: any) => Number(y.status === 'failed') - Number(x.status === 'failed') || Date.parse(y.preparedAt) - Date.parse(x.preparedAt));
   if (!list.length) return null;
   const act = async (p: any, action: 'record' | 'discard') => {
@@ -313,9 +313,9 @@ function SalesNotRecorded({ tenantId, role }: { tenantId: string; role: string }
       <p className="text-xs text-muted-foreground">Rung up at the desk but not saved. Recording one never charges the card.</p>
       {list.map((p: any) => <div key={p.id} className="space-y-1.5 rounded-2xl border p-3 text-sm">
         <p><b>{p.clientName || 'A client'}</b> · ${Number(p.expectedTotal || 0).toFixed(2)} · {new Date(p.preparedAt).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}{p.preparedBy ? ` · ${String(p.preparedBy).split(' ')[0]}` : ''}</p>
-        <p className="text-xs text-muted-foreground">{p.status === 'failed' ? `Paid${p.paymentIntentId ? ` by card (ref ${String(p.paymentIntentId).slice(-8)})` : ''} — the save failed${p.lastError ? `: ${String(p.lastError).slice(0, 80)}` : ''}.` : 'Started at checkout but never finished. Was it paid?'}</p>
+        <p className="text-xs text-muted-foreground">{p.status === 'paid_waiting' ? `Paid on the client screen (ref ${String(p.paymentIntentId || '').slice(-8)}) — the desk didn’t finish the sale.` : p.status === 'failed' ? `Paid${p.paymentIntentId ? ` by card (ref ${String(p.paymentIntentId).slice(-8)})` : ''} — the save failed${p.lastError ? `: ${String(p.lastError).slice(0, 80)}` : ''}.` : 'Started at checkout but never finished. Was it paid?'}</p>
         {!/^(Recorded|Discarded|Already)/.test(msg[p.id] || '') && <div className="flex flex-wrap items-center gap-2">
-          <button type="button" disabled={!!busy} onClick={() => act(p, 'record')} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">{busy === `${p.id}:record` ? 'Recording…' : p.status === 'failed' ? 'Record the sale' : 'It was paid — record it'}</button>
+          <button type="button" disabled={!!busy} onClick={() => act(p, 'record')} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">{busy === `${p.id}:record` ? 'Recording…' : p.status === 'failed' || p.status === 'paid_waiting' ? 'Record the sale' : 'It was paid — record it'}</button>
           <input value={why[p.id] || ''} onChange={(e) => setWhy((w) => ({ ...w, [p.id]: e.target.value }))} placeholder="Or discard — reason" className="h-8 flex-1 rounded-lg border px-2 text-xs" />
           <button type="button" disabled={!!busy || !(why[p.id] || '').trim()} onClick={() => act(p, 'discard')} className="rounded-full border px-3 py-1.5 text-xs disabled:opacity-50">Discard</button>
         </div>}
