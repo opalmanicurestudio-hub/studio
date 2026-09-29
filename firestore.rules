@@ -172,6 +172,15 @@ service cloud.firestore {
     // Grace allowance uses and provider-callout records — the SERVER writes them
     // (with its approval checks); staff read them. Nobody grants themselves grace
     // or rewrites a callout record from a browser.
+    match /tenants/{tenantId}/chargeConsents/{consentId} {
+      allow read: if isStaff(tenantId);
+      allow write: if false;
+    }
+    // Client screens (the iPad at the desk): the screen reads its own document by its secret id; only the server writes.
+    match /clientScreens/{screenId} {
+      allow read: if true;
+      allow write: if false;
+    }
     // Approvals: staff can SEE them (the desk waits for a phone approval); only the server writes them.
     match /tenants/{tenantId}/approvals/{approvalId} {
       allow read: if isStaff(tenantId);
@@ -422,6 +431,8 @@ service cloud.firestore {
           'graceUses', 'providerCallouts',
           // Manager approvals, scrambled PINs, the PIN-guessing guard, unrecorded sales — server only (rules above).
           'approvals', 'staffSecrets', 'approvalGuard', 'pendingCheckouts',
+          // Signed charge approvals (client screen) — server writes; staff read below.
+          'chargeConsents',
           'admissions', 'cohorts', 'tuitionPlans', 'tuitionEntries',
           'academyThreads', 'academyAnnouncements', 'tutorLogs', 'tutorUsage', 'liveSessions', 'liveAttendance', 'rotations', 'translations', 'tuitionPayments', 'studentFiles', 'boardForms', 'questionBank', 'submissions', 'approvedDevices', 'materials', 'aiUsage', 'interactives', 'practiceAttempts', 'assigned', 'studentGroups', 'schoolDocs', 'docAcks', 'studentLetters', 'presentations', 'studyNotes', 'studyState', 'portfolio', 'schoolIdentity', 'schoolSite', 'websiteMessages', 'donations', 'scholarshipApplications', 'sponsors',
           'depositCredits',
