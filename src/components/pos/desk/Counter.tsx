@@ -96,7 +96,7 @@ export function Counter({ e, onFollowUp }: { e: any; onFollowUp?: (visit: any) =
       </div>
       <section className="rounded-3xl p-4 lg:sticky lg:top-2 lg:self-start" style={{ background: 'var(--card)' }} aria-label="Checkout">
         <p className="mb-2 text-[15px] font-semibold">Checkout{client ? <span style={{ color: 'var(--muted)', fontWeight: 400 }}> · {client.name}</span> : guest ? <span style={{ color: 'var(--muted)', fontWeight: 400 }}> · guest</span> : null}</p>
-        {!client && !guest ? <Empty>Choose who’s paying to start a sale.</Empty> : <CheckoutHub {...e.checkoutHubProps} />}
+        {!client && !guest && !e.checkoutHubProps?.lastSale ? <Empty>Choose who’s paying to start a sale.</Empty> : <CheckoutHub {...e.checkoutHubProps} />}
       </section>
     </div>
   );
