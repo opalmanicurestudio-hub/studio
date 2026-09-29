@@ -61,7 +61,6 @@ import { PrintTicket } from '@/components/planner/PrintTicket';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // ── NEW IMPORTS — four feature additions ──────────────────────────────────────
-import { QuickBookForm } from '@/components/pos/QuickBookForm';
 import { WaitlistManager } from '@/components/pos/WaitlistManager';
 import { useWaitlist } from '@/hooks/useWaitlist';
 import { QRScanner } from '@/components/pos/QRScanner';
