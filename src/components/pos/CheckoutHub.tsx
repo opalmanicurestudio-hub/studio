@@ -509,6 +509,7 @@ export const CheckoutHub = ({
   clearLastSale,
   onAddItem,
   onPosScan,
+  getPendingId,
   moments,
   momentReward,
   momentDiscountValue,
@@ -919,8 +920,9 @@ export const CheckoutHub = ({
   const tipAskedFor = useRef<string | null>(null);
   const tipBase = (csSet.tipOn === 'after_tax' ? safeNumber(subtotal) - safeNumber(totalDiscount) + safeNumber(tax) : safeNumber(subtotal) - safeNumber(totalDiscount));
   const askTipAuto = async () => { if (tipAskedFor.current === ticketKey || tipReq) return; tipAskedFor.current = ticketKey; const id = await cs.ask('tip', { base: tipBase }); if (id) setTipReq(id); };
-  // Choosing Cash or Card on file asks for the tip on the iPad first (once per ticket).
-  useEffect(() => { if (!autoTipOn || isCartEmpty) return; if (paymentTab === 'cash' || (paymentTab === 'card' && cardMode === 'cof_tip')) askTipAuto(); }, [autoTipOn, paymentTab, cardMode, ticketKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Card on file asks for the tip on the iPad first (once per ticket). Cash doesn't: the iPad shows the total, then
+  // their change with "Keep it as a tip" / "My change, please" — that's the tip moment for cash.
+  useEffect(() => { if (!autoTipOn || isCartEmpty) return; if (paymentTab === 'card' && cardMode === 'cof_tip') askTipAuto(); }, [autoTipOn, paymentTab, cardMode, ticketKey]); // eslint-disable-line react-hooks/exhaustive-deps
   // Card on file: when the tip's chosen, move on; then the approval request goes to the iPad by itself.
   useEffect(() => { if (autoOn && paymentTab === 'card' && cardMode === 'cof_tip' && tipAskedFor.current === ticketKey && !tipReq) setCardMode('cof_confirm'); }, [autoOn, tipReq, cardMode, paymentTab, ticketKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const cofAutoSent = useRef<string | null>(null);
@@ -940,7 +942,20 @@ export const CheckoutHub = ({
     if (r.keep) { handleTotalTipChange(Math.round((safeNumber(tipAmount) + changeReq.change) * 100) / 100); toast({ title: `They kept ${'$'}${changeReq.change.toFixed(2)} as a tip` }); }
     else toast({ title: `Give them ${'$'}${changeReq.change.toFixed(2)} change` });
     setChangeReq(null); }, [cs.response?.requestId]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setCofReq(null); setCofSkip(false); setTipReq(null); setChangeReq(null); cashShown.current = ''; }, [selectedClientId, lastSale?.receiptId]);   // never carry one client's approval to the next
+  // The client pays on the iPad (card form) or their phone (QR). Tip first when automatic; then the sale completes by itself.
+  const [payReq, setPayReq] = useState<{ id: string; amount: number } | null>(null);
+  const [payAfterTip, setPayAfterTip] = useState(false);
+  const payOnIpadOn = cs.connected && csSet.payOnScreen !== false || cs.connected && csSet.payOnPhone !== false;
+  const sendPayToScreen = async () => { const amount = Math.round(safeNumber(amountToCharge) * 100) / 100; const id = await cs.ask('pay', { amount, clientId: selectedClient?.id || null, pendingId: getPendingId?.() || null });
+    if (id) setPayReq({ id, amount }); else toast({ variant: 'destructive', title: 'The client screen couldn’t start the payment', description: 'Check Stripe is connected, or take the card another way.' }); };
+  const startPayOnIpad = () => { if (autoTipOn && tipAskedFor.current !== ticketKey) { setPayAfterTip(true); askTipAuto(); } else sendPayToScreen(); };
+  useEffect(() => { if (payAfterTip && !tipReq && tipAskedFor.current === ticketKey) { setPayAfterTip(false); sendPayToScreen(); } }, [payAfterTip, tipReq]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const r = cs.response; if (!r || !payReq || r.requestId !== payReq.id || r.kind !== 'pay' || !r.paid) return;
+    const amt = payReq.amount; setPayReq(null);
+    if (r.saved) toast({ title: 'Card saved for next time' });
+    onCheckout({ paymentMethod: 'card', amountTendered: amt, recoveryAmount, recoveryReason, recoveryApprovalToken, stripePaymentIntentId: r.paymentIntentId, cardSurcharge });
+  }, [cs.response?.requestId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setCofReq(null); setCofSkip(false); setTipReq(null); setChangeReq(null); setPayReq(null); setPayAfterTip(false); cashShown.current = ''; }, [selectedClientId, lastSale?.receiptId]);   // never carry one client's approval to the next
   const cofApproved = !cs.connected || cofSkip || (cofReq?.status === 'approved' && Math.abs(cofReq.amount - amountToCharge) < 0.005);
   useEffect(() => { if (!autoOn || paymentTab !== 'card' || cardMode !== 'cof_confirm' || !selectedClient || cofSkip) return;
     const k = `${ticketKey}|${amountToCharge}`; if (cofAutoSent.current === k || (cofReq && Math.abs(cofReq.amount - amountToCharge) < 0.005)) return; cofAutoSent.current = k;
@@ -1161,7 +1176,14 @@ export const CheckoutHub = ({
             </div>
             {isCardTab && cardSurchargeEnabled && cardSurcharge > 0 && <p className="text-[13px]" style={muted}>Card fee {(cardSurchargeRate * 100).toFixed(1)}% · +{coMoney(cardSurcharge)}</p>}
             <AnimatePresence mode="wait">
-              {paymentTab === 'card' && cardMode === 'select' && <div className="grid gap-2">
+              {paymentTab === 'card' && cardMode === 'select' && (payReq || payAfterTip) && <div className="space-y-2 rounded-2xl p-4" style={{ background: 'var(--soft)' }}>
+                <p className="text-[15px] font-semibold">{payAfterTip ? `${firstOf(selectedClient?.name) || 'The client'} is choosing a tip…` : `${firstOf(selectedClient?.name) || 'The client'} is paying ${coMoney(payReq?.amount)} on ${cs.name}…`}</p>
+                <p className="text-[13px]" style={muted}>By card on the iPad, or on their phone with the QR code. The sale completes by itself once it’s paid.</p>
+                <button type="button" onClick={() => { setPayReq(null); setPayAfterTip(false); setTipReq(null); cs.ask('idle'); }} className="h-11 rounded-full px-4 text-[14px]" style={{ background: 'var(--card)' }}>Cancel</button>
+              </div>}
+              {paymentTab === 'card' && cardMode === 'select' && !payReq && !payAfterTip && <div className="grid gap-2">
+                {payOnIpadOn && <button type="button" onClick={startPayOnIpad} disabled={isCartEmpty || amountToCharge <= 0} className={rowBtn} style={{ background: 'color-mix(in srgb, var(--accent) 10%, var(--soft))' }}>
+                  <span><span className="block text-[15px] font-semibold">Client pays on {cs.name}</span><span className="block text-[13px]" style={muted}>Card on the iPad, or Apple Pay / Google Pay on their phone{csSet.offerSaveCard !== false && selectedClient ? ' · they can save their card' : ''}</span></span><span aria-hidden>→</span></button>}
                 {hasCardOnFile && <button type="button" onClick={() => setCardMode('cof_tip')} className={rowBtn} style={{ background: 'var(--soft)' }}>
                   <span><span className="block text-[15px] font-semibold">{String(selectedClient?.cardOnFile?.brand || 'Card')} ending {String(selectedClient?.cardOnFile?.last4 || '••••')}</span><span className="block text-[13px]" style={muted}>Card on file — they choose a tip, then you charge</span></span><span aria-hidden>→</span></button>}
                 <button type="button" onClick={handleTerminalPayment} disabled={!readerConnected} className={rowBtn} style={{ background: 'var(--soft)', opacity: readerConnected ? 1 : 0.55 }}>
