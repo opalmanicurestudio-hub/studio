@@ -506,6 +506,9 @@ export const CheckoutHub = ({
   taxLabel,
   lastSale,
   clearLastSale,
+  moments,
+  momentReward,
+  momentDiscountValue,
   onDone,
   staffDiscount,
   setStaffDiscount,
@@ -879,7 +882,8 @@ export const CheckoutHub = ({
   // ── The client screen (an iPad at the desk): live ticket, tip, card-on-file approval, thank-you ──
   const cs = useClientScreen(tenantId);
   const screenTicket = useMemo(() => {
-    if (isCartEmpty) return null;
+    const momentLines = (moments || []).map((m: any) => m.screenLine).slice(0, 2);
+    if (isCartEmpty) return selectedClient ? { clientFirst: String(selectedClient?.name || '').split(' ')[0], lines: [], moments: momentLines, subtotal: 0, discount: 0, tax: 0, tip: 0, total: 0, paid: 0, due: 0 } : null;
     const lines: any[] = [];
     for (const d of appointmentsData || []) {
       const o = d.appointment?.checkoutState?.serviceStaffOverrides || {};
@@ -889,8 +893,8 @@ export const CheckoutHub = ({
     }
     for (const it of cart || []) lines.push({ label: `${it.name}${it.quantity > 1 ? ` ×${it.quantity}` : ''}`, amount: safeNumber(it.price) * safeNumber(it.quantity) });
     for (const id of Array.from(appliedAdjustments || [])) { const f = (clients || []).flatMap((c: any) => c.unpaidFees || []).find((x: any) => x.feeId === id); if (f) lines.push({ label: f.reason || 'Owed balance', amount: safeNumber(f.feeAmount) }); }
-    return { clientFirst: String(selectedClient?.name || '').split(' ')[0], lines, subtotal: safeNumber(subtotal), discount: safeNumber(totalDiscount) + safeNumber(recoveryAmount), tax: safeNumber(tax), taxLabel: taxLabel || 'Sales tax', tip: safeNumber(tipAmount), total: safeNumber(finalTotal) + safeNumber(totalPaidDeposits), paid: safeNumber(totalPaidDeposits), due: safeNumber(isCardTab ? amountToCharge : finalTotal) };
-  }, [isCartEmpty, appointmentsData, cart, appliedAdjustments, clients, services, staff, redeemedOffer, selectedClient, selectedClientId, subtotal, totalDiscount, recoveryAmount, tax, taxLabel, tipAmount, finalTotal, totalPaidDeposits, isCardTab, amountToCharge]);
+    return { clientFirst: String(selectedClient?.name || '').split(' ')[0], lines, moments: momentLines, subtotal: safeNumber(subtotal), discount: safeNumber(totalDiscount) + safeNumber(recoveryAmount), tax: safeNumber(tax), taxLabel: taxLabel || 'Sales tax', tip: safeNumber(tipAmount), total: safeNumber(finalTotal) + safeNumber(totalPaidDeposits), paid: safeNumber(totalPaidDeposits), due: safeNumber(isCardTab ? amountToCharge : finalTotal) };
+  }, [moments, isCartEmpty, appointmentsData, cart, appliedAdjustments, clients, services, staff, redeemedOffer, selectedClient, selectedClientId, subtotal, totalDiscount, recoveryAmount, tax, taxLabel, tipAmount, finalTotal, totalPaidDeposits, isCardTab, amountToCharge]);
   const screenTicketKey = JSON.stringify(screenTicket);
   useEffect(() => { if (!cs.connected || (lastSale && isCartEmpty)) return; const t = setTimeout(() => { cs.push(screenTicket); }, 500); return () => clearTimeout(t); }, [cs.connected, screenTicketKey, !!lastSale]); // eslint-disable-line react-hooks/exhaustive-deps
   const thankedRef = useRef<string | null>(null);
@@ -903,8 +907,41 @@ export const CheckoutHub = ({
     if (tipReq && r.requestId === tipReq && r.kind === 'tip') { handleTotalTipChange(safeNumber(r.tip)); setTipReq(null); toast({ title: safeNumber(r.tip) > 0 ? `Tip added — ${'$'}${safeNumber(r.tip).toFixed(2)}` : 'No tip' }); }
     if (cofReq?.id && r.requestId === cofReq.id && r.kind === 'approve') setCofReq({ ...cofReq, status: r.approved ? 'approved' : 'declined', consentId: r.consentId || null });
   }, [cs.response?.requestId]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setCofReq(null); setCofSkip(false); setTipReq(null); }, [selectedClientId, lastSale?.receiptId]);   // never carry one client's approval to the next
+  // ── The automatic flow (Settings → Client screen → "Run it automatically"): the iPad follows the checkout ──
+  const csSet = (selectedTenant as any)?.clientScreen || {};
+  const autoOn = cs.connected && csSet.auto !== false;
+  const autoTipOn = autoOn && csSet.autoTip !== false && !studentsNoTips;
+  const ticketKey = `${selectedClientId || ''}|${(appointmentsData || []).map((d: any) => d.appointment?.id).join(',')}|${(cart || []).map((c: any) => `${c.id}x${c.quantity}`).join(',')}`;
+  const tipAskedFor = useRef<string | null>(null);
+  const tipBase = (csSet.tipOn === 'after_tax' ? safeNumber(subtotal) - safeNumber(totalDiscount) + safeNumber(tax) : safeNumber(subtotal) - safeNumber(totalDiscount));
+  const askTipAuto = async () => { if (tipAskedFor.current === ticketKey || tipReq) return; tipAskedFor.current = ticketKey; const id = await cs.ask('tip', { base: tipBase }); if (id) setTipReq(id); };
+  // Choosing Cash or Card on file asks for the tip on the iPad first (once per ticket).
+  useEffect(() => { if (!autoTipOn || isCartEmpty) return; if (paymentTab === 'cash' || (paymentTab === 'card' && cardMode === 'cof_tip')) askTipAuto(); }, [autoTipOn, paymentTab, cardMode, ticketKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Card on file: when the tip's chosen, move on; then the approval request goes to the iPad by itself.
+  useEffect(() => { if (autoOn && paymentTab === 'card' && cardMode === 'cof_tip' && tipAskedFor.current === ticketKey && !tipReq) setCardMode('cof_confirm'); }, [autoOn, tipReq, cardMode, paymentTab, ticketKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const cofAutoSent = useRef<string | null>(null);
+  // Cash: the iPad shows what's due, then their change — with "keep it as a tip".
+  const cashShown = useRef<string>('');
+  const [changeReq, setChangeReq] = useState<{ id: string; change: number } | null>(null);
+  useEffect(() => {
+    if (!autoOn || paymentTab !== 'cash' || isCartEmpty || tipReq || lastSale) return;
+    const due = Math.round(safeNumber(finalTotal) * 100) / 100; const tendered = Math.round(safeNumber(amountTendered) * 100) / 100; const change = Math.round((tendered - due) * 100) / 100;
+    const key = `${due}|${tendered}`; if (cashShown.current === key) return;
+    const t = setTimeout(async () => { cashShown.current = key;
+      if (tendered > 0 && change > 0.009) { const id = await cs.ask('change', { due, tendered, change }); if (id) setChangeReq({ id, change }); }
+      else cs.ask('cash', { due }); }, 600);
+    return () => clearTimeout(t);
+  }, [autoOn, paymentTab, finalTotal, amountTendered, tipReq, isCartEmpty, lastSale]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const r = cs.response; if (!r || !changeReq || r.requestId !== changeReq.id || r.kind !== 'change') return;
+    if (r.keep) { handleTotalTipChange(Math.round((safeNumber(tipAmount) + changeReq.change) * 100) / 100); toast({ title: `They kept ${'$'}${changeReq.change.toFixed(2)} as a tip` }); }
+    else toast({ title: `Give them ${'$'}${changeReq.change.toFixed(2)} change` });
+    setChangeReq(null); }, [cs.response?.requestId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setCofReq(null); setCofSkip(false); setTipReq(null); setChangeReq(null); cashShown.current = ''; }, [selectedClientId, lastSale?.receiptId]);   // never carry one client's approval to the next
   const cofApproved = !cs.connected || cofSkip || (cofReq?.status === 'approved' && Math.abs(cofReq.amount - amountToCharge) < 0.005);
+  useEffect(() => { if (!autoOn || paymentTab !== 'card' || cardMode !== 'cof_confirm' || !selectedClient || cofSkip) return;
+    const k = `${ticketKey}|${amountToCharge}`; if (cofAutoSent.current === k || (cofReq && Math.abs(cofReq.amount - amountToCharge) < 0.005)) return; cofAutoSent.current = k;
+    cs.ask('approve', { amount: amountToCharge, cardLabel: `${String(selectedClient?.cardOnFile?.brand || 'card')} ending ${String(selectedClient?.cardOnFile?.last4 || '••••')}`, clientId: selectedClient.id, clientName: selectedClient.name }).then((id: any) => { if (id) setCofReq({ id, amount: amountToCharge, status: 'waiting' }); });
+  }, [autoOn, paymentTab, cardMode, amountToCharge, cofSkip, ticketKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setCardMode('select'); }, [paymentTab]);
   if (lastSale && isCartEmpty) return <div className="desk" style={{ background: 'transparent' }}><style>{DESK_CSS}</style><SaleComplete sale={lastSale} tenantId={tenantId} onNewSale={() => clearLastSale?.()} onDone={onDone} /></div>;   // after the last hook
 
@@ -959,7 +996,10 @@ export const CheckoutHub = ({
         />
           </section>
           {selectedClient && tenantId && <CheckoutNudge tenantId={tenantId} client={selectedClient} cart={cart || []} onCartChange={onCartChange} />}
-          {selectedClient && isBirthdayToday && <section className={card} style={cardStyle}><p className={h}>🎂 It’s {firstOf(selectedClient.name)}’s birthday</p><p className="text-[14px]" style={muted}>A small treat or a birthday note goes a long way.</p></section>}
+          {(moments || []).map((m: any) => <section key={m.key} className={card} style={{ ...cardStyle, background: 'color-mix(in srgb, var(--accent) 7%, var(--card))' }} aria-label={m.title}>
+            <p className={h}>{m.kind === 'birthday' ? '🎂 ' : m.kind === 'first' ? '👋 ' : '✨ '}{m.title}</p>
+            <p className="text-[14px]" style={muted}>{m.deskLine}{m.rewardPct > 0 && momentReward?.key === m.key ? (safeNumber(momentDiscountValue) > 0 ? ` −${coMoney(momentDiscountValue)} on this ticket.` : ' (A bigger discount is already applied, so this one isn’t.)') : ''}</p>
+          </section>)}
           {selectedClient && availableEntitlements.length > 0 && (
             <section className={card} style={cardStyle} aria-label="Benefits">
               <p className={h}>Their benefits</p>
@@ -1119,7 +1159,12 @@ export const CheckoutHub = ({
                   <span><span className="block text-[15px] font-semibold">Type in a card</span><span className="block text-[13px]" style={muted}>Enter the card details</span></span><span aria-hidden>→</span></button>
                 {selectedClient && <label className="flex items-center gap-2 px-1 text-[14px]"><input type="checkbox" checked={saveNewCard} onChange={() => setSaveNewCard((v: boolean) => !v)} /> Save a typed card to their profile</label>}
               </div>}
-            {paymentTab === 'card' && cardMode === 'cof_tip' && selectedClient && (() => {
+            {paymentTab === 'card' && cardMode === 'cof_tip' && selectedClient && autoTipOn && tipReq && <div className="space-y-2 rounded-2xl p-4" style={{ background: 'var(--soft)' }}>
+              <p className="text-[15px] font-semibold">{firstOf(selectedClient.name)} is choosing a tip on {cs.name}…</p>
+              <div className="flex gap-2"><button type="button" onClick={() => { setTipReq(null); cs.ask('idle'); setCardMode('cof_confirm'); }} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'var(--card)' }}>Skip the tip</button>
+                <button type="button" onClick={() => setCardMode('select')} className="h-11 rounded-full px-4 text-[14px]" style={{ background: 'var(--card)' }}>Back</button></div>
+            </div>}
+            {paymentTab === 'card' && cardMode === 'cof_tip' && selectedClient && !(autoTipOn && tipReq) && (() => {
               const presets = [0, 10, 18, 20, 25];
               const baseForTip = subtotal; // tip on pre-tax subtotal
               return (
