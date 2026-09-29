@@ -816,6 +816,12 @@ export async function POST(req: NextRequest) {
         reminderSent: false,
         autoCancelledNoShow: false,
       };
+      // Unpaid-fee rule "collected with the new booking's deposit": an owed balance rides this booking's deposit
+      // payment (split off again when it's paid). No deposit due → it stays on their account for this visit's bill.
+      {
+        const owedCents = Math.round((Number((clientRecord as any)?.outstandingBalance) || 0) * 100);
+        if (unpaidFeeRuleOf(tenant) === 'with_deposit' && owedCents > 0 && plan.depositCents > 0 && payload.depositStatus === 'pending') payload.balanceCollectCents = owedCents;
+      }
       // Linked bookings (a repeat series, or the later parts of a group / visit): the deposit is held by the
       // first booking ("covered") or taken before this visit ("scheduled") — so this one is CONFIRMED now and the
       // unpaid-hold release never cancels it. Staff only.
@@ -831,7 +837,7 @@ export async function POST(req: NextRequest) {
       if (requestedStaffId === 'any') {
         tx.set(db.doc(`tenants/${tenantId}/staff/${staffId}`), { lastBookingAssignedAt: nowIso }, { merge: true });
       }
-      return { aptId, token, shortCode, staffId, clientId, clientName, plan, placedStartIso: placedStart.toISOString(), placedEndIso: placedEnd.toISOString() };
+      return { aptId, token, shortCode, staffId, clientId, clientName, plan, balanceCollectCents: Number(payload.balanceCollectCents) || 0, placedStartIso: placedStart.toISOString(), placedEndIso: placedEnd.toISOString() };
     });
 
     if ((result as any).conflict) {
@@ -988,6 +994,7 @@ export async function POST(req: NextRequest) {
                 `Hi ${firstName} — we're holding ${whenStr} for your ${svcLabel}${staffName ? ` with ${staffName}` : ''}.`,
                 'Tap below to finish up (deposit and any forms) and lock it in. Your confirmation follows the moment it\'s done.',
                 ...(depCents > 0 ? [r.plan?.fullPayment ? `Payment: ${money$(depCents)} — paid in full, nothing more is due.` : `Deposit: ${money$(depCents)} — it comes off your total on the day.`] : []),
+                ...((r as any).balanceCollectCents > 0 ? [`Plus your ${money$((r as any).balanceCollectCents)} balance from a previous visit — paid together with the deposit (${money$(depCents + (r as any).balanceCollectCents)} in all). The balance isn’t part of the deposit.`] : []),
                 holdLine(tAny, trust && typeof body.holdUntil === 'string' && Date.parse(body.holdUntil) > Date.now() ? new Date(body.holdUntil) : null),
               ],
               cta: { label: 'Finish my booking', url: checkInUrl },
