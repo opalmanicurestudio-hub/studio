@@ -9,6 +9,25 @@ import { DESK_CSS, Btn, Seg } from '@/components/pos/desk/kit';
 import { approveWithPin, askManagerPhone } from '@/lib/approve-client';
 
 const money = (n: any) => `$${(Number(n) || 0).toFixed(2)}`;
+async function receiptCall(body: any) {
+  const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
+  return fetch('/api/receipts', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify(body) }).then((r) => r.json()).catch(() => ({ ok: false, error: 'We couldn’t reach the server.' }));
+}
+/** Open the printable receipt / void slip in a new tab (opened first, so pop-up blockers allow it). */
+async function openReceipt(tenantId: string, receiptId: string) {
+  const w = window.open('', '_blank'); const r: any = await receiptCall({ tenantId, receiptId, action: 'link' });
+  if (r?.ok && w) w.location.href = r.url; else w?.close();
+}
+function SendToClient({ tenantId, receiptId }: { tenantId: string; receiptId: string }) {
+  const [ch, setCh] = React.useState<'email' | 'sms'>('email'); const [to, setTo] = React.useState(''); const [msg, setMsg] = React.useState<string | null>(null); const [busy, setBusy] = React.useState(false);
+  return <div className="space-y-2 rounded-3xl p-4" style={{ background: 'var(--card)' }}>
+    <p className="text-[13px] font-semibold">Send to the client</p>
+    <Seg label="Send by" value={ch} onChange={(v) => setCh(v)} options={[['email', 'Email'], ['sms', 'Text']]} />
+    <input value={to} onChange={(e) => setTo(e.target.value)} placeholder={ch === 'email' ? 'Their email (leave blank to use the one on file)' : 'Their mobile (leave blank to use the one on file)'} className="h-11 w-full rounded-xl px-3.5 text-[15px] outline-none" style={{ background: 'var(--paper)', border: '1px solid var(--line)' }} />
+    <Btn onClick={async () => { setBusy(true); const r: any = await receiptCall({ tenantId, receiptId, action: 'send', channel: ch, to: to.trim() || undefined }); setBusy(false); setMsg(r?.ok ? 'Sent.' : r?.error || 'It didn’t send.'); }} disabled={busy}>{busy ? 'Sending…' : 'Send'}</Btn>
+    {msg && <p className="text-[13px] font-semibold">{msg}</p>}
+  </div>;
+}
 const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.toISOString(); };
 
 export function TodaysSales({ open, onClose, tenantId, tenant, role }: { open: boolean; onClose: () => void; tenantId: string; tenant: any; role?: string | null }) {
@@ -63,6 +82,8 @@ export function TodaysSales({ open, onClose, tenantId, tenant, role }: { open: b
               <p>• Approved by {done.approvedBy}; recorded in the activity log</p>
               {isCash && <p className="pt-1"><b>Front desk:</b> count the cash back to the client, give them the voided receipt if they want it, and keep the till drawer closed until it’s counted.</p>}
             </section>
+            <Btn big onClick={() => openReceipt(tenantId, sel.id)}>Print void slip{isCash ? ' (with signature lines)' : ''}</Btn>
+            <SendToClient tenantId={tenantId} receiptId={sel.id} />
             {(done.warnings || []).map((w: string, i: number) => <p key={i} className="rounded-2xl p-3 text-[14px]" style={{ background: 'color-mix(in srgb, var(--warn) 10%, transparent)' }}>{w}</p>)}
             <Btn big onClick={reset}>Back to today’s sales</Btn>
           </> : sel ? <>
@@ -87,7 +108,7 @@ export function TodaysSales({ open, onClose, tenantId, tenant, role }: { open: b
             {list.map((r: any) => <div key={r.id} className="flex items-center justify-between gap-2 rounded-2xl p-3" style={{ background: 'var(--card)', opacity: r.voided ? 0.6 : 1 }}>
               <div><p className="text-[15px] font-semibold">{r.clientName || 'Guest'} · {money(r.total)}</p>
                 <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{new Date(r.date).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} · {String(r.paymentMethod) === 'cash' ? 'Cash' : 'Card'}{r.voided ? ` · voided (${r.voidReason || 'no reason'})` : ''}{r.needsReview ? ' · needs review' : ''}</p></div>
-              {!r.voided && r.reversal && <Btn quiet onClick={() => { reset(); setSel(r); }}>Void sale</Btn>}
+              <div className="flex gap-1.5"><Btn quiet onClick={() => openReceipt(tenantId, r.id)}>{r.voided ? 'Void slip' : 'Receipt'}</Btn>{!r.voided && r.reversal && <Btn quiet onClick={() => { reset(); setSel(r); }}>Void sale</Btn>}</div>
             </div>)}
             <p className="pt-2 text-[12px]" style={{ color: 'var(--muted)' }}>Sales can be voided on the day. After that, refund them instead.</p>
           </>}
