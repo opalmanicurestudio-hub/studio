@@ -816,6 +816,11 @@ export async function POST(req: NextRequest) {
         reminderSent: false,
         autoCancelledNoShow: false,
       };
+      // Reminder timing for THIS booking: the desk's choice, else the client's own preference ("remind me X hours before").
+      {
+        const own = staffSet && Number(body.reminderHoursBefore) > 0 ? Number(body.reminderHoursBefore) : Number((clientRecord as any)?.notificationPreferences?.reminderHoursBefore) || 0;
+        if (own > 0) { payload.reminderHoursBefore = Math.min(168, Math.max(1, Math.round(own))); payload.ownReminder = true; }
+      }
       // Unpaid-fee rule "collected with the new booking's deposit": an owed balance rides this booking's deposit
       // payment (split off again when it's paid). No deposit due → it stays on their account for this visit's bill.
       {
