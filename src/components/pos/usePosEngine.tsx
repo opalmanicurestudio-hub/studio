@@ -312,6 +312,17 @@ export function usePosEngine() {
   const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
   const [appliedDiscountCodes, setAppliedDiscountCodes] = useState<string[]>([]);
   const [appliedAdjustments, setAppliedAdjustments] = useState<Set<string>>(new Set());
+  // An owed balance is ADDED at checkout, not left for staff to remember: when a client comes to the till,
+  // their unpaid fees start ticked (staff can untick). Once per client, so an untick sticks.
+  const preTickedFor = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const id = (selectedClientId as any) || null;
+    if (!id || preTickedFor.current.has(id)) return;
+    const c: any = (clients || []).find((x: any) => x.id === id);
+    const ids: string[] = (c?.unpaidFees || []).map((f: any) => f?.feeId).filter(Boolean);
+    preTickedFor.current.add(id);
+    if (ids.length) setAppliedAdjustments((prev) => new Set([...Array.from(prev), ...ids]));
+  }, [selectedClientId, clients]); // eslint-disable-line react-hooks/exhaustive-deps
   const [redeemedOffer, setRedeemedOffer] = useState<{ type: 'membership' | 'package'; id: string; itemId?: string } | null>(null);
   const [waivedAppointmentFees, setWaivedAppointmentFees] = useState<Map<string, { authorizerId: string; reason: string }>>(new Map());
   const [isRecoveryOverrideOpen, setIsRecoveryOverrideOpen] = useState(false);
