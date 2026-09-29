@@ -36,6 +36,7 @@ import { DeskPayGate } from './DeskPayGate';
 import { OpsBoard, opsAttentionCount } from '@/components/ops/OpsBoard';
 import { OverrunPanel } from '@/components/ops/OverrunPanel';
 import { placeOf, skipsCheckIn } from '@/lib/service-place';
+import { usePendingCallbacks, overdueCallbacks } from '@/components/ops/CallbackQueue';
 import { serviceOverrun, overrunImpact, overrunMode } from '@/lib/appointment-ops';
 import { opsStatus, paymentOutstanding } from '@/lib/appointment-ops';
 import { resolvePolicy } from '@/lib/booking-policies';
@@ -65,7 +66,9 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const [attnOpen, setAttnOpen] = useState(false);
   useEffect(() => { try { if (new URLSearchParams(window.location.search).get('attention') === '1') setAttnOpen(true); } catch { /* ignore */ } }, []);
   const todaysAppts = useMemo(() => { const d = new Date().toDateString(); return (e.appointmentsFromInventory || []).filter((a: any) => { const t = toDate(a.startTime); return t && t.toDateString() === d; }); }, [e.appointmentsFromInventory]);
-  const opsCount = opsAttentionCount(todaysAppts, e.selectedTenant);
+  const opsBase = opsAttentionCount(todaysAppts, e.selectedTenant);
+  const callbacks = usePendingCallbacks(e.tenantId);                       // overdue call-backs count too
+  const opsCount = { ...opsBase, attention: opsBase.attention + overdueCallbacks(callbacks) };
   const [overFor, setOverFor] = useState<any>(null); // a service running over → tell the next guests
   const [mode, setMode] = useState<'desk' | 'counter'>('desk');
   const [about, setAbout] = useState<Guest | null>(null);
