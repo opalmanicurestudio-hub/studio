@@ -40,6 +40,10 @@ export function DeskCancel({ e, accent, onReschedule, onOfferSlot }: { e: any; a
   const [emergency, setEmergency] = useState(false); // an emergency uses its OWN allowance, not their ordinary grace
   const [done, setDone] = useState<{ lines: string[]; told: boolean } | null>(null); const [err, setErr] = useState('');
   const [snap, setSnap] = useState<any>(null); // outcome computed at confirm time
+  // A repeat series: how many later visits, and whether to cancel them too.
+  const [seriesLater, setSeriesLater] = useState(0); const [cancelLater, setCancelLater] = useState(false);
+  useEffect(() => { setSeriesLater(0); setCancelLater(false);
+    if (appt?.seriesId) staffPost('/api/appointments/series', { tenantId: e.tenantId, appointmentId: appt.id, action: 'later' }).then((x: any) => setSeriesLater(Number(x?.later) || 0)); }, [appt?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const doneRef = useRef(false); // the shared logic closes the dialog after saving — keep the summary open
   const close = () => { doneRef.current = false; e.setIsCancelDialogOpen(false); setDone(null); setErr(''); setWaiveWhy(''); };
 
@@ -57,15 +61,24 @@ export function DeskCancel({ e, accent, onReschedule, onOfferSlot }: { e: any; a
       else { collected = 'balance'; paymentMethod = 'add_to_balance'; setErr(`The card didn’t go through (${r.reason || r.error || 'declined'}) — ${money(o.due)} was added to what they owe.`); }
     }
     const outcome: CancelOutcome = { ...o.outcome, collected };
+    // On-time cancel of the visit holding a series' deposit → keep it as credit; it moves to the next visit.
+    const depPlan = o.outcome.deposit?.outcome || null;
+    const moveSeries = !!appt.seriesId && appt.depositStatus === 'paid' && e.selectedTenant?.bookingPolicies?.seriesMoveDeposit !== false && ['refund', 'rollover', 'store_credit'].includes(String(depPlan));
     await e.handleCancellationConfirm({ ...data, feeAmount: o.outcome.who === 'studio' ? 0 : o.due, chargeFee: o.outcome.who !== 'studio' && o.due > 0 && collected !== 'waived',
       paymentMethod: collected === 'waived' ? 'waived' : paymentMethod, alreadyChargedPaymentIntentId: intentId, notifiedByServer: tell,
-      depositOutcome: o.outcome.deposit?.outcome || null });
+      depositOutcome: moveSeries ? 'rollover' : (o.outcome.deposit?.outcome || null) });
+    let seriesLines: string[] = [];
+    if (appt.seriesId && (moveSeries || cancelLater)) {
+      const sr: any = await staffPost('/api/appointments/series', { tenantId: e.tenantId, appointmentId: appt.id, action: 'after_cancel', moveDeposit: moveSeries, cancelLater });
+      if (sr?.ok) seriesLines = [...(sr.depositMovedTo ? ['Their deposit moved to the next visit in the series (kept as credit).'] : []), ...(sr.laterCancelled ? [`${sr.laterCancelled} later visit${sr.laterCancelled === 1 ? '' : 's'} in the series cancelled — no fees.`] : [])];
+      else setErr(`Cancelled — but the series follow-up didn’t go through: ${sr?.error || 'try again from the later visits'}.`);
+    }
     if (collected === 'waived' && Number(o.outcome.feeDollars) > 0) logAuditClient(e.firestore, e.tenantId, { action: 'fee.waived', targetType: 'appointment', targetId: appt.id, amount: Number(o.outcome.feeDollars),
       summary: `${money(Number(o.outcome.feeDollars))} ${o.outcome.who === 'no_show' ? 'no-show' : 'cancellation'} fee waived — ${waiveWhy.trim()}`, actor: { type: 'user', id: e.currentUser?.uid || null, name: e.currentUser?.displayName || currentStaff?.name || 'Manager', role: e.role || 'manager', via: 'front desk' } } as any).catch(() => {});
     if (graceOn && appt.clientId) await staffPost('/api/grace', { tenantId: e.tenantId, action: 'use', event: graceEvent, clientId: appt.clientId, appointmentId: appt.id, serviceId: appt.serviceId || null, staffId: appt.staffId || null, reason: waiveWhy.trim() && waiveWhy.trim() !== 'Grace allowance' ? waiveWhy.trim() : null });
     let told = false;
     if (tell) { const n = await staffPost('/api/appointments/cancel-notify', { tenantId: e.tenantId, appointmentId: appt.id, outcome }); told = !!(n.told?.email || n.told?.sms); }
-    doneRef.current = true; setDone({ lines: cancellationOutcomeLines(outcome), told });
+    doneRef.current = true; setDone({ lines: [...cancellationOutcomeLines(outcome), ...seriesLines], told });
   };
   const r: any = useCancelDialog({ open: !!appt, onOpenChange: (o: boolean) => { if (!o && !doneRef.current) close(); }, appointment: appt || ({} as any), tenant: e.selectedTenant, currentStaff, onConfirm } as any);
 
@@ -163,6 +176,11 @@ export function DeskCancel({ e, accent, onReschedule, onOfferSlot }: { e: any; a
           <div className="flex flex-wrap gap-1.5"><Btn quiet={r.depositDisposition !== 'refund'} onClick={() => r.setDepositDisposition('refund')}>Refund to their card</Btn><Btn quiet={r.depositDisposition !== 'store_credit'} onClick={() => r.setDepositDisposition('store_credit')}>Save as credit</Btn></div>
           {r.depositDisposition === 'store_credit' && <label className="flex items-center gap-2 text-[13px]"><span style={{ color: 'var(--muted)' }}>Plus a little extra to say sorry</span><input type="number" min={0} step="1" value={r.additionalCreditValue} onChange={(ev) => r.setAdditionalCreditValue(Number(ev.target.value) || 0)} className="h-9 w-24 rounded-full px-3 text-[14px]" style={{ background: 'var(--soft)' }} /></label>}</Card>}
 
+        {appt?.seriesId && seriesLater > 0 && <Card>
+          <p className="text-[14px] font-semibold">Repeat series — {seriesLater} later visit{seriesLater === 1 ? '' : 's'}</p>
+          <label className="flex items-center gap-2 text-[14px]"><input type="checkbox" checked={cancelLater} onChange={(ev) => setCancelLater(ev.target.checked)} style={{ accentColor: 'var(--accent)' }} /> Also cancel the {seriesLater} later visit{seriesLater === 1 ? '' : 's'} (no fees)</label>
+          {appt.depositStatus === 'paid' && e.selectedTenant?.bookingPolicies?.seriesMoveDeposit !== false && <p className="text-[13px]" style={{ color: 'var(--muted)' }}>If this is cancelled in good time, their deposit is kept as credit and moves to the next visit.</p>}
+        </Card>}
         <Card><div className="flex items-center justify-between gap-2"><p className="text-[14px] font-semibold">What {first} will be told</p><label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={tell} onChange={(ev) => setTell(ev.target.checked)} /> Send</label></div>
           {tell ? <ul className="list-disc space-y-1 pl-5 text-[14px]">{cancellationOutcomeLines(outcome).map((l) => <li key={l}>{l}</li>)}<li>A “Book again” button for their {svcName}.</li></ul>
             : <p className="text-[13px]" style={{ color: 'var(--muted)' }}>They won’t be messaged — tell them yourself.</p>}</Card>
