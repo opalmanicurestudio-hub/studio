@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { splitPaid, settleCollectedBalance } from '@/lib/balance-with-deposit';
 import { tenantTimeZone } from '@/lib/tenant-time';
 import { logAuditAdmin } from '@/lib/audit';
 import { completeDonation } from '@/lib/academy-funding';
@@ -163,7 +164,9 @@ export async function POST(req: NextRequest) {
             if (!ap.clientEmail && ap.clientId) { const cl = ((await db.doc(`tenants/${tenant.id}/clients/${ap.clientId}`).get()).data() as any) || {}; ap.clientEmail = cl.email || null; }
             if (!ap.serviceName && ap.serviceId) { ap.serviceName = ((((await db.doc(`tenants/${tenant.id}/services/${ap.serviceId}`).get()).data() as any) || {}).name) || ap.renterServiceName || null; }
             const biz: any = ((await db.doc(`tenants/${tenant.id}`).get()).data()) || {};
-            const cents = session.amount_total ?? Number(ap.depositAmountCents) ?? 0;
+            const paidTotal = session.amount_total ?? Number(ap.depositAmountCents) ?? 0;
+            // A balance collected with this deposit is split off: it clears the debt; only the rest is the deposit.
+            const { balanceCents: balPart, depositCents: cents } = splitPaid(ap, paidTotal);
             const nowIso = new Date().toISOString();
             // Paid after the hold ran out and the slot was released: don't quietly
             // revive it (someone else may have the time) — flag it for the studio.
@@ -182,6 +185,7 @@ export async function POST(req: NextRequest) {
             batch.set(creditRef, { id: creditRef.id, tenantId: tenant.id, clientId: ap.clientId || null, clientEmail: String(ap.clientEmail || '').toLowerCase().trim(), clientName: ap.clientName || 'Guest',
               amountCents: cents, status: 'available', sourceAppointmentId: payApptId, createdAt: nowIso, stripeChargeId: chargeId || null, checkoutSessionId: session.id });
             await batch.commit();
+            if (balPart > 0) await settleCollectedBalance(db, tenant.id, payApptId, balPart, { paymentMethod: 'Online Checkout', via: 'online', sessionId: session.id, chargeId: chargeId || null });
             await logAuditAdmin(db, tenant.id, { action: 'deposit.paid', targetType: 'appointment', targetId: payApptId, amount: cents / 100,
               summary: lateAfterRelease ? `Deposit paid AFTER the hold ran out — ${ap.clientName || 'Guest'} (needs your attention: re-confirm or refund)` : `Online booking deposit paid — ${ap.clientName || 'Guest'}, booking confirmed`,
               actor: { type: 'user', name: ap.clientName || 'Guest', role: 'client', via: 'online booking' } }).catch(() => {});
@@ -438,10 +442,11 @@ export async function POST(req: NextRequest) {
             break;
           }
           if (sessionType === 'completion' && appointmentId && session.amount_total) {
-            const depositAmountCents = session.amount_total;
-
             const aptRef  = db.collection(`tenants/${tenant.id}/appointments`).doc(appointmentId);
             const aptSnap = await aptRef.get();
+            // A balance collected with this deposit is split off: it clears the debt; only the rest is the deposit.
+            const { balanceCents: balPart, depositCents: depositAmountCents } = splitPaid(aptSnap.data() || {}, session.amount_total);
+            if (balPart > 0) await settleCollectedBalance(db, tenant.id, appointmentId, balPart, { paymentMethod: 'Online Checkout', via: 'online', sessionId: session.id, chargeId: chargeId || null });
             // Idempotency — skip if this appointment's deposit is already marked paid
             if (!aptSnap.exists || aptSnap.data()?.depositStatus !== 'paid') {
               await aptRef.set({
