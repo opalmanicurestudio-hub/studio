@@ -263,6 +263,36 @@ function UnpaidFees({ tenantId, role, tenant }: { tenantId: string; role: string
 }
 
 
+
+/** Repeat visits whose scheduled deposit couldn't be taken — any date, not just today. */
+function SeriesDepositsFailed({ tenantId }: { tenantId: string }) {
+  const { firestore } = useFirebase() as any;
+  const q = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, `tenants/${tenantId}/appointments`), where('depositStatus', '==', 'failed')) : null), [firestore, tenantId]);
+  const { data } = useCollection<any>(q);
+  const [busy, setBusy] = React.useState<string | null>(null); const [msg, setMsg] = React.useState<Record<string, string>>({});
+  const list = (data || []).filter((a: any) => a.status === 'confirmed' && Date.parse(a.startTime) > Date.now()).sort((x: any, y: any) => Date.parse(x.startTime) - Date.parse(y.startTime));
+  if (!list.length) return null;
+  const act = async (a: any, action: 'charge' | 'link' | 'settled', ok: string) => {
+    setBusy(`${a.id}:${action}`); const r = await staffPost('/api/appointments/desk-deposit', { tenantId, appointmentId: a.id, action }); setBusy(null);
+    setMsg((m) => ({ ...m, [a.id]: r?.ok ? ok : r?.error || 'That didn’t go through.' }));
+  };
+  return (
+    <section className="space-y-2 rounded-3xl border bg-card p-4">
+      <p className="font-semibold">Repeat deposits not taken</p>
+      {list.map((a: any) => <div key={a.id} className="space-y-1.5 rounded-2xl border p-3 text-sm">
+        <p><b>{a.clientName || 'A client'}</b> · {a.serviceName || 'appointment'} on {new Date(a.startTime).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at {hm(a.startTime)} — ${(Number(a.depositAmountCents) / 100).toFixed(2)} deposit{a.depositFailedReason ? ` (${a.depositFailedReason})` : ''}.</p>
+        {a.depositLinkSentAt && <p className="text-xs text-muted-foreground">A pay link was sent {new Date(a.depositLinkSentAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}.</p>}
+        <div className="flex flex-wrap gap-2">
+          <button type="button" disabled={!!busy} onClick={() => act(a, 'charge', 'Charged.')} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground">Charge again</button>
+          <button type="button" disabled={!!busy} onClick={() => act(a, 'link', 'Pay link sent.')} className="rounded-full border px-3 py-1.5 text-xs">Send a pay link</button>
+          <button type="button" disabled={!!busy} onClick={() => act(a, 'settled', 'Marked as paid.')} className="rounded-full border px-3 py-1.5 text-xs">Paid at the desk</button>
+        </div>
+        {msg[a.id] && <p className="text-xs font-semibold">{msg[a.id]}</p>}
+      </div>)}
+    </section>
+  );
+}
+
 /** Renter and academy cases — each shown only to businesses using that module. */
 function ModuleCases({ tenantId, tenant, appts, staff }: { tenantId: string; tenant: any; appts: any[]; staff: any[] }) {
   const { firestore } = useFirebase() as any;
@@ -330,6 +360,7 @@ export function OpsBoard({ appts, staff, tenant, tenantId, role, uid }: { appts:
       <ProviderLate tenantId={tenantId} staff={(staff || []).filter((s: any) => s.isActive !== false)} role={role} uid={uid} tenant={tenant} />
       <RefundQueue tenantId={tenantId} role={role} />
       <CallbackQueue tenantId={tenantId} uid={uid} />
+      <SeriesDepositsFailed tenantId={tenantId} />
       <UnpaidFees tenantId={tenantId} role={role} tenant={tenant} />
       <ModuleCases tenantId={tenantId} tenant={tenant} appts={appts} staff={staff} />
       <ReportCallout tenantId={tenantId} staff={(staff || []).filter((s: any) => s.isActive !== false)} role={role} uid={uid} tenant={tenant} />
