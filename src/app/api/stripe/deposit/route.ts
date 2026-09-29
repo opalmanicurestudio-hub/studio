@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { balanceDueWith } from '@/lib/balance-with-deposit';
 import Stripe from 'stripe';
 
 // ─── Firebase Admin (lazy init — must be inside handler, not module scope) ───
@@ -53,6 +54,7 @@ function getStripe() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+    let balCents = 0;
     let {
       tenantId,
       bookingRequestId,
@@ -79,6 +81,7 @@ export async function POST(req: NextRequest) {
       const cents = Math.round(Number(ap.depositAmountCents) || 0);
       if (cents <= 0) return NextResponse.json({ error: 'No deposit is due for this booking.' }, { status: 409 });
       depositAmount = cents / 100;
+      balCents = balanceDueWith(ap);   // a balance collected with this deposit
       // Appointments link to the client record rather than copying the email.
       const cl = ap.clientId ? (((await db.doc(`tenants/${tenantId}/clients/${ap.clientId}`).get()).data() as any) || {}) : {};
       clientName = ap.clientName || cl.name || clientName; clientEmail = ap.clientEmail || cl.email || clientEmail;
@@ -146,6 +149,9 @@ export async function POST(req: NextRequest) {
             },
             quantity: 1,
           },
+          // A balance collected with this deposit (unpaid-fee rule "with the deposit") — its own line.
+          ...(balCents > 0 ? [{ price_data: { currency: 'usd', unit_amount: balCents, product_data: { name: 'Balance from a previous visit', description: 'Clears what you owe — not part of your deposit.' } }, quantity: 1 }] : []),
+
         ],
         // Save the card for future off-session charges (final balance, fees, etc.)
         // Metadata on the SESSION does not reach the charge; the fee handler
