@@ -31,17 +31,21 @@ function Signature({ onChange }: { onChange: (dataUrl: string | null) => void })
 export default function ClientScreenPage() {
   const { firestore } = useFirebase() as any;
   const [id, setId] = React.useState<string | null>(null); const [s, setS] = React.useState<any>(null); const [err, setErr] = React.useState<string | null>(null);
+  const [code, setCode] = React.useState<string | null>(null);   // shown at once — no waiting on the database
+  const [blocked, setBlocked] = React.useState(false);            // the database refused to let this screen read its status
   const [custom, setCustom] = React.useState(''); const [sig, setSig] = React.useState<string | null>(null); const [busy, setBusy] = React.useState(false);
   const [rch, setRch] = React.useState<'email' | 'sms' | null>(null); const [rto, setRto] = React.useState(''); const [rmsg, setRmsg] = React.useState<string | null>(null);
   // Pair (or reuse this iPad's pairing).
   React.useEffect(() => {
     let saved: string | null = null; try { saved = localStorage.getItem(KEY); } catch { /* private mode */ }
     if (saved) { setId(saved); return; }
-    call({ action: 'pair_start' }).then((r: any) => { if (r?.ok) { try { localStorage.setItem(KEY, r.screenId); } catch { /* */ } setId(r.screenId); } else setErr(r?.error || 'Couldn’t start pairing.'); });
+    call({ action: 'pair_start' }).then((r: any) => { if (r?.ok) { try { localStorage.setItem(KEY, r.screenId); } catch { /* */ } setCode(r.code); setId(r.screenId); } else setErr(r?.error || 'Couldn’t start pairing — check the connection and reload.'); });
   }, []);
   React.useEffect(() => { if (!firestore || !id) return; return onSnapshot(doc(firestore, 'clientScreens', id), (snap) => {
     if (!snap.exists()) { try { localStorage.removeItem(KEY); } catch { /* */ } setId(null); window.location.reload(); return; }
-    setS(snap.data()); }, () => setErr('Lost connection — reconnecting…')); }, [firestore, id]);
+    const d: any = snap.data();
+    if (!d?.tenantId && d?.codeExpiresAt && Date.parse(d.codeExpiresAt) < Date.now()) { try { localStorage.removeItem(KEY); } catch { /* */ } window.location.reload(); return; }   // expired code → a fresh one
+    setBlocked(false); setS(d); }, (e: any) => { if (String(e?.code || e?.message || '').includes('permission')) setBlocked(true); else setErr('Lost connection — reconnecting…'); }); }, [firestore, id]);
   // Stay awake; tell the desk we're here.
   React.useEffect(() => { let lock: any = null; const ask = async () => { try { lock = await (navigator as any).wakeLock?.request('screen'); } catch { /* not supported */ } };
     ask(); const vis = () => { if (document.visibilityState === 'visible') ask(); }; document.addEventListener('visibilitychange', vis); return () => { document.removeEventListener('visibilitychange', vis); try { lock?.release(); } catch { /* */ } }; }, []);
@@ -55,11 +59,22 @@ export default function ClientScreenPage() {
       <div className="w-full max-w-2xl space-y-6">{children}</div>
       {err && <p role="alert" className="mt-6 text-[18px] font-semibold" style={{ color: '#a15c07' }}>{err}</p>}
     </main>);
-  if (!id || !s) return shell(<><p className="text-center text-[22px]" style={{ color: '#78716c' }}>{err || 'Starting…'}</p></>);
+  const startOver = <button type="button" onClick={() => { try { localStorage.removeItem(KEY); } catch { /* */ } window.location.reload(); }} className="mx-auto block text-[16px] font-semibold underline underline-offset-4" style={{ color: '#57534e' }}>Start over with a new code</button>;
+  if (blocked) return shell(<>
+    <p className="text-center text-[26px] font-semibold">This screen can’t read its status yet</p>
+    {code && <><p className="text-center text-[18px]" style={{ color: '#78716c' }}>Your pairing code</p><p className="text-center text-[56px] font-semibold tracking-[0.2em] tabular-nums">{code}</p></>}
+    <p className="text-center text-[17px]" style={{ color: '#57534e' }}>The database rules that let a client screen read its own status haven’t been published. In the Firebase console → Firestore → Rules, paste the latest rules and tap Publish, then reload this page.</p>
+    {startOver}</>);
+  if (!id || !s) return shell(<>
+    {code ? <><p className="text-center text-[18px]" style={{ color: '#78716c' }}>Pair this screen with your front desk</p><p className="text-center text-[64px] font-semibold tracking-[0.2em] tabular-nums">{code}</p>
+      <p className="text-center text-[17px]" style={{ color: '#78716c' }}>At the POS: <b>● Client screen</b> → enter this code → <b>Pair</b>.</p></>
+      : <p className="text-center text-[22px]" style={{ color: '#78716c' }}>{err || 'Starting…'}</p>}
+    {id && !code && startOver}</>);
   if (!s.tenantId) return shell(<>
     <p className="text-center text-[18px]" style={{ color: '#78716c' }}>Pair this screen with your front desk</p>
     <p className="text-center text-[64px] font-semibold tracking-[0.2em] tabular-nums">{s.code || '······'}</p>
-    <p className="text-center text-[17px]" style={{ color: '#78716c' }}>At the POS: <b>Client screen → Pair a screen</b>, then enter this code.</p>
+    <p className="text-center text-[17px]" style={{ color: '#78716c' }}>At the POS: <b>● Client screen</b> → enter this code → <b>Pair</b>.</p>
+    {startOver}
   </>);
   const brandTop = <div className="flex flex-col items-center gap-3">{s.brand?.logo ? <img src={s.brand.logo} alt="" className="max-h-20 max-w-[60%] object-contain" /> : null}{s.brand?.name ? <p className="text-[20px] font-semibold">{s.brand.name}</p> : null}</div>;
   const tk = s.ticket;
