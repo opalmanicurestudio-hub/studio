@@ -816,6 +816,15 @@ export async function POST(req: NextRequest) {
         reminderSent: false,
         autoCancelledNoShow: false,
       };
+      // Linked bookings (a repeat series, or the later parts of a group / visit): the deposit is held by the
+      // first booking ("covered") or taken before this visit ("scheduled") — so this one is CONFIRMED now and the
+      // unpaid-hold release never cancels it. Staff only.
+      const depScheduledMs = staffSet ? Date.parse(String(body.depositScheduledAt || '')) : NaN;
+      if (staffSet && plan.depositCents > 0 && payload.status === 'pending_payment' && (body.depositCovered === true || Number.isFinite(depScheduledMs))) {
+        Object.assign(payload, Number.isFinite(depScheduledMs)
+          ? { status: 'confirmed', depositStatus: 'scheduled', depositDueAt: new Date(Math.max(depScheduledMs, Date.now() + 3600000)).toISOString(), paymentDueAt: null }
+          : { status: 'confirmed', depositStatus: 'covered', depositCoveredBy: String(body.depositCoveredBy || 'series').slice(0, 64), paymentDueAt: null });
+      }
       tx.set(aptsRef.doc(aptId), payload);
       tx.set(db.doc(`tenants/${tenantId}/appointmentCheckIns/${token}`), payload);
       tx.set(db.doc(`appointmentCheckIns/${token}`), payload); // TODO: remove after legacy rule closes
