@@ -34,6 +34,37 @@ export async function POST(req: NextRequest) {
   }
   const screenId = String(b.screenId || '');
   // ── Public: the client answers on the screen ──
+  if (action === 'pay_view' || action === 'pay_save' || action === 'pay_done') {
+    if (screenId.length < 30) return NextResponse.json({ ok: false, error: 'Unknown screen.' }, { status: 404 });
+    const ref = db.doc(`clientScreens/${screenId}`); const s: any = (await ref.get()).data();
+    const q = s?.request;
+    if (!s?.tenantId || q?.kind !== 'pay' || q.id !== String(b.requestId || '')) return NextResponse.json({ ok: false, error: 'This payment isn’t open any more.' }, { status: 409 });
+    const T = `tenants/${s.tenantId}`; const t: any = ((await db.doc(T).get()).data() as any) || {};
+    const acct = t.stripeAccountId; if (!acct || !process.env.STRIPE_SECRET_KEY) return NextResponse.json({ ok: false, error: 'Card payments aren’t set up for this business.' }, { status: 400 });
+    const Stripe = (await import('stripe')).default; const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' as any });
+    if (action === 'pay_view') return NextResponse.json({ ok: true, clientSecret: q.clientSecret, publishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '', stripeAccount: acct,
+      amount: num(q.amount), business: t.name || 'Payment', allowSave: !!q.allowSave, paid: !!q.answeredAt, accent: t.bookingPageSettings?.cfPageConfig?.accentColor || t.brandColor || null });
+    if (q.answeredAt) return NextResponse.json({ ok: true, already: true });
+    if (action === 'pay_save') {   // the client's own "save my card for next time" — applied before they pay
+      if (!q.allowSave) return NextResponse.json({ ok: false, error: 'Saving a card isn’t offered here.' }, { status: 400 });
+      await stripe.paymentIntents.update(q.paymentIntentId, { setup_future_usage: b.save === true ? 'off_session' : ('' as any) } as any, { stripeAccount: acct } as any);
+      await ref.update({ 'request.saveCard': b.save === true });
+      return NextResponse.json({ ok: true });
+    }
+    // pay_done — trust Stripe, never the screen
+    const pi: any = await stripe.paymentIntents.retrieve(q.paymentIntentId, { stripeAccount: acct } as any);
+    if (pi.status !== 'succeeded') return NextResponse.json({ ok: false, error: pi.status === 'processing' ? 'Still processing — one moment.' : 'The payment didn’t go through.' }, { status: 409 });
+    if (pi.amount !== Math.round(num(q.amount) * 100)) return NextResponse.json({ ok: false, error: 'The amount doesn’t match.' }, { status: 409 });
+    let saved = false;
+    if (q.saveCard && q.clientId && pi.payment_method) {   // their card, saved because THEY ticked the box
+      try { const pm: any = await stripe.paymentMethods.retrieve(String(pi.payment_method), { stripeAccount: acct } as any);
+        await db.doc(`${T}/clients/${q.clientId}`).set({ cardOnFile: { customerId: typeof pi.customer === 'string' ? pi.customer : q.customerId || null, paymentMethodId: pm.id, brand: pm.card?.brand || null, last4: pm.card?.last4 || null,
+          expMonth: pm.card?.exp_month || null, expYear: pm.card?.exp_year || null, savedAt: now(), savedVia: 'client_screen', consent: 'Client ticked “Save my card for next time”' } }, { merge: true }); saved = true; } catch (e) { console.error('[client-screen] save card', e); }
+    }
+    await ref.update({ request: { ...q, answeredAt: now() }, response: { requestId: q.id, kind: 'pay', paid: true, paymentIntentId: pi.id, amount: num(q.amount), saved, at: now() }, lastSeen: now() });
+    if (q.pendingId) await db.doc(`${T}/pendingCheckouts/${q.pendingId}`).set({ paymentIntentId: pi.id, paidAt: now(), paidVia: 'client_screen', status: 'paid_waiting' }, { merge: true }).catch(() => {});   // if the desk misses it, a manager can still record it
+    return NextResponse.json({ ok: true, saved });
+  }
   if (action === 'respond' || action === 'receipt' || action === 'ping') {
     if (screenId.length < 30) return NextResponse.json({ ok: false, error: 'Unknown screen.' }, { status: 404 });
     const ref = db.doc(`clientScreens/${screenId}`); const s: any = (await ref.get()).data();
@@ -115,13 +146,27 @@ export async function POST(req: NextRequest) {
   }
   if (action === 'request') {
     const kind = String(b.kind || '');
-    if (!['tip', 'approve', 'thanks', 'idle', 'cash', 'change'].includes(kind)) return NextResponse.json({ ok: false, error: 'Unknown request.' }, { status: 400 });
+    if (!['tip', 'approve', 'thanks', 'idle', 'cash', 'change', 'pay'].includes(kind)) return NextResponse.json({ ok: false, error: 'Unknown request.' }, { status: 400 });
     const q: any = { id: rid(), kind, at: now(), requestedBy: auth.actor.name };
     if (kind === 'tip') { q.base = Math.max(0, num(b.base)); q.presets = settings.tipPresets; q.allowCustom = settings.allowCustomTip; q.showNoTip = settings.showNoTip; q.tipOn = settings.tipOn; }
     if (kind === 'approve') { q.amount = num(b.amount); q.cardLabel = String(b.cardLabel || '').slice(0, 40) || 'your card on file'; q.clientId = b.clientId || null; q.clientName = b.clientName || null;
       q.signature = settings.signCardOnFile && (!settings.signOver || q.amount >= settings.signOver);
       q.text = `I authorise ${brand.name || 'the business'} to charge $${q.amount.toFixed(2)} to ${q.cardLabel}.`; }
     if (kind === 'cash') { q.due = num(b.due); }
+    if (kind === 'pay') {   // the client pays on the iPad (card form) or their phone (QR) — a payment made on this business's account
+      const acct = t.stripeAccountId; if (!acct || !process.env.STRIPE_SECRET_KEY) return NextResponse.json({ ok: false, error: 'Connect Stripe first (Settings → Payments).' }, { status: 400 });
+      const amountCents = Math.round(num(b.amount) * 100); if (amountCents < 50) return NextResponse.json({ ok: false, error: 'Nothing to charge.' }, { status: 400 });
+      const Stripe = (await import('stripe')).default; const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' as any });
+      let customerId: string | undefined;
+      const cid = b.clientId ? String(b.clientId) : null; const cl: any = cid ? (((await db.doc(`tenants/${tenantId}/clients/${cid}`).get()).data() as any) || null) : null;
+      if (cl) { customerId = cl.cardOnFile?.customerId || undefined;
+        if (!customerId) { const c = await stripe.customers.create({ name: cl.name || undefined, email: cl.email || undefined, phone: cl.phone || undefined, metadata: { tenantId, clientId: cid! } } as any, { stripeAccount: acct } as any); customerId = c.id; } }
+      const pi: any = await stripe.paymentIntents.create({ amount: amountCents, currency: 'usd', automatic_payment_methods: { enabled: true }, ...(customerId ? { customer: customerId } : {}),
+        description: `${t.name || 'Sale'} — ${cl?.name || 'client'}`, metadata: { tenantId, clientId: cid || '', source: 'client_screen', screenId, pendingCheckoutId: String(b.pendingId || '') } } as any, { stripeAccount: acct } as any);
+      q.amount = amountCents / 100; q.paymentIntentId = pi.id; q.clientSecret = pi.client_secret; q.clientId = cid; q.customerId = customerId || null; q.allowSave = !!cl && settings.offerSaveCard !== false; q.saveCard = false; q.pendingId = b.pendingId ? String(b.pendingId) : null;
+      q.phoneUrl = `${linkOrigin(t, req.nextUrl.origin)}/pay/${screenId}?r=${q.id}`;
+      q.payOnScreen = settings.payOnScreen; q.payOnPhone = settings.payOnPhone;
+    }
     if (kind === 'change') { q.due = num(b.due); q.tendered = num(b.tendered); q.change = num(b.change); q.offerKeep = (t?.clientScreen?.offerKeepChange !== false); }
     if (kind === 'thanks') { q.receiptId = b.receiptId || null; q.offerReceipt = settings.offerReceipt; q.total = num(b.total); q.clientFirst = String(b.clientFirst || '').slice(0, 40); }
     await ref.update({ phase: kind === 'idle' ? 'idle' : kind, request: kind === 'idle' ? null : q, response: null, brand, ...(kind === 'idle' || kind === 'thanks' ? { ticket: null } : {}), updatedAt: now() });   // replace, never merge
