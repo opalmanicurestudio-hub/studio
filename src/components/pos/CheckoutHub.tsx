@@ -505,6 +505,11 @@ export const CheckoutHub = ({
   staffDiscount,
   setStaffDiscount,
   staffDiscountValue,
+  groupInfo,
+  groupDiscountRaw,
+  groupDiscountValue,
+  skipGroupDiscount,
+  setSkipGroupDiscount,
   total,
   tipAmount,
   setTipAmount,
@@ -997,6 +1002,11 @@ export const CheckoutHub = ({
               <button type="button" onClick={() => setIsDiscountBrowserOpen(true)} className="shrink-0 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Browse</button>
             </div>
             {appliedDiscountCodes.length > 0 && <div className="flex flex-wrap gap-1.5">{appliedDiscountCodes.map((code: string) => <span key={code} className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-semibold" style={{ background: 'var(--soft)' }}>{code}<button type="button" aria-label={`Remove code ${code}`} onClick={() => setAppliedDiscountCodes(appliedDiscountCodes.filter((c: string) => c !== code))}>✕</button></span>)}</div>}
+            {groupInfo && (skipGroupDiscount || safeNumber(groupDiscountRaw) > 0 || groupInfo.remaining === 0) && <div className="flex items-center justify-between gap-2 rounded-2xl p-3" style={{ background: skipGroupDiscount ? 'var(--soft)' : 'color-mix(in srgb, var(--ok) 9%, transparent)' }}>
+                <p className="text-[14px]"><b>{groupInfo.label}</b> · {groupInfo.servicesPct}% off services{groupInfo.productsPct ? ` · ${groupInfo.productsPct}% off products` : ''}
+                  {skipGroupDiscount ? <span style={muted}> — not applied this time</span> : groupInfo.remaining === 0 ? <span style={muted}> — this month’s limit is used up</span> : safeNumber(groupDiscountValue) > 0 ? <> — <b>−{coMoney(groupDiscountValue)}</b>{Number.isFinite(groupInfo.remaining) ? <span style={muted}> ({coMoney(groupInfo.remaining)} left this month)</span> : null}</> : <span style={muted}> — a bigger discount code applies instead</span>}</p>
+                <button type="button" onClick={() => setSkipGroupDiscount?.(!skipGroupDiscount)} className="shrink-0 text-[13px] font-semibold underline underline-offset-4">{skipGroupDiscount ? 'Apply it' : 'Don’t apply this time'}</button>
+              </div>}
             {staffDiscount ? <div className="flex items-center justify-between gap-2 rounded-2xl p-3" style={{ background: 'var(--soft)' }}>
                 <p className="text-[14px]"><b>Staff discount {staffDiscount.kind === 'pct' ? `${staffDiscount.value}%` : coMoney(staffDiscount.value)}</b> (−{coMoney(staffDiscountValue)}) · {staffDiscount.reason}{staffDiscount.approvedBy ? ` · approved by ${firstOf(staffDiscount.approvedBy)}` : ''}</p>
                 <button type="button" onClick={() => setStaffDiscount?.(null)} className="shrink-0 text-[13px] font-semibold underline underline-offset-4">Remove</button></div>
