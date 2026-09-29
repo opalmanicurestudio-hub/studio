@@ -8,6 +8,7 @@ export function VoidsApprovalsCard({ tenantId, tenant, canEdit }: { tenantId: st
   const { firestore } = useFirebase() as any;
   const [win, setWin] = React.useState<string>(tenant?.voidRules?.window === 'till_open' ? 'till_open' : 'same_day');
   const [phone, setPhone] = React.useState<boolean>(tenant?.approvalRules?.phoneApproval !== false);
+  const [sdLimit, setSdLimit] = React.useState<number>(Number.isFinite(Number(tenant?.approvalRules?.staffDiscountLimitPct)) && tenant?.approvalRules?.staffDiscountLimitPct !== undefined ? Number(tenant.approvalRules.staffDiscountLimitPct) : 10);
   const [msg, setMsg] = React.useState<string | null>(null);
   const [via, setVia] = React.useState<string>(['text', 'email', 'both'].includes(tenant?.approvalRules?.remoteChannel) ? tenant.approvalRules.remoteChannel : 'both');
   const [who, setWho] = React.useState<string[]>(Array.isArray(tenant?.approvalRules?.remoteApproverIds) ? tenant.approvalRules.remoteApproverIds : []);
@@ -23,6 +24,9 @@ export function VoidsApprovalsCard({ tenantId, tenant, canEdit }: { tenantId: st
       <div className="space-y-2 text-sm"><p className="font-semibold">A whole sale can be voided</p>
         <div className="flex flex-wrap gap-2"><Pill on={win === 'same_day'} onClick={() => { setWin('same_day'); save({ 'voidRules.window': 'same_day' }); }}>On the same day</Pill><Pill on={win === 'till_open'} onClick={() => { setWin('till_open'); save({ 'voidRules.window': 'till_open' }); }}>Until that day’s till is closed</Pill></div>
         <p className="text-xs text-muted-foreground">After that, refund it instead. Voids undo the whole sale — card refunded or cash handed back, stock, fees, deposit credit and the till all put right.</p></div>
+      <div className="space-y-2 text-sm"><p className="font-semibold">Staff discounts without a manager</p>
+        <div className="flex flex-wrap gap-2">{[0, 5, 10, 15, 20].map((n) => <Pill key={n} on={sdLimit === n} onClick={() => { setSdLimit(n); save({ 'approvalRules.staffDiscountLimitPct': n }); }}>{n === 0 ? 'Always ask a manager' : `Up to ${n}%`}</Pill>)}</div>
+        <p className="text-xs text-muted-foreground">Staff give discounts with a reason — never by changing a price. Above this, a manager approves. Managers aren’t limited.</p></div>
       <label className="flex items-start gap-3 text-sm"><input type="checkbox" className="mt-1" checked={phone} disabled={!canEdit} onChange={(e) => { setPhone(e.target.checked); save({ 'approvalRules.phoneApproval': e.target.checked }); }} />
         <span><b>Managers can approve from their phone</b> <span className="text-muted-foreground">— the desk can ask, and the manager taps Approve or Decline.</span></span></label>
       {phone && <div className="space-y-3 rounded-2xl bg-slate-50 p-4 text-sm">
