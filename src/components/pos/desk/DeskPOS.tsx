@@ -13,6 +13,7 @@
 //   In service with a provider                       → Finish (provider review → ready to pay)
 //   Ready      ready for checkout                    → Check out (checkout drawer)
 
+import { useBarcodeScanner } from '@/hooks/useBarcodeScanner';
 import { useClientScreen, ClientScreenPanel } from '@/components/pos/ClientScreen';
 import { TodaysSales } from '@/components/pos/desk/TodaysSales';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -76,6 +77,8 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const [logCallOpen, setLogCallOpen] = useState(false);
   const [salesOpen, setSalesOpen] = useState(false);
   const [screenOpen, setScreenOpen] = useState(false);
+  useBarcodeScanner((code) => e.handlePosScan?.(code), !!e.handlePosScan);   // USB / Bluetooth scanners, anywhere on the desk
+  useEffect(() => { const open = () => { setMode('desk'); setCheckoutOpen(true); }; window.addEventListener('cf:open-checkout', open); return () => window.removeEventListener('cf:open-checkout', open); }, []);
   const clientScreen = useClientScreen(e.tenantId);
   const [overFor, setOverFor] = useState<any>(null); // a service running over → tell the next guests
   const [mode, setMode] = useState<'desk' | 'counter'>('desk');
@@ -391,6 +394,11 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       </Drawer>
       <TodaysSales open={salesOpen} onClose={() => setSalesOpen(false)} tenantId={e.tenantId} tenant={e.selectedTenant} transactions={e.transactions || []} staff={e.staff || []} role={(e as any).role || null} />
       <LogCallSheet open={logCallOpen} onClose={() => setLogCallOpen(false)} tenantId={e.tenantId} tenant={e.selectedTenant} clients={e.clients || []} staff={e.staff || []} appointments={e.appointmentsFromInventory || []} uid={e.currentUser?.uid || null} />
+      <Drawer accent={accent} open={!!e.variantChoice} onClose={() => e.setVariantChoice?.(null)} title={`Which ${e.variantChoice?.parent?.name || 'one'}?`}>
+        <div className="grid grid-cols-2 gap-2">{(e.variantChoice?.variants || []).map((v: any) => <button key={v.id} type="button" onClick={() => { e.addProductChecked?.(v); e.setVariantChoice?.(null); }} className="rounded-2xl p-4 text-left" style={{ background: 'var(--card)', border: '1px solid var(--line)' }}>
+          <span className="block text-[15px] font-semibold">{v.name}</span><span className="block text-[14px] tabular-nums">${Number(v.msrp || v.costPerUnit || 0).toFixed(2)}</span>
+          <span className="block text-[12px]" style={{ color: 'var(--muted)' }}>{Math.max(0, (Number(v.totalStock) || 0) - (Number(v.stockReserved) || 0))} on the shelf</span></button>)}</div>
+      </Drawer>
       <Drawer accent={accent} open={screenOpen} onClose={() => setScreenOpen(false)} title="Client screen"><ClientScreenPanel tenantId={e.tenantId} /></Drawer>
       <Drawer accent={accent} open={attnOpen} onClose={() => setAttnOpen(false)} title="Needs attention">
         {attnOpen && <OpsBoard appts={todaysAppts} staff={(e.staff || []).filter((s: any) => s.isActive !== false)} tenant={e.selectedTenant} tenantId={e.tenantId} role={e.role} uid={e.currentUser?.uid} />}
