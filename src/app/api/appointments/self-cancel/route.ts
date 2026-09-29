@@ -51,6 +51,7 @@
  * not something this route implements itself.
  */
 
+import { laterSeriesVisits, seriesMoveDepositOn, markDepositMoved, cancelLaterVisits } from '@/lib/series';
 import { staffOrServer } from '@/lib/route-guard';
 import { hasRealCard } from '@/lib/card-on-file';
 import { resolveDepositPolicy, rolloverExpiryISO } from '@/lib/deposit-policy';
@@ -197,6 +198,8 @@ export async function GET(req: NextRequest) {
     // Exactly what will happen, in the business's policy wording — shown BEFORE they confirm.
     preview: appt.isRenterBooking ? null : { lines: cancellationOutcomeLines(pv.plan.outcome, { preview: true }), due: pv.plan.due, applied: pv.plan.applied, fee: pv.plan.fee },
     grace: gracePreview,
+    // A repeat series: how many later visits could be cancelled with this one, and whether the deposit moves.
+    series: appt.seriesId ? { later: (await laterSeriesVisits(db, tenantId, { ...appt, id: appointmentId })).length, depositMoves: seriesMoveDepositOn(tenant) && appt.depositStatus === 'paid' } : null,
     feeBlock, unpaidLine: pv.plan.due > 0 ? unpaidFeeLine(unpaidRule) : null,
     ok: true,
     appointment: {
@@ -519,13 +522,15 @@ export async function POST(req: NextRequest) {
     } catch (e) { console.error('[self-cancel] renter voice', e); }
   }
 
+  // A repeat series: an on-time cancel of the visit holding the deposit keeps it as credit for the next visit.
+  const moveSeriesDeposit = !isReschedule && !isLate && !!appt.seriesId && appt.depositStatus === 'paid' && seriesMoveDepositOn(tenant);
   // ── Deposit disposition — best-effort, non-blocking. The appointment is ──
   // already cancelled by this point; a deposit-credit lookup hiccup should
   // never prevent a client from completing a cancellation they're entitled to.
   try {
     // A reschedule moved the deposit with the visit; there is nothing to refund.
     if (!isReschedule) await resolveDepositForClientCancel({ db, FieldValue, tenantId, appt, appointmentId, client, isLate, now,
-      ...(pv ? { outcome: (pv.plan.outcome.deposit?.outcome as any) || null, creditId: pv.credit?.id || null, depositPolicy: pv.dp } : {}) });
+      ...(pv ? { outcome: (moveSeriesDeposit ? 'rollover' : (pv.plan.outcome.deposit?.outcome as any)) || null, creditId: pv.credit?.id || null, depositPolicy: pv.dp } : moveSeriesDeposit ? { outcome: 'rollover' } : {}) });
   } catch (e) {
     console.error('[self-cancel deposit resolution]', e);
   }
@@ -536,7 +541,13 @@ export async function POST(req: NextRequest) {
     const outcome = { ...pv.plan.outcome, collected: !chargeFee ? pv.plan.outcome.collected : chargedIntentId ? 'card' : 'balance' } as any;
     try { lines = (await sendCancellationNotice(db, tenantId, appointmentId, outcome, internalOrigin(tenant, req.nextUrl.origin), { ...appt, status: 'cancelled' })).lines; } catch (e) { console.error('[self-cancel notice]', e); }
   }
-  return NextResponse.json({ ok: true, feeCharged: chargeFee, feeAmount, isLate, packageNote, lines });
+  // Repeat series follow-through: the moved deposit, and "this and all later visits".
+  let depositMovedTo: string | null = null, laterCancelled = 0;
+  try {
+    if (moveSeriesDeposit) depositMovedTo = await markDepositMoved(db, tenantId, { ...appt, id: appointmentId }, appt.clientName || 'Client');
+    if (!isReschedule && appt.seriesId && body.scope === 'series') laterCancelled = await cancelLaterVisits(db, tenantId, { ...appt, id: appointmentId }, { name: appt.clientName || 'Client', role: 'client' });
+  } catch (e) { console.error('[self-cancel series]', e); }
+  return NextResponse.json({ ok: true, feeCharged: chargeFee, feeAmount, isLate, packageNote, lines, ...(appt.seriesId ? { depositMovedTo, laterCancelled } : {}) });
 }
 
 // ── Deposit resolution — mirrors useCancellationConfirm v3's client-cancel ────
