@@ -50,7 +50,10 @@ export default function ClientScreenPage() {
   React.useEffect(() => { let lock: any = null; const ask = async () => { try { lock = await (navigator as any).wakeLock?.request('screen'); } catch { /* not supported */ } };
     ask(); const vis = () => { if (document.visibilityState === 'visible') ask(); }; document.addEventListener('visibilitychange', vis); return () => { document.removeEventListener('visibilitychange', vis); try { lock?.release(); } catch { /* */ } }; }, []);
   React.useEffect(() => { if (!id || !s?.tenantId) return; call({ action: 'ping', screenId: id }); const t = setInterval(() => call({ action: 'ping', screenId: id }), 60000); return () => clearInterval(t); }, [id, s?.tenantId]);
-  const q = s?.request; React.useEffect(() => { setCustom(''); setSig(null); setRch(null); setRto(''); setRmsg(null); setErr(null); }, [q?.id]);
+  const [thanksOver, setThanksOver] = React.useState<string | null>(null);   // the thank-you goes back to the welcome after a minute
+  const q = s?.request;
+  React.useEffect(() => { if (q?.kind !== 'thanks' || !q.id) return; const t = setTimeout(() => setThanksOver(q.id), 60000); return () => clearTimeout(t); }, [q?.kind, q?.id]);
+  React.useEffect(() => { setCustom(''); setSig(null); setRch(null); setRto(''); setRmsg(null); setErr(null); }, [q?.id]);
   const accent = s?.brand?.accent || '#1c1917';
   const respond = async (body: any) => { setBusy(true); setErr(null); const r: any = await call({ action: 'respond', screenId: id, requestId: q?.id, ...body }); setBusy(false); if (!r?.ok) setErr(r?.error || 'That didn’t go through — please try again.'); };
   const big = 'min-h-[76px] rounded-3xl px-6 text-[22px] font-semibold transition active:scale-[.98] disabled:opacity-40';
@@ -106,8 +109,23 @@ export default function ClientScreenPage() {
     </div>
   </>);
   if ((q?.kind === 'tip' || q?.kind === 'approve') && q.answeredAt) return shell(<>{brandTop}<p className="text-center text-[30px] font-semibold">Thank you</p><p className="text-center text-[20px]" style={{ color: '#78716c' }}>Just a moment…</p></>);
+  // Cash: what's due, then their change (with "keep it as a tip")
+  if (q?.kind === 'cash') return shell(<>{brandTop}
+    <p className="text-center text-[22px]" style={{ color: '#57534e' }}>Paying cash</p>
+    <p className="text-center text-[64px] font-semibold tabular-nums">{money(q.due)}</p>
+  </>);
+  if (q?.kind === 'change' && !q.answeredAt) return shell(<>{brandTop}
+    <p className="text-center text-[22px]" style={{ color: '#57534e' }}>You gave {money(q.tendered)} · total {money(q.due)}</p>
+    <p className="text-center text-[26px] font-semibold">Your change</p>
+    <p className="text-center text-[64px] font-semibold tabular-nums">{money(q.change)}</p>
+    {q.offerKeep && <div className="grid grid-cols-2 gap-3">
+      <button type="button" disabled={busy} onClick={() => respond({ keep: false })} className={big} style={{ background: '#fff', border: '2px solid #e7e2dc' }}>My change, please</button>
+      <button type="button" disabled={busy} onClick={() => respond({ keep: true })} className={big} style={{ background: accent, color: '#fff' }}>Keep it as a tip</button>
+    </div>}
+  </>);
+  if (q?.kind === 'change' && q.answeredAt) return shell(<>{brandTop}<p className="text-center text-[30px] font-semibold">{s.response?.keep ? 'Thank you — that’s very kind!' : 'Here’s your change'}</p>{!s.response?.keep && <p className="text-center text-[48px] font-semibold tabular-nums">{money(q.change)}</p>}</>);
   // Thank you (+ receipt)
-  if (q?.kind === 'thanks') return shell(<>{brandTop}
+  if (q?.kind === 'thanks' && thanksOver !== q.id) return shell(<>{brandTop}
     <p className="text-center text-[40px] font-semibold">Thank you{q.clientFirst ? `, ${q.clientFirst}` : ''}!</p>
     {q.total ? <p className="text-center text-[22px]" style={{ color: '#57534e' }}>Paid {money(q.total)}</p> : null}
     {q.offerReceipt && q.receiptId && <div className="space-y-3">
@@ -119,7 +137,9 @@ export default function ClientScreenPage() {
     </div>}
   </>);
   // The live ticket
+  const momentBanner = (tk?.moments || []).length ? <div className="space-y-1 rounded-3xl p-5 text-center" style={{ background: `color-mix(in srgb, ${accent} 10%, #fff)` }}>{tk.moments.map((m: string, i: number) => <p key={i} className="text-[22px] font-semibold">{m}</p>)}</div> : null;
   if (tk && (tk.lines || []).length) return shell(<>
+    {momentBanner}
     <div className="flex items-center justify-between">{s.brand?.logo ? <img src={s.brand.logo} alt="" className="max-h-12 max-w-[40%] object-contain" /> : <p className="text-[20px] font-semibold">{s.brand?.name}</p>}{tk.clientFirst ? <p className="text-[20px]" style={{ color: '#57534e' }}>Hi {tk.clientFirst}</p> : null}</div>
     <div className="space-y-3 rounded-3xl p-6" style={{ background: '#fff', border: '1px solid #e7e2dc' }}>
       {tk.lines.map((l: any, i: number) => <div key={i} className="flex justify-between gap-4 text-[20px]"><span>{l.label}{l.note ? <span style={{ color: '#78716c' }}> · {l.note}</span> : null}</span><span className="tabular-nums">{money(l.amount)}</span></div>)}
@@ -134,6 +154,8 @@ export default function ClientScreenPage() {
       <div className="flex justify-between pt-1 text-[30px] font-semibold"><span>Total</span><span className="tabular-nums">{money(tk.due ?? tk.total)}</span></div>
     </div>
   </>);
+  // A personal welcome (client chosen, nothing rung up yet)
+  if (tk?.clientFirst) return shell(<>{brandTop}<p className="text-center text-[38px] font-semibold">Hi {tk.clientFirst}</p>{momentBanner}<p className="text-center text-[20px]" style={{ color: '#78716c' }}>We’ll have everything ready for you in a moment.</p></>);
   // Welcome
   return shell(<>{brandTop}<p className="text-center text-[26px]" style={{ color: '#57534e' }}>{s.settings?.welcome || 'Welcome'}</p></>);
 }
