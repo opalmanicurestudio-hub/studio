@@ -111,6 +111,11 @@ export interface TicketContext {
 
   /** Extra line in the footer, e.g. a tagline or a cancellation policy. */
   footerNote?: string | null;
+  /** The business's brand colour (Studio look accents) and logo. */
+  accent?: string | null;
+  logoUrl?: string | null;
+  /** 'letter' (default: studio copy + guest stub on one page) or 'receipt' (80 mm thermal: the guest stub alone). */
+  size?: 'letter' | 'receipt' | null;
   /** Hide the "Powered by ClarityFlow" line. */
   hideBranding?: boolean;
 
@@ -298,6 +303,9 @@ function codeBlock(svg: string, human: string, caption: string, note: string): s
  */
 export function appointmentTicketHtml(apt: TicketAppointment, ctx: TicketContext = {}): string {
   const studioName = String(ctx.studioName ?? '').trim() || 'Studio';
+  const accent = /^#[0-9a-fA-F]{3,8}$|^(rgb|hsl)a?\([^)]*\)$/.test(String(ctx.accent || '').trim()) ? String(ctx.accent).trim() : '#1c1917';   // only a real colour reaches the CSS
+  const logo = /^https:\/\//.test(String(ctx.logoUrl || '')) ? String(ctx.logoUrl) : '';
+  const receipt = ctx.size === 'receipt';
   const clientName =
     String(ctx.clientName ?? '').trim() || String(apt.clientName ?? '').trim() || 'Guest';
   const serviceName = String(ctx.serviceName ?? '').trim() || 'Appointment';
@@ -389,131 +397,112 @@ export function appointmentTicketHtml(apt: TicketAppointment, ctx: TicketContext
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" />
 <title>${esc(`Ticket · ${clientName}`)}</title>
 <style>
-  :root { --ink:#0f172a; --muted:#64748b; --soft:#94a3b8; --line:#e2e8f0; --wash:#f8fafc; --accent:#4f46e5; }
+  /* THE STUDIO LOOK — warm paper, Plus Jakarta Sans, soft rounded cards, the business's own colour.
+     The QR and the barcode are never tinted or resized: that's what keeps them scanning. */
+  :root { --ink:#1c1917; --muted:#57534e; --soft:#a8a29e; --line:#e7e2dc; --wash:#f1ece6; --paper:#faf8f5; --accent:${accent}; }
   * { box-sizing:border-box; }
-  html, body { margin:0; padding:0; background:#eef2f7; color:var(--ink);
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  html, body { margin:0; padding:0; background:var(--paper); color:var(--ink);
+    font-family:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-  .toolbar { position:sticky; top:0; z-index:5; display:flex; gap:8px; justify-content:center;
-    padding:14px; background:#0f172a; }
-  .toolbar button { font:inherit; font-weight:800; font-size:12px; letter-spacing:.08em;
-    text-transform:uppercase; color:#0f172a; background:#fff; border:0; border-radius:10px;
-    padding:0 20px; min-height:44px; cursor:pointer; }
-  .toolbar button.secondary { background:transparent; color:#fff; border:1px solid #334155; }
+  .toolbar { position:sticky; top:0; z-index:5; display:flex; gap:8px; justify-content:center; padding:14px;
+    background:rgba(250,248,245,.92); backdrop-filter:blur(8px); border-bottom:1px solid var(--line); }
+  .toolbar button { font:inherit; font-weight:600; font-size:14px; color:#fff; background:var(--accent); border:0; border-radius:999px;
+    padding:0 22px; min-height:44px; cursor:pointer; }
+  .toolbar button.secondary { background:#fff; color:var(--ink); border:1px solid var(--line); }
 
   .sheet { max-width:720px; margin:24px auto; }
-  .ticket { background:#fff; border:2px solid var(--ink); border-radius:20px; overflow:hidden;
-    box-shadow:0 14px 44px rgba(15,23,42,.10); }
+  .ticket { background:#fff; border:1px solid var(--line); border-radius:28px; overflow:hidden; box-shadow:0 18px 50px -24px rgba(28,25,23,.25); }
 
-  .band { display:flex; align-items:center; justify-content:space-between; gap:12px;
-    background:var(--ink); color:#fff; padding:13px 22px; }
-  .band .who { font-size:10px; font-weight:800; letter-spacing:.26em; text-transform:uppercase; }
-  .band .st { font-size:9px; font-weight:800; letter-spacing:.2em; text-transform:uppercase;
-    border:1px solid rgba(255,255,255,.45); border-radius:999px; padding:4px 11px; white-space:nowrap; }
+  .band { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 24px;
+    background:color-mix(in srgb, var(--accent) 9%, #fff); border-bottom:1px solid var(--line); }
+  .band .who { display:flex; align-items:center; gap:10px; font-size:15px; font-weight:700; letter-spacing:-.01em; min-width:0; flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .band .who img { max-height:30px; max-width:140px; object-fit:contain; }
+  .band .st { font-size:12px; font-weight:600; color:var(--accent); background:#fff; border:1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+    border-radius:999px; padding:5px 12px; white-space:nowrap; }
 
   .body { padding:24px 26px 26px; }
-  .eyebrow { font-size:9px; font-weight:800; letter-spacing:.28em; text-transform:uppercase;
-    color:var(--soft); margin:0 0 6px; }
-  h1 { font-size:29px; line-height:1.08; letter-spacing:-.025em; margin:0 0 4px; font-weight:800; }
-  .svc { font-size:15px; font-weight:600; color:#334155; margin:0; }
+  .eyebrow { font-size:11px; font-weight:600; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); margin:0 0 6px; }
+  h1 { font-size:30px; line-height:1.08; letter-spacing:-.025em; margin:0 0 4px; font-weight:700; }
+  .svc { font-size:16px; font-weight:500; color:var(--muted); margin:0; }
 
-  .when { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 14px;
-    border:2px solid var(--ink); border-radius:14px; padding:14px 18px; margin:20px 0 4px; }
-  .when .d { font-size:13px; font-weight:700; letter-spacing:.02em; color:#334155; width:100%; }
-  .when .t { font-size:24px; font-weight:800; letter-spacing:-.02em; }
-  .when .dur { font-size:11px; font-weight:800; letter-spacing:.16em; text-transform:uppercase;
-    color:var(--muted); }
+  .when { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 14px; background:var(--wash); border-radius:18px; padding:14px 18px; margin:20px 0 4px; }
+  .when .d { font-size:14px; font-weight:600; color:var(--muted); width:100%; }
+  .when .t { font-size:26px; font-weight:700; letter-spacing:-.02em; white-space:nowrap; }
+  .when .dur { font-size:12px; font-weight:600; color:var(--muted); }
 
   .fields { display:grid; grid-template-columns:1fr 1fr; gap:0 26px; margin:14px 0 0; }
   .f { border-bottom:1px solid var(--line); padding:10px 0; min-width:0; }
-  .k { font-size:9px; font-weight:800; letter-spacing:.2em; text-transform:uppercase; color:var(--muted); }
+  .k { font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--soft); }
   .v { font-size:15px; font-weight:600; margin-top:2px; overflow-wrap:break-word; }
 
-  h2 { font-size:10px; font-weight:800; letter-spacing:.22em; text-transform:uppercase;
-    color:var(--accent); margin:22px 0 8px; }
-  .pill { display:inline-block; border:1.5px solid var(--ink); border-radius:999px;
-    padding:4px 11px; font-size:11px; font-weight:700; margin:0 6px 6px 0; }
-  .note { background:var(--wash); border:1px solid var(--line); border-left:3px solid var(--ink);
-    border-radius:10px; padding:11px 13px; font-size:13px; line-height:1.5; color:#334155;
-    white-space:pre-wrap; overflow-wrap:break-word; }
+  h2 { font-size:12px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--accent); margin:22px 0 8px; }
+  .pill { display:inline-block; background:var(--wash); border-radius:999px; padding:5px 12px; font-size:12px; font-weight:600; margin:0 6px 6px 0; }
+  .note { background:var(--paper); border:1px solid var(--line); border-left:3px solid var(--accent); border-radius:14px; padding:11px 13px;
+    font-size:13px; line-height:1.5; color:var(--muted); white-space:pre-wrap; overflow-wrap:break-word; }
   ul.amen { list-style:none; margin:0; padding:0; }
-  ul.amen li { display:flex; align-items:center; justify-content:space-between; gap:10px;
-    border-bottom:1px solid #f1f5f9; padding:7px 0; font-size:13px; font-weight:600; }
-  .tag { font-size:9px; font-weight:800; letter-spacing:.16em; text-transform:uppercase;
-    color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:3px 9px;
-    white-space:nowrap; }
+  ul.amen li { display:flex; align-items:center; justify-content:space-between; gap:10px; border-bottom:1px solid var(--line); padding:7px 0; font-size:13px; font-weight:600; }
+  .tag { font-size:11px; font-weight:600; color:var(--muted); background:var(--wash); border-radius:999px; padding:3px 9px; white-space:nowrap; }
 
   .code { display:flex; align-items:center; gap:16px; margin-top:10px; }
-  .art { flex:0 0 auto; line-height:0; }
+  .art { flex:0 0 auto; line-height:0; background:#fff; }
   .art svg { display:block; }
   .art-empty { line-height:1.2; }
   .code-txt { min-width:0; }
-  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:17px;
-    font-weight:700; letter-spacing:.16em; margin-top:3px; overflow-wrap:break-word; }
-  .mono-big { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:22px;
-    font-weight:700; letter-spacing:.14em; }
-  .hint { font-size:11px; color:var(--muted); margin-top:4px; line-height:1.45; }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:17px; font-weight:700; letter-spacing:.16em; margin-top:3px; overflow-wrap:break-word; }
+  .mono-big { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:22px; font-weight:700; letter-spacing:.14em; }
+  .hint { font-size:12px; color:var(--muted); margin-top:4px; line-height:1.45; }
 
-  /* The label needs clearance below it: with no bottom margin its descenders sit
-     on the stub's dashed top border and the words read as struck through. */
-  .tear { display:flex; align-items:center; gap:10px; margin:0 0 10px; padding:0 6px;
-    color:var(--soft); font-size:9px; font-weight:800; letter-spacing:.22em;
-    line-height:1.6; text-transform:uppercase; }
-  .tear .ln { flex:1 1 auto; border-top:2px dashed #cbd5e1; }
+  .tear { display:flex; align-items:center; gap:10px; margin:0 0 10px; padding:0 6px; color:var(--soft); font-size:11px; font-weight:600;
+    letter-spacing:.12em; line-height:1.6; text-transform:uppercase; }
+  .tear .ln { flex:1 1 auto; border-top:2px dashed var(--line); }
   .stub-wrap { margin-top:18px; }
 
-  .stub { background:#fff; border:2px dashed var(--ink); border-radius:18px; padding:20px 22px;
-    display:flex; gap:20px; align-items:center; }
+  .stub { background:#fff; border:2px dashed color-mix(in srgb, var(--accent) 35%, var(--line)); border-radius:24px; padding:20px 22px; display:flex; gap:20px; align-items:center; }
   .stub .left { flex:1 1 auto; min-width:0; }
   .stub .right { flex:0 0 auto; text-align:center; }
-  .stub h3 { font-size:20px; letter-spacing:-.02em; margin:2px 0 2px; font-weight:800; }
-  .stub .meta { font-size:12px; color:#334155; font-weight:600; }
-  .stub .big-code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-    font-size:26px; font-weight:800; letter-spacing:.2em; margin:10px 0 2px; }
-  .stub .url { font-size:10px; color:var(--muted); overflow-wrap:break-word; }
+  .stub h3 { font-size:22px; letter-spacing:-.02em; margin:2px 0 2px; font-weight:700; }
+  .stub .meta { font-size:13px; color:var(--muted); font-weight:500; }
+  .stub .big-code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:28px; font-weight:700; letter-spacing:.24em; margin:10px 0 2px; color:var(--ink); }
+  .stub .url { font-size:11px; color:var(--soft); overflow-wrap:break-word; }
 
-  .foot { margin:14px 4px 0; font-size:10px; color:#94a3b8; text-align:center; }
+  .foot { margin:14px 4px 0; font-size:11px; color:var(--soft); text-align:center; }
 
   @media (max-width:560px) {
-    .sheet { margin:14px 12px; }
-    .body { padding:20px 18px 22px; }
-    h1 { font-size:24px; }
-    .fields { grid-template-columns:1fr; }
-    .code { flex-direction:column; align-items:flex-start; }
-    .stub { flex-direction:column; align-items:flex-start; }
-    .stub .right { text-align:left; }
+    .sheet { margin:14px 12px; } .body { padding:20px 18px 22px; } h1 { font-size:25px; } .fields { grid-template-columns:1fr; }
+    .code { flex-direction:column; align-items:flex-start; } .stub { flex-direction:column; align-items:flex-start; } .stub .right { text-align:left; }
   }
+  /* RECEIPT PRINTER (80 mm): the guest stub on its own, one narrow column, no tints (thermal paper is black on white). */
+  body.receipt .sheet { max-width:300px; margin:12px auto; }
+  body.receipt .ticket, body.receipt .tear { display:none; }
+  body.receipt .stub-wrap { margin:0; }
+  body.receipt .stub { flex-direction:column; align-items:center; text-align:center; border-radius:18px; padding:16px 14px; gap:10px; }
+  body.receipt .stub .right { text-align:center; }
+  body.receipt .band-mini { display:flex !important; }
+  body.receipt .stub .eyebrow { display:none; }   /* the business name is already at the top */
 
-  /* On screen the ticket can breathe. On paper it has to fit one sheet with the
-     stub attached, or the guest copy lands alone on page two — so the spacing is
-     compressed here rather than compromised everywhere. Type sizes and the two
-     code SVGs are untouched, because shrinking those is what makes a barcode
-     stop scanning. */
   @media print {
-    body { background:#fff; }
-    .toolbar { display:none; }
+    body { background:#fff; } .toolbar { display:none; }
     .sheet { max-width:none; margin:0; }
-    .ticket { box-shadow:none; border-radius:16px; break-inside:avoid; page-break-inside:avoid; }
+    .ticket { box-shadow:none; border-radius:20px; break-inside:avoid; page-break-inside:avoid; }
     .stub { break-inside:avoid; page-break-inside:avoid; padding:15px 18px; }
-    .stub-wrap { margin-top:8px; }
-    .tear { margin:0 0 7px; }
-    .band { background:var(--ink) !important; color:#fff !important; padding:10px 20px; }
-    .body { padding:16px 20px 18px; }
-    h1 { font-size:26px; }
-    h2 { margin:13px 0 6px; }
-    .when { padding:11px 15px; margin:13px 0 0; }
-    .fields { margin-top:8px; }
-    .f { padding:6px 0; }
-    .note { padding:9px 12px; }
-    ul.amen li { padding:4px 0; }
-    .code { margin-top:6px; }
-    .foot { margin-top:8px; }
+    .stub-wrap { margin-top:8px; } .tear { margin:0 0 7px; }
+    .band { padding:11px 20px; } .body { padding:16px 20px 18px; } h1 { font-size:26px; } h2 { margin:13px 0 6px; }
+    .when { padding:11px 15px; margin:13px 0 0; } .fields { margin-top:8px; } .f { padding:6px 0; } .note { padding:9px 12px; }
+    ul.amen li { padding:4px 0; } .code { margin-top:6px; } .foot { margin-top:8px; }
     @page { margin:0.45in; }
+    body.receipt .sheet { max-width:none; width:72mm; margin:0 auto; }
+    body.receipt .stub { border:0; border-radius:0; padding:2mm 0; }
+    body.receipt .band-mini { background:none !important; }
   }
+  @page receipt { size:80mm auto; margin:3mm; }
+  body.receipt { page:receipt; }
+  .band-mini { display:none; flex-direction:column; align-items:center; gap:6px; margin-bottom:6px; font-size:14px; font-weight:700; }
+  .band-mini img { max-height:34px; max-width:180px; object-fit:contain; }
 </style></head>
-<body>
+<body class="${receipt ? 'receipt' : ''}">
   <div class="toolbar">
     <button onclick="window.print()">Print ticket</button>
     <button class="secondary" onclick="window.close()">Close</button>
@@ -522,7 +511,7 @@ export function appointmentTicketHtml(apt: TicketAppointment, ctx: TicketContext
   <div class="sheet">
     <div class="ticket">
       <div class="band">
-        <div class="who">${esc(studioName)}</div>
+        <div class="who">${logo ? `<img src="${esc(logo)}" alt="" />` : ''}<span>${esc(studioName)}</span></div>
         <div class="st">${esc(statusLabel)}</div>
       </div>
       <div class="body">
@@ -575,6 +564,7 @@ export function appointmentTicketHtml(apt: TicketAppointment, ctx: TicketContext
     <div class="stub-wrap">
       <div class="tear"><span class="ln"></span> Tear here · guest copy <span class="ln"></span></div>
       <div class="stub">
+        <div class="band-mini">${logo ? `<img src="${esc(logo)}" alt="" />` : ''}<span>${esc(studioName)}</span></div>
         <div class="left">
           <p class="eyebrow">${esc(studioName)}</p>
           <h3>${esc(clientName)}</h3>
