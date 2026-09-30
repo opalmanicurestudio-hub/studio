@@ -19,7 +19,7 @@ export async function tuitionAccount(db: any, tenantId: string, planId: string) 
 export async function applyTuitionPayment(db: any, tenantId: string, acct: any, o: { amountCents: number; method: string; receiptId: string; by: string }) {
   const p = acct.plan; const ref = db.doc(`tenants/${tenantId}/tuitionPlans/${p.id}`);
   const isInstalment = num(p.installmentCents) > 0 && o.amountCents >= num(p.installmentCents) && num(p.installmentsPaid) < num(p.installmentsTotal);
-  await ledger(tenantId, p.id, p.studentId, 'payment', o.amountCents, isInstalment ? `Instalment ${num(p.installmentsPaid) + 1} of ${num(p.installmentsTotal)} (paid at the front desk — ${o.method.replace(/_/g, ' ')})` : `Paid at the front desk — ${o.method.replace(/_/g, ' ')}`, o.by, o.receiptId);
+  await ledger(tenantId, p.id, p.studentId, 'payment', o.amountCents, isInstalment ? `Instalment ${num(p.installmentsPaid) + 1} of ${num(p.installmentsTotal)} (paid at the front desk — ${o.method.replace(/_/g, ' ')})` : `Paid at the front desk — ${o.method.replace(/_/g, ' ')}`, o.by, o.receiptId, { inBooks: true });   // the checkout already put it in the books
   const before = { status: p.status || null, installmentsPaid: num(p.installmentsPaid), nextDueAt: p.nextDueAt || null };
   const { balanceCents } = await planBalance(tenantId, p.id);
   if (balanceCents <= 0) await ref.set({ status: 'paid', nextDueAt: null, failures: 0, lastError: null }, { merge: true });
@@ -30,7 +30,7 @@ export async function applyTuitionPayment(db: any, tenantId: string, acct: any, 
 
 /** A void ADDS a refund entry (the ledger is never edited) and puts the plan back where it was. */
 export async function reverseTuitionPayment(db: any, tenantId: string, x: any, reason: string, by: string) {
-  await ledger(tenantId, x.planId, x.studentId, 'refund', num(x.amountCents), `Front-desk payment voided — ${reason}`, by, null);
+  await ledger(tenantId, x.planId, x.studentId, 'refund', num(x.amountCents), `Front-desk payment voided — ${reason}`, by, null, { inBooks: true });   // the void already reversed it in the books
   if (x.before) await db.doc(`tenants/${tenantId}/tuitionPlans/${x.planId}`).set({ status: x.before.status, installmentsPaid: x.before.installmentsPaid, nextDueAt: x.before.nextDueAt }, { merge: true });
 }
 export { OPEN as TUITION_OPEN };
