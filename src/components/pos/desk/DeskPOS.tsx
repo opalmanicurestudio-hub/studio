@@ -13,6 +13,7 @@
 //   In service with a provider                       → Finish (provider review → ready to pay)
 //   Ready      ready for checkout                    → Check out (checkout drawer)
 
+import { openVisit, registerVisitActions } from '@/lib/visit-client';
 import { useBarcodeScanner } from '@/hooks/useBarcodeScanner';
 import { useClientScreen, ClientScreenPanel } from '@/components/pos/ClientScreen';
 import { TodaysSales } from '@/components/pos/desk/TodaysSales';
@@ -80,6 +81,19 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   useBarcodeScanner((code) => e.handlePosScan?.(code), !!e.handlePosScan);
   useEffect(() => { const open = () => { setMode('desk'); setCheckoutOpen(true); }; window.addEventListener('cf:open-checkout', open); return () => window.removeEventListener('cf:open-checkout', open); }, []);
   const clientScreen = useClientScreen(e.tenantId);
+  // The visit ticket can use the POS's own actions while you're here.
+  const actRef = useRef<any>(null);
+  actRef.current = {
+    checkout: (id: string) => { if (!e.selectedAppointmentIds?.has?.(id)) e.handleSelectAppointment?.(id); setMode('desk'); setCheckoutOpen(true); },
+    cancel: (id: string) => e.handleCancelAction?.(id, false),
+    details: (id: string) => { const a = (e.appointmentsFromInventory || []).find((x: any) => x.id === id); if (a) { e.setSelectedAppointment(a); e.setIsDetailsOpen(true); } },
+    bookNext: (_id: string, clientId?: string | null, serviceId?: string | null) => window.dispatchEvent(new CustomEvent('cf:resume-callback', { detail: { fromCheckout: true, snapshotKind: 'staff_book_sheet', snapshot: { clientId: clientId || undefined, serviceId: serviceId || undefined } } })),
+  };
+  useEffect(() => registerVisitActions({ checkout: (id) => actRef.current.checkout(id), cancel: (id) => actRef.current.cancel(id), details: (id) => actRef.current.details(id), bookNext: (id, c, sv) => actRef.current.bookNext(id, c, sv) }), []);
+  // Opened from another page ("Take payment" on a ticket elsewhere) → /pos?checkout=<visit>
+  useEffect(() => { try { const q = new URLSearchParams(window.location.search); const id = q.get('checkout'); const vid = q.get('visit');
+    if (id) { const t = setTimeout(() => actRef.current.checkout(id), 800); window.history.replaceState(null, '', window.location.pathname); return () => clearTimeout(t); }
+    if (vid) { const t = setTimeout(() => openVisit(vid), 500); window.history.replaceState(null, '', window.location.pathname); return () => clearTimeout(t); } } catch { /* */ } }, []);
   const hadTill = useRef<boolean>(!!e.activeTill);   // closing the till → the client screen goes back to the logo
   useEffect(() => { if (hadTill.current && !e.activeTill && clientScreen.connected) clientScreen.ask('idle'); hadTill.current = !!e.activeTill; }, [e.activeTill]); // eslint-disable-line react-hooks/exhaustive-deps   // USB / Bluetooth scanners, anywhere on the desk
   const [overFor, setOverFor] = useState<any>(null); // a service running over → tell the next guests
@@ -229,7 +243,8 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   }, [guests, e.kpiData, e.walkIns, doneCount, takings]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Actions: the classic POS's own ─────────────────────────────────────
-  const open = (g: Guest) => { if (g.appt) { e.setSelectedAppointment(g.appt); e.setIsDetailsOpen(true); } };
+  const open = (g: Guest) => { if (g.appt?.id) { openVisit(g.appt.id); return; }   // any visit record (booked, or a walk-in once it has one) opens its ticket
+    if (g.appt) { e.setSelectedAppointment(g.appt); e.setIsDetailsOpen(true); } };   // a booked visit opens its ticket
   const checkIn = (g: Guest) => e.setPendingCheckInItem(g.appt);
   const start = (g: Guest) => e.handleStartService(g.kind === 'appt' ? g.appt.id : g.walkIn.id);
   const finish = (g: Guest) => { e.setAppointmentToReview(g.appt); e.setIsTechnicianReviewOpen(true); };
