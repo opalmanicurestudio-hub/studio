@@ -146,8 +146,8 @@ export async function POST(req: NextRequest) {
         const last = tl[tl.length - 1];
         if (a2 && entry && !(last && last.text === entry.text && Date.parse(nowIso2) - Date.parse(last.at) < 10 * 60000)) {
           await aRef2.set({ timeline: [...tl, entry].slice(-60), ...(cis === 'arrived' ? { arrivedAt: a2.arrivedAt || nowIso2 } : {}) }, { merge: true });
-          const { publicTimeline } = await import('@/lib/visit');
-          clean.timelinePublic = publicTimeline([...tl, entry], a2);
+          const { publicTimeline, clientTimelineSettingsOf } = await import('@/lib/visit'); const tnt: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+          clean.timelinePublic = publicTimeline([...tl, entry], a2, tnt); clean.timelineShowTimes = clientTimelineSettingsOf(tnt).showTimes;   // what the business lets clients see
         }
       } catch (e) { console.error('[checkins] visit timeline', e); }
     }
