@@ -116,11 +116,28 @@ export async function createTuitionPlan(opts: { tenantId: string; programId: str
   return id;
 }
 
-export async function ledger(tenantId: string, planId: string, studentId: string, type: 'charge' | 'payment' | 'refund' | 'adjustment', amountCents: number, desc: string, by: string, ref?: string | null) {
+export async function ledger(tenantId: string, planId: string, studentId: string, type: 'charge' | 'payment' | 'refund' | 'adjustment', amountCents: number, desc: string, by: string, ref?: string | null, opts?: { inBooks?: boolean }) {
   const db = getAdminDb();
   const r = db.collection(`tenants/${tenantId}/tuitionEntries`).doc();
   await r.set({ id: r.id, planId, studentId, type, amountCents: Math.round(amountCents), desc, by, ref: ref || null, at: new Date().toISOString() });
   await appendAudit(tenantId, { type: `tuition.${type}`, studentId, by, summary: `${type[0].toUpperCase()}${type.slice(1)} ${money(amountCents)} — ${desc}`, data: { planId, entryId: r.id, ref: ref || null } });
+  // THE BUSINESS'S BOOKS: tuition money in (and back out) also lands in the general ledger as Tuition income / Tuition
+  // Refunds — one line per tuition entry (its id), so it can't be counted twice. Desk payments and desk voids pass
+  // inBooks: true — the checkout has already recorded those.
+  if ((type === 'payment' || type === 'refund') && !opts?.inBooks) await tuitionToBooks(tenantId, r.id, { planId, type, amountCents, desc, by, ref: ref || null, at: new Date().toISOString() }).catch((e) => console.error('[tuition→books]', e));
+}
+/** One tuition entry → one line in the business's books (idempotent: the line's id is the entry's id). */
+export async function tuitionToBooks(tenantId: string, entryId: string, e: { planId: string; type: string; amountCents: number; desc: string; by: string; ref: string | null; at: string }) {
+  const db = getAdminDb(); const { buildLedgerEntry, ledgerEntryId } = await import('@/lib/ledger');
+  const id = ledgerEntryId('academy_tuition', entryId); const ref = db.doc(`tenants/${tenantId}/transactions/${id}`);
+  if ((await ref.get()).exists) return false;
+  const p: any = ((await db.doc(`tenants/${tenantId}/tuitionPlans/${e.planId}`).get()).data() as any) || {};
+  const pay = e.type === 'payment';
+  const entry = buildLedgerEntry({ source: 'academy_tuition', sourceId: entryId, amountCents: Math.abs(Math.round(e.amountCents)), category: pay ? 'Tuition' : 'Tuition Refunds', type: pay ? 'income' : 'expense',
+    description: `${pay ? 'Tuition' : 'Tuition refund'} — ${p.name || 'Student'} — ${e.desc}`, clientOrVendor: p.name || undefined, date: e.at,
+    paymentMethod: ['autopay', 'student'].includes(e.by) || /online|autopay/i.test(e.desc) ? 'Card (Stripe)' : 'Other', stripePaymentIntentId: e.ref && /^(pi_|cs_)/.test(e.ref) ? e.ref : null } as any);
+  await ref.set({ ...entry, id, tuitionEntryId: entryId, planId: e.planId });
+  return true;
 }
 export async function planBalance(tenantId: string, planId: string) {
   const s = await getAdminDb().collection(`tenants/${tenantId}/tuitionEntries`).where('planId', '==', planId).limit(2000).get();
