@@ -1,5 +1,6 @@
 'use client';
 
+import { openVisit } from '@/lib/visit-client';
 import { hasRealCard } from '@/lib/card-on-file';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import React, { useState, useMemo, useCallback } from 'react';
@@ -253,9 +254,12 @@ const AppointmentHistoryCard = ({
         </div>
       </CardContent>
       <div className="p-2 pt-0 border-t bg-muted/5">
-        <Button variant="ghost" size="sm" className="w-full font-black uppercase text-[9px] tracking-widest h-9 hover:bg-primary/5 text-primary" onClick={() => onRebook(appointment)}>
-          <Repeat className="w-3.5 h-3.5 mr-2"/> Rebook Treatment
-        </Button>
+        <div className="flex gap-1">
+          <Button variant="ghost" size="sm" className="flex-1 font-black uppercase text-[9px] tracking-widest h-9 hover:bg-primary/5 text-primary" onClick={() => openVisit(String(appointment.id))}>Visit ticket</Button>
+          <Button variant="ghost" size="sm" className="flex-1 font-black uppercase text-[9px] tracking-widest h-9 hover:bg-primary/5 text-primary" onClick={() => onRebook(appointment)}>
+            <Repeat className="w-3.5 h-3.5 mr-2"/> Rebook Treatment
+          </Button>
+        </div>
       </div>
     </Card>
   );
