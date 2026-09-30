@@ -3,7 +3,7 @@
 // "Booked · Checked in 1:58 · With Bea 2:04 · Paid". Only stage moves and notes marked for them — never staff notes.
 import * as React from 'react';
 
-export function VisitTimeline({ items }: { items?: { at: string; text: string }[] | null }) {
+export function VisitTimeline({ items, showTimes = true }: { items?: { at: string; text: string }[] | null; showTimes?: boolean }) {
   const list = (items || []).filter((x) => x && x.text).slice(-8);
   if (!list.length) return null;
   return (
@@ -13,7 +13,7 @@ export function VisitTimeline({ items }: { items?: { at: string; text: string }[
         <li key={`${x.at}-${i}`} className="flex items-baseline gap-3">
           <span aria-hidden className="mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: i === list.length - 1 ? 'var(--accent, #1c1917)' : '#d6d0c8' }} />
           <span className="flex-1">{x.text}</span>
-          <span className="shrink-0 tabular-nums text-stone-500">{new Date(x.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
+          {showTimes && <span className="shrink-0 tabular-nums text-stone-500">{new Date(x.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>}
         </li>
       ))}
     </ol>
