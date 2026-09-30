@@ -4,7 +4,7 @@
 // built from those lines: grouped into one sale each (a POS checkout, a card payment, a visit, or a single line),
 // labelled by where the money came from and how it was paid. POS checkouts are matched to their receipts.
 export type SaleSource = 'checkout' | 'planner' | 'deposit' | 'fee' | 'balance' | 'order' | 'membership' | 'rent' | 'other';
-export type SaleMethod = 'cash' | 'card' | 'online' | 'other';
+export type SaleMethod = 'cash' | 'card' | 'online' | 'other' | 'split';
 export interface DaySale { key: string; at: string; clientName: string | null; clientId: string | null; paidBy: string | null; source: SaleSource; label: string; method: SaleMethod;
   total: number; tips: number; voided: boolean; lines: any[]; receipt: any | null; staffIds: string[] }
 export const SOURCE_LABEL: Record<SaleSource, string> = { checkout: 'Checkout', planner: 'Completed in the planner', deposit: 'Deposit', fee: 'Fee', balance: 'Owed balance', order: 'Online order', membership: 'Membership', rent: 'Rent', other: 'Payment' };
@@ -12,7 +12,7 @@ const num = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : 0
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 const methodOf = (m: any): SaleMethod => { const x = String(m || '').toLowerCase();
-  if (x === 'cash') return 'cash'; if (/card|terminal|tap|chip|swipe|cof/.test(x)) return 'card'; if (/online|stripe|link|deposit|web|checkout/.test(x)) return 'online'; return 'other'; };
+  if (x === 'cash') return 'cash'; if (x === 'split') return 'split'; if (/card|terminal|tap|chip|swipe|cof/.test(x)) return 'card'; if (/online|stripe|link|deposit|web|checkout/.test(x)) return 'online'; return 'other'; };
 function sourceOf(lines: any[]): SaleSource {
   if (lines.some((t) => t.checkoutSessionId)) return 'checkout';
   const text = lines.map((t) => `${t.category || ''} ${t.description || ''} ${t.source || ''}`).join(' ').toLowerCase();
@@ -54,6 +54,8 @@ export function groupDaySales(txs: any[], receipts: any[], from: Date, to: Date)
   sales.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
   const live = sales.filter((s) => !s.voided);
   const sum = (f: (s: DaySale) => boolean) => round2(live.filter(f).reduce((a, s) => a + s.total, 0));
-  return { sales, summary: { total: sum(() => true), count: live.length, cash: sum((s) => s.method === 'cash'), card: sum((s) => s.method === 'card'), online: sum((s) => s.method === 'online'), other: sum((s) => s.method === 'other'),
+  // A split bill counts each share under its own method (cash in the cash total, cards in card, …).
+  const splitBy = (m: SaleMethod) => round2(live.filter((s) => s.method === 'split').reduce((a, s) => a + (s.receipt?.payments || []).filter((p: any) => methodOf(p.method) === m).reduce((b: number, p: any) => b + num(p.amount) + num(p.tip), 0), 0));
+  return { sales, summary: { total: sum(() => true), count: live.length, cash: round2(sum((s) => s.method === 'cash') + splitBy('cash')), card: round2(sum((s) => s.method === 'card') + splitBy('card')), online: sum((s) => s.method === 'online'), other: round2(sum((s) => s.method === 'other') + splitBy('other')),
     tips: round2(live.reduce((a, s) => a + s.tips, 0)), voidedCount: sales.length - live.length, voidedTotal: round2(sales.filter((s) => s.voided).reduce((a, s) => a + s.total, 0)), average: live.length ? round2(sum(() => true) / live.length) : 0 } };
 }
