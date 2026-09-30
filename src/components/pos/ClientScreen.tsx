@@ -26,8 +26,11 @@ export function useClientScreen(tenantId?: string | null) {
   const online = !!screen?.tenantId && screen.tenantId === tenantId && !!screen.lastSeen && Date.now() - Date.parse(screen.lastSeen) < 150000;
   const connected = !!screen?.tenantId && screen.tenantId === tenantId;
   const push = React.useCallback((ticket: any) => (screenId && tenantId ? call({ tenantId, action: 'push', screenId, ticket }) : Promise.resolve(null)), [screenId, tenantId]);
-  const request = React.useCallback(async (kind: string, extra: any = {}) => { if (!screenId || !tenantId) return null; const r: any = await call({ tenantId, action: 'request', screenId, kind, ...extra }); return r?.ok ? r.requestId : null; }, [screenId, tenantId]);
-  return { screenId, setScreenId, screen, connected, online, name: screen?.name || null, request: screen?.request || null, response: screen?.response || null, push, ask: request };
+  const request = React.useCallback(async (kind: string, extra: any = {}) => { if (!screenId || !tenantId) return null; const r: any = await call({ tenantId, action: 'request', screenId, kind, ...extra });
+    if (r?.paymentClosed === 'paid') window.dispatchEvent(new Event('cf:screen-late-payment'));   // it had gone through before we moved on
+    return r?.ok ? r.requestId : null; }, [screenId, tenantId]);
+  const alive = React.useCallback(() => (screenId && tenantId ? call({ tenantId, action: 'alive', screenId }) : Promise.resolve(null)), [screenId, tenantId]);
+  return { screenId, setScreenId, screen, connected, online, name: screen?.name || null, request: screen?.request || null, response: screen?.response || null, push, ask: request, alive };
 }
 
 /** Pair an iPad, choose which screen this desk uses, or disconnect. */
