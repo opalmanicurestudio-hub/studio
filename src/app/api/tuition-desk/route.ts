@@ -28,5 +28,15 @@ export async function POST(req: NextRequest) {
     await db.doc(`${T}/tuitionPlans/${a.plan.id}`).set({ clientId: ref.id }, { merge: true });
     return json({ ok: true, clientId: ref.id, name: a.name });
   }
+  if (b.action === 'backfill_books') {   // one-time: past online / autopay tuition into the books (safe to run again)
+    if (!['owner', 'admin', 'manager'].includes(String(auth.actor?.role || '').toLowerCase())) return json({ ok: false, error: 'Only a manager can do this.' }, 403);
+    const { tuitionToBooks } = await import('@/lib/academy-admissions');
+    const es = (await db.collection(`${T}/tuitionEntries`).where('type', 'in', ['payment', 'refund']).get()).docs;
+    let added = 0, skipped = 0;
+    for (const d of es.slice(0, 5000)) { const e: any = d.data() || {};
+      if (/front desk|Front-desk payment voided/i.test(String(e.desc || ''))) { skipped++; continue; }   // desk ones are already in the books via checkout
+      if (await tuitionToBooks(tenantId, d.id, { planId: e.planId, type: e.type, amountCents: Number(e.amountCents) || 0, desc: String(e.desc || ''), by: String(e.by || ''), ref: e.ref || null, at: e.at || new Date().toISOString() })) added++; else skipped++; }
+    return json({ ok: true, added, skipped });
+  }
   return json({ ok: false, error: 'Unknown action.' }, 400);
 }
