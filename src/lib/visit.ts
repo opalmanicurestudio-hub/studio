@@ -3,15 +3,16 @@
 // the 17 different status words (and the separate checkInStatus) found across the app.
 //
 //   Stage (the same six underneath, worded for each kind of business and visit):
-//     requested → booked → arrived → in_service → ready_to_pay → complete     · off-ramps: cancelled · no_show · declined · expired
+//     requested → booked → arrived → (waiting) → in_service → ready_to_pay → complete     · off-ramps: cancelled · no_show · declined · expired
+//     Waiting is its own stage but can be skipped (service starts straight away). Businesses rename any stage for their niche.
 //   Flags (not stages): running late · deposit due · needs a decision · balance due
 //   Payment: nothing_due · deposit_due · deposit_paid · partly_paid · paid · refund_pending · refunded
 //
 // Old values keep working: stageOf() reads every legacy status, and stageWrite() writes the legacy fields too, so
 // nothing already saved (or any screen not yet moved over) breaks.
-export type Stage = 'requested' | 'booked' | 'arrived' | 'in_service' | 'ready_to_pay' | 'complete' | 'cancelled' | 'no_show' | 'declined' | 'expired';
+export type Stage = 'requested' | 'booked' | 'arrived' | 'waiting' | 'in_service' | 'ready_to_pay' | 'complete' | 'cancelled' | 'no_show' | 'declined' | 'expired';
 export type PaymentStatus = 'nothing_due' | 'deposit_due' | 'deposit_paid' | 'partly_paid' | 'paid' | 'refund_pending' | 'refunded';
-export const ACTIVE: Stage[] = ['requested', 'booked', 'arrived', 'in_service', 'ready_to_pay'];
+export const ACTIVE: Stage[] = ['requested', 'booked', 'arrived', 'waiting', 'in_service', 'ready_to_pay'];
 export const CLOSED: Stage[] = ['complete', 'cancelled', 'no_show', 'declined', 'expired'];
 
 const S = (v: any) => String(v || '').toLowerCase().trim();
@@ -26,7 +27,8 @@ export function stageOf(a: any): Stage {
   if (['completed', 'checked_out', 'paid', 'complete'].includes(st) || ci === 'completed') return 'complete';
   if (st === 'ready_for_checkout') return 'ready_to_pay';
   if (['servicing', 'in_service', 'in_progress', 'seated'].includes(st)) return 'in_service';
-  if (['checked_in', 'arrived', 'waiting'].includes(st) || ci === 'arrived') return 'arrived';
+  if (st === 'waiting') return 'waiting';
+  if (['checked_in', 'arrived'].includes(st) || ci === 'arrived') return 'arrived';
   if (st === 'requested') return 'requested';
   return 'booked';   // confirmed · pending_payment · deposit_pending · late · on_hold · rescheduled · (blank)
 }
@@ -65,11 +67,11 @@ export function kindOf(a: any): VisitKind {
   return 'service';
 }
 const WORDS: Record<VisitKind, Partial<Record<Stage, string>>> = {
-  service: { requested: 'Requested', booked: 'Booked', arrived: 'Arrived', in_service: 'In service', ready_to_pay: 'Ready to pay', complete: 'Complete' },
-  table:   { requested: 'Requested', booked: 'Reserved', arrived: 'Arrived', in_service: 'Seated', ready_to_pay: 'Bill requested', complete: 'Closed' },
-  class:   { requested: 'Waitlisted', booked: 'Enrolled', arrived: 'Checked in', in_service: 'In class', ready_to_pay: 'To pay', complete: 'Attended' },
-  event:   { requested: 'Requested', booked: 'Registered', arrived: 'Checked in', in_service: 'Attending', ready_to_pay: 'To pay', complete: 'Attended' },
-  virtual: { requested: 'Requested', booked: 'Booked', arrived: 'Joined', in_service: 'In session', ready_to_pay: 'Ready to pay', complete: 'Complete' },
+  service: { requested: 'Requested', booked: 'Booked', arrived: 'Arrived', waiting: 'Waiting', in_service: 'In service', ready_to_pay: 'Ready to pay', complete: 'Complete' },
+  table:   { requested: 'Requested', booked: 'Reserved', arrived: 'Arrived', waiting: 'Waiting for a table', in_service: 'Seated', ready_to_pay: 'Bill requested', complete: 'Closed' },
+  class:   { requested: 'Waitlisted', booked: 'Enrolled', arrived: 'Checked in', waiting: 'Waiting to start', in_service: 'In class', ready_to_pay: 'To pay', complete: 'Attended' },
+  event:   { requested: 'Requested', booked: 'Registered', arrived: 'Checked in', waiting: 'Waiting to start', in_service: 'Attending', ready_to_pay: 'To pay', complete: 'Attended' },
+  virtual: { requested: 'Requested', booked: 'Booked', arrived: 'Joined', waiting: 'In the waiting room', in_service: 'In session', ready_to_pay: 'Ready to pay', complete: 'Complete' },
 };
 const BY_BUSINESS: Record<string, Partial<Record<Stage, string>>> = {
   medspa: { in_service: 'With practitioner' }, wellness: { in_service: 'In session' }, spa: { in_service: 'In treatment' }, tattoo: { in_service: 'In the chair' },
@@ -84,7 +86,7 @@ export const PAYMENT_LABEL: Record<PaymentStatus, string> = { nothing_due: 'Noth
 
 // ── Moving a visit on: which moves are allowed, and what the old fields become ──
 const NEXT: Record<Stage, Stage[]> = {
-  requested: ['booked', 'declined'], booked: ['arrived'], arrived: ['in_service', 'booked'], in_service: ['ready_to_pay', 'arrived'],
+  requested: ['booked', 'declined'], booked: ['arrived'], arrived: ['waiting', 'in_service', 'booked'], waiting: ['in_service', 'arrived'], in_service: ['ready_to_pay', 'waiting', 'arrived'],
   ready_to_pay: ['in_service'], complete: [], cancelled: [], no_show: [], declined: [], expired: [],
 };
 /** Stage moves the visit ticket does itself. Completing (via checkout), cancelling and no-shows keep their own flows
@@ -94,6 +96,7 @@ export function stageWrite(to: Stage): Record<string, any> {
   switch (to) {
     case 'booked': return { stage: 'booked', status: 'confirmed', checkInStatus: 'pending' };
     case 'arrived': return { stage: 'arrived', status: 'checked_in', checkInStatus: 'arrived' };
+    case 'waiting': return { stage: 'waiting', status: 'waiting', checkInStatus: 'arrived' };
     case 'in_service': return { stage: 'in_service', status: 'servicing', checkInStatus: 'arrived' };
     case 'ready_to_pay': return { stage: 'ready_to_pay', status: 'ready_for_checkout', checkInStatus: 'arrived' };
     case 'declined': return { stage: 'declined', status: 'declined' };
@@ -105,8 +108,15 @@ export function stageWrite(to: Stage): Record<string, any> {
 export interface TimelineEntry { at: string; kind: 'stage' | 'note' | 'payment' | 'change' | 'message'; stage?: Stage; text: string; by?: string | null; via?: string | null; forClient?: boolean }
 export const MAX_TIMELINE = 60;
 /** The client's simple version: only the stage moves (and anything marked for them), in plain words. */
+export interface ClientTimelineSettings { on: boolean; showTimes: boolean; stages: Stage[]; notes: boolean }
+/** What the business lets clients see on their visit link (Settings → Visit stages). */
+export function clientTimelineSettingsOf(tenant: any): ClientTimelineSettings {
+  const c = tenant?.visitTimeline || {}; const all: Stage[] = ['booked', 'arrived', 'waiting', 'in_service', 'ready_to_pay', 'complete'];
+  return { on: c.on !== false && tenant?.visitTimelineForClients !== false, showTimes: c.showTimes !== false, stages: Array.isArray(c.stages) ? all.filter((s) => c.stages.includes(s)) : all, notes: c.notes !== false };
+}
 export function publicTimeline(entries: TimelineEntry[], a?: any, tenant?: any): { at: string; text: string }[] {
-  return (entries || []).filter((e) => (e.kind === 'stage' && e.stage && ['booked', 'arrived', 'in_service', 'ready_to_pay', 'complete'].includes(e.stage)) || e.forClient)
+  const cs = clientTimelineSettingsOf(tenant); if (!cs.on) return [];
+  return (entries || []).filter((e) => (e.kind === 'stage' && e.stage && cs.stages.includes(e.stage)) || (e.forClient && cs.notes))
     .map((e) => ({ at: e.at, text: e.kind === 'stage' && e.stage ? (e.stage === 'in_service' && a?.staffName ? `${stageLabel(e.stage, a, tenant)} — ${String(a.staffName).split(' ')[0]}` : stageLabel(e.stage, a, tenant)) : e.text }))
     .slice(-8);
 }
@@ -116,5 +126,5 @@ export function visitProjection(a: any, tenant?: any) {
   const stage = stageOf(a);
   return { stage, stageLabel: stageLabel(stage, a, tenant), flags: flagsOf(a), paymentStatus: paymentStatusOf(a), status: a?.status || null, checkInStatus: a?.checkInStatus || null,
     startTime: a?.startTime || null, endTime: a?.endTime || null, staffId: a?.staffId || null, depositStatus: a?.depositStatus || null,
-    timelinePublic: publicTimeline(a?.timeline || [], a, tenant), visitUpdatedAt: new Date().toISOString() };
+    timelinePublic: publicTimeline(a?.timeline || [], a, tenant), timelineShowTimes: clientTimelineSettingsOf(tenant).showTimes, visitUpdatedAt: new Date().toISOString() };
 }
