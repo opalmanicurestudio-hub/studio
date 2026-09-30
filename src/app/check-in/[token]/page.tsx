@@ -27,6 +27,7 @@
  *   day-of arrival (Hello + status buttons)
  */
 
+import { VisitRebook } from '@/components/visit/VisitRebook';
 import { placeOf } from '@/lib/service-place';
 import { DisruptionCard } from '@/components/booking/DisruptionCard';
 import { VisitShell, VisitCard, VisitButton, VisitMuted, VisitLabel, VisitChoice, VisitSelect, VisitInput, brandOf, type VisitBrand } from '@/components/booking/VisitShell';
@@ -429,7 +430,8 @@ const CompletedView = ({ tenant, client, appointment, service, brand }: { brand:
             ) : (
                 <VisitCard tone="ok"><p className="text-[15px]">Thank you — we’ve received your review.</p></VisitCard>
             )}
-            {brand.bookHref && <VisitButton quiet={!submitted} href={brand.bookHref}>Book your next visit</VisitButton>}
+            {(appointment as any).checkInToken ? <VisitRebook token={String((appointment as any).checkInToken)} bookHref={brand.bookHref || null} />
+                : brand.bookHref && <VisitButton quiet={!submitted} href={brand.bookHref}>Book your next visit</VisitButton>}
         </VisitShell>
     );
 };
