@@ -83,6 +83,7 @@
 // hard appointment for someone standing at the counter is what the very first
 // version of the kiosk did, and it silently bypassed the entire queue.
 
+import { verifyStaffActor } from '@/lib/staff-auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 
@@ -499,6 +500,10 @@ async function healStale(db: any, tenantId: string, stale: any[], nowIso: string
         autoCompleted: true,
         autoCompletedReason: 'No completion recorded — closed automatically so the chair returns to the floor.',
       }, { merge: true });
+      // THE VISIT (T3): it moves to Ready to pay with a note, so the desk settles or clears it — never lost, never "paid".
+      const vRef = db.doc(`tenants/${tenantId}/appointments/apt-walkin-${row.id}`); const v: any = (await vRef.get()).data();
+      if (v && ['servicing', 'in_service', 'confirmed', 'waiting', 'checked_in'].includes(String(v.status || ''))) batch.set(vRef, { status: 'ready_for_checkout', stage: 'ready_to_pay', serviceEndedAt: nowIso,
+        timeline: [...(Array.isArray(v.timeline) ? v.timeline : []), { at: nowIso, kind: 'stage', stage: 'ready_to_pay', text: 'Service ran long with no finish recorded — moved to Ready to pay', by: 'Queue', via: 'walk-in' }].slice(-60) }, { merge: true });
 
       // A requested walk-in never cost the provider their turn, so finishing
       // one must not advance it either (see the join handler's rotation note).
@@ -768,7 +773,7 @@ export async function GET(req: NextRequest) {
     // No service in hand yet, so eligibility is measured against an empty
     // service — skills and certification gates don't apply until a guest has
     // picked something. The count is "who is on the floor for walk-ins at all".
-    const { staff, shifts, rows, providers, queue, working, nowMs } = await readFloor(db, tenantId, null);
+    const { staff, shifts, rows, stale, providers, queue, working, nowMs } = await readFloor(db, tenantId, null);   // `stale` was missing → the lobby board crashed
     const studioName = str(tenant.name || tenant.businessName, 80);
     const estWaitMin = estimateWait(queue, working.length, providers.length, 30);
 
@@ -961,6 +966,22 @@ export async function GET(req: NextRequest) {
         // it; it is here so the owner can watch the messages fire from the
         // network tab when she asks "is it really texting them?".
         messagesSent: dispatched,
+        // For the lobby screen (a public TV, no sign-in): the rows it draws from, cleaned — guests' first names
+        // only, never a phone, email or note. (It used to read the database directly, which only worked signed in.)
+        raw: await (async () => {
+          const since = new Date(nowMs - 48 * 3600000).toISOString();
+          const rs = (await db.collection(`tenants/${tenantId}/walkIns`).where('checkInTime', '>=', since).get().catch(() => ({ docs: [] as any[] }))).docs.slice(0, 300);
+          const fn = (n: any) => firstName(n) || 'Guest';
+          return {
+            rows: rs.map((d: any) => { const r: any = d.data() || {}; return { id: d.id, status: r.status || null, clientName: fn(r.customerName || r.clientName), customerName: fn(r.customerName || r.clientName),
+              staffId: r.staffId || null, assignedStaffId: r.assignedStaffId || null, staffName: firstName(r.staffName) || null, serviceId: r.serviceId || null, serviceIds: Array.isArray(r.serviceIds) ? r.serviceIds : [],
+              serviceName: str(r.serviceName, 60), groupId: r.groupId || null, checkInTime: r.checkInTime || null, serviceStartTime: r.serviceStartTime || null, checkInStatus: r.checkInStatus || null,
+              notifiedAt: r.notifiedAt || null, isRequested: r.isRequested === true, estimatedDuration: r.estimatedDuration || null }; }),
+            staff: (staff || []).map((m: any) => ({ id: m.id, name: str(m.name, 80), avatarUrl: m.avatarUrl || m.photoUrl || null, status: m.status || null, isActive: m.isActive, active: m.active, acceptingWalkIns: m.acceptingWalkIns })),
+            services: ((await db.collection(`tenants/${tenantId}/services`).get().catch(() => ({ docs: [] as any[] }))).docs as any[]).map((d: any) => ({ id: d.id, name: str((d.data() || {}).name, 80), duration: (d.data() || {}).duration || null })),
+            tenant: { id: tenantId, name: studioName, walkInKiosk: { enabled }, queueSkipTimeMinutes: tenant?.queueSkipTimeMinutes || null, logoUrl: tenant?.logoUrl || null },
+          };
+        })(),
         queue: boardQueue,
         inService: working.slice(0, 20).map((w: any) => {
           let resolvedStaffId = String(w?.staffId || '');
@@ -1020,7 +1041,9 @@ export async function POST(req: NextRequest) {
     const action = str(body?.action, 20) || 'join';
 
     if (!tenantId) return NextResponse.json({ ok: false, error: 'Missing studio.' }, { status: 400 });
-    if (!['join', 'lookup', 'options', 'complete', 'notify'].includes(action)) {
+    // 'checkin' (a booked client at the kiosk) and 'booth-arrived' have handlers below but were missing here, so both
+    // always failed with "Unknown action" — the kiosk couldn't check in anyone with an appointment.
+    if (!['join', 'lookup', 'options', 'complete', 'notify', 'checkin', 'booth-arrived'].includes(action)) {
       return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
     }
 
@@ -1039,10 +1062,11 @@ export async function POST(req: NextRequest) {
     // `complete` is above this line because it's the staff board closing out a
     // row that already exists — turning the kiosk off must not trap the guests
     // who are already in the chair.
-    if (!(await rateLimit(db, tenantId, 'walkInRate', 120))) {
+    const deskStaff = body?.source === 'desk' ? await verifyStaffActor(req, tenantId).then((r: any) => !!r?.ok).catch(() => false) : false;   // "Add a walk-in" at the desk
+    if (!deskStaff && !(await rateLimit(db, tenantId, 'walkInRate', 120))) {
       return NextResponse.json({ ok: false, error: 'Too many requests. Please try again shortly.' }, { status: 429 });
     }
-    if (tenant?.walkInKiosk?.enabled !== true) {
+    if (tenant?.walkInKiosk?.enabled !== true && !deskStaff) {
       return NextResponse.json({ ok: false, closed: true, error: 'Walk-ins are not being taken right now.' }, { status: 200 });
     }
 
@@ -1168,7 +1192,7 @@ async function handleLookup(db: any, tenantId: string, body: any) {
 
   // Are they already standing in this line? Telling them so is much better
   // than letting them join twice and then quietly deduping them.
-  const { rows, queue, working, providers } = await readFloor(db, tenantId, null);
+  const { rows, stale, queue, working, providers } = await readFloor(db, tenantId, null);   // `stale` was missing → the lookup crashed
   // Heal on lookup — not just on join and board poll.
   await healStale(db, tenantId, stale, new Date().toISOString());
   // `clientId ?` guards a real false positive: with no client match clientId is
@@ -1381,7 +1405,12 @@ async function handleCheckIn(db: any, tenantId: string, body: any) {
   const nowIso = new Date().toISOString();
   const already = ['arrived', 'checked_in', 'checkedIn'].includes(String(a.checkInStatus || ''));
   if (!already) {
-    await ref.set({ checkInStatus: 'arrived', arrivedAt: nowIso, updatedAt: nowIso }, { merge: true });
+    // THE VISIT TICKET: the kiosk arrival goes on the timeline and the client's link, like every other check-in.
+    const tl: any[] = Array.isArray(a.timeline) ? a.timeline : [];
+    const entry = { at: nowIso, kind: 'stage', stage: 'arrived', text: 'Arrived — checked in (kiosk)', by: a.clientName || 'Client', via: 'kiosk' };
+    await ref.set({ checkInStatus: 'arrived', arrivedAt: nowIso, updatedAt: nowIso, timeline: [...tl, entry].slice(-60) }, { merge: true });
+    try { const { syncVisitCopies } = await import('@/lib/visit-sync'); const tn: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      await syncVisitCopies(db, tenantId, { ...a, checkInStatus: 'arrived', timeline: [...tl, entry] }, tn); } catch { /* best-effort */ }
   }
 
   let staffFirstName = '';
@@ -2756,8 +2785,13 @@ async function handleComplete(db: any, tenantId: string, body: any) {
 
   // Mirror the close so a guest whose phone is still open on the waiting
   // screen stops being told they're in service.
+  // THE VISIT (T3): finishing on the staff board sends it to the front desk to pay — it isn't "complete" until paid.
+  const vRef = db.doc(`tenants/${tenantId}/appointments/apt-walkin-${ref.id}`); const v: any = (await vRef.get()).data();
+  const visitOpen = !!v && !['completed', 'cancelled', 'canceled', 'no_show'].includes(String(v.status || ''));
+  if (visitOpen) batch.set(vRef, { status: 'ready_for_checkout', stage: 'ready_to_pay', serviceEndedAt: nowIso, ...(!v.staffId && (str(row.staffId, 120) || str(body?.staffId, 120)) ? { staffId: str(row.staffId, 120) || str(body?.staffId, 120) } : {}),
+    timeline: [...(Array.isArray(v.timeline) ? v.timeline : []), { at: nowIso, kind: 'stage', stage: 'ready_to_pay', text: 'Finished — sent to the front desk (staff board)', by: 'Staff board', via: 'walk-in' }].slice(-60) }, { merge: true });
   if (row.checkInToken) {
-    const closed = { status: 'completed', checkInStatus: 'completed', updatedAt: nowIso };
+    const closed = visitOpen ? { status: 'ready_for_checkout', checkInStatus: 'arrived', stage: 'ready_to_pay', updatedAt: nowIso } : { status: 'completed', checkInStatus: 'completed', updatedAt: nowIso };
     batch.set(db.doc(`tenants/${tenantId}/appointmentCheckIns/${row.checkInToken}`), closed, { merge: true });
     batch.set(db.doc(`appointmentCheckIns/${row.checkInToken}`), closed, { merge: true });
   }
