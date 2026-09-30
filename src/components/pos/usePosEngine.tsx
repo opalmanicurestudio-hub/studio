@@ -1090,13 +1090,14 @@ export function usePosEngine() {
     appointmentIds: readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).map(a => a.appointment.id),
     items: retailItems.map((it: any) => ({ id: it.id, type: it.type, quantity: it.quantity, price: it.price, name: it.name, reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null })),
     feeIds: Array.from(appliedAdjustments), discountCodes: appliedDiscountCodes, redeemedOffer: redeemedOffer || null, waivedAppointmentIds: Array.from(waivedAppointmentFees.keys()), waivers: Object.fromEntries(waivedAppointmentFees),   // who approved each waiver, and why
-    tipAllocations, tip: tipAmount, storeCredit: storeCreditApplied,
+    // A tip chosen on the client screen together with the payment is recorded exactly (it goes to the provider(s) on the ticket).
+    tipAllocations: paymentData?.tipOverride !== undefined ? {} : tipAllocations, tip: paymentData?.tipOverride !== undefined ? safeNumber(paymentData.tipOverride) : tipAmount, storeCredit: storeCreditApplied,
     skipGroupDiscount,
     staffDiscount: staffDiscount ? { kind: staffDiscount.kind, value: staffDiscount.value, reason: staffDiscount.reason, approvalToken: staffDiscount.approvalToken || null } : null,
     recovery: { amount: safeNumber(paymentData?.recoveryAmount), reason: paymentData?.recoveryReason || '', approvalToken: paymentData?.recoveryApprovalToken || recoveryApprovalRef.current || null },
     payment: { method: paymentData?.paymentMethod || 'card', amountTendered: safeNumber(paymentData?.amountTendered), stripePaymentIntentId: paymentData?.stripePaymentIntentId || null, cardSurcharge: safeNumber(paymentData?.cardSurcharge), skipLedger: paymentData?.skipLedger === true },
     tillId: paymentTab === 'cash' && activeTill ? activeTill.id : null,
-    expectedTotal: totalCalc,
+    expectedTotal: paymentData?.tipOverride !== undefined ? Math.round((totalCalc - tipAmount + safeNumber(paymentData.tipOverride)) * 100) / 100 : totalCalc,
   });
   // Before any card is charged, the ticket is saved on the server as "started" — so if the sale then fails to save,
   // it can be recorded later (Needs attention → Sales not recorded) and never twice.
@@ -1130,7 +1131,7 @@ export function usePosEngine() {
         setLastSale({ receiptId: out.receiptId || null, total: safeNumber(out.total), collected, depositUsed: safeNumber(out.depositUsed), method: payload.payment?.method === 'cash' ? 'cash' : payload.payment?.method === 'other' ? 'other' : 'card',
           tendered, change: payload.payment?.method === 'cash' ? Math.max(0, Math.round((tendered - collected) * 100) / 100) : 0, clientId: payload.clientId || null, clientName: payer.name || null, email: payer.email || '', phone: payer.phone || '',
           serviceId: firstVisit?.service?.id || firstVisit?.appointment?.serviceId || null, warnings: out.warnings || [], at: new Date().toISOString() }); }
-      setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setStoreCreditApplied(0); setStaffDiscount(null); setSkipGroupDiscount(false);
+      setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setStoreCreditApplied(0); setStaffDiscount(null); setSkipGroupDiscount(false); setSelectedClientId(null);   // the next sale starts fresh (the client screen goes back to your logo)
       return true;
     } catch (e: any) {
       console.error('[checkout] failed', e);
@@ -1143,7 +1144,7 @@ export function usePosEngine() {
       return false;
     }
   };
-  const handleCheckout = async (paymentData: { paymentMethod: string, amountTendered: number, recoveryAmount?: number, recoveryReason?: string, skipLedger?: boolean, stripePaymentIntentId?: string, cardSurcharge?: number }) => {
+  const handleCheckout = async (paymentData: { tipOverride?: number, paymentMethod: string, amountTendered: number, recoveryAmount?: number, recoveryReason?: string, skipLedger?: boolean, stripePaymentIntentId?: string, cardSurcharge?: number }) => {
     if (!checkoutClientId || !tenantId) return;
     setIsSubmitting(true);
     try { await sendCheckout({ ...buildCheckoutPayload(paymentData), pendingId: pendingIdRef.current }, !!paymentData.stripePaymentIntentId); }
