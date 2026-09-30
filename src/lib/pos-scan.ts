@@ -6,13 +6,14 @@
 //   • a parent product whose sizes / shades hold the stock → "which one?"
 //   • a ticket: short code, check-in token or visit-link URL (found here if it's in today's list; otherwise the
 //     server lookup takes over)
-import { codesMatch, hasStockVariants } from '@/lib/retail-orders';
+import { codesMatch, hasStockVariants, parseOrderQr } from '@/lib/retail-orders';
 import { parseScan } from '@/lib/scan-codes';
 
 export type ScanHit =
   | { kind: 'product'; item: any }
   | { kind: 'choose'; parent: any; variants: any[] }
   | { kind: 'ticket'; record: any; walkIn: boolean }
+  | { kind: 'order'; value: string }   // an online order's pickup QR
   | { kind: 'lookup'; value: string }
   | { kind: 'empty' };
 
@@ -28,6 +29,7 @@ export function variantsOf(parent: any, inventory: any[]) {
 export function identifyPosScan(raw: string, ctx: { inventory: any[]; appointments: any[]; walkIns: any[] }): ScanHit {
   const t = String(raw ?? '').trim().replace(/^['"\s]+|['"\s]+$/g, '');
   if (!t) return { kind: 'empty' };
+  if (parseOrderQr(t)) return { kind: 'order', value: t };   // an online order's pickup code → order pickup
   const inv = (ctx.inventory || []).filter(isSellable);
   const asProduct = (item: any): ScanHit => (hasStockVariants(item.optionGroups) ? { kind: 'choose', parent: item, variants: variantsOf(item, ctx.inventory) } : { kind: 'product', item });
   // Your printed labels, or a shop product link
