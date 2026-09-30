@@ -67,6 +67,7 @@ export function ClientScreenCard({ tenantId, tenant, canEdit }: { tenantId: stri
           <label className="flex items-center gap-2"><input type="checkbox" checked={rb.standing} disabled={!canEdit} onChange={(e) => setRb({ standing: e.target.checked })} /> Offer a standing appointment ({rb.standingCount} visits at the same time)</label>
           {rb.standing && <div className="flex items-center gap-2 pl-6"><input type="number" min={2} max={6} value={rb.standingCount} disabled={!canEdit} onChange={(e) => setRb({ standingCount: Math.max(2, Math.min(6, Number(e.target.value) || 3)) })} className="h-10 w-16 rounded-xl border px-2 text-right" aria-label="Standing visits" /> visits</div>}
           <label className="flex items-center gap-2"><input type="checkbox" checked={rb.waitlist} disabled={!canEdit} onChange={(e) => setRb({ waitlist: e.target.checked })} /> Offer the waitlist when nothing fits</label>
+          <label className="flex items-start gap-2"><input type="checkbox" className="mt-1" checked={rb.visitLink} disabled={!canEdit} onChange={(e) => setRb({ visitLink: e.target.checked })} /><span>Also offer it on their visit link after the visit <span className="text-muted-foreground">— for clients who said “Not today” (links work for 90 days)</span></span></label>
           <p className="text-xs text-muted-foreground">Deposit amounts follow your booking and rebooking rules. Booking needs the CRON_SECRET setting on your hosting (it’s already used by your reminders).</p>
         </div>}
       </div>
