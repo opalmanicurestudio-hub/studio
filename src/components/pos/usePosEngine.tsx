@@ -692,7 +692,8 @@ export function usePosEngine() {
     const batch = writeBatch(firestore);
 
     if (appointment) {
-      batch.set(doc(firestore, 'tenants', tenantId, 'appointments', aptId), { status: 'servicing', actualStartTime: nowISO }, { merge: true });
+      // T3: a walk-in's visit exists from arrival — make sure it carries the provider who's starting (checkout needs it).
+      batch.set(doc(firestore, 'tenants', tenantId, 'appointments', aptId), { status: 'servicing', stage: 'in_service', actualStartTime: nowISO, ...(staffId && !appointment.staffId ? { staffId } : {}) }, { merge: true });
     } else if (row) {
       // No mirror appointment exists (unassigned kiosk guest, or the mirror has
       // not reached this browser yet). Create it from the row, otherwise the POS
