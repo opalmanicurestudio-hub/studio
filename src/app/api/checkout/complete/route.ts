@@ -9,6 +9,8 @@
 // Then: memberships / packages enrolled, and any next-visit deposit confirmed.
 // The screen uses the same calculation (lib/checkout-calc), so the totals match; if they ever don't, the sale is
 // still recorded exactly as worked out here and flagged for review — never silently.
+import { tuitionAccount, applyTuitionPayment } from '@/lib/tuition-desk';
+import { renterAccount, applyRentPayment } from '@/lib/rent-desk';
 import { syncVisitCopies } from '@/lib/visit-sync';
 import { refundPaymentIntent } from '@/lib/stripe-refund';
 import { momentsFor, bestMomentReward, prebookMoment } from '@/lib/moments';
@@ -163,14 +165,22 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   // Sale items, priced here (never by the browser) — except next-visit deposits (capped by that booking's deposit) and rentals.
   const items: any[] = [];
   for (const it of reqItems) {
-    const qty = Math.max(1, Math.min(99, Math.round(num(it.quantity) || 1))); const type = String(it.type || 'product'); const id = String(it.id || '');
+    const qty = ['rent', 'tuition'].includes(String(it.type)) ? 1 : Math.max(1, Math.min(99, Math.round(num(it.quantity) || 1))); const type = String(it.type || 'product'); const id = String(it.id || '');
     let price = num(it.price), name = String(it.name || 'Item'), stock: number | null = null;
     if (type === 'product') { const p = inventory.find((x: any) => x.id === id); if (!p) return json({ ok: false, error: `${name} isn’t in your inventory any more.` }, 400); price = num(p.msrp || p.costPerUnit); name = p.name || name; stock = num(p.totalStock); }
     else if (type === 'service') { const s = svc(id); if (s) { price = num(s.price); name = s.name || name; } }
+    else if (type === 'tuition') { const acct: any = await tuitionAccount(db, tenantId, String(it.planId || '')); if (!acct) return json({ ok: false, error: 'That tuition plan wasn’t found.' }, 400);
+      if (!acct.open) return json({ ok: false, error: 'That student isn’t enrolled yet — their down payment is taken on their application link.' }, 400);
+      price = Math.round(num(it.price) * 100) / 100; if (!(price > 0)) return json({ ok: false, error: 'Enter the tuition amount they’re paying.' }, 400);
+      if (Math.round(price * 100) > acct.balanceCents) return json({ ok: false, error: `That’s more than they owe ($${(acct.balanceCents / 100).toFixed(2)}).` }, 400);
+      name = `Tuition — ${acct.name} · ${acct.program}`; (it as any).__tacct = acct; }
+    else if (type === 'rent') { const acct: any = await renterAccount(db, T, String(it.renterId || '')); if (!acct) return json({ ok: false, error: 'That renter wasn’t found.' }, 400);
+      price = Math.round(num(it.price) * 100) / 100; if (!(price > 0) || price > 20000) return json({ ok: false, error: 'Enter the rent amount they’re paying.' }, 400);
+      name = `Rent — ${acct.name}${acct.booth?.name ? ` · ${acct.booth.name}` : ''}`; (it as any).__acct = acct; }
     else if (type === 'membership') { const m = memberships.find((x: any) => x.id === id); if (!m) return json({ ok: false, error: 'That membership wasn’t found.' }, 400); price = num(m.price); name = m.name || name; }
     else if (type === 'package') { const p = packages.find((x: any) => x.id === id); if (!p) return json({ ok: false, error: 'That package wasn’t found.' }, 400); price = num(p.price); name = p.name || name; }
     else if (type === 'deposit' && it.depositForAppointmentId) { const ap: any = (await db.doc(`${T}/appointments/${String(it.depositForAppointmentId)}`).get()).data() || {}; const max = num(ap.depositAmountCents) / 100; if (max > 0) price = Math.min(price || max, max); }
-    items.push({ id, type, quantity: qty, price: Math.max(0, price), name, stock, reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null });
+    items.push({ id, type, quantity: qty, price: Math.max(0, price), name, stock, reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, ...((it as any).__acct ? { __acct: (it as any).__acct } : {}), ...((it as any).__tacct ? { __tacct: (it as any).__tacct } : {}) });   // rent carries its renter's account to the payment step
   }
   // Everyone on the ticket: the payer, and whoever had each visit (a friend, partner or parent may be paying).
   const people: Record<string, any> = { [clientId]: client };
@@ -276,10 +286,12 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     for (const sid of involved) batch.set(db.doc(`${T}/staff/${sid}`), { status: 'available', lastWalkInCompletedAt: now }, { merge: true });
   }
   const toEnroll: { offeringType: 'membership' | 'package'; offeringId: string }[] = [];
+  const rentPayments: any[] = [];
+  const receiptRef = db.collection(`${T}/receipts`).doc();   // made early: a rent payment points to its receipt
   for (const it of items) {
     const value = it.price * it.quantity;
-    const category = it.type === 'deposit' ? 'Retainers' : it.type === 'service' ? 'Service Revenue' : it.type === 'membership' ? 'Membership Sales' : it.type === 'package' ? 'Package Sales' : it.type === 'rental' ? 'Space Rental' : 'Retail';
-    const description = it.type === 'deposit' ? `Deposit: ${it.name}` : it.type === 'service' ? `Service (POS): ${it.quantity}x ${it.name}` : it.type === 'membership' ? `Membership: ${it.name}` : it.type === 'package' ? `Package: ${it.name}` : it.type === 'rental' ? `Space rental: ${it.name}` : `Retail Product: ${it.quantity}x ${it.name}`;
+    const category = it.type === 'deposit' ? 'Retainers' : it.type === 'service' ? 'Service Revenue' : it.type === 'membership' ? 'Membership Sales' : it.type === 'package' ? 'Package Sales' : it.type === 'rental' ? 'Space Rental' : it.type === 'rent' ? 'Booth Rent' : it.type === 'tuition' ? 'Tuition' : 'Retail';
+    const description = it.type === 'deposit' ? `Deposit: ${it.name}` : it.type === 'service' ? `Service (POS): ${it.quantity}x ${it.name}` : it.type === 'membership' ? `Membership: ${it.name}` : it.type === 'package' ? `Package: ${it.name}` : it.type === 'rental' ? `Space rental: ${it.name}` : it.type === 'rent' ? `Booth rent: ${it.name}` : it.type === 'tuition' ? `Tuition: ${it.name}` : `Retail Product: ${it.quantity}x ${it.name}`;
     txn({ description, type: 'income', context: 'Business', category, amount: value, paymentMethod: method, hasReceipt: true, itemId: it.id, itemType: it.type, quantity: it.quantity });
     if (it.type === 'product') {
       batch.set(db.doc(`${T}/inventory/${it.id}`), { totalStock: FieldValue.increment(-it.quantity) }, { merge: true });
@@ -287,6 +299,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       batch.set(sc, clean({ productId: it.id, date: now, change: -it.quantity, unit: 'units', reason: `Retail Sale: ${it.name} for ${client.name || 'Guest'}`, actorId: auth.actor.uid || 'staff', actorName: auth.actor.name || 'Staff', source: 'stock_ledger', type: 'sold', field: 'totalStock', balanceAfter: Math.max(0, num(it.stock) - it.quantity), refKind: 'checkout', refId: checkoutSessionId }));
     }
     if (it.type === 'membership' || it.type === 'package') toEnroll.push({ offeringType: it.type, offeringId: it.id });
+    if (it.type === 'rent' && it.__acct) rentPayments.push(applyRentPayment(batch, db, T, it.__acct, { amountCents: Math.round(value * 100), method: String(method), receiptId: receiptRef.id, transactionId: checkoutSessionId, now, by: auth.actor.name || 'Front desk' }));   // the renter's rent ledger, oldest charges first
     if (it.type === 'rental' && it.reservationId) batch.set(db.doc(`${T}/boothReservations/${it.reservationId}`), { paymentStatus: 'paid', paidAt: now, paidVia: 'pos' }, { merge: true });
     add(value);
   }
@@ -366,13 +379,12 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   void cashDepositOffset;
   if ((method === 'cash' || (split && cashIn > 0)) && b.tillId) batch.set(db.doc(`${T}/tillSessions/${String(b.tillId)}`), { expectedCash: FieldValue.increment(cashIn), totalCashSales: FieldValue.increment(cashSalesAmt), totalCashTips: FieldValue.increment(cashTipsTotal), ...(Object.keys(cashTipsByStaff).length ? { cashTipsByStaff } : {}) }, { merge: true });   // nested, so each provider's cash tips really add up
   // The receipt.
-  const receiptRef = db.collection(`${T}/receipts`).doc();
   const tendered = num(pay.amountTendered);
   batch.set(receiptRef, clean({ id: receiptRef.id, viewKey: `${rid()}${rid()}`, checkoutSessionId, clientId, clientName: client.name || 'Guest', tenantId, date: now, paymentMethod: method, amountTendered: tendered, change: Math.max(0, tendered - calc.total),
     paidBy: client.name || 'Guest', people: Object.values(people).map((p: any) => p.name).filter(Boolean),
     // Everything a void needs to undo this sale exactly.
     ...(split ? { payments: split.map((x) => ({ method: x.method, amount: num(x.amount), tip: num(x.tip), payerName: x.payerName || null, label: x.label || null, stripePaymentIntentId: x.stripePaymentIntentId || null, via: x.via || null })) } : {}),
-    reversal: { ...(split ? { payments: split.map((x) => ({ method: x.method, amount: num(x.amount) + num(x.tip), stripePaymentIntentId: x.stripePaymentIntentId || null })) } : {}), method, tillId: (method === 'cash' || (split && cashIn > 0)) ? (b.tillId || null) : null, cashIn, cashSales: cashSalesAmt, cashTips: method === 'cash' ? cashTipsTotal : 0, cashTipsByStaff: cashTipsPlain,
+    reversal: { ...(rentPayments.length ? { rentPayments } : {}), ...(split ? { payments: split.map((x) => ({ method: x.method, amount: num(x.amount) + num(x.tip), stripePaymentIntentId: x.stripePaymentIntentId || null })) } : {}), method, tillId: (method === 'cash' || (split && cashIn > 0)) ? (b.tillId || null) : null, cashIn, cashSales: cashSalesAmt, cashTips: method === 'cash' ? cashTipsTotal : 0, cashTipsByStaff: cashTipsPlain,
       spend, products: items.filter((x) => x.type === 'product').map((x) => ({ id: x.id, name: x.name, quantity: x.quantity })),
       fees: fees.map((f: any) => ({ feeId: f.feeId, feeAmount: num(f.feeAmount), reason: f.reason || null, owner: f.__owner, fee: (({ __owner, ...rest }) => rest)(f) })),
       depositCreditId: depositCredit && depositCreditDollars > 0 ? depositCredit.ref.id : null,
@@ -398,6 +410,13 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
 
   // After the sale is saved: enrol memberships / packages; confirm next-visit deposits.
   const warnings: string[] = [];
+  // Tuition: the Academy's audited, add-only ledger (it writes on its own, so it follows the saved sale).
+  const tuitionPayments: any[] = [];
+  for (const it of items.filter((x: any) => x.type === 'tuition' && x.__tacct)) {
+    try { tuitionPayments.push(await applyTuitionPayment(db, tenantId, it.__tacct, { amountCents: Math.round(it.price * it.quantity * 100), method: String(method), receiptId: receiptRef.id, by: auth.actor.name || 'Front desk' })); }
+    catch (e: any) { console.error('[checkout] tuition ledger', e); warnings.push(`The payment was taken, but ${it.__tacct.name}’s tuition ledger didn’t update — record it on their Academy account.`); }
+  }
+  if (tuitionPayments.length) await receiptRef.set({ reversal: { tuitionPayments } }, { merge: true }).catch(() => {});
   const origin = req.nextUrl.origin; const authz = req.headers.get('authorization') || '';
   for (const o of toEnroll) {
     try { const r = await fetch(`${origin}/api/memberships/enroll`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, clientId, offeringType: o.offeringType, offeringId: o.offeringId, paymentMethod: 'already_charged', existingPaymentIntentId: pay.stripePaymentIntentId || null, source: 'pos_checkout', skipLedger: true }) }).then((x) => x.json()).catch(() => ({ ok: false }));
