@@ -950,6 +950,7 @@ export default function WalkInKioskPage() {
             ? `Waiting for ${firstNameOf(g.staffName) || 'your provider'} · ${softWait(g.estWaitMin)}`
             : '',
         studioName: t.name || null,
+        accent: t.bookingPageSettings?.cfPageConfig?.accentColor || t.brandColor || null, logoUrl: t.logoUrl || t.bookingPageSettings?.cfPageConfig?.logoUrl || null,   // the Studio look, in their colours
         studioPhone: t.phone || null,
         studioEmail: t.email || null,
         studioAddress: t.address || null,
