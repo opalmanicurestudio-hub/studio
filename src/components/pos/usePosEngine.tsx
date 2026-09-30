@@ -1451,6 +1451,7 @@ export function usePosEngine() {
   const handlePosScan = useCallback((raw: string) => {
     const hit = identifyPosScan(raw, { inventory: inventory || [], appointments: appointmentsFromInventory || [], walkIns: (walkIns as any[]) || [] });
     if (hit.kind === 'empty') return;
+    if (hit.kind === 'order') { window.dispatchEvent(new CustomEvent('cf:order-pickup', { detail: { value: hit.value } })); return; }   // → the desk's pickup panel
     if (hit.kind === 'product') { addProductChecked(hit.item); return; }
     if (hit.kind === 'choose') { if (!hit.variants.length) { toast({ variant: 'destructive', title: `${hit.parent.name} has no sizes set up`, description: 'Add its variants in Inventory.' }); return; } setVariantChoice({ parent: hit.parent, variants: hit.variants }); return; }
     if (hit.kind === 'ticket') {
