@@ -1,5 +1,6 @@
 'use client';
 
+import { saleProfileOf } from '@/lib/sale-profile';
 import { PosCatalog } from '@/components/pos/PosCatalog';
 import { useClientScreen } from '@/components/pos/ClientScreen';
 import { SaleComplete } from '@/components/pos/SaleComplete';
@@ -886,6 +887,17 @@ export const CheckoutHub = ({
   // Reset card mode when payment tab changes
   // ── The client screen (an iPad at the desk): live ticket, tip, card-on-file approval, thank-you ──
   const cs = useClientScreen(tenantId);
+  // ── What kind of sale is this? (lib/sale-profile) — tip, rebooking, moments and signatures follow it ──
+  const profile = useMemo(() => {
+    const csS = (selectedTenant as any)?.clientScreen || {};
+    const visits = (appointmentsData || []).map((d: any) => ({ clientId: d.appointment?.clientId || null, clientName: d.appointment?.clientName || (clients || []).find((c: any) => c.id === d.appointment?.clientId)?.name || null,
+      serviceId: d.service?.id || d.appointment?.serviceId || null, serviceName: d.service?.name || null, staffId: d.appointment?.staffId || null, addOnIds: d.appointment?.addOnIds || [], appointmentId: d.appointment?.id || null,
+      amount: safeNumber(getServicePrice(d.service, d.staff)) }));
+    const items = (cart || []).map((it: any) => ({ type: it.type || ((it as any).interval ? 'membership' : 'product'), name: it.name, id: it.id, interval: (it as any).interval, price: safeNumber(it.price), amount: safeNumber(it.price) * safeNumber(it.quantity || 1), depositForLabel: (it as any).depositForLabel || null }));
+    const fees = Array.from(appliedAdjustments || []).map((id: any) => (clients || []).flatMap((c: any) => c.unpaidFees || []).find((x: any) => x.feeId === id)).filter(Boolean).map((f: any) => ({ name: f.reason, amount: safeNumber(f.feeAmount) }));
+    return saleProfileOf({ visits, items, fees, payerId: selectedClientId || null, payerName: selectedClient?.name || null }, { tipScope: ['services_retail', 'everything'].includes(csS.tipScope) ? csS.tipScope : 'services', membershipTerms: csS.membershipTerms || '' });
+  }, [appointmentsData, cart, appliedAdjustments, clients, selectedClientId, selectedClient, selectedTenant]);
+  const lastProfileRef = useRef<any>(null); if (!isCartEmpty) lastProfileRef.current = profile;   // remembered for the thank-you (the cart is empty by then)
   const screenTicket = useMemo(() => {
     const momentLines = (moments || []).map((m: any) => m.screenLine).slice(0, 2);
     if (isCartEmpty) return selectedClient ? { clientFirst: String(selectedClient?.name || '').split(' ')[0], lines: [], moments: momentLines, subtotal: 0, discount: 0, tax: 0, tip: 0, total: 0, paid: 0, due: 0 } : null;
@@ -898,12 +910,12 @@ export const CheckoutHub = ({
     }
     for (const it of cart || []) lines.push({ label: `${it.name}${it.quantity > 1 ? ` ×${it.quantity}` : ''}`, amount: safeNumber(it.price) * safeNumber(it.quantity) });
     for (const id of Array.from(appliedAdjustments || [])) { const f = (clients || []).flatMap((c: any) => c.unpaidFees || []).find((x: any) => x.feeId === id); if (f) lines.push({ label: f.reason || 'Owed balance', amount: safeNumber(f.feeAmount) }); }
-    return { clientFirst: String(selectedClient?.name || '').split(' ')[0], lines, moments: momentLines, subtotal: safeNumber(subtotal), discount: safeNumber(totalDiscount) + safeNumber(recoveryAmount), tax: safeNumber(tax), taxLabel: taxLabel || 'Sales tax', tip: safeNumber(tipAmount), total: safeNumber(finalTotal) + safeNumber(totalPaidDeposits), paid: safeNumber(totalPaidDeposits), due: safeNumber(isCardTab ? amountToCharge : finalTotal) };
-  }, [moments, isCartEmpty, appointmentsData, cart, appliedAdjustments, clients, services, staff, redeemedOffer, selectedClient, selectedClientId, subtotal, totalDiscount, recoveryAmount, tax, taxLabel, tipAmount, finalTotal, totalPaidDeposits, isCardTab, amountToCharge]);
+    return { clientFirst: String(selectedClient?.name || '').split(' ')[0], lines, moments: profile.moments ? momentLines : [], context: profile.context, subtotal: safeNumber(subtotal), discount: safeNumber(totalDiscount) + safeNumber(recoveryAmount), tax: safeNumber(tax), taxLabel: taxLabel || 'Sales tax', tip: safeNumber(tipAmount), total: safeNumber(finalTotal) + safeNumber(totalPaidDeposits), paid: safeNumber(totalPaidDeposits), due: safeNumber(isCardTab ? amountToCharge : finalTotal) };
+  }, [profile, moments, isCartEmpty, appointmentsData, cart, appliedAdjustments, clients, services, staff, redeemedOffer, selectedClient, selectedClientId, subtotal, totalDiscount, recoveryAmount, tax, taxLabel, tipAmount, finalTotal, totalPaidDeposits, isCardTab, amountToCharge]);
   const screenTicketKey = JSON.stringify(screenTicket);
   useEffect(() => { if (!cs.connected || (lastSale && isCartEmpty)) return; const t = setTimeout(() => { cs.push(screenTicket); }, 500); return () => clearTimeout(t); }, [cs.connected, screenTicketKey, !!lastSale]); // eslint-disable-line react-hooks/exhaustive-deps
   const thankedRef = useRef<string | null>(null);
-  const rebookCtxOf = (ls: any) => (ls?.clientId && ls?.serviceId ? { clientId: ls.clientId, serviceId: ls.serviceId, staffId: ls.staffId || null, addOnIds: ls.addOnIds || [], appointmentId: ls.appointmentId || null } : null);
+  const rebookCtxOf = (_ls: any) => { const rb = lastProfileRef.current?.rebook; return rb ? { clientId: rb.clientId, serviceId: rb.serviceId, staffId: rb.staffId, addOnIds: rb.addOnIds || [], appointmentId: rb.appointmentId } : null; };   // retail-only, fees, memberships… → no rebooking
   useEffect(() => { if (cs.connected && lastSale?.receiptId && thankedRef.current !== lastSale.receiptId) { thankedRef.current = lastSale.receiptId; cs.ask('thanks', { receiptId: lastSale.receiptId, total: lastSale.collected ?? lastSale.total, clientFirst: String(lastSale.clientName || '').split(' ')[0], rebook: rebookCtxOf(lastSale) }); } }, [cs.connected, lastSale?.receiptId]); // eslint-disable-line react-hooks/exhaustive-deps
   const [tipReq, setTipReq] = useState<string | null>(null);
   const [cofReq, setCofReq] = useState<{ id: string | null; amount: number; status: 'waiting' | 'approved' | 'declined'; consentId?: string | null } | null>(null);
@@ -917,10 +929,10 @@ export const CheckoutHub = ({
   // ── The automatic flow (Settings → Client screen → "Run it automatically"): the iPad follows the checkout ──
   const csSet = (selectedTenant as any)?.clientScreen || {};
   const autoOn = cs.connected && csSet.auto !== false;
-  const autoTipOn = autoOn && csSet.autoTip !== false && !studentsNoTips;
+  const autoTipOn = autoOn && csSet.autoTip !== false && !studentsNoTips && profile.tip.ask;   // never on a fee / deposit / membership-only sale
   const ticketKey = `${selectedClientId || ''}|${(appointmentsData || []).map((d: any) => d.appointment?.id).join(',')}|${(cart || []).map((c: any) => `${c.id}x${c.quantity}`).join(',')}`;
   const tipAskedFor = useRef<string | null>(null);
-  const tipBase = (csSet.tipOn === 'after_tax' ? safeNumber(subtotal) - safeNumber(totalDiscount) + safeNumber(tax) : safeNumber(subtotal) - safeNumber(totalDiscount));
+  const tipBase = Math.round((profile.tip.base * (csSet.tipOn === 'after_tax' && safeNumber(subtotal) > 0 ? 1 + safeNumber(tax) / safeNumber(subtotal) : 1)) * 100) / 100;   // the tippable lines only
   const askTipAuto = async () => { if (tipAskedFor.current === ticketKey || tipReq) return; tipAskedFor.current = ticketKey; const id = await cs.ask('tip', { base: tipBase }); if (id) setTipReq(id); };
   // Card on file asks for the tip on the iPad first (once per ticket). Cash doesn't: the iPad shows the total, then
   // their change with "Keep it as a tip" / "My change, please" — that's the tip moment for cash.
@@ -962,14 +974,37 @@ export const CheckoutHub = ({
     if (r.saved) toast({ title: 'Card saved for next time' });
     onCheckout({ paymentMethod: 'card', amountTendered: safeNumber(r.amount) || amt, recoveryAmount, recoveryReason, recoveryApprovalToken, stripePaymentIntentId: r.paymentIntentId, cardSurcharge, tipOverride: Math.round((safeNumber(tipAmount) + safeNumber(r.tip)) * 100) / 100 });
   }, [cs.response?.requestId]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setCofReq(null); setCofSkip(false); setTipReq(null); setChangeReq(null); setPayReq(null); setPayAfterTip(false); cashShown.current = ''; changeDoneFor.current = null; }, [selectedClientId, lastSale?.receiptId]);   // never carry one client's approval to the next
+  useEffect(() => { setCofReq(null); setCofSkip(false); setTipReq(null); setChangeReq(null); setPayReq(null); setPayAfterTip(false); setSignReq(null); cashShown.current = ''; changeDoneFor.current = null; }, [selectedClientId, lastSale?.receiptId]);   // never carry one client's approval to the next
+  // ── When things change, nothing is left hanging on the iPad ──
+  // Another client → cancel whatever was waiting (a tip, an approval, a payment — cancelled at Stripe).
+  const prevClientRef = useRef<string | null>(selectedClientId || null);
+  useEffect(() => { const prev = prevClientRef.current; prevClientRef.current = selectedClientId || null;
+    if (cs.connected && prev && prev !== (selectedClientId || null) && !lastSale) cs.ask('idle'); }, [selectedClientId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Another payment type while they were paying on the iPad → cancel that payment (cash sends its own screen).
+  useEffect(() => { if (!payReq) return; if (paymentTab !== 'card' || cardMode !== 'select') { setPayReq(null); if (paymentTab !== 'cash') cs.ask('idle'); } }, [paymentTab, cardMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  // What the iPad reports back: they walked away (cancelled), or a payment went through after the desk moved on.
+  useEffect(() => { const r = cs.response; if (!r || r.kind !== 'pay') return;
+    if (r.abandoned && payReq && r.requestId === payReq.id) { setPayReq(null); toast({ title: 'They didn’t finish paying', description: 'The payment on the iPad was cancelled — nothing was charged.' }); }
+    if (r.late) toast({ variant: 'destructive', title: 'A payment went through on the iPad', description: 'It’s in Needs attention → Sales not recorded — record it there.' }); }, [cs.response?.requestId, cs.response?.abandoned, cs.response?.late]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const late = () => toast({ variant: 'destructive', title: 'A payment went through on the iPad before you switched', description: 'It’s in Needs attention → Sales not recorded — record it there.' });
+    window.addEventListener('cf:screen-late-payment', late); return () => window.removeEventListener('cf:screen-late-payment', late); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Membership terms: sent to the iPad to sign as soon as a membership is on the ticket.
+  const [signReq, setSignReq] = useState<{ id: string | null; ref: string; status: 'waiting' | 'signed' | 'paper' } | null>(null);
+  useEffect(() => { const sg = profile.sign; if (!autoOn || !sg || !selectedClient || csSet.signMembership === false || lastSale) return; if (signReq?.ref === sg.ref) return;
+    cs.ask('sign', { title: sg.title, text: sg.text, what: sg.what, ref: sg.ref, clientId: selectedClient.id, clientName: selectedClient.name }).then((id: any) => setSignReq({ id: id || null, ref: sg.ref, status: 'waiting' })); }, [autoOn, profile.sign?.ref, selectedClient?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const r = cs.response; if (r?.kind === 'sign' && r.signed && signReq && signReq.id === r.requestId) setSignReq({ id: signReq.id, ref: signReq.ref, status: 'signed' }); }, [cs.response?.requestId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Closing checkout (Done, closing the drawer, leaving the page) → the iPad goes back to the logo (unless they're mid-booking).
+  const askRef = useRef(cs.ask); askRef.current = cs.ask; const connRef = useRef(cs.connected); connRef.current = cs.connected;
+  useEffect(() => () => { if (connRef.current) askRef.current('idle', { soft: true }); }, []);
+  // "Still here" — if the desk goes quiet (tablet asleep, browser closed), the iPad returns to the logo by itself.
+  useEffect(() => { if (!cs.connected) return; const t = setInterval(() => { cs.alive?.(); }, 45000); return () => clearInterval(t); }, [cs.connected]); // eslint-disable-line react-hooks/exhaustive-deps
   const cofApproved = !cs.connected || cofSkip || (cofReq?.status === 'approved' && Math.abs(cofReq.amount - amountToCharge) < 0.005);
   useEffect(() => { if (!autoOn || paymentTab !== 'card' || cardMode !== 'cof_confirm' || !selectedClient || cofSkip) return;
     const k = `${ticketKey}|${amountToCharge}`; if (cofAutoSent.current === k || (cofReq && Math.abs(cofReq.amount - amountToCharge) < 0.005)) return; cofAutoSent.current = k;
     cs.ask('approve', { amount: amountToCharge, cardLabel: `${String(selectedClient?.cardOnFile?.brand || 'card')} ending ${String(selectedClient?.cardOnFile?.last4 || '••••')}`, clientId: selectedClient.id, clientName: selectedClient.name }).then((id: any) => { if (id) setCofReq({ id, amount: amountToCharge, status: 'waiting' }); });
   }, [autoOn, paymentTab, cardMode, amountToCharge, cofSkip, ticketKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setCardMode('select'); }, [paymentTab]);
-  if (lastSale && isCartEmpty) return <div className="desk" style={{ background: 'transparent' }}><style>{DESK_CSS}</style><SaleComplete screenName={cs.connected ? cs.name : null} onBookOnScreen={cs.connected ? () => { cs.ask('thanks', { receiptId: lastSale.receiptId, total: lastSale.collected ?? lastSale.total, clientFirst: String(lastSale.clientName || '').split(' ')[0], rebook: rebookCtxOf(lastSale), rebookFirst: true }); toast({ title: `Booking their next visit on ${cs.name}` }); } : undefined} sale={lastSale} tenantId={tenantId} onNewSale={() => clearLastSale?.()} onDone={onDone} /></div>;   // after the last hook
+  if (lastSale && isCartEmpty) return <div className="desk" style={{ background: 'transparent' }}><style>{DESK_CSS}</style><SaleComplete autoReturnSec={Number((selectedTenant as any)?.clientScreen?.deskReturnAfter ?? 10)} screenName={cs.connected ? cs.name : null} onBookOnScreen={cs.connected ? () => { cs.ask('thanks', { receiptId: lastSale.receiptId, total: lastSale.collected ?? lastSale.total, clientFirst: String(lastSale.clientName || '').split(' ')[0], rebook: rebookCtxOf(lastSale), rebookFirst: true }); toast({ title: `Booking their next visit on ${cs.name}` }); } : undefined} sale={lastSale} tenantId={tenantId} onNewSale={() => { clearLastSale?.(); if (cs.connected) cs.ask('idle', { soft: true }); }} onDone={onDone} /></div>;   // after the last hook
 
 
 
@@ -1021,6 +1056,15 @@ export const CheckoutHub = ({
           payerOptions={payerOptions || []}
         />
           </section>
+          {profile.sign && cs.connected && selectedClient && <section className={card} style={cardStyle} aria-label="Membership terms">
+            <p className={h}>Membership terms</p>
+            <p className="text-[14px]" style={muted}>{signReq?.status === 'signed' ? `Signed on ${cs.name} ✓` : signReq?.status === 'paper' ? 'Signed on paper.' : signReq ? `Waiting for ${firstOf(selectedClient.name)} to sign on ${cs.name}…` : `Ask ${firstOf(selectedClient.name)} to sign the ${profile.sign.title.replace(/ — terms$/, '')} terms on ${cs.name}.`}</p>
+            {signReq?.status !== 'signed' && <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={async () => { const sg = profile.sign!; const id = await cs.ask('sign', { title: sg.title, text: sg.text, what: sg.what, ref: sg.ref, clientId: selectedClient.id, clientName: selectedClient.name }); setSignReq({ id: id || null, ref: sg.ref, status: 'waiting' }); }}
+                className="h-10 rounded-full px-4 text-[13px] font-semibold" style={{ background: 'var(--soft)' }}>{signReq ? 'Ask again' : 'Send to sign'}</button>
+              <button type="button" onClick={() => setSignReq({ id: null, ref: profile.sign!.ref, status: 'paper' })} className="h-10 rounded-full px-4 text-[13px]" style={{ background: 'var(--soft)' }}>Signed on paper</button>
+            </div>}
+          </section>}
           {selectedClient && tenantId && <CheckoutNudge tenantId={tenantId} client={selectedClient} cart={cart || []} onCartChange={onCartChange} />}
           {(moments || []).map((m: any) => <section key={m.key} className={card} style={{ ...cardStyle, background: 'color-mix(in srgb, var(--accent) 7%, var(--card))' }} aria-label={m.title}>
             <p className={h}>{m.kind === 'birthday' ? '🎂 ' : m.kind === 'first' ? '👋 ' : '✨ '}{m.title}</p>
