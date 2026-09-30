@@ -55,6 +55,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, entry });
   }
   if (action === 'get') {
+    { const { missingStageEntry } = await import('@/lib/visit'); const miss = missingStageEntry(a, t);   // self-repair: a step an older screen didn't log
+      if (miss) { a.timeline = [...(Array.isArray(a.timeline) ? a.timeline : []), miss].slice(-60); await db.doc(`${T}/appointments/${id}`).set({ timeline: a.timeline }, { merge: true }).catch(() => {}); } }
     const [receipts, consents] = await Promise.all([
       a.checkoutSessionId ? db.collection(`${T}/receipts`).where('checkoutSessionId', '==', a.checkoutSessionId).get().then((s: any) => s.docs.map((d: any) => ({ id: d.id, total: d.data().total, date: d.data().date, voided: !!d.data().voided, payments: d.data().payments || null, paymentMethod: d.data().paymentMethod })))
         : Promise.resolve([]),
@@ -69,7 +71,7 @@ export async function POST(req: NextRequest) {
       status: a.status || null, checkInStatus: a.checkInStatus || null, addOnIds: a.addOnIds || [], depositAmountCents: a.depositAmountCents || null, depositStatus: a.depositStatus || null,
       studio: { name: t.name || t.businessName || '', phone: t.phone || null, address: t.address || null, logoUrl: t.logoUrl || t.bookingPageSettings?.cfPageConfig?.logoUrl || null, accent: t.bookingPageSettings?.cfPageConfig?.accentColor || t.brandColor || null }, serviceId: a.serviceId || null, serviceName: svcName, staffId: a.staffId || null,
       startTime: a.startTime || null, endTime: a.endTime || null, shortCode: a.shortCode || null, checkInToken: a.checkInToken || null,
-      stage, stageLabel: stageLabel(stage, a, t), flags: flagsOf(a), paymentStatus: pay, paymentLabel: PAYMENT_LABEL[pay], timeline: timeline.slice(-MAX_TIMELINE), receipts, consents: consents.slice(-10),
+      stage, stageLabel: stageLabel(stage, a, t), flags: flagsOf(a), paymentStatus: pay, paymentLabel: PAYMENT_LABEL[pay], timeline: (Array.isArray(a.timeline) ? a.timeline : timeline).slice(-MAX_TIMELINE), receipts, consents: consents.slice(-10),
       next: (['arrived', 'waiting', 'in_service', 'ready_to_pay', 'booked'] as Stage[]).filter((s) => canMove(stage, s)).map((s) => ({ stage: s, label: stageLabel(s, a, t) })) } });
   }
   return bad('Unknown action.');
