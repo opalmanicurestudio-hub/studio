@@ -9,7 +9,7 @@
 // Then: memberships / packages enrolled, and any next-visit deposit confirmed.
 // The screen uses the same calculation (lib/checkout-calc), so the totals match; if they ever don't, the sale is
 // still recorded exactly as worked out here and flagged for review — never silently.
-import { momentsFor, bestMomentReward } from '@/lib/moments';
+import { momentsFor, bestMomentReward, prebookMoment } from '@/lib/moments';
 import { monthKey } from '@/lib/team-discount';
 import { consumeApproval, isApprover } from '@/lib/approvals';
 import { NextRequest, NextResponse } from 'next/server';
@@ -132,7 +132,8 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   const tip = Math.max(0, num(b.tip));
   // Moments (birthday / first visit / milestone) — worked out here from the client's own record and visit count.
   const doneBefore = (await db.collection(`${T}/appointments`).where('clientId', '==', clientId).get()).docs.filter((d: any) => (d.data() as any).status === 'completed' && !apptIds.includes(d.id)).length;
-  const moment = bestMomentReward(momentsFor(tenant, client, doneBefore, new Date(), visits.length > 0));
+  const pre = prebookMoment(visits.map((v: any) => v.appointment));
+  const moment = bestMomentReward([...momentsFor(tenant, client, doneBefore, new Date(), visits.length > 0), ...(pre ? [pre] : [])]);
   const sdIn = b.staffDiscount && ['pct', 'amt'].includes(b.staffDiscount.kind) && num(b.staffDiscount.value) > 0 ? { kind: b.staffDiscount.kind as 'pct' | 'amt', value: Math.max(0, num(b.staffDiscount.value)) } : null;
   const calc = computeCheckout({ tenant, visits, staff, redeemedOffer, waivedIds, items, fees, discounts, client, memberships, tip, storeCredit: Math.max(0, num(b.storeCredit)), staffDiscount: sdIn, skipGroupDiscount: b.skipGroupDiscount === true, momentReward: moment ? { pct: moment.rewardPct, label: moment.rewardLabel || 'Thank-you', key: moment.key } : null });
   const recoveryAmount = Math.min(Math.max(0, num(b.recovery?.amount)), calc.subtotal);
