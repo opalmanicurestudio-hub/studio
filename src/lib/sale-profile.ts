@@ -32,6 +32,7 @@ export function saleProfileOf(i: SaleInput, opt: { tipScope?: TipScope; membersh
   for (const it of i.items || []) {
     const a = Number(it.amount) || 0; const t = String(it.type || 'product');
     if (t === 'service') { counterSvc += a; kinds.add('service'); } else if (t === 'product') { retail += a; kinds.add('retail'); }
+    else if (t === 'rent' || t === 'tuition') { kinds.add(t); }   // money owed on an account — never tipped, never a moment
     else { other += a; kinds.add(t); }   // membership · package · deposit · rental · …
   }
   const feeAmt = (i.fees || []).reduce((s, f) => s + (Number(f.amount) || 0), 0); if (i.fees?.length) kinds.add('fee');
@@ -51,5 +52,6 @@ export function saleProfileOf(i: SaleInput, opt: { tipScope?: TipScope; membersh
   for (const it of (i.items || []).filter((x) => x.type === 'deposit')) context.push(it.depositForLabel ? `Securing your visit — ${it.depositForLabel}` : 'A deposit for your next visit');
   for (const f of i.fees || []) context.push(`Paying: ${f.name || 'an owed balance'}`);
   if (kinds.has('rental')) context.push('Booth rental');
+  for (const it of (i.items || []).filter((x) => x.type === 'rent' || x.type === 'tuition')) context.push(it.name || (x => x)(it.type === 'rent' ? 'Rent' : 'Tuition'));
   return { kinds: [...kinds], serviceAmount, retailAmount: r2(retail), otherAmount: r2(other + feeAmt), tip: { ask: base > 0, base: r2(base) }, rebook, moments: !onlyMoney, sign, context };
 }
