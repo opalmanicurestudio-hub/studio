@@ -17,8 +17,8 @@ async function post(body: any) {
 const money = (n: any) => `$${(Number(n) || 0).toFixed(2)}`;
 const when = (iso: any) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); };
 const clock = (iso: any) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); };
-const TRACK = ['booked', 'arrived', 'in_service', 'ready_to_pay', 'complete'];
-const PRIMARY: Record<string, string> = { booked: 'arrived', arrived: 'in_service', in_service: 'ready_to_pay' };
+const TRACK = ['booked', 'arrived', 'waiting', 'in_service', 'ready_to_pay', 'complete'];
+const PRIMARY: Record<string, string> = { booked: 'arrived', arrived: 'in_service', waiting: 'in_service', in_service: 'ready_to_pay' };   // Arrived → straight to service (Waiting can be skipped)
 
 export function VisitTicket({ tenantId, appointmentId, onClose }: { tenantId: string; appointmentId: string; onClose?: () => void }) {
   const { firestore } = useFirebase() as any;
@@ -65,13 +65,13 @@ export function VisitTicket({ tenantId, appointmentId, onClose }: { tenantId: st
       </section>
       {/* Stage + the next step */}
       <section className={card} style={cardStyle} aria-label="Where the visit is">
-        {closed && v.stage !== 'complete' ? <p className="text-[16px] font-semibold">{v.stageLabel}</p> : <ol className="grid grid-cols-5 gap-1" aria-label={`Stage: ${v.stageLabel}`}>
+        {closed && v.stage !== 'complete' ? <p className="text-[16px] font-semibold">{v.stageLabel}</p> : <ol className="grid grid-cols-6 gap-1" aria-label={`Stage: ${v.stageLabel}`}>
           {TRACK.map((s, i) => <li key={s} className="space-y-1 text-center"><span className="block h-1.5 rounded-full" style={{ background: i <= trackIdx ? 'var(--accent)' : 'var(--line)' }} />
             <span className="block text-[11px] leading-tight" style={i === trackIdx ? { fontWeight: 700 } : muted}>{i === trackIdx ? v.stageLabel : ''}</span></li>)}
         </ol>}
         {primaryTo && primaryLabel && <button type="button" disabled={!!busy} onClick={() => move(primaryTo)} className={primaryBtn} style={primaryStyle}>{busy === primaryTo ? 'Moving…' : primaryTo === 'arrived' ? `Check ${first} in` : primaryLabel === 'Ready to pay' ? 'Finished — ready to pay' : `Start — ${primaryLabel}`}</button>}
         {v.stage === 'ready_to_pay' && <button type="button" onClick={() => (act.checkout ? act.checkout(v.id) : (window.location.href = `/pos?checkout=${encodeURIComponent(v.id)}`))} className={primaryBtn} style={primaryStyle}>Take payment</button>}
-        {!!back.length && <div className="flex flex-wrap gap-1.5">{back.map((n: any) => <button key={n.stage} type="button" disabled={!!busy} onClick={() => move(n.stage)} className="h-9 rounded-full px-3 text-[13px]" style={soft}>Back to {n.label}</button>)}</div>}
+        {!!back.length && <div className="flex flex-wrap gap-1.5">{back.map((n: any) => <button key={n.stage} type="button" disabled={!!busy} onClick={() => move(n.stage)} className="h-9 rounded-full px-3 text-[13px]" style={soft}>{TRACK.indexOf(n.stage) > trackIdx ? `Mark as ${n.label.toLowerCase()}` : `Back to ${n.label}`}</button>)}</div>}
         {!closed && act.cancel && <button type="button" onClick={() => { act.cancel!(v.id); onClose?.(); }} className="text-[13px] underline underline-offset-4" style={{ color: 'var(--warn)' }}>Cancel or no-show</button>}
         {msg && <p className="text-[13px] font-semibold" role="status">{msg}</p>}
       </section>
