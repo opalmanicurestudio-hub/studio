@@ -32,7 +32,7 @@ import Stripe from 'stripe';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { resolveFromAddress } from '@/lib/notify';
 import { linkOrigin } from '@/lib/app-origin';
-import { payLaterCheckoutParams } from '@/lib/pay-later';
+import { payLaterCheckoutParams, createCheckoutSession } from '@/lib/pay-later';
 import { mediaUrl } from '@/lib/academy';
 import { loadCourseBySlug, loadLessons, studentFromToken, enroll, enrollFromCheckout, createStudentSession, createLoginLink, studentIdFor, sha, muxPlaybackToken, embedUrl } from '@/lib/academy';
 import { applyBeat, appendAudit, jitterMin, lessonMet, qrValid, metersBetween, mergeRanges, watchedSeconds, DEFAULT_RULES, type Range } from '@/lib/academy-compliance';
@@ -132,7 +132,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true, free: true, token: await createStudentSession(tenantId, r.studentId) });
       }
       if (!t.stripeAccountId) return NextResponse.json({ ok: false, error: 'This academy can’t take payments yet.' }, { status: 400 });
-      const session = await stripe().checkout.sessions.create({
+      const session = await createCheckoutSession(stripe(), {
         mode: 'payment', customer_email: email,
         line_items: [{ quantity: 1, price_data: { currency: 'usd', unit_amount: c.priceCents, product_data: { name: c.title, description: (c.subtitle || `Online course · ${brand.name}`).slice(0, 300) } } }],
         ...payLaterCheckoutParams(t.payLater, c.priceCents),
