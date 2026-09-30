@@ -8,6 +8,7 @@
 // new POS will too. Do not fork logic into a layout — add it here.
 
 
+import { openVisit } from '@/lib/visit-client';
 import { identifyPosScan, onHand } from '@/lib/pos-scan';
 import { momentsFor, bestMomentReward, prebookMoment } from '@/lib/moments';
 import { groupDiscountFor, groupDiscountAmount } from '@/lib/team-discount';
@@ -1455,6 +1456,7 @@ export function usePosEngine() {
       const r: any = hit.record;
       const ready = !hit.walkIn && (readyForCheckoutAppointments || []).some((a: any) => a.id === r.id);
       if (ready) { if (!selectedAppointmentIds.has(r.id)) handleSelectAppointment(r.id); window.dispatchEvent(new CustomEvent('cf:open-checkout')); toast({ title: `${r.clientName || 'Visit'} added to checkout` }); return; }
+      if (!hit.walkIn && r.id) { openVisit(r.id); return; }   // a booked visit → its ticket (Check in / Start / Ready to pay are one tap away)
       setScanMode('checkin'); setScanQuery(String(r.shortCode || r.checkInToken || '')); setScanResult(hit.walkIn ? { ...r, __walkIn: true } : { ...r }); setScanNotFound(false); setIsScanLookupOpen(true); return;
     }
     setScanMode('checkin'); setScanQuery(hit.value); resolveScanCode(hit.value); setIsScanLookupOpen(true);   // not in today's list — ask the server
