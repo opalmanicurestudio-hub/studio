@@ -1,5 +1,6 @@
 'use client';
 
+import { SplitBill } from '@/components/pos/SplitBill';
 import { saleProfileOf } from '@/lib/sale-profile';
 import { PosCatalog } from '@/components/pos/PosCatalog';
 import { useClientScreen } from '@/components/pos/ClientScreen';
@@ -511,6 +512,9 @@ export const CheckoutHub = ({
   onAddItem,
   onPosScan,
   getPendingId,
+  prepareNow,
+  splitActive,
+  setSplitActive,
   moments,
   momentReward,
   momentDiscountValue,
@@ -897,6 +901,16 @@ export const CheckoutHub = ({
     const fees = Array.from(appliedAdjustments || []).map((id: any) => (clients || []).flatMap((c: any) => c.unpaidFees || []).find((x: any) => x.feeId === id)).filter(Boolean).map((f: any) => ({ name: f.reason, amount: safeNumber(f.feeAmount) }));
     return saleProfileOf({ visits, items, fees, payerId: selectedClientId || null, payerName: selectedClient?.name || null }, { tipScope: ['services_retail', 'everything'].includes(csS.tipScope) ? csS.tipScope : 'services', membershipTerms: csS.membershipTerms || '' });
   }, [appointmentsData, cart, appliedAdjustments, clients, selectedClientId, selectedClient, selectedTenant]);
+  const splitLines = useMemo(() => {
+    const out: any[] = [];
+    for (const d of appointmentsData || []) { const who = d.appointment?.clientId || selectedClientId || null; const nm = d.appointment?.clientName || (clients || []).find((c: any) => c.id === who)?.name || null;
+      out.push({ key: `v-${d.appointment?.id}`, label: d.service?.name || 'Service', amount: safeNumber(getServicePrice(d.service, d.staff)), personId: who, personName: nm });
+      for (const id of d.appointment?.addOnIds || []) { const ad = (services || []).find((x: any) => x.id === id); if (ad) out.push({ key: `a-${d.appointment?.id}-${id}`, label: `+ ${ad.name}`, amount: safeNumber(getServicePrice(ad, d.staff)), personId: who, personName: nm }); } }
+    for (const it of cart || []) out.push({ key: `i-${it.id}`, label: it.name, amount: safeNumber(it.price) * safeNumber(it.quantity || 1), personId: selectedClientId || null, personName: selectedClient?.name || null });
+    return out.filter((l) => l.amount > 0);
+  }, [appointmentsData, cart, services, clients, selectedClientId, selectedClient]);
+  const splitPeople = useMemo(() => { const ids = new Set<string>([selectedClientId, ...splitLines.map((l: any) => l.personId)].filter(Boolean) as string[]);
+    return [...ids].map((id) => { const c: any = (clients || []).find((x: any) => x.id === id); return { id, name: c?.name || 'Guest', card: c?.cardOnFile?.paymentMethodId ? `${String(c.cardOnFile.brand || 'card')} ${c.cardOnFile.last4 || ''}`.trim() : null }; }); }, [splitLines, clients, selectedClientId]);
   const lastProfileRef = useRef<any>(null); if (!isCartEmpty) lastProfileRef.current = profile;   // remembered for the thank-you (the cart is empty by then)
   const screenTicket = useMemo(() => {
     const momentLines = (moments || []).map((m: any) => m.screenLine).slice(0, 2);
@@ -1222,6 +1236,10 @@ export const CheckoutHub = ({
           </section>}
           <section className={card} style={cardStyle} aria-label="Pay">
             <p className={h}>How they’re paying</p>
+            {splitActive && prepareNow ? <SplitBill tenantId={tenantId} owed={safeNumber(finalTotal)} lines={splitLines} people={splitPeople} payerId={selectedClientId || null}
+              prepare={async () => prepareNow()} onCancel={() => setSplitActive?.(false)} onFinish={(paid) => onCheckout({ paymentMethod: 'split', amountTendered: paid, recoveryAmount, recoveryReason, recoveryApprovalToken })}
+              screen={cs.connected ? { connected: true, name: cs.name, ask: cs.ask, response: cs.response } : null} askTip={autoTipOn} tipBaseFor={(amt: number) => (safeNumber(finalTotal) > 0 ? Math.round(tipBase * (amt / safeNumber(finalTotal)) * 100) / 100 : 0)} />
+            : <>
             <div role="tablist" aria-label="Payment method" className="grid grid-cols-3 gap-1 rounded-full p-1" style={{ background: 'var(--soft)' }}>
               {([['card', 'Card'], ['cash', 'Cash'], ['other', 'Other']] as const).map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={paymentTab === k} onClick={() => { setPaymentTab(k); setCardMode('select'); }} className="h-11 rounded-full text-[15px] font-semibold" style={paymentTab === k ? { background: 'var(--card)', boxShadow: '0 1px 2px rgba(0,0,0,.08)' } : { color: 'var(--muted)' }}>{l}</button>)}
             </div>
@@ -1453,6 +1471,8 @@ export const CheckoutHub = ({
             )}
             </AnimatePresence>
             {paymentTab === 'other' && <p className="text-[14px]" style={muted}>For payments taken outside the app (a bank transfer, a cheque, a voucher). Record it with the button below.</p>}
+            {prepareNow && !isCartEmpty && safeNumber(finalTotal) > 0 && <button type="button" onClick={() => setSplitActive?.(true)} className="h-11 w-full rounded-full text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Split the bill</button>}
+            </>}
           </section>
           <section className={card} style={cardStyle} aria-label="Totals">
             <div className="space-y-1.5 text-[14px]">
@@ -1472,7 +1492,7 @@ export const CheckoutHub = ({
       <div className="sticky bottom-0 z-10 -mx-5 mt-3 px-5 pb-1 pt-3" style={{ background: 'var(--paper)', borderTop: '1px solid var(--line)' }}>
         <div className="flex items-center justify-between gap-3">
           <div><p className="text-[12px]" style={muted}>{isCardTab ? 'To charge' : 'Due'}</p><p className="text-[26px] font-semibold tabular-nums leading-tight">{coMoney(dueNow)}</p></div>
-          {paymentTab === 'other' ? <button type="button" onClick={() => onCheckout({ paymentMethod: paymentTab, amountTendered, recoveryAmount, recoveryReason, recoveryApprovalToken, isEscalated: isOverrideUnlocked })} disabled={isSubmitting || payBlocked}
+          {splitActive ? <p className="max-w-[55%] text-right text-[13px]" style={muted}>Splitting the bill — finish it above.</p> : paymentTab === 'other' ? <button type="button" onClick={() => onCheckout({ paymentMethod: paymentTab, amountTendered, recoveryAmount, recoveryReason, recoveryApprovalToken, isEscalated: isOverrideUnlocked })} disabled={isSubmitting || payBlocked}
               className="h-12 rounded-full px-6 text-[15px] font-semibold disabled:opacity-40" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>{isSubmitting ? 'Saving…' : finalTotal <= 0 ? 'Complete (nothing to pay)' : `Record ${coMoney(finalTotal)}`}</button>
             : <p className="max-w-[55%] text-right text-[13px]" style={muted}>{payBlocked ? (isOverAutonomy && !isOverrideUnlocked ? 'A manager needs to approve the recovery first' : isGroupCheckout && !selectedClientId ? 'Choose who’s paying' : 'Add something to the ticket') : paymentTab === 'cash' ? 'Enter the cash given above to finish' : cardMode === 'select' ? 'Choose how they pay by card above' : 'Finish the card payment above'}</p>}
         </div>
