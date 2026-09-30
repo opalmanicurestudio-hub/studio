@@ -1,3 +1,4 @@
+
 // src/app/api/receipts/route.ts — RECEIPTS AND VOID SLIPS (printable, sendable).
 // Built from what the SERVER recorded (never the screen's numbers).
 //   GET ?tenantId&id&k        — the receipt / void slip, for its private page (/r/[tenantId]/[id]?k=)
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
     const snap = await db.collection(`${T}/receipts`).where('date', '>=', from).where('date', '<=', to).get();
     const receipts = snap.docs.map((d: any) => { const r: any = d.data();
       return { id: d.id, checkoutSessionId: r.checkoutSessionId || null, date: r.date, total: r.total, tip: r.tip || 0, clientName: r.clientName || null, clientId: r.clientId || null, paidBy: r.paidBy || null,
-        paymentMethod: r.paymentMethod, voided: !!r.voided, voidReason: r.voidReason || null, needsReview: !!r.needsReview, reversal: !!r.reversal }; });
+        paymentMethod: r.paymentMethod, payments: Array.isArray(r.payments) ? r.payments.map((x: any) => ({ method: x.method, amount: x.amount, tip: x.tip || 0, payerName: x.payerName || null })) : null, voided: !!r.voided, voidReason: r.voidReason || null, needsReview: !!r.needsReview, reversal: !!r.reversal }; });
     return NextResponse.json({ ok: true, receipts });
   }
   const ref = db.doc(`${T}/receipts/${receiptId}`); const r: any = (await ref.get()).data();
