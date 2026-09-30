@@ -111,9 +111,9 @@ export function GuestSearch({ clients, selectedClientId, onSelect, onAddNew, pay
             <p className="text-[10px] font-bold text-muted-foreground uppercase truncate">{selectedClient.phone || selectedClient.email || 'Guest'}</p>
             <ClientBadges client={selectedClient} />
           </div>
-          <button onClick={() => { onSelect(null); setQuery(''); }}
-            className="p-2 rounded-xl hover:bg-destructive/10 hover:text-destructive transition-colors shrink-0">
-            <X className="w-4 h-4" />
+          <button type="button" onClick={() => { onSelect(null); setQuery(''); }} aria-label={`Change who’s paying (now ${selectedClient.name})`}
+            className="h-11 shrink-0 rounded-full border-2 border-primary/30 bg-white px-4 text-[13px] font-bold transition-colors hover:border-primary">
+            Change
           </button>
         </div>
       </motion.div>
