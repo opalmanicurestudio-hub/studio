@@ -58,6 +58,7 @@ export type LedgerSource =
   | 'appointment_sale'    // a completed appointment checkout (service revenue)
   | 'gift_card'           // a gift card sale (see NOTES — recognize once)
   | 'pos_sale'            // a point-of-sale / retail checkout
+  | 'academy_tuition'     // an Academy tuition payment or refund made online / by autopay (desk ones come through pos_sale)
   | 'manual'              // a hand-entered ledger transaction
   | 'expense';            // a studio expense (rental or otherwise)
 
@@ -118,6 +119,7 @@ const DEFAULT_TYPE_BY_SOURCE: Record<LedgerSource, LedgerTransactionType> = {
   appointment_sale:    'income',
   gift_card:           'income',
   pos_sale:            'income',
+  academy_tuition:     'income',
   manual:              'expense',
   expense:             'expense',
 };
