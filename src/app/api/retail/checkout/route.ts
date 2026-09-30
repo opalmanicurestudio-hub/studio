@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { payLaterCheckoutParams } from '@/lib/pay-later';
+import { payLaterCheckoutParams, createCheckoutSession } from '@/lib/pay-later';
 import {
   addressMessage, addressPolicy, policySnapshot, shouldBlock,
   stripeCustomText, validateAddress,
@@ -599,7 +599,7 @@ async function handleCheckout(req: NextRequest) {
     // Stripe's minimum session lifetime and matches the cart hold, so the
     // expired-session webhook closes unpaid orders while the shopper is
     // still in the same session of their life.
-    expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
+    expires_at: Math.floor(Date.now() / 1000) + 31 * 60,   // Stripe's minimum is 30 min from ITS clock — a minute of margin
     // Shown on Stripe's own checkout page, above the pay button. This is
     // what makes "the policy is shown at checkout" true rather than a claim.
     custom_text: { submit: { message: stripeCustomText(policy.text) } },
@@ -750,7 +750,7 @@ async function handleCheckout(req: NextRequest) {
   try {
     let session: any;
     try {
-      session = await stripe.checkout.sessions.create(
+      session = await createCheckoutSession(stripe, 
         { ...sessionParams(lineItems, stripeTax), ...(creditCoupon ? { discounts: [{ coupon: creditCoupon }] } : {}) },
         { stripeAccount: stripeAccountId }
       );
@@ -773,7 +773,7 @@ async function handleCheckout(req: NextRequest) {
         taxCents: fbTaxCents,
         totalCents: subtotalCents + fbTaxCents + shippingCents + tipCents,
       }, { merge: true });
-      session = await stripe.checkout.sessions.create(
+      session = await createCheckoutSession(stripe, 
         { ...sessionParams(buildLineItems(false, fbTaxCents), false), ...(creditCoupon ? { discounts: [{ coupon: creditCoupon }] } : {}) },
         { stripeAccount: stripeAccountId }
       );
