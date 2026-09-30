@@ -1,4 +1,4 @@
-''use client';
+'use client';
 
 /**
  * /check-in/[token] — v2
