@@ -106,7 +106,8 @@ export async function POST(req: NextRequest) {
   // The visit(s) reopened, so they can be checked out correctly.
   for (const v of R.visits || []) {
     const back = ['completed', 'paid', ''].includes(String(v.statusBefore || '')) ? 'checked_in' : v.statusBefore;
-    batch.set(db.doc(`${T}/appointments/${v.id}`), { status: back, checkoutSessionId: null, revenue: 0, voidedSale: receiptId, reopenedAt: now }, { merge: true });
+    batch.set(db.doc(`${T}/appointments/${v.id}`), { status: back, stage: back === 'ready_for_checkout' ? 'ready_to_pay' : back === 'servicing' ? 'in_service' : 'arrived', checkoutSessionId: null, revenue: 0, voidedSale: receiptId, reopenedAt: now,
+      timeline: FieldValue.arrayUnion({ at: now, kind: 'payment', text: `Sale voided — ${reason} · approved by ${approvedBy}`, by: approvedBy, via: 'void' }) }, { merge: true });
     if (v.checkInToken) { batch.set(db.doc(`appointmentCheckIns/${v.checkInToken}`), { status: back }, { merge: true }); batch.set(db.doc(`${T}/appointmentCheckIns/${v.checkInToken}`), { status: back }, { merge: true }); }
   }
   // The till: cash that came in is going back out.
