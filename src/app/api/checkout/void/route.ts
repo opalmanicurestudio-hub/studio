@@ -52,6 +52,15 @@ export async function POST(req: NextRequest) {
     if (!refunded) return NextResponse.json({ ok: false, error: 'The card refund didn’t go through, so nothing was voided. Try again, or refund it from Stripe.' }, { status: 502 });
     await rRef.set({ voidRefundedAt: now }, { merge: true });
   } else if (rc.voidRefundedAt) refunded = true;
+  if (Array.isArray(R.payments) && R.payments.length) {   // a split bill — every card share refunded, each only once
+    const done: string[] = Array.isArray(rc.voidRefundedIds) ? rc.voidRefundedIds : [];
+    for (const p of R.payments.filter((x: any) => x.stripePaymentIntentId && !done.includes(x.stripePaymentIntentId))) {
+      const ok = await refundPaymentIntent(tenant.stripeAccountId || tenant.stripeConnectAccountId || null, String(p.stripePaymentIntentId));
+      if (!ok) return NextResponse.json({ ok: false, error: `The refund for one card share (${money(p.amount)}) didn’t go through, so nothing was voided. Try again — cards already refunded won’t be refunded twice.` }, { status: 502 });
+      done.push(p.stripePaymentIntentId); await rRef.set({ voidRefundedIds: done }, { merge: true });
+    }
+    refunded = R.payments.some((x: any) => x.stripePaymentIntentId);
+  }
 
   const batch = db.batch();
   // Payment lines: originals marked void, one reversing line each (same shape as a single-line void).
@@ -101,9 +110,10 @@ export async function POST(req: NextRequest) {
     if (v.checkInToken) { batch.set(db.doc(`appointmentCheckIns/${v.checkInToken}`), { status: back }, { merge: true }); batch.set(db.doc(`${T}/appointmentCheckIns/${v.checkInToken}`), { status: back }, { merge: true }); }
   }
   // The till: cash that came in is going back out.
-  const cashBack = R.method === 'cash' ? Math.round(((R.cashIn !== undefined ? num(R.cashIn) : num(R.cashSales) + num(R.cashTips))) * 100) / 100 : 0;   // exactly what they handed over
+  const hasCash = R.method === 'cash' || (R.method === 'split' && num(R.cashIn) > 0);   // a split bill hands back only its cash shares
+  const cashBack = hasCash ? Math.round(((R.cashIn !== undefined ? num(R.cashIn) : num(R.cashSales) + num(R.cashTips))) * 100) / 100 : 0;   // exactly what they handed over
   let tillNote: string | null = null;
-  if (R.method === 'cash') {
+  if (hasCash) {
     if (till && till.status === 'open') {
       batch.set(db.doc(`${T}/tillSessions/${R.tillId}`), { expectedCash: FieldValue.increment(-(num(R.cashSales) + num(R.cashTips))), totalCashSales: FieldValue.increment(-num(R.cashSales)), totalCashTips: FieldValue.increment(-num(R.cashTips)),
         ...(Object.keys(R.cashTipsByStaff || {}).length ? { cashTipsByStaff: Object.fromEntries(Object.entries(R.cashTipsByStaff).map(([k, v]) => [k, FieldValue.increment(-num(v))])) } : {}),
