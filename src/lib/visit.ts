@@ -18,7 +18,8 @@ export const CLOSED: Stage[] = ['complete', 'cancelled', 'no_show', 'declined', 
 const S = (v: any) => String(v || '').toLowerCase().trim();
 export function stageOf(a: any): Stage {
   if (!a) return 'booked';
-  if (a.stage && [...ACTIVE, ...CLOSED].includes(a.stage)) return a.stage;
+  // The STATUS decides (every stage the ticket writes also writes its status). A saved `stage` field is only a copy —
+  // trusting it would go stale whenever a screen not yet moved over changes the status alone (e.g. "Finished" → ready to pay).
   const st = S(a.status), ci = S(a.checkInStatus);
   if (['cancelled', 'canceled'].includes(st) || ci === 'auto_cancelled') return 'cancelled';
   if (st === 'no_show') return 'no_show';
