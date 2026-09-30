@@ -49,6 +49,9 @@ export function ClientScreenCard({ tenantId, tenant, canEdit }: { tenantId: stri
           onChange={(e) => { const next = [...presets]; next[i] = Math.max(0, Math.min(100, Number(e.target.value) || 0)); save({ ...s, tipPresets: next.filter((n) => n > 0) }); }} className="h-10 w-20 rounded-xl border px-3 text-right" />)}</div>
         <div className="flex flex-wrap gap-2 pt-1">{([['before_tax', 'Tip on the amount before tax'], ['after_tax', 'Tip on the total after tax']] as const).map(([k, l]) =>
           <button key={k} type="button" disabled={!canEdit} aria-pressed={s.tipOn === k} onClick={() => save({ ...s, tipOn: k })} className={`rounded-full border px-4 py-1.5 ${s.tipOn === k ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>)}</div>
+        <div className="flex flex-wrap items-center gap-2 pt-1">Ask for a tip on {([['services', 'services only'], ['services_retail', 'services and retail'], ['everything', 'everything']] as const).map(([k, l]) =>
+          <button key={k} type="button" disabled={!canEdit} aria-pressed={s.tipScope === k} onClick={() => save({ ...s, tipScope: k })} className={`rounded-full border px-3 py-1 ${s.tipScope === k ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>)}</div>
+        <p className="text-xs text-muted-foreground">Never on fees, balances, deposits, memberships, packages or rent — a sale with only those doesn’t ask.</p>
         {check('allowCustomTip', 'Let them enter another amount')}
         {check('showNoTip', 'Show “No tip”')}
       </div>
@@ -75,11 +78,19 @@ export function ClientScreenCard({ tenantId, tenant, canEdit }: { tenantId: stri
         {check('payOnScreen', 'Let clients pay on the iPad', 'Stripe’s secure card form — card details never touch your system')}
         {check('payOnPhone', 'Let clients pay on their phone', 'a QR code on the iPad; Apple Pay and Google Pay on their own phone')}
         {check('offerSaveCard', 'Offer “Save my card for next time”', 'their own tick box — recorded as their consent')}
-        <p className="text-xs text-muted-foreground">Needs Stripe connected (Settings → Payments). Your Stripe card reader works from the desk as before.</p>
+        <div className="flex flex-wrap items-center gap-2">If they walk away, cancel the payment after <input type="number" min={2} max={30} value={s.payTimeoutMin} disabled={!canEdit} onChange={(e) => save({ ...s, payTimeoutMin: Math.max(2, Math.min(30, Number(e.target.value) || 5)) })} className="h-10 w-16 rounded-xl border px-2 text-right" aria-label="Minutes before an unfinished payment is cancelled" /> minutes</div>
+        <p className="text-xs text-muted-foreground">Needs Stripe connected (Settings → Payments). Switching payment type, switching client or closing checkout always cancels an unfinished payment — nothing is charged. Your Stripe card reader works from the desk as before.</p>
       </div>
       <div className="space-y-2 text-sm"><p className="font-semibold">Card on file</p>
         {check('signCardOnFile', 'Ask for a signature when approving a card-on-file charge', 'saved as a signed approval (useful if a charge is ever disputed)')}
         {s.signCardOnFile && <div className="flex flex-wrap items-center gap-2 pl-6">Only for charges of $<input type="number" inputMode="decimal" min={0} value={s.signOver || ''} placeholder="0" disabled={!canEdit} onChange={(e) => save({ ...s, signOver: Math.max(0, Number(e.target.value) || 0) })} className="h-10 w-24 rounded-xl border px-3 text-right" aria-label="Signature from this amount" /> or more <span className="text-xs text-muted-foreground">(blank = every charge)</span></div>}
+      </div>
+      <div className="space-y-2 text-sm"><p className="font-semibold">Memberships</p>
+        {check('signMembership', 'Ask them to sign the membership terms on the iPad', 'saved with their signature, like a signed card approval')}
+        {s.signMembership && <textarea value={s.membershipTerms} onChange={(e) => save({ ...s, membershipTerms: e.target.value.slice(0, 3000) })} disabled={!canEdit} rows={4} placeholder="Your membership terms — e.g. how to cancel, notice needed, what happens to unused visits. (The price and that it renews are added for you.)" aria-label="Membership terms" className="w-full rounded-xl border p-3" />}
+      </div>
+      <div className="space-y-2 text-sm"><p className="font-semibold">At the desk</p>
+        <div className="flex flex-wrap items-center gap-2">After a sale, go back to the desk after <input type="number" min={0} max={120} value={s.deskReturnAfter} disabled={!canEdit} onChange={(e) => save({ ...s, deskReturnAfter: Math.max(0, Math.min(120, Number(e.target.value) || 0)) })} className="h-10 w-16 rounded-xl border px-2 text-right" aria-label="Seconds before the desk returns after a sale" /> seconds <span className="text-xs text-muted-foreground">(0 = stay until I tap Done; cash with change always waits)</span></div>
       </div>
       <div className="space-y-2 text-sm"><p className="font-semibold">Look and feel</p>
         <div className="flex flex-wrap gap-2">{([['lively', 'Lively'], ['calm', 'Calm'], ['off', 'No animation']] as const).map(([k, l]) =>
