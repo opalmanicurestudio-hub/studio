@@ -62,7 +62,10 @@ export async function POST(req: NextRequest) {
         : Promise.resolve([]),
     ]);
     const stage = stageOf(a); const pay = paymentStatusOf(a);
-    return NextResponse.json({ ok: true, visit: { id, clientId: a.clientId || null, clientName: a.clientName || null, serviceId: a.serviceId || null, serviceName: a.serviceName || null, staffId: a.staffId || null,
+    const cl: any = a.clientId ? (((await db.doc(`${T}/clients/${a.clientId}`).get()).data() as any) || {}) : {};
+    const st: any = a.staffId ? (((await db.doc(`${T}/staff/${a.staffId}`).get()).data() as any) || {}) : {};
+    const svcName = a.serviceName || (a.serviceId ? (((await db.doc(`${T}/services/${a.serviceId}`).get()).data() as any)?.name || null) : null);
+    return NextResponse.json({ ok: true, visit: { id, clientId: a.clientId || null, clientName: a.clientName || cl.name || null, clientPhone: cl.phone || null, staffName: a.staffName || st.name || null, addOnNames: [], isWalkIn: !!a.isWalkIn, partySize: a.partySize || null, notes: a.notes || null, serviceId: a.serviceId || null, serviceName: svcName, staffId: a.staffId || null,
       startTime: a.startTime || null, endTime: a.endTime || null, shortCode: a.shortCode || null, checkInToken: a.checkInToken || null,
       stage, stageLabel: stageLabel(stage, a, t), flags: flagsOf(a), paymentStatus: pay, paymentLabel: PAYMENT_LABEL[pay], timeline: timeline.slice(-MAX_TIMELINE), receipts, consents: consents.slice(-10),
       next: (['arrived', 'in_service', 'ready_to_pay', 'booked'] as Stage[]).filter((s) => canMove(stage, s)).map((s) => ({ stage: s, label: stageLabel(s, a, t) })) } });
