@@ -54,12 +54,12 @@ function CountUp({ value }: { value: number }) {
 function Signature({ onChange }: { onChange: (dataUrl: string | null) => void }) {
   const ref = React.useRef<HTMLCanvasElement>(null); const drawing = React.useRef(false); const dirty = React.useRef(false);
   React.useEffect(() => { const c = ref.current; if (!c) return; const r = c.getBoundingClientRect(); const dpr = Math.min(2, window.devicePixelRatio || 1);
-    c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr); const g = c.getContext('2d')!; g.scale(dpr, dpr); g.lineWidth = 2.6; g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = '#1c1917'; }, []);
+    c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr); const g = c.getContext('2d'); if (!g) return; g.scale(dpr, dpr); g.lineWidth = 2.6; g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = '#1c1917'; }, []);
   const pt = (e: React.PointerEvent) => { const r = ref.current!.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
-  const down = (e: React.PointerEvent) => { e.preventDefault(); (e.target as Element).setPointerCapture(e.pointerId); drawing.current = true; const g = ref.current!.getContext('2d')!; const [x, y] = pt(e); g.beginPath(); g.moveTo(x, y); };
-  const move = (e: React.PointerEvent) => { if (!drawing.current) return; const g = ref.current!.getContext('2d')!; const [x, y] = pt(e); g.lineTo(x, y); g.stroke(); dirty.current = true; };
+  const down = (e: React.PointerEvent) => { e.preventDefault(); (e.target as Element).setPointerCapture(e.pointerId); drawing.current = true; const g = ref.current?.getContext('2d'); if (!g) return; const [x, y] = pt(e); g.beginPath(); g.moveTo(x, y); };
+  const move = (e: React.PointerEvent) => { if (!drawing.current) return; const g = ref.current?.getContext('2d'); if (!g) return; const [x, y] = pt(e); g.lineTo(x, y); g.stroke(); dirty.current = true; };
   const up = () => { if (!drawing.current) return; drawing.current = false; if (dirty.current) onChange(ref.current!.toDataURL('image/png')); };
-  const clear = () => { const c = ref.current!; c.getContext('2d')!.clearRect(0, 0, c.width, c.height); dirty.current = false; onChange(null); };
+  const clear = () => { const c = ref.current; c?.getContext('2d')?.clearRect(0, 0, c.width, c.height); dirty.current = false; onChange(null); };
   return <div className="space-y-2">
     <canvas ref={ref} aria-label="Sign here" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerLeave={up} className="h-48 w-full rounded-3xl" style={{ background: '#fff', border: '2px dashed #d6d3d1', touchAction: 'none' }} />
     <div className="flex items-center justify-between text-[15px]" style={{ color: '#78716c' }}><span>Sign with your finger</span><button type="button" onClick={clear} className="font-semibold underline underline-offset-4">Clear</button></div>
@@ -97,9 +97,14 @@ export default function ClientScreenPage() {
     if (q?.kind === 'pay') setStep(q.review ? 'review' : q.askTip && !q.tipChosen ? 'tip' : 'pay'); }, [q?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => { if (q?.kind !== 'pay' || !q.phoneUrl || step !== 'pay') return;
     import('qrcode').then((m: any) => (m.default || m).toDataURL(q.phoneUrl, { width: 560, margin: 1 })).then((u: string) => setQr(u)).catch(() => setQr(null)); }, [q?.id, step]); // eslint-disable-line react-hooks/exhaustive-deps
+  const lastTouch = React.useRef(Date.now());
+  React.useEffect(() => { lastTouch.current = Date.now(); }, [q?.id, step, payWay]);
+  React.useEffect(() => { if (q?.kind !== 'pay' || q.answeredAt) return; const mins = Math.max(2, Number(q.timeoutMin) || 5);
+    const t = setInterval(() => { if (Date.now() - lastTouch.current > mins * 60000) { clearInterval(t); call({ action: 'pay_abandon', screenId: id, requestId: q.id }); } }, 15000); return () => clearInterval(t); }, [q?.id, q?.kind, q?.answeredAt]); // eslint-disable-line react-hooks/exhaustive-deps
   const rbStage = q?.kind === 'thanks' ? q?.rebook?.stage || null : null;
   const booking = rbStage === 'choose' || rbStage === 'pay' || rbBusy;
-  React.useEffect(() => { if (q?.kind !== 'thanks' || !q.id || booking) return; const t = setTimeout(() => setThanksOver(q.id), (Number(q.returnAfter) || 20) * 1000 + (rbStage === 'done' ? 10000 : 0)); return () => clearTimeout(t); }, [q?.kind, q?.id, booking, rbStage]);
+  React.useEffect(() => { if (q?.kind !== 'thanks' || !q.id || booking || rch) return; const ms = q.idleWhenDone ? (rbStage === 'done' ? 8000 : 4000) : (Number(q.returnAfter) || 20) * 1000 + (rbStage === 'done' ? 10000 : 0);
+    const t = setTimeout(() => setThanksOver(q.id), ms); return () => clearTimeout(t); }, [q?.kind, q?.id, booking, rbStage, q?.idleWhenDone, rch, rmsg]);
   const rebookCall = async (action: string, extra: any = {}) => { setRbBusy(true); setErr(null); const r: any = await call({ action, screenId: id, requestId: q?.id, ...extra }); setRbBusy(false); if (!r?.ok) setErr(r?.error || 'That didn’t work — please try again.'); return r; };
   React.useEffect(() => { if (q?.kind === 'thanks' && q.rebookFirst && q.rebookCtx && !q.rebook) rebookCall('rebook_start'); }, [q?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => { if (rbStage !== 'pay' || !q?.rebook?.payUrl) return;
@@ -115,7 +120,7 @@ export default function ClientScreenPage() {
   const solid = { background: accent, color: '#fff' } as React.CSSProperties;
   const stageKey = `${q?.id || 'none'}|${q?.kind || ''}|${step}|${q?.answeredAt ? 'a' : ''}|${thanksOver === q?.id ? 'o' : ''}`;
   const shell = (children: React.ReactNode, opts: { glow?: boolean; confetti?: boolean } = {}) => (   // a function, not a component — so inputs keep focus while typing
-    <main className={`cs-root ${motion} relative flex min-h-[100dvh] flex-col items-center justify-center overflow-hidden p-8`} style={{ background: '#faf8f5', color: '#1c1917', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", paddingTop: 'max(2rem, env(safe-area-inset-top))', paddingBottom: 'max(2rem, env(safe-area-inset-bottom))' }}>
+    <main onPointerDown={() => { lastTouch.current = Date.now(); }} className={`cs-root ${motion} relative flex min-h-[100dvh] flex-col items-center justify-center overflow-hidden p-8`} style={{ background: '#faf8f5', color: '#1c1917', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", paddingTop: 'max(2rem, env(safe-area-inset-top))', paddingBottom: 'max(2rem, env(safe-area-inset-bottom))' }}>
       <style>{CSS}</style>
       {opts.glow && <div aria-hidden className="cs-glow pointer-events-none absolute -inset-1/4" style={{ background: `radial-gradient(40% 40% at 30% 30%, color-mix(in srgb, ${accent} 22%, transparent), transparent 70%), radial-gradient(35% 35% at 75% 70%, color-mix(in srgb, ${accent} 14%, transparent), transparent 70%)`, animation: 'cs-drift 18s ease-in-out infinite' }} />}
       {opts.confetti && confettiOn && <Confetti accent={accent} />}
@@ -144,6 +149,21 @@ export default function ClientScreenPage() {
   const momentBanner = (tk?.moments || []).length ? <div className="cs-pop space-y-1 rounded-3xl p-5 text-center" style={{ background: `color-mix(in srgb, ${accent} 12%, #fff)` }}>{tk.moments.map((m: string, i: number) => <p key={i} className="text-[22px] font-semibold">{m}</p>)}</div> : null;
   const ticketLines = (lines: any[]) => lines.map((l: any, i: number) => <div key={`${l.label}-${i}`} className="cs-in flex justify-between gap-4 text-[20px]" style={{ animationDelay: `${Math.min(i, 8) * 60}ms` }}><span>{l.label}{l.note ? <span style={{ color: '#78716c' }}> · {l.note}</span> : null}</span><span className="tabular-nums">{money(l.amount)}</span></div>);
 
+  const deskGone = !!s.deskAliveAt && Date.now() - Date.parse(s.deskAliveAt) > 150000 && !!clock;
+  const idleScreen = () => shell(<>
+    <div className="cs-float flex flex-col items-center gap-4">{s.brand?.logo ? <img src={s.brand.logo} alt="" className="max-h-28 max-w-[70%] object-contain" /> : s.brand?.name ? <p className="text-[34px] font-semibold">{s.brand.name}</p> : null}</div>
+    <p className="text-center text-[26px]" style={{ color: '#57534e' }}>{s.settings?.welcome || 'Welcome'}</p>
+    {clock && <p className="text-center text-[18px] tabular-nums" style={{ color: '#a8a29e' }}>{clock}</p>}
+  </>, { glow: true });
+  if (deskGone && (!q || ['tip', 'approve', 'cash', 'change', 'sign'].includes(q.kind))) return idleScreen();
+  // ── Membership terms (or other terms) to sign ──
+  if (q?.kind === 'sign' && !q.answeredAt) return shell(<>{brandTop}
+    <p className="text-center text-[30px] font-semibold">{q.title}</p>
+    <div className="max-h-[32vh] overflow-y-auto whitespace-pre-line rounded-3xl p-5 text-[17px] leading-relaxed" style={{ background: '#fff', border: '1px solid #e7e2dc', color: '#44403c' }}>{q.text}</div>
+    <Signature onChange={setSig} />
+    <button type="button" disabled={busy || !sig} onClick={() => respond({ signature: sig })} className={`${big} w-full`} style={solid}>{busy ? <Dots /> : 'Sign'}</button>
+  </>);
+  if (q?.kind === 'sign' && q.answeredAt) return shell(<>{brandTop}<Check color={accent} /><p className="text-center text-[30px] font-semibold">Thank you — signed</p></>);
   // ── Pay on the iPad: review → tip → pay here / on your phone ──
   if (q?.kind === 'pay' && !q.answeredAt) {
     if (step === 'review') return shell(<>{brandTop}
@@ -287,7 +307,7 @@ export default function ClientScreenPage() {
     <p className="text-center text-[40px] font-semibold">Thank you{q.clientFirst ? `, ${q.clientFirst}` : ''}!</p>
     {q.total ? <p className="text-center text-[22px]" style={{ color: '#57534e' }}>Paid {money(q.total)}</p> : null}
     {q.offerReceipt && q.receiptId && <div className="space-y-3">
-      {!rch && !rmsg && <div className="grid grid-cols-2 gap-3"><button type="button" onClick={() => setRch('sms')} className={big} style={ghost}>Text my receipt</button><button type="button" onClick={() => setRch('email')} className={big} style={ghost}>Email my receipt</button></div>}
+      {!rch && !rmsg && <div className="grid grid-cols-2 gap-3"><button type="button" onPointerDown={() => call({ action: 'hold', screenId: id, requestId: q.id })} onClick={() => setRch('sms')} className={big} style={ghost}>Text my receipt</button><button type="button" onPointerDown={() => call({ action: 'hold', screenId: id, requestId: q.id })} onClick={() => setRch('email')} className={big} style={ghost}>Email my receipt</button></div>}
       {rch && <div className="flex gap-3"><input value={rto} onChange={(e) => setRto(e.target.value)} type={rch === 'email' ? 'email' : 'tel'} inputMode={rch === 'email' ? 'email' : 'tel'} autoComplete={rch === 'email' ? 'email' : 'tel'} placeholder={rch === 'email' ? 'Your email' : 'Your mobile number'} aria-label={rch === 'email' ? 'Your email' : 'Your mobile number'}
         className="min-h-[76px] min-w-0 flex-1 rounded-3xl px-6 text-[22px] outline-none" style={ghost} />
         <button type="button" disabled={busy || !rto.trim()} onClick={async () => { setBusy(true); const r: any = await call({ action: 'receipt', screenId: id, channel: rch, to: rto }); setBusy(false); if (r?.ok) { setRmsg('Sent — thank you!'); setRch(null); } else setErr(r?.error || 'It didn’t send.'); }} className={big} style={solid}>{busy ? <Dots /> : 'Send'}</button></div>}
@@ -298,6 +318,7 @@ export default function ClientScreenPage() {
   // ── The live ticket ──
   if (tk && (tk.lines || []).length) return shell(<>
     {momentBanner}
+    {(tk.context || []).map((c: string, i: number) => <p key={i} className="cs-in text-center text-[20px] font-semibold" style={{ color: '#57534e' }}>{c}</p>)}
     <div className="flex items-center justify-between">{s.brand?.logo ? <img src={s.brand.logo} alt="" className="max-h-12 max-w-[40%] object-contain" /> : <p className="text-[20px] font-semibold">{s.brand?.name}</p>}{tk.clientFirst ? <p className="text-[20px]" style={{ color: '#57534e' }}>Hi {tk.clientFirst}</p> : null}</div>
     <div className="space-y-3 rounded-3xl p-6" style={{ background: '#fff', border: '1px solid #e7e2dc' }}>
       {ticketLines(tk.lines)}
@@ -314,9 +335,5 @@ export default function ClientScreenPage() {
   </>);
   // ── A personal welcome, then the business's own welcome (logo) ──
   if (tk?.clientFirst) return shell(<>{brandTop}<p className="text-center text-[40px] font-semibold">Hi {tk.clientFirst}</p>{momentBanner}<p className="text-center text-[20px]" style={{ color: '#78716c' }}>We’ll have everything ready in a moment <Dots /></p></>, { glow: true, confetti: celebrating });
-  return shell(<>
-    <div className="cs-float flex flex-col items-center gap-4">{s.brand?.logo ? <img src={s.brand.logo} alt="" className="max-h-28 max-w-[70%] object-contain" /> : s.brand?.name ? <p className="text-[34px] font-semibold">{s.brand.name}</p> : null}</div>
-    <p className="text-center text-[26px]" style={{ color: '#57534e' }}>{s.settings?.welcome || 'Welcome'}</p>
-    {clock && <p className="text-center text-[18px] tabular-nums" style={{ color: '#a8a29e' }}>{clock}</p>}
-  </>, { glow: true });
+  return idleScreen();
 }
