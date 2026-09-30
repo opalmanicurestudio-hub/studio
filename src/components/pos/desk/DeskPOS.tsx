@@ -13,6 +13,7 @@
 //   In service with a provider                       → Finish (provider review → ready to pay)
 //   Ready      ready for checkout                    → Check out (checkout drawer)
 
+import { AddWalkIn } from '@/components/pos/desk/AddWalkIn';
 import { openVisit, registerVisitActions } from '@/lib/visit-client';
 import { useBarcodeScanner } from '@/hooks/useBarcodeScanner';
 import { useClientScreen, ClientScreenPanel } from '@/components/pos/ClientScreen';
@@ -78,6 +79,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const [logCallOpen, setLogCallOpen] = useState(false);
   const [salesOpen, setSalesOpen] = useState(false);
   const [screenOpen, setScreenOpen] = useState(false);
+  const [walkInOpen, setWalkInOpen] = useState(false);
   useBarcodeScanner((code) => e.handlePosScan?.(code), !!e.handlePosScan);
   useEffect(() => { const open = () => { setMode('desk'); setCheckoutOpen(true); }; window.addEventListener('cf:open-checkout', open); return () => window.removeEventListener('cf:open-checkout', open); }, []);
   const clientScreen = useClientScreen(e.tenantId);
@@ -148,7 +150,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
     const mirrors = new Set(appts.map((a: any) => a.id));
     // T3: walk-ins are visits from arrival. While they're still waiting, the queue entry leads (assign, skip, remove,
     // notify) with the visit attached; once service starts, the visit leads like any other.
-    const PRE = ['waiting', 'notified', 'arrived'];
+    const PRE = ['waiting', 'notified', 'arrived', 'held'];   // held (called, didn't come up) stays out of sight, as before
     const rowOf = (a: any) => (a?.isWalkIn && a?.walkInId ? (e.walkIns || []).find((w: any) => w.id === a.walkInId) : null);
     const queued = (a: any) => { const w: any = rowOf(a); return !!w && PRE.includes(String(w.status || '')) && !['servicing', 'in_service', 'ready_for_checkout', 'completed'].includes(String(a.status || '')); };
     const apptById = new Map<string, any>(appts.map((a: any) => [a.id, a]));
@@ -364,6 +366,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
           {kioskOn && <Btn quiet onClick={() => e.setIsScanLookupOpen?.(true)}>Scan / find</Btn>}
           <Btn quiet onClick={() => e.setIsQuickBookOpen(true)}>Book</Btn>
           <Btn quiet onClick={() => setLogCallOpen(true)}>Log a call</Btn>
+          <Btn quiet onClick={() => setWalkInOpen(true)}>+ Walk-in</Btn>
           <Btn quiet onClick={() => setSalesOpen(true)}>Today’s sales</Btn>
           <Btn quiet onClick={() => setScreenOpen(true)}><span aria-hidden style={{ color: clientScreen.connected ? (clientScreen.online ? 'var(--ok)' : 'var(--warn)') : 'var(--muted)' }}>●</span> Client screen</Btn>
           <Btn quiet={!opsCount.attention} onClick={() => setAttnOpen(true)}>{opsCount.decisions ? `Needs a decision · ${opsCount.decisions}` : `Needs attention${opsCount.attention ? ` · ${opsCount.attention}` : ''}`}</Btn>
@@ -424,6 +427,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
           <span className="block text-[15px] font-semibold">{v.name}</span><span className="block text-[14px] tabular-nums">${Number(v.msrp || v.costPerUnit || 0).toFixed(2)}</span>
           <span className="block text-[12px]" style={{ color: 'var(--muted)' }}>{Math.max(0, (Number(v.totalStock) || 0) - (Number(v.stockReserved) || 0))} on the shelf</span></button>)}</div>
       </Drawer>
+      <Drawer accent={accent} open={walkInOpen} onClose={() => setWalkInOpen(false)} title="Add a walk-in"><AddWalkIn tenantId={e.tenantId} tenant={tenant} services={e.services || []} staff={e.staff || []} onDone={() => setWalkInOpen(false)} /></Drawer>
       <Drawer accent={accent} open={screenOpen} onClose={() => setScreenOpen(false)} title="Client screen"><ClientScreenPanel tenantId={e.tenantId} /></Drawer>
       <Drawer accent={accent} open={attnOpen} onClose={() => setAttnOpen(false)} title="Needs attention">
         {attnOpen && <OpsBoard appts={todaysAppts} staff={(e.staff || []).filter((s: any) => s.isActive !== false)} tenant={e.selectedTenant} tenantId={e.tenantId} role={e.role} uid={e.currentUser?.uid} />}
@@ -437,7 +441,9 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
             if (!window.confirm(`Remove ${r.clientName || r.customerName || 'this entry'} from today? It will be marked ${about.kind === 'appt' ? 'cancelled (removed at the desk)' : 'removed'} and recorded in the activity log.`)) return;
             const nowIso = new Date().toISOString();
             if (about.kind === 'appt') updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId, 'appointments', r.id), { status: 'cancelled', cancellationReason: 'removed_at_desk', cancelledAt: nowIso });
-            else updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId, 'walkIns', r.id), { status: 'removed', removedAt: nowIso });
+            else { updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId, 'walkIns', r.id), { status: 'removed', removedAt: nowIso });
+              const mv = (e.appointmentsFromInventory || []).find((a: any) => a.id === `apt-walkin-${r.id}`);   // THE VISIT (T3): leaving the queue cancels it
+              if (mv) updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId, 'appointments', mv.id), { status: 'cancelled', stage: 'cancelled', cancelledAt: nowIso, cancelReason: 'Left the queue', timeline: [...(Array.isArray(mv.timeline) ? mv.timeline : []), { at: nowIso, kind: 'stage', stage: 'cancelled', text: 'Left the queue — removed at the desk', by: 'Desk', via: 'walk-in' }].slice(-60) }); }
             await logAuditClient(e.firestore, e.tenantId, { action: about.kind === 'appt' ? 'appointment.removed_at_desk' : 'walkin.removed', targetType: about.kind === 'appt' ? 'appointment' : 'walkIn', targetId: r.id, summary: `Removed ${r.clientName || r.customerName || 'an unnamed entry'} from today at the front desk`, actor: { type: 'user', id: e.currentUser?.uid || null, name: e.currentUser?.displayName || 'Front desk', role: e.role || 'staff', via: 'front desk' } } as any);
             setAbout(null);
           };
@@ -459,3 +465,4 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
     </DeskFrame>
   );
 }
+
