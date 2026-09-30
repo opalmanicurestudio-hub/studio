@@ -15,9 +15,14 @@ export function useClientScreen(tenantId?: string | null) {
   const { firestore } = useFirebase() as any;
   const [screenId, setScreenIdState] = React.useState<string | null>(null);
   const [screen, setScreen] = React.useState<any>(null);
-  React.useEffect(() => { if (!tenantId) return; try { setScreenIdState(localStorage.getItem(keyFor(tenantId))); } catch { /* */ } }, [tenantId]);
+  // Every part of the desk (header, checkout, counter) shares one answer to "which iPad?" — pairing in one place
+  // updates the others at once (before this, checkout didn't know about a new pairing until the page was reloaded).
+  React.useEffect(() => { if (!tenantId) return;
+    const read = () => { try { setScreenIdState(localStorage.getItem(keyFor(tenantId))); } catch { /* */ } };
+    read(); window.addEventListener('cf:client-screen-changed', read); window.addEventListener('storage', read);
+    return () => { window.removeEventListener('cf:client-screen-changed', read); window.removeEventListener('storage', read); }; }, [tenantId]);
   React.useEffect(() => { if (!firestore || !screenId) { setScreen(null); return; } return onSnapshot(doc(firestore, 'clientScreens', screenId), (s) => setScreen(s.exists() ? s.data() : null), () => setScreen(null)); }, [firestore, screenId]);
-  const setScreenId = (id: string | null) => { if (!tenantId) return; try { id ? localStorage.setItem(keyFor(tenantId), id) : localStorage.removeItem(keyFor(tenantId)); } catch { /* */ } setScreenIdState(id); };
+  const setScreenId = (id: string | null) => { if (!tenantId) return; try { id ? localStorage.setItem(keyFor(tenantId), id) : localStorage.removeItem(keyFor(tenantId)); } catch { /* */ } setScreenIdState(id); window.dispatchEvent(new Event('cf:client-screen-changed')); };
   const online = !!screen?.tenantId && screen.tenantId === tenantId && !!screen.lastSeen && Date.now() - Date.parse(screen.lastSeen) < 150000;
   const connected = !!screen?.tenantId && screen.tenantId === tenantId;
   const push = React.useCallback((ticket: any) => (screenId && tenantId ? call({ tenantId, action: 'push', screenId, ticket }) : Promise.resolve(null)), [screenId, tenantId]);
