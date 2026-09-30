@@ -280,18 +280,17 @@ export default function ServiceDetailPage() {
     };
 
 
-    if (!service) {
-        return notFound();
-    }
-    const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
-
-    const sortedTiers = useMemo(() => {
-        if (!service.pricingTiers || service.pricingTiers.length === 0) {
+    const sortedTiers = useMemo(() => {   // hooks before any early return (React #300 when the service loads late)
+        if (!service?.pricingTiers || service.pricingTiers.length === 0) {
             return [];
         }
         const tierOrder = ['apprentice', 'junior', 'senior', 'master'];
         return [...service.pricingTiers].sort((a,b) => tierOrder.indexOf(a.level) - tierOrder.indexOf(b.level));
-    }, [service.pricingTiers]);
+    }, [service?.pricingTiers]);
+    if (!service) {
+        return notFound();
+    }
+    const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
 
   return (
     <div className="flex min-h-screen w-full flex-col">
