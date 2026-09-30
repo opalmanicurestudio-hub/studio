@@ -947,6 +947,8 @@ export const CheckoutHub = ({
   const autoTipOn = autoOn && csSet.autoTip !== false && !studentsNoTips && profile.tip.ask;   // never on a fee / deposit / membership-only sale
   const ticketKey = `${selectedClientId || ''}|${(appointmentsData || []).map((d: any) => d.appointment?.id).join(',')}|${(cart || []).map((c: any) => `${c.id}x${c.quantity}`).join(',')}`;
   const tipAskedFor = useRef<string | null>(null);
+  // Rent and tuition are money owed on an account — a sale of only those is never tipped.
+  const accountOnly = (cart || []).length > 0 && (cart || []).every((i: any) => ['rent', 'tuition'].includes(i.type)) && !(appointmentsData || []).length;
   const tipBase = Math.round((profile.tip.base * (csSet.tipOn === 'after_tax' && safeNumber(subtotal) > 0 ? 1 + safeNumber(tax) / safeNumber(subtotal) : 1)) * 100) / 100;   // the tippable lines only
   const askTipAuto = async () => { if (tipAskedFor.current === ticketKey || tipReq) return; tipAskedFor.current = ticketKey; const id = await cs.ask('tip', { base: tipBase }); if (id) setTipReq(id); };
   // Card on file asks for the tip on the iPad first (once per ticket). Cash doesn't: the iPad shows the total, then
@@ -1140,9 +1142,10 @@ export const CheckoutHub = ({
               {cart.map((item: any) => <div key={item.id} className="flex items-center justify-between gap-2 rounded-2xl p-3" style={{ background: 'var(--soft)' }}>
                 <div className="min-w-0"><p className="truncate text-[15px] font-semibold">{item.name}</p><p className="text-[13px] capitalize" style={muted}>{item.type || 'item'} · {coMoney(item.price)} each</p></div>
                 <div className="flex shrink-0 items-center gap-1">
+                  {!['rent', 'tuition'].includes(item.type) && <>   {/* an account payment is one amount — no quantity */}
                   <button type="button" onClick={() => handleUpdateQuantity(item.id, item.quantity - 1)} aria-label={`One fewer ${item.name}`} className="h-9 w-9 rounded-full text-[18px]" style={{ background: 'var(--card)' }}>−</button>
                   <span className="w-6 text-center text-[15px] font-semibold tabular-nums">{item.quantity}</span>
-                  <button type="button" onClick={() => handleUpdateQuantity(item.id, item.quantity + 1)} aria-label={`One more ${item.name}`} className="h-9 w-9 rounded-full text-[18px]" style={{ background: 'var(--card)' }}>+</button>
+                  <button type="button" onClick={() => handleUpdateQuantity(item.id, item.quantity + 1)} aria-label={`One more ${item.name}`} className="h-9 w-9 rounded-full text-[18px]" style={{ background: 'var(--card)' }}>+</button></>}
                   <span className="w-16 text-right text-[15px] font-semibold tabular-nums">{coMoney(safeNumber(item.price) * item.quantity)}</span>
                   <button type="button" onClick={() => handleUpdateQuantity(item.id, 0)} aria-label={`Remove ${item.name}`} className="h-9 w-9 rounded-full" style={{ background: 'var(--card)' }}>✕</button>
                 </div>
@@ -1226,7 +1229,7 @@ export const CheckoutHub = ({
        )}
         </div>
         <div className="co-right min-w-0 space-y-3">
-          {!isCartEmpty && !studentsNoTips && !(paymentTab === 'card' && cardMode !== 'select') && <section className={card} style={cardStyle} aria-label="Tip">
+          {!isCartEmpty && !studentsNoTips && !accountOnly && !(paymentTab === 'card' && cardMode !== 'select') && <section className={card} style={cardStyle} aria-label="Tip">
             <p className={h}>Tip</p>
             <div className="flex flex-wrap gap-1.5">{[0, 15, 18, 20, 25].map((pct) => { const amt = Number((safeNumber(subtotal) * pct / 100).toFixed(2)); const on = pct === 0 ? tipAmount === 0 : Math.abs(tipAmount - amt) < 0.01;
               return <button key={pct} type="button" aria-pressed={on} onClick={() => handleTotalTipChange(amt)} className={pill(on)} style={pillStyle(on)}>{pct === 0 ? 'No tip' : `${pct}% · ${coMoney(amt)}`}</button>; })}</div>
