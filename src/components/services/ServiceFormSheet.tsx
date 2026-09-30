@@ -70,6 +70,10 @@ const schema = z.object({
   isPrivate: z.boolean().optional(),
   membersOnly: z.boolean().optional(),
   rebookWeeks: z.coerce.number().min(0).max(52).optional(),
+  returnServiceId: z.string().optional(),
+  returnMinWeeks: z.coerce.number().min(0).max(52).optional(),
+  returnMaxWeeks: z.coerce.number().min(0).max(52).optional(),
+  lateServiceId: z.string().optional(),
   products: z.array(z.any()).optional(),
   requiredResourceIds: z.array(z.string()).optional(),
   compatibleAddOnIds: z.array(z.string()).optional(),
@@ -286,6 +290,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
   categories, onNewCategory, resources, services, onSave,
 }) => {
   const { inventory, staff } = useInventory();
+  const allServices: any[] = ((useInventory() as any).services || []) as any[];   // for the return plan pickers
   const { selectedTenant } = useTenant();
   const { firestore } = useFirebase();
   const tmhr = selectedTenant?.tmhr || 50;
@@ -322,7 +327,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
       reset({
         id: service.id, name: service.name, type: service.type,
         where: ((service as any).where || 'studio') as any, meetingLink: (service as any).meetingLink || '', phoneWho: ((service as any).phoneWho || 'we_call') as any, clientChoosesPlace: (service as any).clientChoosesPlace === true, placeAlternatives: Array.isArray((service as any).placeAlternatives) ? (service as any).placeAlternatives : [],
-        isAddon: service.type === 'addon', isPrivate: service.isPrivate, membersOnly: service.membersOnly === true, rebookWeeks: Number(service.rebookWeeks) || 0,
+        isAddon: service.type === 'addon', isPrivate: service.isPrivate, membersOnly: service.membersOnly === true, rebookWeeks: Number(service.rebookWeeks) || 0, returnServiceId: (service as any).returnServiceId || '', returnMinWeeks: Number((service as any).returnMinWeeks) || 0, returnMaxWeeks: Number((service as any).returnMaxWeeks) || 0, lateServiceId: (service as any).lateServiceId || '',
         category: service.category, duration: service.duration,
         padBefore: service.padBefore || 0, padAfter: service.padAfter || 0,
         description: service.description || '', imageUrl: service.imageUrl || '',
@@ -480,6 +485,9 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
       id: mode === 'edit' ? service!.id : `svc-${nanoid()}`,
       type: data.isAddon ? 'addon' : 'service',
       price: finalPrice,
+      // The return plan (Book your next visit) — blanks mean "the same service" / "no change", never undefined.
+      returnServiceId: data.returnServiceId || null, lateServiceId: data.lateServiceId || null,
+      returnMinWeeks: Math.max(0, Math.min(52, Number(data.returnMinWeeks) || 0)), returnMaxWeeks: Math.max(0, Math.min(52, Number(data.returnMaxWeeks) || 0)),
       cost: breakEven,
       profit: finalPrice - breakEven,
       margin: finalPrice > 0 ? ((finalPrice - breakEven) / finalPrice) * 100 : 0,
@@ -998,6 +1006,27 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 <Controller name="rebookWeeks" control={control} render={({ field }) => (
                   <Input type="number" min={0} max={52} value={field.value ?? 0} onChange={(e) => field.onChange(e.target.value)} className="h-11 w-20 rounded-xl border-2 text-center font-black" />
                 )} />
+              </div>
+              <div className="space-y-3 p-4 rounded-2xl border-2 border-dashed">
+                <div><p className="font-black uppercase text-sm tracking-tight">Return plan</p>
+                  <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">What they book next, and when — used by “Book your next visit” on the client screen</p></div>
+                <label className="block text-xs font-bold">Comes back for
+                  <Controller name="returnServiceId" control={control} render={({ field }) => (
+                    <select value={field.value || ''} onChange={(e) => field.onChange(e.target.value)} className="mt-1 h-11 w-full rounded-xl border-2 bg-background px-3 text-sm" aria-label="Comes back for">
+                      <option value="">This same service</option>
+                      {(allServices || []).filter((x: any) => x.id !== service?.id && x.type !== 'addon').map((x: any) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                    </select>)} /></label>
+                <div className="flex flex-wrap items-center gap-2 text-xs font-bold">Within
+                  <Controller name="returnMinWeeks" control={control} render={({ field }) => (<Input type="number" min={0} max={52} value={field.value || ''} placeholder="–" onChange={(e) => field.onChange(e.target.value)} className="h-10 w-16 rounded-xl border-2 text-center" aria-label="From weeks" />)} />
+                  to
+                  <Controller name="returnMaxWeeks" control={control} render={({ field }) => (<Input type="number" min={0} max={52} value={field.value || ''} placeholder="–" onChange={(e) => field.onChange(e.target.value)} className="h-10 w-16 rounded-xl border-2 text-center" aria-label="To weeks" />)} />
+                  weeks <span className="font-normal text-muted-foreground">(blank = around “Rebook every”)</span></div>
+                <label className="block text-xs font-bold">If they come back later than that, book
+                  <Controller name="lateServiceId" control={control} render={({ field }) => (
+                    <select value={field.value || ''} onChange={(e) => field.onChange(e.target.value)} className="mt-1 h-11 w-full rounded-xl border-2 bg-background px-3 text-sm" aria-label="If later, book">
+                      <option value="">No change</option>
+                      {(allServices || []).filter((x: any) => x.type !== 'addon').map((x: any) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                    </select>)} /></label>
               </div>
             </section>
 
