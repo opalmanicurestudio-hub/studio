@@ -19,6 +19,8 @@
  * Nobody has to remember to press start.
  */
 
+import { Drawer } from '@/components/pos/desk/kit';
+import { TableTab } from '@/components/host/TableTab';
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   addDoc, collection, doc, getDoc, getDocs, limit, onSnapshot, query, setDoc, updateDoc, where,
@@ -45,6 +47,7 @@ const CHIP = 'h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest'
 export default function HostScreen() {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
+  const [tabFor, setTabFor] = useState<any>(null);   // the table whose tab is open
   const tenantId = selectedTenant?.id ?? null;
   const { toast } = useToast();
 
@@ -540,11 +543,17 @@ export default function HostScreen() {
         {parties.filter((p) => p.status === 'seated').map((p) => (
           <div key={p.id} className="flex items-center justify-between p-3 rounded-2xl border-2 border-slate-200 bg-white">
             <p className="text-sm font-black uppercase tracking-tight">{p.name} · {p.size} · {p.unitIds?.map((u) => state.byTable[u]?.name || u).join(' + ')}</p>
-            <Button size="sm" variant="outline" className="rounded-xl font-black uppercase text-[9px] border-2"
-              onClick={() => finishParty(p)}>Done</Button>
+            <div className="flex gap-2">
+              <Button size="sm" className="rounded-xl font-black uppercase text-[9px]" onClick={() => setTabFor(p)}>Tab</Button>
+              <Button size="sm" variant="outline" className="rounded-xl font-black uppercase text-[9px] border-2"
+                onClick={() => finishParty(p)}>Done</Button>
+            </div>
           </div>
         ))}
       </div>
+      <Drawer accent={null} open={!!tabFor} onClose={() => setTabFor(null)} title="Tab">
+        {tabFor && firestore && tenantId ? <TableTab key={tabFor.id} firestore={firestore as any} tenantId={tenantId} party={tabFor} tableName={(tabFor.unitIds || []).map((u: string) => state.byTable[u]?.name || u).join(' + ') || 'Table'} by="Host" /> : null}
+      </Drawer>
     </div>
   );
 }
