@@ -649,6 +649,9 @@ export function usePosEngine() {
    */
   // Starting well before the booked time asks first (walk-ins never do).
   const [earlyStart, setEarlyStart] = useState<{ id: string; who: string; at: string; mins: number } | null>(null);
+  /** THE VISIT TICKET: record what the desk just did on the visit's timeline (and keep the client's copies in step). Best-effort. */
+  const logVisit = (appointmentId: string, text: string) => { if (!tenantId) return;
+    staffAuthHeader().then((h: any) => fetch('/api/visits', { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: JSON.stringify({ tenantId, action: 'log', appointmentId, stage: true, text, via: 'desk' }) })).catch(() => {}); };
   const handleStartService = (appointmentId: string, confirmedEarly = false) => {
     if (!firestore || !tenantId) return;
     const nowISO = new Date().toISOString();
@@ -742,7 +745,7 @@ export function usePosEngine() {
     }
 
     batch.commit()
-      .then(() => toast({ title: 'Service Started' }))
+      .then(() => { toast({ title: 'Service Started' }); logVisit(aptId, 'Service started'); })
       .catch((e) => { console.error('[handleStartService]', e); toast({ variant: 'destructive', title: 'Could not start service', description: 'Nothing was changed. Try again in a moment.' }); });
   };
 
@@ -783,8 +786,9 @@ export function usePosEngine() {
         sanitizeForFirestore({ status: 'completed', completedAt: nowISO, serviceEndTime: nowISO }));
     }
     await batch.commit();
+    logVisit(id, 'Finished — sent to the front desk');
     setIsTechnicianReviewOpen(false);
-  }, [firestore, tenantId, appointmentsFromInventory, walkIns]);
+  }, [firestore, tenantId, appointmentsFromInventory, walkIns]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAssignStaff = useCallback((walkIn: WalkIn, staffId: string) => {
     if (!firestore || !tenantId || !services) return;
