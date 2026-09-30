@@ -39,6 +39,8 @@ export function CollectTuition({ tenantId, onTake }: { tenantId: string; onTake:
         <button type="button" disabled={busy || !(n > 0) || n > sel.balanceCents} onClick={take} className="h-12 w-full rounded-full text-[15px] font-semibold disabled:opacity-40" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>{busy ? 'One moment…' : `Take payment — ${money(n || 0)}`}</button>
         <button type="button" onClick={() => { setSel(null); setErr(null); }} className="text-[13px] underline underline-offset-4">Back to students</button>
       </div>); }
+  const [bf, setBf] = React.useState<string | null>(null);
+  const backfill = async () => { setBf('Adding…'); const r: any = await call({ tenantId, action: 'backfill_books' }); setBf(r?.ok ? (r.added ? `Added ${r.added} past online tuition payment${r.added === 1 ? '' : 's'} to your books.` : 'Your books already have every online tuition payment.') : (r?.error || 'That didn’t work.')); };
   const t = q.trim().toLowerCase(); const shown = (list || []).filter((r) => !t || r.name.toLowerCase().includes(t) || String(r.program).toLowerCase().includes(t));
   return (
     <div className="space-y-3">
@@ -48,6 +50,10 @@ export function CollectTuition({ tenantId, onTake }: { tenantId: string; onTake:
         : <div className="space-y-2">{shown.map((r) => <button key={r.id} type="button" onClick={() => { setSel(r); setAmt(((r.installmentCents > 0 ? Math.min(r.installmentCents, r.balanceCents) : r.balanceCents) / 100).toFixed(2)); setErr(null); }} className="flex w-full items-center justify-between gap-2 rounded-2xl p-3 text-left" style={box}>
           <span><span className="block text-[15px] font-semibold">{r.name}</span><span className="block text-[13px]" style={muted}>{r.program}</span></span>
           <span className="rounded-full px-3 py-1 text-[13px] font-semibold tabular-nums" style={r.pastDue ? warn : soft}>{r.pastDue ? 'Past due · ' : ''}{money(r.balanceCents)}</span></button>)}</div>}
+      <div className="border-t pt-3 text-[12px]" style={{ borderColor: 'var(--line)', color: 'var(--muted)' }}>
+        <p>Tuition paid online now goes into your books automatically. Payments from before that change: <button type="button" onClick={backfill} disabled={bf === 'Adding…'} className="font-semibold underline underline-offset-4">add past online tuition to your books</button> (managers · safe to run again).</p>
+        {bf && <p className="mt-1 font-semibold" role="status">{bf}</p>}
+      </div>
     </div>
   );
 }
