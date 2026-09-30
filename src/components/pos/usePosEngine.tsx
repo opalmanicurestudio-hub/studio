@@ -607,6 +607,16 @@ export function usePosEngine() {
     setSelectedAppointmentIds(nextIds);
   }, [readyForCheckoutAppointments, selectedAppointmentIds, staff, toast]);
 
+  /** Rent at the desk: one rent line for a renter (priced and checked on the server). */
+  const addRentToCart = useCallback((x: { renterId: string; name: string; amount: number }) => {
+    setRetailItems(prev => [...prev.filter((i: any) => !(i.type === 'rent' && i.renterId === x.renterId)), { id: `rent:${x.renterId}`, renterId: x.renterId, name: `Rent — ${x.name}`, quantity: 1, price: x.amount, type: 'rent' as any }]);
+  }, []);
+
+  /** Tuition at the desk: one tuition line for a student's plan (checked on the server). */
+  const addTuitionToCart = useCallback((x: { planId: string; name: string; program: string; amount: number }) => {
+    setRetailItems(prev => [...prev.filter((i: any) => !(i.type === 'tuition' && i.planId === x.planId)), { id: `tuition:${x.planId}`, planId: x.planId, name: `Tuition — ${x.name} · ${x.program}`, quantity: 1, price: x.amount, type: 'tuition' as any }]);
+  }, []);
+
   const handleAddToCart = useCallback((item: any) => {
     setRetailItems(prev => {
       const existing = prev.find(i => i.id === item.id);
@@ -1095,7 +1105,7 @@ export function usePosEngine() {
   const buildCheckoutPayload = (paymentData?: any) => ({
     tenantId, clientId: checkoutClientId,
     appointmentIds: readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).map(a => a.appointment.id),
-    items: retailItems.map((it: any) => ({ id: it.id, type: it.type, quantity: it.quantity, price: it.price, name: it.name, reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null })),
+    items: retailItems.map((it: any) => ({ id: it.id, type: it.type, quantity: it.quantity, price: it.price, name: it.name, reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, renterId: it.renterId || null, planId: it.planId || null })),
     feeIds: Array.from(appliedAdjustments), discountCodes: appliedDiscountCodes, redeemedOffer: redeemedOffer || null, waivedAppointmentIds: Array.from(waivedAppointmentFees.keys()), waivers: Object.fromEntries(waivedAppointmentFees),   // who approved each waiver, and why
     // A tip chosen on the client screen together with the payment is recorded exactly (it goes to the provider(s) on the ticket).
     tipAllocations: paymentData?.tipOverride !== undefined ? {} : tipAllocations, tip: paymentData?.tipOverride !== undefined ? safeNumber(paymentData.tipOverride) : tipAmount, storeCredit: storeCreditApplied,
@@ -1528,6 +1538,7 @@ export function usePosEngine() {
   }, [walkIns]);
 
   return {
+    addRentToCart, addTuitionToCart,
     isMobile, inventory, services, appointmentsFromInventory, clients, walkIns, staff, transactions,
     memberships, packages, resources, discounts, tillSessions, isInventoryLoading, firestore, currentUser,
     selectedTenant, role, tenantId, toast, selectedAppointmentIds, setSelectedAppointmentIds, selectedClientId, setSelectedClientId,
