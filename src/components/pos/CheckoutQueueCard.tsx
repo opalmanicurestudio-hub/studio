@@ -23,17 +23,22 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-export const CheckoutQueueCard: React.FC<any> = ({ appointmentData, isSelected, onSelect, onRevertToService }) => {
+// The outer card only decides whether there's anything to show; the inner one holds every hook, so a visit leaving the
+// queue (e.g. right after it's paid) can't change the number of hooks between renders (that crashed the POS: React #300).
+export const CheckoutQueueCard: React.FC<any> = (props) => (props?.appointmentData?.appointment ? <CheckoutQueueCardInner {...props} /> : null);
+
+const CheckoutQueueCardInner: React.FC<any> = ({ appointmentData, isSelected, onSelect, onRevertToService }) => {
   const { staff: allStaffList, clients } = useInventory();
   
-  if (!appointmentData || !appointmentData.appointment) return null;
-  const { appointment: apt, client, service, addOnServices, staff: primaryStaff } = appointmentData;
-
+  // Hooks first, every render — an early return BEFORE a hook crashed the POS (React #300) the moment a visit left the
+  // queue (e.g. right after it was paid).
+  const client = appointmentData?.client;
   const isBirthdayToday = useMemo(() => {
     if (!client?.birthday) return false;
     const birth = safeDate(client.birthday);
     return birth.getMonth() === new Date().getMonth() && birth.getDate() === new Date().getDate();
   }, [client]);
+  const { appointment: apt, service, addOnServices, staff: primaryStaff } = appointmentData;
 
   const isMember = !!(client?.activeMembershipId || client?.subscription);
   const hasPackage = (client?.activePackages?.length || 0) > 0;
