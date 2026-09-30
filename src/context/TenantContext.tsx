@@ -1,4 +1,5 @@
 'use client';
+import { useMyTenants } from '@/lib/my-tenants-client';
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { useFirebase, useMemoFirebase } from '@/firebase/provider';
 import { useCollection } from '@/firebase/firestore/use-collection';
@@ -26,30 +27,10 @@ export const TenantProvider = ({ children }: { children: ReactNode }) => {
  const [role, setRole] = useState<UserRole>(null);
 
  // ── Owner path ─────────────────────────────────────────────────────────────
- const ownerTenantQuery = useMemoFirebase(() => {
-   if (!user || !firestore) return null;
-   return query(collection(firestore, 'tenants'), where('userId', '==', user.uid));
- }, [user, firestore]);
-
- const { data: tenants, isLoading: tenantsLoading } = useCollection<Tenant>(ownerTenantQuery);
-
- // ── Fallback: find tenant by stored ID if userId query returns empty ────────
- const storedTenantId = typeof window !== 'undefined'
-   ? localStorage.getItem('selectedTenantId')
-   : null;
-
- const fallbackTenantRef = useMemoFirebase(() => {
-   if (!firestore || !storedTenantId || (tenants && tenants.length > 0)) return null;
-   return doc(firestore, 'tenants', storedTenantId);
- }, [firestore, storedTenantId, tenants]);
-
- const { data: fallbackTenant, isLoading: fallbackLoading } = useDoc<Tenant>(fallbackTenantRef);
-
- // Merge: prefer userId-matched tenants, fall back to stored ID match
- const allTenants = (tenants && tenants.length > 0)
-   ? tenants
-   : fallbackTenant ? [fallbackTenant] : [];
-
+ // Owner path — which businesses are MINE comes from the server (the rules forbid listing businesses from a browser;
+ // the old query was always refused and the app then trusted a business id stored in this browser as "mine").
+ const { tenants: allTenants, loading: tenantsLoading } = useMyTenants(user, firestore as any);
+ const fallbackLoading = false;
  const isOwner = allTenants.length > 0;
 
  // ── Staff path — only runs when user has no owned tenants ──────────────────
