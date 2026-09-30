@@ -31,6 +31,7 @@ export async function POST(req: NextRequest) {
   if (!rc.reversal) return NextResponse.json({ ok: false, error: 'This sale was recorded before whole-sale voids existed — void its lines one by one, or refund it.' }, { status: 409 });
   const tenant: any = ((await db.doc(T).get()).data() as any) || {};
   const R = rc.reversal;
+  const { reverseRentPayment } = await import('@/lib/rent-desk');
   // The void window: the same day (default), or while that day's till is still open.
   const tz = tenant.timezone || undefined; const dayOf = (d: Date) => d.toLocaleDateString('en-US', { timeZone: tz });
   const windowRule = tenant?.voidRules?.window === 'till_open' ? 'till_open' : 'same_day';
@@ -63,6 +64,7 @@ export async function POST(req: NextRequest) {
   }
 
   const batch = db.batch();
+  for (const x of (Array.isArray(R.rentPayments) ? R.rentPayments : [])) reverseRentPayment(batch, db, T, x, now, reason);   // rent: the payment stops counting; its charges are owed again
   // Payment lines: originals marked void, one reversing line each (same shape as a single-line void).
   const lines = (await db.collection(`${T}/transactions`).where('checkoutSessionId', '==', rc.checkoutSessionId).get()).docs;
   const cardLines = R.stripePaymentIntentId ? (await db.collection(`${T}/transactions`).where('stripePaymentIntentId', '==', String(R.stripePaymentIntentId)).get()).docs : [];
@@ -125,6 +127,8 @@ export async function POST(req: NextRequest) {
   batch.set(rRef, { voided: true, voidedAt: now, voidedBy: approvedBy, requestedBy: auth.actor.name, voidReason: reason, ...(refunded ? { voidRefunded: true } : {}), ...(cashBack ? { cashReturned: cashBack } : {}) }, { merge: true });
   try { await batch.commit(); }
   catch (e: any) { console.error('[void] save failed', e); return NextResponse.json({ ok: false, error: refunded ? 'The card was refunded, but the records didn’t update — press Void again (it won’t refund twice).' : 'The void didn’t save — nothing changed. Please try again.' }, { status: 500 }); }
+  // Tuition: the Academy's ledger is add-only — a void ADDS a refund entry with the reason (after the rest is saved).
+  for (const x of (Array.isArray(R.tuitionPayments) ? R.tuitionPayments : [])) { try { const { reverseTuitionPayment } = await import('@/lib/tuition-desk'); await reverseTuitionPayment(db, tenantId, x, reason, String(approvedBy || 'Front desk')); } catch (e) { console.error('[void] tuition', e); } }
   const warnings: string[] = [];
   for (const m of R.memberships || []) warnings.push(`${m.name || (m.type === 'membership' ? 'A membership' : 'A package')} was sold in this sale — cancel it from ${rc.clientName || 'the client'}’s profile.`);
   await logAuditAdmin(db, tenantId, { action: 'checkout.voided', targetType: 'client', targetId: rc.clientId || '', amount: num(rc.total),
