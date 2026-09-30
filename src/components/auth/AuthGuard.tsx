@@ -1,6 +1,7 @@
 
 'use client';
 
+import { useMyTenants } from '@/lib/my-tenants-client';
 import { useUser, useCollection, useMemoFirebase, useDoc } from '@/firebase';
 import { useRouter, usePathname } from 'next/navigation';
 import { useEffect, type ReactNode } from 'react';
@@ -21,12 +22,8 @@ export function AuthGuard({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
   // Memoize the query to prevent re-renders
-  const ownerTenantQuery = useMemoFirebase(() => {
-    if (!user || !firestore) return null;
-    return query(collection(firestore, 'tenants'), where('userId', '==', user.uid));
-  }, [user, firestore]);
-
-  const { data: ownerTenants, isLoading: isOwnerTenantLoading } = useCollection(ownerTenantQuery);
+  // Which businesses are mine: from the server (listing businesses from a browser is refused by the rules).
+  const { tenants: ownerTenants, loading: isOwnerTenantLoading } = useMyTenants(user, firestore as any);
   const isOwner = ownerTenants && ownerTenants.length > 0;
 
   const staffDirectoryEntryRef = useMemoFirebase(() => {
