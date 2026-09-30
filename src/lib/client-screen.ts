@@ -17,11 +17,11 @@ export function clientScreenSettingsOf(t: any): ClientScreenSettings {
 export const needsSignature = (s: ClientScreenSettings, amount: number) => s.signCardOnFile && (!s.signOver || amount >= s.signOver);
 
 /** BOOK THE NEXT VISIT on the client screen — the business's settings. */
-export interface RebookSettings { on: boolean; suggestCount: number; quickWeeks: number[]; otherProviders: boolean; cardMode: 'hold' | 'charge'; payNow: boolean; payLater: boolean; prebookPct: number; standing: boolean; standingCount: number; waitlist: boolean }
+export interface RebookSettings { on: boolean; suggestCount: number; quickWeeks: number[]; otherProviders: boolean; cardMode: 'hold' | 'charge'; payNow: boolean; payLater: boolean; prebookPct: number; standing: boolean; standingCount: number; waitlist: boolean; visitLink: boolean }
 export function rebookSettingsOf(t: any): RebookSettings {
   const r = t?.clientScreen?.rebook || {};
   const weeks = (Array.isArray(r.quickWeeks) ? r.quickWeeks : [2, 4, 6, 8]).map(Number).filter((n: number) => Number.isInteger(n) && n >= 1 && n <= 52).slice(0, 6);
   return { on: r.on !== false, suggestCount: Math.max(1, Math.min(6, Number(r.suggestCount) || 3)), quickWeeks: weeks.length ? weeks : [2, 4, 6, 8], otherProviders: r.otherProviders !== false,
     cardMode: r.cardMode === 'charge' ? 'charge' : 'hold', payNow: r.payNow !== false, payLater: r.payLater !== false, prebookPct: Math.max(0, Math.min(50, Number(r.prebookPct) || 0)),
-    standing: r.standing === true, standingCount: Math.max(2, Math.min(6, Number(r.standingCount) || 3)), waitlist: r.waitlist !== false };
+    standing: r.standing === true, standingCount: Math.max(2, Math.min(6, Number(r.standingCount) || 3)), waitlist: r.waitlist !== false, visitLink: r.visitLink !== false };
 }
