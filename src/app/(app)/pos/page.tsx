@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
+import { printAppointmentTicket } from '@/lib/appointment-ticket';
 import { StaffBookSheet } from '@/components/pos/desk/StaffBookSheet';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import React, { useState, useEffect, useMemo, useCallback, Suspense, useRef } from 'react';
@@ -349,16 +350,11 @@ function POSPage() {
             <Button
               className="w-full h-12 rounded-xl text-lg font-bold uppercase tracking-widest shadow-xl shadow-primary/20"
               onClick={() => {
-                const el = document.getElementById('ticket-area-content');
-                const html = el?.innerHTML || '';
-                if (html) {
-                  printTicketInNewWindow(
-                    `<div id="ticket-area-content" style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;">${html}</div>`,
-                    selectedTenant?.name || 'Studio',
-                  );
-                } else {
-                  window.print();
-                }
+                // The shared ticket (Studio look, QR + barcode) — the old path copied the markup into a window without its styles.
+                const t: any = ticketToPrint || {}; const apt: any = t.appointment || t;
+                const okPrint = apt?.id ? printAppointmentTicket({ ...apt }, { studioName: selectedTenant?.name || 'Studio', clientName: apt.clientName || t.client?.name || (clients || []).find((c: any) => c.id === apt.clientId)?.name, serviceName: t.service?.name || apt.serviceName || (services || []).find((x: any) => x.id === apt.serviceId)?.name, staffName: t.staff?.name || t.provider?.name || apt.staffName || (staff || []).find((x: any) => x.id === apt.staffId)?.name,
+                  accent: (selectedTenant as any)?.bookingPageSettings?.cfPageConfig?.accentColor || (selectedTenant as any)?.brandColor, logoUrl: (selectedTenant as any)?.logoUrl || (selectedTenant as any)?.bookingPageSettings?.cfPageConfig?.logoUrl, kind: apt.isWalkIn ? 'walkin' : 'appointment', origin: window.location.origin }) : false;
+                if (!okPrint) window.print();
                 setIsPrintDialogOpen(false);
               }}
             >
