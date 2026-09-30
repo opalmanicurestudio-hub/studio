@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { handleRetailOrderPaid, handleRetailCheckoutExpired } from '@/lib/retail-webhook';
 import { splitPaid, settleCollectedBalance } from '@/lib/balance-with-deposit';
 import { tenantTimeZone } from '@/lib/tenant-time';
 import { logAuditAdmin } from '@/lib/audit';
@@ -146,6 +147,13 @@ export async function POST(req: NextRequest) {
         // 'deposit' — public booking-page deposit. The appointment doesn't
         // exist yet; it lives as a pending bookingRequest. Convert it now.
         // ───────────────────────────────────────────────────────────────────
+        // ONLINE SHOP ORDERS — restored. A webhook clean-up on 2026-08-20 removed this call, so no paid order was marked
+        // paid (the customer's page sat on "Confirming payment"). Idempotent: only an order still 'placed' is processed.
+        if (sessionType === 'retail_order') {
+          await handleRetailOrderPaid(db, stripe2, tenant.id, connAcct as string, session, chargeId);
+          break;
+        }
+
         if (sessionType === 'deposit') {
           /* ── 5a: the APPOINTMENT already exists (created by /api/appointments/book,
            * holding the slot with status 'pending_payment'). Confirm THAT
@@ -994,6 +1002,15 @@ export async function POST(req: NextRequest) {
         });
 
         console.log(`[connect-webhook] Payout $${(payout.amount / 100).toFixed(2)} recorded for ${tenant.id}`);
+        break;
+      }
+
+      case 'checkout.session.expired': {   // restored: an abandoned shop cart closes its unpaid order and releases held stock
+        const session = event.data.object as Stripe.Checkout.Session;
+        if (session.metadata?.type === 'retail_order') {
+          const tenant = await getTenant(connAcct);
+          if (tenant) await handleRetailCheckoutExpired(db, tenant.id, session);
+        }
         break;
       }
 
