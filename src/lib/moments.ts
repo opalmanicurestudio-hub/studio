@@ -3,7 +3,7 @@
 //   first      — their first visit: a welcome
 //   milestone  — their Nth visit (5th, 10th, 25th, 50th by default); optional % off services at that visit
 // A reward never combines with discount codes or team / family discounts — whichever is bigger applies.
-export type MomentKind = 'birthday' | 'first' | 'milestone';
+export type MomentKind = 'birthday' | 'first' | 'milestone' | 'prebook';
 export interface Moment { kind: MomentKind; key: string; title: string; screenLine: string; deskLine: string; rewardPct: number; rewardLabel: string | null }
 export interface MomentSettings {
   birthday: { on: boolean; window: 'day' | 'week' | 'month'; rewardPct: number };
@@ -59,3 +59,11 @@ export function momentsFor(t: any, client: any, completedVisits: number, now = n
 }
 /** The one reward to apply (the biggest), if any. */
 export const bestMomentReward = (ms: Moment[]) => ms.filter((m) => m.rewardPct > 0).sort((a, b) => b.rewardPct - a.rewardPct)[0] || null;
+
+/** A visit booked before they left, with the business's pre-book reward on it (lib/rebook) — applied at that visit, once. */
+export function prebookMoment(visits: any[]): Moment | null {
+  const v = (visits || []).find((x: any) => Number(x?.prebookRewardPct) > 0 && !x?.prebookRewardUsed);
+  if (!v) return null; const pct = Math.max(0, Math.min(100, Number(v.prebookRewardPct)));
+  return { kind: 'prebook', key: `prebook-${v.id}`, title: 'Booked before they left', screenLine: 'Thanks for booking ahead — your reward is on this visit ✨',
+    deskLine: `Their ${pct}% pre-book reward on services is applied automatically.`, rewardPct: pct, rewardLabel: `Pre-book reward (${pct}% off services)` };
+}
