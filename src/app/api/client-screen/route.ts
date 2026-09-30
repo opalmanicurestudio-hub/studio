@@ -194,7 +194,7 @@ export async function POST(req: NextRequest) {
       if (!sig.startsWith('data:image/png;base64,') || sig.length < 400) return NextResponse.json({ ok: false, error: 'Please sign before continuing.' }, { status: 400 });
       if (sig.length > 350_000) return NextResponse.json({ ok: false, error: 'That signature is too large — clear it and sign again.' }, { status: 400 });
       const cRef = db.collection(`${T}/chargeConsents`).doc();
-      await cRef.set({ id: cRef.id, kind: q.what === 'membership' ? 'membership_terms' : 'signed_terms', title: q.title, text: q.text, ref: q.ref || null, clientId: q.clientId || null, clientName: q.clientName || null,
+      await cRef.set({ id: cRef.id, kind: q.what === 'membership' ? 'membership_terms' : q.what === 'pickup' ? 'pickup_signature' : 'signed_terms', title: q.title, text: q.text, ref: q.ref || null, clientId: q.clientId || null, clientName: q.clientName || null,
         signature: sig, signedAt: now(), via: 'client_screen', screenId, screenName: s.name || null, requestedBy: q.requestedBy || null });
       answer.signed = true; answer.consentId = cRef.id;
     } else if (q.kind === 'change') { const ch = num(q.change); const keepAmount = Math.max(0, Math.min(ch, Math.round(num(b.keepAmount ?? (b.keep === true ? ch : 0)) * 100) / 100)); answer.keep = keepAmount > 0; answer.keepAmount = keepAmount; answer.change = ch; }
