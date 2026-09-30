@@ -2369,7 +2369,17 @@ export default function CheckInPage() {
     const [completionJustDone, setCompletionJustDone] = useState<null | boolean>(null);
 
     const appointmentCheckInRef = useMemoFirebase(() => !firestore || !token ? null : doc(firestore, 'appointmentCheckIns', token), [firestore, token]);
-    const { data: appointmentData, isLoading: appointmentLoading } = useDoc<Appointment>(appointmentCheckInRef);
+    const { data: copyData, isLoading: appointmentLoading } = useDoc<Appointment>(appointmentCheckInRef);
+    // THE VISIT ITSELF (T4): the copy above can lag if a screen forgot to update it — so whenever it changes (and every
+    // 20 s while open) the page asks the server for the visit's live, safe view and shows that on top.
+    const [liveView, setLiveView] = useState<any>(null);
+    useEffect(() => {
+        if (!token) return; let stop = false; let t: any = null;
+        const pull = async () => { try { const r = await fetch(`/api/visit-view?token=${encodeURIComponent(token)}`, { cache: 'no-store' }); const d = await r.json(); if (!stop && d?.ok) setLiveView(d.view); } catch { /* keep the copy */ }
+            if (!stop) t = setTimeout(pull, document.visibilityState === 'hidden' ? 60000 : 20000); };
+        pull(); return () => { stop = true; clearTimeout(t); };
+    }, [token, (copyData as any)?.status, (copyData as any)?.checkInStatus, (copyData as any)?.stage, (copyData as any)?.visitUpdatedAt]);
+    const appointmentData = useMemo(() => (copyData ? ({ ...(copyData as any), ...(liveView || {}) } as Appointment) : copyData), [copyData, liveView]);
 
     const tenantId = appointmentData?.tenantId;
     const clientId = appointmentData?.clientId;
