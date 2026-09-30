@@ -903,13 +903,15 @@ export const CheckoutHub = ({
   const screenTicketKey = JSON.stringify(screenTicket);
   useEffect(() => { if (!cs.connected || (lastSale && isCartEmpty)) return; const t = setTimeout(() => { cs.push(screenTicket); }, 500); return () => clearTimeout(t); }, [cs.connected, screenTicketKey, !!lastSale]); // eslint-disable-line react-hooks/exhaustive-deps
   const thankedRef = useRef<string | null>(null);
-  useEffect(() => { if (cs.connected && lastSale?.receiptId && thankedRef.current !== lastSale.receiptId) { thankedRef.current = lastSale.receiptId; cs.ask('thanks', { receiptId: lastSale.receiptId, total: lastSale.collected ?? lastSale.total, clientFirst: String(lastSale.clientName || '').split(' ')[0] }); } }, [cs.connected, lastSale?.receiptId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const rebookCtxOf = (ls: any) => (ls?.clientId && ls?.serviceId ? { clientId: ls.clientId, serviceId: ls.serviceId, staffId: ls.staffId || null, addOnIds: ls.addOnIds || [], appointmentId: ls.appointmentId || null } : null);
+  useEffect(() => { if (cs.connected && lastSale?.receiptId && thankedRef.current !== lastSale.receiptId) { thankedRef.current = lastSale.receiptId; cs.ask('thanks', { receiptId: lastSale.receiptId, total: lastSale.collected ?? lastSale.total, clientFirst: String(lastSale.clientName || '').split(' ')[0], rebook: rebookCtxOf(lastSale) }); } }, [cs.connected, lastSale?.receiptId]); // eslint-disable-line react-hooks/exhaustive-deps
   const [tipReq, setTipReq] = useState<string | null>(null);
   const [cofReq, setCofReq] = useState<{ id: string | null; amount: number; status: 'waiting' | 'approved' | 'declined'; consentId?: string | null } | null>(null);
   const [cofSkip, setCofSkip] = useState(false);
   useEffect(() => {
     const r = cs.response; if (!r) return;
     if (tipReq && r.requestId === tipReq && r.kind === 'tip') { handleTotalTipChange(safeNumber(r.tip)); setTipReq(null); toast({ title: safeNumber(r.tip) > 0 ? `Tip added — ${'$'}${safeNumber(r.tip).toFixed(2)}` : 'No tip' }); }
+    if (r.kind === 'rebook' && r.booked) toast({ title: `${String(lastSale?.clientName || '').split(' ')[0] || 'They'} booked their next visit`, description: r.label });
     if (cofReq?.id && r.requestId === cofReq.id && r.kind === 'approve') setCofReq({ ...cofReq, status: r.approved ? 'approved' : 'declined', consentId: r.consentId || null });
   }, [cs.response?.requestId]); // eslint-disable-line react-hooks/exhaustive-deps
   // ── The automatic flow (Settings → Client screen → "Run it automatically"): the iPad follows the checkout ──
@@ -967,7 +969,7 @@ export const CheckoutHub = ({
     cs.ask('approve', { amount: amountToCharge, cardLabel: `${String(selectedClient?.cardOnFile?.brand || 'card')} ending ${String(selectedClient?.cardOnFile?.last4 || '••••')}`, clientId: selectedClient.id, clientName: selectedClient.name }).then((id: any) => { if (id) setCofReq({ id, amount: amountToCharge, status: 'waiting' }); });
   }, [autoOn, paymentTab, cardMode, amountToCharge, cofSkip, ticketKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setCardMode('select'); }, [paymentTab]);
-  if (lastSale && isCartEmpty) return <div className="desk" style={{ background: 'transparent' }}><style>{DESK_CSS}</style><SaleComplete sale={lastSale} tenantId={tenantId} onNewSale={() => clearLastSale?.()} onDone={onDone} /></div>;   // after the last hook
+  if (lastSale && isCartEmpty) return <div className="desk" style={{ background: 'transparent' }}><style>{DESK_CSS}</style><SaleComplete screenName={cs.connected ? cs.name : null} onBookOnScreen={cs.connected ? () => { cs.ask('thanks', { receiptId: lastSale.receiptId, total: lastSale.collected ?? lastSale.total, clientFirst: String(lastSale.clientName || '').split(' ')[0], rebook: rebookCtxOf(lastSale), rebookFirst: true }); toast({ title: `Booking their next visit on ${cs.name}` }); } : undefined} sale={lastSale} tenantId={tenantId} onNewSale={() => clearLastSale?.()} onDone={onDone} /></div>;   // after the last hook
 
 
 
