@@ -9,6 +9,7 @@ import { getAuth } from 'firebase/auth';
 import { useFirebase } from '@/firebase';
 import { visitActions } from '@/lib/visit-client';
 import { openReceipt } from '@/lib/receipt-client';
+import { printAppointmentTicket } from '@/lib/appointment-ticket';
 
 async function post(body: any) {
   const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
@@ -105,6 +106,13 @@ export function VisitTicket({ tenantId, appointmentId, onClose }: { tenantId: st
       </section>}
       {/* The client's link + more */}
       <section className={card} style={cardStyle} aria-label="More">
+        {(v.shortCode || v.checkInToken) && <div className="flex flex-wrap gap-1.5">
+          {(['letter', 'receipt'] as const).map((size) => <button key={size} type="button" onClick={() => {
+            const okPrint = printAppointmentTicket({ id: v.id, clientId: v.clientId, clientName: v.clientName, serviceId: v.serviceId, addOnIds: v.addOnIds, staffId: v.staffId, startTime: v.startTime, endTime: v.endTime, status: v.status, checkInStatus: v.checkInStatus, checkInToken: v.checkInToken, shortCode: v.shortCode, notes: v.notes, depositAmountCents: v.depositAmountCents, depositStatus: v.depositStatus },
+              { studioName: v.studio?.name, studioPhone: v.studio?.phone, studioAddress: v.studio?.address, clientName: v.clientName, clientPhone: v.clientPhone, serviceName: v.serviceName, staffName: v.staffName, accent: v.studio?.accent, logoUrl: v.studio?.logoUrl, size, kind: v.isWalkIn ? 'walkin' : 'appointment', origin: window.location.origin });
+            if (!okPrint) setMsg('Your browser blocked the ticket window — allow pop-ups for this site, then try again.'); }}
+            className="h-9 rounded-full px-3 text-[13px] font-semibold" style={size === 'letter' ? { background: 'var(--accent)', color: 'var(--accent-ink)' } : soft}>{size === 'letter' ? 'Print ticket' : 'Print receipt size'}</button>)}
+        </div>}
         {link && <div className="flex flex-wrap gap-1.5">
           <button type="button" onClick={() => { navigator.clipboard?.writeText(link).then(() => setMsg('Visit link copied.')).catch(() => setMsg(link)); }} className="h-9 rounded-full px-3 text-[13px]" style={soft}>Copy {first}’s visit link</button>
           {v.clientPhone && <a href={`sms:${String(v.clientPhone).replace(/[^\d+]/g, '')}?&body=${encodeURIComponent(link)}`} className="inline-flex h-9 items-center rounded-full px-3 text-[13px]" style={soft}>Text it to {first}</a>}
