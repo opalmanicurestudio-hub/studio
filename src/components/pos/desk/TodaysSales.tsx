@@ -1,6 +1,7 @@
 'use client';
 // src/components/pos/desk/TodaysSales.tsx — TODAY'S SALES, and VOIDING ONE (with a manager's approval).
 // Cash voids tell the desk exactly how much to hand back and what happened to the till; card voids are refunded.
+import { openVisit } from '@/lib/visit-client';
 import { receiptCall, openReceipt } from '@/lib/receipt-client';
 import { groupDaySales } from '@/lib/day-sales';
 import * as React from 'react';
@@ -135,6 +136,7 @@ export function TodaysSales({ open, onClose, tenantId, tenant, role, transaction
                     <div className="flex flex-wrap gap-1.5">
                       {r && <Btn quiet onClick={() => openReceipt(tenantId, r.id)}>{r.voided ? 'Void slip' : 'Receipt'}</Btn>}
                       {r && !r.voided && r.reversal && <Btn quiet onClick={() => { reset(); setSel(r); }}>Void sale</Btn>}
+                      {(() => { const aid = x.lines.map((t: any) => t.appointmentId).find(Boolean); return aid ? <Btn quiet onClick={() => openVisit(String(aid))}>Visit ticket</Btn> : null; })()}
                       {!r && <p className="text-[12px]" style={{ color: 'var(--muted)' }}>{x.source === 'planner' ? 'Completed from the planner — no receipt was made.' : x.method === 'online' ? 'Paid online — refunds are made from the payment’s page in Money.' : 'Recorded outside checkout — see it in Money.'}</p>}
                     </div>
                   </div>}
