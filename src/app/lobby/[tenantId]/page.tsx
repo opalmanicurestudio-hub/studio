@@ -182,27 +182,21 @@ export default function LobbyBoardPage() {
     let db: any;
     try { db = getFirestore(getApp()); } catch { setConnError(true); return; }
 
-    const base = `tenants/${tenantId}`;
-    const yesterday = new Date(Date.now() - 48*60*60*1000).toISOString();
-    let wReady=false, sReady=false, vReady=false;
-    const check = () => { if (wReady&&sReady&&vReady) setReady(true); };
-
-    const subWalkIn = (q: any) => onSnapshot(q,
-      snap => { setWalkInRows(snap.docs.map(d=>({id:d.id,...d.data()}))); setLastSnapAt(Date.now()); setConnError(false); wReady=true; check(); },
-      () => { /* index missing — retry without filter */ subWalkIn(collection(db,`${base}/walkIns`)); },
-    );
-    const unsubWalkIn = subWalkIn(query(collection(db,`${base}/walkIns`), where('checkInTime','>=',yesterday)));
-
-    const unsubStaff = onSnapshot(collection(db,`${base}/staff`),
-      snap => { setStaffRows(snap.docs.map(d=>({id:d.id,...d.data()}))); sReady=true; check(); });
-
-    const unsubSvc = onSnapshot(collection(db,`${base}/services`),
-      snap => { setServices(snap.docs.map(d=>({id:d.id,...d.data()}))); vReady=true; check(); });
-
-    const unsubTenant = onSnapshot(collection(db,'tenants'),
-      snap => { const t=snap.docs.find(d=>d.id===tenantId); if(t) setTenantDoc({id:t.id,...t.data()}); });
-
-    return () => { unsubWalkIn(); unsubStaff(); unsubSvc(); unsubTenant(); };
+    // The lobby screen is a PUBLIC display (a TV with nobody signed in). It reads the server's board feed — guests' first
+    // names only, no phone / email / notes — every 3 seconds. (v5 read the database directly: that only worked signed in as
+    // staff, retried forever when refused, watched every business's record, and never finished loading on a public TV.)
+    let stop = false; let timer: any = null;
+    const poll = async () => {
+      try {
+        const r = await fetch(`/api/walkins?tenantId=${encodeURIComponent(tenantId)}&view=board`, { cache: 'no-store' });
+        const d: any = await r.json();
+        if (!stop && d?.ok && d.raw) { setWalkInRows(d.raw.rows || []); setStaffRows(d.raw.staff || []); setServices(d.raw.services || []); setTenantDoc(d.raw.tenant || null); setLastSnapAt(Date.now()); setConnError(false); setReady(true); }
+        else if (!stop) setConnError(true);
+      } catch { if (!stop) setConnError(true); }
+      if (!stop) timer = setTimeout(poll, document.visibilityState === 'hidden' ? 15000 : 3000);
+    };
+    poll();
+    return () => { stop = true; clearTimeout(timer); };
   }, [tenantId]);
 
   /* ── timers ─────────────────────────────────────────────────────────── */
