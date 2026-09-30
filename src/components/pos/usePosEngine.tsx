@@ -1103,11 +1103,12 @@ export function usePosEngine() {
   // Before any card is charged, the ticket is saved on the server as "started" — so if the sale then fails to save,
   // it can be recorded later (Needs attention → Sales not recorded) and never twice.
   const pendingIdRef = useRef<string | null>(null);
+  const [splitActive, setSplitActive] = useState(false);
   const recoveryApprovalRef = useRef<string | null>(null);
   const [lastSale, setLastSale] = useState<any>(null);   // the sale just finished — shown until New sale / Done   // set by the POS recovery-override prompt (manager approval)
   const lastCheckoutRef = useRef<any>(null);
   useEffect(() => {
-    if (paymentTab !== 'card' || !tenantId || !checkoutClientId || (!selectedAppointmentIds.size && !retailItems.length)) return;
+    if ((paymentTab !== 'card' && !splitActive) || !tenantId || !checkoutClientId || (!selectedAppointmentIds.size && !retailItems.length)) return;   // a split keeps its started ticket in step too
     const t = setTimeout(async () => {
       try { const auth = await staffAuthHeader();
         const r = await fetch('/api/checkout/complete', { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify({ ...buildCheckoutPayload(), action: 'prepare', pendingId: pendingIdRef.current }) }).then((x) => x.json()).catch(() => ({}));
@@ -1115,7 +1116,15 @@ export function usePosEngine() {
       } catch { /* best-effort: the sale itself still saves normally */ }
     }, 600);
     return () => clearTimeout(t);
-  }, [paymentTab, tenantId, checkoutClientId, selectedAppointmentIds, retailItems, appliedAdjustments, appliedDiscountCodes, tipAmount, totalCalc]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [paymentTab, splitActive, tenantId, checkoutClientId, selectedAppointmentIds, retailItems, appliedAdjustments, appliedDiscountCodes, tipAmount, totalCalc]); // eslint-disable-line react-hooks/exhaustive-deps
+  // SPLIT THE BILL — the started ticket is saved at once, so each share can be recorded against it as it's paid.
+  const prepareNow = useCallback(async (): Promise<string | null> => {
+    if (!tenantId || !checkoutClientId) return null;
+    try { const auth = await staffAuthHeader();
+      const r = await fetch('/api/checkout/complete', { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify({ ...buildCheckoutPayload(), action: 'prepare', pendingId: pendingIdRef.current }) }).then((x) => x.json()).catch(() => null);
+      if (r?.pendingId) pendingIdRef.current = r.pendingId; return pendingIdRef.current;
+    } catch { return pendingIdRef.current; }
+  }, [tenantId, checkoutClientId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sendCheckout = async (payload: any, charged: boolean): Promise<boolean> => {
     try {
@@ -1133,7 +1142,7 @@ export function usePosEngine() {
           tendered, change: payload.payment?.method === 'cash' ? Math.max(0, Math.round((tendered - collected) * 100) / 100) : 0, clientId: payload.clientId || null, clientName: payer.name || null, email: payer.email || '', phone: payer.phone || '',
           serviceId: firstVisit?.service?.id || firstVisit?.appointment?.serviceId || null, staffId: firstVisit?.appointment?.staffId || null, addOnIds: firstVisit?.appointment?.addOnIds || [], appointmentId: firstVisit?.appointment?.id || null,
           warnings: out.warnings || [], at: new Date().toISOString() }); }
-      setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setStoreCreditApplied(0); setStaffDiscount(null); setSkipGroupDiscount(false); setSelectedClientId(null);   // the next sale starts fresh (the client screen goes back to your logo)
+      setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setStoreCreditApplied(0); setStaffDiscount(null); setSkipGroupDiscount(false); setSelectedClientId(null); setSplitActive(false);   // the next sale starts fresh (the client screen goes back to your logo)
       return true;
     } catch (e: any) {
       console.error('[checkout] failed', e);
@@ -1452,7 +1461,7 @@ export function usePosEngine() {
     clients: clients || [], isGroupCheckout: selectedAppointmentIds.size > 1, payerOptions: payerOptions || [], selectedClientId, setSelectedClientId,
     onAddClientClick: () => setIsAddClientOpen(true),
     onScanClick: () => { setScanMode('checkout'); setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsCameraScanOpen(true); },
-    onAddItem: addProductChecked, onPosScan: handlePosScan, variantChoice, setVariantChoice, getPendingId: () => pendingIdRef.current,
+    onAddItem: addProductChecked, onPosScan: handlePosScan, variantChoice, setVariantChoice, getPendingId: () => pendingIdRef.current, prepareNow, splitActive, setSplitActive,
     subtotal: subtotalCalc, tax: taxCalc, taxLabel, total: totalCalc, lastSale, clearLastSale: () => setLastSale(null), moments, momentReward, momentDiscountValue, staffDiscount, setStaffDiscount, staffDiscountValue, groupInfo, groupDiscountRaw, groupDiscountValue, skipGroupDiscount, setSkipGroupDiscount, tipAmount, setTipAmount, onCheckout: handleCheckout,
     appliedDiscountCodes, setAppliedDiscountCodes, discount: discountValue, membershipDiscount: membershipDiscountValue,
     walletOffers, offerClientId, offerServiceIds,
