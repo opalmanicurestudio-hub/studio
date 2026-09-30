@@ -2,7 +2,8 @@
 export interface ClientScreenSettings {
   tipPresets: number[]; allowCustomTip: boolean; showNoTip: boolean; tipOn: 'before_tax' | 'after_tax';
   signCardOnFile: boolean; signOver: number; reviewTicket: boolean; welcome: string; offerReceipt: boolean;
-  auto: boolean; autoTip: boolean; offerKeepChange: boolean; offerSaveCard: boolean; payOnScreen: boolean; payOnPhone: boolean; motion: 'lively' | 'calm' | 'off'; confetti: boolean; returnAfter: number; moments?: any;
+  auto: boolean; autoTip: boolean; offerKeepChange: boolean; offerSaveCard: boolean; payOnScreen: boolean; payOnPhone: boolean; motion: 'lively' | 'calm' | 'off'; confetti: boolean; returnAfter: number;
+  tipScope: 'services' | 'services_retail' | 'everything'; signMembership: boolean; membershipTerms: string; payTimeoutMin: number; deskReturnAfter: number; moments?: any; rebook?: any;
 }
 export function clientScreenSettingsOf(t: any): ClientScreenSettings {
   const c = t?.clientScreen || {};
@@ -11,7 +12,9 @@ export function clientScreenSettingsOf(t: any): ClientScreenSettings {
     signCardOnFile: c.signCardOnFile !== false, signOver: Math.max(0, Number(c.signOver) || 0), reviewTicket: c.reviewTicket !== false,
     welcome: String(c.welcome || '').slice(0, 120) || 'Welcome — we’ll be with you in a moment.', offerReceipt: c.offerReceipt !== false,
     auto: c.auto !== false, autoTip: c.autoTip !== false, offerKeepChange: c.offerKeepChange !== false, offerSaveCard: c.offerSaveCard !== false, payOnScreen: c.payOnScreen !== false, payOnPhone: c.payOnPhone !== false,
-    motion: ['calm', 'off'].includes(c.motion) ? c.motion : 'lively', confetti: c.confetti !== false, returnAfter: Math.max(5, Math.min(120, Number(c.returnAfter) || 20)), ...(c.moments ? { moments: c.moments } : {}) };
+    motion: ['calm', 'off'].includes(c.motion) ? c.motion : 'lively', confetti: c.confetti !== false, returnAfter: Math.max(5, Math.min(120, Number(c.returnAfter) || 20)),
+    tipScope: ['services_retail', 'everything'].includes(c.tipScope) ? c.tipScope : 'services', signMembership: c.signMembership !== false, membershipTerms: String(c.membershipTerms || '').slice(0, 3000),
+    payTimeoutMin: Math.max(2, Math.min(30, Number(c.payTimeoutMin) || 5)), deskReturnAfter: c.deskReturnAfter === 0 ? 0 : Math.max(0, Math.min(120, Number(c.deskReturnAfter) || 10)), ...(c.rebook ? { rebook: c.rebook } : {}), ...(c.moments ? { moments: c.moments } : {}) };
 }
 /** Does this charge need a signature on the client screen? */
 export const needsSignature = (s: ClientScreenSettings, amount: number) => s.signCardOnFile && (!s.signOver || amount >= s.signOver);
