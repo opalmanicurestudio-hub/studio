@@ -146,7 +146,14 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       return true;
     });
     const mirrors = new Set(appts.map((a: any) => a.id));
+    // T3: walk-ins are visits from arrival. While they're still waiting, the queue entry leads (assign, skip, remove,
+    // notify) with the visit attached; once service starts, the visit leads like any other.
+    const PRE = ['waiting', 'notified', 'arrived'];
+    const rowOf = (a: any) => (a?.isWalkIn && a?.walkInId ? (e.walkIns || []).find((w: any) => w.id === a.walkInId) : null);
+    const queued = (a: any) => { const w: any = rowOf(a); return !!w && PRE.includes(String(w.status || '')) && !['servicing', 'in_service', 'ready_for_checkout', 'completed'].includes(String(a.status || '')); };
+    const apptById = new Map<string, any>(appts.map((a: any) => [a.id, a]));
     for (const a of appts) {
+      if (queued(a)) continue;   // shown below as a walk-in, with this visit attached
       const st = String(a.status || ''), ci = String(a.checkInStatus || '');
       const stage: Stage = st === 'completed' ? 'done' : st === 'ready_for_checkout' ? 'ready' : st === 'servicing' || st === 'in_service' ? 'service' : ci === 'arrived' || st === 'waiting' ? 'waiting' : 'arriving';
       const at = toDate(a.startTime); const late = stage === 'arriving' && at ? Math.max(0, Math.round((now.getTime() - at.getTime()) / 60000)) : 0;
@@ -154,10 +161,11 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
     }
     for (const w of e.walkIns || []) {
       const st = String(w.status || '');
-      if (!['waiting', 'notified', 'arrived', 'servicing', 'in_service'].includes(st) || mirrors.has(`apt-walkin-${w.id}`)) continue;
+      const mirror = apptById.get(`apt-walkin-${w.id}`);
+      if (!['waiting', 'notified', 'arrived', 'servicing', 'in_service'].includes(st) || (mirror && !queued(mirror))) continue;
       const wd = toDate(w.checkInTime || w.createdAt); if (!wd || !isToday(wd)) continue; // yesterday's walk-ins aren't here today
       const sid = w.staffId || w.assignedStaffId || null;
-      out.push({ key: `w:${w.id}`, kind: 'walkin', walkIn: w, name: w.clientName || w.customerName || 'Walk-in', service: (w.serviceIds || []).map(svcName).filter(Boolean).join(' + ') || 'Walk-in', staffId: sid, staffName: staffName(sid), at: toDate(w.createdAt || w.checkInTime), stage: st === 'servicing' || st === 'in_service' ? 'service' : 'waiting', lateMin: 0 });
+      out.push({ key: `w:${w.id}`, kind: 'walkin', walkIn: w, ...(mirror ? { appt: mirror } : {}), name: w.clientName || w.customerName || 'Walk-in', service: (w.serviceIds || []).map(svcName).filter(Boolean).join(' + ') || 'Walk-in', staffId: sid, staffName: staffName(sid), at: toDate(w.createdAt || w.checkInTime), stage: st === 'servicing' || st === 'in_service' ? 'service' : 'waiting', lateMin: 0 });
     }
     return out.sort((x, y) => (x.at?.getTime() || 0) - (y.at?.getTime() || 0));
   }, [e.appointmentsFromInventory, e.walkIns, e.services, e.staff, now]); // eslint-disable-line react-hooks/exhaustive-deps
