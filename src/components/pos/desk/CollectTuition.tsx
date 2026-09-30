@@ -12,6 +12,7 @@ async function call(body: any) { const tk = await getAuth().currentUser?.getIdTo
 export function CollectTuition({ tenantId, onTake }: { tenantId: string; onTake: (x: { clientId: string; planId: string; name: string; program: string; amount: number }) => void }) {
   const [list, setList] = React.useState<any[] | null>(null); const [q, setQ] = React.useState(''); const [sel, setSel] = React.useState<any>(null);
   const [amt, setAmt] = React.useState(''); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState<string | null>(null);
+  const [bf, setBf] = React.useState<string | null>(null);   // with the other hooks — below the early return it crashed the panel (React #300)
   React.useEffect(() => { call({ tenantId, action: 'list' }).then((r: any) => (r?.ok ? setList(r.students) : (setList([]), setErr(r?.error || 'Couldn’t load students.')))); }, [tenantId]);
   const box = { background: 'var(--card)', border: '1px solid var(--line)' } as React.CSSProperties; const soft = { background: 'var(--soft)' } as React.CSSProperties; const muted = { color: 'var(--muted)' } as React.CSSProperties;
   const warn = { background: 'color-mix(in srgb, var(--warn) 12%, transparent)', color: 'var(--warn)' } as React.CSSProperties;
@@ -39,7 +40,6 @@ export function CollectTuition({ tenantId, onTake }: { tenantId: string; onTake:
         <button type="button" disabled={busy || !(n > 0) || n > sel.balanceCents} onClick={take} className="h-12 w-full rounded-full text-[15px] font-semibold disabled:opacity-40" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>{busy ? 'One moment…' : `Take payment — ${money(n || 0)}`}</button>
         <button type="button" onClick={() => { setSel(null); setErr(null); }} className="text-[13px] underline underline-offset-4">Back to students</button>
       </div>); }
-  const [bf, setBf] = React.useState<string | null>(null);
   const backfill = async () => { setBf('Adding…'); const r: any = await call({ tenantId, action: 'backfill_books' }); setBf(r?.ok ? (r.added ? `Added ${r.added} past online tuition payment${r.added === 1 ? '' : 's'} to your books.` : 'Your books already have every online tuition payment.') : (r?.error || 'That didn’t work.')); };
   const t = q.trim().toLowerCase(); const shown = (list || []).filter((r) => !t || r.name.toLowerCase().includes(t) || String(r.program).toLowerCase().includes(t));
   return (
