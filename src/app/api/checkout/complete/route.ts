@@ -9,6 +9,7 @@
 // Then: memberships / packages enrolled, and any next-visit deposit confirmed.
 // The screen uses the same calculation (lib/checkout-calc), so the totals match; if they ever don't, the sale is
 // still recorded exactly as worked out here and flagged for review — never silently.
+import { syncVisitCopies } from '@/lib/visit-sync';
 import { refundPaymentIntent } from '@/lib/stripe-refund';
 import { momentsFor, bestMomentReward, prebookMoment } from '@/lib/moments';
 import { monthKey } from '@/lib/team-discount';
@@ -267,7 +268,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     credit(had.id, totalLtvIncrease - before);   // the visit's value counts for the person who had it
     const revenue = vc.mainPrice + vc.addOns.reduce((s: number, x: any) => s + x.price, 0);
     const waiver = vc.waived ? { authorizerId: b.waivers?.[a.id]?.authorizerId, reason: approvedWaivers[a.id]?.reason || b.waivers?.[a.id]?.reason, verifiedBy: approvedWaivers[a.id]?.by } : null;   // who approved (verified above), and why
-    batch.set(db.doc(`${T}/appointments/${a.id}`), clean({ status: 'completed', statusBeforeCheckout: a.status || 'checked_in', revenue, actualEndTime: now, checkoutSessionId, checkedOutAt: now, checkedOutBy: auth.actor.name,
+    batch.set(db.doc(`${T}/appointments/${a.id}`), clean({ status: 'completed', stage: 'complete', timeline: [...(Array.isArray(a.timeline) ? a.timeline : []), { at: now, kind: 'stage', stage: 'complete', text: `Paid — ${method === 'split' ? 'split between payments' : method.replace(/_/g, ' ')}`, by: auth.actor.name || 'Staff', via: 'checkout' }].slice(-60), statusBeforeCheckout: a.status || 'checked_in', revenue, actualEndTime: now, checkoutSessionId, checkedOutAt: now, checkedOutBy: auth.actor.name,
       ...(waiver ? { feesWaived: { by: String(waiver.authorizerId || auth.actor.uid || ''), byName: waiver.verifiedBy || staff.find((s: any) => s.id === waiver.authorizerId)?.name || auth.actor.name, reason: String(waiver.reason || '').slice(0, 200) || null, at: now } } : {}) }), { merge: true });
     if (waiver) await logAuditAdmin(db, tenantId, { action: 'checkout.fees_waived', targetType: 'appointment', targetId: a.id, summary: `Fees waived for ${had.name || 'a client'} — approved by ${waiver.verifiedBy || staff.find((s: any) => s.id === waiver.authorizerId)?.name || 'a manager'}${waiver.reason ? `: ${waiver.reason}` : ''}`, actor: { type: 'user', id: auth.actor.uid, name: auth.actor.name, role: auth.actor.role } } as any).catch(() => {});
     if (a.checkInToken) { batch.set(db.doc(`appointmentCheckIns/${a.checkInToken}`), { status: 'completed', tenantId }, { merge: true }); batch.set(db.doc(`${T}/appointmentCheckIns/${a.checkInToken}`), { status: 'completed' }, { merge: true }); }
@@ -408,6 +409,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   }
   await logAuditAdmin(db, tenantId, { action: 'checkout.completed', targetType: 'client', targetId: clientId, amount: calc.total,
     summary: `Checkout — ${client.name || 'client'} · $${calc.total.toFixed(2)} (${method})${mismatch ? ` · the screen showed $${expected.toFixed(2)} — flagged for review` : ''}`, actor: { type: 'user', id: auth.actor.uid, name: auth.actor.name, role: auth.actor.role } } as any).catch(() => {});
+  for (const v of visits) await syncVisitCopies(db, tenantId, { ...v.appointment, status: 'completed', stage: 'complete', timeline: [...(Array.isArray(v.appointment.timeline) ? v.appointment.timeline : []), { at: now, kind: 'stage', stage: 'complete', text: 'Paid' }] }, tenant).catch(() => {});
   if (pendingRef) await pendingRef.set({ status: 'completed', completedAt: now, receiptId: receiptRef.id, checkoutSessionId, total: calc.total, ...(pay.stripePaymentIntentId ? { paymentIntentId: String(pay.stripePaymentIntentId) } : {}) }, { merge: true }).catch(() => {});
   return json({ ok: true, checkoutSessionId, receiptId: receiptRef.id, total: calc.total, collected: Math.max(0, Math.round((calc.total - depositUsed) * 100) / 100), depositUsed, subtotal: calc.subtotal, tax: calc.tax, mismatch, warnings });
 }
