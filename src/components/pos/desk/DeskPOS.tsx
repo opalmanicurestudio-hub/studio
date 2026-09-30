@@ -77,9 +77,11 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const [logCallOpen, setLogCallOpen] = useState(false);
   const [salesOpen, setSalesOpen] = useState(false);
   const [screenOpen, setScreenOpen] = useState(false);
-  useBarcodeScanner((code) => e.handlePosScan?.(code), !!e.handlePosScan);   // USB / Bluetooth scanners, anywhere on the desk
+  useBarcodeScanner((code) => e.handlePosScan?.(code), !!e.handlePosScan);
   useEffect(() => { const open = () => { setMode('desk'); setCheckoutOpen(true); }; window.addEventListener('cf:open-checkout', open); return () => window.removeEventListener('cf:open-checkout', open); }, []);
   const clientScreen = useClientScreen(e.tenantId);
+  const hadTill = useRef<boolean>(!!e.activeTill);   // closing the till → the client screen goes back to the logo
+  useEffect(() => { if (hadTill.current && !e.activeTill && clientScreen.connected) clientScreen.ask('idle'); hadTill.current = !!e.activeTill; }, [e.activeTill]); // eslint-disable-line react-hooks/exhaustive-deps   // USB / Bluetooth scanners, anywhere on the desk
   const [overFor, setOverFor] = useState<any>(null); // a service running over → tell the next guests
   const [mode, setMode] = useState<'desk' | 'counter'>('desk');
   const [about, setAbout] = useState<Guest | null>(null);
