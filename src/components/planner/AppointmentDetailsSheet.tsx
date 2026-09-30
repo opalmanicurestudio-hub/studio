@@ -1,5 +1,6 @@
 'use client';
 
+import { openVisit } from '@/lib/visit-client';
 import { getAuth } from 'firebase/auth';
 import { placeOf } from '@/lib/service-place';
 import { hasRealCard } from '@/lib/card-on-file';
@@ -3354,6 +3355,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             <SheetTitle className="sr-only">Session Details for {client.name}</SheetTitle>
             <SheetDescription className="sr-only">Appointment {ticketId}</SheetDescription>
             {IdentityHeader}
+            {appointment?.id && !String(appointment.id).startsWith('apt-walkin-') && <button type="button" onClick={() => openVisit(String(appointment.id))} className="mt-2 inline-flex h-8 items-center rounded-full border-2 border-primary/20 bg-white px-3 text-[11px] font-black uppercase tracking-widest text-primary hover:border-primary">Visit ticket</button>}
           </SheetHeader>
           {/* An offer is waiting: booked with a campaign code, or a renter's offer. */}
           {((appointment as any)?.pendingDiscountCode || (appointment as any)?.renterOfferLine) && (
