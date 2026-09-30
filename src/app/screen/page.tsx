@@ -75,6 +75,8 @@ export default function ClientScreenPage() {
   const [step, setStep] = React.useState<'review' | 'tip' | 'pay'>('review'); const [payWay, setPayWay] = React.useState<'here' | 'phone' | null>(null); const [qr, setQr] = React.useState<string | null>(null);
   const [keepSome, setKeepSome] = React.useState(false); const [keepAmt, setKeepAmt] = React.useState('');
   const [thanksOver, setThanksOver] = React.useState<string | null>(null); const [clock, setClock] = React.useState('');
+  const [rbBusy, setRbBusy] = React.useState(false); const [dayDate, setDayDate] = React.useState<string | null>(null); const [dayTimes, setDayTimes] = React.useState<any[] | null>(null);
+  const [picked, setPicked] = React.useState<any>(null); const [depChoice, setDepChoice] = React.useState<string | null>(null); const [standingOn, setStandingOn] = React.useState(false); const [rbQr, setRbQr] = React.useState<string | null>(null);
   React.useEffect(() => {
     let saved: string | null = null; try { saved = localStorage.getItem(KEY); } catch { /* private mode */ }
     if (saved) { setId(saved); return; }
@@ -91,10 +93,18 @@ export default function ClientScreenPage() {
   React.useEffect(() => { const tick = () => setClock(new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })); tick(); const t = setInterval(tick, 20000); return () => clearInterval(t); }, []);
   const q = s?.request;
   React.useEffect(() => { setCustom(''); setSig(null); setRch(null); setRto(''); setRmsg(null); setErr(null); setPayWay(null); setQr(null); setKeepSome(false); setKeepAmt('');
+    setDayDate(null); setDayTimes(null); setPicked(null); setDepChoice(null); setStandingOn(false); setRbQr(null);
     if (q?.kind === 'pay') setStep(q.review ? 'review' : q.askTip && !q.tipChosen ? 'tip' : 'pay'); }, [q?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => { if (q?.kind !== 'pay' || !q.phoneUrl || step !== 'pay') return;
     import('qrcode').then((m: any) => (m.default || m).toDataURL(q.phoneUrl, { width: 560, margin: 1 })).then((u: string) => setQr(u)).catch(() => setQr(null)); }, [q?.id, step]); // eslint-disable-line react-hooks/exhaustive-deps
-  React.useEffect(() => { if (q?.kind !== 'thanks' || !q.id) return; const t = setTimeout(() => setThanksOver(q.id), (Number(q.returnAfter) || 20) * 1000); return () => clearTimeout(t); }, [q?.kind, q?.id]);
+  const rbStage = q?.kind === 'thanks' ? q?.rebook?.stage || null : null;
+  const booking = rbStage === 'choose' || rbStage === 'pay' || rbBusy;
+  React.useEffect(() => { if (q?.kind !== 'thanks' || !q.id || booking) return; const t = setTimeout(() => setThanksOver(q.id), (Number(q.returnAfter) || 20) * 1000 + (rbStage === 'done' ? 10000 : 0)); return () => clearTimeout(t); }, [q?.kind, q?.id, booking, rbStage]);
+  const rebookCall = async (action: string, extra: any = {}) => { setRbBusy(true); setErr(null); const r: any = await call({ action, screenId: id, requestId: q?.id, ...extra }); setRbBusy(false); if (!r?.ok) setErr(r?.error || 'That didn’t work — please try again.'); return r; };
+  React.useEffect(() => { if (q?.kind === 'thanks' && q.rebookFirst && q.rebookCtx && !q.rebook) rebookCall('rebook_start'); }, [q?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => { if (rbStage !== 'pay' || !q?.rebook?.payUrl) return;
+    import('qrcode').then((m: any) => (m.default || m).toDataURL(q.rebook.payUrl, { width: 520, margin: 1 })).then((u: string) => setRbQr(u)).catch(() => {});
+    const t = setInterval(() => call({ action: 'rebook_status', screenId: id, requestId: q.id }), 3000); return () => clearInterval(t); }, [rbStage, q?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const accent = s?.brand?.accent || '#1c1917';
   const motion = s?.settings?.motion === 'off' ? 'cs-off' : s?.settings?.motion === 'calm' ? 'cs-calm' : '';
@@ -224,6 +234,54 @@ export default function ClientScreenPage() {
     return shell(<>{brandTop}{kept > 0 ? <><Check color={accent} /><p className="text-center text-[30px] font-semibold">Thank you — that’s very kind!</p></> : null}
       {back > 0 && <><p className="text-center text-[24px]" style={{ color: '#57534e' }}>Here’s your change</p><p className="text-center text-[56px] font-semibold tabular-nums">{money(back)}</p></>}</>, { confetti: kept > 0 }); }
   // ── Thank you (+ receipt), then back to the logo ──
+  if (q?.kind === 'thanks' && thanksOver !== q.id && q.rebook && q.rebook.stage !== 'declined') {
+    const rb = q.rebook; const money0 = (c: number) => `$${(c / 100).toFixed(2)}`;
+    if (rb.stage === 'already') return shell(<>{brandTop}<Check color={accent} /><p className="text-center text-[30px] font-semibold">You’re already booked</p><p className="text-center text-[22px]" style={{ color: '#57534e' }}>{rb.serviceName ? `${rb.serviceName} · ` : ''}{rb.label}</p></>);
+    if (rb.stage === 'waitlisted') return shell(<>{brandTop}<Check color={accent} /><p className="text-center text-[30px] font-semibold">You’re on the waitlist</p><p className="text-center text-[20px]" style={{ color: '#57534e' }}>We’ll let you know as soon as a time opens up.</p></>);
+    if (rb.stage === 'done') return shell(<>{brandTop}<Check color={accent} /><p className="text-center text-[34px] font-semibold">See you {rb.label}{rb.staffName ? ` with ${rb.staffName}` : ''} ✨</p>
+      <p className="text-center text-[19px]" style={{ color: '#57534e' }}>{rb.serviceName}{rb.depositNote ? ` · ${rb.depositNote}` : ''}</p>
+      {(rb.standingBooked || []).length > 0 && <p className="text-center text-[18px]" style={{ color: '#57534e' }}>Also booked: {rb.standingBooked.join(' · ')}</p>}
+      {rb.prebook > 0 && <p className="text-center text-[18px] font-semibold">Your {rb.prebook}% booking-ahead reward is on that visit.</p>}
+      <p className="text-center text-[16px]" style={{ color: '#78716c' }}>We’ve sent you the details.</p></>, { confetti: true });
+    if (rb.stage === 'pay') return shell(<>{brandTop}<p className="text-center text-[28px] font-semibold">Your time is held — {rb.label}</p>
+      <div className="relative mx-auto h-80 w-80">{rbQr ? <><span aria-hidden className="absolute inset-0 rounded-[2rem]" style={{ border: `3px solid ${accent}`, animation: 'cs-ring 2s ease-out infinite' }} /><img src={rbQr} alt="Scan to pay your deposit" className="relative h-80 w-80 rounded-[2rem] bg-white p-4 shadow-sm" /></> : <Spinner color={accent} />}</div>
+      <p className="text-center text-[20px]">{rb.depositNote}</p><p className="text-center text-[16px]" style={{ color: '#78716c' }}>This screen moves on by itself when it’s paid <Dots /></p>
+      <button type="button" onClick={() => setThanksOver(q.id)} className="mx-auto block text-[17px] font-semibold underline underline-offset-4" style={{ color: '#57534e' }}>I’ll pay later from the link</button></>);
+    // choose a time
+    const slotBtn = (sl: any, i: number) => <button key={sl.startIso} type="button" onClick={() => { setPicked(sl); setDepChoice(null); }} className={`${big} cs-in flex flex-col items-center justify-center`} style={{ ...(picked?.startIso === sl.startIso ? solid : ghost), animationDelay: `${i * 60}ms`, minHeight: 96 }}>
+      <span>{sl.dayLabel}</span><span className="text-[18px] font-normal">{sl.label}{rb.others && sl.staffName ? ` · ${sl.staffName}` : ''}</span></button>;
+    const days = Array.from({ length: 14 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() + (rb.window?.min || 2) * 7 + i); return d; });
+    const pickDay = async (d: Date) => { const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; setDayDate(iso); setDayTimes(null); const r: any = await rebookCall('rebook_day', { date: iso }); setDayTimes(r?.ok ? r.times || [] : []); };
+    const deposit = Number(rb.depositCents) || 0;
+    const depOpts = deposit > 0 ? [rb.choices?.cardHold && ['card_hold', `Use my ${rb.card}`, 'The deposit is taken before my visit'], rb.choices?.cardCharge && ['card_charge', `Charge my ${rb.card} now`, `${money0(deposit)} today`], rb.choices?.payNow && ['pay_now', 'Pay the deposit now', 'On my phone'], rb.choices?.later && ['later', 'Send me a link', 'Pay later — my time is held']].filter(Boolean) as string[][] : [];
+    return shell(<>
+      <div className="text-center"><p className="text-[30px] font-semibold">{rb.serviceName}{rb.staffName ? ` with ${rb.staffName}` : ''}</p><p className="text-[18px]" style={{ color: '#78716c' }}>{rb.why}{(rb.addOnNames || []).length ? ` · with ${rb.addOnNames.join(', ')}` : ''}</p></div>
+      {!picked && <>
+        {(rb.suggestions || []).length ? <div className={`grid gap-3 ${rb.suggestions.length > 2 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>{rb.suggestions.map(slotBtn)}</div>
+          : <p className="rounded-3xl p-5 text-center text-[19px]" style={{ background: '#fff', border: '1px solid #e7e2dc' }}>{rb.staffName ? `${rb.staffName} has nothing free` : 'Nothing is free'} in {rb.window?.min}–{rb.window?.max} weeks. Try another day below{rb.waitlist ? ', or join the waitlist' : ''}.</p>}
+        <p className="text-center text-[17px] font-semibold" style={{ color: '#57534e' }}>Or choose a day</p>
+        <div className="flex gap-2 overflow-x-auto pb-1">{days.map((d) => { const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          return <button key={iso} type="button" onClick={() => pickDay(d)} className="flex min-h-[76px] min-w-[76px] shrink-0 flex-col items-center justify-center rounded-2xl text-[16px] font-semibold" style={dayDate === iso ? solid : ghost}>
+            <span className="text-[13px] font-normal">{d.toLocaleDateString('en-US', { weekday: 'short' })}</span>{d.getDate()}<span className="text-[12px] font-normal">{d.toLocaleDateString('en-US', { month: 'short' })}</span></button>; })}</div>
+        {dayDate && (dayTimes === null ? <p className="text-center text-[18px]" style={{ color: '#78716c' }}>Finding times <Dots /></p> : dayTimes.length ? <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">{dayTimes.map((sl: any) => <button key={sl.startIso} type="button" onClick={() => { setPicked(sl); setDepChoice(null); }} className="min-h-[64px] rounded-2xl text-[18px] font-semibold" style={ghost}>{sl.label}</button>)}</div>
+          : <p className="text-center text-[18px]" style={{ color: '#78716c' }}>Nothing free that day.</p>)}
+        <div className="flex flex-wrap justify-center gap-4">
+          {rb.waitlist && <button type="button" disabled={rbBusy} onClick={() => rebookCall('rebook_waitlist')} className="text-[17px] font-semibold underline underline-offset-4" style={{ color: '#57534e' }}>Join {rb.staffName ? `${rb.staffName}’s` : 'the'} waitlist</button>}
+          <button type="button" onClick={() => rebookCall('rebook_decline')} className="text-[17px] font-semibold underline underline-offset-4" style={{ color: '#57534e' }}>Not today</button>
+        </div>
+      </>}
+      {picked && <div className="space-y-4">
+        <div className="cs-pop rounded-3xl p-5 text-center" style={{ background: `color-mix(in srgb, ${accent} 10%, #fff)` }}><p className="text-[26px] font-semibold">{picked.dayLabel} · {picked.label}</p>{picked.staffName ? <p className="text-[18px]" style={{ color: '#57534e' }}>with {picked.staffName}</p> : null}</div>
+        {rb.prebookPct > 0 && <p className="text-center text-[18px] font-semibold">Book now and save {rb.prebookPct}% on this visit ✨</p>}
+        {rb.standing && <label className="flex items-center justify-center gap-3 text-[19px]"><input type="checkbox" checked={standingOn} onChange={(e) => setStandingOn(e.target.checked)} className="h-6 w-6" />Make it every {rb.standing.every} weeks ({rb.standing.count} visits)</label>}
+        {deposit > 0 && <><p className="text-center text-[19px]">A {money0(deposit)} deposit holds this time</p>
+          <div className="grid gap-2 sm:grid-cols-2">{depOpts.map(([k, l, sub]) => <button key={k} type="button" onClick={() => setDepChoice(k)} className="min-h-[76px] rounded-3xl px-5 text-left text-[18px] font-semibold" style={depChoice === k ? solid : ghost}>{l}<span className="block text-[15px] font-normal opacity-80">{sub}</span></button>)}</div></>}
+        {rb.policy && <p className="text-center text-[14px]" style={{ color: '#78716c' }}>{rb.policy}</p>}
+        <div className="grid grid-cols-2 gap-3"><button type="button" onClick={() => setPicked(null)} className={big} style={ghost}>Back</button>
+          <button type="button" disabled={rbBusy || (deposit > 0 && !depChoice)} onClick={() => rebookCall('rebook_book', { startIso: picked.startIso, staffId: picked.staffId, deposit: deposit > 0 ? depChoice : 'none', standing: standingOn })} className={big} style={solid}>{rbBusy ? <Dots /> : 'Book it'}</button></div>
+      </div>}
+    </>);
+  }
   if (q?.kind === 'thanks' && thanksOver !== q.id) return shell(<>{brandTop}
     <Check color={accent} />
     <p className="text-center text-[40px] font-semibold">Thank you{q.clientFirst ? `, ${q.clientFirst}` : ''}!</p>
@@ -235,6 +293,7 @@ export default function ClientScreenPage() {
         <button type="button" disabled={busy || !rto.trim()} onClick={async () => { setBusy(true); const r: any = await call({ action: 'receipt', screenId: id, channel: rch, to: rto }); setBusy(false); if (r?.ok) { setRmsg('Sent — thank you!'); setRch(null); } else setErr(r?.error || 'It didn’t send.'); }} className={big} style={solid}>{busy ? <Dots /> : 'Send'}</button></div>}
       {rmsg && <p className="text-center text-[20px] font-semibold">{rmsg}</p>}
     </div>}
+    {q.rebookCtx && !q.rebook && <button type="button" disabled={rbBusy} onClick={() => rebookCall('rebook_start')} className={`${big} cs-in w-full`} style={{ ...solid, animationDelay: '300ms' }}>{rbBusy ? <>Finding your best times <Dots /></> : 'Book your next visit'}</button>}
   </>, { confetti: celebrating });
   // ── The live ticket ──
   if (tk && (tk.lines || []).length) return shell(<>
