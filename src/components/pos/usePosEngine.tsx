@@ -9,7 +9,7 @@
 
 
 import { identifyPosScan, onHand } from '@/lib/pos-scan';
-import { momentsFor, bestMomentReward } from '@/lib/moments';
+import { momentsFor, bestMomentReward, prebookMoment } from '@/lib/moments';
 import { groupDiscountFor, groupDiscountAmount } from '@/lib/team-discount';
 import { ToastAction } from '@/components/ui/toast';
 import { staffAuthHeader } from '@/lib/staff-fetch';
@@ -569,7 +569,8 @@ export function usePosEngine() {
   const groupDiscountValue = groupWins ? groupDiscountRaw : 0;
   // Moments (birthday / first visit / milestone) — the same rules as the server (lib/moments).
   const momentVisits = useMemo(() => !groupClient ? 0 : (appointmentsFromInventory || []).filter((a: any) => a.clientId === groupClient.id && a.status === 'completed' && !selectedAppointmentIds.has(a.id)).length, [groupClient, appointmentsFromInventory, selectedAppointmentIds]);
-  const moments = useMemo(() => momentsFor(selectedTenant, groupClient, momentVisits, new Date(), selectedAppointmentIds.size > 0), [selectedTenant, groupClient, momentVisits, selectedAppointmentIds]);
+  const moments = useMemo(() => { const pre = prebookMoment((appointmentsFromInventory || []).filter((a: any) => selectedAppointmentIds.has(a.id)));
+    return [...momentsFor(selectedTenant, groupClient, momentVisits, new Date(), selectedAppointmentIds.size > 0), ...(pre ? [pre] : [])]; }, [selectedTenant, groupClient, momentVisits, selectedAppointmentIds, appointmentsFromInventory]);
   const momentReward = bestMomentReward(moments);
   const codeAndGroup = (groupInfo && !groupInfo.stackWithCodes && groupWins ? 0 : codeDiscountRaw) + groupDiscountValue;
   const momentRaw = momentReward ? Math.round(eligibleServicesRef.current * momentReward.rewardPct) / 100 : 0;
@@ -1130,7 +1131,8 @@ export function usePosEngine() {
         const tendered = safeNumber(payload.payment?.amountTendered); const collected = safeNumber(out.collected ?? out.total);
         setLastSale({ receiptId: out.receiptId || null, total: safeNumber(out.total), collected, depositUsed: safeNumber(out.depositUsed), method: payload.payment?.method === 'cash' ? 'cash' : payload.payment?.method === 'other' ? 'other' : 'card',
           tendered, change: payload.payment?.method === 'cash' ? Math.max(0, Math.round((tendered - collected) * 100) / 100) : 0, clientId: payload.clientId || null, clientName: payer.name || null, email: payer.email || '', phone: payer.phone || '',
-          serviceId: firstVisit?.service?.id || firstVisit?.appointment?.serviceId || null, warnings: out.warnings || [], at: new Date().toISOString() }); }
+          serviceId: firstVisit?.service?.id || firstVisit?.appointment?.serviceId || null, staffId: firstVisit?.appointment?.staffId || null, addOnIds: firstVisit?.appointment?.addOnIds || [], appointmentId: firstVisit?.appointment?.id || null,
+          warnings: out.warnings || [], at: new Date().toISOString() }); }
       setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setStoreCreditApplied(0); setStaffDiscount(null); setSkipGroupDiscount(false); setSelectedClientId(null);   // the next sale starts fresh (the client screen goes back to your logo)
       return true;
     } catch (e: any) {
