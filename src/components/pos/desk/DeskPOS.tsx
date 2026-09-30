@@ -13,6 +13,7 @@
 //   In service with a provider                       → Finish (provider review → ready to pay)
 //   Ready      ready for checkout                    → Check out (checkout drawer)
 
+import { OrderPickup } from '@/components/pos/desk/OrderPickup';
 import { AddWalkIn } from '@/components/pos/desk/AddWalkIn';
 import { openVisit, registerVisitActions } from '@/lib/visit-client';
 import { useBarcodeScanner } from '@/hooks/useBarcodeScanner';
@@ -80,6 +81,8 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const [salesOpen, setSalesOpen] = useState(false);
   const [screenOpen, setScreenOpen] = useState(false);
   const [walkInOpen, setWalkInOpen] = useState(false);
+  const [pickupOpen, setPickupOpen] = useState(false); const [pickupScan, setPickupScan] = useState<string | null>(null);
+  useEffect(() => { const on = (ev: any) => { setPickupScan(String(ev?.detail?.value || '') || null); setPickupOpen(true); }; window.addEventListener('cf:order-pickup', on); return () => window.removeEventListener('cf:order-pickup', on); }, []);
   useBarcodeScanner((code) => e.handlePosScan?.(code), !!e.handlePosScan);
   useEffect(() => { const open = () => { setMode('desk'); setCheckoutOpen(true); }; window.addEventListener('cf:open-checkout', open); return () => window.removeEventListener('cf:open-checkout', open); }, []);
   const clientScreen = useClientScreen(e.tenantId);
@@ -367,6 +370,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
           <Btn quiet onClick={() => e.setIsQuickBookOpen(true)}>Book</Btn>
           <Btn quiet onClick={() => setLogCallOpen(true)}>Log a call</Btn>
           <Btn quiet onClick={() => setWalkInOpen(true)}>+ Walk-in</Btn>
+          {retailOn && <Btn quiet onClick={() => { setPickupScan(null); setPickupOpen(true); }}>Pickups</Btn>}
           <Btn quiet onClick={() => setSalesOpen(true)}>Today’s sales</Btn>
           <Btn quiet onClick={() => setScreenOpen(true)}><span aria-hidden style={{ color: clientScreen.connected ? (clientScreen.online ? 'var(--ok)' : 'var(--warn)') : 'var(--muted)' }}>●</span> Client screen</Btn>
           <Btn quiet={!opsCount.attention} onClick={() => setAttnOpen(true)}>{opsCount.decisions ? `Needs a decision · ${opsCount.decisions}` : `Needs attention${opsCount.attention ? ` · ${opsCount.attention}` : ''}`}</Btn>
@@ -427,6 +431,8 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
           <span className="block text-[15px] font-semibold">{v.name}</span><span className="block text-[14px] tabular-nums">${Number(v.msrp || v.costPerUnit || 0).toFixed(2)}</span>
           <span className="block text-[12px]" style={{ color: 'var(--muted)' }}>{Math.max(0, (Number(v.totalStock) || 0) - (Number(v.stockReserved) || 0))} on the shelf</span></button>)}</div>
       </Drawer>
+      <Drawer accent={accent} open={pickupOpen} onClose={() => setPickupOpen(false)} title="Order pickup"><OrderPickup firestore={e.firestore} tenantId={e.tenantId} actor={{ id: getAuth().currentUser?.uid || 'desk', name: getAuth().currentUser?.displayName || 'Front desk' }} scanned={pickupScan}
+        screen={clientScreen.connected ? { connected: true, name: clientScreen.name, ask: clientScreen.ask, response: clientScreen.response } : null} /></Drawer>
       <Drawer accent={accent} open={walkInOpen} onClose={() => setWalkInOpen(false)} title="Add a walk-in"><AddWalkIn tenantId={e.tenantId} tenant={tenant} services={e.services || []} staff={e.staff || []} onDone={() => setWalkInOpen(false)} /></Drawer>
       <Drawer accent={accent} open={screenOpen} onClose={() => setScreenOpen(false)} title="Client screen"><ClientScreenPanel tenantId={e.tenantId} /></Drawer>
       <Drawer accent={accent} open={attnOpen} onClose={() => setAttnOpen(false)} title="Needs attention">
