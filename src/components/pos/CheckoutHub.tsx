@@ -900,7 +900,7 @@ export const CheckoutHub = ({
       amount: safeNumber(getServicePrice(d.service, d.staff)) }));
     const items = (cart || []).map((it: any) => ({ type: it.type || ((it as any).interval ? 'membership' : 'product'), name: it.name, id: it.id, interval: (it as any).interval, price: safeNumber(it.price), amount: safeNumber(it.price) * safeNumber(it.quantity || 1), depositForLabel: (it as any).depositForLabel || null }));
     const fees = Array.from(appliedAdjustments || []).map((id: any) => (clients || []).flatMap((c: any) => c.unpaidFees || []).find((x: any) => x.feeId === id)).filter(Boolean).map((f: any) => ({ name: f.reason, amount: safeNumber(f.feeAmount) }));
-    return saleProfileOf({ visits, items, fees, payerId: selectedClientId || null, payerName: selectedClient?.name || null }, { tipScope: ['services_retail', 'everything'].includes(csS.tipScope) ? csS.tipScope : 'services', membershipTerms: csS.membershipTerms || '' });
+    return saleProfileOf({ visits, items, fees, payerId: selectedClientId || null, payerName: selectedClient?.name || null }, { tipScope: (appointmentsData || []).some((d: any) => d.appointment?.isTable) ? 'everything' : ['services_retail', 'everything'].includes(csS.tipScope) ? csS.tipScope : 'services', membershipTerms: csS.membershipTerms || '' });
   }, [appointmentsData, cart, appliedAdjustments, clients, selectedClientId, selectedClient, selectedTenant]);
   const splitLines = useMemo(() => {
     const out: any[] = [];
