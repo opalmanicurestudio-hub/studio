@@ -27,6 +27,7 @@
  *   day-of arrival (Hello + status buttons)
  */
 
+import { VisitTimeline } from '@/components/visit/VisitTimeline';
 import { VisitRebook } from '@/components/visit/VisitRebook';
 import { placeOf } from '@/lib/service-place';
 import { DisruptionCard } from '@/components/booking/DisruptionCard';
@@ -430,6 +431,7 @@ const CompletedView = ({ tenant, client, appointment, service, brand }: { brand:
             ) : (
                 <VisitCard tone="ok"><p className="text-[15px]">Thank you — we’ve received your review.</p></VisitCard>
             )}
+            {(tenant as any)?.visitTimelineForClients !== false && <VisitTimeline items={(appointment as any).timelinePublic} />}
             {(appointment as any).checkInToken ? <VisitRebook token={String((appointment as any).checkInToken)} bookHref={brand.bookHref || null} />
                 : brand.bookHref && <VisitButton quiet={!submitted} href={brand.bookHref}>Book your next visit</VisitButton>}
         </VisitShell>
@@ -2662,6 +2664,7 @@ export default function CheckInPage() {
                         {appointmentData?.serviceName && <p className="text-stone-600">{appointmentData.serviceName}{who ? ` with ${who}` : ''}</p>}
                         {at && <p className="text-stone-600">{format(at, 'EEEE, MMMM d · h:mm a')}</p>}
                     </div>
+                    {(tenant as any)?.visitTimelineForClients !== false && <VisitTimeline items={(appointmentData as any)?.timelinePublic} />}
                     {(tenant as any)?.phone && <a href={`tel:${String((tenant as any).phone).replace(/[^\d+]/g, '')}`} className="inline-block text-[14px] underline underline-offset-4">Need something? Call {tenant?.name || 'us'}</a>}
                 </div>
             </div>
