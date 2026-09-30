@@ -2259,14 +2259,23 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any, bas
     // Scanning is unaffected: the appointmentCheckIns projection below is
     // written for EVERY seat regardless, so a printed ticket resolves from
     // the moment it leaves the printer.
-    if (seat.assigned) {
+    // THE VISIT TICKET (T3): every walk-in is a visit from the moment they arrive — not only once a provider is free.
+    // Assigned now → the visit carries the provider (and blocks their time, as before). Queued → no provider yet, so
+    // it blocks nobody's calendar; it's Waiting, with who they asked for noted. The walk-in row stays as the queue entry.
+    {
+      const via = String((body as any)?.source || 'kiosk').replace(/[_-]+/g, ' ');
+      const tl: any[] = [{ at: nowIso, kind: 'stage', stage: 'arrived', text: `Arrived — walk-in (${via})`, by: displayName, via: 'walk-in' }];
+      if (!seat.assigned) tl.push({ at: nowIso, kind: 'stage', stage: 'waiting', text: seat.waitingForRequested && seat.holder ? `Waiting for ${str(seat.holder.name, 80).split(' ')[0]}` : 'Waiting for a provider', by: 'Queue', via: 'walk-in' });
       tx.set(db.doc(`tenants/${tenantId}/appointments/apt-walkin-${seat.ref.id}`), {
         id: `apt-walkin-${seat.ref.id}`,
         tenantId,
         walkInId: seat.ref.id,
         isWalkIn: true,
+        noBookedTime: true,
         source: 'walk-in',
-        status: 'confirmed',
+        status: seat.assigned ? 'confirmed' : 'waiting',
+        stage: seat.assigned ? 'arrived' : 'waiting',
+        timeline: tl,
         checkInStatus: 'arrived',
         checkedInAt: nowIso,
 
@@ -2281,8 +2290,9 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any, bas
         // which is why an unresolvable service showed up at the till as a
         // blank line instead of a name you could read.
         serviceName: str(seat.service.name, 80),
-        staffId: String(seat.holder.id),
-        staffName: str(seat.holder.name, 80),
+        staffId: seat.assigned && seat.holder ? String(seat.holder.id) : null,
+        staffName: seat.assigned && seat.holder ? str(seat.holder.name, 80) : null,
+        requestedStaffId: !seat.assigned && seat.waitingForRequested && seat.holder ? String(seat.holder.id) : null,
 
         startTime: nowIso,
         endTime: seatEnd,
