@@ -928,34 +928,39 @@ export const CheckoutHub = ({
   const cofAutoSent = useRef<string | null>(null);
   // Cash: the iPad shows what's due, then their change — with "keep it as a tip".
   const cashShown = useRef<string>('');
+  const changeDoneFor = useRef<number | null>(null);
   const [changeReq, setChangeReq] = useState<{ id: string; change: number } | null>(null);
   useEffect(() => {
     if (!autoOn || paymentTab !== 'cash' || isCartEmpty || tipReq || lastSale) return;
     const due = Math.round(safeNumber(finalTotal) * 100) / 100; const tendered = Math.round(safeNumber(amountTendered) * 100) / 100; const change = Math.round((tendered - due) * 100) / 100;
-    const key = `${due}|${tendered}`; if (cashShown.current === key) return;
+    const key = `${due}|${tendered}`; if (cashShown.current === key || (changeDoneFor.current !== null && changeDoneFor.current === tendered)) return;
     const t = setTimeout(async () => { cashShown.current = key;
       if (tendered > 0 && change > 0.009) { const id = await cs.ask('change', { due, tendered, change }); if (id) setChangeReq({ id, change }); }
       else cs.ask('cash', { due }); }, 600);
     return () => clearTimeout(t);
   }, [autoOn, paymentTab, finalTotal, amountTendered, tipReq, isCartEmpty, lastSale]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const r = cs.response; if (!r || !changeReq || r.requestId !== changeReq.id || r.kind !== 'change') return;
-    if (r.keep) { handleTotalTipChange(Math.round((safeNumber(tipAmount) + changeReq.change) * 100) / 100); toast({ title: `They kept ${'$'}${changeReq.change.toFixed(2)} as a tip` }); }
+    const kept = Math.min(changeReq.change, safeNumber(r.keepAmount ?? (r.keep ? changeReq.change : 0)));
+    changeDoneFor.current = Math.round(safeNumber(amountTendered) * 100) / 100;   // the total grows by the tip — don't ask again for the same cash
+    if (kept > 0) { handleTotalTipChange(Math.round((safeNumber(tipAmount) + kept) * 100) / 100); const back = Math.round((changeReq.change - kept) * 100) / 100;
+      toast({ title: `They kept ${'$'}${kept.toFixed(2)} as a tip`, description: back > 0 ? `Give them ${'$'}${back.toFixed(2)} change.` : 'No change to give.' }); }
     else toast({ title: `Give them ${'$'}${changeReq.change.toFixed(2)} change` });
     setChangeReq(null); }, [cs.response?.requestId]); // eslint-disable-line react-hooks/exhaustive-deps
   // The client pays on the iPad (card form) or their phone (QR). Tip first when automatic; then the sale completes by itself.
   const [payReq, setPayReq] = useState<{ id: string; amount: number } | null>(null);
   const [payAfterTip, setPayAfterTip] = useState(false);
   const payOnIpadOn = cs.connected && csSet.payOnScreen !== false || cs.connected && csSet.payOnPhone !== false;
-  const sendPayToScreen = async () => { const amount = Math.round(safeNumber(amountToCharge) * 100) / 100; const id = await cs.ask('pay', { amount, clientId: selectedClient?.id || null, pendingId: getPendingId?.() || null });
+  // One request: the iPad runs review → tip → pay by itself (the tip is added to the payment on the server).
+  const sendPayToScreen = async () => { const amount = Math.round(safeNumber(amountToCharge) * 100) / 100; const askTip = autoTipOn && safeNumber(tipAmount) === 0;
+    const id = await cs.ask('pay', { amount, clientId: selectedClient?.id || null, pendingId: getPendingId?.() || null, askTip, tipBase });
     if (id) setPayReq({ id, amount }); else toast({ variant: 'destructive', title: 'The client screen couldn’t start the payment', description: 'Check Stripe is connected, or take the card another way.' }); };
-  const startPayOnIpad = () => { if (autoTipOn && tipAskedFor.current !== ticketKey) { setPayAfterTip(true); askTipAuto(); } else sendPayToScreen(); };
-  useEffect(() => { if (payAfterTip && !tipReq && tipAskedFor.current === ticketKey) { setPayAfterTip(false); sendPayToScreen(); } }, [payAfterTip, tipReq]); // eslint-disable-line react-hooks/exhaustive-deps
+  const startPayOnIpad = () => { tipAskedFor.current = ticketKey; sendPayToScreen(); };
   useEffect(() => { const r = cs.response; if (!r || !payReq || r.requestId !== payReq.id || r.kind !== 'pay' || !r.paid) return;
     const amt = payReq.amount; setPayReq(null);
     if (r.saved) toast({ title: 'Card saved for next time' });
-    onCheckout({ paymentMethod: 'card', amountTendered: amt, recoveryAmount, recoveryReason, recoveryApprovalToken, stripePaymentIntentId: r.paymentIntentId, cardSurcharge });
+    onCheckout({ paymentMethod: 'card', amountTendered: safeNumber(r.amount) || amt, recoveryAmount, recoveryReason, recoveryApprovalToken, stripePaymentIntentId: r.paymentIntentId, cardSurcharge, tipOverride: Math.round((safeNumber(tipAmount) + safeNumber(r.tip)) * 100) / 100 });
   }, [cs.response?.requestId]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setCofReq(null); setCofSkip(false); setTipReq(null); setChangeReq(null); setPayReq(null); setPayAfterTip(false); cashShown.current = ''; }, [selectedClientId, lastSale?.receiptId]);   // never carry one client's approval to the next
+  useEffect(() => { setCofReq(null); setCofSkip(false); setTipReq(null); setChangeReq(null); setPayReq(null); setPayAfterTip(false); cashShown.current = ''; changeDoneFor.current = null; }, [selectedClientId, lastSale?.receiptId]);   // never carry one client's approval to the next
   const cofApproved = !cs.connected || cofSkip || (cofReq?.status === 'approved' && Math.abs(cofReq.amount - amountToCharge) < 0.005);
   useEffect(() => { if (!autoOn || paymentTab !== 'card' || cardMode !== 'cof_confirm' || !selectedClient || cofSkip) return;
     const k = `${ticketKey}|${amountToCharge}`; if (cofAutoSent.current === k || (cofReq && Math.abs(cofReq.amount - amountToCharge) < 0.005)) return; cofAutoSent.current = k;
@@ -1177,8 +1182,8 @@ export const CheckoutHub = ({
             {isCardTab && cardSurchargeEnabled && cardSurcharge > 0 && <p className="text-[13px]" style={muted}>Card fee {(cardSurchargeRate * 100).toFixed(1)}% · +{coMoney(cardSurcharge)}</p>}
             <AnimatePresence mode="wait">
               {paymentTab === 'card' && cardMode === 'select' && (payReq || payAfterTip) && <div className="space-y-2 rounded-2xl p-4" style={{ background: 'var(--soft)' }}>
-                <p className="text-[15px] font-semibold">{payAfterTip ? `${firstOf(selectedClient?.name) || 'The client'} is choosing a tip…` : `${firstOf(selectedClient?.name) || 'The client'} is paying ${coMoney(payReq?.amount)} on ${cs.name}…`}</p>
-                <p className="text-[13px]" style={muted}>By card on the iPad, or on their phone with the QR code. The sale completes by itself once it’s paid.</p>
+                <p className="text-[15px] font-semibold">{`${firstOf(selectedClient?.name) || 'The client'} is paying on ${cs.name}…`}</p>
+                <p className="text-[13px]" style={muted}>They check the total, choose a tip{safeNumber(tipAmount) > 0 ? ' (you’ve already set one, so they won’t be asked)' : ''}, then pay by card on the iPad or on their phone. The sale completes by itself once it’s paid.</p>
                 <button type="button" onClick={() => { setPayReq(null); setPayAfterTip(false); setTipReq(null); cs.ask('idle'); }} className="h-11 rounded-full px-4 text-[14px]" style={{ background: 'var(--card)' }}>Cancel</button>
               </div>}
               {paymentTab === 'card' && cardMode === 'select' && !payReq && !payAfterTip && <div className="grid gap-2">
