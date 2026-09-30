@@ -1,5 +1,6 @@
 'use client';
 
+import { RebookingReport } from '@/components/reports/RebookingReport';
 import React, { useMemo, useState, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
@@ -322,6 +323,15 @@ export default function ReportsPage() {
           <KpiStat label="Labor Load" value={`$${analyticsData.overall.totalLaborLoad?.toFixed(0) || 0}`} subLabel="Payroll + Tax Burden" icon={Users} colorClass="text-amber-600" />
           <KpiStat label="Fixed Overhead" value={`$${analyticsData.overall.totalReconciledOpEx?.toFixed(0) || 0}`} subLabel="Reconciled OpEx" icon={Landmark} colorClass="text-indigo-600" />
         </div>
+
+        {/* Rebooking — booked their next visit before leaving */}
+        <section className="space-y-6">
+          <div className="flex items-center gap-2 px-1">
+            <ShieldCheck className="w-4 h-4 text-primary" />
+            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Rebooking</h3>
+          </div>
+          <RebookingReport appointments={(appointments || []) as any[]} staff={(staff || []) as any[]} from={effectiveFrom} to={effectiveTo} />
+        </section>
 
         {/* Acquisition matrix */}
         <section className="space-y-6">
