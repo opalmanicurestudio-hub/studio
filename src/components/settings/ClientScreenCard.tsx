@@ -60,6 +60,13 @@ export function ClientScreenCard({ tenantId, tenant, canEdit }: { tenantId: stri
         {check('signCardOnFile', 'Ask for a signature when approving a card-on-file charge', 'saved as a signed approval (useful if a charge is ever disputed)')}
         {s.signCardOnFile && <div className="flex flex-wrap items-center gap-2 pl-6">Only for charges of $<input type="number" inputMode="decimal" min={0} value={s.signOver || ''} placeholder="0" disabled={!canEdit} onChange={(e) => save({ ...s, signOver: Math.max(0, Number(e.target.value) || 0) })} className="h-10 w-24 rounded-xl border px-3 text-right" aria-label="Signature from this amount" /> or more <span className="text-xs text-muted-foreground">(blank = every charge)</span></div>}
       </div>
+      <div className="space-y-2 text-sm"><p className="font-semibold">Look and feel</p>
+        <div className="flex flex-wrap gap-2">{([['lively', 'Lively'], ['calm', 'Calm'], ['off', 'No animation']] as const).map(([k, l]) =>
+          <button key={k} type="button" disabled={!canEdit} aria-pressed={s.motion === k} onClick={() => save({ ...s, motion: k })} className={`rounded-full border px-4 py-1.5 ${s.motion === k ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>)}</div>
+        <p className="text-xs text-muted-foreground">A slow glow in your brand colour on the welcome screen, steps that glide in, a tick that draws itself when they pay. The iPad’s own “Reduce Motion” setting always wins.</p>
+        {check('confetti', 'Confetti for celebrations', 'birthdays, milestones, and when they leave a tip')}
+        <div className="flex flex-wrap items-center gap-2">Back to your logo <input type="number" inputMode="numeric" min={5} max={120} value={s.returnAfter} disabled={!canEdit} onChange={(e) => save({ ...s, returnAfter: Math.max(5, Math.min(120, Number(e.target.value) || 20)) })} className="h-10 w-20 rounded-xl border px-3 text-right" aria-label="Seconds before returning to the logo" /> seconds after a sale</div>
+      </div>
       <div className="space-y-2 text-sm"><p className="font-semibold">Welcome message</p>
         <input value={s.welcome} onChange={(e) => save({ ...s, welcome: e.target.value.slice(0, 120) })} disabled={!canEdit} aria-label="Welcome message" className="h-10 w-full rounded-xl border px-3" />
         {check('offerReceipt', 'Offer “Text / email my receipt” after they pay')}
