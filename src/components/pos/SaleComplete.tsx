@@ -5,8 +5,12 @@ import * as React from 'react';
 import { receiptCall, openReceipt } from '@/lib/receipt-client';
 
 const money = (n: any) => `$${(Number(n) || 0).toFixed(2)}`;
-export function SaleComplete({ sale, tenantId, onNewSale, onDone, screenName, onBookOnScreen }: { sale: any; tenantId: string; onNewSale: () => void; onDone?: () => void; screenName?: string | null; onBookOnScreen?: () => void }) {
+export function SaleComplete({ sale, tenantId, onNewSale, onDone, screenName, onBookOnScreen, autoReturnSec = 10 }: { sale: any; tenantId: string; onNewSale: () => void; onDone?: () => void; screenName?: string | null; onBookOnScreen?: () => void; autoReturnSec?: number }) {
+  // Back to the desk by itself (the business's setting) — unless there's change to count back, or staff tap Stay / start doing something.
+  const [left, setLeft] = React.useState<number | null>(autoReturnSec > 0 && !(Number(sale?.change) > 0) ? autoReturnSec : null);
+  React.useEffect(() => { if (left === null) return; if (left <= 0) { onNewSale(); onDone?.(); return; } const t = setTimeout(() => setLeft((n) => (n === null ? null : n - 1)), 1000); return () => clearTimeout(t); }, [left]); // eslint-disable-line react-hooks/exhaustive-deps
   const [ch, setCh] = React.useState<'sms' | 'email' | null>(null); const [to, setTo] = React.useState(''); const [msg, setMsg] = React.useState<string | null>(null); const [busy, setBusy] = React.useState(false);
+  React.useEffect(() => { if (ch) setLeft(null); }, [ch]);   // sending a receipt → stay
   const cash = sale.method === 'cash'; const first = String(sale.clientName || '').split(' ')[0];
   const send = async () => {
     setBusy(true); setMsg(null);
@@ -44,6 +48,7 @@ export function SaleComplete({ sale, tenantId, onNewSale, onDone, screenName, on
         className={`${btn} w-full`} style={{ background: 'var(--soft)' }}>Book {first ? `${first}’s` : 'their'} next visit</button>}
       {(sale.warnings || []).map((w: string, i: number) => <p key={i} className="rounded-2xl p-3 text-[14px]" style={{ background: 'color-mix(in srgb, var(--warn) 10%, transparent)' }}>{w}</p>)}
       <div className="grid grid-cols-2 gap-2">
+        {left !== null && <p className="col-span-2 text-center text-[13px]" style={{ color: 'var(--muted)' }} aria-live="polite">Back to the desk in {left}s · <button type="button" onClick={() => setLeft(null)} className="font-semibold underline underline-offset-4">Stay</button></p>}
         <button type="button" onClick={onNewSale} className={btn} style={{ background: 'var(--soft)' }}>New sale</button>
         <button type="button" onClick={() => { onNewSale(); onDone?.(); }} className={btn} style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>Done</button>
       </div>
