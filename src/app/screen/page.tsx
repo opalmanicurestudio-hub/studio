@@ -167,8 +167,8 @@ export default function ClientScreenPage() {
   // ── Pay on the iPad: review → tip → pay here / on your phone ──
   if (q?.kind === 'pay' && !q.answeredAt) {
     if (step === 'review') return shell(<>{brandTop}
-      <p className="text-center text-[30px] font-semibold">{tk?.clientFirst ? `Here’s your total, ${tk.clientFirst}` : 'Here’s your total'}</p>
-      {tk?.lines?.length ? <div className="space-y-3 rounded-3xl p-6" style={{ background: '#fff', border: '1px solid #e7e2dc' }}>{ticketLines(tk.lines)}
+      <p className="text-center text-[30px] font-semibold">{q.shareLabel ? `Your share — ${q.shareLabel}` : tk?.clientFirst ? `Here’s your total, ${tk.clientFirst}` : 'Here’s your total'}</p>
+      {tk?.lines?.length && !q.shareLabel ? <div className="space-y-3 rounded-3xl p-6" style={{ background: '#fff', border: '1px solid #e7e2dc' }}>{ticketLines(tk.lines)}
         {(tk.discount > 0 || tk.tax > 0) && <div className="space-y-1 border-t pt-2 text-[18px]" style={{ borderColor: '#e7e2dc', color: '#57534e' }}>{tk.discount > 0 && <div className="flex justify-between"><span>Discounts</span><span>−{money(tk.discount)}</span></div>}{tk.tax > 0 && <div className="flex justify-between"><span>{tk.taxLabel}</span><span>{money(tk.tax)}</span></div>}</div>}</div> : null}
       <p className="text-center text-[56px] font-semibold tabular-nums"><CountUp value={Number(q.amount) || 0} /></p>
       <button type="button" onClick={() => setStep(q.askTip && !q.tipChosen ? 'tip' : 'pay')} className={`${big} w-full`} style={solid}>Looks right</button>
