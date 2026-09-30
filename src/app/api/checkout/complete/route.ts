@@ -9,6 +9,7 @@
 // Then: memberships / packages enrolled, and any next-visit deposit confirmed.
 // The screen uses the same calculation (lib/checkout-calc), so the totals match; if they ever don't, the sale is
 // still recorded exactly as worked out here and flagged for review — never silently.
+import { refundPaymentIntent } from '@/lib/stripe-refund';
 import { momentsFor, bestMomentReward, prebookMoment } from '@/lib/moments';
 import { monthKey } from '@/lib/team-discount';
 import { consumeApproval, isApprover } from '@/lib/approvals';
@@ -51,6 +52,45 @@ export async function POST(req: NextRequest) {
       preparedAt: prev.preparedAt || new Date().toISOString(), updatedAt: new Date().toISOString(), preparedBy: auth.actor.name }, { merge: true });
     return NextResponse.json({ ok: true, pendingId: ref.id });
   }
+  // ── SPLIT THE BILL: each share is paid (cash, a card, the iPad / their phone, other) and recorded here against the
+  //    started ticket AS IT HAPPENS — so if it stops halfway, nothing is lost (Sales not recorded shows "$50 of $120 paid").
+  //    A card share is checked with Stripe (succeeded, the right amount, not used anywhere else). ──
+  if (action === 'tender' || action === 'tender_remove') {
+    const ref = db.doc(`${T}/pendingCheckouts/${String(b.pendingId || '')}`); const pc: any = (await ref.get()).data();
+    if (!pc) return NextResponse.json({ ok: false, error: 'Start the split again — the ticket wasn’t found.' }, { status: 404 });
+    if (pc.status === 'completed') return NextResponse.json({ ok: false, error: 'This sale is already finished.' }, { status: 409 });
+    const tenders: any[] = Array.isArray(pc.tenders) ? pc.tenders : [];
+    const t0: any = ((await db.doc(T).get()).data() as any) || {}; const acct = t0.stripeAccountId || t0.stripeConnectAccountId || null;
+    if (action === 'tender_remove') {
+      const tn = tenders.find((x) => x.id === String(b.tenderId || '')); if (!tn) return NextResponse.json({ ok: false, error: 'That payment wasn’t found.' }, { status: 404 });
+      let refunded = false;
+      if (tn.stripePaymentIntentId) { refunded = await refundPaymentIntent(acct, String(tn.stripePaymentIntentId)); if (!refunded) return NextResponse.json({ ok: false, error: 'The card refund didn’t go through — try again, or refund it from Money.' }, { status: 502 }); }
+      const left = tenders.filter((x) => x.id !== tn.id);
+      await ref.set({ tenders: left, status: left.length ? 'partial' : 'prepared', updatedAt: new Date().toISOString(), removedTenders: FieldValue.arrayUnion({ ...tn, removedAt: new Date().toISOString(), removedBy: auth.actor.name, refunded }) }, { merge: true });
+      return NextResponse.json({ ok: true, tenders: left, paid: left.reduce((s, x) => s + num(x.amount) + num(x.tip), 0), refunded });
+    }
+    const m = String(b.method || ''); if (!['cash', 'card', 'other'].includes(m)) return NextResponse.json({ ok: false, error: 'Choose how this share was paid.' }, { status: 400 });
+    const amount = Math.round(num(b.amount) * 100) / 100; const tipPart = Math.max(0, Math.round(num(b.tip) * 100) / 100);
+    if (!(amount > 0)) return NextResponse.json({ ok: false, error: 'Enter the amount for this share.' }, { status: 400 });
+    const tn: any = { id: rid(), method: m, amount, tip: tipPart, payerName: String(b.payerName || '').slice(0, 60) || null, payerClientId: b.payerClientId ? String(b.payerClientId) : null,
+      label: String(b.label || '').slice(0, 60) || null, note: String(b.note || '').slice(0, 80) || null, at: new Date().toISOString(), by: auth.actor.name || 'Staff' };
+    if (m === 'cash') tn.cashGiven = Math.max(amount + tipPart, Math.round(num(b.cashGiven) * 100) / 100);
+    if (m === 'card') {
+      const piId = String(b.stripePaymentIntentId || ''); if (!piId) return NextResponse.json({ ok: false, error: 'That card payment has no reference.' }, { status: 400 });
+      if (tenders.some((x) => x.stripePaymentIntentId === piId)) return NextResponse.json({ ok: true, tenders, paid: tenders.reduce((s, x) => s + num(x.amount) + num(x.tip), 0), already: true });
+      const dup = await db.collection(`${T}/receipts`).where('stripePaymentIntentId', '==', piId).get(); if (!dup.empty) return NextResponse.json({ ok: false, error: 'That card payment is already on another sale.' }, { status: 409 });
+      if (acct && process.env.STRIPE_SECRET_KEY) {
+        const StripeLib = (await import('stripe')).default; const stripe = new StripeLib(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' as any });
+        const pi: any = await stripe.paymentIntents.retrieve(piId, { stripeAccount: acct } as any).catch(() => null);
+        if (!pi || pi.status !== 'succeeded') return NextResponse.json({ ok: false, error: 'That card payment didn’t go through.' }, { status: 409 });
+        if (Math.abs(pi.amount - Math.round((amount + tipPart) * 100)) > 1) return NextResponse.json({ ok: false, error: 'That card payment is for a different amount.' }, { status: 409 });
+      }
+      tn.stripePaymentIntentId = piId; tn.via = String(b.via || 'card').slice(0, 30);
+    }
+    const next = [...tenders, tn];
+    await ref.set({ tenders: next, status: 'partial', paidSoFar: next.reduce((s, x) => s + num(x.amount) + num(x.tip), 0), updatedAt: new Date().toISOString() }, { merge: true });
+    return NextResponse.json({ ok: true, tender: tn, tenders: next, paid: next.reduce((s, x) => s + num(x.amount) + num(x.tip), 0) });
+  }
   // ── Managers: record a paid sale that didn't save (replays exactly what was rung up — no charge), or discard it ──
   if (action === 'record' || action === 'discard') {
     if (!MGR.includes(String(auth.actor.role || '').toLowerCase())) return NextResponse.json({ ok: false, error: 'Only a manager can do that.' }, { status: 403 });
@@ -59,11 +99,17 @@ export async function POST(req: NextRequest) {
     if (pc.status === 'completed') return NextResponse.json({ ok: true, already: true, receiptId: pc.receiptId || null });
     if (action === 'discard') {
       const reason = String(b.reason || '').trim().slice(0, 200); if (!reason) return NextResponse.json({ ok: false, error: 'Say why it’s being discarded.' }, { status: 400 });
-      await ref.set({ status: 'discarded', discardedAt: new Date().toISOString(), discardedBy: auth.actor.name, discardReason: reason }, { merge: true });
+      // A partly paid split: refund each card share, and say how much cash to hand back.
+      const shares: any[] = Array.isArray(pc.tenders) ? pc.tenders : []; let refundedCards = 0; const failed: string[] = [];
+      if (shares.length) { const t0: any = ((await db.doc(T).get()).data() as any) || {};
+        for (const x of shares.filter((y) => y.stripePaymentIntentId && !y.refundedAt)) { const ok = await refundPaymentIntent(t0.stripeAccountId || t0.stripeConnectAccountId || null, String(x.stripePaymentIntentId)); if (ok) { x.refundedAt = new Date().toISOString(); refundedCards++; } else failed.push(`$${(num(x.amount) + num(x.tip)).toFixed(2)}`); }
+        if (failed.length) { await ref.set({ tenders: shares }, { merge: true }); return NextResponse.json({ ok: false, error: `The refund for ${failed.join(', ')} didn’t go through — try again (cards already refunded won’t be refunded twice).` }, { status: 502 }); } }
+      const cashToReturn = Math.round(shares.filter((y) => y.method === 'cash').reduce((a, y) => a + num(y.amount) + num(y.tip), 0) * 100) / 100;
+      await ref.set({ status: 'discarded', discardedAt: new Date().toISOString(), discardedBy: auth.actor.name, discardReason: reason, ...(shares.length ? { tenders: shares, cashToReturn } : {}) }, { merge: true });
       await logAuditAdmin(db, tenantId, { action: 'checkout.discarded', targetType: 'client', targetId: pc.clientId || '', summary: `Unrecorded sale for ${pc.clientName || 'a client'} ($${Number(pc.expectedTotal || 0).toFixed(2)}) discarded — ${reason}`, actor: { type: 'user', id: auth.actor.uid, name: auth.actor.name, role: auth.actor.role } } as any).catch(() => {});
-      return NextResponse.json({ ok: true, discarded: true });
+      return NextResponse.json({ ok: true, discarded: true, refundedCards: (typeof refundedCards === 'number' ? refundedCards : 0), cashToReturn: (typeof cashToReturn === 'number' ? cashToReturn : 0) });
     }
-    const replay = { ...(pc.payload || {}), tenantId, pendingId: ref.id, expectedTotal: pc.expectedTotal, payment: { ...(pc.payload?.payment || {}), ...(pc.paymentIntentId ? { stripePaymentIntentId: pc.paymentIntentId } : {}) }, recordedLater: true };
+    const replay = { ...(pc.payload || {}), tenantId, pendingId: ref.id, expectedTotal: pc.expectedTotal, payment: { ...(pc.payload?.payment || {}), ...(Array.isArray(pc.tenders) && pc.tenders.length ? { method: 'split' } : {}), ...(pc.paymentIntentId ? { stripePaymentIntentId: pc.paymentIntentId } : {}) }, recordedLater: true };
     const r = await runCheckout(db, tenantId, replay, auth, req);
     return NextResponse.json(r.body, { status: r.status });
   }
@@ -85,6 +131,14 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   if (!clientId) return json({ ok: false, error: 'Choose who’s paying.' }, 400);
   if (!apptIds.length && !reqItems.length && !(Array.isArray(b.feeIds) && b.feeIds.length)) return json({ ok: false, error: 'Nothing to check out.' }, 400);
   const pay = b.payment || {}; const method = String(pay.method || 'card'); const skipLedger = pay.skipLedger === true;
+  // A split bill: the shares already taken (recorded on the started ticket) pay for this sale together.
+  let split: any[] | null = null;
+  if (method === 'split') {
+    const pcs: any = pendingRef ? (await pendingRef.get()).data() : null; split = Array.isArray(pcs?.tenders) ? pcs.tenders : [];
+    if (!split || !split.length) return json({ ok: false, error: 'No payments have been taken for this split yet.' }, 400);
+  }
+  const splitCash = split ? split.filter((x) => x.method === 'cash').reduce((s, x) => s + num(x.amount) + num(x.tip), 0) : 0;
+  const splitTips = split ? split.reduce((s, x) => s + num(x.tip), 0) : 0;
   const T = T0;
   const now = new Date().toISOString(); const checkoutSessionId = rid();
 
@@ -129,7 +183,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   const redeemedOffer = b.redeemedOffer && b.redeemedOffer.id ? { type: String(b.redeemedOffer.type), id: String(b.redeemedOffer.id), itemId: b.redeemedOffer.itemId ? String(b.redeemedOffer.itemId) : undefined } : null;
   const waivedIds: string[] = Array.isArray(b.waivedAppointmentIds) ? b.waivedAppointmentIds.map(String) : [];
   const tipAllocations: Record<string, number> = b.tipAllocations && typeof b.tipAllocations === 'object' ? b.tipAllocations : {};
-  const tip = Math.max(0, num(b.tip));
+  const tip = Math.max(0, num(b.tip)) + (typeof splitTips === 'number' ? splitTips : 0);   // + tips added on split shares
   // Moments (birthday / first visit / milestone) — worked out here from the client's own record and visit count.
   const doneBefore = (await db.collection(`${T}/appointments`).where('clientId', '==', clientId).get()).docs.filter((d: any) => (d.data() as any).status === 'completed' && !apptIds.includes(d.id)).length;
   const pre = prebookMoment(visits.map((v: any) => v.appointment));
@@ -277,6 +331,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   // Tips, by who they're for (unallocated → the main provider, else the cashier).
   const alloc: Record<string, number> = { ...tipAllocations };
   if (tip > 0 && !Object.keys(alloc).length) alloc[visits[0] ? calc.visits[0].mainStaffId : (auth.actor.uid || 'unassigned')] = tip;
+  else if (split && splitTips > 0) { const k = visits[0] ? calc.visits[0].mainStaffId : (auth.actor.uid || 'unassigned'); alloc[k] = num(alloc[k]) + splitTips; }   // tips added on split shares
   for (const [sid, amount] of Object.entries(alloc)) { const amt = num(amount); if (amt <= 0) continue;
     txn({ description: sid === '__school' ? 'Gratuity — school (student salon)' : 'Gratuity', type: 'income', context: 'Business', category: 'Tips', taxBucket: 'gratuity', amount: amt, paymentMethod: method, staffId: sid, hasReceipt: true });
     if (method === 'cash') { cashTipsTotal += amt; cashTipsByStaff[sid] = FieldValue.increment(amt); cashTipsPlain[sid] = (cashTipsPlain[sid] || 0) + amt; } }
@@ -296,18 +351,27 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   // Cash into the till = what the client actually handed over: the sale total (tax included; discounts and recovery
   // taken off) less any deposit they'd already paid. (The old way added up line prices — tax was missed and
   // discounts ignored, so the till's expected cash drifted.) Split into sales and tips.
+  if (split) {   // tips added on CASH shares are cash tips in the till (credited to the main provider)
+    const cashTip = split.filter((x) => x.method === 'cash').reduce((t, x) => t + num(x.tip), 0);
+    if (cashTip > 0) { const k = visits[0] ? calc.visits[0].mainStaffId : (auth.actor.uid || 'unassigned'); cashTipsTotal += cashTip; cashTipsByStaff[k] = FieldValue.increment(cashTip); cashTipsPlain[k] = (cashTipsPlain[k] || 0) + cashTip; }
+  }
   const depositUsed = depositCredit && depositCreditDollars > 0 ? Math.min(depositCreditDollars, calc.total) : 0;
-  const cashIn = method === 'cash' ? Math.max(0, Math.round((calc.total - depositUsed) * 100) / 100) : 0;
+  const cashIn = method === 'cash' ? Math.max(0, Math.round((calc.total - depositUsed) * 100) / 100) : split ? Math.round(splitCash * 100) / 100 : 0;
+  if (split) {   // the shares must cover what's owed
+    const paid = split.reduce((s, x) => s + num(x.amount) + num(x.tip), 0); const owed = Math.max(0, Math.round((calc.total - depositUsed) * 100) / 100);
+    if (paid + 0.01 < owed) return json({ ok: false, error: `Still $${(owed - paid).toFixed(2)} to pay on this bill.`, owed, paid }, 409);
+  }
   const cashSalesAmt = Math.max(0, Math.round((cashIn - cashTipsTotal) * 100) / 100);
   void cashDepositOffset;
-  if (method === 'cash' && b.tillId) batch.set(db.doc(`${T}/tillSessions/${String(b.tillId)}`), { expectedCash: FieldValue.increment(cashIn), totalCashSales: FieldValue.increment(cashSalesAmt), totalCashTips: FieldValue.increment(cashTipsTotal), ...(Object.keys(cashTipsByStaff).length ? { cashTipsByStaff } : {}) }, { merge: true });   // nested, so each provider's cash tips really add up
+  if ((method === 'cash' || (split && cashIn > 0)) && b.tillId) batch.set(db.doc(`${T}/tillSessions/${String(b.tillId)}`), { expectedCash: FieldValue.increment(cashIn), totalCashSales: FieldValue.increment(cashSalesAmt), totalCashTips: FieldValue.increment(cashTipsTotal), ...(Object.keys(cashTipsByStaff).length ? { cashTipsByStaff } : {}) }, { merge: true });   // nested, so each provider's cash tips really add up
   // The receipt.
   const receiptRef = db.collection(`${T}/receipts`).doc();
   const tendered = num(pay.amountTendered);
   batch.set(receiptRef, clean({ id: receiptRef.id, viewKey: `${rid()}${rid()}`, checkoutSessionId, clientId, clientName: client.name || 'Guest', tenantId, date: now, paymentMethod: method, amountTendered: tendered, change: Math.max(0, tendered - calc.total),
     paidBy: client.name || 'Guest', people: Object.values(people).map((p: any) => p.name).filter(Boolean),
     // Everything a void needs to undo this sale exactly.
-    reversal: { method, tillId: method === 'cash' ? (b.tillId || null) : null, cashIn, cashSales: cashSalesAmt, cashTips: method === 'cash' ? cashTipsTotal : 0, cashTipsByStaff: cashTipsPlain,
+    ...(split ? { payments: split.map((x) => ({ method: x.method, amount: num(x.amount), tip: num(x.tip), payerName: x.payerName || null, label: x.label || null, stripePaymentIntentId: x.stripePaymentIntentId || null, via: x.via || null })) } : {}),
+    reversal: { ...(split ? { payments: split.map((x) => ({ method: x.method, amount: num(x.amount) + num(x.tip), stripePaymentIntentId: x.stripePaymentIntentId || null })) } : {}), method, tillId: (method === 'cash' || (split && cashIn > 0)) ? (b.tillId || null) : null, cashIn, cashSales: cashSalesAmt, cashTips: method === 'cash' ? cashTipsTotal : 0, cashTipsByStaff: cashTipsPlain,
       spend, products: items.filter((x) => x.type === 'product').map((x) => ({ id: x.id, name: x.name, quantity: x.quantity })),
       fees: fees.map((f: any) => ({ feeId: f.feeId, feeAmount: num(f.feeAmount), reason: f.reason || null, owner: f.__owner, fee: (({ __owner, ...rest }) => rest)(f) })),
       depositCreditId: depositCredit && depositCreditDollars > 0 ? depositCredit.ref.id : null,
