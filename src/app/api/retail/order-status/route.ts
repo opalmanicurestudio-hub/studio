@@ -44,7 +44,29 @@ export async function GET(req: NextRequest) {
     db.collection('tenants').doc(tenantId).get(),
   ]);
   if (!orderSnap.exists) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-  const order = orderSnap.data() as any;
+  let order = orderSnap.data() as any;
+  // SAFETY NET: if Stripe's notification is late or never arrives, the order would sit at "Confirming payment" forever.
+  // While it's still 'placed' (and has waited 45 s), ask Stripe directly — at most every 15 s — and, if paid, run the
+  // SAME completion the webhook runs (it only acts on a 'placed' order, so the two can't both do the work).
+  if (order.stage === 'placed' && order.stripeCheckoutSessionId && tenantSnap.exists) {
+    const t: any = tenantSnap.data() || {}; const acct = t.stripeAccountId || t.stripeConnectAccountId;
+    const placedAt = Date.parse(order.createdAt || order.placedAt || '') || 0; const lastCheck = Date.parse(order.paymentCheckAt || '') || 0;
+    if (acct && process.env.STRIPE_SECRET_KEY && Date.now() - placedAt > 45000 && Date.now() - lastCheck > 15000) {
+      try {
+        await orderSnap.ref.set({ paymentCheckAt: new Date().toISOString() }, { merge: true });
+        const Stripe = (await import('stripe')).default; const stripe: any = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' as any });
+        const session: any = await stripe.checkout.sessions.retrieve(order.stripeCheckoutSessionId, {}, { stripeAccount: acct });
+        const { handleRetailOrderPaid, handleRetailCheckoutExpired } = await import('@/lib/retail-webhook');
+        if (session?.payment_status === 'paid') {
+          let chargeId: string | null = null;
+          const piId = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id;
+          if (piId) { try { const pi: any = await stripe.paymentIntents.retrieve(piId, {}, { stripeAccount: acct }); chargeId = typeof pi.latest_charge === 'string' ? pi.latest_charge : pi.latest_charge?.id || null; } catch { /* the charge id is optional */ } }
+          await handleRetailOrderPaid(db, stripe, tenantId, acct, session, chargeId);
+        } else if (session?.status === 'expired') await handleRetailCheckoutExpired(db, tenantId, session);
+        order = ((await orderSnap.ref.get()).data() as any) || order;
+      } catch (e: any) { console.error('[order-status] payment check', String(e?.message || e).slice(0, 200)); }
+    }
+  }
   const rs = (tenantSnap.exists ? (tenantSnap.data() as any).retailSettings : {}) || {};
 
   // Queue position — how many active orders entered the queue before this one.
