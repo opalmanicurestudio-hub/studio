@@ -123,6 +123,19 @@ export function publicTimeline(entries: TimelineEntry[], a?: any, tenant?: any):
 }
 
 /** What the client's copies of the visit carry (their visit link reads these) — kept in step with the visit. */
+/** SELF-REPAIRING TIMELINE (T4). Screens not yet moved onto the visit route change the status without logging it. When a
+ *  visit is read and its latest stage entry doesn't match where it actually is, the missing step is returned once —
+ *  marked as recorded later — so the timeline (and the client's) catches up without editing every old writer. */
+export function missingStageEntry(a: any, tenant?: any): TimelineEntry | null {
+  const stage = stageOf(a); if (!stage || stage === 'requested') return null;
+  const last = [...(a?.timeline || [])].reverse().find((e: any) => e?.kind === 'stage' && e.stage);
+  if (last?.stage === stage) return null;
+  if (!last && stage === 'booked') return null;   // a fresh booking needs no entry
+  const at = String(a?.updatedAt || a?.actualStartTime || new Date().toISOString());
+  const who = a?.staffName ? String(a.staffName).split(' ')[0] : null;
+  return { at, kind: 'stage', stage, text: `${stageLabel(stage, a, tenant)}${stage === 'in_service' && who ? ` — ${who}` : ''}`, by: 'Recorded later', via: 'sync' } as TimelineEntry;
+}
+
 export function visitProjection(a: any, tenant?: any) {
   const stage = stageOf(a);
   return { stage, stageLabel: stageLabel(stage, a, tenant), flags: flagsOf(a), paymentStatus: paymentStatusOf(a), status: a?.status || null, checkInStatus: a?.checkInStatus || null,
