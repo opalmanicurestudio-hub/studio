@@ -35,6 +35,10 @@
     {
       "path": "/api/cron/cleanup-evidence",
       "schedule": "30 9 * * *"
+    },
+    {
+      "path": "/api/cron/retail-payments",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
