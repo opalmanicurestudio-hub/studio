@@ -122,7 +122,11 @@ export async function POST(req: NextRequest) {
           expMonth: pm.card?.exp_month || null, expYear: pm.card?.exp_year || null, savedAt: now(), savedVia: 'client_screen', consent: 'Client ticked “Save my card for next time”' } }, { merge: true }); saved = true; } catch (e) { console.error('[client-screen] save card', e); }
     }
     await ref.update({ request: { ...q, answeredAt: now() }, response: { requestId: q.id, kind: 'pay', paid: true, paymentIntentId: pi.id, amount: num(q.amount), tip: num(q.tip), saved, at: now() }, lastSeen: now() });
-    if (q.pendingId) await db.doc(`${T}/pendingCheckouts/${q.pendingId}`).set({ paymentIntentId: pi.id, paidAt: now(), paidVia: 'client_screen', status: 'paid_waiting' }, { merge: true }).catch(() => {});   // if the desk misses it, a manager can still record it
+    if (q.splitPendingId) {   // one share of a split bill → recorded on the started ticket right here (safe even if the desk is interrupted)
+      const pRef = db.doc(`${T}/pendingCheckouts/${q.splitPendingId}`); const pc: any = ((await pRef.get()).data() as any) || {}; const tenders: any[] = Array.isArray(pc.tenders) ? pc.tenders : [];
+      if (!tenders.some((x) => x.stripePaymentIntentId === pi.id)) { const next = [...tenders, { id: crypto.randomBytes(6).toString('hex'), method: 'card', amount: Math.round((num(q.amount) - num(q.tip)) * 100) / 100, tip: num(q.tip), stripePaymentIntentId: pi.id, via: 'client_screen', payerName: q.shareLabel || null, label: q.shareLabel || null, at: now(), by: 'Client screen' }];
+        await pRef.set({ tenders: next, status: 'partial', paidSoFar: next.reduce((a, x) => a + num(x.amount) + num(x.tip), 0), updatedAt: now() }, { merge: true }); }
+    } else if (q.pendingId) await db.doc(`${T}/pendingCheckouts/${q.pendingId}`).set({ paymentIntentId: pi.id, paidAt: now(), paidVia: 'client_screen', status: 'paid_waiting' }, { merge: true }).catch(() => {});   // if the desk misses it, a manager can still record it
     return NextResponse.json({ ok: true, saved });
   }
   if (action === 'hold') {
@@ -263,6 +267,7 @@ export async function POST(req: NextRequest) {
       q.presets = settings.tipPresets; q.allowCustom = settings.allowCustomTip; q.showNoTip = settings.showNoTip; q.paymentIntentId = pi.id; q.clientSecret = pi.client_secret; q.clientId = cid; q.customerId = customerId || null; q.allowSave = !!cl && settings.offerSaveCard !== false; q.saveCard = false; q.pendingId = b.pendingId ? String(b.pendingId) : null;
       q.phoneUrl = `${linkOrigin(t, req.nextUrl.origin)}/pay/${screenId}?r=${q.id}`;
       q.payOnScreen = settings.payOnScreen; q.payOnPhone = settings.payOnPhone; q.timeoutMin = settings.payTimeoutMin;
+      q.shareLabel = b.shareLabel ? String(b.shareLabel).slice(0, 60) : null; q.splitPendingId = b.splitPendingId ? String(b.splitPendingId) : null; if (q.splitPendingId) q.pendingId = null;
     }
     if (kind === 'change') { q.due = num(b.due); q.tendered = num(b.tendered); q.change = num(b.change); q.offerKeep = (t?.clientScreen?.offerKeepChange !== false); }
     if (kind === 'thanks') { const rs = rebookSettingsOf(t); q.rebookCtx = rs.on && b.rebook?.clientId && b.rebook?.serviceId ? { clientId: String(b.rebook.clientId), serviceId: String(b.rebook.serviceId), staffId: b.rebook.staffId ? String(b.rebook.staffId) : null, addOnIds: Array.isArray(b.rebook.addOnIds) ? b.rebook.addOnIds.slice(0, 6).map(String) : [], appointmentId: b.rebook.appointmentId ? String(b.rebook.appointmentId) : null } : null; q.rebookFirst = b.rebookFirst === true; q.returnAfter = Math.max(5, Math.min(120, Number(t?.clientScreen?.returnAfter) || 20)); q.receiptId = b.receiptId || null; q.offerReceipt = settings.offerReceipt; q.total = num(b.total); q.clientFirst = String(b.clientFirst || '').slice(0, 40); }
