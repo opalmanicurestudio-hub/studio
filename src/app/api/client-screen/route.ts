@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
   }
   const screenId = String(b.screenId || '');
   // ── Public: the client answers on the screen ──
-  if (action === 'pay_view' || action === 'pay_save' || action === 'pay_done') {
+  if (action === 'pay_view' || action === 'pay_save' || action === 'pay_done' || action === 'pay_tip') {
     if (screenId.length < 30) return NextResponse.json({ ok: false, error: 'Unknown screen.' }, { status: 404 });
     const ref = db.doc(`clientScreens/${screenId}`); const s: any = (await ref.get()).data();
     const q = s?.request;
@@ -45,6 +45,14 @@ export async function POST(req: NextRequest) {
     if (action === 'pay_view') return NextResponse.json({ ok: true, clientSecret: q.clientSecret, publishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '', stripeAccount: acct,
       amount: num(q.amount), business: t.name || 'Payment', allowSave: !!q.allowSave, paid: !!q.answeredAt, accent: t.bookingPageSettings?.cfPageConfig?.accentColor || t.brandColor || null });
     if (q.answeredAt) return NextResponse.json({ ok: true, already: true });
+    if (action === 'pay_tip') {   // the tip they chose on the iPad → added to the payment (server-side) before they pay
+      const tip = Math.max(0, Math.round(num(b.tip) * 100) / 100);
+      if (tip > Math.max(100, num(q.tipBase))) return NextResponse.json({ ok: false, error: 'That tip looks too large — please check it.' }, { status: 400 });   // up to the bill itself, or $100 — catches an extra zero
+      const total = Math.round((num(q.amountBase) + tip) * 100) / 100;
+      await stripe.paymentIntents.update(q.paymentIntentId, { amount: Math.round(total * 100) } as any, { stripeAccount: acct } as any);
+      await ref.update({ 'request.tip': tip, 'request.amount': total, 'request.tipChosen': true });
+      return NextResponse.json({ ok: true, amount: total });
+    }
     if (action === 'pay_save') {   // the client's own "save my card for next time" — applied before they pay
       if (!q.allowSave) return NextResponse.json({ ok: false, error: 'Saving a card isn’t offered here.' }, { status: 400 });
       await stripe.paymentIntents.update(q.paymentIntentId, { setup_future_usage: b.save === true ? 'off_session' : ('' as any) } as any, { stripeAccount: acct } as any);
@@ -61,7 +69,7 @@ export async function POST(req: NextRequest) {
         await db.doc(`${T}/clients/${q.clientId}`).set({ cardOnFile: { customerId: typeof pi.customer === 'string' ? pi.customer : q.customerId || null, paymentMethodId: pm.id, brand: pm.card?.brand || null, last4: pm.card?.last4 || null,
           expMonth: pm.card?.exp_month || null, expYear: pm.card?.exp_year || null, savedAt: now(), savedVia: 'client_screen', consent: 'Client ticked “Save my card for next time”' } }, { merge: true }); saved = true; } catch (e) { console.error('[client-screen] save card', e); }
     }
-    await ref.update({ request: { ...q, answeredAt: now() }, response: { requestId: q.id, kind: 'pay', paid: true, paymentIntentId: pi.id, amount: num(q.amount), saved, at: now() }, lastSeen: now() });
+    await ref.update({ request: { ...q, answeredAt: now() }, response: { requestId: q.id, kind: 'pay', paid: true, paymentIntentId: pi.id, amount: num(q.amount), tip: num(q.tip), saved, at: now() }, lastSeen: now() });
     if (q.pendingId) await db.doc(`${T}/pendingCheckouts/${q.pendingId}`).set({ paymentIntentId: pi.id, paidAt: now(), paidVia: 'client_screen', status: 'paid_waiting' }, { merge: true }).catch(() => {});   // if the desk misses it, a manager can still record it
     return NextResponse.json({ ok: true, saved });
   }
@@ -94,7 +102,7 @@ export async function POST(req: NextRequest) {
     const answer: any = { requestId: q.id, kind: q.kind, at: now() };
     if (q.kind === 'tip') {
       const tip = Math.max(0, Math.round(num(b.tip) * 100) / 100);
-      if (tip > Math.max(1000, num(q.base) * 2)) return NextResponse.json({ ok: false, error: 'That tip looks too large — please check it.' }, { status: 400 });
+      if (tip > Math.max(100, num(q.base))) return NextResponse.json({ ok: false, error: 'That tip looks too large — please check it.' }, { status: 400 });
       answer.tip = tip; answer.tipLabel = String(b.tipLabel || '').slice(0, 40) || null;
     } else if (q.kind === 'approve') {
       answer.approved = b.approved === true;
@@ -107,7 +115,7 @@ export async function POST(req: NextRequest) {
           text: q.text || null, signature: sig, signedAt: now(), via: 'client_screen', screenId, screenName: s.name || null, requestedBy: q.requestedBy || null });
         answer.consentId = cRef.id;
       }
-    } else if (q.kind === 'change') { answer.keep = b.keep === true; answer.change = num(q.change); }
+    } else if (q.kind === 'change') { const ch = num(q.change); const keepAmount = Math.max(0, Math.min(ch, Math.round(num(b.keepAmount ?? (b.keep === true ? ch : 0)) * 100) / 100)); answer.keep = keepAmount > 0; answer.keepAmount = keepAmount; answer.change = ch; }
     else return NextResponse.json({ ok: false, error: 'Nothing to answer.' }, { status: 409 });
     await ref.update({ request: { ...q, answeredAt: now() }, response: answer, lastSeen: now() });   // replace, never merge
     return NextResponse.json({ ok: true });
@@ -141,7 +149,7 @@ export async function POST(req: NextRequest) {
     const ticket = tk ? { clientFirst: String(tk.clientFirst || '').slice(0, 40), moments: (Array.isArray(tk.moments) ? tk.moments : []).slice(0, 2).map((m: any) => String(m).slice(0, 90)), lines: (Array.isArray(tk.lines) ? tk.lines : []).slice(0, 40).map((l: any) => ({ label: String(l.label || '').slice(0, 80), amount: num(l.amount), note: l.note ? String(l.note).slice(0, 60) : null })),
       subtotal: num(tk.subtotal), discount: num(tk.discount), tax: num(tk.tax), taxLabel: String(tk.taxLabel || 'Tax').slice(0, 60), tip: num(tk.tip), total: num(tk.total), paid: num(tk.paid), due: num(tk.due) } : null;
     // A new ticket replaces a finished sale's thank-you screen.
-    await ref.update({ ticket, brand, settings: { welcome: settings.welcome, reviewTicket: settings.reviewTicket }, updatedAt: now(), ...(ticket ? (s.request?.kind === 'thanks' ? { request: null, response: null, phase: 'ticket' } : {}) : { phase: 'idle' }) });
+    await ref.update({ ticket, brand, settings: { welcome: settings.welcome, reviewTicket: settings.reviewTicket, motion: settings.motion, confetti: settings.confetti }, updatedAt: now(), ...(ticket ? (s.request?.kind === 'thanks' ? { request: null, response: null, phase: 'ticket' } : {}) : { phase: 'idle' }) });
     return NextResponse.json({ ok: true });
   }
   if (action === 'request') {
@@ -163,12 +171,13 @@ export async function POST(req: NextRequest) {
         if (!customerId) { const c = await stripe.customers.create({ name: cl.name || undefined, email: cl.email || undefined, phone: cl.phone || undefined, metadata: { tenantId, clientId: cid! } } as any, { stripeAccount: acct } as any); customerId = c.id; } }
       const pi: any = await stripe.paymentIntents.create({ amount: amountCents, currency: 'usd', automatic_payment_methods: { enabled: true }, ...(customerId ? { customer: customerId } : {}),
         description: `${t.name || 'Sale'} — ${cl?.name || 'client'}`, metadata: { tenantId, clientId: cid || '', source: 'client_screen', screenId, pendingCheckoutId: String(b.pendingId || '') } } as any, { stripeAccount: acct } as any);
-      q.amount = amountCents / 100; q.paymentIntentId = pi.id; q.clientSecret = pi.client_secret; q.clientId = cid; q.customerId = customerId || null; q.allowSave = !!cl && settings.offerSaveCard !== false; q.saveCard = false; q.pendingId = b.pendingId ? String(b.pendingId) : null;
+      q.amount = amountCents / 100; q.amountBase = amountCents / 100; q.tip = 0; q.tipBase = Math.max(0, num(b.tipBase)); q.askTip = b.askTip === true; q.review = settings.reviewTicket !== false;
+      q.presets = settings.tipPresets; q.allowCustom = settings.allowCustomTip; q.showNoTip = settings.showNoTip; q.paymentIntentId = pi.id; q.clientSecret = pi.client_secret; q.clientId = cid; q.customerId = customerId || null; q.allowSave = !!cl && settings.offerSaveCard !== false; q.saveCard = false; q.pendingId = b.pendingId ? String(b.pendingId) : null;
       q.phoneUrl = `${linkOrigin(t, req.nextUrl.origin)}/pay/${screenId}?r=${q.id}`;
       q.payOnScreen = settings.payOnScreen; q.payOnPhone = settings.payOnPhone;
     }
     if (kind === 'change') { q.due = num(b.due); q.tendered = num(b.tendered); q.change = num(b.change); q.offerKeep = (t?.clientScreen?.offerKeepChange !== false); }
-    if (kind === 'thanks') { q.receiptId = b.receiptId || null; q.offerReceipt = settings.offerReceipt; q.total = num(b.total); q.clientFirst = String(b.clientFirst || '').slice(0, 40); }
+    if (kind === 'thanks') { q.returnAfter = Math.max(5, Math.min(120, Number(t?.clientScreen?.returnAfter) || 20)); q.receiptId = b.receiptId || null; q.offerReceipt = settings.offerReceipt; q.total = num(b.total); q.clientFirst = String(b.clientFirst || '').slice(0, 40); }
     await ref.update({ phase: kind === 'idle' ? 'idle' : kind, request: kind === 'idle' ? null : q, response: null, brand, ...(kind === 'idle' || kind === 'thanks' ? { ticket: null } : {}), updatedAt: now() });   // replace, never merge
     return NextResponse.json({ ok: true, requestId: q.id });
   }
