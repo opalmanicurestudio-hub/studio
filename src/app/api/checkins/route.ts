@@ -136,6 +136,20 @@ export async function POST(req: NextRequest) {
           }
         }
       } catch (e) { console.error('[checkins] renter mirror', e); }
+      // THE VISIT TICKET: arrival (or running late) goes on the visit's own timeline — every visit, not only renters'.
+      try {
+        const aRef2 = db.doc(`tenants/${tenantId}/appointments/${String(clean.appointmentId)}`); const a2: any = (await aRef2.get()).data();
+        const cis = String(clean.checkInStatus); const nowIso2 = new Date().toISOString(); const tl: any[] = Array.isArray(a2?.timeline) ? a2.timeline : [];
+        const via = String(clean.source || 'their link').replace(/_/g, ' ');
+        const entry = cis === 'arrived' ? { at: nowIso2, kind: 'stage', stage: 'arrived', text: `Arrived — checked in (${via})`, by: a2?.clientName || 'Client', via: 'check-in' }
+          : cis === 'running_late' ? { at: nowIso2, kind: 'change', text: `Running ~${Number(clean.lateTimeMinutes) || 10} min late`, by: a2?.clientName || 'Client', via: 'check-in', forClient: false } : null;
+        const last = tl[tl.length - 1];
+        if (a2 && entry && !(last && last.text === entry.text && Date.parse(nowIso2) - Date.parse(last.at) < 10 * 60000)) {
+          await aRef2.set({ timeline: [...tl, entry].slice(-60), ...(cis === 'arrived' ? { arrivedAt: a2.arrivedAt || nowIso2 } : {}) }, { merge: true });
+          const { publicTimeline } = await import('@/lib/visit');
+          clean.timelinePublic = publicTimeline([...tl, entry], a2);
+        }
+      } catch (e) { console.error('[checkins] visit timeline', e); }
     }
     await db.doc(`appointmentCheckIns/${token}`).set(clean, { merge: true }); // TODO: remove after legacy rule closes
 
