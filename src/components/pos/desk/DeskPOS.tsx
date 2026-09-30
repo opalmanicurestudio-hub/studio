@@ -100,7 +100,15 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   useEffect(() => registerVisitActions({ checkout: (id) => actRef.current.checkout(id), cancel: (id) => actRef.current.cancel(id), details: (id) => actRef.current.details(id), bookNext: (id, c, sv) => actRef.current.bookNext(id, c, sv) }), []);
   // Opened from another page ("Take payment" on a ticket elsewhere) → /pos?checkout=<visit>
   useEffect(() => { try { const q = new URLSearchParams(window.location.search); const id = q.get('checkout'); const vid = q.get('visit');
-    if (id) { const t = setTimeout(() => actRef.current.checkout(id), 800); window.history.replaceState(null, '', window.location.pathname); return () => clearTimeout(t); }
+    if (id) { const withTab = q.get('tab') === '1'; window.history.replaceState(null, '', window.location.pathname);
+      // A table's tab (Host Stand → Check out): wait for the visit to load, then put it and its tab lines in checkout.
+      let tries = 0; let t: any = null;
+      const go = () => { const a = (e.appointmentsFromInventory || []).find((x: any) => x.id === id);
+        if (!a && tries++ < 16) { t = setTimeout(go, 500); return; }
+        if (withTab && a && Array.isArray(a.tab)) for (const l of a.tab) { const src = l.itemType === 'service' ? (e.services || []) : (e.inventory || []); const item = src.find((x: any) => x.id === l.itemId);
+          if (item) for (let n = 0; n < Math.max(1, Number(l.quantity) || 1); n++) e.handleAddToCart?.(item); }
+        actRef.current.checkout(id); };
+      t = setTimeout(go, 600); return () => clearTimeout(t); }
     if (vid) { const t = setTimeout(() => openVisit(vid), 500); window.history.replaceState(null, '', window.location.pathname); return () => clearTimeout(t); } } catch { /* */ } }, []);
   const hadTill = useRef<boolean>(!!e.activeTill);   // closing the till → the client screen goes back to the logo
   useEffect(() => { if (hadTill.current && !e.activeTill && clientScreen.connected) clientScreen.ask('idle'); hadTill.current = !!e.activeTill; }, [e.activeTill]); // eslint-disable-line react-hooks/exhaustive-deps   // USB / Bluetooth scanners, anywhere on the desk
