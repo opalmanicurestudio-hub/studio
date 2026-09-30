@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/reminders",
-      "schedule": "0 13 * * *"
+      "schedule": "0 * * * *"
     },
     {
       "path": "/api/cron/nightly",
@@ -14,11 +14,27 @@
     },
     {
       "path": "/api/cron/campaigns",
-      "schedule": "0 14 * * *"
+      "schedule": "0 * * * *"
     },
     {
       "path": "/api/cron/hq",
       "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/check-automations",
+      "schedule": "15 * * * *"
+    },
+    {
+      "path": "/api/cron/payroll-draft",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/no-shows",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/cleanup-evidence",
+      "schedule": "30 9 * * *"
     }
   ]
 }
