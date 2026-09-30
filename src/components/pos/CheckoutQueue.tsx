@@ -1,152 +1,156 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { type Appointment, type Service, type Client, type Staff } from '@/lib/data';
-import { CheckoutQueueCard } from './CheckoutQueueCard';
-import { ScrollArea, ScrollBar } from '../ui/scroll-area';
-import { Input } from '../ui/input';
-import { Search, QrCode, X } from 'lucide-react';
-import { Button } from '../ui/button';
+import React, { useMemo } from 'react';
+import { CardContent } from '@/components/ui/card';
+import { type Appointment, type Service, type Client, type Staff, getServicePrice } from '@/lib/data';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Checkbox } from '../ui/checkbox';
+import { Label } from '../ui/label';
+import { cn, safeNumber } from '@/lib/utils';
+import { format, parseISO } from 'date-fns';
+import { Undo2, Cake, Users, Award, Repeat, ShieldAlert } from 'lucide-react';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { useInventory } from '@/context/InventoryContext';
 
-interface CheckoutQueueProps {
-  appointments: {
-    id: string;
-    appointment: Appointment;
-    client: Client;
-    service: Service;
-    addOnServices: Service[];
-    staff: Staff;
-  }[];
-  onSelectAppointment: (appointmentId: string) => void;
-  selectedAppointmentIds: Set<string>;
-  onScanClick: () => void;
-}
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') return parseISO(val);
+    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
+    return new Date(val);
+};
 
-/**
- * Turn anything into a lowercase haystack string, safely.
- *
- * The search used to read `apt.client.name.toLowerCase()` directly. If a row
- * arrived without a resolved client or service — which happens for a walk-in
- * whose client record does not exist yet — that line threw on the FIRST
- * keystroke and white-screened the whole Terminal mid-checkout. Never dot into
- * a name here. Coerce and move on.
- */
-const hay = (v: any): string => (v == null ? '' : String(v)).toLowerCase();
+// The outer card only decides whether there's anything to show; the inner one holds every hook, so a visit leaving the
+// queue (e.g. right after it's paid) can't change the number of hooks between renders (that crashed the POS: React #300).
+export const CheckoutQueueCard: React.FC<any> = (props) => (props?.appointmentData?.appointment ? <CheckoutQueueCardInner {...props} /> : null);
 
-export const CheckoutQueue: React.FC<CheckoutQueueProps> = ({ appointments, onSelectAppointment, selectedAppointmentIds, onScanClick }) => {
-  const [searchTerm, setSearchTerm] = useState('');
+const CheckoutQueueCardInner: React.FC<any> = ({ appointmentData, isSelected, onSelect, onRevertToService }) => {
+  const { staff: allStaffList, clients } = useInventory();
+  
+  // Hooks first, every render — an early return BEFORE a hook crashed the POS (React #300) the moment a visit left the
+  // queue (e.g. right after it was paid).
+  const client = appointmentData?.client;
+  const isBirthdayToday = useMemo(() => {
+    if (!client?.birthday) return false;
+    const birth = safeDate(client.birthday);
+    return birth.getMonth() === new Date().getMonth() && birth.getDate() === new Date().getDate();
+  }, [client]);
+  const { appointment: apt, service, addOnServices, staff: primaryStaff } = appointmentData;
 
-  const filteredAppointments = useMemo(() => {
-    const term = hay(searchTerm).trim();
-    if (!term) return appointments;
-    // Digits only, so "555 0143", "(555) 0143" and "5550143" all match a phone.
-    const digits = term.replace(/\D/g, '');
-    return (appointments || []).filter((apt: any) => {
-      const fields = [
-        apt?.client?.name,
-        apt?.service?.name,
-        apt?.staff?.name,
-        apt?.appointment?.clientName,
-        apt?.appointment?.serviceName,
-        ...(Array.isArray(apt?.addOnServices) ? apt.addOnServices.map((s: any) => s?.name) : []),
-      ];
-      if (fields.some(f => hay(f).includes(term))) return true;
-      // Phone match only when the typed term actually contains digits, so a
-      // plain-text search does not match every row through an empty string.
-      if (digits.length >= 3) {
-        const phone = hay(apt?.client?.phone ?? apt?.appointment?.clientPhone).replace(/\D/g, '');
-        if (phone && phone.includes(digits)) return true;
+  const isMember = !!(client?.activeMembershipId || client?.subscription);
+  const hasPackage = (client?.activePackages?.length || 0) > 0;
+
+  const totalPrice = useMemo(() => {
+    const mainPrice = safeNumber(getServicePrice(service, primaryStaff));
+    const addOnsTotal = (addOnServices || []).reduce((acc: number, s: any) => {
+        const addonStaffId = apt.checkoutState?.serviceStaffOverrides?.[s.id] || apt.staffId;
+        const addonStaff = allStaffList.find(st => st.id === addonStaffId);
+        return acc + safeNumber(getServicePrice(s, addonStaff));
+    }, 0);
+    const additional = safeNumber(apt.checkoutState?.additionalCharge);
+    return mainPrice + addOnsTotal + additional;
+  }, [service, addOnServices, primaryStaff, apt.checkoutState, apt.staffId, allStaffList]);
+
+  const involvedStaff = useMemo(() => {
+      const ids = new Set<string>();
+      if (apt.staffId) ids.add(apt.staffId);
+      if (apt.checkoutState?.serviceStaffOverrides) {
+          Object.values(apt.checkoutState.serviceStaffOverrides).forEach((id: any) => {
+              if (id && typeof id === 'string') ids.add(id);
+          });
       }
-      return false;
-    });
-  }, [appointments, searchTerm]);
-
-  const total = (appointments || []).length;
-  const shown = (filteredAppointments || []).length;
+      return allStaffList.filter(s => ids.has(s.id));
+  }, [apt, allStaffList]);
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-                <CardTitle className="flex items-center gap-2">
-                  Checkout Queue
-                  {total > 0 && (
-                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
-                      {total} waiting
-                    </span>
-                  )}
-                </CardTitle>
-                <CardDescription>Clients who are ready to pay. Select multiple for a group checkout.</CardDescription>
+    <div className="w-full min-w-0">
+        <div className={cn(
+            "block rounded-[2rem] border-2 bg-white transition-all relative group h-full", 
+            isSelected ? "border-primary ring-4 ring-primary/10 shadow-2xl translate-y-[-4px]" : "border-border/50 hover:border-primary/30 shadow-sm",
+            apt.isEscalated && "border-destructive ring-2 ring-destructive/10"
+        )}>
+            {apt.isEscalated && (
+                <div className="bg-destructive px-4 py-1 flex items-center justify-center gap-2 animate-pulse">
+                    <ShieldAlert className="w-2.5 h-2.5 text-white" />
+                    <span className="text-[8px] font-black uppercase text-white tracking-widest">Escalated</span>
+                </div>
+            )}
+            <CardContent className="p-5 space-y-4 text-left" onClick={onSelect}>
+                <div className="flex items-start justify-between gap-4 cursor-pointer text-left">
+                    <div className="flex items-center gap-4 min-w-0 text-left">
+                        <Checkbox id={`pos-checkout-sel-${apt.id}`} checked={isSelected} onCheckedChange={onSelect} className="h-6 w-6 rounded-lg border-2 shrink-0" onClick={(e) => e.stopPropagation()} />
+                        <div className="min-w-0 space-y-1 text-left">
+                            <div className="flex items-center gap-2 flex-wrap text-left">
+                                <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate text-left">{client?.name || 'Walk-in'}</p>
+                                {isBirthdayToday && <Cake className="h-3.5 w-3.5 text-pink-500 animate-pulse shrink-0" />}
+                                {isMember && (
+                                    <Badge className="bg-indigo-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm shrink-0">
+                                        <Award className="w-2 h-2 mr-0.5" /> MEM
+                                    </Badge>
+                                )}
+                                {hasPackage && (
+                                    <Badge className="bg-teal-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm shrink-0">
+                                        <Repeat className="w-2 h-2 mr-0.5" /> PKG
+                                    </Badge>
+                                )}
+                            </div>
+                            <div className="flex items-center gap-2 text-left">
+                                <p className="text-[10px] font-black uppercase text-muted-foreground opacity-60 tracking-widest text-left shrink-0">{apt.startTime ? format(safeDate(apt.startTime), 'h:mm a') : 'Now'}</p>
+                                <Badge variant="outline" className="text-[8px] h-4 font-black bg-muted/5 border-none shrink-0">#{apt.id.slice(-4).toUpperCase()}</Badge>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="flex -space-x-3 overflow-hidden text-left shrink-0">
+                        {involvedStaff.map((member) => (
+                            <TooltipProvider key={member.id}>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Avatar className="h-9 w-9 border-2 border-background shadow-xl rounded-xl">
+                                            <AvatarImage src={member.avatarUrl} className="object-cover" />
+                                            <AvatarFallback className="font-black text-[10px] bg-primary/10 text-primary">{(member.name || 'S')[0]}</AvatarFallback>
+                                        </Avatar>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest text-left">{member.name}</TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        ))}
+                    </div>
+                </div>
+                 <div className="flex items-end justify-between gap-3 pt-4 border-t border-dashed mt-2 text-left">
+                    <div className="space-y-2 min-w-0 text-left">
+                        <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-40 text-left">Session Pros</p>
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 text-left">
+                            {involvedStaff.map(member => (
+                                <p key={member.id} className="text-[11px] font-black text-slate-700 uppercase tracking-tight truncate max-w-[120px] text-left">
+                                    {(member.name || 'Staff').split(' ')[0]}
+                                </p>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                        <p className="text-[9px] font-black uppercase text-primary tracking-widest opacity-60 mb-0.5">Grand Total</p>
+                        <p className="text-2xl font-black text-primary tracking-tighter font-mono">${totalPrice.toFixed(2)}</p>
+                    </div>
+                </div>
+            </CardContent>
+            
+            <div className="p-2 pt-0 border-t bg-muted/5 text-left">
+                <TooltipProvider>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" size="sm" className="w-full h-10 rounded-xl font-bold text-[10px] uppercase tracking-widest text-muted-foreground hover:bg-primary/5 hover:text-primary" onClick={(e) => { e.stopPropagation(); onRevertToService(); }}>
+                                <Undo2 className="w-3.5 h-3.5 mr-2" />
+                                Revert Status
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest text-left">Return to In-Service</TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
             </div>
-            {/* Full width on a phone so it is a real thumb target, not a sliver. */}
-            <Button variant="outline" onClick={onScanClick} className="w-full gap-2 sm:w-auto sm:shrink-0">
-                <QrCode className="h-4 w-4" />
-                Scan Ticket
-            </Button>
         </div>
-        {/* No queue means nothing to search. Hiding the box keeps the empty
-            state clean instead of offering a control that can only fail. */}
-        {total > 0 && (
-          <div className="relative pt-2">
-              {/* -translate-y-[-4px] was a double negative: it pushed the icon 4px
-                  DOWN out of the field instead of centering it. pt-2 above shifts
-                  the row, so center against the input, not the wrapper. */}
-              <Search className="pointer-events-none absolute left-3 top-1/2 mt-1 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                  placeholder="Search name, phone, service, or tech..."
-                  className="pl-9 pr-9"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-              />
-              {searchTerm && (
-                <button
-                  type="button"
-                  aria-label="Clear search"
-                  onClick={() => setSearchTerm('')}
-                  className="absolute right-2 top-1/2 mt-1 -translate-y-1/2 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              )}
-          </div>
-        )}
-      </CardHeader>
-      <CardContent>
-        {total === 0 ? (
-          <div className="text-center py-10 px-6 border-2 border-dashed rounded-lg">
-            <p className="text-muted-foreground">No clients are currently ready for checkout.</p>
-          </div>
-        ) : shown === 0 ? (
-          /* This used to live INSIDE the horizontally scrolling strip, where it
-             could be parked off-screen — you typed a typo and the panel just
-             looked blank. It is a sibling of the strip now, so it cannot hide. */
-          <div className="rounded-lg border-2 border-dashed py-8 text-center">
-            <p className="text-muted-foreground">No clients match &ldquo;{searchTerm}&rdquo;.</p>
-            <Button variant="link" onClick={() => setSearchTerm('')}>Clear search</Button>
-          </div>
-        ) : (
-          /* w-full + whitespace-nowrap are what make a horizontal ScrollArea
-             actually scroll; without them the strip clips and the last card is
-             unreachable. Both are gated to sm and up, because on a phone the
-             cards stack vertically instead (flex-col) — a sideways scroll on a
-             narrow screen is how you miss the guest at the counter. */
-          <ScrollArea className="w-full sm:whitespace-nowrap">
-            <div className="flex flex-col gap-4 pb-4 sm:flex-row sm:space-x-0">
-              {filteredAppointments.map(data => (
-                  <CheckoutQueueCard
-                      key={data.id}
-                      appointmentData={data}
-                      isSelected={selectedAppointmentIds.has(data.id)}
-                      onSelect={() => onSelectAppointment(data.id)}
-                  />
-              ))}
-            </div>
-            <ScrollBar orientation="horizontal" className="hidden sm:flex" />
-          </ScrollArea>
-        )}
-      </CardContent>
-    </Card>
+    </div>
   );
 };
