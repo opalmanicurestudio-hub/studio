@@ -117,6 +117,7 @@ export async function POST(req: NextRequest) {
     // caller's behavior exactly (they're all arrears use cases today).
     kind         = 'arrears_fee',
     checkoutSessionId = null,       // FIX: optional, forwarded into Stripe metadata + ledger
+    noLedger = false,               // a share of a split bill — the checkout records the sale itself (no lines here)
   } = parsed;
 
   // ONLY staff of this business, or ClarityFlow's own server, may charge a
@@ -353,7 +354,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      await writeLedger(`pos_cof__${intent.id}`, intent.id, resolveChargeId(intent), clientData);
+      if (noLedger !== true) await writeLedger(`pos_cof__${intent.id}`, intent.id, resolveChargeId(intent), clientData);
 
       return NextResponse.json({ ok: true, paymentIntentId: intent.id, amount: amountDollars });
     }
