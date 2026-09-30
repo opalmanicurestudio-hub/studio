@@ -1,4 +1,5 @@
 'use client';
+import { VisitTicketHost } from '@/components/visit/VisitTicketHost';
 import { StudioTheme } from '@/components/shared/StudioTheme';
 import { HelpDesk } from '@/components/support/HelpDesk';
 import { StaleCopyBanner } from '@/components/shared/StaleCopyBanner';
@@ -82,6 +83,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <main id="main"><StaleCopyBanner />{children}</main>
             </SidebarInset>
             <HelpDesk />
+            <VisitTicketHost />
           </SidebarProvider>
         </LocationProvider>
       </TenantProvider>
