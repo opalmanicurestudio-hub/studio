@@ -14,7 +14,8 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { logAuditAdmin } from '@/lib/audit';
 import { linkOrigin } from '@/lib/app-origin';
-import { clientScreenSettingsOf } from '@/lib/client-screen';
+import { clientScreenSettingsOf, rebookSettingsOf } from '@/lib/client-screen';
+import { rebookStart, rebookDay, rebookBook, rebookWaitlist } from '@/lib/rebook-actions';
 
 export const dynamic = 'force-dynamic';
 const now = () => new Date().toISOString();
@@ -34,6 +35,38 @@ export async function POST(req: NextRequest) {
   }
   const screenId = String(b.screenId || '');
   // ── Public: the client answers on the screen ──
+  // ── Book the next visit (from the thank-you screen). Who / what / with whom comes from the desk's thank-you
+  //    request — the iPad never decides that. Booking goes through the booking engine (same rules, same
+  //    double-booking guard); the deposit is settled through the desk-deposit route (recorded like online). ──
+  if (action.startsWith('rebook_')) {
+    if (screenId.length < 30) return NextResponse.json({ ok: false, error: 'Unknown screen.' }, { status: 404 });
+    const ref = db.doc(`clientScreens/${screenId}`); const s: any = (await ref.get()).data(); const q = s?.request;
+    const rc = q?.rebookCtx;
+    if (!s?.tenantId || q?.kind !== 'thanks' || q.id !== String(b.requestId || '') || !rc) return NextResponse.json({ ok: false, error: 'This isn’t open any more.' }, { status: 409 });
+    const t: any = ((await db.doc(`tenants/${s.tenantId}`).get()).data() as any) || {};
+    const ctx = { tenantId: s.tenantId, clientId: rc.clientId, serviceId: rc.serviceId, staffId: rc.staffId, addOnIds: rc.addOnIds, appointmentId: rc.appointmentId };
+    const internal = async (path: string, body: any) => { const secret = process.env.CRON_SECRET; if (!secret) return { ok: false, error: 'Booking from the client screen needs the CRON_SECRET setting.' };
+      return fetch(`${req.nextUrl.origin}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-cf-internal': secret }, body: JSON.stringify(body) }).then((r) => r.json()).catch(() => ({ ok: false, error: 'Couldn’t reach the booking service.' })); };
+    const post = (path: string, body: any) => fetch(`${req.nextUrl.origin}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json()).catch(() => ({ ok: false }));
+    const rb = q.rebook || {};
+    if (action === 'rebook_decline') { await ref.update({ 'request.rebook': { stage: 'declined' } }); return NextResponse.json({ ok: true }); }
+    if (action === 'rebook_start') { const r: any = await rebookStart(db, ctx, 'client_screen'); if (!r.ok) return NextResponse.json(r, { status: 400 }); await ref.update({ 'request.rebook': r.rebook }); return NextResponse.json(r); }
+    if (action === 'rebook_day') { const r: any = await rebookDay(db, s.tenantId, rb, String(b.date || ''), b.anyone === true); return NextResponse.json(r, { status: r.ok ? 200 : 400 }); }
+    if (action === 'rebook_book') {
+      const r: any = await rebookBook(db, ctx, rb, { startIso: String(b.startIso || ''), staffId: b.staffId ? String(b.staffId) : null, deposit: b.deposit ? String(b.deposit) : null, standing: b.standing === true }, internal, linkOrigin(t, req.nextUrl.origin));
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error }, { status: r.status || 400 });
+      await ref.update({ 'request.rebook': r.rebook, response: { requestId: q.id, kind: 'rebook', booked: true, label: r.rebook.label, at: now() } });
+      return NextResponse.json(r);
+    }
+    if (action === 'rebook_status') {
+      if (!rb.appointmentId) return NextResponse.json({ ok: true, stage: rb.stage });
+      const ap: any = (await db.doc(`tenants/${s.tenantId}/appointments/${rb.appointmentId}`).get()).data() || {};
+      if (rb.stage === 'pay' && (ap.depositStatus === 'paid' || ap.status === 'confirmed')) { await ref.update({ 'request.rebook.stage': 'done', 'request.rebook.depositNote': 'Deposit paid — you’re all set.' }); return NextResponse.json({ ok: true, stage: 'done' }); }
+      return NextResponse.json({ ok: true, stage: rb.stage });
+    }
+    if (action === 'rebook_waitlist') { const r: any = await rebookWaitlist(db, ctx, rb, String(b.note || ''), post); if (!r.ok) return NextResponse.json(r, { status: 400 }); await ref.update({ 'request.rebook': { ...rb, stage: 'waitlisted' } }); return NextResponse.json({ ok: true }); }
+    return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
+  }
   if (action === 'pay_view' || action === 'pay_save' || action === 'pay_done' || action === 'pay_tip') {
     if (screenId.length < 30) return NextResponse.json({ ok: false, error: 'Unknown screen.' }, { status: 404 });
     const ref = db.doc(`clientScreens/${screenId}`); const s: any = (await ref.get()).data();
@@ -77,7 +110,11 @@ export async function POST(req: NextRequest) {
     if (screenId.length < 30) return NextResponse.json({ ok: false, error: 'Unknown screen.' }, { status: 404 });
     const ref = db.doc(`clientScreens/${screenId}`); const s: any = (await ref.get()).data();
     if (!s?.tenantId) return NextResponse.json({ ok: false, error: 'This screen isn’t paired.' }, { status: 404 });
-    if (action === 'ping') { await ref.set({ lastSeen: now() }, { merge: true }); return NextResponse.json({ ok: true }); }
+    if (action === 'ping') {
+      const pt: any = ((await db.doc(`tenants/${s.tenantId}`).get()).data() as any) || {}; const ps = clientScreenSettingsOf(pt);
+      await ref.update({ lastSeen: now(), brand: { name: pt.name || pt.businessName || '', logo: pt.logoUrl || pt.bookingPageSettings?.cfPageConfig?.logoUrl || null, accent: pt.bookingPageSettings?.cfPageConfig?.accentColor || pt.brandColor || null },
+        settings: { welcome: ps.welcome, reviewTicket: ps.reviewTicket, motion: ps.motion, confetti: ps.confetti } });
+      return NextResponse.json({ ok: true }); }
     const T = `tenants/${s.tenantId}`;
     if (action === 'receipt') {
       const receiptId = s.request?.kind === 'thanks' ? s.request.receiptId : null;
@@ -131,7 +168,10 @@ export async function POST(req: NextRequest) {
     const hit = (await db.collection('clientScreens').where('code', '==', code).get()).docs.find((d: any) => !(d.data() as any).tenantId && Date.parse((d.data() as any).codeExpiresAt) > Date.now());
     if (!hit) return NextResponse.json({ ok: false, error: 'That code isn’t valid any more — refresh the screen for a new one.' }, { status: 404 });
     const name = String(b.name || '').trim().slice(0, 40) || 'Client screen';
-    await hit.ref.set({ tenantId, name, code: null, codeExpiresAt: null, pairedAt: now(), pairedBy: auth.actor.name, phase: 'idle', request: null, response: null, ticket: null }, { merge: true });
+    const pt: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {}; const ps = clientScreenSettingsOf(pt);
+    await hit.ref.set({ tenantId, name, code: null, codeExpiresAt: null, pairedAt: now(), pairedBy: auth.actor.name || 'Staff', phase: 'idle', request: null, response: null, ticket: null,
+      brand: { name: pt.name || pt.businessName || '', logo: pt.logoUrl || pt.bookingPageSettings?.cfPageConfig?.logoUrl || null, accent: pt.bookingPageSettings?.cfPageConfig?.accentColor || pt.brandColor || null },
+      settings: { welcome: ps.welcome, reviewTicket: ps.reviewTicket, motion: ps.motion, confetti: ps.confetti } }, { merge: true });   // the iPad shows your name, logo and welcome at once
     await logAuditAdmin(db, tenantId, { action: 'client_screen.paired', targetType: 'client_screen', targetId: hit.id, summary: `Client screen “${name}” paired by ${auth.actor.name}`, actor: { type: 'user', id: auth.actor.uid, name: auth.actor.name, role: auth.actor.role } } as any).catch(() => {});
     return NextResponse.json({ ok: true, screenId: hit.id, name });
   }
@@ -155,7 +195,7 @@ export async function POST(req: NextRequest) {
   if (action === 'request') {
     const kind = String(b.kind || '');
     if (!['tip', 'approve', 'thanks', 'idle', 'cash', 'change', 'pay'].includes(kind)) return NextResponse.json({ ok: false, error: 'Unknown request.' }, { status: 400 });
-    const q: any = { id: rid(), kind, at: now(), requestedBy: auth.actor.name };
+    const q: any = { id: rid(), kind, at: now(), requestedBy: auth.actor.name || 'Staff' };
     if (kind === 'tip') { q.base = Math.max(0, num(b.base)); q.presets = settings.tipPresets; q.allowCustom = settings.allowCustomTip; q.showNoTip = settings.showNoTip; q.tipOn = settings.tipOn; }
     if (kind === 'approve') { q.amount = num(b.amount); q.cardLabel = String(b.cardLabel || '').slice(0, 40) || 'your card on file'; q.clientId = b.clientId || null; q.clientName = b.clientName || null;
       q.signature = settings.signCardOnFile && (!settings.signOver || q.amount >= settings.signOver);
@@ -177,7 +217,7 @@ export async function POST(req: NextRequest) {
       q.payOnScreen = settings.payOnScreen; q.payOnPhone = settings.payOnPhone;
     }
     if (kind === 'change') { q.due = num(b.due); q.tendered = num(b.tendered); q.change = num(b.change); q.offerKeep = (t?.clientScreen?.offerKeepChange !== false); }
-    if (kind === 'thanks') { q.returnAfter = Math.max(5, Math.min(120, Number(t?.clientScreen?.returnAfter) || 20)); q.receiptId = b.receiptId || null; q.offerReceipt = settings.offerReceipt; q.total = num(b.total); q.clientFirst = String(b.clientFirst || '').slice(0, 40); }
+    if (kind === 'thanks') { const rs = rebookSettingsOf(t); q.rebookCtx = rs.on && b.rebook?.clientId && b.rebook?.serviceId ? { clientId: String(b.rebook.clientId), serviceId: String(b.rebook.serviceId), staffId: b.rebook.staffId ? String(b.rebook.staffId) : null, addOnIds: Array.isArray(b.rebook.addOnIds) ? b.rebook.addOnIds.slice(0, 6).map(String) : [], appointmentId: b.rebook.appointmentId ? String(b.rebook.appointmentId) : null } : null; q.rebookFirst = b.rebookFirst === true; q.returnAfter = Math.max(5, Math.min(120, Number(t?.clientScreen?.returnAfter) || 20)); q.receiptId = b.receiptId || null; q.offerReceipt = settings.offerReceipt; q.total = num(b.total); q.clientFirst = String(b.clientFirst || '').slice(0, 40); }
     await ref.update({ phase: kind === 'idle' ? 'idle' : kind, request: kind === 'idle' ? null : q, response: null, brand, ...(kind === 'idle' || kind === 'thanks' ? { ticket: null } : {}), updatedAt: now() });   // replace, never merge
     return NextResponse.json({ ok: true, requestId: q.id });
   }
