@@ -846,6 +846,7 @@ export const CheckoutHub = ({
           surchargeAmountCents: Math.round(cardSurcharge * 100),
           description: 'Studio Services — POS Checkout',
           category:    'Service Revenue',
+          noLedger:    true,   // the checkout records the sale itself, line by line (services, products, tax, tip) — not one lump line here
         }),
       });
       const data = await res.json();
@@ -854,7 +855,7 @@ export const CheckoutHub = ({
         toast({ title: 'Card Charged', description: `$${amountToCharge.toFixed(2)} charged successfully.` });
         // Proceed with the rest of the checkout flow using 'card_on_file' as payment method
         // Save COF payment intent id for after signature
-        await onCheckout({ paymentMethod: 'card_on_file', amountTendered: amountToCharge, recoveryAmount, recoveryReason, recoveryApprovalToken, stripePaymentIntentId: data.paymentIntentId, skipLedger: true, cardSurcharge });
+        await onCheckout({ paymentMethod: 'card_on_file', amountTendered: amountToCharge, recoveryAmount, recoveryReason, recoveryApprovalToken, stripePaymentIntentId: data.paymentIntentId, cardSurcharge });
         setCardMode('select');
       } else {
         toast({ variant: 'destructive', title: 'Charge Failed', description: data.reason || 'Could not charge card on file.' });
