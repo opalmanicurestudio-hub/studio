@@ -5,6 +5,7 @@ import { doc, updateDoc, type Firestore } from 'firebase/firestore';
 import { useFirebase } from '@/firebase';
 import { clientScreenSettingsOf } from '@/lib/client-screen';
 import { momentSettingsOf } from '@/lib/moments';
+import { rebookSettingsOf } from '@/lib/client-screen';
 
 export function ClientScreenCard({ tenantId, tenant, canEdit }: { tenantId: string; tenant: any; canEdit: boolean }) {
   const { firestore } = useFirebase() as any;
@@ -17,6 +18,7 @@ export function ClientScreenCard({ tenantId, tenant, canEdit }: { tenantId: stri
   const presets = [...s.tipPresets, 0, 0, 0, 0].slice(0, 4);
   const m = momentSettingsOf({ clientScreen: s });
   const setM = (patch: any) => save({ ...s, moments: { ...m, ...patch } });
+  const rb = rebookSettingsOf({ clientScreen: s }); const setRb = (patch: any) => save({ ...s, rebook: { ...rb, ...patch } });
   const pctBox = (v: number, on: (n: number) => void, label: string) => <span className="flex items-center gap-1">{label} <input type="number" inputMode="numeric" min={0} max={100} value={v || ''} placeholder="0" disabled={!canEdit} aria-label={label} onChange={(e) => on(Math.max(0, Math.min(100, Number(e.target.value) || 0)))} className="h-10 w-16 rounded-xl border px-2 text-right" />% off services <span className="text-xs text-muted-foreground">(blank = just a greeting)</span></span>;
   return (
     <div className="space-y-4 rounded-[2rem] border-2 bg-white p-6">
@@ -49,6 +51,24 @@ export function ClientScreenCard({ tenantId, tenant, canEdit }: { tenantId: stri
           <button key={k} type="button" disabled={!canEdit} aria-pressed={s.tipOn === k} onClick={() => save({ ...s, tipOn: k })} className={`rounded-full border px-4 py-1.5 ${s.tipOn === k ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>)}</div>
         {check('allowCustomTip', 'Let them enter another amount')}
         {check('showNoTip', 'Show “No tip”')}
+      </div>
+      <div className="space-y-2 text-sm"><p className="font-semibold">Book the next visit</p>
+        <label className="flex items-start gap-2"><input type="checkbox" className="mt-1" checked={rb.on} disabled={!canEdit} onChange={(e) => setRb({ on: e.target.checked })} /><span><b>Offer “Book your next visit”</b> after they pay <span className="text-muted-foreground">— suggests the service they come back for (set on each service), at their usual day and time, with their provider first</span></span></label>
+        {rb.on && <div className="space-y-2 pl-6">
+          <div className="flex flex-wrap items-center gap-2">Show <input type="number" min={1} max={6} value={rb.suggestCount} disabled={!canEdit} onChange={(e) => setRb({ suggestCount: Math.max(1, Math.min(6, Number(e.target.value) || 3)) })} className="h-10 w-16 rounded-xl border px-2 text-right" aria-label="Suggested times" /> suggested times
+            · quick picks <input defaultValue={rb.quickWeeks.join(', ')} disabled={!canEdit} onBlur={(e) => setRb({ quickWeeks: e.target.value.split(/[ ,]+/).map(Number).filter((n) => Number.isInteger(n) && n > 0) })} className="h-10 w-32 rounded-xl border px-3" aria-label="Quick picks in weeks" /> weeks</div>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={rb.otherProviders} disabled={!canEdit} onChange={(e) => setRb({ otherProviders: e.target.checked })} /> Offer other providers if theirs is booked up</label>
+          <p className="font-semibold">Deposits (when the booking needs one)</p>
+          <div className="flex flex-wrap gap-2">{([['hold', 'Saved card: hold until the visit'], ['charge', 'Saved card: charge now']] as const).map(([k, l]) =>
+            <button key={k} type="button" disabled={!canEdit} aria-pressed={rb.cardMode === k} onClick={() => setRb({ cardMode: k })} className={`rounded-full border px-3 py-1 ${rb.cardMode === k ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>)}</div>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={rb.payNow} disabled={!canEdit} onChange={(e) => setRb({ payNow: e.target.checked })} /> Pay the deposit now on their phone (QR code)</label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={rb.payLater} disabled={!canEdit} onChange={(e) => setRb({ payLater: e.target.checked })} /> Pay later — send them a link (their time is held)</label>
+          <div className="flex flex-wrap items-center gap-2">Pre-book reward <input type="number" min={0} max={50} value={rb.prebookPct || ''} placeholder="0" disabled={!canEdit} onChange={(e) => setRb({ prebookPct: Math.max(0, Math.min(50, Number(e.target.value) || 0)) })} className="h-10 w-16 rounded-xl border px-2 text-right" aria-label="Pre-book reward percent" />% off services at that visit <span className="text-xs text-muted-foreground">(0 = none; never combines with other discounts)</span></div>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={rb.standing} disabled={!canEdit} onChange={(e) => setRb({ standing: e.target.checked })} /> Offer a standing appointment ({rb.standingCount} visits at the same time)</label>
+          {rb.standing && <div className="flex items-center gap-2 pl-6"><input type="number" min={2} max={6} value={rb.standingCount} disabled={!canEdit} onChange={(e) => setRb({ standingCount: Math.max(2, Math.min(6, Number(e.target.value) || 3)) })} className="h-10 w-16 rounded-xl border px-2 text-right" aria-label="Standing visits" /> visits</div>}
+          <label className="flex items-center gap-2"><input type="checkbox" checked={rb.waitlist} disabled={!canEdit} onChange={(e) => setRb({ waitlist: e.target.checked })} /> Offer the waitlist when nothing fits</label>
+          <p className="text-xs text-muted-foreground">Deposit amounts follow your booking and rebooking rules. Booking needs the CRON_SECRET setting on your hosting (it’s already used by your reminders).</p>
+        </div>}
       </div>
       <div className="space-y-2 text-sm"><p className="font-semibold">Paying on the iPad</p>
         {check('payOnScreen', 'Let clients pay on the iPad', 'Stripe’s secure card form — card details never touch your system')}
