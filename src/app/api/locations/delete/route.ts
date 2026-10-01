@@ -53,6 +53,17 @@ async function countRefs(db: any, tenantId: string, locationId: string) {
   return found;
 }
 
+// The business's MAIN location pointer (tenants.primaryLocationId) must always name a location that exists. After any
+// removal, if it points at a deleted one, move it to the location just kept (merge) or the first remaining one.
+async function fixMainPointer(db: any, tenantId: string, prefer?: string | null) {
+  try { const tRef = db.doc(`tenants/${tenantId}`); const t: any = (await tRef.get()).data() || {};
+    const left = (await db.collection(`tenants/${tenantId}/locations`).get()).docs.filter((d: any) => isBusinessLocation({ id: d.id, ...(d.data() as any) })).map((d: any) => d.id);
+    if (t.primaryLocationId && left.includes(t.primaryLocationId)) return;
+    const next = (prefer && left.includes(prefer)) ? prefer : left[0] || null;
+    await tRef.set({ primaryLocationId: next }, { merge: true });
+  } catch { /* never block a removal */ }
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const tenantId = String(body.tenantId || '').trim();
@@ -101,6 +112,7 @@ export async function POST(req: NextRequest) {
       const aRef = db.collection(`tenants/${tenantId}/auditLogs`).doc();
       await aRef.set({ id: aRef.id, at: new Date().toISOString(), action: 'location_duplicates_removed', summary: `${safeRemovable.length} unused auto-created duplicate location(s) removed by ${auth.actor.name || auth.actor.uid}`, actorUid: auth.actor.uid, ids: safeRemovable.map((r) => r.id) });
     } catch { /* audit is best-effort */ }
+    await fixMainPointer(db, tenantId, keep?.id || null);
     return NextResponse.json({ ok: true, removed: safeRemovable.length });
   }
 
@@ -151,6 +163,7 @@ export async function POST(req: NextRequest) {
       await aRef.set({ id: aRef.id, at: new Date().toISOString(), action: 'locations_merged', ids: bulkIds, targetId, moved,
         summary: `${mergedNames.length} location(s) merged into "${(tSnap.data() as any)?.name || targetId}" by ${auth.actor.name || auth.actor.uid}: ${mergedNames.join(', ')}`, actorUid: auth.actor.uid });
     } catch { /* audit is best-effort */ }
+    await fixMainPointer(db, tenantId, targetId);
     return NextResponse.json({ ok: true, merged: mergedNames.length, moved });
   }
 
@@ -184,6 +197,7 @@ export async function POST(req: NextRequest) {
       await aRef.set({ id: aRef.id, at: new Date().toISOString(), action: 'locations_deleted_bulk', ids: toDelete.map((r) => r.id),
         summary: `${toDelete.length} location(s) deleted by ${auth.actor.name || auth.actor.uid}: ${toDelete.map((r) => r.name).join(', ')}`, actorUid: auth.actor.uid });
     } catch { /* audit is best-effort */ }
+    await fixMainPointer(db, tenantId);
     return NextResponse.json({ ok: true, deleted: toDelete.map((r) => r.id), results });
   }
 
@@ -207,6 +221,8 @@ export async function POST(req: NextRequest) {
   }
 
   await ref.delete();
+
+  await fixMainPointer(db, tenantId);
   try {
     const aRef = db.collection(`tenants/${tenantId}/auditLogs`).doc();
     await aRef.set({ id: aRef.id, at: new Date().toISOString(), action: 'location_deleted', entityId: locationId,
