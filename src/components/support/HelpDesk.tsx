@@ -10,6 +10,7 @@
 // • Shows your past requests and HQ's replies, and lets you answer back.
 // • useIsHqAdmin(): shows the HQ link to platform admins only (server-checked).
 
+import { errorEmitter } from '@/firebase/error-emitter';
 import { useCallback, useEffect, useState } from 'react';
 import { getAuth } from 'firebase/auth';
 import { Loader, X } from 'lucide-react';
@@ -63,6 +64,7 @@ export function HelpDesk() {
   const [err, setErr] = useState('');
   const [mine, setMine] = useState<any[] | null>(null);
   const [reply, setReply] = useState<Record<string, string>>({});
+  const [issuePrompt, setIssuePrompt] = useState(false);   // "Something didn't load properly" — offered at most every 10 min
 
   // The recorder: last 10 errors, with the page they happened on.
   useEffect(() => {
@@ -70,13 +72,19 @@ export function HelpDesk() {
       const list: Err[] = W.__cfErrors || (W.__cfErrors = []);
       list.push({ at: new Date().toISOString(), message: String(message || 'Unknown error').slice(0, 300), page: window.location.pathname });
       if (list.length > 10) list.shift();
+      // Offer an account check — politely, at most once every 10 minutes, never on the check itself.
+      try { const last = Number(localStorage.getItem('cf_issue_prompt_at') || 0);
+        if (window.location.pathname !== '/diagnostics' && Date.now() - last > 10 * 60000) { localStorage.setItem('cf_issue_prompt_at', String(Date.now())); setIssuePrompt(true); } } catch { /* ignore */ }
     };
+    // Database refusals arrive on the app's own channel, not as browser errors — record them too.
+    const onDenied = (e: any) => push(`Couldn’t load: ${String(e?.request?.path || e?.message || 'data').slice(0, 200)}`);
+    errorEmitter.on('permission-error', onDenied);
     const onErr = (e: ErrorEvent) => push(e.message || String(e.error));
     const onRej = (e: PromiseRejectionEvent) => push(String((e.reason && (e.reason.message || e.reason)) || 'Unhandled rejection'));
     window.addEventListener('error', onErr); window.addEventListener('unhandledrejection', onRej);
     const onHelp = () => setOpen(true);
     window.addEventListener('cf:help', onHelp);
-    return () => { window.removeEventListener('error', onErr); window.removeEventListener('unhandledrejection', onRej); window.removeEventListener('cf:help', onHelp); };
+    return () => { window.removeEventListener('error', onErr); window.removeEventListener('unhandledrejection', onRej); window.removeEventListener('cf:help', onHelp); try { (errorEmitter as any).off?.('permission-error', onDenied); (errorEmitter as any).removeListener?.('permission-error', onDenied); } catch { /* ignore */ } };
   }, []);
 
   // Once per session: tell HQ this business is here, and on which version.
@@ -109,7 +117,15 @@ export function HelpDesk() {
     if (d.ok) { setReply((r) => ({ ...r, [id]: '' })); void loadMine(); }
   };
 
-  if (!open) return null;
+  if (!open) return issuePrompt ? (
+    <div role="status" className="fixed inset-x-3 bottom-24 z-[70] mx-auto max-w-md rounded-3xl border border-stone-200 bg-white/95 p-4 shadow-xl backdrop-blur md:bottom-6">
+      <p className="text-[15px] font-semibold">Something didn’t load properly</p>
+      <p className="mt-0.5 text-[13px] text-stone-600">A quick account check can often fix it — and if not, send it to us with one tap.</p>
+      <div className="mt-3 flex gap-2">
+        <a href="/diagnostics" onClick={() => setIssuePrompt(false)} className="flex h-10 items-center rounded-full bg-stone-900 px-4 text-[13px] font-semibold text-white">Check &amp; send to support</a>
+        <button type="button" onClick={() => setIssuePrompt(false)} className="h-10 rounded-full px-4 text-[13px] text-stone-600">Dismiss</button>
+      </div>
+    </div>) : null;
   const errors = recorded();
   return (
     <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/30 backdrop-blur-sm sm:items-center" onClick={() => setOpen(false)}>
