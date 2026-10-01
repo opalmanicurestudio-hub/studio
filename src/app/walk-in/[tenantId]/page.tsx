@@ -96,6 +96,11 @@ type Step =
   | 'checkin'
   | 'booth'
   | 'announced'
+  // The front door (K1): 'door' collects what a pickup / renter visit / tour / help needs, 'doorDone' confirms it,
+  // 'noBooking' is someone who said they have an appointment but no booking was found for their number today.
+  | 'door'
+  | 'doorDone'
+  | 'noBooking'
   // 'trouble' exists because 'full' was doing two jobs: "nobody is free right
   // now" AND "something broke". Every failure path routed to 'full', so a
   // network hiccup told the guest the studio was full and offered them the
@@ -436,6 +441,28 @@ export default function WalkInKioskPage() {
   // read the same state snapshot and both fire. A kiosk gets jabbed.
   const joinLock = useRef(false);
 
+  // ── The front door (K1): "What brings you in?" — options in the business's own words ──
+  const [doorOptions, setDoorOptions] = useState<any[] | null>(null);
+  const [door, setDoor] = useState<any>(null);               // the option the guest picked
+  const [doorName, setDoorName] = useState(''); const [doorNote, setDoorNote] = useState('');
+  const [doorOrder, setDoorOrder] = useState(''); const [doorLast4, setDoorLast4] = useState('');
+  const [doorRenters, setDoorRenters] = useState<any[] | null>(null); const [doorRenterId, setDoorRenterId] = useState('');
+  const [doorBusy, setDoorBusy] = useState(false); const [doorErr, setDoorErr] = useState(''); const [doorReply, setDoorReply] = useState('');
+  const frontDoor = useCallback(async (payload: any) => { const r = await fetch('/api/front-door', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, ...payload }) }); return r.json().catch(() => ({ ok: false })); }, [tenantId]);
+  useEffect(() => { frontDoor({ action: 'options' }).then((d) => setDoorOptions(d?.ok ? d.options : [])).catch(() => setDoorOptions([])); }, [frontDoor]);
+  const pickDoor = (o: any) => {
+    setDoor(o); setDoorErr('');
+    if (['appointment', 'walkin', 'class'].includes(o.intent)) { setStep('phone'); return; }
+    if (o.intent === 'renter' && !doorRenters) frontDoor({ action: 'renters' }).then((d) => setDoorRenters(d?.ok ? d.renters : []));
+    setStep('door');
+  };
+  const sendDoor = async () => {
+    setDoorBusy(true); setDoorErr('');
+    const d = await frontDoor({ action: 'arrive', optionId: door?.id, name: doorName, note: doorNote, renterId: doorRenterId, orderNumber: doorOrder, phoneLast4: doorLast4 }).catch(() => null);
+    setDoorBusy(false);
+    if (d?.ok) { setDoorReply(d.reply || 'Thanks — we’ve let the team know you’re here.'); setStep('doorDone'); } else setDoorErr(d?.error || 'That didn’t go through — please ask at the desk.');
+  };
+
   // ── Idle auto-reset — a kiosk must never be left mid-flow for the next guest ──
   const reset = useCallback(() => {
     setStep('welcome');
@@ -448,6 +475,7 @@ export default function WalkInKioskPage() {
     setAnnounceNote(''); setTroubleNote('');
     setWaitState('idle'); setWaitMessage('');
     setPrintError(''); setPrinted(false); setPrintedKeys([]);
+    setDoor(null); setDoorName(''); setDoorNote(''); setDoorOrder(''); setDoorLast4(''); setDoorRenterId(''); setDoorErr(''); setDoorReply('');
     joinLock.current = false;
   }, []);
 
@@ -460,7 +488,7 @@ export default function WalkInKioskPage() {
     // 'announced' is terminal — the guest has checked in or been announced to
     // the desk and has nothing left to decide, so it clears on the short window
     // rather than holding the kiosk for ninety seconds behind them.
-    const settled = step === 'success' || step === 'announced' || (step === 'full' && waitState === 'joined');
+    const settled = step === 'success' || step === 'announced' || step === 'doorDone' || (step === 'full' && waitState === 'joined');
     const reading = step === 'consent' || step === 'patch';
     const ms = settled ? SUCCESS_RESET_MS : reading ? CONSENT_IDLE_RESET_MS : IDLE_RESET_MS;
     clearTimeout(idleTimer.current);
@@ -469,7 +497,7 @@ export default function WalkInKioskPage() {
     // four names takes longer than the ninety-second window, and a kiosk that
     // wipes the party half-entered is worse than one that never asked.
     return () => clearTimeout(idleTimer.current);
-  }, [step, name, phone, service, groupSize, guests, waitState, chosen, signature, answers, accepted, reset]);
+  }, [step, name, phone, service, groupSize, guests, waitState, chosen, signature, answers, accepted, reset, doorName, doorNote, doorOrder, doorLast4, doorRenterId]);
 
   const post = useCallback(async (payload: any) => {
     const res = await fetch('/api/walkins', {
@@ -531,6 +559,8 @@ export default function WalkInKioskPage() {
 
       if (d.appointmentToday?.appointmentId) { setStep('checkin'); return; }
       if (d.boothToday?.reservationId) { setStep('booth'); return; }
+      // They said "I have an appointment" (or a class) but nothing is booked today under this number.
+      if (door && (door.intent === 'appointment' || door.intent === 'class')) { setStep('noBooking'); return; }
 
       if (d.found) { setStep(d.usual?.serviceId ? 'recognize' : 'service'); return; }
       setStep('service');
@@ -1201,7 +1231,24 @@ export default function WalkInKioskPage() {
         )}
 
         {/* ── WELCOME ── */}
-        {!kioskOff && step === 'welcome' && (
+        {!kioskOff && step === 'welcome' && (doorOptions?.length || 0) > 1 && (
+          <div className="w-full space-y-6 py-6">
+            <div className="text-center space-y-2">
+              <h1 className="text-4xl font-semibold tracking-tight">What brings you in?</h1>
+              {floor && floor.open && <p className="text-slate-500">{floor.queueLength > 0 ? `${floor.queueLength} ahead in line · ${softWait(floor.estWaitMin || 5).toLowerCase()}` : 'No wait right now'}</p>}
+              {closingWarning && <p className="text-sm font-medium text-amber-700">{closingWarning}</p>}
+            </div>
+            <div className="grid gap-3">
+              {(doorOptions || []).map((o: any) => (
+                <button key={o.id} type="button" onClick={() => pickDoor(o)} className="flex min-h-[72px] w-full items-center justify-between gap-4 rounded-3xl border-2 border-slate-200 bg-white px-6 py-4 text-left active:scale-[0.99] transition-transform">
+                  <span><span className="block text-xl font-semibold">{o.label}</span>{o.hint && <span className="block text-sm text-slate-500">{o.hint}</span>}</span>
+                  <ArrowRight className="h-6 w-6 shrink-0 text-slate-400" />
+                </button>))}
+            </div>
+          </div>
+        )}
+
+        {!kioskOff && step === 'welcome' && !((doorOptions?.length || 0) > 1) && (
           <button
             onClick={() => setStep('phone')}
             disabled={loading}
@@ -1234,6 +1281,55 @@ export default function WalkInKioskPage() {
               {loading ? <Loader className="w-5 h-5 animate-spin" /> : <>Tap to start <ArrowRight className="w-5 h-5" /></>}
             </div>
           </button>
+        )}
+
+        {/* ── FRONT DOOR — pickup / renter visit / tour / help / custom ── */}
+        {!kioskOff && step === 'door' && door && (
+          <div className="w-full space-y-5">
+            <div className="text-center space-y-1.5">
+              <h2 className="text-2xl font-semibold tracking-tight">{door.label}</h2>
+              {door.hint && <p className="text-sm text-slate-500">{door.hint}</p>}
+            </div>
+            {door.intent === 'pickup' && (<>
+              <input inputMode="numeric" value={doorOrder} onChange={(e) => setDoorOrder(e.target.value.replace(/[^0-9]/g, '').slice(0, 10))} placeholder="Order number" className="h-16 w-full rounded-2xl border-2 border-slate-200 px-5 text-xl" />
+              <input inputMode="numeric" value={doorLast4} onChange={(e) => setDoorLast4(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))} placeholder="Last 4 digits of your phone" className="h-16 w-full rounded-2xl border-2 border-slate-200 px-5 text-xl" />
+            </>)}
+            {door.intent === 'renter' && (
+              <div className="grid gap-2">
+                {doorRenters === null && <p className="text-center text-slate-500"><Loader className="mr-2 inline h-4 w-4 animate-spin" />Loading…</p>}
+                {(doorRenters || []).map((r: any) => (
+                  <button key={r.id} type="button" onClick={() => setDoorRenterId(r.id)} aria-pressed={doorRenterId === r.id} className={`min-h-[60px] rounded-2xl border-2 px-5 text-left ${doorRenterId === r.id ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white'}`}>
+                    <span className="block text-lg font-semibold">{r.name}</span>{r.business && <span className={`block text-sm ${doorRenterId === r.id ? 'text-white/70' : 'text-slate-500'}`}>{r.business}</span>}
+                  </button>))}
+                {doorRenters && !doorRenters.length && <p className="text-center text-slate-500">Please ask at the desk.</p>}
+              </div>)}
+            {door.intent !== 'pickup' && <input value={doorName} onChange={(e) => setDoorName(e.target.value.slice(0, 40))} placeholder="Your first name" autoComplete="off" className="h-16 w-full rounded-2xl border-2 border-slate-200 px-5 text-xl" />}
+            {['tour', 'help', 'custom'].includes(door.intent) && <input value={doorNote} onChange={(e) => setDoorNote(e.target.value.slice(0, 200))} placeholder="Anything we should know? (optional)" autoComplete="off" className="h-14 w-full rounded-2xl border-2 border-slate-200 px-5 text-lg" />}
+            {doorErr && <p role="alert" className="text-center font-medium text-red-600">{doorErr}</p>}
+            <button type="button" disabled={doorBusy || (door.intent === 'pickup' ? !(doorOrder && doorLast4.length === 4) : door.intent === 'renter' ? !doorRenterId : false)} onClick={sendDoor}
+              className="flex h-16 w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 text-lg font-semibold text-white disabled:opacity-40">
+              {doorBusy ? <Loader className="h-5 w-5 animate-spin" /> : <>I’m here <ArrowRight className="h-5 w-5" /></>}
+            </button>
+            <button type="button" onClick={reset} className="w-full py-2 text-center text-slate-500">Start over</button>
+          </div>
+        )}
+        {!kioskOff && step === 'doorDone' && (
+          <div className="w-full space-y-6 py-10 text-center">
+            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-[2rem] bg-emerald-100 text-4xl text-emerald-600">✓</div>
+            <p className="text-2xl font-semibold tracking-tight">{doorReply}</p>
+            <button type="button" onClick={reset} className="text-slate-500">Done</button>
+          </div>
+        )}
+        {!kioskOff && step === 'noBooking' && (
+          <div className="w-full space-y-4 py-6 text-center">
+            <h2 className="text-2xl font-semibold tracking-tight">We couldn’t find a booking for today</h2>
+            <p className="text-slate-500">It may be under a different number.</p>
+            <div className="grid gap-3 pt-2">
+              <button type="button" onClick={() => { setPhone(''); setStep('phone'); }} className="h-16 rounded-2xl border-2 border-slate-200 text-lg font-semibold">Try another number</button>
+              {(doorOptions || []).some((o: any) => o.intent === 'walkin') && <button type="button" onClick={() => { setDoor((doorOptions || []).find((o: any) => o.intent === 'walkin')); setStep(lookup?.found ? (lookup?.usual?.serviceId ? 'recognize' : 'service') : 'service'); }} className="h-16 rounded-2xl border-2 border-slate-200 text-lg font-semibold">Walk in instead</button>}
+              {(doorOptions || []).some((o: any) => o.intent === 'help') && <button type="button" onClick={() => pickDoor((doorOptions || []).find((o: any) => o.intent === 'help'))} className="h-16 rounded-2xl bg-slate-900 text-lg font-semibold text-white">Get help at the desk</button>}
+            </div>
+          </div>
         )}
 
         {/* ── PHONE FIRST ── one field, and it unlocks everything else ── */}
