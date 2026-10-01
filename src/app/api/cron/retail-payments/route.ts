@@ -1,6 +1,7 @@
 // src/app/api/cron/retail-payments/route.ts — EVERY 5 MIN (Vercel Cron + CRON_SECRET): every shop order still 'placed'
 // (older than 90 s, so Stripe's own notification gets first go) is checked with Stripe — paid ones complete and appear
 // on the orders board; abandoned ones close. Nothing depends on the customer keeping their page open.
+import { heartbeat } from '@/lib/account-health';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { confirmRetailPayment } from '@/lib/retail-payment-check';
@@ -19,5 +20,6 @@ export async function GET(req: NextRequest) {
       try { counts[await confirmRetailPayment(db, t.id, tenant, d.ref, o)]++; } catch (e: any) { counts.failed++; console.error('[cron/retail-payments]', t.id, d.id, String(e?.message || e).slice(0, 160)); }
     }
   }
+  await heartbeat(db, 'retail-payments');   // HQ's account check uses this to spot a stopped task
   return NextResponse.json({ ok: true, ...counts });
 }
