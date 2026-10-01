@@ -131,6 +131,7 @@ export function HelpDesk() {
                 <button key={k} type="button" onClick={() => setKind(k)} aria-pressed={kind === k} className={`rounded-2xl px-2 py-3 text-[13px] ${kind === k ? 'bg-stone-900 text-white' : 'bg-white/80 text-stone-700'}`}>{l}</button>
               ))}
             </div>
+            <a href="/diagnostics" className="flex items-center justify-between rounded-2xl bg-stone-100 px-4 py-3 text-[13px]"><span><span className="block font-semibold">Something not loading?</span><span className="text-stone-600">Run a quick account check — it can fix common problems for you.</span></span><span aria-hidden>›</span></a>
             <textarea value={message} onChange={(e) => setMessage(e.target.value.slice(0, 4000))} rows={5} placeholder={kind === 'broken' ? 'What happened, and what did you expect?' : kind === 'idea' ? 'What would make ClarityFlow better for you?' : 'What would you like to know?'}
               className="w-full rounded-2xl border border-white/80 bg-white/80 p-4 text-[15px] outline-none focus:ring-2 focus:ring-stone-300" />
             <p className="text-[12px] text-stone-500">We’ll include the page you’re on{errors.length ? `, ${errors.length} recent error${errors.length === 1 ? '' : 's'}` : ''}, your device and app version — so you don’t have to explain.</p>
