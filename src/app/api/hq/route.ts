@@ -78,6 +78,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, tenants: rows });
   }
 
+  if (b.action === 'locations') {   // HQ: a business's location allowance; optionally grant extra locations free of charge
+    const id = String(b.id || ''); if (!id) return NextResponse.json({ ok: false, error: 'Missing business.' }, { status: 400 });
+    const { locationAllowance } = await import('@/lib/location-allowance');
+    if (b.granted !== undefined) {
+      const granted = Math.max(0, Math.min(50, Math.round(Number(b.granted) || 0)));
+      const ref = db.doc(`tenants/${id}`); const t: any = (await ref.get()).data() || {};
+      await ref.set({ billing: { ...(t.billing || {}), locationsGranted: granted } }, { merge: true });
+      if (t.billing?.subscriptionId) { try { const { syncSubscription } = await import('@/lib/billing'); await syncSubscription(id); } catch (e: any) { console.error('[hq] location grant sync', e?.message); } }
+    }
+    return NextResponse.json({ ok: true, allowance: await locationAllowance(db, id) });
+  }
   if (b.action === 'health-check') {   // HQ "Run account check" for one business
     const { serverHealthCheck } = await import('@/lib/account-health');
     const id = String(b.id || ''); if (!id) return NextResponse.json({ ok: false, error: 'Missing business.' }, { status: 400 });
