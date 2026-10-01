@@ -13,6 +13,7 @@
  *    Nothing is hidden behind a step wizard.
  */
 
+import { type Phase, type PhaseKind, type Requirement, type RequirementKind, type RequirementMode, PHASE_LABEL, PHASE_HINT, REQ_LABEL, MODE_LABEL, phasesFromService, newPhase, newRequirement, deriveTimings, nextBlueprint } from '@/lib/blueprint';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
@@ -472,6 +473,19 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
     }
   };
 
+  // ── How it's delivered (service blueprint) — phases + requirements; the timing fields are derived from it on save.
+  const [bpOn, setBpOn] = useState<boolean>(!!(service as any)?.blueprint?.phases?.length);
+  const [bpPhases, setBpPhases] = useState<Phase[]>(() => (service as any)?.blueprint?.phases?.length ? (service as any).blueprint.phases : phasesFromService(service || {}));
+  const [bpReqs, setBpReqs] = useState<Requirement[]>(() => (service as any)?.blueprint?.requirements || []);
+  const bpT = deriveTimings(bpPhases);
+  const setPhase = (i: number, patch: Partial<Phase>) => setBpPhases((ps) => ps.map((p, j) => (j === i ? { ...p, ...patch } : p)));
+  const movePhase = (i: number, d: number) => setBpPhases((ps) => { const n = [...ps]; const j = i + d; if (j < 0 || j >= n.length) return ps; [n[i], n[j]] = [n[j], n[i]]; return n; });
+  const setReq = (i: number, patch: Partial<Requirement>) => setBpReqs((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  useEffect(() => {   // opening a different service resets the blueprint to that service's
+    const bp = (service as any)?.blueprint; setBpOn(!!bp?.phases?.length);
+    setBpPhases(bp?.phases?.length ? bp.phases : phasesFromService(service || {})); setBpReqs(bp?.requirements || []);
+  }, [service?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const onSubmit = (data: FormData) => {
     setSaving(true);
     let finalPrice = data.price || 0;
@@ -488,6 +502,8 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
       // The return plan (Book your next visit) — blanks mean "the same service" / "no change", never undefined.
       returnServiceId: data.returnServiceId || null, lateServiceId: data.lateServiceId || null,
       returnMinWeeks: Math.max(0, Math.min(52, Number(data.returnMinWeeks) || 0)), returnMaxWeeks: Math.max(0, Math.min(52, Number(data.returnMaxWeeks) || 0)),
+      // Blueprint on → its phases decide duration and the set-up / clean-up buffers (one source of truth for booking).
+      ...(bpOn && bpPhases.length ? (() => { const bp = nextBlueprint((service as any)?.blueprint, bpPhases, bpReqs); const d = deriveTimings(bp.phases); return { blueprint: bp, duration: d.duration || data.duration, padBefore: d.padBefore, padAfter: d.padAfter }; })() : {}),
       cost: breakEven,
       profit: finalPrice - breakEven,
       margin: finalPrice > 0 ? ((finalPrice - breakEven) / finalPrice) * 100 : 0,
@@ -1006,6 +1022,53 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 <Controller name="rebookWeeks" control={control} render={({ field }) => (
                   <Input type="number" min={0} max={52} value={field.value ?? 0} onChange={(e) => field.onChange(e.target.value)} className="h-11 w-20 rounded-xl border-2 text-center font-black" />
                 )} />
+              </div>
+              <div className="space-y-3 p-4 rounded-2xl border-2 border-dashed">
+                <div className="flex items-start justify-between gap-3">
+                  <div><p className="font-black uppercase text-sm tracking-tight">How it’s delivered</p>
+                    <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Phases and what it needs — sets the timings for booking and station turnover</p></div>
+                  <button type="button" onClick={() => setBpOn((v) => !v)} aria-pressed={bpOn} className={`h-8 shrink-0 rounded-full px-3 text-[11px] font-black uppercase ${bpOn ? 'bg-primary text-primary-foreground' : 'border-2'}`}>{bpOn ? 'On' : 'Set up'}</button>
+                </div>
+                {bpOn && (<div className="space-y-4">
+                  <div className="space-y-2">
+                    {bpPhases.map((p, i) => (
+                      <div key={p.id} className="space-y-2 rounded-xl border-2 p-2.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <select value={p.kind} onChange={(e) => setPhase(i, { kind: e.target.value as PhaseKind, label: p.label === PHASE_LABEL[p.kind] ? PHASE_LABEL[e.target.value as PhaseKind] : p.label })} className="h-10 rounded-xl border-2 bg-background px-2 text-sm" aria-label="Phase type">
+                            {(Object.keys(PHASE_LABEL) as PhaseKind[]).map((k) => <option key={k} value={k}>{PHASE_LABEL[k]}</option>)}
+                          </select>
+                          <Input value={p.label} onChange={(e) => setPhase(i, { label: e.target.value })} className="h-10 min-w-[8rem] flex-1 rounded-xl border-2" aria-label="Phase name" />
+                          <Input type="number" min={0} max={600} value={p.minutes} onChange={(e) => setPhase(i, { minutes: Number(e.target.value) })} className="h-10 w-20 rounded-xl border-2 text-center" aria-label="Minutes" />
+                          <span className="text-xs text-muted-foreground">min</span>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={p.providerNeeded} onChange={(e) => setPhase(i, { providerNeeded: e.target.checked })} /> Provider needed</label>
+                          <span className="flex gap-1">
+                            <button type="button" onClick={() => movePhase(i, -1)} disabled={i === 0} className="h-8 w-8 rounded-lg border text-sm disabled:opacity-30" aria-label="Move up">↑</button>
+                            <button type="button" onClick={() => movePhase(i, 1)} disabled={i === bpPhases.length - 1} className="h-8 w-8 rounded-lg border text-sm disabled:opacity-30" aria-label="Move down">↓</button>
+                            <button type="button" onClick={() => setBpPhases((ps) => ps.filter((_, j) => j !== i))} disabled={bpPhases.length <= 1} className="h-8 rounded-lg border px-2 text-xs disabled:opacity-30">Remove</button>
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">{PHASE_HINT[p.kind]}</p>
+                      </div>))}
+                    <div className="flex flex-wrap gap-2">{(Object.keys(PHASE_LABEL) as PhaseKind[]).map((k) => <button key={k} type="button" onClick={() => setBpPhases((ps) => [...ps, newPhase(k)])} className="h-9 rounded-full border-2 px-3 text-xs font-semibold">+ {PHASE_LABEL[k]}</button>)}</div>
+                    <p className="rounded-xl bg-muted/60 p-2.5 text-xs">Client {bpT.clientMinutes} min · provider {bpT.providerMinutes} min{bpT.providerFreeMinutes ? ` (free ${bpT.providerFreeMinutes} min while processing)` : ''} · station busy {bpT.stationMinutes} min{bpT.padAfter ? ` incl. ${bpT.padAfter} min turnover` : ''}</p>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-xs font-black uppercase tracking-tight">What it needs</p>
+                    <p className="text-[11px] text-muted-foreground">Beyond the rooms and equipment above — tools and kits, linens, amenities, an extra person.</p>
+                    {bpReqs.map((r, i) => (
+                      <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-xl border-2 p-2">
+                        <select value={r.kind} onChange={(e) => setReq(i, { kind: e.target.value as RequirementKind })} className="h-10 rounded-xl border-2 bg-background px-2 text-sm" aria-label="Kind">{(Object.keys(REQ_LABEL) as RequirementKind[]).map((k) => <option key={k} value={k}>{REQ_LABEL[k]}</option>)}</select>
+                        <Input value={r.name} onChange={(e) => setReq(i, { name: e.target.value })} placeholder="e.g. Pedicure kit" className="h-10 min-w-[8rem] flex-1 rounded-xl border-2" aria-label="Name" />
+                        <Input type="number" min={1} max={99} value={r.qty} onChange={(e) => setReq(i, { qty: Number(e.target.value) })} className="h-10 w-16 rounded-xl border-2 text-center" aria-label="Quantity" />
+                        <select value={r.mode} onChange={(e) => setReq(i, { mode: e.target.value as RequirementMode })} className="h-10 rounded-xl border-2 bg-background px-2 text-sm" aria-label="How strictly">{(Object.keys(MODE_LABEL) as RequirementMode[]).map((k) => <option key={k} value={k}>{MODE_LABEL[k]}</option>)}</select>
+                        <button type="button" onClick={() => setBpReqs((rs) => rs.filter((_, j) => j !== i))} className="h-10 rounded-xl border px-2 text-xs">Remove</button>
+                      </div>))}
+                    <button type="button" onClick={() => setBpReqs((rs) => [...rs, newRequirement()])} className="h-9 rounded-full border-2 px-3 text-xs font-semibold">+ Add a requirement</button>
+                  </div>
+                  {(service as any)?.blueprint?.version ? <p className="text-[11px] text-muted-foreground">Version {(service as any).blueprint.version} · saving a change makes a new version; past bookings keep the one they were booked under.</p> : null}
+                </div>)}
               </div>
               <div className="space-y-3 p-4 rounded-2xl border-2 border-dashed">
                 <div><p className="font-black uppercase text-sm tracking-tight">Return plan</p>
