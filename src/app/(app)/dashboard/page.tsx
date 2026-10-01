@@ -1,5 +1,6 @@
 'use client';
 
+import { deliverRefreshment } from '@/lib/lounge-delivery';
 import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
@@ -418,130 +419,8 @@ export default function DashboardPage() {
   const handleDeliverRefreshment = async (request: RefreshmentRequest) => {
       if (!firestore || !tenantId || !inventory) return;
       
-      const item = inventory.find(i => i.id === request.itemId);
-      if (!item) return;
-
-      const batch = writeBatch(firestore);
-      const now = new Date().toISOString();
-      const qty = safeNumber(request.quantity || 1);
-
-      // 1. UPDATE REQUEST STATUS
-      const requestRef = doc(firestore, `tenants/${tenantId}/refreshmentRequests`, request.id);
-      batch.update(requestRef, sanitizeForFirestore({
-          status: 'delivered',
-          deliveredAt: now,
-          deliveredBy: user?.uid || 'system'
-      }));
-
-      // 2. RECONCILE INVENTORY
-      const ingredients = item.formula && item.formula.length > 0 
-        ? item.formula.map(f => ({ ...f, quantityUsed: safeNumber(f.quantityUsed) * qty }))
-        : [{ id: item.id, name: item.name, quantityUsed: qty, unit: item.unit || 'unit' }];
-
-      ingredients.forEach(ingredient => {
-          const product = inventory.find(p => p.id === ingredient.id);
-          if (!product) return;
-
-          const productRef = doc(firestore, `tenants/${tenantId}/inventory`, product.id);
-          const updateData: any = {};
-          let unitLabel = product.unit || 'units';
-          
-          if (product.costingMethod === 'uses') {
-              unitLabel = product.useUnit || 'uses';
-              let currentUses = safeNumber(product.partialContainerUses);
-              let currentStock = safeNumber(product.totalStock);
-              const usesPerContainer = safeNumber(product.estimatedUses) || 1;
-              
-              currentUses -= ingredient.quantityUsed;
-              while (currentUses <= 0 && currentStock > 0) {
-                  currentStock -= 1;
-                  currentUses += usesPerContainer;
-              }
-              if (currentStock <= 0 && currentUses < 0) {
-                  currentStock = 0;
-                  currentUses = 0;
-              }
-              updateData.totalStock = currentStock;
-              updateData.partialContainerUses = currentUses;
-          } else if (product.costingMethod === 'size' && product.size) {
-              unitLabel = product.unit || 'ml';
-              let currentSize = safeNumber(product.partialContainerSize);
-              let currentStock = safeNumber(product.totalStock);
-              const sizePerContainer = safeNumber(product.size);
-              currentSize -= ingredient.quantityUsed;
-              while (currentSize <= 0 && currentStock > 0) {
-                  currentStock -= 1;
-                  currentSize += sizePerContainer;
-              }
-              if (currentStock <= 0 && currentSize < 0) {
-                  currentStock = 0;
-                  currentSize = 0;
-              }
-              updateData.totalStock = currentStock;
-              updateData.partialContainerSize = currentSize;
-          } else {
-              updateData.totalStock = increment(-ingredient.quantityUsed);
-          }
-
-          batch.update(productRef, sanitizeForFirestore(updateData));
-
-          const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
-          batch.set(correctionRef, sanitizeForFirestore({
-              id: nanoid(),
-              productId: product.id,
-              date: now,
-              change: -ingredient.quantityUsed,
-              unit: unitLabel,
-              reason: `Amenity Protocol: ${item.name} (x${qty}) for ${request.clientName}`,
-              requestId: request.id
-          }));
-      });
-
-      // 3. BIND TO APPOINTMENT (If exists)
-      if (request.appointmentId && request.appointmentId !== 'guest-walkin') {
-          const aptRef = doc(firestore, `tenants/${tenantId}/appointments/${request.appointmentId}`);
-          batch.set(aptRef, {
-              checkoutState: {
-                  refreshments: arrayUnion(sanitizeForFirestore({
-                      id: item.id,
-                      name: item.name,
-                      price: safeNumber(request.priceAtRequest), 
-                      deliveredAt: now,
-                      quantity: qty,
-                      isAccountedFor: true
-                  }))
-              }
-          }, { merge: true });
-      } else if (request.isGuestKiosk && safeNumber(request.priceAtRequest) > 0) {
-          // It's a guest kiosk order with a price. Create a transaction now since there's no appointment to bill later.
-          const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-          batch.set(txnRef, sanitizeForFirestore({
-              id: txnRef.id,
-              date: now,
-              description: `Lounge Guest Sale: ${item.name} (x${qty})`,
-              clientOrVendor: request.clientName,
-              type: 'income',
-              context: 'Business',
-              category: 'Hospitality Revenue',
-              amount: safeNumber(request.priceAtRequest) * qty,
-              paymentMethod: 'Guest Kiosk Entry',
-              hasReceipt: false,
-              tenantId
-          }));
-      }
-
-      // 4. UPDATE PERK USAGE IN GUEST DOSSIER
-      if (request.isRedemption && request.clientId && request.clientId !== 'guest-walkin') {
-          const clientRef = doc(firestore, `tenants/${tenantId}/clients`, request.clientId);
-          batch.update(clientRef, {
-              [`subscription.perkUsage.${request.itemId}`]: increment(qty),
-              'subscription.perkLastUsed': now,
-              'subscription.status': 'active' 
-          });
-      }
-
       try {
-          await batch.commit();
+          await deliverRefreshment(firestore, tenantId, request, inventory as any[], user);
           toast({ title: "Delivery Certified", description: `Stock reconciled and record updated for ${request.clientName}.` });
       } catch (e) {
           console.error("Fulfillment failed:", e);
