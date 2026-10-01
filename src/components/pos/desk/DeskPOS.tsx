@@ -127,6 +127,9 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const hiringOn = moduleEnabled(tenant, 'team'), rentalsOn = moduleEnabled(tenant, 'booth_rental'), academyOn = moduleEnabled(tenant, 'academy');
   const ivQ = useMemoFirebase(() => (hiringOn && e.firestore && e.tenantId ? query(collection(e.firestore, 'tenants', e.tenantId, 'interviewInvites'), where('status', '==', 'accepted')) : null), [hiringOn, e.firestore, e.tenantId]);
   const toursQ = useMemoFirebase(() => ((rentalsOn || academyOn) && e.firestore && e.tenantId ? query(collection(e.firestore, 'tenants', e.tenantId, 'tours'), where('date', '==', format(new Date(), 'yyyy-MM-dd'))) : null), [rentalsOn, academyOn, e.firestore, e.tenantId]);
+  // Front door (K7): arrivals from the kiosk that aren't appointments or walk-ins — pickups, renter visits, tours, "I need help".
+  const doorQ = useMemoFirebase(() => (e.firestore && e.tenantId ? query(collection(e.firestore, 'tenants', e.tenantId, 'frontDoor'), where('status', '==', 'waiting')) : null), [e.firestore, e.tenantId]);
+  const { data: doorWaiting } = useCollection<any>(doorQ);
   const { data: interviews } = useCollection<any>(ivQ); const { data: tours } = useCollection<any>(toursQ);
   const [moreOpen, setMoreOpen] = useState(false); const [moreTab, setMoreTab] = useState<'team' | 'waitlist' | 'spaces'>('waitlist');
   // Maintenance & disruptions — only for businesses with the maintenance tool.
@@ -400,6 +403,24 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
         </div>
       </div>
       <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-10 md:px-8">
+        {(doorWaiting || []).length > 0 && (
+          <section aria-label="At the door" className="mb-4 space-y-2">
+            <p className="text-[13px] font-semibold" style={{ color: 'var(--muted)' }}>At the door</p>
+            {[...(doorWaiting || [])].sort((a: any, b: any) => String(a.createdAt).localeCompare(String(b.createdAt))).map((d: any) => {
+              const mins = Math.max(0, Math.round((now.getTime() - Date.parse(d.createdAt || '')) / 60000));
+              return (
+                <div key={d.id} className={`flex flex-wrap items-center justify-between gap-2 rounded-2xl border p-3 ${d.intent === 'help' ? 'border-red-300 bg-red-50' : 'bg-white/70'}`}>
+                  <div className="min-w-0">
+                    <p className="text-[15px] font-semibold">{d.name || 'Someone'} · {d.label}{d.orderNumber ? ` · #${d.orderNumber}` : ''}{d.renterName ? ` · ${d.renterName}` : ''}</p>
+                    <p className="text-[12px]" style={{ color: 'var(--muted)' }}>{mins < 1 ? 'Just now' : `${mins} min ago`}{d.note ? ` · “${d.note}”` : ''}{d.renterName ? (d.renterTexted ? ` · ${d.renterName} was texted` : ` · tell ${d.renterName}`) : ''}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    {d.intent === 'pickup' && <Btn quiet onClick={() => { setPickupScan(null); setPickupOpen(true); }}>Open pickups</Btn>}
+                    <Btn onClick={() => updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId, 'frontDoor', d.id), { status: 'handled', handledAt: new Date().toISOString(), handledBy: (e as any).currentUserName || (e as any).currentStaffName || 'Front desk' })}>Got it</Btn>
+                  </div>
+                </div>);
+            })}
+          </section>)}
         {mode === 'desk' && <section aria-label="Today" className="mb-4">
           <button type="button" onClick={toggleToday} aria-expanded={todayOpen} className="mb-2 text-[13px] font-semibold" style={{ color: 'var(--muted)' }}>Today {todayOpen ? '▴' : '▾'}</button>
           {todayOpen && <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">{([
