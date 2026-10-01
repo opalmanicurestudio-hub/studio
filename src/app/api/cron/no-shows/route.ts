@@ -6,6 +6,7 @@
 // Fixed on the way: "not checked in" now reads the VISIT's stage (ticket/kiosk arrivals never set checkedInAt), the
 // query needs no composite index, and escalation actually fires (the old flag never set noShowEscalated:false, and
 // the escalation query only matched noShowEscalated == false).
+import { heartbeat } from '@/lib/account-health';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { stageOf } from '@/lib/visit';
@@ -59,5 +60,6 @@ export async function GET(req: NextRequest) {
       }
     } catch (e) { console.error('[cron/no-shows]', t.id, e); }
   }
+  await heartbeat(db, 'no-shows');   // HQ's account check uses this to spot a stopped task
   return NextResponse.json({ ok: true, flagged, escalated });
 }
