@@ -133,6 +133,8 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   // Front door (K7): arrivals from the kiosk that aren't appointments or walk-ins — pickups, renter visits, tours, "I need help".
   const doorQ = useMemoFirebase(() => (e.firestore && e.tenantId ? query(collection(e.firestore, 'tenants', e.tenantId, 'frontDoor'), where('status', '==', 'waiting')) : null), [e.firestore, e.tenantId]);
   const { data: doorWaiting } = useCollection<any>(doorQ);
+  const protoQ = useMemoFirebase(() => (e.firestore && e.tenantId ? collection(e.firestore, 'tenants', e.tenantId, 'protocols') : null), [e.firestore, e.tenantId]);
+  const { data: protocols } = useCollection<any>(protoQ);   // cleaning protocols (O7) — turnover checklists + quarantine
   const assistItems = useAssistQueue(e.firestore, e.tenantId || null);   // Station Assist (O4): station requests + lounge orders + restocks
   const { data: interviews } = useCollection<any>(ivQ); const { data: tours } = useCollection<any>(toursQ);
   const [moreOpen, setMoreOpen] = useState(false); const [moreTab, setMoreTab] = useState<'team' | 'waitlist' | 'spaces'>('waitlist');
@@ -148,7 +150,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const [assigning, setAssigning] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | Exclude<Stage, 'done'>>('all');
   const [now, setNow] = useState(() => new Date());
-  const stationRows = useMemo(() => stationReadiness(allResources || [], todaysAppts, e.services || [], now.getTime(), e.staff || []), [allResources, todaysAppts, e.services, now]);   // the desk's clock keeps the count fresh
+  const stationRows = useMemo(() => stationReadiness(allResources || [], todaysAppts, e.services || [], now.getTime(), e.staff || [], protocols || []), [allResources, todaysAppts, e.services, now]);   // the desk's clock keeps the count fresh
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);
   // Time-based text ("now", minutes late) is drawn in the browser only — the
   // server's clock and the browser's can differ by a minute (hydration mismatch).
@@ -480,7 +482,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       <Drawer accent={accent} open={pickupOpen} onClose={() => setPickupOpen(false)} title="Order pickup"><OrderPickup firestore={e.firestore} tenantId={e.tenantId} actor={{ id: getAuth().currentUser?.uid || 'desk', name: getAuth().currentUser?.displayName || 'Front desk' }} scanned={pickupScan}
         screen={clientScreen.connected ? { connected: true, name: clientScreen.name, ask: clientScreen.ask, response: clientScreen.response } : null} /></Drawer>
       <Drawer accent={accent} open={tuitionOpen} onClose={() => setTuitionOpen(false)} title="Tuition"><CollectTuition tenantId={e.tenantId} onTake={(x) => { e.setSelectedClientId?.(x.clientId); e.addTuitionToCart?.({ planId: x.planId, name: x.name, program: x.program, amount: x.amount }); setTuitionOpen(false); setMode('desk'); setCheckoutOpen(true); }} /></Drawer>
-      <Drawer accent={accent} open={stationsOpen} onClose={() => setStationsOpen(false)} title="Stations"><Stations firestore={e.firestore} tenantId={e.tenantId} resources={allResources || []} appts={todaysAppts} services={e.services || []} staff={e.staff || []} onAsk={(ctx: any) => { setStationsOpen(false); setAskFor(ctx); }} /></Drawer>
+      <Drawer accent={accent} open={stationsOpen} onClose={() => setStationsOpen(false)} title="Stations"><Stations firestore={e.firestore} tenantId={e.tenantId} resources={allResources || []} appts={todaysAppts} services={e.services || []} staff={e.staff || []} protocols={protocols || []} onAsk={(ctx: any) => { setStationsOpen(false); setAskFor(ctx); }} /></Drawer>
       <Drawer accent={accent} open={assistOpen} onClose={() => setAssistOpen(false)} title="Assist"><AssistQueue firestore={e.firestore} tenantId={e.tenantId} inventory={allInventory || []} user={getAuth().currentUser} /></Drawer>
       <Drawer accent={accent} open={!!askFor} onClose={() => setAskFor(null)} title="Ask for help">{askFor && <AskForHelp tenantId={e.tenantId} context={askFor} onDone={() => setAskFor(null)} />}</Drawer>
       <Drawer accent={accent} open={rentOpen} onClose={() => setRentOpen(false)} title="Collect rent"><CollectRent tenantId={e.tenantId} onTake={(x) => { e.setSelectedClientId?.(x.clientId); e.addRentToCart?.({ renterId: x.renterId, name: x.name, amount: x.amount }); setRentOpen(false); setMode('desk'); setCheckoutOpen(true); }} /></Drawer>
