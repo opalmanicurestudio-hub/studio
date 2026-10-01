@@ -11,7 +11,7 @@ import { stationReadiness, READINESS_LABEL, type Readiness, type StationRow } fr
 const TONE: Record<Readiness, string> = { ready: 'bg-emerald-100 text-emerald-800', in_use: 'bg-sky-100 text-sky-800', turnover: 'bg-amber-100 text-amber-900', inspect: 'bg-violet-100 text-violet-900', blocked: 'bg-red-100 text-red-800' };
 const time = (iso?: string | null) => (iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '');
 
-export function Stations({ firestore, tenantId, resources, appts, services, staff = [] }: { firestore: any; tenantId: string; resources: any[]; appts: any[]; services: any[]; staff?: any[] }) {
+export function Stations({ firestore, tenantId, resources, appts, services, staff = [], onAsk }: { firestore: any; tenantId: string; resources: any[]; appts: any[]; services: any[]; staff?: any[]; onAsk?: (ctx: { resourceId: string; stationName: string; visitId?: string | null; clientName?: string | null }) => void }) {
   const [now, setNow] = React.useState(Date.now());
   React.useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(t); }, []);
   const rows = React.useMemo(() => stationReadiness(resources, appts, services, now, staff), [resources, appts, services, now, staff]);
@@ -74,6 +74,7 @@ export function Stations({ firestore, tenantId, resources, appts, services, staf
                   return <button type="button" disabled={busy === r.id || need} onClick={() => act.ready(r)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">{r.status === 'turnover' && r.needsConfirm ? 'Done — ready' : 'Mark ready'}</button>; })()}
                 {r.status === 'turnover' && <button type="button" disabled={busy === r.id} onClick={() => act.claim(r)} className="h-9 rounded-full border px-3 text-[13px] disabled:opacity-50">I’ll do it</button>}
                 {(r.status === 'ready' || r.status === 'turnover') && <button type="button" disabled={busy === r.id} onClick={() => act.inspect(r)} className="h-9 rounded-full border px-3 text-[13px] disabled:opacity-50">Needs inspection</button>}
+                {r.status === 'in_use' && onAsk && <button type="button" onClick={() => onAsk({ resourceId: r.id, stationName: r.name, visitId: r.visitId, clientName: r.clientName })} className="h-9 rounded-full border px-3 text-[13px] font-semibold">Ask for help</button>}
                 {r.status === 'blocked'
                   ? <button type="button" disabled={busy === r.id} onClick={() => act.unblock(r)} className="h-9 rounded-full border px-3 text-[13px] font-semibold disabled:opacity-50">Unblock</button>
                   : r.status !== 'in_use' && <button type="button" onClick={() => { setBlocking(r.id); setReason(''); }} className="h-9 rounded-full border px-3 text-[13px] text-red-700">Block</button>}
