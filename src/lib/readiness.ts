@@ -7,7 +7,11 @@ import { stageOf } from '@/lib/visit';
 
 export type Readiness = 'ready' | 'in_use' | 'turnover' | 'inspect' | 'blocked';
 export const READINESS_LABEL: Record<Readiness, string> = { ready: 'Ready', in_use: 'In use', turnover: 'Turning over', inspect: 'Needs inspection', blocked: 'Blocked' };
-export interface StationRow { id: string; name: string; type: string; status: Readiness; readyBy?: string | null; clientName?: string | null; visitId?: string | null; since?: string | null; note?: string | null; next?: { at: string; clientName: string | null } | null }
+export interface StationRow { id: string; name: string; type: string; status: Readiness; readyBy?: string | null; clientName?: string | null; visitId?: string | null; since?: string | null; note?: string | null; next?: { at: string; clientName: string | null } | null;
+  // Turnover as a TASK (O3): the steps from the service's blueprint, who owns it, and whether it's late.
+  checklist?: string[]; ownerId?: string | null; ownerName?: string | null; claimed?: boolean; overdueMin?: number; needsConfirm?: boolean }
+/** Default steps when a service asks for confirmation but names none. */
+export const DEFAULT_TURNOVER_STEPS = ['Clear and wipe down', 'Clean and sanitise tools', 'Reset for the next client'];
 
 const ms = (v: any): number => { if (!v) return 0; if (typeof v === 'string') return Date.parse(v) || 0; if (v?.seconds) return v.seconds * 1000; if (v instanceof Date) return v.getTime(); return Number(v) || 0; };
 /** When the hands-on part of a visit ended (whichever screen recorded it). */
@@ -19,8 +23,17 @@ export function serviceEndedAt(a: any): number {
 }
 const needs = (a: any, id: string) => Array.isArray(a?.requiredResourceIds) && a.requiredResourceIds.includes(id);
 
-export function stationReadiness(resources: any[], appts: any[], services: any[], now = Date.now()): StationRow[] {
+export function stationReadiness(resources: any[], appts: any[], services: any[], now = Date.now(), staff: any[] = []): StationRow[] {
   const svc = new Map((services || []).map((s: any) => [s.id, s]));
+  const staffName = (id: any) => { const m: any = (staff || []).find((x: any) => x.id === id); return m ? String(m.name || m.firstName || '').split(' ')[0] || null : null; };
+  // A service whose blueprint names turnover steps needs someone to confirm them — its station stays "turning over"
+  // (then "overdue") until they do. Without steps, the station is ready again when the turnover time is up (as before).
+  const stepsOf = (a: any): string[] => {
+    const s: any = svc.get(a?.serviceId); const ph = (s?.blueprint?.phases || []).filter((p: any) => p?.kind === 'turnover');
+    if (!ph.length) return [];
+    const named = ph.map((p: any) => String(p.label || '').trim()).filter((l: string) => l && l.toLowerCase() !== 'turnover');
+    return named.length ? named.slice(0, 12) : DEFAULT_TURNOVER_STEPS;
+  };
   const turnoverOf = (a: any) => { const s: any = svc.get(a?.serviceId); return Math.max(0, Number(a?.padAfter ?? s?.padAfter ?? 0) || 0); };
   return (resources || []).filter((r: any) => r && r.id).map((r: any): StationRow => {
     const base = { id: r.id, name: r.name || 'Station', type: r.type || 'room' };
@@ -32,8 +45,12 @@ export function stationReadiness(resources: any[], appts: any[], services: any[]
     if (using) return { ...base, status: 'in_use', clientName: using.clientName || null, visitId: using.id, since: using.actualStartTime || null, next };
     const override = r.readiness || {}; const overrideAt = ms(override.at);
     const done = mine.map((a: any) => ({ a, end: serviceEndedAt(a) })).filter((x) => x.end && x.end <= now).sort((x, y) => y.end - x.end)[0];
-    if (done) { const readyAt = done.end + turnoverOf(done.a) * 60000;
-      if (readyAt > now && !(override.status === 'ready' && overrideAt >= done.end)) return { ...base, status: 'turnover', readyBy: new Date(readyAt).toISOString(), clientName: done.a.clientName || null, visitId: done.a.id, next }; }
+    if (done) { const readyAt = done.end + turnoverOf(done.a) * 60000; const steps = stepsOf(done.a); const confirmed = override.status === 'ready' && overrideAt >= done.end;
+      if (!confirmed && (readyAt > now || steps.length)) {
+        const claim = override.claimedFor === done.a.id ? override : null;
+        return { ...base, status: 'turnover', readyBy: new Date(readyAt).toISOString(), clientName: done.a.clientName || null, visitId: done.a.id, next,
+          checklist: steps, needsConfirm: steps.length > 0, overdueMin: readyAt < now ? Math.ceil((now - readyAt) / 60000) : 0,
+          ownerId: claim?.claimedById || done.a.staffId || null, ownerName: claim?.claimedByName || staffName(done.a.staffId) || done.a.staffName || null, claimed: !!claim }; } }
     if (override.status === 'inspect' && (!done || overrideAt >= done.end)) return { ...base, status: 'inspect', note: override.note || null, since: override.at || null, next };
     return { ...base, status: 'ready', next };
   });
