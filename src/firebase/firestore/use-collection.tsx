@@ -59,6 +59,10 @@ export function useCollection<T = any>(
 
   const [data, setData] = useState<StateDataType>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  // Which query has had its first real answer (data or a refusal). Until then we're loading — even in the render
+  // where the query first appears, before the effect below runs. (That one-render gap read as "there are none" and
+  // let code act on an empty list that was really just not loaded yet — e.g. recreating a deleted location.)
+  const [answeredFor, setAnsweredFor] = useState<any>(null);
   const [error, setError] = useState<FirestoreError | Error | null>(null);
 
   useEffect(() => {
@@ -84,7 +88,7 @@ export function useCollection<T = any>(
         }
         setData(results);
         setError(null);
-        setIsLoading(false);
+        setIsLoading(false); setAnsweredFor(memoizedTargetRefOrQuery);
       },
       (error: FirestoreError) => {
         // This logic extracts the path from either a ref or a query
@@ -100,7 +104,7 @@ export function useCollection<T = any>(
 
         setError(contextualError)
         setData(null)
-        setIsLoading(false)
+        setIsLoading(false); setAnsweredFor(memoizedTargetRefOrQuery);
 
         // trigger global error propagation
         errorEmitter.emit('permission-error', contextualError);
@@ -113,5 +117,5 @@ export function useCollection<T = any>(
   if(memoizedTargetRefOrQuery && !memoizedTargetRefOrQuery.__memo) {
     throw new Error(memoizedTargetRefOrQuery + ' was not properly memoized using useMemoFirebase');
   }
-  return { data, isLoading, error };
+  return { data, isLoading: isLoading || (!!memoizedTargetRefOrQuery && answeredFor !== memoizedTargetRefOrQuery), error };
 }
