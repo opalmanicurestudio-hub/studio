@@ -1,4 +1,4 @@
-// // src/app/api/hq/route.ts
+// src/app/api/hq/route.ts
 //
 // CLARITYFLOW HQ — the platform side. PLATFORM_ADMIN_EMAILS only.
 //
