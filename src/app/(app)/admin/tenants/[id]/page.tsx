@@ -6,6 +6,7 @@
 // last seen, their tools, their help requests, and a TIMELINE of what's been
 // happening (bookings, messages — failures in red — changes, help requests).
 
+import { businessBrief } from '@/lib/support-brief';
 import { use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Loader, ArrowLeft } from 'lucide-react';
@@ -26,6 +27,8 @@ export default function HqTenantPage({ params }: { params: Promise<{ id: string 
   const [busy, setBusy] = useState('');
   const [note, setNote] = useState('');
   const [tools, setTools] = useState<string[] | null>(null);
+  const [check, setCheck] = useState<any>(null); const [checking, setChecking] = useState(false);   // HQ account check
+  const runCheck = async () => { setChecking(true); const r = await hq({ action: 'health-check', id }); setChecking(false); setCheck(r.ok ? r.health : { summary: r.error || 'Couldn’t run the check.', findings: [] }); };
   const fix = async (fixName: string, extra: any = {}, confirmText?: string) => {
     if (confirmText && !window.confirm(confirmText)) return;
     setBusy(fixName + (extra.appointmentId || '')); setMsg('');
@@ -51,6 +54,19 @@ export default function HqTenantPage({ params }: { params: Promise<{ id: string 
               </div>
               <span className={`rounded-full px-3 py-1.5 text-sm font-semibold ${HEALTH_TONE[d.health.label]}`}>{d.health.label} · {d.health.score}</span>
             </div>
+
+            <section className="space-y-3 glass rounded-[1.75rem] border border-white/70 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div><p className="text-[10px] font-semibold uppercase tracking-widest text-stone-400">Account check</p>
+                  <p className="text-sm text-stone-600">{check ? check.summary : 'Ownership, locations, waiting orders, Stripe and scheduled tasks — checked from the server.'}</p></div>
+                <div className="flex gap-2">
+                  <button type="button" disabled={checking} onClick={runCheck} className="h-10 rounded-xl bg-stone-900 px-4 text-sm font-semibold text-white disabled:opacity-50">{checking ? 'Checking…' : check ? 'Run again' : 'Run account check'}</button>
+                  {check?.findings?.length > 0 && <button type="button" onClick={async () => { const text = businessBrief(check); try { await navigator.clipboard.writeText(text); setMsg('Developer brief copied.'); } catch { window.prompt('Developer brief:', text); } }} className="h-10 rounded-xl border border-stone-300 bg-white px-4 text-sm font-semibold">Copy developer brief</button>}
+                </div>
+              </div>
+              {check?.findings?.length > 0 && <ul className="space-y-1.5 text-sm">{check.findings.map((f: any) => <li key={f.key} className="flex items-start gap-2">
+                <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${f.level === 'warn' ? 'bg-amber-100 text-amber-900' : f.level === 'ok' ? 'bg-emerald-100 text-emerald-800' : 'bg-stone-200 text-stone-700'}`}>{f.level === 'warn' ? '!' : f.level === 'ok' ? '✓' : 'i'}</span><span>{f.text}</span></li>)}</ul>}
+            </section>
 
             <div className="grid gap-3 md:grid-cols-3">
               <section className="space-y-2 glass rounded-[1.75rem] border border-white/70 p-4">
