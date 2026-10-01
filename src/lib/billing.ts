@@ -69,7 +69,10 @@ export async function businessSize(tenantId: string) {
   // Students in a school's student salon are providers, not the school's team — never billed.
   const staff = staffSnap.docs.filter((d: any) => !(d.data() as any).isStudent && !['archived', 'terminated', 'inactive'].includes(String((d.data() as any).status || ''))).length;
   const renters = new Set(leases.docs.map((d: any) => (d.data() as any).renterId).filter(Boolean)).size;
-  return { staff: Math.max(1, staff), renters };
+  // Locations are billed beyond the first (storage areas share the collection and never count).
+  const { isBusinessLocation } = await import('@/lib/location-kind');
+  const locations = Math.max(1, (await db.collection(`tenants/${tenantId}/locations`).get()).docs.filter((d: any) => isBusinessLocation({ id: d.id, ...(d.data() as any) })).length);
+  return { staff: Math.max(1, staff), renters, locations };
 }
 
 /** The quote for a business as it stands (or with a proposed set of tools). */
@@ -77,7 +80,7 @@ export async function quoteFor(tenantId: string, tools?: ToolId[]) {
   const t = ((await getAdminDb().doc(`tenants/${tenantId}`).get()).data() as any) || {};
   const size = await businessSize(tenantId);
   const use = tools || fromTenantModules(t.modules);
-  return { ...quote({ tools: use, staff: size.staff, renters: size.renters, team: t.teamSize === 'team' }), size, tools: use };
+  return { ...quote({ tools: use, staff: size.staff, renters: size.renters, team: t.teamSize === 'team', locations: Math.max(1, size.locations - Math.max(0, Math.round(Number(t?.billing?.locationsGranted) || 0))) }), size, tools: use };   // HQ-granted locations aren't billed
 }
 
 async function ensureCustomer(tenantId: string, email?: string | null) {
