@@ -24,7 +24,6 @@ import {
   useEffect,
   useCallback,
   useMemo,
-  useRef,
   type ReactNode,
 } from 'react';
 import { collection, query, where } from 'firebase/firestore';
@@ -34,7 +33,7 @@ import { useDoc } from '@/firebase/firestore/use-doc';
 import { doc } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { Location, BOOTH_RENTAL_COLLECTIONS } from '@/lib/booth-rental-types';
-import { provisionDefaultLocation, isBusinessLocation } from '@/lib/booth-rental-service';
+import { isBusinessLocation } from '@/lib/booth-rental-service';
 
 // ─────────────────────────────────────────────────────────────────────────
 // CORRECTIONS — what changed once the real TenantContext.tsx arrived
@@ -139,42 +138,10 @@ export const LocationProvider = ({ children }: { children: ReactNode }) => {
   // dependency array alone (locations.length, tenantLoading, etc.) isn't
   // enough to prevent a double-fire during the brief window between
   // starting the write and the locations query reflecting it.
-  const hasProvisionedRef = useRef(false);
-
-  useEffect(() => {
-    if (!isOwner || !firestore || !tenantId) return;
-    if (tenantLoading || locationsLoading) return;
-    if ((allLocations ?? []).length > 0) return;
-    if (hasProvisionedRef.current) return;
-
-    hasProvisionedRef.current = true;
-    provisionDefaultLocation(firestore, tenantId, {
-      name: selectedTenant?.name,
-      studioAddress: (selectedTenant as any)?.studioAddress,
-      studioLocation: (selectedTenant as any)?.studioLocation,
-    }).catch(() => {
-      // Allow a retry on the next render if this failed (network blip,
-      // etc.) rather than permanently locking the tenant out of ever
-      // getting a default location because one attempt failed silently.
-      //
-      // Safe to retry now in a way it never used to be: provisioning writes to
-      // a FIXED document id and returns early if it already exists, so a retry
-      // — or a second tab, or a StrictMode double-mount — converges on the same
-      // single location instead of minting another one. This ref is now just a
-      // courtesy that avoids a redundant read, not the thing preventing
-      // duplicates.
-      hasProvisionedRef.current = false;
-    });
-  }, [
-    isOwner,
-    firestore,
-    tenantId,
-    tenantLoading,
-    locationsLoading,
-    allLocations,
-    selectedTenant,
-    hasProvisionedRef,
-  ]);
+  // (Auto-provisioning REMOVED 2026-10-01.) It created a default location whenever this browser saw zero locations —
+  // including the one moment after sign-in when the list simply hadn't arrived yet — so a main location the owner had
+  // deleted came back on every sign-in ("ghost locations"). A business's main location is now created once, on the
+  // server, at signup (/api/signup); "Restore my main location" (Account check / Settings → Locations) covers the rest.
 
   // ── Locations actually selectable by this user ─────────────────────────
   const locations = useMemo(() => {
