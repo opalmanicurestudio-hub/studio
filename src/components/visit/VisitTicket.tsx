@@ -3,6 +3,7 @@
 // (a scanned ticket, the desk, the planner, a client's profile, Today's sales). Stage (worded for the business) with the
 // next step one tap away · payment status and flags · receipts · handoff notes (staff-only or for the client) · the
 // timeline (who / when / how) · signed approvals · the client's visit link. Updates live while it's open.
+import { ProductsUsed } from '@/components/visit/ProductsUsed';
 import * as React from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
@@ -83,6 +84,7 @@ export function VisitTicket({ tenantId, appointmentId, onClose }: { tenantId: st
           <button type="button" onClick={() => openReceipt(tenantId, r.id)} className="text-[13px] font-semibold underline underline-offset-4">{r.voided ? 'Void slip' : 'Receipt'}</button></div>)}
         {v.stage === 'complete' && act.bookNext && <button type="button" onClick={() => act.bookNext!(v.id, v.clientId, v.serviceId)} className="h-10 w-full rounded-full text-[14px] font-semibold" style={soft}>Book {first}’s next visit</button>}
       </section>}
+      {String(v.stage) === 'complete' && <ProductsUsed tenantId={tenantId} visitId={appointmentId} className={card} style={cardStyle} />}
       {/* Handoff notes */}
       <section className={card} style={cardStyle} aria-label="Add a note">
         <p className="text-[15px] font-semibold">Handoff note</p>
