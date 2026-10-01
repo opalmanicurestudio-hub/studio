@@ -46,3 +46,17 @@ export function ticketBrief(k: any): string {
     'Diagnose the root cause from the evidence above, confirm it against the code, then give the fix as complete files (or exact Firestore-console / rules steps if it is configuration). Say what the customer should do afterwards, and whether other businesses could be affected.');
   return L.filter((x) => x !== undefined).join('\n');
 }
+
+/** Developer brief for an HQ account check of a business (no ticket). */
+export function businessBrief(h: any): string {
+  const d = h?.details || {}; const L: string[] = [];
+  L.push(`# ClarityFlow account check — ${d.name || '—'} (${d.tenantId || '—'})`, `Run from HQ · ${new Date().toISOString()} · ${h?.summary || ''}`, '', '## Findings');
+  for (const f of h?.findings || []) L.push(`- [${f.level}] ${f.text} (${f.key})`);
+  L.push('', '## Details', '```json', JSON.stringify(d, null, 2), '```');
+  const keys = new Set<string>((h?.findings || []).filter((f: any) => f.level !== 'ok').map((f: any) => f.key));
+  const where: Record<string, string> = { ...WHERE, no_owner: WHERE.no_business, owner_mismatch: WHERE.no_business, primary_missing: WHERE.no_location, staff_locations: WHERE.no_location, appointment_locations: WHERE.no_location, cron_retail_payments: WHERE.orders_waiting, 'cron_retail-payments': 'Vercel → Settings → Cron Jobs: /api/cron/retail-payments (every 5 min) and CRON_SECRET in Environment Variables.', 'cron_no-shows': 'Vercel → Settings → Cron Jobs: /api/cron/no-shows (every 5 min) and CRON_SECRET.' };
+  if (keys.size) { L.push('', '## Where to look'); for (const k of keys) if (where[k]) L.push(`- ${k}: ${where[k]}`); }
+  L.push('', '## Known causes (check these first)'); for (const x of KNOWN) L.push(`- ${x}`);
+  L.push('', '## What I need', 'Repo: github.com/opalmanicurestudio-hub/studio (Next.js App Router + Firebase/Firestore + Stripe Connect, on Vercel).', 'Confirm the cause of each issue against the code and give the fix as complete files or exact console steps; note whether other businesses could be affected.');
+  return L.join('\n');
+}
