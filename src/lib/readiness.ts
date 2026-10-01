@@ -1,0 +1,42 @@
+// src/lib/readiness.ts — STATION READINESS (O2), worked out live from the visits themselves.
+// A room or piece of equipment is: blocked (out of service), in use (a visit needing it is in service), turning over
+// (a visit just finished and it's inside the service's turnover time — "ready by 2:45"), needs inspection (flagged by
+// staff), or ready. Computed from visits rather than stored, so it's right whichever screen moved the visit along
+// (desk, POS, checkout, visit ticket) with nothing to keep in sync. Staff can mark a station ready early or flag it.
+import { stageOf } from '@/lib/visit';
+
+export type Readiness = 'ready' | 'in_use' | 'turnover' | 'inspect' | 'blocked';
+export const READINESS_LABEL: Record<Readiness, string> = { ready: 'Ready', in_use: 'In use', turnover: 'Turning over', inspect: 'Needs inspection', blocked: 'Blocked' };
+export interface StationRow { id: string; name: string; type: string; status: Readiness; readyBy?: string | null; clientName?: string | null; visitId?: string | null; since?: string | null; note?: string | null; next?: { at: string; clientName: string | null } | null }
+
+const ms = (v: any): number => { if (!v) return 0; if (typeof v === 'string') return Date.parse(v) || 0; if (v?.seconds) return v.seconds * 1000; if (v instanceof Date) return v.getTime(); return Number(v) || 0; };
+/** When the hands-on part of a visit ended (whichever screen recorded it). */
+export function serviceEndedAt(a: any): number {
+  const t = ms(a?.actualEndTime); if (t) return t;
+  const tl = Array.isArray(a?.timeline) ? a.timeline : [];
+  for (let i = tl.length - 1; i >= 0; i--) if (tl[i]?.kind === 'stage' && (tl[i].stage === 'ready_to_pay' || tl[i].stage === 'complete')) return ms(tl[i].at);
+  return ms(a?.completedAt) || ms(a?.readyForCheckoutAt) || 0;
+}
+const needs = (a: any, id: string) => Array.isArray(a?.requiredResourceIds) && a.requiredResourceIds.includes(id);
+
+export function stationReadiness(resources: any[], appts: any[], services: any[], now = Date.now()): StationRow[] {
+  const svc = new Map((services || []).map((s: any) => [s.id, s]));
+  const turnoverOf = (a: any) => { const s: any = svc.get(a?.serviceId); return Math.max(0, Number(a?.padAfter ?? s?.padAfter ?? 0) || 0); };
+  return (resources || []).filter((r: any) => r && r.id).map((r: any): StationRow => {
+    const base = { id: r.id, name: r.name || 'Station', type: r.type || 'room' };
+    const mine = (appts || []).filter((a: any) => needs(a, r.id) && !['cancelled', 'no_show', 'declined'].includes(String(a.status)));
+    const upcoming = mine.filter((a: any) => ['booked', 'arrived', 'waiting'].includes(stageOf(a)) && ms(a.startTime) >= now - 15 * 60000).sort((x: any, y: any) => ms(x.startTime) - ms(y.startTime))[0];
+    const next = upcoming ? { at: new Date(ms(upcoming.startTime)).toISOString(), clientName: upcoming.clientName || null } : null;
+    if (r.isOutOfService) return { ...base, status: 'blocked', note: r.maintenanceNotes || r.readiness?.note || null, next };
+    const using = mine.find((a: any) => stageOf(a) === 'in_service');
+    if (using) return { ...base, status: 'in_use', clientName: using.clientName || null, visitId: using.id, since: using.actualStartTime || null, next };
+    const override = r.readiness || {}; const overrideAt = ms(override.at);
+    const done = mine.map((a: any) => ({ a, end: serviceEndedAt(a) })).filter((x) => x.end && x.end <= now).sort((x, y) => y.end - x.end)[0];
+    if (done) { const readyAt = done.end + turnoverOf(done.a) * 60000;
+      if (readyAt > now && !(override.status === 'ready' && overrideAt >= done.end)) return { ...base, status: 'turnover', readyBy: new Date(readyAt).toISOString(), clientName: done.a.clientName || null, visitId: done.a.id, next }; }
+    if (override.status === 'inspect' && (!done || overrideAt >= done.end)) return { ...base, status: 'inspect', note: override.note || null, since: override.at || null, next };
+    return { ...base, status: 'ready', next };
+  });
+}
+/** Stations that need someone's attention (shown as a count on the desk). */
+export const needsAttention = (rows: StationRow[]) => rows.filter((r) => r.status === 'turnover' || r.status === 'inspect' || r.status === 'blocked').length;
