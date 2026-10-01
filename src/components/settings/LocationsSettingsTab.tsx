@@ -31,13 +31,16 @@
  * change, because it moves where two live geofences get their truth.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useLocation } from '@/context/LocationContext';
-import { createLocation } from '@/lib/booth-rental-service';
+// New business locations are created on the server only (it checks the plan's location allowance and bills extras).
+async function locApi(body: any) { const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken();
+  const r = await fetch('/api/locations/create', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify(body) });
+  return { status: r.status, body: await r.json().catch(() => ({})) }; }
 import { Location, LocationAddressParts, formatLocationAddress } from '@/lib/booth-rental-types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardDescription } from '@/components/ui/card';
@@ -151,7 +154,13 @@ export function LocationsSettingsTab() {
 
   const set = (patch: Partial<LocationFormState>) => setForm((p) => ({ ...p, ...patch }));
 
+  // The plan's location allowance (1 included; more need a subscription — each extra one is billed).
+  const [allowance, setAllowance] = useState<any>(null); const [pageMsg, setPageMsg] = useState<string | null>(null);
+  const loadAllowance = useCallback(async () => { if (!tenantId) return; const r = await locApi({ action: 'allowance', tenantId }).catch(() => null); if (r?.body?.ok) setAllowance(r.body.allowance); }, [tenantId]);
+  useEffect(() => { loadAllowance(); }, [loadAllowance]);
   const openCreate = () => {
+    if (allowance && !allowance.canAdd) { setPageMsg(allowance.reason); return; }
+    setPageMsg(null);
     setEditingId(null);
     setForm(EMPTY_FORM);
     setError(null);
@@ -312,16 +321,11 @@ export function LocationsSettingsTab() {
           updatedAt: new Date().toISOString(),
         });
       } else {
-        await createLocation(firestore, {
-          tenantId,
-          name: form.name.trim(),
-          address: display || undefined,
-          addressParts: parts,
-          coordinates,
-          geoFenceRadiusMeters: radius,
-          geoFenceBreakRadiusMeters: breakRadius,
-          timezone: form.timezone,
-        });
+        const r = await locApi({ action: 'create', tenantId, name: form.name.trim(), address: display || undefined, addressParts: parts, coordinates,
+          geoFenceRadiusMeters: radius, geoFenceBreakRadiusMeters: breakRadius, timezone: form.timezone });
+        if (!r.body?.ok) { if (r.body?.allowance) setAllowance(r.body.allowance); throw new Error(r.body?.error || 'That location couldn’t be added.'); }
+        if (r.body.billing) setPageMsg(r.body.billing);
+        loadAllowance();
       }
       setDialogOpen(false);
     } catch (err) {
@@ -578,6 +582,13 @@ export function LocationsSettingsTab() {
           <Plus className="h-4 w-4 mr-2" />
           Add location
         </Button>
+        {allowance && (
+          <p className="text-xs text-muted-foreground">
+            {allowance.limit !== null
+              ? <>{allowance.count} of {allowance.limit} location{allowance.limit === 1 ? '' : 's'} included in your plan{!allowance.canAdd && <> · <a href="/subscriptions" className="font-semibold underline underline-offset-2">See plans</a> to add more</>}</>
+              : <>Each location beyond {allowance.included + allowance.granted} is ${allowance.unitPrice}/month on your subscription.</>}
+          </p>)}
+        {pageMsg && <p role="status" className="rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-900">{pageMsg}{allowance && !allowance.canAdd && <> <a href="/subscriptions" className="underline underline-offset-2">See plans</a></>}</p>}
       </CardContent>
 
       <Dialog open={bulkOpen} onOpenChange={(o) => { if (!o) setBulkOpen(false); }}>
