@@ -299,6 +299,13 @@ service cloud.firestore {
       allow read: if isStaff(tenantId);
       allow write: if false;
     }
+    match /tenants/{tenantId}/locations/{locationId} {
+      allow read: if isStaff(tenantId);
+      allow create: if isStaff(tenantId) && request.resource.data.get('locationTypeId', '') != '';
+      allow delete: if isStaff(tenantId) && resource.data.get('locationTypeId', '') != '';
+      allow update: if isStaff(tenantId)
+        && (request.resource.data.get('locationTypeId', '') == '') == (resource.data.get('locationTypeId', '') == '');
+    }
     match /tenants/{tenantId}/{collection}/{rest=**} {
       allow read, write: if isStaff(tenantId) &&
         !(collection in [
@@ -342,7 +349,8 @@ service cloud.firestore {
           'boothPassPurchases',
           'tickets',
           'maintenanceWorkers',
-          'maintenancePlans'
+          'maintenancePlans',
+          'locations'
         ]);
     }
     match /tenants/{tenantId}/jobListings/{listingId} {
