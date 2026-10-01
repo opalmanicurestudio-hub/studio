@@ -58,10 +58,18 @@ export async function POST(req: NextRequest) {
   if (message.length < 5) return NextResponse.json({ ok: false, error: 'Tell us a little more.' }, { status: 400 });
   const kind = ['broken', 'question', 'idea'].includes(b.kind) ? b.kind : 'question';
   const c = b.context || {};
+  // Account check findings (from /diagnostics) — a checked, size-limited summary for HQ only.
+  const cleanHealth = (h: any) => { const str = (v: any, n = 200) => String(v ?? '').slice(0, n); const reads: any = {};
+    for (const [k, v] of Object.entries(h?.reads || {}).slice(0, 12)) reads[str(k, 40)] = { ok: !!(v as any)?.ok, count: Number((v as any)?.count) || 0, code: (v as any)?.code ? str((v as any).code, 60) : null };
+    return { summary: str(h?.summary, 120), findings: (Array.isArray(h?.findings) ? h.findings : []).slice(0, 12).map((f: any) => ({ key: str(f?.key, 40), level: str(f?.level, 8), text: str(f?.text, 200) })),
+      business: { tenantId: str(h?.business?.tenantId, 80), role: str(h?.business?.role, 30), serverOwned: (Array.isArray(h?.business?.serverOwned) ? h.business.serverOwned : []).slice(0, 5).map((x: any) => str(x, 80)), staff: h?.business?.staff ? str(JSON.stringify(h.business.staff), 200) : null },
+      reads, locations: { count: Number(h?.locations?.count) || 0, duplicates: Number(h?.locations?.duplicates) || 0, storedOnDevice: h?.locations?.storedOnDevice ? str(h.locations.storedOnDevice, 80) : null },
+      waitingOrders: Number(h?.waitingOrders) || 0, timeline: (Array.isArray(h?.timeline) ? h.timeline : []).slice(-20).map((x: any) => str(x, 160)) }; };
   const context = {
     page: String(c.page || '').slice(0, 300), userAgent: String(req.headers.get('user-agent') || '').slice(0, 300),
     appVersion: String(c.appVersion || '').slice(0, 60), host: String(c.host || '').slice(0, 120),
     screen: String(c.screen || '').slice(0, 40), errors: Array.isArray(c.errors) ? c.errors.slice(-10).map((e: any) => ({ at: String(e.at || '').slice(0, 40), message: String(e.message || '').slice(0, 300), page: String(e.page || '').slice(0, 200) })) : [],
+    ...(c.health ? { health: cleanHealth(c.health) } : {})
   };
   const t = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
   const ref = db.collection('platformTickets').doc();
