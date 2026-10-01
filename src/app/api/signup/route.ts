@@ -144,6 +144,10 @@ export async function POST(req: NextRequest) {
       batch.set(inviteRef, { usedAt: at, usedByTenantId: tenantId, usedByEmail: email }, { merge: true });
       if (invite.leadId) batch.set(db.doc(`platformLeads/${invite.leadId}`), { status: 'onboarded', tenantId, statusAt: at }, { merge: true });
     }
+    // The business's main location — created once, here on the server (never from a browser that might not have
+    // loaded the list yet). Name and time zone can be changed in Settings → Locations.
+    batch.set(db.doc(`tenants/${tenantId}/locations/primary`), { tenantId, name: businessName || 'Main location', timezone: String((b as any)?.timezone || 'America/New_York'), isActive: true, createdAt: at, updatedAt: at });
+    batch.set(db.doc(`tenants/${tenantId}`), { primaryLocationId: 'primary' }, { merge: true });
     await batch.commit();
   } catch (e) {
     // Undo: no half-made accounts.
