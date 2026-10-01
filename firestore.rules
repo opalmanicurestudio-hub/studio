@@ -25,8 +25,6 @@ service cloud.firestore {
         hasStaffDoc(tenantId)
       );
     }
-    // 'admin' and 'owner' both count as a manager (matches isManager() in
-    // lib/replenishment-system.ts).
     function isManager(tenantId) {
       return isSignedIn() && (
         request.auth.uid == tenantDoc(tenantId).data.userId ||
@@ -37,15 +35,10 @@ service cloud.firestore {
         ))
       );
     }
-
     match /tenants/{tenantId} {
       allow get: if true;
       allow list: if false;
-      // Businesses are created ONLY by the server (/api/signup, Admin SDK),
-      // after the invite is checked. No browser can create one.
       allow create: if false;
-      // Owners edit their business — except the account-status fields, which
-      // only the server may change (activation now; billing later).
       allow update: if isOwner(tenantId)
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
              'userId', 'subscriptionStatus', 'subscriptionTier', 'accessLocked',
@@ -55,17 +48,9 @@ service cloud.firestore {
     match /tenants/{tenantId}/services/{serviceId} {
       allow get, list: if true;
     }
-    // v77 NOTE: staff `get` stays public because the booking page reads
-    // provider names/bios. MIGRATION (portal rules ref, step 4): move pin,
-    // pinHash, phone, email, pay rates into staff/{id}/private/* (blocked
-    // below via the `private` exclusion) and then this public get exposes
-    // nothing sensitive. Until then this is a known, accepted exposure.
     match /tenants/{tenantId}/staff/{staffId} {
       allow get: if true;
       allow list, write: if isStaff(tenantId);
-      // v79 — step 4: authentication secrets move here (pinHash via the
-      // migrate-pins action). NEVER client-readable — the auth API reads
-      // them with admin privileges.
       match /private/{docId} {
         allow read, write: if false;
       }
@@ -82,9 +67,6 @@ service cloud.firestore {
     }
     match /tenants/{tenantId}/appointments/{appointmentId} {
       allow read, create, delete: if isStaff(tenantId);
-      // Student-salon services: an instructor's sign-off (written only by the
-      // server) must exist before the appointment can be completed, and no
-      // one can write or change that sign-off from a browser.
       allow update: if isStaff(tenantId)
         && request.resource.data.get('clinicCheckoff', null) == resource.data.get('clinicCheckoff', null)
         && !(request.resource.data.get('status', '') == 'completed'
@@ -94,39 +76,16 @@ service cloud.firestore {
              && get(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.resource.data.staffId)).data.get('isStudent', false) == true
              && resource.data.get('clinicCheckoff', {}).get('signedOff', false) != true);
     }
-
-    // The decision ledger. Any staff surface may add a row (the voice queue
-    // writes one client-side; the decide route writes one with the Admin
-    // SDK). Nothing may edit or delete one — a record you can rewrite is not
-    // a record, and these are what appointment-decision metrics will be read
-    // from. Reading stays managers-only: this is people's decision history.
     match /tenants/{tenantId}/appointmentDecisions/{decisionId} {
       allow read: if isManager(tenantId);
       allow create: if isStaff(tenantId);
       allow update, delete: if false;
     }
-
-    // ── Inventory exceptions — the loss & recovery spine. Append-mostly
-    // audit records: any staff surface may create one (the returns desk and
-    // claims desk do), managers may update (Round N2's recovery lifecycle
-    // edits land here), and NOBODY deletes — a loss record that can vanish
-    // is not an audit trail. Corrections are new records that reference the
-    // old, same principle as the order event log.
     match /tenants/{tenantId}/inventoryExceptions/{excId} {
       allow read, create: if isStaff(tenantId);
       allow update: if isManager(tenantId);
       allow delete: if false;
     }
-
-    // ── Store credit — discretionary grants are CAPPED for staff.
-    // Issuing credit is spending the shop's money, so the ceiling is the
-    // owner's call (retailSettings.staffCreditCapCents, default $25 when
-    // unset). Managers and the owner are uncapped. Return-derived credits
-    // (sourceRetailReturnId) pass at any amount: those figures come from
-    // order math on the returns desk, not discretion — a staffer abusing
-    // that field is a personnel matter the audit trail exposes, not a rule
-    // the database can referee. Server routes (checkout burn, notify
-    // emails) use the Admin SDK and are not governed here.
     function staffCreditCapCents(tenantId) {
       return tenantDoc(tenantId).data
         .get('retailSettings', {})
@@ -143,15 +102,6 @@ service cloud.firestore {
       );
       allow update, delete: if isManager(tenantId);
     }
-
-    // ── Hosting (host stand + floor) — the boundary that was honestly
-    // deferred until a staff surface needed these collections. Now it does:
-    // any staff member can run the host stand (sessions and parties are
-    // operational, same trust level as appointments and walkIns), while the
-    // floor-plan TEMPLATE — the room's definition, frozen into every
-    // session at open — is manager-only to write, because editing it
-    // reshapes every future session. Nothing here is public: guests touch
-    // hosting only through server routes and their own RSVP surfaces.
     match /tenants/{tenantId}/serviceSessions/{sessionId} {
       allow read, write: if isStaff(tenantId);
     }
@@ -169,29 +119,22 @@ service cloud.firestore {
         allow read, write: if isStaff(tenantId);
       }
     }
-    // Grace allowance uses and provider-callout records — the SERVER writes them
-    // (with its approval checks); staff read them. Nobody grants themselves grace
-    // or rewrites a callout record from a browser.
     match /tenants/{tenantId}/chargeConsents/{consentId} {
       allow read: if isStaff(tenantId);
       allow write: if false;
     }
-    // Client screens (the iPad at the desk): the screen reads its own document by its secret id; only the server writes.
     match /clientScreens/{screenId} {
       allow read: if true;
       allow write: if false;
     }
-    // Approvals: staff can SEE them (the desk waits for a phone approval); only the server writes them.
     match /tenants/{tenantId}/approvals/{approvalId} {
       allow read: if isStaff(tenantId);
       allow write: if false;
     }
-    // Unrecorded sales (Needs attention): staff read; only the server writes.
     match /tenants/{tenantId}/pendingCheckouts/{pendingId} {
       allow read: if isStaff(tenantId);
       allow write: if false;
     }
-    // Scrambled PINs and the guessing guard: never readable from any device.
     match /tenants/{tenantId}/staffSecrets/{staffId} { allow read, write: if false; }
     match /tenants/{tenantId}/approvalGuard/{docId} { allow read, write: if false; }
     match /tenants/{tenantId}/graceUses/{useId} {
@@ -207,7 +150,6 @@ service cloud.firestore {
       allow list, write: if isStaff(tenantId);
     }
     match /tenants/{tenantId}/completionSubmissions/{subId} {
-      // Written by the server (/api/completion/submit, /api/checkin/actions) — no public writes.
       allow create: if false;
       allow read, update, delete: if isStaff(tenantId);
     }
@@ -223,8 +165,6 @@ service cloud.firestore {
       allow create: if true;
       allow read, update, delete: if isStaff(tenantId) || isPortalMember(tenantId);
     }
-
-    // ── Staff custody & replenishment ──────────────────────────────────
     match /tenants/{tenantId}/assetUnits/{unitId} {
       allow read, write: if isStaff(tenantId);
     }
@@ -247,19 +187,12 @@ service cloud.firestore {
       allow update: if isManager(tenantId);
       allow delete: if false;
     }
-
-    // ── Server-only material: NEVER client-readable ────────────────────
-    // Plaid access tokens, Gusto tokens, PIN reset codes, rate-limit state.
     match /tenants/{tenantId}/plaidItems/{itemId} {
       allow read, write: if false;
     }
     match /tenants/{tenantId}/private/{docId} {
       allow read, write: if false;
     }
-    // Bank staging: owner-readable inbox, server-only writes.
-    // (v77: these two were ALREADY declared this way but the catch-all at
-    // the bottom silently re-granted staff read/write because they were
-    // missing from its exclusion list — fixed there.)
     match /tenants/{tenantId}/bankTransactions/{txnId} {
       allow read: if isOwner(tenantId);
       allow write: if false;
@@ -268,48 +201,29 @@ service cloud.firestore {
       allow read: if isOwner(tenantId);
       allow write: if false;
     }
-
-    // ── v77 Money & audit integrity ────────────────────────────────────
-    // Audit trail is APPEND-ONLY: anyone on the team can create entries
-    // (every money action writes one), only managers read them, and
-    // nothing edits or deletes them — corrections are new entries.
     match /tenants/{tenantId}/auditLogs/{entryId} {
       allow create: if isStaff(tenantId);
       allow read: if isManager(tenantId);
       allow update, delete: if false;
     }
-    // Signed documents (e-signatures: work agreements, house rules, leases,
-    // consents) are legal evidence — APPEND-ONLY. The team creates them during
-    // onboarding; managers read them; nothing edits or deletes them.
     match /tenants/{tenantId}/signedDocuments/{docId} {
       allow create: if isStaff(tenantId);
       allow read: if isManager(tenantId);
       allow update, delete: if false;
     }
-    // Ledger: staff create/read/update (POS, refund flags, reconcile
-    // stamps) but NEVER delete — reversals are the only way to undo.
     match /tenants/{tenantId}/transactions/{txnId} {
       allow read, create, update: if isStaff(tenantId);
       allow delete: if false;
     }
-    // Rent invoices are CREATED exclusively by the server rentCollector,
-    // but managers UPDATE them when recording a manual payment (cash /
-    // check / Zelle marks the open invoice paid from the Money tab).
-    // v93 FIX: `write: if false` was silently DENYING every manual
-    // "Record payment" — the batch (invoice update + ledger txn + audit)
-    // failed as a unit, so cash payments could never be recorded.
     match /tenants/{tenantId}/rentInvoices/{invId} {
       allow read: if isStaff(tenantId);
       allow update: if isManager(tenantId);
       allow create, delete: if false;
     }
-    // Payroll drafts: cron-created (server), manager-approved (client).
     match /tenants/{tenantId}/payrollDrafts/{draftId} {
       allow read, update: if isManager(tenantId);
       allow create, delete: if false;
     }
-    // Owner's Financial Foundation profiles (personal + studio economics)
-    // are not floor-staff reading material.
     match /tenants/{tenantId}/lifestyleProfiles/{pId} {
       allow read, write: if isManager(tenantId);
     }
@@ -324,35 +238,28 @@ service cloud.firestore {
       allow read: if isStaff(tenantId);
       allow write: if isManager(tenantId);
     }
-
-    // ── v77 Booth rental ───────────────────────────────────────────────
-    // Booths are the public storefront: the listings page reads them
-    // without auth (photos, rates, amenities — public by design).
     match /tenants/{tenantId}/booths/{boothId} {
       allow get, list: if true;
       allow write: if isStaff(tenantId);
     }
-    // Public visitors submit applications from the listings page; the
-    // team reviews them. (Previously this depended on the catch-all,
-    // which actually BLOCKED anonymous submissions.)
     match /tenants/{tenantId}/boothApplications/{appId} {
       allow create: if true;
       allow read, update: if isStaff(tenantId);
       allow delete: if isManager(tenantId);
     }
     match /tenants/{tenantId}/boothReservations/{resId} {
-      allow read, update: if isStaff(tenantId);   // check-in/out at the desk
-      allow create: if false;                     // created by the reserve API
+      allow read, update: if isStaff(tenantId);
+      allow create: if false;
       allow delete: if false;
     }
     match /tenants/{tenantId}/tours/{tourId} {
-      allow create: if true;                      // public tour requests
+      allow create: if true;
       allow read, update: if isStaff(tenantId);
       allow delete: if isManager(tenantId);
     }
     match /tenants/{tenantId}/boothCredits/{creditId} {
       allow read: if isStaff(tenantId);
-      allow write: if isManager(tenantId);        // issuing credits is a money action
+      allow write: if isManager(tenantId);
     }
     match /tenants/{tenantId}/renters/{renterId} {
       allow read: if isStaff(tenantId);
@@ -362,76 +269,44 @@ service cloud.firestore {
       allow read: if isStaff(tenantId);
       allow write: if isManager(tenantId);
     }
-
-    // ── v93 Day passes — prepaid obligations are MONEY ─────────────────
-    // Sold by managers (in person) or the server (online checkout).
-    // Balances are only ever decremented by the server redemption
-    // transaction — no client may update or delete a pass, so days can't
-    // be forged or wiped.
     match /tenants/{tenantId}/boothPasses/{passId} {
       allow read: if isStaff(tenantId);
       allow create: if isManager(tenantId);
       allow update, delete: if false;
     }
-    // Online pass purchases: server-only lifecycle (checkout → confirm).
     match /tenants/{tenantId}/boothPassPurchases/{purchaseId} {
       allow read: if isManager(tenantId);
       allow write: if false;
     }
-    // ── v93 CRM contacts — the persisted person record (pipeline stage,
-    // notes, photo, history log). Team-managed, never public.
     match /tenants/{tenantId}/contacts/{contactId} {
       allow read, write: if isStaff(tenantId);
     }
-    // ── v94 Maintenance tickets — one queue for renter-reported (server),
-    // floor-reported and owner-logged (client) issues. Techs update via the
-    // token-authed /api/maintenance route (Admin SDK). Never deleted —
-    // cancelled is the terminal state, history stays auditable.
     match /tenants/{tenantId}/tickets/{ticketId} {
       allow read, create, update: if isStaff(tenantId);
       allow delete: if false;
     }
-    // Worker roster carries portal TOKENS — managers only.
     match /tenants/{tenantId}/maintenanceWorkers/{workerId} {
       allow read, write: if isManager(tenantId);
     }
-    // Preventive maintenance plans — schedule config is a manager concern;
-    // the cron (Admin SDK) advances nextRunAt and opens the tickets.
     match /tenants/{tenantId}/maintenancePlans/{planId} {
       allow read: if isStaff(tenantId);
       allow write: if isManager(tenantId);
     }
-    // Service-provider directory (plumber, HVAC, electrician…) — the
-    // business's rolodex: contacts, account numbers, rates, notes.
     match /tenants/{tenantId}/serviceProviders/{providerId} {
       allow read, write: if isStaff(tenantId);
     }
-
-    // v79 — step 5: the scoped check-ins collection. Written only by
-    // /api/checkins (server); the portal and floor views read it.
     match /tenants/{tenantId}/appointmentCheckIns/{token} {
       allow read: if isStaff(tenantId);
       allow write: if false;
     }
-
-    // ── Catch-all for everything not explicitly matched above ──────────
-    // v77: exclusion list expanded. Firestore ORs all matching rules, so
-    // every collection with STRICTER explicit rules above must be listed
-    // here or the catch-all re-grants staff read/write (this is exactly
-    // how bankTransactions/vendorRules were silently staff-writable).
     match /tenants/{tenantId}/{allSubcollections=**} {
       allow read, write: if isStaff(tenantId) &&
         !(allSubcollections.size() > 0 && allSubcollections[0] in [
-          // Academy records — server only, so hours, attendance and the
-          // audit log can't be changed from a browser, even by staff.
           'courses', 'enrollments', 'students', 'studentSessions', 'studentLogins',
           'learningSessions', 'attendance', 'academyAudit', 'academyAuditMeta',
           'programs', 'programEnrollments', 'clinicCheckoffs',
-          // Grace uses + callout records — server only (explicit rules above).
           'graceUses', 'providerCallouts',
-          // Manager approvals, scrambled PINs, the PIN-guessing guard, unrecorded sales — server only (rules above).
           'approvals', 'staffSecrets', 'approvalGuard', 'pendingCheckouts',
-          // Signed charge approvals (client screen) — server writes; staff read below.
           'chargeConsents',
           'admissions', 'cohorts', 'tuitionPlans', 'tuitionEntries',
           'academyThreads', 'academyAnnouncements', 'tutorLogs', 'tutorUsage', 'liveSessions', 'liveAttendance', 'rotations', 'translations', 'tuitionPayments', 'studentFiles', 'boardForms', 'questionBank', 'submissions', 'approvedDevices', 'materials', 'aiUsage', 'interactives', 'practiceAttempts', 'assigned', 'studentGroups', 'schoolDocs', 'docAcks', 'studentLetters', 'presentations', 'studyNotes', 'studyState', 'portfolio', 'schoolIdentity', 'schoolSite', 'websiteMessages', 'donations', 'scholarshipApplications', 'sponsors',
@@ -470,16 +345,10 @@ service cloud.firestore {
           'maintenancePlans'
         ]);
     }
-
-    // Job listings — public applicants read them on /apply; managers post them.
     match /tenants/{tenantId}/jobListings/{listingId} {
       allow get, list: if true;
       allow create, update, delete: if isManager(tenantId);
     }
-
-    // Job applications — the public /apply/{tenantId} page creates these
-    // unauthenticated; only managers can read or work them. Field checks
-    // keep the public create from being used as free-form storage.
     match /tenants/{tenantId}/applications/{applicationId} {
       allow create: if request.resource.data.status == 'new'
         && request.resource.data.name is string
@@ -491,32 +360,18 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time;
       allow read, list, update, delete: if isManager(tenantId);
     }
-
-    // Applicant message log + outbound email queue — managers write, the
-    // mailer function (Admin SDK) flips queued → sent/failed.
     match /tenants/{tenantId}/applications/{applicationId}/messages/{messageId} {
       allow read, list, create, update, delete: if isManager(tenantId);
     }
-
-    // Portal sessions sign in with a custom token (uid `portal:{tid}:{staffId}`,
-    // claims stamped by /api/portal/auth). This recognizes them for the
-    // surfaces the portal reads.
     function isPortalMember(tenantId) {
       return isSignedIn()
         && request.auth.token.portal == true
         && request.auth.token.tenantId == tenantId;
     }
-
-    // Operating documents — SOPs, handbooks, policies. Whole team can read
-    // (the staff view filters to published + assigned); only managers author.
     match /tenants/{tenantId}/documents/{documentId} {
       allow get, list: if isStaff(tenantId) || isPortalMember(tenantId);
       allow create, update, delete: if isManager(tenantId);
     }
-
-    // Read-and-understood attestations, keyed by staff id. Main-app team
-    // members write acks (kiosk PIN-switching means the acting person may
-    // differ from the auth account); portal members write only their own.
     match /tenants/{tenantId}/documents/{documentId}/acks/{ackId} {
       allow get, list: if isStaff(tenantId) || isPortalMember(tenantId);
       allow create, update: if (
@@ -528,9 +383,6 @@ service cloud.firestore {
         && request.resource.data.staffName.size() <= 140;
       allow delete: if isManager(tenantId);
     }
-
-    // Daily checklist runs, keyed `{staffId}_{yyyy-mm-dd}`. Portal members
-    // write only runs stamped with their own staffId; managers see all.
     match /tenants/{tenantId}/documents/{documentId}/runs/{runId} {
       allow get, list: if isStaff(tenantId) || isPortalMember(tenantId);
       allow create, update: if (
@@ -543,27 +395,13 @@ service cloud.firestore {
         && request.resource.data.staffName.size() <= 140;
       allow delete: if isManager(tenantId);
     }
-
-    // One-off tasks. Managers create/remove; assignees complete from the
-    // portal, touching only the completion fields.
-    // Renter (independent provider) service menus. Publicly readable for the
-    // same reason the house menu is — the booking page is unauthenticated and
-    // must render a renter's own prices from their personal link. Writes stay
-    // with managers for now; the portal self-serve editor lands next round.
-    // A renter's private financial goals. NO client may read or write these —
-    // not the renter's own browser, not the owner, not a manager. The only
-    // path in is the portal API's Admin SDK, behind a session check. This is
-    // what makes "only you can see these numbers" a fact about the database
-    // rather than a promise in the UI.
     match /tenants/{tenantId}/renters/{renterId}/private/{docId} {
       allow read, write: if false;
     }
-
     match /tenants/{tenantId}/renterServices/{serviceId} {
       allow read: if true;
       allow write: if isManager(tenantId);
     }
-
     match /tenants/{tenantId}/tasks/{taskId} {
       allow get, list: if isStaff(tenantId) || isPortalMember(tenantId);
       allow create, delete: if isManager(tenantId);
@@ -573,11 +411,6 @@ service cloud.firestore {
                  .hasOnly(['status', 'completedBy', 'completedByName', 'completedAt', 'photoUrl', 'photoUrls'])
             && request.resource.data.completedBy == request.auth.token.staffId);
     }
-
-    // Turn-taking rotations. Managers create/remove/reorder; members
-    // advance the turn, cover a teammate's turn, or swap with next —
-    // touching only the turn-state fields. memberIds is included so a
-    // swap can reorder positions; membership itself is checked.
     match /tenants/{tenantId}/rotations/{rotationId} {
       allow get, list: if isStaff(tenantId) || isPortalMember(tenantId);
       allow create, delete: if isManager(tenantId);
@@ -587,11 +420,6 @@ service cloud.firestore {
             && request.resource.data.diff(resource.data).affectedKeys()
                  .hasOnly(['currentIndex', 'history', 'lastDoneDate', 'memberIds']));
     }
-
-    // Interview invites — capability URLs. The token IS the doc id
-    // (unguessable), the doc holds only first name + role + slots. Public
-    // may read one by id and may respond exactly once: only the response
-    // fields, only while still pending.
     match /tenants/{tenantId}/interviewInvites/{inviteId} {
       allow get: if true;
       allow list: if isManager(tenantId);
@@ -606,12 +434,6 @@ service cloud.firestore {
             && (!('applicantNote' in request.resource.data)
                 || (request.resource.data.applicantNote is string && request.resource.data.applicantNote.size() <= 500)));
     }
-
-    // Tour invites — the rental twin of interviewInvites above, same trust
-    // model: the doc id IS the capability, it holds only a first name, a space
-    // name and offered times, and the prospect may answer exactly once while
-    // it is pending. Nothing here books a tour; the owner confirms it through
-    // the scheduler, which is what writes /tours.
     match /tenants/{tenantId}/tourInvites/{inviteId} {
       allow get: if true;
       allow list: if isManager(tenantId);
@@ -626,21 +448,6 @@ service cloud.firestore {
             && (!('prospectNote' in request.resource.data)
                 || (request.resource.data.prospectNote is string && request.resource.data.prospectNote.size() <= 500)));
     }
-
-    // v79 — LEGACY check-in mirror (still used by the planner, POS, host
-    // screen and the client check-in page). It holds a copy of each
-    // appointment, so it must NOT be open to everyone.
-    //   get    by its own link — the id is a 21-character random code
-    //   list   only a business's own team, and only filtered to that business
-    //          (every staff query filters tenantId ==)
-    //   write  only the business's own team (clients' check-in updates go
-    //          through /api/checkins on the server). Older copies missing a
-    //          tenantId stay editable by signed-in, NON-anonymous users so
-    //          planner/POS batches that touch them don't fail; anonymous
-    //          visitors (every booking-page visitor) are never allowed.
-    //   delete never — cancellations are status changes.
-    // TO FINISH CLOSING: move the remaining browser writes to the server, then
-    // drop create/update here.
     function isRealUser() {
       return isSignedIn() && request.auth.token.firebase.sign_in_provider != 'anonymous';
     }
@@ -649,11 +456,7 @@ service cloud.firestore {
     }
     match /appointmentCheckIns/{token} {
       allow get: if true;
-      // (refers to tenantId directly so the database can match it to the
-      //  query's tenantId == filter — every staff query has one)
       allow list: if isSignedIn() && (isStaff(resource.data.tenantId) || isPortalMember(resource.data.tenantId));
-      // Clients' check-in updates all go through the server (/api/checkins) now —
-      // the visit link no longer writes here — so only the business's own team may.
       allow create: if teamOf(request.resource.data.get('tenantId', ''));
       allow update: if teamOf(resource.data.get('tenantId', ''));
       allow delete: if false;
@@ -661,10 +464,6 @@ service cloud.firestore {
     match /users/{userId} {
       allow read, write: if isSignedIn() && request.auth.uid == userId;
     }
-    // Who works where. Each person reads only their OWN entry (that's all
-    // the app does); entries are written by the server when someone joins.
-    // (Was: anyone could read every entry, and any signed-in visitor —
-    // including anonymous booking-page visitors — could write any entry.)
     match /staffDirectory/{userId} {
       allow get: if isSignedIn() && request.auth.uid == userId;
       allow list, write: if false;
