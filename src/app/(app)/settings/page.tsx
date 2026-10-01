@@ -1,5 +1,6 @@
 'use client';
 
+import { ProtocolsCard } from '@/components/settings/ProtocolsCard';
 import { KioskOptionsCard } from '@/components/settings/KioskOptionsCard';
 import { VisitStagesCard } from '@/components/settings/VisitStagesCard';
 import { ClientScreenCard } from '@/components/settings/ClientScreenCard';
@@ -683,6 +684,7 @@ function SettingsPageImpl() {
             <TabsContent value="experience" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
               {tenantId && <VisitStagesCard tenantId={tenantId} tenant={selectedTenant} canEdit={['owner', 'admin', 'manager'].includes(String((role as any) || '').toLowerCase())} />}
               {tenantId && <KioskOptionsCard tenantId={tenantId} tenant={selectedTenant} canEdit={String((role as any) || '').toLowerCase() === 'owner'} />}
+              {tenantId && <ProtocolsCard tenantId={tenantId} canEdit={['owner', 'admin', 'manager'].includes(String((role as any) || '').toLowerCase())} />}
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                 <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
                   <SectionHeader icon={Coffee} title="Guest extras" />
