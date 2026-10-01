@@ -715,6 +715,7 @@ export async function POST(req: NextRequest) {
     //
     // Recalled/cancelled orders put it back (the recall handler above), so a
     // change of mind never loses a unit.
+    let stockMoved = false;
     try {
       const itemRef = db.doc(`tenants/${tenantId}/inventory/${itemId}`);
       const batch = db.batch();
@@ -730,7 +731,7 @@ export async function POST(req: NextRequest) {
         ref: { kind: 'appointment', id: appointmentId },
         balanceAfter: Math.max(0, Math.floor(num(item.totalStock)) - qty),
       }));
-      await batch.commit();
+      await batch.commit(); stockMoved = true;
     } catch (e: any) {
       console.error('[guest-lounge] stock move failed (order still placed)', e?.message);
     }
@@ -757,6 +758,7 @@ export async function POST(req: NextRequest) {
       priceAtRequest: isRedemption ? 0 : num(item.price),
       isRedemption,
       source: 'guest_lounge',
+      stockMoved,   // stock taken off at order time → delivery must not take it off again
     });
 
     return NextResponse.json({
