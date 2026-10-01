@@ -28,6 +28,9 @@ export default function HqTenantPage({ params }: { params: Promise<{ id: string 
   const [note, setNote] = useState('');
   const [tools, setTools] = useState<string[] | null>(null);
   const [check, setCheck] = useState<any>(null); const [checking, setChecking] = useState(false);   // HQ account check
+  const [locs, setLocs] = useState<any>(null); const [grant, setGrant] = useState('');   // location allowance (+ HQ grants)
+  useEffect(() => { hq({ action: 'locations', id }).then((r) => { if (r.ok) { setLocs(r.allowance); setGrant(String(r.allowance.granted || 0)); } }); }, [id]);
+  const saveGrant = async () => { const r = await hq({ action: 'locations', id, granted: Number(grant) || 0 }); if (r.ok) { setLocs(r.allowance); setMsg('Location allowance saved.'); } else setMsg(r.error || 'Couldn’t save.'); };
   const runCheck = async () => { setChecking(true); const r = await hq({ action: 'health-check', id }); setChecking(false); setCheck(r.ok ? r.health : { summary: r.error || 'Couldn’t run the check.', findings: [] }); };
   const fix = async (fixName: string, extra: any = {}, confirmText?: string) => {
     if (confirmText && !window.confirm(confirmText)) return;
@@ -64,6 +67,11 @@ export default function HqTenantPage({ params }: { params: Promise<{ id: string 
                   {check?.findings?.length > 0 && <button type="button" onClick={async () => { const text = businessBrief(check); try { await navigator.clipboard.writeText(text); setMsg('Developer brief copied.'); } catch { window.prompt('Developer brief:', text); } }} className="h-10 rounded-xl border border-stone-300 bg-white px-4 text-sm font-semibold">Copy developer brief</button>}
                 </div>
               </div>
+              {locs && <div className="flex flex-wrap items-center gap-2 rounded-xl bg-white/60 p-2.5 text-sm">
+                <span><span className="font-semibold">Locations:</span> {locs.count} used · {locs.included} included{locs.subscribed ? ' · subscribed (extras billed)' : ' · not subscribed'}</span>
+                <span className="ml-auto flex items-center gap-1.5">+ <input value={grant} onChange={(e) => setGrant(e.target.value.replace(/[^0-9]/g, '').slice(0, 2))} className="h-9 w-12 rounded-lg border px-2 text-center" aria-label="Extra locations granted" /> granted free
+                  <button type="button" onClick={saveGrant} className="h-9 rounded-lg bg-stone-900 px-3 text-xs font-semibold text-white">Save</button></span>
+              </div>}
               {check?.findings?.length > 0 && <ul className="space-y-1.5 text-sm">{check.findings.map((f: any) => <li key={f.key} className="flex items-start gap-2">
                 <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${f.level === 'warn' ? 'bg-amber-100 text-amber-900' : f.level === 'ok' ? 'bg-emerald-100 text-emerald-800' : 'bg-stone-200 text-stone-700'}`}>{f.level === 'warn' ? '!' : f.level === 'ok' ? '✓' : 'i'}</span><span>{f.text}</span></li>)}</ul>}
             </section>
