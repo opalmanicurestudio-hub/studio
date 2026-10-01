@@ -484,6 +484,10 @@ export function LocationsSettingsTab() {
           <div className="p-8 text-center space-y-3 rounded-[2rem] border-2 border-dashed border-slate-200">
             <Building className="h-8 w-8 mx-auto text-muted-foreground" />
             <p className="text-sm font-medium">No locations yet</p>
+            <button type="button" onClick={async () => { try { const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken();
+                const r = await fetch('/api/locations/repair', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId }) }).then((x) => x.json());
+                window.alert(r?.ok ? r.done.join('\n') : (r?.error || 'That didn’t work.')); if (r?.ok) window.location.reload(); } catch { window.alert('That didn’t work — check your connection.'); } }}
+              className="mt-3 inline-flex h-10 items-center rounded-full bg-primary px-4 text-sm font-semibold text-primary-foreground">Restore my main location</button>
             <p className="text-xs text-muted-foreground">
               Add your first one — this is what every booth, renter, and lease
               will be scoped to.
