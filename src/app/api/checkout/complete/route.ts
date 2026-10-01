@@ -429,6 +429,11 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   await logAuditAdmin(db, tenantId, { action: 'checkout.completed', targetType: 'client', targetId: clientId, amount: calc.total,
     summary: `Checkout — ${client.name || 'client'} · $${calc.total.toFixed(2)} (${method})${mismatch ? ` · the screen showed $${expected.toFixed(2)} — flagged for review` : ''}`, actor: { type: 'user', id: auth.actor.uid, name: auth.actor.name, role: auth.actor.role } } as any).catch(() => {});
   for (const v of visits) await syncVisitCopies(db, tenantId, { ...v.appointment, status: 'completed', stage: 'complete', timeline: [...(Array.isArray(v.appointment.timeline) ? v.appointment.timeline : []), { at: now, kind: 'stage', stage: 'complete', text: 'Paid' }] }, tenant).catch(() => {});
+  // Products the services used come off stock (once per visit) — never blocks the sale; a problem becomes a warning.
+  for (const v of visits) { try { const { expectedUsage, recordVisitUsage } = await import('@/lib/usage');
+      const r: any = await recordVisitUsage(db, tenantId, v.appointment, expectedUsage(v.service, v.addOnServices || [], inventory), { id: (auth as any)?.actor?.uid, name: (auth as any)?.actor?.name });
+      if (r?.lines?.some((l: any) => l.shortfall)) warnings.push(`${v.appointment.clientName || 'A visit'} used more of ${r.lines.filter((l: any) => l.shortfall).map((l: any) => l.name).join(', ')} than your stock shows — check the shelf.`);
+    } catch (e: any) { console.error('[checkout] usage', e?.message); } }
   if (pendingRef) await pendingRef.set({ status: 'completed', completedAt: now, receiptId: receiptRef.id, checkoutSessionId, total: calc.total, ...(pay.stripePaymentIntentId ? { paymentIntentId: String(pay.stripePaymentIntentId) } : {}) }, { merge: true }).catch(() => {});
   return json({ ok: true, checkoutSessionId, receiptId: receiptRef.id, total: calc.total, collected: Math.max(0, Math.round((calc.total - depositUsed) * 100) / 100), depositUsed, subtotal: calc.subtotal, tax: calc.tax, mismatch, warnings });
 }
