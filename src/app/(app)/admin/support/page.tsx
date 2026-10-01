@@ -12,6 +12,7 @@
 //   • the conversation, internal notes (never sent), saved replies
 //   • assign, priority, category, escalate to developers, solve
 
+import { ticketBrief } from '@/lib/support-brief';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { HqShell, Glass, Label, Chip, Loading, hq, ago, PRIORITY_TONE, useHqMe } from '@/components/hq/hq';
@@ -135,6 +136,7 @@ export default function HelpDeskPage() {
                     {k.devStatus
                       ? <select value={k.devStatus} onChange={(e) => act({ action: 'ticket-update', ticketId: k.id, devStatus: e.target.value })} className="h-10 rounded-xl border border-violet-200 bg-violet-50 px-2 text-[13px]" aria-label="Developer status">{['new', 'investigating', 'fixed', 'wont_fix'].map((x) => <option key={x} value={x}>dev · {x.replace('_', ' ')}</option>)}</select>
                       : <button type="button" onClick={() => act({ action: 'ticket-update', ticketId: k.id, escalate: true }, 'Escalated to developers.')} className="h-10 rounded-xl border border-violet-200 bg-violet-50 px-2 text-[13px] text-violet-900">Escalate to dev</button>}
+                    <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(ticketBrief(k)); window.alert('Copied — paste it into Claude to troubleshoot.'); } catch { window.prompt('Copy this for Claude:', ticketBrief(k)); } }} className="h-10 rounded-xl border border-stone-300 bg-white px-3 text-[13px] font-semibold">Copy for Claude</button>
                   </div>
 
                   <div className="space-y-2">
