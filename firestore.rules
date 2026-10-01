@@ -299,9 +299,9 @@ service cloud.firestore {
       allow read: if isStaff(tenantId);
       allow write: if false;
     }
-    match /tenants/{tenantId}/{allSubcollections=**} {
+    match /tenants/{tenantId}/{collection}/{rest=**} {
       allow read, write: if isStaff(tenantId) &&
-        !(allSubcollections.size() > 0 && allSubcollections[0] in [
+        !(collection in [
           'courses', 'enrollments', 'students', 'studentSessions', 'studentLogins',
           'learningSessions', 'attendance', 'academyAudit', 'academyAuditMeta',
           'programs', 'programEnrollments', 'clinicCheckoffs',
