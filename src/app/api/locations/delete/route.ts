@@ -53,11 +53,13 @@ async function countRefs(db: any, tenantId: string, locationId: string) {
   return found;
 }
 
-// The business's MAIN location pointer (tenants.primaryLocationId) must always name a location that exists. After any
-// removal, if it points at a deleted one, move it to the location just kept (merge) or the first remaining one.
+// After any removal: (1) the subscription drops any billed extra location; (2) the MAIN location pointer
+// (tenants.primaryLocationId) must name a location that exists — if not, it moves to the one kept (merge) or the first left.
 async function fixMainPointer(db: any, tenantId: string, prefer?: string | null) {
   try { const tRef = db.doc(`tenants/${tenantId}`); const t: any = (await tRef.get()).data() || {};
     const left = (await db.collection(`tenants/${tenantId}/locations`).get()).docs.filter((d: any) => isBusinessLocation({ id: d.id, ...(d.data() as any) })).map((d: any) => d.id);
+    // Fewer locations → fewer billed extras: bring the ClarityFlow subscription in line (prorated credit).
+    if (t.billing?.subscriptionId) { try { const { syncSubscription } = await import('@/lib/billing'); await syncSubscription(tenantId); } catch (e: any) { console.error('[locations] billing sync', e?.message); } }
     if (t.primaryLocationId && left.includes(t.primaryLocationId)) return;
     const next = (prefer && left.includes(prefer)) ? prefer : left[0] || null;
     await tRef.set({ primaryLocationId: next }, { merge: true });
