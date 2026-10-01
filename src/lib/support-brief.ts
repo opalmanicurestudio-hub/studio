@@ -1,5 +1,5 @@
-// src/lib/support-brief.ts — "COPY FOR CLAUDE": turns a help-desk ticket into a ready-to-paste troubleshooting brief.
-// Everything a developer (or Claude) needs in one block: who, what they said, the account-check findings, what loaded
+// src/lib/support-brief.ts — DEVELOPER BRIEF: turns a help-desk ticket into a ready-to-paste troubleshooting brief.
+// Everything a developer needs in one block: who, what they said, the account-check findings, what loaded
 // and what was refused, the device and recent errors — plus WHERE TO LOOK, mapped from each known finding to the code
 // that owns it, and the known causes so a repeat problem is recognised at once. HQ-only (built in the admin view).
 const WHERE: Record<string, string> = {
