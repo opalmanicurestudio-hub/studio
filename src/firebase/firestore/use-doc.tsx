@@ -41,6 +41,10 @@ export function useDoc<T = any>(
 ): UseDocResult<T> {
   const [data, setData] = useState<WithId<T> | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  // Which query has had its first real answer (data or a refusal). Until then we're loading — even in the render
+  // where the query first appears, before the effect below runs. (That one-render gap read as "there are none" and
+  // let code act on an empty list that was really just not loaded yet — e.g. recreating a deleted location.)
+  const [answeredFor, setAnsweredFor] = useState<any>(null);
   const [error, setError] = useState<FirestoreError | Error | null>(null);
 
   useEffect(() => {
@@ -68,11 +72,11 @@ export function useDoc<T = any>(
         if (snapshot.exists()) {
           // IMPORTANT: Set id LAST to overwrite any data-level ID field.
           setData({ ...(snapshot.data() as T), id: snapshot.id });
-          setIsLoading(false);
+          setIsLoading(false); setAnsweredFor(memoizedDocRef);
           setError(null);
         } else {
           setData(null);
-          setIsLoading(false);
+          setIsLoading(false); setAnsweredFor(memoizedDocRef);
           setError(null);
         }
       },
@@ -84,7 +88,7 @@ export function useDoc<T = any>(
 
         setError(contextualError);
         setData(null);
-        setIsLoading(false);
+        setIsLoading(false); setAnsweredFor(memoizedDocRef);
 
         errorEmitter.emit('permission-error', contextualError);
       }
@@ -93,5 +97,5 @@ export function useDoc<T = any>(
     return () => unsubscribe();
   }, [memoizedDocRef]);
 
-  return { data, isLoading, error };
+  return { data, isLoading: isLoading || (!!memoizedDocRef && answeredFor !== memoizedDocRef), error };
 }
