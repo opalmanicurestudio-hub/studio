@@ -1,4 +1,4 @@
-// src/app/api/hq/route.ts
+// // src/app/api/hq/route.ts
 //
 // CLARITYFLOW HQ — the platform side. PLATFORM_ADMIN_EMAILS only.
 //
@@ -78,6 +78,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, tenants: rows });
   }
 
+  if (b.action === 'health-check') {   // HQ "Run account check" for one business
+    const { serverHealthCheck } = await import('@/lib/account-health');
+    const id = String(b.id || ''); if (!id) return NextResponse.json({ ok: false, error: 'Missing business.' }, { status: 400 });
+    return NextResponse.json({ ok: true, health: await serverHealthCheck(db, id) });
+  }
   if (b.action === 'tenant') {
     const id = String(b.id || '');
     const t = ((await db.doc(`tenants/${id}`).get()).data() as any) || null;
