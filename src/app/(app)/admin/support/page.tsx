@@ -150,6 +150,14 @@ export default function HelpDeskPage() {
                     <p className="break-all"><span className="font-semibold">Device:</span> {k.context?.userAgent || '—'}</p>
                     {(k.context?.errors || []).map((e: any, i: number) => <p key={i} className="text-red-700">• {e.message} ({e.page})</p>)}
                   </details>
+                  {k.context?.health && <details open className="rounded-2xl bg-white/60 p-3 text-[12px] text-stone-700">
+                    <summary className="cursor-pointer font-medium">Account check · {k.context.health.summary}</summary>
+                    <div className="mt-2 space-y-1">{(k.context.health.findings || []).map((f: any, i: number) => <p key={i}><span className={f.level === 'warn' ? 'text-amber-700' : f.level === 'ok' ? 'text-emerald-700' : 'text-stone-600'}>{f.level === 'warn' ? '!' : f.level === 'ok' ? '✓' : 'i'}</span> {f.text}</p>)}</div>
+                    <p className="mt-2"><span className="font-semibold">Business:</span> {k.context.health.business?.tenantId || '—'} · role {k.context.health.business?.role || '—'} · server says owns {(k.context.health.business?.serverOwned || []).join(', ') || 'nothing'}</p>
+                    <p><span className="font-semibold">Reads:</span> {Object.entries(k.context.health.reads || {}).map(([a, r]: any) => `${a} ${r.ok ? `✓${r.count}` : `✗ ${r.code || ''}`}`).join(' · ')}</p>
+                    <p><span className="font-semibold">Locations:</span> {k.context.health.locations?.count} ({k.context.health.locations?.duplicates} duplicate) · device remembers {k.context.health.locations?.storedOnDevice || '—'} · orders waiting {k.context.health.waitingOrders || 0}</p>
+                    {(k.context.health.timeline || []).length > 0 && <pre className="mt-2 whitespace-pre-wrap break-words text-[11px] text-stone-500">{(k.context.health.timeline || []).join('\n')}</pre>}
+                  </details>}
 
                   {k.status !== 'solved' && (
                     <div className="space-y-2">
