@@ -742,7 +742,7 @@ export async function POST(req: NextRequest) {
         ...(placeOpts.length > 1 ? { place: placeChoice } : {}),   // their choice (in person / video / phone …)
         id: aptId, tenantId,
         clientId, clientName,
-        serviceId, addOnIds: addOnIds.length > 0 ? addOnIds : null,
+        serviceId, addOnIds: addOnIds.length > 0 ? addOnIds : null, blueprintVersion: (svc as any)?.blueprint?.version || null,
         // ── Whose sale is this? ──────────────────────────────────────────────
         // An independent provider's booking is THEIR revenue, not the studio's.
         // Stamped at creation so reporting never has to re-derive it, and
