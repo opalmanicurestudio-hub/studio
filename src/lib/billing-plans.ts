@@ -20,6 +20,10 @@ export const CORE = {
 } as const;
 export const TEAM_INCLUDED = 5;
 export const EXTRA_STAFF: PriceDef = { key: 'cf_extra_staff_v2', name: 'Additional team member', amount: 15, description: 'Each team member beyond 5' };
+// Locations: every plan includes ONE location; each extra location is billed monthly (and only subscribed businesses
+// can open one — see lib/location-allowance.ts). Change the price by bumping the version in the key.
+export const LOCATIONS_INCLUDED = 1;
+export const EXTRA_LOCATION: PriceDef = { key: 'cf_extra_location_v1', name: 'Additional location', amount: 49, description: 'Each location beyond the first' };
 export const RENTERS_INCLUDED = 10;
 export const EXTRA_RENTER: PriceDef = { key: 'cf_extra_renter_v2', name: 'Additional renter', amount: 8, description: 'Each renter beyond 10' };
 
@@ -41,12 +45,12 @@ export const TOOL_PRICES: Partial<Record<ToolId, PriceDef>> = {
   academy: { key: 'cf_tool_academy_v2', name: 'Online academy', amount: 49, description: 'Courses, video lessons, student portal' },
 };
 
-export const ALL_PRICES: PriceDef[] = [CORE.solo, CORE.team, EXTRA_STAFF, EXTRA_RENTER, ...Object.values(TOOL_PRICES) as PriceDef[]];
+export const ALL_PRICES: PriceDef[] = [CORE.solo, CORE.team, EXTRA_STAFF, EXTRA_RENTER, EXTRA_LOCATION, ...Object.values(TOOL_PRICES) as PriceDef[]];
 
 export interface QuoteLine { key: string; name: string; unit: number; qty: number; total: number }
 
 /** What a business would pay each month for these tools and this size. */
-export function quote(input: { tools: ToolId[]; staff: number; renters: number; team: boolean }): { lines: QuoteLine[]; total: number; textsIncluded: number } {
+export function quote(input: { tools: ToolId[]; staff: number; renters: number; team: boolean; locations?: number }): { lines: QuoteLine[]; total: number; textsIncluded: number } {
   const lines: QuoteLine[] = [];
   const team = input.team || input.staff > 1;
   const core = team ? CORE.team : CORE.solo;
@@ -61,5 +65,7 @@ export function quote(input: { tools: ToolId[]; staff: number; renters: number; 
     const extra = Math.max(0, input.renters - RENTERS_INCLUDED);
     if (extra) lines.push({ key: EXTRA_RENTER.key, name: EXTRA_RENTER.name, unit: EXTRA_RENTER.amount, qty: extra, total: extra * EXTRA_RENTER.amount });
   }
+  const extraLocations = Math.max(0, (Number(input.locations) || 1) - LOCATIONS_INCLUDED);
+  if (extraLocations) lines.push({ key: EXTRA_LOCATION.key, name: EXTRA_LOCATION.name, unit: EXTRA_LOCATION.amount, qty: extraLocations, total: extraLocations * EXTRA_LOCATION.amount });
   return { lines, total: lines.reduce((n, l) => n + l.total, 0), textsIncluded: team ? TEXTS.teamIncluded : TEXTS.soloIncluded };
 }
