@@ -456,4 +456,17 @@ service cloud.firestore {
     }
     match /appointmentCheckIns/{token} {
       allow get: if true;
-      allow list: if isSignedIn() && (isStaff(resource.data.tenantId) || isPortalMember(
+      allow list: if isSignedIn() && (isStaff(resource.data.tenantId) || isPortalMember(resource.data.tenantId));
+      allow create: if teamOf(request.resource.data.get('tenantId', ''));
+      allow update: if teamOf(resource.data.get('tenantId', ''));
+      allow delete: if false;
+    }
+    match /users/{userId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+    }
+    match /staffDirectory/{userId} {
+      allow get: if isSignedIn() && request.auth.uid == userId;
+      allow list, write: if false;
+    }
+  }
+}
