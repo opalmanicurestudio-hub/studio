@@ -16,6 +16,7 @@ const KNOWN = [
   'Owner sees nothing / wrong business → tenants.userId missing (fixed by /api/my-tenants self-repair) or a stale selectedTenantId.',
   'React error #300/#310 → a hook after an early return; run the whole-app hook scan.',
   'Paid online orders not on the board → webhook branch missing or cron not running (check CRON_SECRET in Vercel).',
+  'A location reappears after every sign-in (“ghost location”) → fixed 2026-10-01: the browser auto-created `primary` during the one render where useCollection reported not-loading with no data; auto-provisioning removed (signup creates it on the server) and useCollection/useDoc now report loading until the first answer.',
 ];
 
 export function ticketBrief(k: any): string {
