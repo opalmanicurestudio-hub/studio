@@ -60,6 +60,18 @@ export async function GET(req: NextRequest) {
       }
     } catch (e) { console.error('[cron/no-shows]', t.id, e); }
   }
+  // Station Assist: requests nobody accepted in time → alert the managers once.
+  let assistEscalated = 0;
+  for (const t of tenants) { try {
+    const open = (await db.collection(`tenants/${t.id}/assistRequests`).where('status', '==', 'open').limit(100).get()).docs;
+    const due = open.filter((d: any) => { const r: any = d.data() || {}; return !r.escalatedAt && Date.parse(r.escalateAt || '') <= Date.now(); });
+    if (!due.length) continue;
+    const managers = (await db.collection(`tenants/${t.id}/staff`).where('role', 'in', ['owner', 'admin', 'manager']).get()).docs;
+    for (const d of due) { const r: any = d.data(); const b = db.batch(); b.set(d.ref, { escalatedAt: nowIso }, { merge: true });
+      for (const m of managers) { const n = db.collection(`tenants/${t.id}/notifications`).doc(); b.set(n, { id: n.id, userId: m.id, type: 'assist_escalation', priority: 'urgent', link: '/pos', assistId: d.id, createdAt: nowIso, read: false, resolved: false,
+        message: `Nobody has taken ${r.requestedByName ? r.requestedByName.split(' ')[0] + '’s' : 'a'} request: ${String(r.label || 'help').toLowerCase()}${r.stationName ? ` at ${r.stationName}` : ''}` }); }
+      await b.commit(); assistEscalated++; }
+  } catch (e) { console.error('[cron/no-shows] assist', t.id, e); } }
   await heartbeat(db, 'no-shows');   // HQ's account check uses this to spot a stopped task
-  return NextResponse.json({ ok: true, flagged, escalated });
+  return NextResponse.json({ ok: true, flagged, escalated, assistEscalated });
 }
