@@ -1,5 +1,6 @@
 'use client';
 
+import { moduleEnabled, MODULES, SETTINGS_TAB_MODULE } from '@/lib/modules';
 import { Section, Row, Toggle, Choice, More, cfInput, cfInputStyle, toPicker, fromPicker } from '@/components/settings/settings-ui';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import { useLocation } from '@/context/LocationContext';
@@ -463,7 +464,7 @@ function SettingsPageImpl() {
     { value: 'operations',  label: 'Cleaning protocols',       icon: <SprayCan className="w-4 h-4" />    },
     // Team
     { value: 'timeclock',   label: 'Time clock',               icon: <Timer className="w-4 h-4" />       },
-  ];
+  ].filter((t) => !SETTINGS_TAB_MODULE[t.value] || moduleEnabled(selectedTenant, SETTINGS_TAB_MODULE[t.value]));   // only tools on this business's plan
 
   // Tabs that manage their own state — hide global save/cancel for these
   const selfManagedTabs = ['terminal', 'automations', 'locations'];
@@ -484,7 +485,7 @@ function SettingsPageImpl() {
             <Link href="/settings" className="inline-flex items-center gap-1 text-[14px] font-medium cf-muted hover:underline"><ChevronLeft className="h-4 w-4" aria-hidden />Settings</Link>
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div className="space-y-1.5">
-                <h1 className="text-[32px] md:text-[38px] font-light tracking-tight leading-none">{tabs.find((t) => t.value === activeTab)?.label || 'Settings'}</h1>
+                <h1 className="text-[32px] md:text-[38px] font-light tracking-tight leading-none">{tabs.find((t) => t.value === activeTab)?.label || (SETTINGS_TAB_MODULE[activeTab] ? MODULES[SETTINGS_TAB_MODULE[activeTab]]?.label : null) || 'Settings'}</h1>
                 <p className="max-w-[60ch] text-[15px] cf-muted">{WHATS_HERE[activeTab] || 'Everything about how your business runs.'}</p>
               </div>
               {!selfManagedTabs.includes(activeTab) && (
@@ -502,7 +503,13 @@ function SettingsPageImpl() {
                 </nav>) : null; })()}
           </header>
 
-          <Tabs value={activeTab} className="w-full">
+          {SETTINGS_TAB_MODULE[activeTab] && !moduleEnabled(selectedTenant, SETTINGS_TAB_MODULE[activeTab]) && (
+            <div className="cf-sheet space-y-3 p-6">
+              <p className="text-[16px] font-medium">This is part of {MODULES[SETTINGS_TAB_MODULE[activeTab]]?.label || 'a tool'}, which isn’t on your plan.</p>
+              <div className="flex flex-wrap gap-3"><Link href="/subscriptions" className="inline-flex h-11 items-center rounded-full px-5 text-[14px] font-semibold" style={{ background: 'var(--accent)', color: 'hsl(var(--primary-foreground))' }}>See plans</Link>
+                <Link href="/settings" className="inline-flex h-11 items-center rounded-full px-5 text-[14px] font-medium" style={{ background: 'var(--soft)' }}>Back to Settings</Link></div>
+            </div>)}
+          {!(SETTINGS_TAB_MODULE[activeTab] && !moduleEnabled(selectedTenant, SETTINGS_TAB_MODULE[activeTab])) && <Tabs value={activeTab} className="w-full">
 
             {/* ── PROFILE ── */}
             <TabsContent value="profile" className="mt-0 space-y-10 text-left">
@@ -629,11 +636,11 @@ function SettingsPageImpl() {
                 <Row label="Password"><input className={cfInput} style={cfInputStyle} value={tenantData.wifiPassword || ''} onChange={(e) => setTenantData((prev) => ({ ...prev, wifiPassword: e.target.value }))} placeholder="Leave empty if there isn’t one" autoComplete="off" /></Row>
               </Section>
               <Section title="Guest extras">
-                <Row label="Show the guest experience after check-in" help="Clients see the Wi-Fi, drinks and anything else you offer on their phone." inline><Toggle checked={(tenantData as any).guestExperienceEnabled === true} onChange={(v) => setTenantData((prev) => ({ ...prev, guestExperienceEnabled: v } as any))} label="Show the guest experience after check-in" /></Row>
-                <Row label="Offer drinks and refreshments" help="Clients can order from your refreshment menu while they wait." inline><Toggle checked={!!tenantData.refreshmentServiceEnabled} onChange={(v) => setTenantData((prev) => ({ ...prev, refreshmentServiceEnabled: v }))} label="Offer drinks and refreshments" /></Row>
+                <Row label="Show the guest experience after check-in" help="Clients see the Wi-Fi and anything else you offer, on their phone." inline><Toggle checked={(tenantData as any).guestExperienceEnabled === true} onChange={(v) => setTenantData((prev) => ({ ...prev, guestExperienceEnabled: v } as any))} label="Show the guest experience after check-in" /></Row>
+                {moduleEnabled(selectedTenant, 'hospitality') && <><Row label="Offer drinks and refreshments" help="Clients can order from your refreshment menu while they wait." inline><Toggle checked={!!tenantData.refreshmentServiceEnabled} onChange={(v) => setTenantData((prev) => ({ ...prev, refreshmentServiceEnabled: v }))} label="Offer drinks and refreshments" /></Row>
                 {tenantData.refreshmentServiceEnabled && <Row label="Free items per visit" help="After this, extras are charged." inline>
                   <input type="number" min={0} max={10} value={tenantData.complimentaryAmenityLimit || 0} onChange={(e) => setTenantData((prev) => ({ ...prev, complimentaryAmenityLimit: parseInt(e.target.value) || 0 }))} className={`${cfInput} w-20 text-center`} style={cfInputStyle} aria-label="Free items per visit" />
-                </Row>}
+                </Row>}</>}
               </Section>
             </TabsContent>
 
@@ -804,7 +811,7 @@ function SettingsPageImpl() {
               </>); })()}
             </TabsContent>
 
-          </Tabs>
+          </Tabs>}
         </div>
       </main>
 
