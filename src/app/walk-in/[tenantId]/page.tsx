@@ -55,6 +55,7 @@
 // studio name brings it back, giant touch targets everywhere, and the screen
 // resets itself between guests.
 
+import { guestLogo } from '@/lib/brand';
 import { useToast } from '@/hooks/use-toast';
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams } from 'next/navigation';
@@ -980,7 +981,7 @@ export default function WalkInKioskPage() {
             ? `Waiting for ${firstNameOf(g.staffName) || 'your provider'} · ${softWait(g.estWaitMin)}`
             : '',
         studioName: t.name || null,
-        accent: t.bookingPageSettings?.cfPageConfig?.accentColor || t.brandColor || null, logoUrl: t.logoUrl || t.bookingPageSettings?.cfPageConfig?.logoUrl || null,   // the Studio look, in their colours
+        accent: t.bookingPageSettings?.cfPageConfig?.accentColor || t.brandColor || null, logoUrl: guestLogo(t),   // the Studio look, in their colours
         studioPhone: t.phone || null,
         studioEmail: t.email || null,
         studioAddress: t.address || null,
