@@ -193,7 +193,6 @@ export default function BookingPoliciesPage() {
             <Row label="Running late" source={P.late.graceMinutes.source}>
               <Num field="lateArrivalGracePeriod" value={P.late.graceMinutes.value} unit="minutes grace" label="Grace period" max={120} />
               <Num field="lateArrivalFee" value={P.late.fee.value} unit="dollars late fee after that" label="Late fee" step={0.5} />
-              <label className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={!isMgr} checked={!!P.late.autoCancel.value} onChange={(e) => save('autoCancelLateArrivals', e.target.checked, 'Late arrivals')} /> Suggest rescheduling past the grace period</label>
             </Row>
             <Row label="Holding unpaid bookings" source={P.holds.holdMinutes.source}>
               <Num field="bookingMode.holdMinutes" value={P.holds.holdMinutes.value} unit="minutes while paying online" label="Hold time" max={1440} />
