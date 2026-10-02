@@ -9,6 +9,7 @@
  * managers read it on the Applicants view).
  */
 
+import { guestLogo } from '@/lib/brand';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { initializeApp, getApps } from 'firebase/app';
@@ -128,7 +129,7 @@ export default function ApplyPage() {
   }, [tenantId]);
 
   const businessName = tenant?.name || 'this business';
-  const logoUrl = tenant?.kioskSettings?.logoUrl;
+  const logoUrl = guestLogo(tenant);
 
   const questions = useMemo(
     () => (Array.isArray(tenant?.applicationQuestions) ? tenant.applicationQuestions.slice(0, 8) : []),
