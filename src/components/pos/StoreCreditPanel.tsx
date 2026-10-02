@@ -23,7 +23,7 @@
  *                      so CheckoutHub can adjust its total display
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Wallet, ChevronDown, ChevronUp, Check, Loader } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
@@ -66,6 +66,14 @@ export const StoreCreditPanel: React.FC<Props> = ({
     () => parseFloat(Math.min(totalAvailable, totalOwed).toFixed(2)),
     [totalAvailable, totalOwed],
   );
+  // Ready to use: when a client has credit, the panel opens set to the most that can be used (their balance or the
+  // bill, whichever is less) — one tap applies it. Nothing comes off until that tap; staff can change it or close it.
+  const primedFor = useRef<string>('');
+  useEffect(() => {
+    const key = `${(client as any)?.id || ''}:${maxApplicable}`;
+    if (isApplied || maxApplicable <= 0 || primedFor.current === key) return;
+    primedFor.current = key; setChosenAmount(maxApplicable); setInputVal(maxApplicable.toFixed(2)); setIsExpanded(true);
+  }, [maxApplicable, isApplied, client]);
 
   // Don't render if nothing available or already fully applied
   if (totalAvailable <= 0) return null;
@@ -229,7 +237,7 @@ export const StoreCreditPanel: React.FC<Props> = ({
                 >
                   {isApplying
                     ? <Loader className="w-4 h-4 animate-spin" />
-                    : `Apply $${chosenAmount.toFixed(2)}`}
+                    : `Use $${chosenAmount.toFixed(2)} of their credit`}
                 </Button>
               </div>
             </div>
