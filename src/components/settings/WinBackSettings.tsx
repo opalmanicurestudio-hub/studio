@@ -41,10 +41,10 @@ export function WinBackSettings({ tenantId, tenant, canEdit }: { tenantId: strin
   const num = 'h-10 w-24 rounded-xl border px-3 text-sm';
   return (
     <div className="space-y-4">
-      <section className={box}>
+      <section id="winback" className={box}>
         <div className="flex items-center justify-between gap-3">
           <div><p className="font-semibold">Win back quiet clients</p><p className="text-sm text-muted-foreground">A text (or email, if there’s no phone) at your reminder hour. Never to someone with a visit booked, who opted out, or who was nudged recently.</p></div>
-          <input type="checkbox" className="h-5 w-5" aria-label="Win back quiet clients" disabled={!canEdit} checked={r.enabled === true} onChange={(e) => save('reconnect.enabled', e.target.checked)} />
+          <a href="/settings/automations#sw:win-back" className="shrink-0 text-[13.5px] font-medium underline underline-offset-4">{r.enabled === true ? 'On' : 'Off'} — change in Automations</a>
         </div>
         {r.enabled === true && <>
           <label className="flex flex-wrap items-center gap-2 text-sm"><input type="checkbox" disabled={!canEdit} checked={r.dueEnabled !== false} onChange={(e) => save('reconnect.dueEnabled', e.target.checked)} />
