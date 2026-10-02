@@ -354,33 +354,15 @@ export default function AutomationsSettingsPage() {
   };
 
   return (
-    <SettingsPage title="Automations" help="What happens on its own when a client hasn’t paid a deposit or finished their forms — the reminders, and when a held time is released."
-      actions={<button type="button" onClick={handleSave} disabled={isSaving || !isDirty} className="inline-flex h-11 items-center gap-2 rounded-full px-5 text-[14px] font-semibold disabled:opacity-40" style={{ background: 'var(--accent)', color: 'hsl(var(--primary-foreground))' }}>{isSaving ? <><Loader className="h-4 w-4 animate-spin" /> Saving…</> : isDirty ? 'Save changes' : 'Saved'}</button>}>
-      <div className="space-y-8">
+    <SettingsPage title="Automations" help="Everything the app does on its own. Switch each one on or off here — the words they use are on the Messages page.">
+      <div className="space-y-10">
         {tenantId && <AutomationsOverview tenantId={tenantId} firestore={firestore as any} />}
 
 
-        {/* How it works */}
-        <div className="p-4 rounded-2xl bg-blue-50 border-2 border-blue-100 space-y-2">
-          <p className="text-[10px] font-black uppercase tracking-widest text-blue-600 flex items-center gap-2">
-            <Info className="w-3.5 h-3.5" /> How automations work
-          </p>
-          <p className="text-[11px] font-bold text-blue-800 leading-relaxed">
-            ClarityFlow checks all upcoming appointments every hour. When a requirement is
-            missing and the configured time window is reached, the action fires automatically —
-            sending reminders, blocking check-in, or cancelling the slot. You're notified in
-            your dashboard for every action taken.
-          </p>
-          <p className="text-[10px] font-bold text-blue-700 opacity-70 uppercase tracking-wider">
-            Runs hourly · costs nothing extra · targets only upcoming appointments
-          </p>
-        </div>
-
         {/* Trigger cards */}
-        <div className="space-y-4">
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
-            Appointment requirement rules
-          </p>
+        <section id="followups" className="scroll-mt-8 space-y-4">
+          <div className="space-y-1"><h2 className="text-[19px] font-semibold tracking-tight">Deposit and form reminders</h2>
+            <p className="text-[14.5px] cf-muted">For appointments that still need a deposit or forms. Checked every hour; you’re told about everything it does.</p></div>
           <div className="space-y-4">
             {TRIGGER_DEFS.map(def => (
               <TriggerCard
@@ -391,32 +373,14 @@ export default function AutomationsSettingsPage() {
               />
             ))}
           </div>
-        </div>
-
-        {/* Notification settings note */}
-        <div className="p-4 rounded-2xl bg-muted/10 border-2 border-dashed space-y-2">
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-            Reminder delivery
-          </p>
-          <p className="text-[11px] font-bold text-muted-foreground leading-relaxed">
-            Reminders are sent via SMS if Twilio is configured, and email if Resend is configured.
-            If neither is set up, reminders are flagged in the dashboard only. Configure in
-            Studio Settings → Notifications.
-          </p>
-        </div>
+        </section>
 
         {/* Save footer */}
         {isDirty && (
           <div className="sticky bottom-4 flex justify-end">
-            <Button
-              onClick={handleSave}
-              disabled={isSaving}
-              className="h-14 px-10 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/30"
-            >
-              {isSaving
-                ? <><Loader className="w-4 h-4 animate-spin mr-2" /> Saving...</>
-                : <><Save className="w-4 h-4 mr-2" /> Save Automation Rules</>}
-            </Button>
+            <button type="button" onClick={handleSave} disabled={isSaving} className="inline-flex h-12 items-center gap-2 rounded-full px-6 text-[15px] font-semibold shadow-lg disabled:opacity-60" style={{ background: 'var(--accent)', color: 'hsl(var(--primary-foreground))' }}>
+              {isSaving ? <><Loader className="h-4 w-4 animate-spin" /> Saving…</> : 'Save these reminders'}
+            </button>
           </div>
         )}
       </div>
