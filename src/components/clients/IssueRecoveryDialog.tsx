@@ -1,5 +1,6 @@
 'use client';
 
+import { overStaffLimit, staffLimit } from '@/lib/staff-limit';
 import { approveWithPin } from '@/lib/approve-client';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import React, { useState, useMemo } from 'react';
@@ -72,7 +73,10 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
 }) => {
   const isMobile = useIsMobile();
   const { services, inventory, staff } = useInventory();
-  const { selectedTenant, user } = useTenant();
+  const { selectedTenant, user, role } = useTenant() as any;
+  // Store credit follows the staff limit (Settings → Fees & credit): up to it, no PIN; over it, a manager approves.
+  // Owners and managers are never limited. Giving a free service or product always needs a manager, as before.
+  const isMgr = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
   const { firestore } = useFirebase();
   const { toast } = useToast();
   const tenantId = selectedTenant?.id;
@@ -84,11 +88,11 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
   const [pin, setPin] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const needsPin = mode !== 'wallet' || (!isMgr && overStaffLimit(selectedTenant, amount));
   const handleAction = async () => {
     if (!firestore || !tenantId || !user) return;
-    
-    const ap = await approveWithPin(tenantId, pin, { kind: 'client_recovery', requireReason: false });   // checked on the server
-    const authorizer: any = ap.ok && ap.approver ? { ...ap.approver, approvalToken: ap.token } : null;
+    const ap = needsPin ? await approveWithPin(tenantId, pin, { kind: 'client_recovery', requireReason: false }) : null;   // checked on the server
+    const authorizer: any = !needsPin ? { id: (user as any)?.uid || 'staff', name: (user as any)?.displayName || 'Staff', approvalToken: null } : ap?.ok && ap.approver ? { ...ap.approver, approvalToken: ap.token } : null;
     if (!authorizer) {
         toast({ variant: 'destructive', title: 'Invalid PIN', description: 'Manager authorization required for post-op recovery.' });
         return;
@@ -126,6 +130,7 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
                     source: 'service_recovery',
                     reason,
                     createdBy: authorizer.id,
+                    approvalToken: authorizer.approvalToken || undefined,
                 }),
             });
             const out = await res.json().catch(() => null);
@@ -335,6 +340,8 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
                         />
                     </div>
 
+                    {mode === 'wallet' && !isMgr && <p className="text-[13px] text-muted-foreground">Up to ${staffLimit(selectedTenant).amount} without a manager.</p>}
+                    {needsPin && (
                     <div className="space-y-4 pt-4 border-t border-dashed">
                         <div className="flex items-center gap-3 px-1">
                             <div className="p-2 bg-muted rounded-xl"><Lock className="w-4 h-4 text-slate-400" /></div>
@@ -349,12 +356,13 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
                             placeholder="••••"
                         />
                     </div>
+                    )}
                 </div>
             </div>
         </ScrollArea>
 
         <DialogFooter className="p-8 pt-4 border-t bg-muted/5 shrink-0 flex flex-col gap-3">
-            <Button onClick={handleAction} disabled={isSubmitting || !reason.trim() || pin.length < 4} className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all">
+            <Button onClick={handleAction} disabled={isSubmitting || !reason.trim() || (needsPin && pin.length < 4)} className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all">
                 {isSubmitting ? <Loader className="animate-spin" /> : 'Certify Recovery'}
             </Button>
             <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full font-black uppercase text-[10px] tracking-widest text-slate-400">Abort Protocol</Button>
