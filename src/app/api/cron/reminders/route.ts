@@ -600,6 +600,11 @@ export async function GET(req: NextRequest) {
       } catch (e: any) { reconnect.error = String(e?.message || e).slice(0, 120); }
 
       results[tid] = { sent, skipped, targetDay, followUps, agendas, ownerBrief: brief, clock: zoneSource, reconnect };
+      // What each automation did — shown on the Automations page ("Sent 4 this week").
+      { const { noteAutomation } = await import('@/lib/automation-switches');
+        await noteAutomation(db, tid, 'appt-reminders', Number(sent) || 0); await noteAutomation(db, tid, 'thank-you', Number(followUps) || 0);
+        await noteAutomation(db, tid, 'staff-agenda', Number(agendas) || 0); if (brief) await noteAutomation(db, tid, 'owner-brief', 1);
+        await noteAutomation(db, tid, 'win-back', Object.values(reconnect || {}).reduce((n: number, r: any) => n + (Number(r?.sent) || 0), 0)); }
     } catch (e: any) {
       results[tid] = { error: String(e?.message || e).slice(0, 120) };
     }
