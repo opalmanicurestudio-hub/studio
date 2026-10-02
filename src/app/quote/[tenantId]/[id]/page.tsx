@@ -14,6 +14,7 @@
  * - On decline: captures reason, saves, triggers follow-up flag
  */
 
+import { guestLogo } from '@/lib/brand';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { initializeApp, getApps } from 'firebase/app';
@@ -427,7 +428,7 @@ export default function PublicQuotePage() {
     );
 
     const primaryColor = tenant?.bookingPageSettings?.primaryColor || tenant?.kioskSettings?.primaryColor || '#0f172a';
-    const logoUrl      = tenant?.bookingPageSettings?.logoUrl || tenant?.kioskSettings?.logoUrl;
+    const logoUrl      = tenant?.bookingPageSettings?.logoUrl || guestLogo(tenant);
     const isLocked     = quote.locked || quote.status === 'accepted';
     const canInteract  = ['sent', 'viewed', 'revision_requested'].includes(quote.status);
 
