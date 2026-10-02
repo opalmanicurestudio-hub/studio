@@ -121,6 +121,8 @@ function sameLeaseWindow(a: any, b: any): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+const AUTOCOLLECT_FIXED_FROM = '2026-10-03';   // first due date the one autopay collected auto-collect leases
+
 export async function GET(req: NextRequest) {
   // ── Auth: only Vercel Cron (or someone holding the secret) may run this ──
   const secret = process.env.CRON_SECRET;
@@ -826,9 +828,13 @@ export async function GET(req: NextRequest) {
       for (const inv of dueSnap.docs) {
         const v = inv.data() as any;
         const lease: any = leaseById.get(v.leaseId);
-        if (!lease || lease.autoCollect) continue;
+        if (!lease) continue;   // every lease: an automatic charge that didn't go through is late like any other
         const due = String(v.dueDate || '').slice(0, 10);
         if (!due) continue;
+        // Auto-collect leases were never actually charged before this fix, so their older invoices were never the
+        // renter's fault — they don't suddenly turn late (no late notices or fees for them). Only invoices due from
+        // the day the fix shipped onward are treated like any other. Older ones show in the rent roll for you to review.
+        if (lease.autoCollect && due < AUTOCOLLECT_FIXED_FROM) continue;
         const policy = lease.lateFeePolicy || {};
         const graceDays = policy.enabled ? (Number(policy.graceDays) || 0) : 3;
         const graceEnd = new Date(`${due}T12:00:00Z`);
@@ -940,9 +946,11 @@ export async function GET(req: NextRequest) {
           const due = String(v.dueDate || '').slice(0, 10);
           if (!due || due > soon || due < todayStr || v.renterDueNotifiedAt) continue;
           const lease = v.leaseId ? (await db.doc(`tenants/${tid}/leases/${v.leaseId}`).get()).data() as any : null;
-          if (!lease?.renterId || lease.autoCollect) continue;
+          if (!lease?.renterId) continue;
           const r = (await db.doc(`tenants/${tid}/renters/${lease.renterId}`).get()).data() as any;
           if (!r?.phone) continue;
+          // Renters who'll be charged automatically (autopay on, or the lease set to auto-collect, with a card) aren't asked to pay.
+          if ((r.autopayEnabled === true || lease.autoCollect === true) && r.stripeCustomerId && (r.stripePaymentMethodId || r.defaultPaymentMethodId)) continue;
           const link = await renterPortalLink(db, tid, lease.renterId, r);
           const sent = await sendTenantSms(db, tid, r.phone,
             `Heads up — rent of $${((v.amountCents || 0) / 100).toFixed(2)} is due ${due === todayStr ? 'today' : due}. Pay any time in your portal:${link ? ` ${link}` : ''}`,
