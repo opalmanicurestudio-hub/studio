@@ -22,7 +22,7 @@ export function Section({ title, help, children, id }: { title: string; help?: R
 export function Row({ label, help, children, inline }: { label: string; help?: React.ReactNode; children: React.ReactNode; inline?: boolean }) {
   return (
     <div className={`px-5 py-4 [&+&]:border-t ${inline ? 'flex flex-wrap items-center justify-between gap-x-4 gap-y-2' : 'space-y-2.5'}`} style={{ borderColor: 'var(--line)' }}>
-      <div className="min-w-0"><p className="text-[15px] font-medium">{label}</p>{help && <p className="mt-0.5 text-[13.5px] leading-snug cf-muted">{help}</p>}</div>
+      <div className={inline ? 'min-w-[11rem] flex-1' : 'min-w-0'}><p className="text-[15px] font-medium">{label}</p>{help && <p className="mt-0.5 text-[13.5px] leading-snug cf-muted">{help}</p>}</div>
       <div className={inline ? 'shrink-0' : ''}>{children}</div>
     </div>
   );
