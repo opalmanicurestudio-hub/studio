@@ -1,5 +1,6 @@
 'use client';
 
+import { guestLogo } from '@/lib/brand';
 import React, { useState, useMemo, useEffect, useRef, Suspense } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
@@ -840,8 +841,8 @@ function ConciergeKioskContent() {
                         onClick={() => setEntered(true)}
                     >
                         <div className="relative w-48 h-48 md:w-64 md:h-64 rounded-[3rem] md:rounded-[4rem] overflow-hidden mb-12 transition-all duration-1000 mx-auto shadow-2xl border-4 border-white bg-white/40 backdrop-blur-3xl p-8 flex items-center justify-center group-hover:shadow-primary/20 group-hover:border-primary/20">
-                            {tenant?.kioskSettings?.logoUrl ? (
-                                <Image src={tenant.kioskSettings.logoUrl} alt={tenant.name} fill className="object-cover" />
+                            {tenant && guestLogo(tenant) ? (
+                                <Image src={guestLogo(tenant) as string} alt={tenant.name} fill className="object-cover" />
                             ) : (
                                 <ClarityFlowLogo className="w-24 h-24 md:w-32 md:h-32" />
                             )}
