@@ -13,6 +13,7 @@
 //     out missing its amount or its link is caught here rather than in a
 //     client's inbox.
 
+import { SettingsPage, Section, Row, Toggle as CfToggle } from '@/components/settings/settings-ui';
 import { doc, updateDoc, type Firestore } from 'firebase/firestore';
 import { ArrowLeft, Clock, Lock, Mail, MapPin, MessageSquare, Moon, Pencil, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
@@ -100,49 +101,27 @@ export default function MessageSettingsPage() {
   );
 
   return (
-    <div className="min-h-dvh bg-muted/5 pb-24">
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
-        <div className="max-w-2xl mx-auto px-4 py-4 flex items-center gap-3">
-          <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
-            <Link href="/settings"><ArrowLeft className="h-4 w-4" /></Link>
-          </Button>
-          <div className="flex-1 min-w-0">
-            <h1 className="font-black uppercase tracking-tighter text-xl leading-none">Messages</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Every automatic message — what goes out, when, and in your words{isMgr ? '' : ' · view only'}
-            </p>
-          </div>
-          <Link href="/message-log"
-            className="h-9 shrink-0 inline-flex items-center gap-1.5 rounded-xl border-2 bg-white px-2.5 text-[9px] font-black uppercase tracking-widest text-slate-600">
-            <Mail className="h-3.5 w-3.5" /> Delivery log
-          </Link>
-        </div>
-        <div className="max-w-2xl mx-auto px-4 pb-3 flex gap-1.5 overflow-x-auto">
+    <SettingsPage title="Messages" help={`Every automatic message — what goes out, when, and in your words.${isMgr ? '' : ' (View only.)'}`}
+      actions={<Link href="/message-log" className="inline-flex h-10 items-center gap-1.5 rounded-full px-4 text-[14px] font-medium" style={{ background: 'var(--soft)' }}><Mail className="h-4 w-4" aria-hidden />Delivery log</Link>}>
+      <Section title="Reminders" help="Reminders include your policy wording, their visit link and anything still to do, like forms or a deposit.">
+        <Row label="Send appointment reminders" inline><CfToggle checked={(selectedTenant as any)?.clientNotify?.enabled !== false} disabled={!isMgr} onChange={(v: boolean) => { void save('rem-on', 'clientNotify.enabled', v, 'Reminders'); }} label="Send appointment reminders" /></Row>
+        {(selectedTenant as any)?.clientNotify?.enabled !== false && <Row label="When they go out" help="In the morning." inline>
+          <select disabled={!isMgr} value={String((selectedTenant as any)?.clientNotify?.daysBefore ?? 1)} onChange={(e) => save('rem-days', 'clientNotify.daysBefore', Number(e.target.value), 'Reminder timing')} className="h-10 rounded-xl border px-3 text-[14px]" style={{ background: 'var(--card)', borderColor: 'var(--line)' }} aria-label="When reminders go out">
+            {[[0, 'The same day'], [1, 'The day before'], [2, '2 days before'], [3, '3 days before'], [7, 'A week before']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+        </Row>}
+      </Section>
+      <section className="space-y-3">
+        <div className="space-y-1"><h2 className="text-[19px] font-semibold tracking-tight">Your messages</h2><p className="text-[14.5px] cf-muted">Tap one to change its wording. Anything you don’t change uses our standard wording.</p></div>
+        <div className="flex gap-2 overflow-x-auto pb-1">
           {GROUPS.map((g) => (
             <button key={g} type="button" onClick={() => { setGroup(g); setEditing(null); }}
-              className={cn('h-8 shrink-0 rounded-full border-2 px-3 text-[9px] font-black uppercase tracking-widest transition-all',
-                group === g ? 'border-foreground bg-foreground text-background' : 'bg-white hover:border-primary/40')}>
+              className="h-9 shrink-0 rounded-full px-4 text-[13.5px] font-medium transition-colors" style={group === g ? { background: 'var(--ink)', color: 'var(--paper)' } : { background: 'var(--soft)', color: 'var(--ink)' }}>
               {g}
             </button>
           ))}
         </div>
-      </header>
-      {/* When reminders go out — these were only readable by the daily job before; now they're yours to set. */}
-      <section aria-label="When reminders go out" className="mx-auto mt-4 max-w-2xl px-4">
-        <div className="space-y-3 rounded-3xl border bg-card p-5">
-          <p className="font-semibold">When reminders go out</p>
-          <label className="flex items-center justify-between gap-3 text-sm"><span>Send appointment reminders</span>
-            <input type="checkbox" className="h-5 w-5" disabled={!isMgr} checked={(selectedTenant as any)?.clientNotify?.enabled !== false} onChange={(e) => save('rem-on', 'clientNotify.enabled', e.target.checked, 'Reminders')} /></label>
-          <div className="flex flex-wrap items-center gap-2 text-sm"><span className="text-muted-foreground">Send them</span>
-            <select disabled={!isMgr} value={String((selectedTenant as any)?.clientNotify?.daysBefore ?? 1)} onChange={(e) => save('rem-days', 'clientNotify.daysBefore', Number(e.target.value), 'Reminder timing')} className="h-9 rounded-full border px-3">
-              {[[0, 'the same day'], [1, 'the day before'], [2, '2 days before'], [3, '3 days before'], [7, 'a week before']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-            <span className="text-muted-foreground">— in the morning.</span>
-          </div>
-          <p className="text-xs text-muted-foreground">Reminders include your policy wording, their visit link and anything still to do (forms or a deposit). Change the wording below.</p>
-        </div>
       </section>
-
-      <main className="max-w-2xl mx-auto px-4 py-6 space-y-3">
+      <div className="space-y-3">
         {/* Quiet hours protect every kind at once — one setting instead of a
             per-message rule nobody would keep consistent. */}
         <Card className="border-2 rounded-[2rem] bg-white">
@@ -434,7 +413,7 @@ export default function MessageSettingsPage() {
           Switched-off messages still appear in your message log marked as skipped, so nothing disappears without a trace.
           Reminders for unpaid deposits and missing forms are timed separately under Automations.
         </p>
-      </main>
-    </div>
+      </div>
+    </SettingsPage>
   );
 }
