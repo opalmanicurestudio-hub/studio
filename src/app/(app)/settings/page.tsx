@@ -18,13 +18,12 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Activity, AlertTriangle, ArrowRight, Ban, Bell, Box, Building, Calendar, CalendarCheck, Check, CheckCircle2, ChevronDown, Clock, Coffee, Coffee as BreakIcon, CreditCard, DollarSign, Edit, Eye, FileText, FileWarning, Fingerprint, Flame, Globe, HeartHandshake, ImageIcon, Landmark, LayoutGrid, Loader, Mail, Map as MapIcon, MapPin, Monitor, Palette, Percent, PlusCircle, Printer, QrCode, RefreshCw, Save, Scale, Scale as ScaleIcon, Search, Settings as SettingsIcon, Shield, ShieldAlert, ShieldCheck, Smartphone, Sparkles, Star, Tag, Target, Timer, Trash2, TrendingUp, Unlock, Users, Wallet, Wifi, Workflow, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowRight, Ban, Bell, Box, Building, Calendar, CalendarCheck, Check, CheckCircle2, ChevronDown, Clock, Coffee, Coffee as BreakIcon, CreditCard, DollarSign, Edit, Eye, FileText, FileWarning, Fingerprint, Flame, Globe, HeartHandshake, ImageIcon, Landmark, LayoutGrid, Loader, Mail, Map as MapIcon, MapPin, Monitor, Palette, Percent, PlusCircle, Printer, QrCode, RefreshCw, Save, Scale, Scale as ScaleIcon, Search, Settings as SettingsIcon, Shield, ShieldAlert, ShieldCheck, Smartphone, Sparkles, Star, Tag, Target, Timer, Trash2, TrendingUp, Unlock, Users, Wallet, Wifi, Workflow, Zap, Route, SprayCan } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
 import { useFirebase, updateDocumentNonBlocking, useMemoFirebase, useCollection } from '@/firebase';
 import { doc, writeBatch, deleteField, getDocs, query, collection, where } from 'firebase/firestore';
 import { type Tenant, type ScheduleProfile, type DayHours, type Service, type PricingTier, type Staff, type RecoveryPreset, nanoid } from '@/lib/data';
-import { DEFAULT_DEPOSIT_POLICY } from '@/lib/deposit-policy';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { SettingsHome } from '@/components/settings/SettingsHome';
@@ -417,7 +416,6 @@ function SettingsPageImpl() {
   const handleScheduleChange      = (day: string, updates: Partial<DayHours>) => (dirty.current.sched = true, setLocalSchedule)((prev: any) => ({ ...prev, [day]: { ...prev[day], ...updates } }));
   const handleKioskScheduleChange = (day: string, updates: Partial<DayHours>) => (dirty.current.kiosk = true, setLocalKioskSchedule)((prev: any) => ({ ...prev, [day]: { ...(prev?.[day] || { enabled: false, start: '09:00 AM', end: '05:00 PM' }), ...updates } }));
   const handlePolicyChange        = (id: string, updates: any) => (dirty.current.svc.add(id), setServicePolicies)(prev => ({ ...prev, [id]: { ...prev[id], ...updates } }));
-  const handleDepositPolicyChange = (updates: any) => setTenantData(prev => ({ ...prev, depositPolicy: { ...(((prev as any).depositPolicy) || {}), ...updates } } as any));
   const handleAddPreset           = () => setTenantData(prev => ({ ...prev, recoveryPresets: [...(prev.recoveryPresets || []), { id: nanoid(), label: 'NEW PRESET', type: 'fixed', value: 0 }] }));
   const handleRemovePreset        = (id: string) => setTenantData(prev => ({ ...prev, recoveryPresets: prev.recoveryPresets?.filter(p => p.id !== id) }));
   const handleUpdatePreset        = (id: string, updates: Partial<RecoveryPreset>) => setTenantData(prev => ({ ...prev, recoveryPresets: prev.recoveryPresets?.map(p => p.id === id ? { ...p, ...updates } : p) }));
@@ -429,7 +427,6 @@ function SettingsPageImpl() {
     return services.filter(svc => svc.name.toLowerCase().includes(s) || (svc.category || '').toLowerCase().includes(s));
   }, [services, serviceSearch]);
 
-  const depositPolicy: any = { ...DEFAULT_DEPOSIT_POLICY, ...(((tenantData as any).depositPolicy) || {}) };
   const depositOutcomeRules = [
     { key: 'onEarlyCancel',  label: 'Client cancels EARLY',  desc: 'Outside the refund window' },
     { key: 'onLateCancel',   label: 'Client cancels LATE',   desc: 'Inside the refund window'   },
@@ -439,15 +436,22 @@ function SettingsPageImpl() {
 
   // ── Tab definitions ────────────────────────────────────────────────────────
   const tabs = [
+    // Your business
     { value: 'profile',     label: 'Your business',            icon: <Building className="w-4 h-4" />    },
-    { value: 'locations',   label: 'Locations',                  icon: <MapPin className="w-4 h-4" />      },
-    { value: 'hours',       label: 'Opening hours',           icon: <Clock className="w-4 h-4" />       },
-    { value: 'experience',  label: 'Guest comforts & Wi-Fi', icon: <Coffee className="w-4 h-4" />      },
-    { value: 'policies',    label: 'Recovery & money owed',      icon: <ShieldCheck className="w-4 h-4" /> },
-    { value: 'payments',    label: 'Payments & payouts',         icon: <DollarSign className="w-4 h-4" />  },
-    { value: 'terminal',    label: 'Card reader',            icon: <Monitor className="w-4 h-4" />     },
-    { value: 'kiosk',       label: 'Check-in kiosk',        icon: <Fingerprint className="w-4 h-4" /> },
-    { value: 'timeclock',   label: 'Time clock',                 icon: <Timer className="w-4 h-4" />       },
+    { value: 'hours',       label: 'Opening hours',            icon: <Clock className="w-4 h-4" />       },
+    { value: 'locations',   label: 'Locations',                icon: <MapPin className="w-4 h-4" />      },
+    // Payments
+    { value: 'payments',    label: 'Payments & payouts',       icon: <DollarSign className="w-4 h-4" />  },
+    { value: 'terminal',    label: 'Card reader',              icon: <Monitor className="w-4 h-4" />     },
+    { value: 'policies',    label: 'Money owed & recovery',    icon: <ShieldCheck className="w-4 h-4" /> },
+    // Front desk & visits
+    { value: 'visits',      label: 'Visit stages',             icon: <Route className="w-4 h-4" />       },
+    { value: 'kiosk',       label: 'Check-in kiosk',           icon: <Fingerprint className="w-4 h-4" /> },
+    { value: 'experience',  label: 'Guest comforts & Wi-Fi',   icon: <Coffee className="w-4 h-4" />      },
+    // Operations
+    { value: 'operations',  label: 'Cleaning protocols',       icon: <SprayCan className="w-4 h-4" />    },
+    // Team
+    { value: 'timeclock',   label: 'Time clock',               icon: <Timer className="w-4 h-4" />       },
   ];
 
   // Tabs that manage their own state — hide global save/cancel for these
@@ -572,80 +576,6 @@ function SettingsPageImpl() {
             </TabsContent>
 
             {/* ── AUTOMATIONS ── */}
-            <TabsContent value="automations" className="mt-0 animate-in fade-in duration-500 text-left">
-              <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                  <SectionHeader icon={Zap} title="Automations" />
-                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
-                    Configure what happens when clients don't complete requirements before their appointment.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="p-6 md:p-8">
-                  {/* Doorways to the three screens that live outside this page.
-                      A previous version of this block was three full-width hero
-                      cards; one compact row costs a fraction of the scrolling
-                      and reaches the same places. Setup is first because it
-                      answers most questions without leaving at all.
-
-                      Deliberately a plain sibling <div>: an earlier attempt to
-                      reorganise this file moved TabsContent blocks around and
-                      a stray closing tag silently swallowed half the policies
-                      tab into its neighbour. Nothing here opens or closes a
-                      tab, so that failure mode is impossible. */}
-                  <div className="mb-6 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    {[
-                      { href: '/settings/map',      icon: MapIcon,       title: 'Setup',    blurb: 'Everything in plain words — change most of it right there' },
-                      { href: '/settings/booking',  icon: CalendarCheck, title: 'Booking',  blurb: 'How bookings arrive, deposits, approvals' },
-                      { href: '/settings/messages', icon: Mail,          title: 'Messages', blurb: 'Every email and text — wording, timing, quiet hours' },
-                    ].map((c) => {
-                      const Icon = c.icon;
-                      return (
-                        <a key={c.href} href={c.href}
-                          className="flex items-start gap-3 p-4 rounded-2xl border-2 border-border bg-muted/5 transition-all hover:border-primary/40 active:scale-[0.98]">
-                          <Icon className="w-5 h-5 text-foreground shrink-0 mt-0.5" />
-                          <span className="min-w-0">
-                            <span className="block text-sm font-black uppercase tracking-tight text-slate-900">{c.title}</span>
-                            <span className="block text-[10px] font-bold text-muted-foreground leading-relaxed mt-0.5">{c.blurb}</span>
-                          </span>
-                        </a>
-                      );
-                    })}
-                  </div>
-                  <div className="flex flex-col sm:flex-row items-center gap-6 p-8 rounded-[2rem] border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/[0.02] shadow-inner">
-                    <div className="w-14 h-14 rounded-2xl bg-primary/10 border-2 border-primary/20 flex items-center justify-center shrink-0">
-                      <Zap className="w-7 h-7 text-primary" />
-                    </div>
-                    <div className="flex-1 space-y-1.5 text-center sm:text-left">
-                      <p className="text-base font-black uppercase tracking-tight text-slate-900">Automation Rules</p>
-                      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-70 leading-relaxed">
-                        Set triggers for missing deposits, unsigned forms, no card on file, and more. Actions fire automatically on a schedule.
-                      </p>
-                    </div>
-                    <a
-                      href="/settings/automations"
-                      className="shrink-0 flex items-center gap-2 h-12 px-8 rounded-2xl bg-primary text-white font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all active:scale-95 whitespace-nowrap"
-                    >
-                      Open Automations <ArrowRight className="w-4 h-4" />
-                    </a>
-                  </div>
-                  <div className="mt-6 grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {[
-                      { icon: DollarSign,  label: 'Deposit not paid'        },
-                      { icon: FileText,    label: 'Consent form unsigned'    },
-                      { icon: Shield,      label: 'No card on file'          },
-                      { icon: ImageIcon,   label: 'Reference photos missing' },
-                      { icon: ShieldCheck, label: 'Health form missing'      },
-                      { icon: Landmark,    label: 'Outstanding balance'      },
-                    ].map(item => (
-                      <div key={item.label} className="flex items-center gap-3 p-3.5 rounded-2xl border-2 border-border bg-muted/5">
-                        <item.icon className="w-4 h-4 text-primary opacity-60 shrink-0" />
-                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-600 leading-tight">{item.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
 
             {/* ── HOURS ── */}
             <TabsContent value="hours" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
@@ -681,10 +611,15 @@ function SettingsPageImpl() {
             </TabsContent>
 
             {/* ── EXPERIENCE ── */}
-            <TabsContent value="experience" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
+            <TabsContent value="visits" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
               {tenantId && <VisitStagesCard tenantId={tenantId} tenant={selectedTenant} canEdit={['owner', 'admin', 'manager'].includes(String((role as any) || '').toLowerCase())} />}
-              {tenantId && <KioskOptionsCard tenantId={tenantId} tenant={selectedTenant} canEdit={String((role as any) || '').toLowerCase() === 'owner'} />}
+            </TabsContent>
+
+            <TabsContent value="operations" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
               {tenantId && <ProtocolsCard tenantId={tenantId} canEdit={['owner', 'admin', 'manager'].includes(String((role as any) || '').toLowerCase())} />}
+            </TabsContent>
+
+            <TabsContent value="experience" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                 <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
                   <SectionHeader icon={Coffee} title="Guest extras" />
@@ -1006,57 +941,11 @@ function SettingsPageImpl() {
             </TabsContent>
 
             {/* ── BUILDER ── */}
-            <TabsContent value="builder" className="mt-0 animate-in fade-in duration-500 text-left">
-              <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                  <SectionHeader icon={Globe} title="Your booking page" />
-                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Design and publish your guest-facing booking page.</CardDescription>
-                </CardHeader>
-                <CardContent className="p-6 md:p-8 space-y-6">
-                  <div className="flex flex-col sm:flex-row items-center gap-6 p-8 rounded-[2rem] border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/[0.02] shadow-inner">
-                    <div className="w-14 h-14 rounded-2xl bg-primary/10 border-2 border-primary/20 flex items-center justify-center shrink-0">
-                      <Sparkles className="w-7 h-7 text-primary" />
-                    </div>
-                    <div className="flex-1 space-y-1.5 text-center sm:text-left">
-                      <p className="text-base font-black uppercase tracking-tight text-slate-900">Page Builder</p>
-                      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-70 leading-relaxed">Drag sections, choose fonts and colors, upload images, and configure every block of your public booking page.</p>
-                    </div>
-                    <a href="/studio/page-builder" className="shrink-0 flex items-center gap-2 h-12 px-8 rounded-2xl bg-primary text-white font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all active:scale-95 whitespace-nowrap">
-                      Open Builder <ArrowRight className="w-4 h-4" />
-                    </a>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {[
-                      { icon: Palette,     label: 'Brand kit & colors'     },
-                      { icon: FileText,    label: 'Fonts & typography'     },
-                      { icon: LayoutGrid,  label: 'Section order & layout' },
-                      { icon: ImageIcon,   label: 'Hero & gallery images'  },
-                      { icon: Star,        label: 'Reviews & team'         },
-                      { icon: Globe,       label: 'Social & contact'       },
-                    ].map(item => (
-                      <div key={item.label} className="flex items-center gap-3 p-3.5 rounded-2xl border-2 border-border bg-muted/5">
-                        <item.icon className="w-4 h-4 text-primary opacity-60 shrink-0" />
-                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-600 leading-tight">{item.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                  {selectedTenant && (
-                    <div className="flex items-center justify-between gap-4 p-5 rounded-[2rem] border-2 border-dashed border-border bg-muted/5">
-                      <div className="space-y-1 min-w-0">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Your live booking page</p>
-                        <p className="text-xs font-black text-slate-700 truncate font-mono">/book/{selectedTenant.id}</p>
-                      </div>
-                      <a href={`/book/${selectedTenant.id}`} target="_blank" rel="noopener noreferrer" className="shrink-0 flex items-center gap-1.5 h-9 px-4 rounded-xl border-2 border-border bg-white font-black uppercase text-[9px] tracking-widest text-muted-foreground hover:border-primary/30 hover:text-primary transition-all">
-                        <Eye className="w-3.5 h-3.5" /> View Live
-                      </a>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
 
             {/* ── KIOSK ── */}
             <TabsContent value="kiosk" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
+              {/* The whole kiosk in one place: what it asks first (front door), then how it looks. */}
+              {tenantId && <KioskOptionsCard tenantId={tenantId} tenant={selectedTenant} canEdit={String((role as any) || '').toLowerCase() === 'owner'} />}
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                 <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
                   <SectionHeader icon={Fingerprint} title="Check-in kiosk" />
@@ -1373,6 +1262,9 @@ function SettingsGate() {
   const { selectedTenant } = useTenant();
   React.useEffect(() => { if (tab && FORWARD_TABS[tab]) router.replace(FORWARD_TABS[tab]); }, [tab, router]);
   if (tab && FORWARD_TABS[tab]) return null;
+  // Two old tabs became their own pages — send old links there.
+  const moved: Record<string, string> = { automations: '/settings/automations', builder: '/settings/booking#design' };
+  if (tab && moved[tab]) { if (typeof window !== 'undefined') window.location.replace(moved[tab]); return null; }
   if (!tab) return (<><AppHeader title="Settings" /><SettingsHome tenant={selectedTenant} /></>);
   return (<>
     <div className="mx-auto w-full max-w-6xl px-4 pt-3 md:px-10"><Link href="/settings" className="text-sm font-bold underline underline-offset-4">← Settings home</Link></div>
