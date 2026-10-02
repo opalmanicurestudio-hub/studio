@@ -6,13 +6,13 @@
 // shows only what's missing. Every link goes to the exact screen or tab where
 // the setting lives (the tabbed Settings page keeps working at ?tab=…).
 
+import { moduleEnabled, settingVisible } from '@/lib/modules';
 import { SETTINGS_MAP } from '@/lib/settings-map';
 import { kioskOptionsShown } from '@/lib/kiosk-options';
 import { clientTimelineSettingsOf } from '@/lib/visit';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import { Building2, CalendarDays, CreditCard, DoorOpen, SprayCan, Users, MessageSquare, Puzzle, Search, ChevronRight, Sparkles } from 'lucide-react';
 import { attentionItems } from '@/lib/settings-map';
-import { moduleEnabled } from '@/lib/modules';
 import { useFirebase } from '@/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import React from 'react';
@@ -47,9 +47,9 @@ export const SETTINGS_INDEX: { question: string; icon: string; items: Item[] }[]
   ] },
   { question: 'Front desk & visits', icon: '', items: [
     { title: 'Visit stages', meaning: 'The steps a visit goes through, their names, and what clients see on their visit link.', href: T('visits'), words: 'stages timeline arrived waiting in service client link' },
-    { title: 'Check-in kiosk', meaning: 'The screen clients use to check themselves in.', href: T('kiosk'), words: 'kiosk check in station qr front door what brings you in pickup renter tour help options' },
+    { title: 'Check-in kiosk', meaning: 'The screen clients use to check themselves in.', href: T('kiosk'), words: 'kiosk check in station qr front door what brings you in pickup renter tour help options', module: 'kiosk' },
     { title: 'Guest comforts & Wi-Fi', meaning: 'Wi-Fi for guests, drinks and little extras.', href: T('experience'), words: 'wifi drinks refreshments hospitality concierge' },
-    { title: 'Hosting & floor', meaning: 'How you host guests: tables, seating and the host screen.', href: '/settings/hosting', words: 'hosting host tables seating floor plan parties' },
+    { title: 'Hosting & floor', meaning: 'How you host guests: tables, seating and the host screen.', href: '/settings/hosting', words: 'hosting host tables seating floor plan parties', module: 'hospitality' },
   ] },
   { question: 'Operations', icon: '', items: [
     { title: 'Cleaning protocols', meaning: 'Your cleaning procedures — they become each service’s turnover checklist and release a station from quarantine.', href: T('operations'), words: 'cleaning protocol sanitise disinfect turnover checklist quarantine hygiene' },
@@ -57,14 +57,14 @@ export const SETTINGS_INDEX: { question: string; icon: string; items: Item[] }[]
   ] },
   { question: 'Team', icon: '', items: [
     { title: 'Your team', meaning: 'People, roles, what they can do and their schedules.', href: '/staff', words: 'staff employees roles permissions availability' },
-    { title: 'Time clock', meaning: 'How the team clocks in and out.', href: T('timeclock'), words: 'clock in out timesheet pin geofence overtime' },
+    { title: 'Time clock', meaning: 'How the team clocks in and out.', href: T('timeclock'), words: 'clock in out timesheet pin geofence overtime', module: 'team' },
   ] },
   { question: 'Messages & automations', icon: '', items: [
     { title: 'Everything that runs automatically', meaning: 'Every message and automatic action, whether it’s working, and switches.', href: '/settings/automations', words: 'automation health reminders working needs setup' },
     { title: 'Message wording & timing', meaning: 'Change what confirmations and reminders say, and when they go.', href: '/settings/messages', words: 'reminder confirmation text sms email template wording' },
-    { title: 'Win back quiet clients', meaning: 'Gentle nudges to clients who are due or haven’t been in a while.', href: '/settings/messages', words: 'reconnect win back quiet lapsed nudge due missed renter campaigns texts' },
+    { title: 'Win back quiet clients', meaning: 'Gentle nudges to clients who are due or haven’t been in a while.', href: '/settings/messages', words: 'reconnect win back quiet lapsed nudge due missed renter campaigns texts', module: 'marketing' },
     { title: 'Message log', meaning: 'Every email and text that was sent, and whether it arrived.', href: '/message-log', words: 'sent delivered failed history' },
-    { title: 'Voice assistant', meaning: 'The assistant that answers your phone: what it knows and how it speaks.', href: '/voice', words: 'voice phone calls assistant receptionist' },
+    { title: 'Voice assistant', meaning: 'The assistant that answers your phone: what it knows and how it speaks.', href: '/voice', words: 'voice phone calls assistant receptionist', module: 'voice' },
   ] },
   { question: 'Your tools', icon: '', items: [
     { title: 'Booth rentals', meaning: 'Booking rules for your booths and suites — booking window, notice, tours and deposits.', href: '/booths?settings=1', words: 'booth chair suite rent renter lease tour', module: 'booth_rental' },
@@ -103,7 +103,8 @@ async function automationsNeedingYou(tenantId: string) {
 }
 
 export function SettingsHome({ tenant }: { tenant: any }) {
-  const index = useMemo(() => SETTINGS_INDEX.map((g) => ({ ...g, items: g.items.filter((i) => !i.module || moduleEnabled(tenant, i.module as any)) })).filter((g) => g.items.length), [tenant]);
+  // Only what's part of this business's plan (a tool they don't have never shows — here, in search, or anywhere).
+  const index = useMemo(() => SETTINGS_INDEX.map((g) => ({ ...g, items: g.items.filter((i) => settingVisible(tenant, i.href, i.module)) })).filter((g) => g.items.length), [tenant]);
   const [q, setQ] = useState(''); const [autoCount, setAutoCount] = useState<number | null>(null);
   useEffect(() => { if (tenant?.id) void automationsNeedingYou(tenant.id).then(setAutoCount); }, [tenant?.id]);
   const checks = 5 + attentionItems(tenant).length;   // the setup checks below (+ anything silently switched off)
@@ -114,7 +115,7 @@ export function SettingsHome({ tenant }: { tenant: any }) {
     !tenant?.bookingPageSettings?.design && { title: 'Pick your booking page design (optional)', href: '/settings/booking' },
     autoCount ? { title: `${autoCount} automation${autoCount === 1 ? ' needs' : 's need'} you`, href: '/settings/automations' } : null,
     // Anything switched off in a way that silently disables something (the same checks Quick settings shows).
-    ...attentionItems(tenant).map((a) => ({ title: a.warning || `${a.label} isn’t set up`, href: a.href })),
+    ...attentionItems(tenant).map((a) => ({ title: a.warning || `${a.label} isn’t set up`, href: a.href })),   // (already limited to the plan)
   ].filter(Boolean) as { title: string; href: string }[];
   const results = useMemo(() => {
     const n = q.trim().toLowerCase(); if (n.length < 2) return [];
