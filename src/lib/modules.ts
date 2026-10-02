@@ -95,3 +95,23 @@ export function pageVisible(tenant: any, href: string): boolean {
   const owner = PAGE_TO_MODULE[href];
   return owner ? moduleEnabled(tenant, owner) : true;
 }
+
+/** Which tool a link belongs to — by its page, or any parent page it sits under (/retail-orders/policies → retail). */
+export function hrefModule(href: string): ModuleId | null {
+  const path = String(href || '').split(/[?#]/)[0];
+  let best: { id: ModuleId; len: number } | null = null;
+  for (const [id, m] of Object.entries(MODULES) as [ModuleId, any][]) for (const pg of m.pages || []) {
+    if ((path === pg || path.startsWith(pg + '/')) && (!best || pg.length > best.len)) best = { id, len: pg.length };
+  }
+  return best?.id || null;
+}
+/** Settings tabs that belong to a tool (the rest are part of every plan). */
+export const SETTINGS_TAB_MODULE: Record<string, ModuleId> = { kiosk: 'kiosk', timeclock: 'team' };
+/** Should this setting show for this business? Only if it's part of their plan — by an explicit tool, a settings tab,
+ *  or the page the link opens. Every settings screen, search, "Finish setting up" and Quick settings use this. */
+export function settingVisible(tenant: any, href: string, module?: string | null): boolean {
+  if (module && !moduleEnabled(tenant, module as ModuleId)) return false;
+  const tab = String(href || '').match(/[?&]tab=([a-z]+)/)?.[1];
+  if (tab && SETTINGS_TAB_MODULE[tab] && !moduleEnabled(tenant, SETTINGS_TAB_MODULE[tab])) return false;
+  const m = hrefModule(href); return !m || moduleEnabled(tenant, m);
+}
