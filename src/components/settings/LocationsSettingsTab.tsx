@@ -31,6 +31,7 @@
  * change, because it moves where two live geofences get their truth.
  */
 
+import { moduleEnabled } from '@/lib/modules';
 import { More, Toggle } from '@/components/settings/settings-ui';
 import { useState, useEffect, useCallback } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
@@ -494,7 +495,7 @@ export function LocationsSettingsTab() {
                   {loc.id === selectedLocationId && locations.length > 1 && <span className="rounded-full px-2 py-0.5 text-[11.5px] font-medium" style={{ background: 'var(--soft)' }}>You’re viewing this one</span>}
                   {!loc.isActive && <span className="rounded-full px-2 py-0.5 text-[11.5px] font-medium" style={{ background: 'var(--soft)' }}>Paused</span>}</p>
                 {(loc.address || loc.addressParts) && <p className="text-[13.5px] cf-muted">{formatLocationAddress(loc.addressParts) || loc.address}</p>}
-                <p className="text-[13px]">{loc.coordinates ? <span className="cf-muted">Map pin set · staff clock in within {r} m</span> : <span className="font-medium text-amber-700">No map pin yet — tap Edit to add one</span>}</p>
+                <p className="text-[13px]">{loc.coordinates ? <span className="cf-muted">{moduleEnabled(selectedTenant, 'team') ? `Map pin set · staff clock in within ${r} m` : 'Map pin set'}</span> : <span className="font-medium text-amber-700">No map pin yet — tap Edit to add one</span>}</p>
               </div>
               <div className="flex shrink-0 flex-col items-end gap-1.5">
                 <button type="button" onClick={() => openEdit(loc)} className="h-9 rounded-full px-4 text-[14px] font-medium" style={{ background: 'var(--soft)' }}>Edit</button>
