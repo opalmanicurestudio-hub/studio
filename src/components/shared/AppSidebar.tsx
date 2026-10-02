@@ -9,7 +9,7 @@ import {
   SidebarFooter, SidebarContent, SidebarSeparator, SidebarGroup,
   SidebarGroupLabel, SidebarRail, SidebarTrigger, useSidebar,
 } from '@/components/ui/sidebar';
-import { AlertTriangle, Armchair, BarChart, BookOpen, Bot, Box, Boxes, Building2, Calendar, CalendarClock, CalendarDays, ChefHat, ChevronRight, ClipboardList, Clock, Coffee, ConciergeBell, DoorOpen, ExternalLink, FileSignature, FileText, Fingerprint, FlaskConical, Gauge, Globe, HandCoins, HardHat, History as HistoryIcon, Hourglass, KeyRound, Landmark, Layers, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Megaphone, MessageSquare, PackageCheck, PackageOpen, Paintbrush, PanelLeftClose, PanelLeftOpen, PartyPopper, Percent, Receipt, RotateCcw, Send, Settings, Shield, ShieldQuestion, ShoppingBag, Star, User, Users, Users2, Wallet, Wrench, UserCheck } from 'lucide-react';
+import { AlertTriangle, Armchair, BarChart, BookOpen, Bot, Box, Boxes, Building2, Calendar, CalendarClock, CalendarDays, ChefHat, ChevronRight, ClipboardList, Clock, Coffee, ConciergeBell, DoorOpen, ExternalLink, FileSignature, FileText, Fingerprint, FlaskConical, Gauge, Globe, HandCoins, HardHat, History as HistoryIcon, Hourglass, KeyRound, Landmark, Layers, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Megaphone, MessageSquare, PackageCheck, PackageOpen, Paintbrush, PanelLeftClose, PanelLeftOpen, PartyPopper, Percent, Receipt, RotateCcw, Send, Settings, Shield, ShieldQuestion, ShoppingBag, Star, User, Users, Users2, Wallet, Wrench, UserCheck, ChevronDown } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
 import { ClientOnly } from './ClientOnly';
@@ -152,6 +152,12 @@ const PUBLIC_PORTALS = [
   { href: '/staff-portal', icon: Shield,      label: 'Staff portal'     },
 ];
 
+/** Every page in the menu, by area — what the header search looks through. */
+export const NAV_AREAS: { area: string; items: { href: string; label: string }[] }[] = [
+  { area: 'Today', items: DAILY_HUB }, { area: 'Clients', items: CLIENT_GROWTH }, { area: 'Studio', items: STUDIO_ASSETS }, { area: 'Shop', items: COMMERCE },
+  { area: 'Team', items: TEAM_FULL }, { area: 'Money', items: FINANCIAL_SUITE }, { area: 'Booth rental', items: BOOTH_RENTAL }, { area: 'Events', items: EVENTS },
+] as any;
+
 // ─── NAV ITEM ──────────────────────────────────────────────────────────────────
 function NavItem({
   href, icon: Icon, label, isPortal = false, tenantId, badge,
@@ -174,8 +180,8 @@ function NavItem({
       className={cn(
         'rounded-xl h-10 text-[14px] font-medium normal-case tracking-normal',
         'transition-colors duration-150',
-        'data-[active=true]:bg-primary/10 data-[active=true]:text-primary data-[active=true]:font-semibold',
-        'hover:bg-primary/5 hover:text-primary',
+        'data-[active=true]:bg-primary data-[active=true]:text-primary-foreground data-[active=true]:font-semibold',
+        'hover:bg-[#f3eee8] dark:hover:bg-[#2a2521]',
         isCollapsed && 'justify-center',
       )}
     >
@@ -228,16 +234,23 @@ function NavSection({
   const { selectedTenant } = useTenant();
   const { state }   = useSidebar();
   const isCollapsed = state === 'collapsed';
+  const pathname = usePathname();
+  const holdsCurrent = items.some((it: any) => pathname === it.href || pathname.startsWith(`${it.href}/`));
+  const [open, setOpen] = useState<boolean>(holdsCurrent || label === 'Today');
+  useEffect(() => { if (holdsCurrent) setOpen(true); }, [holdsCurrent]);
+  const shown = isCollapsed || open;
 
   return (
     <SidebarGroup className="py-1">
       {!isCollapsed && (
-        <SidebarGroupLabel className="px-3 mb-0.5 h-6 text-[12px] font-medium normal-case tracking-normal text-muted-foreground">
-          {label}
+        <SidebarGroupLabel asChild className="px-3 mb-0.5 h-8 text-[12.5px] font-medium normal-case tracking-normal text-muted-foreground">
+          <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center justify-between rounded-lg hover:text-foreground">
+            <span>{label}</span><ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? '' : '-rotate-90'}`} aria-hidden />
+          </button>
         </SidebarGroupLabel>
       )}
       {isCollapsed && <div className="mx-auto w-4 h-px bg-border/50 mb-2" />}
-      <SidebarMenu className="gap-px px-0">
+      {shown && <SidebarMenu className="gap-px px-0">
         {items.filter((item: any) => pageVisible(selectedTenant, item.href)).map(item => (
           <NavItem
             key={item.href} {...item}
@@ -246,7 +259,7 @@ function NavSection({
             badge={badges?.[item.href]}
           />
         ))}
-      </SidebarMenu>
+      </SidebarMenu>}
     </SidebarGroup>
   );
 }
@@ -266,6 +279,14 @@ function CollapseToggle() {
   );
 }
 
+// The floating card (Studio look): white on warm paper, soft shadow, generous radius; the business in a tinted card.
+const SIDE_CSS = `
+.cf-side{padding:12px!important}
+.cf-side [data-sidebar="sidebar"]{background:#fff!important;border:0!important;border-radius:26px!important;box-shadow:0 1px 2px rgba(28,25,23,.05),0 10px 32px rgba(28,25,23,.07)!important}
+.dark .cf-side [data-sidebar="sidebar"]{background:#211d1a!important}
+.cf-biz{background:color-mix(in srgb, hsl(var(--primary)) 9%, transparent)}
+.dark{--cf-search-bg:#211d1a}
+`;
 export function AppSidebar() {
   const { selectedTenant, role } = useTenant();
   const brandLogo = guestLogo(selectedTenant);
@@ -382,23 +403,25 @@ export function AppSidebar() {
     <TooltipProvider delayDuration={0}>
       <Sidebar
         collapsible="icon"
-        className="border-r border-[#e7e2dc] bg-[#faf8f5] dark:border-[#342e29] dark:bg-[#171412]"
+        variant="floating"
+        className="cf-side"
       >
         <SidebarRail />
 
-        <SidebarHeader className="border-b border-border/30">
-          <div className="flex items-center justify-between px-4 py-4 min-h-[68px]">
+        <SidebarHeader className="p-3 pb-1">
+          <div className="flex items-center justify-between gap-2">
             {/* The business's own identity up top — ClarityFlow's mark sits quietly at the bottom. */}
-            <Link href="/dashboard" className="flex items-center gap-3 min-w-0">
-              {brandLogo ? <img src={brandLogo} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" /> : <ClarityFlowLogo className="w-8 h-8 shrink-0" />}
-              <div className="flex flex-col leading-tight min-w-0 group-data-[collapsible=icon]:hidden">
-                <span className="truncate text-[15px] font-semibold tracking-tight">{(selectedTenant as any)?.name || 'ClarityFlow'}</span>
-                <span className="text-[12px] text-muted-foreground">{brandLogo || (selectedTenant as any)?.name ? 'Studio' : 'Studio OS'}</span>
+            <style dangerouslySetInnerHTML={{ __html: SIDE_CSS }} />
+            <Link href="/dashboard" className="cf-biz flex min-w-0 flex-1 items-center gap-3 rounded-[18px] p-2.5 group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-0">
+              {brandLogo ? <img src={brandLogo} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover" /> : <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-[15px] font-semibold text-primary-foreground">{String((selectedTenant as any)?.name || 'C').trim()[0]?.toUpperCase()}</span>}
+              <div className="flex min-w-0 flex-col leading-tight group-data-[collapsible=icon]:hidden">
+                <span className="truncate text-[14.5px] font-semibold tracking-tight text-primary">{(selectedTenant as any)?.name || 'Your studio'}</span>
+                <span className="truncate text-[12px] text-muted-foreground">{role === 'owner' ? 'Owner' : role ? String(role)[0].toUpperCase() + String(role).slice(1) : 'Studio'}</span>
               </div>
             </Link>
 
             <div className="group-data-[collapsible=icon]:hidden">
-              <CollapseToggle />
+              {/* (Collapse lives in the header bar and the sidebar's footer — the card keeps the business name readable.) */}
             </div>
           </div>
         </SidebarHeader>
@@ -479,7 +502,7 @@ export function AppSidebar() {
           )}
         </SidebarContent>
 
-        <SidebarFooter className="border-t border-[#e7e2dc] py-2 px-1.5 dark:border-[#342e29]">
+        <SidebarFooter className="border-t border-[#efeae4] py-2 px-1.5 dark:border-[#342e29]">
           <SidebarMenu className="gap-px px-0">
 
             <SidebarMenuItem className="group-data-[state=expanded]:hidden">
