@@ -52,11 +52,14 @@ interface ImageUploadProps {
    * looked to the customer like the image simply would not attach. Public
    * surfaces pass the tenant explicitly. */
   tenantId?: string;
+  /** The button's words, e.g. "Upload your logo". Defaults to "Upload an image" (or "Upload images"). */
+  label?: string;
 }
 
 export const ImageUpload: React.FC<ImageUploadProps> = ({
   onImageUploaded,
   tenantId: tenantIdProp,
+  label,
   initialImage = null,
   maxSizeMB = 2,
   maxWidthOrHeight = 600,
@@ -259,7 +262,7 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
             disabled={busy}
         >
           {busy ? <Loader className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4 opacity-40" />}
-          {multiple ? 'Upload Batch Protocol' : 'Upload Technical Visual'}
+          {label || (multiple ? 'Upload images' : 'Upload an image')}
         </Button>
       )}
 
