@@ -8,7 +8,7 @@ import { doc, updateDoc, type Firestore } from 'firebase/firestore';
 
 const OPTIONS: { id: 'classic' | 'studio'; title: string; text: string }[] = [
   { id: 'classic', title: 'Classic', text: 'The page you design in the page builder — your sections, theme and layout.' },
-  { id: 'studio', title: 'Studio', text: 'A calm, warm page in the same look as your school website: services, team, reviews and how to find you — built from your own details. Simple for every client.' },
+  { id: 'studio', title: 'Studio', text: 'A calm, warm page built from your own details: services, team, reviews and how to find you. Simple for every client.' },
 ];
 
 export function PageDesignPicker({ firestore, tenantId, current }: { firestore: Firestore | null; tenantId: string; current?: string | null }) {
