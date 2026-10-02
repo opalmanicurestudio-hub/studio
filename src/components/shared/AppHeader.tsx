@@ -1,5 +1,6 @@
 'use client';
 
+import { AppSearch } from '@/components/shared/AppSearch';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,8 +61,8 @@ export function AppHeader({ title }: { title?: string }) {
   const initials = getInitials(displayName);
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-3 border-b border-[#e7e2dc] bg-[#faf8f5]/85 px-4 backdrop-blur-xl md:h-16 md:px-8 print:hidden dark:border-[#342e29] dark:bg-[#171412]/85">
-      <div className="flex flex-1 items-center gap-4">
+    <header className="sticky top-3 z-30 mx-3 mt-3 flex h-14 items-center justify-between gap-3 rounded-[22px] bg-white/95 px-3 shadow-[0_1px_2px_rgba(28,25,23,.05),0_10px_32px_rgba(28,25,23,.07)] backdrop-blur-xl md:h-[60px] md:px-4 print:hidden dark:bg-[#211d1a]/95">
+      <div className="flex min-w-0 items-center gap-2 md:w-[220px]">
         <SidebarTrigger className="hover:bg-primary/10 transition-colors" />
         {title && (
           <h1 className="truncate text-[17px] font-semibold tracking-tight md:text-[19px]">
@@ -69,6 +70,7 @@ export function AppHeader({ title }: { title?: string }) {
           </h1>
         )}
       </div>
+      <div className="hidden flex-1 justify-center md:flex"><AppSearch /></div>
       
       <div className="flex items-center gap-2 md:gap-6">
         <ClientOnly>
