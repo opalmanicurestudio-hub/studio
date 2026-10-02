@@ -43,7 +43,7 @@ export const SETTINGS_INDEX: { question: string; icon: string; items: Item[] }[]
   { question: 'Payments', icon: '', items: [
     { title: 'Payments & payouts', meaning: 'Connect Stripe so you can take cards, deposits and payouts to your bank.', href: T('payments'), words: 'stripe bank payout card connect sales tax tips pay later voids client screen checkout' },
     { title: 'Card reader', meaning: 'Take in-person card payments with a reader.', href: T('terminal'), words: 'terminal tap to pay reader pos' },
-    { title: 'Money owed, credit & service recovery', meaning: 'Failed payments, store credit, and how far your team can go to make things right.', href: T('policies'), words: 'collections credit owed arrears recovery comp escalation refund apology goodwill store credit' },
+    { title: 'Fees, credit & making things right', meaning: 'Missed-visit fees, store credit, and how far your team can go to make things right.', href: T('policies'), words: 'fees credit owed recovery comp escalation refund apology goodwill store credit' },
   ] },
   { question: 'Front desk & visits', icon: '', items: [
     { title: 'Visit stages', meaning: 'The steps a visit goes through, their names, and what clients see on their visit link.', href: T('visits'), words: 'stages timeline arrived waiting in service client link' },
@@ -60,9 +60,9 @@ export const SETTINGS_INDEX: { question: string; icon: string; items: Item[] }[]
     { title: 'Time clock', meaning: 'How the team clocks in and out.', href: T('timeclock'), words: 'clock in out timesheet pin geofence overtime', module: 'team' },
   ] },
   { question: 'Messages & automations', icon: '', items: [
-    { title: 'Everything that runs automatically', meaning: 'Every message and automatic action, whether it’s working, and switches.', href: '/settings/automations', words: 'automation health reminders working needs setup' },
-    { title: 'Message wording & timing', meaning: 'Change what confirmations and reminders say, and when they go.', href: '/settings/messages', words: 'reminder confirmation text sms email template wording' },
-    { title: 'Win back quiet clients', meaning: 'Gentle nudges to clients who are due or haven’t been in a while.', href: '/settings/messages', words: 'reconnect win back quiet lapsed nudge due missed renter campaigns texts', module: 'marketing' },
+    { title: 'Automations', meaning: 'What the app does on its own — reminders, follow-ups, rent notices — one switch each.', href: '/settings/automations', words: 'automation automatic reminders follow up thank you no-show rent digest brief switch on off timing working' },
+    { title: 'Messages', meaning: 'The words clients receive — confirmations, reminders and receipts.', href: '/settings/messages', words: 'message wording words text sms email template confirmation reminder' },
+    { title: 'Win back quiet clients', meaning: 'Gentle nudges to clients who are due or haven’t been in a while.', href: '/settings/automations#sw:win-back', words: 'reconnect win back quiet lapsed nudge due missed campaigns texts', module: 'marketing' },
     { title: 'Message log', meaning: 'Every email and text that was sent, and whether it arrived.', href: '/message-log', words: 'sent delivered failed history' },
     { title: 'Voice assistant', meaning: 'The assistant that answers your phone: what it knows and how it speaks.', href: '/voice', words: 'voice phone calls assistant receptionist', module: 'voice' },
   ] },
