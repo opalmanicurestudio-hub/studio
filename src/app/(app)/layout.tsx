@@ -79,7 +79,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <LocationProvider>
           <SidebarProvider>
             <AppSidebar />
-            <SidebarInset>
+            <SidebarInset className="bg-[#f6f1eb] dark:bg-[#171412]">
               <main id="main"><StaleCopyBanner />{children}</main>
             </SidebarInset>
             <HelpDesk />
