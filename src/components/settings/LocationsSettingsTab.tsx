@@ -31,6 +31,7 @@
  * change, because it moves where two live geofences get their truth.
  */
 
+import { More, Toggle } from '@/components/settings/settings-ui';
 import { useState, useEffect, useCallback } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
@@ -155,6 +156,7 @@ export function LocationsSettingsTab() {
   const set = (patch: Partial<LocationFormState>) => setForm((p) => ({ ...p, ...patch }));
 
   // The plan's location allowance (1 included; more need a subscription — each extra one is billed).
+  const [selectMode, setSelectMode] = useState(false);
   const [allowance, setAllowance] = useState<any>(null); const [pageMsg, setPageMsg] = useState<string | null>(null);
   const loadAllowance = useCallback(async () => { if (!tenantId) return; const r = await locApi({ action: 'allowance', tenantId }).catch(() => null); if (r?.body?.ok) setAllowance(r.body.allowance); }, [tenantId]);
   useEffect(() => { loadAllowance(); }, [loadAllowance]);
@@ -457,139 +459,60 @@ export function LocationsSettingsTab() {
   const pinned = form.lat.trim() !== '' && form.lng.trim() !== '';
 
   return (
-    <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-      <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-        <SectionHeader icon={MapPin} title="Locations" />
-        <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
-          Every physical studio this business operates. Staff can be restricted
-          to specific locations under Staff settings.
-        </CardDescription>
-      </CardHeader>
-
-      <CardContent className="p-6 md:p-8 space-y-4 text-left">
-        {isLoading && <p className="text-sm text-muted-foreground">Loading locations…</p>}
-        {dupDone && <p className="rounded-xl border-2 border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-900">{dupDone}</p>}
-        {dupes && dupes.removableIds.length > 0 && (
-          <div className="rounded-xl border-2 border-amber-200 bg-amber-50 px-4 py-3 space-y-2">
-            <p className="text-sm font-bold text-amber-900">
-              {dupes.removableIds.length} duplicate “Main Location” {dupes.removableIds.length === 1 ? 'entry was' : 'entries were'} created automatically by an older version of the app — you didn’t make {dupes.removableIds.length === 1 ? 'it' : 'them'}, and nothing uses {dupes.removableIds.length === 1 ? 'it' : 'them'}.
-            </p>
-            <Button size="sm" disabled={dupBusy} onClick={cleanupDupes}>{dupBusy ? 'Removing…' : `Remove ${dupes.removableIds.length} unused duplicate${dupes.removableIds.length === 1 ? '' : 's'}`}</Button>
-          </div>
-        )}
-        {dupes && dupes.inUseDuplicates.length > 0 && (
-          <div className="rounded-xl border-2 border-slate-200 bg-slate-50 px-4 py-3 space-y-1">
-            <p className="text-sm font-bold text-slate-800">Also auto-created, but in use — left alone:</p>
-            {dupes.inUseDuplicates.map((d) => <p key={d.id} className="text-xs text-slate-600"><span className="font-bold">{d.name}</span> · {d.refs.map((r) => `${r.count} ${r.label}`).join(', ')}. Move those to your main location, then delete it.</p>)}
-          </div>
-        )}
-
-        {!isLoading && locations.length === 0 && (
-          <div className="p-8 text-center space-y-3 rounded-[2rem] border-2 border-dashed border-slate-200">
-            <Building className="h-8 w-8 mx-auto text-muted-foreground" />
-            <p className="text-sm font-medium">No locations yet</p>
-            <button type="button" onClick={async () => { try { const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken();
-                const r = await fetch('/api/locations/repair', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId }) }).then((x) => x.json());
-                window.alert(r?.ok ? r.done.join('\n') : (r?.error || 'That didn’t work.')); if (r?.ok) window.location.reload(); } catch { window.alert('That didn’t work — check your connection.'); } }}
-              className="mt-3 inline-flex h-10 items-center rounded-full bg-primary px-4 text-sm font-semibold text-primary-foreground">Restore my main location</button>
-            <p className="text-xs text-muted-foreground">
-              Add your first one — this is what every booth, renter, and lease
-              will be scoped to.
-            </p>
-          </div>
-        )}
-
-        {locations.length > 1 && (
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border-2 bg-white px-4 py-2.5">
-            <label className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-600 cursor-pointer">
-              <input type="checkbox" className="h-4 w-4" checked={allPicked} onChange={() => setPicked(allPicked ? new Set() : new Set(locations.map((l) => l.id)))} />
-              {picked.size ? `${picked.size} selected` : 'Select'}
-            </label>
-            {picked.size > 0 && (
-              <div className="flex gap-2">
-                <Button variant="ghost" size="sm" onClick={() => setPicked(new Set())}>Clear</Button>
-                <Button variant="destructive" size="sm" onClick={openBulk}><Trash2 className="h-3.5 w-3.5 mr-1.5" />Delete selected ({picked.size})</Button>
+    <div className="space-y-6">
+      {dupDone && <p className="rounded-xl px-4 py-3 text-[14px]" style={{ background: 'color-mix(in srgb, #16a34a 10%, var(--card))', color: '#166534' }}>{dupDone}</p>}
+      {dupes && dupes.removableIds.length > 0 && (
+        <div className="space-y-2 rounded-2xl px-4 py-3" style={{ background: '#fffbeb', border: '1px solid #fde68a' }}>
+          <p className="text-[14px]">{dupes.removableIds.length} duplicate “Main Location” {dupes.removableIds.length === 1 ? 'entry was' : 'entries were'} made by an older version of the app — not by you.</p>
+          <Button size="sm" disabled={dupBusy} onClick={cleanupDupes}>{dupBusy ? 'Removing…' : `Remove ${dupes.removableIds.length} unused duplicate${dupes.removableIds.length === 1 ? '' : 's'}`}</Button>
+        </div>)}
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div><h2 className="text-[19px] font-semibold tracking-tight">Your locations</h2><p className="text-[14.5px] cf-muted">Each has its own address, map pin and clock-in area.</p></div>
+          {locations.length > 1 && <button type="button" onClick={() => { setSelectMode((v) => !v); setPicked(new Set()); }} className="text-[14px] font-medium underline underline-offset-4">{selectMode ? 'Done' : 'Select'}</button>}
+        </div>
+        {selectMode && picked.size > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl px-4 py-2.5" style={{ background: 'var(--soft)' }}>
+            <span className="text-[14px]">{picked.size} selected</span>
+            <Button variant="destructive" size="sm" onClick={openBulk}><Trash2 className="h-3.5 w-3.5 mr-1.5" />Delete or merge</Button>
+          </div>)}
+        <div className="cf-sheet">
+          {isLoading && <p className="px-5 py-4 text-[14px] cf-muted">Loading…</p>}
+          {!isLoading && locations.length === 0 && (
+            <div className="space-y-3 px-5 py-6">
+              <p className="text-[15px]">No locations yet.</p>
+              <button type="button" onClick={async () => { try { const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken();
+                  const r = await fetch('/api/locations/repair', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId }) }).then((x) => x.json());
+                  window.alert(r?.ok ? r.done.join('\n') : (r?.error || 'That didn’t work.')); if (r?.ok) window.location.reload(); } catch { window.alert('That didn’t work — check your connection.'); } }}
+                className="inline-flex h-11 items-center rounded-full px-5 text-[14px] font-semibold" style={{ background: 'var(--accent)', color: 'hsl(var(--primary-foreground))' }}>Restore my main location</button>
+            </div>)}
+          {locations.map((loc) => { const r = Number((loc as any).geoFenceRadiusMeters) || DEFAULT_RADIUS_M; return (
+            <div key={loc.id} className="flex items-start gap-3 px-5 py-4 [&+&]:border-t" style={{ borderColor: 'var(--line)', background: picked.has(loc.id) ? 'var(--soft)' : undefined }}>
+              {selectMode && <input type="checkbox" aria-label={`Select ${loc.name}`} className="mt-1 h-5 w-5" checked={picked.has(loc.id)} onChange={() => togglePick(loc.id)} />}
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <p className="flex flex-wrap items-center gap-2 text-[15px] font-medium">{loc.name}
+                  {loc.id === selectedLocationId && locations.length > 1 && <span className="rounded-full px-2 py-0.5 text-[11.5px] font-medium" style={{ background: 'var(--soft)' }}>You’re viewing this one</span>}
+                  {!loc.isActive && <span className="rounded-full px-2 py-0.5 text-[11.5px] font-medium" style={{ background: 'var(--soft)' }}>Paused</span>}</p>
+                {(loc.address || loc.addressParts) && <p className="text-[13.5px] cf-muted">{formatLocationAddress(loc.addressParts) || loc.address}</p>}
+                <p className="text-[13px]">{loc.coordinates ? <span className="cf-muted">Map pin set · staff clock in within {r} m</span> : <span className="font-medium text-amber-700">No map pin yet — tap Edit to add one</span>}</p>
               </div>
-            )}
-          </div>
-        )}
-        {locations.map((loc) => (
-          <div
-            key={loc.id}
-            className={`p-5 rounded-[2rem] border-2 flex flex-col sm:flex-row items-start justify-between gap-4 ${picked.has(loc.id) ? 'bg-red-50/40 border-red-200' : 'bg-slate-50 border-slate-200'}`}
-          >
-            <div className="min-w-0 space-y-1.5">
-              <div className="flex items-center gap-2 flex-wrap">
-                {locations.length > 1 && <input type="checkbox" aria-label={`Select ${loc.name}`} className="h-4 w-4" checked={picked.has(loc.id)} onChange={() => togglePick(loc.id)} />}
-                <p className="text-sm font-black uppercase tracking-tight text-slate-900">{loc.name}</p>
-                {!loc.isActive && <Badge variant="secondary" className="text-[10px]">Inactive</Badge>}
-                {(loc as any).createdAt && <span className="text-[10px] font-bold text-slate-400">added {new Date((loc as any).createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>}
-                {loc.id === selectedLocationId && <Badge className="text-[10px]">Currently viewing</Badge>}
+              <div className="flex shrink-0 flex-col items-end gap-1.5">
+                <button type="button" onClick={() => openEdit(loc)} className="h-9 rounded-full px-4 text-[14px] font-medium" style={{ background: 'var(--soft)' }}>Edit</button>
+                {loc.id !== selectedLocationId && <button type="button" onClick={() => setSelectedLocationId(loc.id)} className="text-[13px] underline underline-offset-4 cf-muted">Switch to this</button>}
               </div>
-
-              {(loc.address || loc.addressParts) && (
-                <p className="text-xs text-muted-foreground">
-                  {formatLocationAddress(loc.addressParts) || loc.address}
-                </p>
-              )}
-
-              <div className="flex items-center gap-3 flex-wrap pt-0.5">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-widest opacity-60">
-                  {loc.timezone}
-                </span>
-                {loc.coordinates ? (
-                  <a
-                    href={`https://www.google.com/maps?q=${loc.coordinates.lat},${loc.coordinates.lng}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-green-700 underline underline-offset-2 hover:text-green-900"
-                  >
-                    <CheckCircle2 className="w-3 h-3" /> Pinned — verify on maps
-                  </a>
-                ) : (
-                  <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-amber-600">
-                    <AlertCircle className="w-3 h-3" /> No pin set
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-2 items-start sm:items-end shrink-0">
-              <Button variant="outline" size="sm" onClick={() => openEdit(loc)}>
-                <Pencil className="h-3.5 w-3.5 mr-1.5" />
-                Edit
-              </Button>
-              {loc.id !== selectedLocationId && (
-                <Button variant="ghost" size="sm" onClick={() => setSelectedLocationId(loc.id)}>
-                  Switch to this
-                </Button>
-              )}
-              <div className="flex items-center gap-2">
-                <span className="text-[9px] font-bold uppercase text-muted-foreground">
-                  {loc.isActive ? 'Active' : 'Inactive'}
-                </span>
-                <Switch checked={loc.isActive} onCheckedChange={() => toggleActive(loc)} />
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => openDelete(loc)} className="text-muted-foreground hover:text-red-700">
-                <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-                Delete
-              </Button>
-            </div>
-          </div>
-        ))}
-
-        <Button onClick={openCreate} className="w-full sm:w-auto h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest">
-          <Plus className="h-4 w-4 mr-2" />
-          Add location
-        </Button>
+            </div>); })}
+        </div>
+      </section>
+      <div className="space-y-2">
+        <button type="button" onClick={openCreate} className="inline-flex h-12 items-center gap-2 rounded-full px-6 text-[15px] font-semibold" style={{ background: 'var(--accent)', color: 'hsl(var(--primary-foreground))' }}><Plus className="h-4 w-4" aria-hidden />Add a location</button>
         {allowance && (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-[13.5px] cf-muted">
             {allowance.limit !== null
-              ? <>{allowance.count} of {allowance.limit} location{allowance.limit === 1 ? '' : 's'} included in your plan{!allowance.canAdd && <> · <a href="/subscriptions" className="font-semibold underline underline-offset-2">See plans</a> to add more</>}</>
+              ? <>{allowance.count} of {allowance.limit} location{allowance.limit === 1 ? '' : 's'} included in your plan{!allowance.canAdd && <> · <a href="/subscriptions" className="font-medium underline underline-offset-2">See plans</a> to add more</>}</>
               : <>Each location beyond {allowance.included + allowance.granted} is ${allowance.unitPrice}/month on your subscription.</>}
           </p>)}
-        {pageMsg && <p role="status" className="rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-900">{pageMsg}{allowance && !allowance.canAdd && <> <a href="/subscriptions" className="underline underline-offset-2">See plans</a></>}</p>}
-      </CardContent>
+        {pageMsg && <p role="status" className="rounded-xl px-4 py-3 text-[14px]" style={{ background: '#fffbeb', color: '#92400e' }}>{pageMsg}{allowance && !allowance.canAdd && <> <a href="/subscriptions" className="underline">See plans</a></>}</p>}
+      </div>
 
       <Dialog open={bulkOpen} onOpenChange={(o) => { if (!o) setBulkOpen(false); }}>
         <DialogContent className="sm:max-w-lg">
@@ -667,149 +590,60 @@ export function LocationsSettingsTab() {
         </DialogContent>
       </Dialog>
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto rounded-[2.5rem] border-2 p-6 md:p-8">
+        <DialogContent className="cf-settings max-w-xl max-h-[90vh] overflow-y-auto rounded-[28px] border-0 p-6 md:p-8">
           <DialogHeader className="text-left">
-            <DialogTitle className="text-base font-black uppercase tracking-tighter text-slate-900">
-              {editingId ? 'Edit location' : 'Add location'}
-            </DialogTitle>
-            <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">
-              {editingId
-                ? 'Where this studio is, and how far from it counts as being there.'
-                : 'Every booth, renter, and lease will belong to a location.'}
-            </DialogDescription>
+            <DialogTitle className="text-[22px] font-semibold tracking-tight">{editingId ? 'Edit location' : 'Add a location'}</DialogTitle>
+            <DialogDescription className="text-[14.5px] cf-muted">Where it is, so clients get directions and staff can clock in there.</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 pt-2">
-            <Panel icon={Building} title="Identity" hint="What you call this place, and which clock it runs on">
-              <div className="space-y-1.5">
-                <Label htmlFor="loc-name" className={FIELD_LABEL}>Location name</Label>
-                <Input
-                  id="loc-name"
-                  placeholder="Downtown, Westside, Main Location…"
-                  value={form.name}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => set({ name: e.target.value })}
-                  className={FIELD}
-                />
+            <div>
+              <label htmlFor="loc-name" className="block text-[14px] font-medium mb-1.5">Name</label>
+              <Input id="loc-name" placeholder="e.g. Downtown" value={form.name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set({ name: e.target.value })} className="h-12 w-full rounded-xl border px-4 text-[15px]" />
+            </div>
+            <div className="space-y-3">
+              <p className="text-[14px] font-medium">Address</p>
+              <Input id="loc-street" aria-label="Street address" placeholder="Street address" autoComplete="address-line1" value={form.street} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set({ street: e.target.value })} className="h-12 w-full rounded-xl border px-4 text-[15px]" />
+              <Input id="loc-street2" aria-label="Suite or unit" placeholder="Suite or unit (optional)" autoComplete="address-line2" value={form.street2} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set({ street2: e.target.value })} className="h-12 w-full rounded-xl border px-4 text-[15px]" />
+              <div className="grid grid-cols-[1fr_5.5rem_7rem] gap-2">
+                <Input id="loc-city" aria-label="City" placeholder="City" autoComplete="address-level2" value={form.city} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set({ city: e.target.value })} className="h-12 w-full rounded-xl border px-4 text-[15px]" />
+                <Input id="loc-state" aria-label="State" placeholder="State" autoComplete="address-level1" value={form.state} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set({ state: e.target.value })} className="h-12 w-full rounded-xl border px-4 text-[15px]" />
+                <Input id="loc-zip" aria-label="ZIP code" placeholder="ZIP" inputMode="numeric" autoComplete="postal-code" value={form.zip} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set({ zip: e.target.value })} className="h-12 w-full rounded-xl border px-4 text-[15px]" />
               </div>
-              <div className="space-y-1.5">
-                <Label className={FIELD_LABEL}>Timezone</Label>
-                <Select value={form.timezone} onValueChange={(v: string) => set({ timezone: v })}>
-                  <SelectTrigger className={FIELD}><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {COMMON_TIMEZONES.map((tz) => (
-                      <SelectItem key={tz} value={tz}>{tz}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 ml-1 leading-relaxed">
-                  Decides when rent is due at midnight here, and every other
-                  date this location derives.
-                </p>
+            </div>
+            <div className="space-y-2.5">
+              <p className="text-[14px] font-medium">Map pin</p>
+              <p className="text-[13.5px] cf-muted">Where staff need to be to clock in, and where clients’ directions point.</p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <button type="button" onClick={locateAddress} disabled={locating} className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-full text-[14.5px] font-semibold disabled:opacity-60" style={{ background: 'var(--accent)', color: 'hsl(var(--primary-foreground))' }}>{locating ? <Loader className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" aria-hidden />}Find it from the address</button>
+                <button type="button" onClick={useMyLocation} disabled={locating} className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-full text-[14.5px] font-medium disabled:opacity-60" style={{ background: 'var(--soft)' }}><Target className="h-4 w-4" aria-hidden />Use where I’m standing</button>
               </div>
-            </Panel>
-
-            <Panel icon={MapPin} title="Address" hint="Kept in separate fields — labels, tax and maps all need the parts">
-              <div className="space-y-1.5">
-                <Label htmlFor="loc-street" className={FIELD_LABEL}>Street address</Label>
-                <Input id="loc-street" placeholder="123 Main St" value={form.street}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => set({ street: e.target.value })} className={FIELD} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="loc-street2" className={FIELD_LABEL}>Suite / unit (optional)</Label>
-                <Input id="loc-street2" placeholder="Suite 200" value={form.street2}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => set({ street2: e.target.value })} className={FIELD} />
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label htmlFor="loc-city" className={FIELD_LABEL}>City</Label>
-                  <Input id="loc-city" placeholder="Burlington" value={form.city}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => set({ city: e.target.value })} className={FIELD} />
+              {pinned ? <a href={`https://www.google.com/maps?q=${form.lat},${form.lng}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-[13.5px] font-medium text-green-700 underline underline-offset-4"><CheckCircle2 className="h-4 w-4" />Pin set — check it on Google Maps</a>
+                : <p className="text-[13.5px] text-amber-700">No pin yet — staff can’t clock in by location here until there is one.</p>}
+            </div>
+            <More help="Time zone, country, exact coordinates and clock-in distances.">
+              <div className="space-y-4 rounded-2xl p-4" style={{ background: 'var(--card)', border: '1px solid var(--line)' }}>
+                <div><label className="block text-[14px] font-medium mb-1.5">Time zone</label>
+                  <Select value={form.timezone} onValueChange={(v: string) => set({ timezone: v })}><SelectTrigger className="h-12 w-full rounded-xl border px-4 text-[15px]"><SelectValue /></SelectTrigger>
+                    <SelectContent>{COMMON_TIMEZONES.map((tz) => <SelectItem key={tz} value={tz}>{tz}</SelectItem>)}</SelectContent></Select>
+                  <p className="mt-1 text-[13px] cf-muted">Dates and due times here follow this clock.</p></div>
+                <div><label htmlFor="loc-country" className="block text-[14px] font-medium mb-1.5">Country</label><Input id="loc-country" placeholder="United States" value={form.country} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set({ country: e.target.value })} className="h-12 w-full rounded-xl border px-4 text-[15px]" /></div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div><label htmlFor="loc-lat" className="block text-[14px] font-medium mb-1.5">Latitude</label><Input id="loc-lat" inputMode="decimal" placeholder="36.0956" value={form.lat} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set({ lat: e.target.value })} className="h-12 w-full rounded-xl border px-4 text-[15px] font-mono" /></div>
+                  <div><label htmlFor="loc-lng" className="block text-[14px] font-medium mb-1.5">Longitude</label><Input id="loc-lng" inputMode="decimal" placeholder="-79.4378" value={form.lng} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set({ lng: e.target.value })} className="h-12 w-full rounded-xl border px-4 text-[15px] font-mono" /></div>
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="loc-state" className={FIELD_LABEL}>State</Label>
-                  <Input id="loc-state" placeholder="NC" value={form.state}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => set({ state: e.target.value })} className={FIELD} />
+                <div className="grid grid-cols-2 gap-2">
+                  <div><label htmlFor="loc-radius" className="block text-[14px] font-medium mb-1.5">Clock in within (m)</label><Input id="loc-radius" inputMode="numeric" placeholder={String(DEFAULT_RADIUS_M)} value={form.radius} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set({ radius: e.target.value })} className="h-12 w-full rounded-xl border px-4 text-[15px]" /></div>
+                  <div><label htmlFor="loc-break" className="block text-[14px] font-medium mb-1.5">Back from break within (m)</label><Input id="loc-break" inputMode="numeric" placeholder={String(DEFAULT_BREAK_RADIUS_M)} value={form.breakRadius} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set({ breakRadius: e.target.value })} className="h-12 w-full rounded-xl border px-4 text-[15px]" /></div>
                 </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="loc-zip" className={FIELD_LABEL}>ZIP / postal code</Label>
-                  <Input id="loc-zip" placeholder="27215" value={form.zip}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => set({ zip: e.target.value })} className={FIELD} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="loc-country" className={FIELD_LABEL}>Country (optional)</Label>
-                  <Input id="loc-country" placeholder="United States" value={form.country}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => set({ country: e.target.value })} className={FIELD} />
-                </div>
-              </div>
-            </Panel>
-
-            <Panel icon={Target} title="Map pin" hint="The point a geofence measures from — set it once, stored for good">
-              <div className="flex flex-col sm:flex-row gap-3">
-                <Button
-                  type="button"
-                  onClick={locateAddress}
-                  disabled={locating}
-                  className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest"
-                >
-                  {locating ? <Loader className="animate-spin w-4 h-4" /> : <><MapPin className="w-4 h-4 mr-2" />Locate address</>}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={useMyLocation}
-                  disabled={locating}
-                  className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 bg-white"
-                >
-                  {locating ? <Loader className="animate-spin w-4 h-4" /> : <><Target className="w-4 h-4 mr-2" />Use my location</>}
-                </Button>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="loc-lat" className={FIELD_LABEL}>Latitude</Label>
-                  <Input id="loc-lat" inputMode="decimal" placeholder="36.0956" value={form.lat}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => set({ lat: e.target.value })} className={`${FIELD} font-mono`} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="loc-lng" className={FIELD_LABEL}>Longitude</Label>
-                  <Input id="loc-lng" inputMode="decimal" placeholder="-79.4378" value={form.lng}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => set({ lng: e.target.value })} className={`${FIELD} font-mono`} />
-                </div>
-              </div>
-
-              {pinned && (
-                <a
-                  href={`https://www.google.com/maps?q=${form.lat},${form.lng}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-green-700 underline underline-offset-2 hover:text-green-900"
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Verify this pin on Google Maps
-                </a>
-              )}
-            </Panel>
-
-            <Panel icon={Clock} title="Clock-in radius" hint="Leave blank to use the studio-wide setting">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="loc-radius" className={FIELD_LABEL}>Clock in (m)</Label>
-                  <Input id="loc-radius" inputMode="numeric" placeholder={String(DEFAULT_RADIUS_M)} value={form.radius}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => set({ radius: e.target.value })} className={FIELD} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="loc-break" className={FIELD_LABEL}>Back from break (m)</Label>
-                  <Input id="loc-break" inputMode="numeric" placeholder={String(DEFAULT_BREAK_RADIUS_M)} value={form.breakRadius}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => set({ breakRadius: e.target.value })} className={FIELD} />
-                </div>
-              </div>
-              <p className="text-[9px] font-bold uppercase tracking-widest text-amber-600 ml-1 leading-relaxed">
-                Stored here, not yet enforced — the timeclock still measures
-                against the studio-wide pin in Settings.
-              </p>
-            </Panel>
-
+              {editingId && (() => { const cur = locations.find((l) => l.id === editingId); return cur ? (
+                <div className="space-y-3 rounded-2xl p-4" style={{ background: 'var(--card)', border: '1px solid var(--line)' }}>
+                  <div className="flex items-center justify-between gap-3"><div><p className="text-[15px] font-medium">Pause this location</p><p className="text-[13px] cf-muted">Hidden from booking until you turn it back on.</p></div>
+                    <Toggle checked={!cur.isActive} onChange={() => toggleActive(cur)} label="Pause this location" /></div>
+                  <button type="button" onClick={() => { setDialogOpen(false); openDelete(cur); }} className="text-[14px] font-medium text-red-700 underline underline-offset-4">Delete this location</button>
+                </div>) : null; })()}
+            </More>
             {notice && (
               <div className="flex items-start gap-2 rounded-2xl border-2 border-green-200 bg-green-50 px-4 py-3">
                 <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600 mt-0.5" />
@@ -837,6 +671,6 @@ export function LocationsSettingsTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Card>
+    </div>
   );
 }
