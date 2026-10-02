@@ -1,5 +1,6 @@
 'use client';
 
+import { SettingsPage } from '@/components/settings/settings-ui';
 import React, { useState, useEffect } from 'react';
 import { AutomationsOverview } from '@/components/settings/AutomationsOverview';
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -353,27 +354,11 @@ export default function AutomationsSettingsPage() {
   };
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
-      <AppHeader title="Automations" />
-      <main className="flex-1 p-4 md:p-10 w-full max-w-3xl mx-auto space-y-8">
+    <SettingsPage title="Automations" help="What happens on its own when a client hasn’t paid a deposit or finished their forms — the reminders, and when a held time is released."
+      actions={<button type="button" onClick={handleSave} disabled={isSaving || !isDirty} className="inline-flex h-11 items-center gap-2 rounded-full px-5 text-[14px] font-semibold disabled:opacity-40" style={{ background: 'var(--accent)', color: 'hsl(var(--primary-foreground))' }}>{isSaving ? <><Loader className="h-4 w-4 animate-spin" /> Saving…</> : isDirty ? 'Save changes' : 'Saved'}</button>}>
+      <div className="space-y-8">
         {tenantId && <AutomationsOverview tenantId={tenantId} firestore={firestore as any} />}
 
-        {/* Header */}
-        <div className="flex flex-col md:flex-row items-start md:items-end justify-between gap-4">
-          <div className="space-y-1">
-            <h1 className="text-3xl md:text-4xl font-light tracking-tight text-slate-900 leading-none">Automations</h1>
-            <p className="text-sm text-muted-foreground">What happens automatically when clients haven’t paid a deposit or finished their forms — reminders, and when a held time is released.</p>
-          </div>
-          <Button
-            onClick={handleSave}
-            disabled={isSaving || !isDirty}
-            className="h-12 px-8 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20 shrink-0"
-          >
-            {isSaving
-              ? <><Loader className="w-4 h-4 animate-spin mr-2" /> Saving...</>
-              : <><Save className="w-4 h-4 mr-2" /> Save Rules</>}
-          </Button>
-        </div>
 
         {/* How it works */}
         <div className="p-4 rounded-2xl bg-blue-50 border-2 border-blue-100 space-y-2">
@@ -434,7 +419,7 @@ export default function AutomationsSettingsPage() {
             </Button>
           </div>
         )}
-      </main>
-    </div>
+      </div>
+    </SettingsPage>
   );
 }
