@@ -1,5 +1,6 @@
 'use client';
 
+import { guestLogo } from '@/lib/brand';
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
@@ -225,7 +226,7 @@ export function EventModeScreen({
   const { toast } = useToast();
 
   const brandHex   = tenant?.kioskSettings?.primaryColor || tenant?.bookingPageSettings?.primaryColor || '#c9a96e';
-  const logoUrl    = tenant?.kioskSettings?.logoUrl || tenant?.bookingPageSettings?.logoUrl;
+  const logoUrl    = guestLogo(tenant) || tenant?.bookingPageSettings?.logoUrl;
   const tenantName = tenant?.name || 'Studio';
   const eventName  = event?.title || event?.name || "Tonight's Event";
 
