@@ -6,6 +6,7 @@
 // Fixed on the way: "not checked in" now reads the VISIT's stage (ticket/kiosk arrivals never set checkedInAt), the
 // query needs no composite index, and escalation actually fires (the old flag never set noShowEscalated:false, and
 // the escalation query only matched noShowEscalated == false).
+import { automationOn, noteAutomation } from '@/lib/automation-switches';
 import { heartbeat } from '@/lib/account-health';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -22,7 +23,7 @@ export async function GET(req: NextRequest) {
   const tenants = (await db.collection('tenants').get()).docs;
   for (const t of tenants) {
     const tenant: any = t.data() || {}; const T = `tenants/${t.id}`;
-    if (tenant.autoCancelEnabled === false) continue;
+    if (!automationOn(tenant, 'no-show-check')) continue;   // switched off in Automations
     const windowMin = Number(tenant.noShowWindowMinutes ?? 15); const confirmMin = Number(tenant.noShowConfirmWindowMinutes ?? 10);
     try {
       // Bookings that started in the last 12 hours (one-field range — no special index needed); the rest is checked here.
@@ -45,7 +46,7 @@ export async function GET(req: NextRequest) {
             message: `${a.clientName || 'Guest'} may be a no-show — their appointment started ${windowMin} min ago and they haven’t arrived`,
             actions: [{ label: 'Confirm No-Show', action: 'confirm_no_show', style: 'destructive' }, { label: 'Client Is Here', action: 'dismiss_no_show', style: 'primary' }],
             expiresAt: deadline, createdAt: nowIso, read: false, resolved: false });
-          await b.commit(); flagged++; continue;
+          await b.commit(); flagged++; await noteAutomation(db, t.id, 'no-show-check'); continue;
         }
         // 2) ESCALATE — flagged, deadline passed, nobody answered, still not here
         if (a.noShowEscalated === true || !a.noShowConfirmDeadline || iso(a.noShowConfirmDeadline) > now) continue;
