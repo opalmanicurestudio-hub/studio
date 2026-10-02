@@ -8,6 +8,7 @@
  * Writes to: tenants/{tenantId}/quoteRequests/{id}
  */
 
+import { guestLogo } from '@/lib/brand';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { initializeApp, getApps } from 'firebase/app';
@@ -433,7 +434,7 @@ export default function QuoteInquiryPage() {
 
     const currentStepIndex = STEPS.indexOf(step);
     const primaryColor = tenant?.kioskSettings?.primaryColor || '#0f172a';
-    const logoUrl      = tenant?.kioskSettings?.logoUrl;
+    const logoUrl      = guestLogo(tenant);
     const studioName   = tenant?.name || 'Studio';
 
     // ── Validation ─────────────────────────────────────────────────────────────
