@@ -7,6 +7,7 @@
 // (src/lib/booking-policies.ts) — the same one booking, the desk, cancel and
 // reschedule and every email use. The preview shows exactly what clients read.
 
+import { SettingsPage } from '@/components/settings/settings-ui';
 import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
 import { doc, updateDoc, collection, query, where, type Firestore } from 'firebase/firestore';
@@ -115,13 +116,10 @@ export default function BookingPoliciesPage() {
 
   return (
     <Ctx.Provider value={{ save, isMgr, busy }}>
-    <div className="mx-auto max-w-6xl px-4 py-6">
-      <Link href="/settings" className="text-sm text-muted-foreground underline underline-offset-2">← Settings</Link>
-      <h1 className="mt-2 text-3xl font-light tracking-tight">Booking <b className="font-semibold">policies</b></h1>
-      <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Your rules for deposits, changes and cancellations — used by online booking, the front desk and every message clients get. A badge shows where each rule comes from.</p>
+    <SettingsPage title="Booking policies" help="Your rules for deposits, changes and cancellations — used by online booking, the front desk and every message clients get.">
       {!isMgr && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">Only a manager or the owner can change these.</p>}
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid gap-6">
         <div className="space-y-6">
           <Section n={1} q="What does the client owe?">
             <Row label="Deposits" note="Set on each service. These services take one:">
@@ -297,7 +295,7 @@ export default function BookingPoliciesPage() {
           </div>
         </aside>
       </div>
-    </div>
+    </SettingsPage>
     </Ctx.Provider>
   );
 }
