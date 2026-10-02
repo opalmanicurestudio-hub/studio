@@ -657,7 +657,7 @@ function SettingsPageImpl() {
               </Section>
               <More help="Making things right when a visit goes wrong, and rules for specific services.">
                 <Section title="Making things right" help="When a visit goes wrong — a late start, a fix that’s needed.">
-                  <Row label="Staff can give up to" help="A credit or discount, without asking a manager." inline>
+                  <Row label="Staff can give up to" help="Discounts at checkout and store credit, without a manager. Over this, a manager approves with their PIN. $0 means a manager approves every one. The % is optional." inline>
                     <span className="inline-flex items-center gap-2"><Num field="maxAutonomousRecoveryAmount" prefix="$" width="w-24" /><span className="text-[14px] cf-muted">or</span><Num field="maxAutonomousRecoveryPercent" suffix="%" width="w-20" /></span>
                   </Row>
                   <Row label="Instructions for staff" help="What to do when something goes wrong.">
