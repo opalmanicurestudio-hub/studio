@@ -103,6 +103,24 @@ export async function POST(req: NextRequest) {
   }
   const client = clientSnap.data() || {};
 
+  // Courtesy credit (money the business gives away) follows the same staff limit as discounts at checkout:
+  // over it, a manager approves with their PIN. Earned credit (money the client already paid) and credit the
+  // system issues itself (cancellations, deposits) are never held up.
+  let approvedBy: string | null = null;
+  const fromSystem = !!process.env.CRON_SECRET && req.headers.get('x-cf-internal') === process.env.CRON_SECRET;
+  if (type === 'courtesy' && !fromSystem) {
+    const { verifyStaffActor } = await import('@/lib/staff-auth');
+    const auth: any = await verifyStaffActor(req, String(tenantId)).catch(() => null);
+    const tenantDoc: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+    const { overStaffLimit, staffLimit } = await import('@/lib/staff-limit');
+    if (!auth?.actor?.isManager && overStaffLimit(tenantDoc, dollars)) {
+      const { consumeApproval } = await import('@/lib/approvals');
+      const ok = await consumeApproval(db, tenantId, body.approvalToken, { kind: 'client_recovery', amount: dollars });
+      if (!ok) return NextResponse.json({ ok: false, code: 'needs_approval', limit: staffLimit(tenantDoc).amount, error: `Credit over $${staffLimit(tenantDoc).amount} needs a manager’s PIN.` }, { status: 403 });
+      approvedBy = ok.approverName;
+    } else if (auth?.actor?.isManager) approvedBy = auth.actor.name || null;
+  }
+
   const creditEntry = {
     id: nanoid(),
     tenantId, clientId,
@@ -113,6 +131,7 @@ export async function POST(req: NextRequest) {
     source,
     reason,
     createdBy: createdBy || 'system',
+    ...(approvedBy ? { approvedBy } : {}),   // who signed off a credit over the staff limit
     expiresAt: expiresAt || null,
     createdAt: now,
     usedAt: null,
