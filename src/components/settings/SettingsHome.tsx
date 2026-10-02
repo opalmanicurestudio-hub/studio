@@ -6,6 +6,7 @@
 // shows only what's missing. Every link goes to the exact screen or tab where
 // the setting lives (the tabbed Settings page keeps working at ?tab=…).
 
+import { moduleEnabled } from '@/lib/modules';
 import { useFirebase } from '@/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import React from 'react';
@@ -14,47 +15,56 @@ import Link from 'next/link';
 import { getAuth } from 'firebase/auth';
 import { deviceId } from '@/lib/device';
 
-type Item = { title: string; meaning: string; href: string; words?: string };
+type Item = { title: string; meaning: string; href: string; words?: string; module?: string };
 const T = (tab: string) => `/settings?tab=${tab}`;
 
 export const SETTINGS_INDEX: { question: string; icon: string; items: Item[] }[] = [
-  // ONE entry per place — no two entries lead to the same screen. Merged
-  // entries keep every search word, so nothing got harder to find.
-  { question: 'How clients book', icon: '', items: [
+  // ONE entry per place — no two entries lead to the same screen. Eight groups, in the order owners think about
+  // running the business. An entry with a `module` only shows when the business uses that tool.
+  { question: 'Your business', icon: '', items: [
+    { title: 'Your business details', meaning: 'Name, logo, phone, email and address clients see.', href: T('profile'), words: 'name logo phone email address brand identity' },
+    { title: 'Opening hours', meaning: 'When the business is open.', href: T('hours'), words: 'hours open close holiday schedule' },
+    { title: 'Locations', meaning: 'Your address and any other locations.', href: T('locations'), words: 'address location map clock in radius geofence time zone' },
+    { title: 'Your plan & billing', meaning: 'Your ClarityFlow subscription, what’s included and how many locations you can have.', href: '/subscriptions', words: 'plan billing subscription invoice locations upgrade' },
+    { title: 'How the app looks (Studio or Classic)', meaning: 'Warm and calm in your colour, or the classic look.', href: '/settings', words: 'look appearance theme studio classic colour color design app' },
+  ] },
+  { question: 'Booking', icon: '', items: [
     { title: 'Booking policies', meaning: 'Deposits, cancellations, no-shows, rescheduling, late arrivals, how far ahead clients can book — and exactly what clients are told.', href: '/settings/policies', words: 'policy policies cancel cancellation no-show noshow late grace reschedule deposit refund credit window notice fee faq terms members limit lead time advance release horizon hold' },
     { title: 'How bookings come in', meaning: 'Book instantly, ask for your approval, or take a deposit first — plus card on file, deposits at the desk, blocked time and who can accept.', href: '/settings/booking#rules', words: 'instant approve approval request deposit required card on file desk block time authority accept guardian rebook' },
     { title: 'Your booking page', meaning: 'Its design (Classic or Studio), the page builder, and a preview.', href: '/settings/booking#design', words: 'page design studio classic preview public website builder hero sections photos reviews theme layout' },
     { title: 'Services & prices', meaning: 'What clients can book, how long it takes and what it costs.', href: '/services', words: 'menu price duration add-ons' },
   ] },
-  { question: 'How you get paid', icon: '', items: [
-    { title: 'Payments & payouts', meaning: 'Connect Stripe so you can take cards, deposits and payouts to your bank.', href: T('payments'), words: 'stripe bank payout card connect' },
+  { question: 'Payments', icon: '', items: [
+    { title: 'Payments & payouts', meaning: 'Connect Stripe so you can take cards, deposits and payouts to your bank.', href: T('payments'), words: 'stripe bank payout card connect sales tax tips pay later voids client screen checkout' },
     { title: 'Card reader', meaning: 'Take in-person card payments with a reader.', href: T('terminal'), words: 'terminal tap to pay reader pos' },
     { title: 'Money owed, credit & service recovery', meaning: 'Failed payments, store credit, and how far your team can go to make things right.', href: T('policies'), words: 'collections credit owed arrears recovery comp escalation refund apology goodwill store credit' },
   ] },
-  { question: 'What messages go out', icon: '', items: [
-    { title: 'Everything that runs automatically', meaning: 'Every message and automatic action, whether it’s working, and switches.', href: '/settings/automations', words: 'automation health reminders working needs setup' },
-    { title: 'Message wording & timing', meaning: 'Change what confirmations and reminders say, and when they go.', href: '/settings/messages', words: 'reminder confirmation text sms email template wording' },
-    { title: 'Win back quiet clients', meaning: 'Gentle nudges to clients who are due or haven’t been in a while.', href: T('policies'), words: 'reconnect win back quiet lapsed nudge due missed renter campaigns texts' },
-    { title: 'Message log', meaning: 'Every email and text that was sent, and whether it arrived.', href: '/message-log', words: 'sent delivered failed history' },
+  { question: 'Front desk & visits', icon: '', items: [
+    { title: 'Visit stages', meaning: 'The steps a visit goes through, their names, and what clients see on their visit link.', href: T('visits'), words: 'stages timeline arrived waiting in service client link' },
+    { title: 'Check-in kiosk', meaning: 'The screen clients use to check themselves in.', href: T('kiosk'), words: 'kiosk check in station qr front door what brings you in pickup renter tour help options' },
+    { title: 'Guest comforts & Wi-Fi', meaning: 'Wi-Fi for guests, drinks and little extras.', href: T('experience'), words: 'wifi drinks refreshments hospitality concierge' },
+    { title: 'Hosting & floor', meaning: 'How you host guests: tables, seating and the host screen.', href: '/settings/hosting', words: 'hosting host tables seating floor plan parties' },
+    { title: 'Quick setup', meaning: 'The settings you change most, on one page.', href: '/settings/map', words: 'quick setup overview everything one page' },
   ] },
-  { question: 'Your team & hours', icon: '', items: [
+  { question: 'Operations', icon: '', items: [
+    { title: 'Cleaning protocols', meaning: 'Your cleaning procedures — they become each service’s turnover checklist and release a station from quarantine.', href: T('operations'), words: 'cleaning protocol sanitise disinfect turnover checklist quarantine hygiene' },
+    { title: 'Stations & rooms', meaning: 'Rooms, chairs and equipment your services need.', href: '/resources', words: 'stations rooms equipment resources chairs' },
+  ] },
+  { question: 'Team', icon: '', items: [
     { title: 'Your team', meaning: 'People, roles, what they can do and their schedules.', href: '/staff', words: 'staff employees roles permissions availability' },
-    { title: 'Opening hours', meaning: 'When the business is open.', href: T('hours'), words: 'hours open close holiday schedule' },
     { title: 'Time clock', meaning: 'How the team clocks in and out.', href: T('timeclock'), words: 'clock in out timesheet pin geofence overtime' },
   ] },
-  { question: 'Your space & rentals', icon: '', items: [
-    { title: 'Locations', meaning: 'Your address and any other locations.', href: T('locations'), words: 'address location map' },
-    { title: 'Booth rentals', meaning: 'Chairs and suites for rent, renters, leases and rent.', href: '/booths', words: 'booth chair suite rent renter lease tour' },
-    { title: 'Check-in kiosk', meaning: 'The screen clients use to check themselves in.', href: T('kiosk'), words: 'kiosk check in station qr' },
-    { title: 'Guest comforts & Wi-Fi', meaning: 'Wi-Fi for guests, drinks and little extras.', href: T('experience'), words: 'wifi drinks refreshments hospitality concierge' },
-    { title: 'Floor map', meaning: 'A map of your space for the host screen.', href: '/settings/map', words: 'map floor tables stations' },
+  { question: 'Messages & automations', icon: '', items: [
+    { title: 'Everything that runs automatically', meaning: 'Every message and automatic action, whether it’s working, and switches.', href: '/settings/automations', words: 'automation health reminders working needs setup' },
+    { title: 'Message wording & timing', meaning: 'Change what confirmations and reminders say, and when they go.', href: '/settings/messages', words: 'reminder confirmation text sms email template wording' },
+    { title: 'Win back quiet clients', meaning: 'Gentle nudges to clients who are due or haven’t been in a while.', href: '/settings/messages', words: 'reconnect win back quiet lapsed nudge due missed renter campaigns texts' },
+    { title: 'Message log', meaning: 'Every email and text that was sent, and whether it arrived.', href: '/message-log', words: 'sent delivered failed history' },
+    { title: 'Voice assistant', meaning: 'The assistant that answers your phone: what it knows and how it speaks.', href: '/voice', words: 'voice phone calls assistant receptionist' },
   ] },
-  { question: 'Your school', icon: '', items: [
-    { title: 'Academy', meaning: 'Courses, students, admissions, funding and your school website.', href: '/academy', words: 'school courses students admissions website funding' },
-  ] },
-  { question: 'How your business looks', icon: '', items: [
-    { title: 'Your business details', meaning: 'Name, logo, phone, email and address clients see.', href: T('profile'), words: 'name logo phone email address brand identity' },
-    { title: 'How the app looks (Studio or Classic)', meaning: 'Warm and calm in your colour, or the classic look.', href: '/settings', words: 'look appearance theme studio classic colour color design app' },
+  { question: 'Your tools', icon: '', items: [
+    { title: 'Booth rentals', meaning: 'Chairs and suites for rent, renters, leases and rent.', href: '/booths', words: 'booth chair suite rent renter lease tour', module: 'booth_rental' },
+    { title: 'Academy', meaning: 'Courses, students, admissions, funding and your school website.', href: '/academy', words: 'school courses students admissions website funding', module: 'academy' },
+    { title: 'Shop', meaning: 'Your online shop’s returns, delivery and order rules.', href: '/retail-orders/policies', words: 'shop retail store returns shipping pickup orders policies', module: 'retail' },
   ] },
 ];
 
@@ -67,6 +77,7 @@ async function automationsNeedingYou(tenantId: string) {
 }
 
 export function SettingsHome({ tenant }: { tenant: any }) {
+  const index = useMemo(() => SETTINGS_INDEX.map((g) => ({ ...g, items: g.items.filter((i) => !i.module || moduleEnabled(tenant, i.module as any)) })).filter((g) => g.items.length), [tenant]);
   const [q, setQ] = useState(''); const [autoCount, setAutoCount] = useState<number | null>(null);
   useEffect(() => { if (tenant?.id) void automationsNeedingYou(tenant.id).then(setAutoCount); }, [tenant?.id]);
   const todo = [
@@ -78,9 +89,9 @@ export function SettingsHome({ tenant }: { tenant: any }) {
   ].filter(Boolean) as { title: string; href: string }[];
   const results = useMemo(() => {
     const n = q.trim().toLowerCase(); if (n.length < 2) return [];
-    const all = SETTINGS_INDEX.flatMap((g) => g.items.map((i) => ({ ...i, question: g.question })));
+    const all = index.flatMap((g) => g.items.map((i) => ({ ...i, question: g.question })));
     return all.filter((i) => `${i.title} ${i.meaning} ${i.words || ''} ${i.question}`.toLowerCase().includes(n));
-  }, [q]);
+  }, [q, index]);
 
   return (
     <main className="mx-auto w-full max-w-4xl space-y-6 p-4 md:p-8">
@@ -100,7 +111,7 @@ export function SettingsHome({ tenant }: { tenant: any }) {
             {todo.map((t) => <Link key={t.title} href={t.href} className="flex items-center justify-between gap-3 rounded-xl bg-background px-3 py-2.5 text-sm font-bold transition hover:bg-muted/40"><span>○ {t.title}</span><span aria-hidden>→</span></Link>)}
           </section>
         ) : <p className="rounded-2xl border-2 border-emerald-200 bg-emerald-50/60 p-4 text-sm font-bold text-emerald-900">✓ You’re all set up.</p>}
-        <div className="grid gap-3 sm:grid-cols-2">{SETTINGS_INDEX.map((g) => (
+        <div className="grid gap-3 sm:grid-cols-2">{index.map((g) => (
           <section key={g.question} className="space-y-1 rounded-2xl border-2 p-4" aria-label={g.question}>
             <p className="pb-1 text-[15px] font-black">{g.icon} {g.question}</p>
             {g.items.map((i) => <Link key={i.title} href={i.href} className="block rounded-xl px-2 py-1.5 transition hover:bg-muted/40"><span className="block text-sm font-bold">{i.title}</span><span className="block text-[12px] text-muted-foreground">{i.meaning}</span></Link>)}
