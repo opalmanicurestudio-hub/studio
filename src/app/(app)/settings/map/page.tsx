@@ -58,7 +58,7 @@ export default function SettingsSetupPage() {
     <div className="min-h-dvh bg-muted/5 pb-24">
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
         <div className="max-w-3xl mx-auto px-4 py-4">
-          <h1 className="font-black uppercase tracking-tighter text-2xl leading-none">Setup</h1>
+          <h1 className="font-black uppercase tracking-tighter text-2xl leading-none">Quick settings</h1>
           <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-1">
             How your studio runs, in plain words{isMgr ? '' : ' · view only'}
           </p>
