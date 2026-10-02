@@ -15,12 +15,7 @@ export const TenantSwitcher = () => {
     }
 
     if (!selectedTenant || !tenants || tenants.length <= 1) {
-        return (
-            <div className="flex items-center gap-2 p-2">
-                <Building className="h-5 w-5 text-muted-foreground" />
-                <span className="font-semibold text-lg truncate max-w-[150px] md:max-w-none">{selectedTenant?.name || 'My Business'}</span>
-            </div>
-        );
+        return null;   // one business: its name is already in the business card above — no switcher needed
     }
     
     return (
