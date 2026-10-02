@@ -10,6 +10,7 @@
 // rule the owner cannot predict is a rule they will not trust — and an owner
 // who does not trust the rule turns the whole feature off.
 
+import { SettingsPage, Section, Row, Toggle, More } from '@/components/settings/settings-ui';
 import { doc, updateDoc, type Firestore } from 'firebase/firestore';
 import {
   ArrowLeft, CalendarCheck, CreditCard, Loader, ShieldCheck, Sparkles, Timer, UserCheck,
@@ -137,25 +138,8 @@ export default function BookingSettingsPage() {
 
 
   return (
-    <div className="min-h-dvh bg-muted/5 pb-24">
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
-        <div className="max-w-2xl mx-auto px-4 py-4 flex items-center gap-3">
-          <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
-            <Link href="/settings"><ArrowLeft className="h-4 w-4" /></Link>
-          </Button>
-          <div className="flex-1 min-w-0">
-            <h1 className="font-black uppercase tracking-tighter text-xl leading-none">Booking &amp; deposits</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              What happens when someone books online{isMgr ? '' : ' · view only'}
-            </p>
-          </div>
-          <CalendarCheck className="h-5 w-5 text-muted-foreground" />
-        </div>
-      </header>
-
-      <main className="max-w-2xl mx-auto px-4 py-6 space-y-4">
-        <div id="design" className="scroll-mt-20" />
-        {tenantId && <PageDesignPicker firestore={firestore as any} tenantId={tenantId} current={(selectedTenant as any)?.bookingPageSettings?.design} />}
+    <SettingsPage title="How bookings come in" help={`What happens when someone books online, and how your booking page looks.${isMgr ? '' : ' (View only.)'}`}>
+      <div className="space-y-6">
         <Card id="rules" className="scroll-mt-20 border-2 rounded-[2rem] bg-white">
           <CardContent className="p-5 space-y-3">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">How online bookings arrive</p>
@@ -234,6 +218,18 @@ export default function BookingSettingsPage() {
             </p>
           </CardContent>
         </Card>
+
+        <Section title="Booking rules" help="How online booking fills your day.">
+          <Row label="Ask for a deposit from clients who often cancel or don’t show" help="On by default. Even on services that don’t usually take one." inline><Toggle checked={(selectedTenant as any)?.guardianProtocolEnabled !== false} disabled={!isMgr || busy === 'guardianProtocolEnabled'} onChange={(v) => void save('guardianProtocolEnabled', 'guardianProtocolEnabled', v, 'Ask for a deposit from clients who often cancel or don’t show')} label="Ask for a deposit from clients who often cancel or don’t show" /></Row>
+          <Row label="Start an empty day at opening time" help="The first booking of a day with nothing booked starts when you open." inline><Toggle checked={!!(selectedTenant as any)?.morningAnchorEnabled} disabled={!isMgr || busy === 'morningAnchorEnabled'} onChange={(v) => void save('morningAnchorEnabled', 'morningAnchorEnabled', v, 'Start an empty day at opening time')} label="Start an empty day at opening time" /></Row>
+          <Row label="Book appointments back to back" help="Clients can only pick times right next to existing bookings, so there are no gaps." inline><Toggle checked={!!(selectedTenant as any)?.tightSchedulingEnabled} disabled={!isMgr || busy === 'tightSchedulingEnabled'} onChange={(v) => void save('tightSchedulingEnabled', 'tightSchedulingEnabled', v, 'Book appointments back to back')} label="Book appointments back to back" /></Row>
+          <Row label="Fill late cancellations quickly" help="A slot freed within 48 hours is open to everyone, even past your usual rules." inline><Toggle checked={!!(selectedTenant as any)?.flashYieldEnabled} disabled={!isMgr || busy === 'flashYieldEnabled'} onChange={(v) => void save('flashYieldEnabled', 'flashYieldEnabled', v, 'Fill late cancellations quickly')} label="Fill late cancellations quickly" /></Row>
+        </Section>
+
+        <div id="design" className="scroll-mt-20" />
+        {tenantId && <PageDesignPicker firestore={firestore as any} tenantId={tenantId} current={(selectedTenant as any)?.bookingPageSettings?.design} />}
+
+        <More help="No-show limits, rebooking at the counter, who can move appointments, blocked time, and when plans change.">
 
         {/* Guardian's two numbers. Both were in the code — half the price, and
             more than two strikes — with the threshold repeated in eleven
@@ -420,7 +416,8 @@ export default function BookingSettingsPage() {
           Deposit amounts themselves live on each service — flat, percentage, your product cost, or the full price. This page decides
           when they are asked for and what happens to them afterwards.
         </p>
-      </main>
-    </div>
+        </More>
+      </div>
+    </SettingsPage>
   );
 }
