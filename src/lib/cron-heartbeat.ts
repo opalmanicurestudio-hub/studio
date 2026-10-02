@@ -13,6 +13,7 @@ export const SCHEDULED_JOBS: { name: string; label: string; everyHours: number }
   { name: 'autopay-leases', label: 'Rent autopay', everyHours: 24 },
   { name: 'campaigns', label: 'Scheduled campaigns & automations', everyHours: 24 },
   { name: 'hq', label: 'HQ onboarding nudges', everyHours: 24 },
+  { name: 'collect-fees', label: 'Fee collection', everyHours: 24 },
 ];
 
 export async function recordCronRun(name: string, extra: Record<string, any> = {}) {
