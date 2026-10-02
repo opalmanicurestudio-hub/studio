@@ -664,7 +664,7 @@ function SettingsPageImpl() {
                 {T('autoApplyStoreCredit', 'Use a client’s credit automatically at checkout', undefined, true)}
                 <Row label="Credit expires after" help="Leave at 0 to never expire." inline><Num field="storeCreditExpiryDays" suffix="days" int /></Row>
               </Section>
-              <More help="Making things right, credit rules, chasing balances, booking rules, and rules for specific services.">
+              <More help="Making things right, credit rules, chasing balances, and rules for specific services.">
                 <Section title="Making things right" help="When a visit goes wrong — a late start, a fix that’s needed.">
                   <Row label="Staff can give up to" help="A credit or discount, without asking a manager." inline>
                     <span className="inline-flex items-center gap-2"><Num field="maxAutonomousRecoveryAmount" prefix="$" width="w-24" /><span className="text-[14px] cf-muted">or</span><Num field="maxAutonomousRecoveryPercent" suffix="%" width="w-20" /></span>
@@ -705,12 +705,6 @@ function SettingsPageImpl() {
                     <input value={((tenantData as any).arrearsRetryScheduleDays || [3, 7, 14]).join(', ')} onChange={(e) => { const days = e.target.value.split(',').map((x) => parseInt(x.trim())).filter((n) => Number.isFinite(n) && n > 0).slice(0, 6); setTenantData((prev) => ({ ...prev, arrearsRetryScheduleDays: days } as any)); }} className={`${cfInput} w-36 text-center`} style={cfInputStyle} aria-label="Retry days" />
                   </Row>
                   <Row label="Ask a manager to review after" help="An unpaid balance this old gets flagged." inline><Num field="autoFlagWriteOffAfterDays" suffix="days" int /></Row>
-                </Section>
-                <Section title="Booking rules" help="How online booking fills your day.">
-                  {T('guardianProtocolEnabled', 'Ask for a deposit from clients who often cancel or don’t show')}
-                  {T('morningAnchorEnabled', 'Start an empty day at opening time', 'The first booking of a day with nothing booked starts when you open.')}
-                  {T('tightSchedulingEnabled', 'Book appointments back to back', 'Clients can only pick times right next to existing bookings.')}
-                  {T('flashYieldEnabled', 'Fill late cancellations quickly', 'A slot freed within 48 hours is open to everyone, even past your usual rules.')}
                 </Section>
                 <Section title="Rules for specific services" help="Override deposits and fees for a particular service.">
                   <div className="px-5 py-4">
