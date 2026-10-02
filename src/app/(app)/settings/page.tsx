@@ -455,7 +455,7 @@ function SettingsPageImpl() {
     // Payments
     { value: 'payments',    label: 'Payments & payouts',       icon: <DollarSign className="w-4 h-4" />  },
     { value: 'terminal',    label: 'Card reader',              icon: <Monitor className="w-4 h-4" />     },
-    { value: 'policies',    label: 'Money owed & recovery',    icon: <ShieldCheck className="w-4 h-4" /> },
+    { value: 'policies',    label: 'Fees & credit',    icon: <ShieldCheck className="w-4 h-4" /> },
     // Front desk & visits
     { value: 'visits',      label: 'Visit stages',             icon: <Route className="w-4 h-4" />       },
     { value: 'kiosk',       label: 'Check-in kiosk',           icon: <Fingerprint className="w-4 h-4" /> },
@@ -651,20 +651,11 @@ function SettingsPageImpl() {
                   onChange={(e) => { const v = e.target.value === '' ? undefined : (int ? parseInt(e.target.value) : parseFloat(e.target.value)); setTenantData((prev) => ({ ...prev, [field]: Number.isFinite(v as any) ? v : 0 } as any)); }} className={`${cfInput} ${width} text-center`} style={cfInputStyle} />{suffix && <span className="text-[14px] cf-muted">{suffix}</span>}</span>);
               const T = (field: string, label: string, help?: string, invert = false) => <Row key={field} label={label} help={help} inline><Toggle checked={invert ? (tenantData as any)[field] !== false : !!(tenantData as any)[field]} onChange={(v) => setTenantData((prev) => ({ ...prev, [field]: v } as any))} label={label} /></Row>;
               return (<>
-              <Section title="When a client owes you" help="Missed fees, no-show charges and unpaid balances.">
-                {T('autoChargeArrears', 'Charge their card on file automatically', 'Only when the client has saved a card.')}
-                {(tenantData as any).autoChargeArrears && <Row label="When to charge" inline>
-                  <Choice label="When to charge" value={String((tenantData as any).arrearsGracePeriodHours ?? 0)} options={[{ value: '0', label: 'Right away' }, { value: '24', label: 'After a day' }, { value: '72', label: 'After 3 days' }, { value: '168', label: 'After a week' }]}
-                    onChange={(v) => setTenantData((prev) => ({ ...prev, arrearsGracePeriodHours: Number(v) } as any))} />
-                </Row>}
-                {T('retryFailedArrearsCharges', 'Try again if the charge fails', 'After 3, 7 and 14 days — change this under More options.')}
+              <Section title="Fees and credit" help="Missed-visit fees and store credit.">
                 {T('allowGuestFeeDeferral', 'Let clients pay fees later', 'They can book again while a fee is still open.')}
+                <Row label="Store credit expires after" help="Leave at 0 to never expire." inline><Num field="storeCreditExpiryDays" suffix="days" int /></Row>
               </Section>
-              <Section title="Store credit">
-                {T('autoApplyStoreCredit', 'Use a client’s credit automatically at checkout', undefined, true)}
-                <Row label="Credit expires after" help="Leave at 0 to never expire." inline><Num field="storeCreditExpiryDays" suffix="days" int /></Row>
-              </Section>
-              <More help="Making things right, credit rules, chasing balances, and rules for specific services.">
+              <More help="Making things right when a visit goes wrong, and rules for specific services.">
                 <Section title="Making things right" help="When a visit goes wrong — a late start, a fix that’s needed.">
                   <Row label="Staff can give up to" help="A credit or discount, without asking a manager." inline>
                     <span className="inline-flex items-center gap-2"><Num field="maxAutonomousRecoveryAmount" prefix="$" width="w-24" /><span className="text-[14px] cf-muted">or</span><Num field="maxAutonomousRecoveryPercent" suffix="%" width="w-20" /></span>
@@ -695,16 +686,6 @@ function SettingsPageImpl() {
                       </div>
                     <button type="button" onClick={handleAddPreset} className="mt-2 text-[14px] font-medium underline underline-offset-4">Add a quick credit</button>
                   </Row>
-                </Section>
-                <Section title="Credit rules">
-                  <Row label="A manager approves credits over" inline><Num field="courtesyCreditApprovalThreshold" prefix="$" /></Row>
-                  {T('allowNegativeCredit', 'Let a client’s credit go below zero')}
-                </Section>
-                <Section title="Chasing unpaid balances">
-                  <Row label="Try again after" help="Days after a failed charge, separated by commas." inline>
-                    <input value={((tenantData as any).arrearsRetryScheduleDays || [3, 7, 14]).join(', ')} onChange={(e) => { const days = e.target.value.split(',').map((x) => parseInt(x.trim())).filter((n) => Number.isFinite(n) && n > 0).slice(0, 6); setTenantData((prev) => ({ ...prev, arrearsRetryScheduleDays: days } as any)); }} className={`${cfInput} w-36 text-center`} style={cfInputStyle} aria-label="Retry days" />
-                  </Row>
-                  <Row label="Ask a manager to review after" help="An unpaid balance this old gets flagged." inline><Num field="autoFlagWriteOffAfterDays" suffix="days" int /></Row>
                 </Section>
                 <Section title="Rules for specific services" help="Override deposits and fees for a particular service.">
                   <div className="px-5 py-4">
@@ -828,7 +809,7 @@ const WHATS_HERE: Record<string, string> = {
   locations: 'Where you work — addresses clients see and use for directions.',
   hours: 'The days and times clients can book.',
   experience: 'What guests are offered while they’re with you — drinks, Wi-Fi and other comforts.',
-  policies: 'What happens when a client owes you money, and how store credit works.',
+  policies: 'Fees clients owe, store credit, and making things right when a visit goes wrong.',
   payments: 'How clients pay you, and how money reaches your bank.',
   terminal: 'Your card reader for taking payments in person.',
   kiosk: 'The check-in kiosk clients use when they arrive.',
