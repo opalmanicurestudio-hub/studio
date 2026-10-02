@@ -60,7 +60,7 @@ import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 // Reads the ?tab= query in isolation and lifts it to the page. Rendered inside a
 // <Suspense> boundary so useSearchParams() doesn't force /booths into a
 // client-only bailout during static prerender.
-function TabQuerySync({ onTab, onLease }: { onTab: (t: 'spaces' | 'ops') => void; onLease?: (renterId: string) => void }) {
+function TabQuerySync({ onTab, onLease, onSettings }: { onTab: (t: 'spaces' | 'ops') => void; onLease?: (renterId: string) => void; onSettings?: () => void }) {
   const searchParams = useSearchParams();
   const tab = searchParams.get('tab');
   // ?lease=<renterId> — the Renters page hands off here for the one wizard
@@ -75,6 +75,9 @@ function TabQuerySync({ onTab, onLease }: { onTab: (t: 'spaces' | 'ops') => void
   useEffect(() => {
     if (lease && onLease) onLease(lease);
   }, [lease, onLease]);
+  // ?settings=1 — Settings → Your tools → Booth rentals opens the booth settings straight away.
+  const wantSettings = searchParams.get('settings') === '1';
+  useEffect(() => { if (wantSettings && onSettings) onSettings(); }, [wantSettings, onSettings]);
   return null;
 }
 import {
@@ -1999,6 +2002,7 @@ export default function BoothsPage() {
   const [kioskOpen, setKioskOpen] = useState(false);
   const [viewingApp, setViewingApp] = useState<any | null>(null);
   const [autoSettingsOpen, setAutoSettingsOpen] = useState(false);
+  const openBoothSettings = useCallback(() => { setTab('ops'); setAutoSettingsOpen(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [plannerDay, setPlannerDay] = useState<string>(localISO());
 
   const [kioskCopied, setKioskCopied] = useState(false);
@@ -5078,7 +5082,7 @@ export default function BoothsPage() {
 
         {/* Sync the active tab from the URL (?tab=), isolated in Suspense. */}
         <Suspense fallback={null}>
-          <TabQuerySync onTab={setTab} onLease={openLeaseWizard} />
+          <TabQuerySync onTab={setTab} onLease={openLeaseWizard} onSettings={openBoothSettings} />
         </Suspense>
 
         {/* Tab strip */}
