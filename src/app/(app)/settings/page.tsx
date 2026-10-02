@@ -653,6 +653,10 @@ function SettingsPageImpl() {
               return (<>
               <Section title="Fees and credit" help="Missed-visit fees and store credit.">
                 {T('allowGuestFeeDeferral', 'Let clients pay fees later', 'They can book again while a fee is still open.')}
+                <a href="/settings/automations#sw:fee-collection" className="flex items-center justify-between gap-3 px-5 py-4 [&+&]:border-t" style={{ borderColor: 'var(--line)' }}>
+                  <span className="min-w-0"><span className="block text-[15px] font-medium">Collecting fees from the card on file: {(tenantData as any)?.automations?.feeCollection === true ? 'on' : 'off'}</span>
+                    <span className="block text-[13.5px] cf-muted">Switched in Automations, with the other things the app does on its own.</span></span>
+                  <span className="shrink-0 text-[14px] font-medium">Change →</span></a>
                 <Row label="Store credit expires after" help="Leave at 0 to never expire." inline><Num field="storeCreditExpiryDays" suffix="days" int /></Row>
               </Section>
               <More help="Making things right when a visit goes wrong, and rules for specific services.">
