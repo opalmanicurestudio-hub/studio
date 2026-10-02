@@ -1,5 +1,6 @@
 'use client';
 
+import { guestLogo } from '@/lib/brand';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -157,7 +158,7 @@ export default function EventPublicPage() {
   const primaryHex = tenant?.kioskSettings?.primaryColor || '#6366f1';
   const isDark     = hexLuminance(primaryHex) < 0.4;
   const textOn     = isDark ? '#ffffff' : '#0f172a';
-  const logoUrl    = tenant?.kioskSettings?.logoUrl;
+  const logoUrl    = guestLogo(tenant);
 
   const ticketConfig = event?.ticketingConfig || {};
   const isPaid       = ticketConfig.type === 'paid';
