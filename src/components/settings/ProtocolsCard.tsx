@@ -39,8 +39,8 @@ export function ProtocolsCard({ tenantId, canEdit }: { tenantId: string; canEdit
   };
   const tick = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
   return (
-    <section className="space-y-4 rounded-[2rem] border-2 bg-white p-6">
-      <div><p className="text-lg font-semibold">Cleaning protocols</p>
+    <section className="space-y-4">
+      <div><h2 className="text-[19px] font-semibold tracking-tight">Your cleaning procedures</h2>
         <p className="text-sm text-muted-foreground">Your cleaning procedures. Attached to a service, they become its turnover checklist — showing only the steps that visit needed. Attached to a station, they’re its default and what releases it from quarantine.</p></div>
       {(protocols || []).map((p: any) => (
         <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border-2 p-3">
