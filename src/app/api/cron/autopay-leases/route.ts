@@ -174,10 +174,14 @@ export async function POST(req: NextRequest) {
       // nothing ever wrote, so every lease, every day, was "not configured"
       // and nobody was ever drafted. Either name is honoured now.
       const paymentMethodId = renter?.stripePaymentMethodId || renter?.defaultPaymentMethodId || null;
-      if (!renter?.autopayEnabled || !renter.stripeCustomerId || !paymentMethodId) {
+      // ONE autopay: charged when the renter switched autopay on in their portal, OR the owner set this lease to
+      // auto-collect in Booths (the old separate collector for that never ran — those leases were invoiced and
+      // then sat unpaid, unseen by the late-rent sweep). A card on file is needed either way.
+      const autoCharge = renter?.autopayEnabled === true || lease.autoCollect === true;
+      if (!autoCharge || !renter?.stripeCustomerId || !paymentMethodId) {
         results.push({
           leaseId: lease.id, ok: false,
-          reason: !renter?.autopayEnabled ? 'autopay_off' : !renter?.stripeCustomerId ? 'no_stripe_customer' : 'no_card',
+          reason: !autoCharge ? 'autopay_off' : !renter?.stripeCustomerId ? 'no_stripe_customer' : 'no_card',
         });
         continue;
       }
@@ -187,6 +191,14 @@ export async function POST(req: NextRequest) {
       const invSnap = await db.collection(`tenants/${tenantId}/rentInvoices`)
         .where('leaseId', '==', lease.id).where('dueDate', '==', todayIso).limit(1).get();
       const invoiceRef = invSnap.empty ? null : invSnap.docs[0].ref;
+      // Charge what today's invoice still owes — never the lease's full rent blindly. No invoice (rent paused by approved
+      // leave, or not billed today) → nothing to charge; already paid (the renter paid early) → nothing to charge. The
+      // invoice already has credits and leave reductions taken off.
+      const inv: any = invSnap.empty ? null : invSnap.docs[0].data();
+      if (!inv) { results.push({ leaseId: lease.id, ok: false, reason: 'no_invoice_today' }); continue; }
+      if (['paid', 'void', 'waived', 'cancelled'].includes(String(inv.status || ''))) { results.push({ leaseId: lease.id, ok: false, reason: 'already_paid' }); continue; }
+      const chargeCents = Math.max(0, Math.round((Number(inv.amountCents ?? lease.rentAmountCents) || 0) - (Number(inv.paidCents) || 0)));
+      if (chargeCents <= 0) { results.push({ leaseId: lease.id, ok: false, reason: 'nothing_owed' }); continue; }
 
       const now = new Date().toISOString();
       let intent: Stripe.PaymentIntent | null = null;
@@ -195,7 +207,7 @@ export async function POST(req: NextRequest) {
       try {
         intent = await stripe.paymentIntents.create(
           {
-            amount: lease.rentAmountCents,
+            amount: chargeCents,
             currency: 'usd',
             customer: renter.stripeCustomerId,
             payment_method: paymentMethodId,
@@ -234,7 +246,7 @@ export async function POST(req: NextRequest) {
           context: 'Business',
           category: 'Rent income',
           taxBucket: 'revenue',
-          amount: lease.rentAmountCents / 100,
+          amount: chargeCents / 100,
           paymentMethod: 'Card on file (Stripe autopay)',
           stripePaymentIntentId: intent.id,
           stripeChargeId: chargeId,
@@ -251,7 +263,7 @@ export async function POST(req: NextRequest) {
           renterId: lease.renterId,
           boothId: lease.boothId,
           type: 'rent_charge',
-          amountCents: lease.rentAmountCents,
+          amountCents: chargeCents,
           status: 'paid',
           dueDate: todayIso,
           paidAt: nowISO,
@@ -291,7 +303,7 @@ export async function POST(req: NextRequest) {
           renterId: lease.renterId,
           boothId: lease.boothId,
           type: 'rent_charge',
-          amountCents: lease.rentAmountCents,
+          amountCents: chargeCents,
           status: 'pending',
           dueDate: todayIso,
           paidAt: null,
@@ -329,7 +341,7 @@ export async function POST(req: NextRequest) {
         const businessName = String(tData.name || 'ClarityFlow');
         const base = linkOrigin(tData, 'https://studio-one-blue.vercel.app');
         const portalUrl = renter?.portalToken ? `${base}/rent/${tenantId}?rt=${renter.portalToken}` : '';
-        const amountStr = `$${((lease.rentAmountCents || 0) / 100).toFixed(2)}`;
+        const amountStr = `$${(chargeCents / 100).toFixed(2)}`;
         const boothName = booth?.name || 'your booth';
         if (!failureReason) {
           if (comms.sendReceipts !== false && renter?.email) {
