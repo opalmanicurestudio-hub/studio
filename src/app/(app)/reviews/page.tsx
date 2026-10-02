@@ -271,7 +271,7 @@ export default function ReviewsPage() {
             </CardHeader>
             <CardFooter className="p-8 pt-4">
                 <Button variant="outline" asChild className="h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-white">
-                    <Link href="/settings?tab=builder">Configure Booking Page</Link>
+                    <Link href="/settings/booking#design">Configure Booking Page</Link>
                 </Button>
             </CardFooter>
         </Card>
