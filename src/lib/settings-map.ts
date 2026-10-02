@@ -218,12 +218,7 @@ export const SETTINGS_MAP: SettingEntry[] = [
 
   // ── What we say ──────────────────────────────────────────────────────────
   {
-    group: 'say', label: 'Remind people before they come', href: '/settings/messages', screen: 'Messages',
-    control: {
-      kind: 'number', field: 'clientNotify.daysBefore',
-      value: (t) => (Number.isFinite(Number(t?.clientNotify?.daysBefore)) ? Number(t.clientNotify.daysBefore) : 1),
-      unit: 'days before', max: 7,
-    },
+    group: 'say', label: 'Remind people before they come', href: '/settings/automations#sw:appt-reminders', screen: 'Automations',
     summarise: (t) => {
       const c = t?.clientNotify || {};
       if (c.enabled === false) return 'No reminders are sent.';
