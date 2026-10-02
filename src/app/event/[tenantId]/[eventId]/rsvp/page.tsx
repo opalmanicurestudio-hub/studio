@@ -1,5 +1,6 @@
 'use client';
 
+import { guestLogo } from '@/lib/brand';
 import { useState, useMemo, useEffect, Suspense } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useFirebase } from '@/firebase';
@@ -312,7 +313,7 @@ function EventGuestOrderPageInner() {
   if (dataLoading || !event || !tenant) return <PageLoader />;
 
   const eventDisplayName = event.title || event.name || 'Event';
-  const logoUrl = tenant.kioskSettings?.logoUrl || tenant.bookingPageSettings?.logoUrl;
+  const logoUrl = guestLogo(tenant) || tenant.bookingPageSettings?.logoUrl;
   const primaryColor = tenant.kioskSettings?.primaryColor || tenant.bookingPageSettings?.primaryColor;
   const btnStyle = primaryColor ? { backgroundColor: primaryColor, color: '#fff' } : undefined;
 
