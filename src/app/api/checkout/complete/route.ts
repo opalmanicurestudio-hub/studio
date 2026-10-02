@@ -228,8 +228,8 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   }
   let recoveryApprovedBy: string | null = null;
   if (recoveryAmount > 0) {
-    const limit = num(tenant.maxAutonomousRecoveryAmount), pctLimit = num(tenant.maxAutonomousRecoveryPercent);
-    const over = (limit > 0 && recoveryAmount > limit) || (pctLimit > 0 && calc.subtotal > 0 && (recoveryAmount / calc.subtotal) * 100 > pctLimit);
+    const { overStaffLimit } = await import('@/lib/staff-limit');   // one rule for discounts and store credit
+    const over = overStaffLimit(tenant, recoveryAmount, calc.subtotal);
     if (over && !actorIsManager) {
       const ok = await consumeApproval(db, tenantId, b.recovery?.approvalToken, { kind: 'recovery', amount: recoveryAmount });
       if (!ok) { await failPending('Service recovery above the limit wasn’t approved.'); return json({ ok: false, error: `Service recovery over your limit needs a manager’s approval ($${recoveryAmount.toFixed(2)}).` }, 403); }
