@@ -955,233 +955,89 @@ function SettingsPageImpl() {
             {/* ── BUILDER ── */}
 
             {/* ── KIOSK ── */}
-            <TabsContent value="kiosk" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
-              {/* The whole kiosk in one place: what it asks first (front door), then how it looks. */}
+            <TabsContent value="kiosk" className="mt-0 space-y-10 text-left">
               {tenantId && <KioskOptionsCard tenantId={tenantId} tenant={selectedTenant} canEdit={String((role as any) || '').toLowerCase() === 'owner'} />}
-              <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                  <SectionHeader icon={Fingerprint} title="Check-in kiosk" />
-                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Manage the check-in terminal experience.</CardDescription>
-                </CardHeader>
-                <CardContent className="p-6 md:p-8 space-y-10 text-left">
-                  <div className="space-y-8">
-                    <div className="flex items-center gap-3 px-1"><ImageIcon className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Logo on guest screens</h3></div>
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">A different logo for guest screens (optional)</Label>
-                      <p className="text-xs text-muted-foreground ml-1">The kiosk and your guest pages (events, quotes, inquiries, job applications) use your business logo from <a href="/settings?tab=profile" className="underline underline-offset-2">Your business</a>. Only add one here if you want those screens to look different.</p>
-                      <ImageUpload onImageUploaded={(url) => setTenantData(prev => ({ ...prev, kioskSettings: { ...prev.kioskSettings, logoUrl: url } }))} initialImage={tenantData.kioskSettings?.logoUrl} />
-                      {tenantData.kioskSettings?.logoUrl && <button type="button" disabled={!isEditing} onClick={() => setTenantData(prev => ({ ...prev, kioskSettings: { ...prev.kioskSettings, logoUrl: '' } } as any))} className="ml-1 text-xs font-semibold underline underline-offset-2 disabled:opacity-40">Use my business logo instead</button>}
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Wordmark / Text Logo (optional)</Label>
-                      <ImageUpload onImageUploaded={(url) => setTenantData(prev => ({ ...prev, kioskSettings: { ...prev.kioskSettings, wordmarkUrl: url } }))} initialImage={tenantData.kioskSettings?.wordmarkUrl} />
-                      <p className="text-[9px] font-bold text-muted-foreground uppercase ml-1">Upload a horizontal text logo if you want the full name displayed</p>
-                    </div>
-                    <SettingRow icon={ImageIcon} title="Show Studio Name" description="Display wordmark or text name on the splash screen">
-                      <Switch checked={tenantData.kioskSettings?.showWordmark !== false} onCheckedChange={(val) => setTenantData(prev => ({ ...prev, kioskSettings: { ...prev.kioskSettings, showWordmark: val } }))} disabled={!isEditing} className="scale-125 data-[state=checked]:bg-primary" />
-                    </SettingRow>
+              <Section title="How it looks" help="On the kiosk and on your guest pages (events, quotes, inquiries, job applications).">
+                <Row label="Logo" help="Your business logo is used unless you add a different one here.">
+                  <ImageUpload label="Upload a different logo" onImageUploaded={(url) => setTenantData((prev) => ({ ...prev, kioskSettings: { ...prev.kioskSettings, logoUrl: url } }))} initialImage={tenantData.kioskSettings?.logoUrl} />
+                  {tenantData.kioskSettings?.logoUrl && <button type="button" onClick={() => setTenantData((prev) => ({ ...prev, kioskSettings: { ...prev.kioskSettings, logoUrl: '' } } as any))} className="mt-2 text-[13.5px] underline underline-offset-4">Use my business logo instead</button>}
+                </Row>
+                <Row label="Show your business name" inline><Toggle checked={tenantData.kioskSettings?.showWordmark !== false} onChange={(v) => setTenantData((prev) => ({ ...prev, kioskSettings: { ...prev.kioskSettings, showWordmark: v } }))} label="Show your business name" /></Row>
+                <Row label="Look" inline>
+                  <Choice label="Kiosk look" value={(tenantData.kioskSettings?.theme as string) || 'light'} options={[{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }, { value: 'rose', label: 'Rose' }, { value: 'sage', label: 'Sage' }, { value: 'slate', label: 'Slate' }]} onChange={(v) => setTenantData((prev) => ({ ...prev, kioskSettings: { ...prev.kioskSettings, theme: v } } as any))} />
+                </Row>
+                <Row label="Button colour" help="Leave it to use your business colour." inline>
+                  <span className="inline-flex items-center gap-2">
+                    <input type="color" aria-label="Button colour" value={/^#[0-9a-fA-F]{6}$/.test(kioskCustomHex) ? kioskCustomHex : '#7c3aed'} onChange={(e) => { const hex = e.target.value; setKioskCustomHex(hex); setTenantData((prev) => ({ ...prev, kioskSettings: { ...prev.kioskSettings, primaryColor: hex } } as any)); }} className="h-10 w-12 cursor-pointer rounded-lg border bg-transparent p-0.5" style={{ borderColor: 'var(--line)' }} />
+                    {tenantData.kioskSettings?.primaryColor && <button type="button" onClick={() => { setKioskCustomHex(''); setTenantData((prev) => ({ ...prev, kioskSettings: { ...prev.kioskSettings, primaryColor: undefined } } as any)); }} className="text-[13.5px] underline underline-offset-4">Use my colour</button>}
+                  </span>
+                </Row>
+              </Section>
+              <More help="A text logo, and kiosk hours that differ from your opening hours.">
+                <Section title="Text logo" help="A wide image of your name, shown instead of plain text.">
+                  <Row label="Wordmark"><ImageUpload label="Upload a text logo" onImageUploaded={(url) => setTenantData((prev) => ({ ...prev, kioskSettings: { ...prev.kioskSettings, wordmarkUrl: url } }))} initialImage={tenantData.kioskSettings?.wordmarkUrl} /></Row>
+                </Section>
+                <Section title="Kiosk hours" help="By default the kiosk takes walk-ins during your opening hours.">
+                  <Row label="Use different hours for the kiosk" inline><Toggle checked={!!tenantData.kioskSettings?.useSpecificHours} onChange={(v) => setTenantData((prev) => ({ ...prev, kioskSettings: { ...prev.kioskSettings, useSpecificHours: v } }))} label="Use different hours for the kiosk" /></Row>
+                  <div className="px-5 py-2">
+                    {tenantData.kioskSettings?.useSpecificHours && dayOrder.map((day) => { const d = localKioskSchedule?.[day] || { enabled: false, start: '09:00 AM', end: '05:00 PM' }; const name = day[0].toUpperCase() + day.slice(1); return (
+                      <div key={`kiosk-${day}`} className="flex flex-wrap items-center gap-x-4 gap-y-3 py-3 [&+&]:border-t" style={{ borderColor: 'var(--line)' }}>
+                        <div className="flex w-36 items-center gap-3"><Toggle checked={!!d.enabled} onChange={(v) => handleKioskScheduleChange(day, { enabled: v })} label={`Kiosk open on ${name}`} /><span className="text-[15px] font-medium">{name}</span></div>
+                        {d.enabled ? (<div className="flex flex-1 items-center gap-2 min-w-[15rem]">
+                          <input type="time" aria-label={`${name} kiosk opens`} className={cfInput} style={cfInputStyle} value={toPicker(d.start)} onChange={(e) => handleKioskScheduleChange(day, { start: fromPicker(e.target.value) })} />
+                          <span className="text-[14px] cf-muted">to</span>
+                          <input type="time" aria-label={`${name} kiosk closes`} className={cfInput} style={cfInputStyle} value={toPicker(d.end)} onChange={(e) => handleKioskScheduleChange(day, { end: fromPicker(e.target.value) })} />
+                        </div>) : <span className="text-[14px] cf-muted">Closed</span>}
+                      </div>); })}
                   </div>
-                  <Separator className="border-dashed" />
-                  <div className="space-y-8">
-                    <div className="flex items-center gap-3 px-1"><Palette className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Kiosk Theme & Color</h3></div>
-                    <div className="space-y-3">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Base Theme</Label>
-                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                        {[
-                          { key: 'light', label: 'Light', preview: 'bg-white border-slate-200',                     dot: 'bg-slate-900' },
-                          { key: 'dark',  label: 'Dark',  preview: 'bg-slate-900 border-slate-700',                 dot: 'bg-white'    },
-                          { key: 'rose',  label: 'Rose',  preview: 'bg-gradient-to-br from-rose-50 to-white',       dot: 'bg-rose-500'  },
-                          { key: 'sage',  label: 'Sage',  preview: 'bg-gradient-to-br from-emerald-50 to-white',    dot: 'bg-emerald-600'},
-                          { key: 'slate', label: 'Slate', preview: 'bg-gradient-to-br from-slate-700 to-slate-900', dot: 'bg-white'    },
-                        ].map(theme => (
-                          <button key={theme.key} onClick={() => isEditing && setTenantData(prev => ({ ...prev, kioskSettings: { ...prev.kioskSettings, theme: theme.key } }))} disabled={!isEditing}
-                            className={cn('relative flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all text-center', theme.preview, tenantData.kioskSettings?.theme === theme.key || (!tenantData.kioskSettings?.theme && theme.key === 'light') ? 'border-primary shadow-lg ring-2 ring-primary/20' : 'border-border hover:border-primary/30', !isEditing && 'opacity-60 cursor-not-allowed')}>
-                            {(tenantData.kioskSettings?.theme === theme.key || (!tenantData.kioskSettings?.theme && theme.key === 'light')) && (
-                              <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-primary text-white flex items-center justify-center"><Check className="w-2.5 h-2.5" /></div>
-                            )}
-                            <div className={cn('w-8 h-8 rounded-xl border-2 border-white/30 shadow-sm', theme.dot)} />
-                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-700">{theme.label}</p>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="space-y-3">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Accent Color</Label>
-                      <p className="text-[9px] font-bold text-muted-foreground uppercase ml-1 opacity-60">Overrides button and highlight colors. Leave unset to use theme default.</p>
-                      <div className="grid grid-cols-10 gap-2 p-4 rounded-2xl border-2 border-border bg-muted/5">
-                        {KIOSK_COLOR_LIBRARY.map(color => (
-                          <button key={color.hex} title={color.name} onClick={() => { if (!isEditing) return; setKioskCustomHex(color.hex); setTenantData(prev => ({ ...prev, kioskSettings: { ...prev.kioskSettings, primaryColor: color.hex } })); }} disabled={!isEditing}
-                            className={cn('w-8 h-8 rounded-lg border-2 transition-all hover:scale-110', tenantData.kioskSettings?.primaryColor === color.hex ? 'border-slate-900 scale-110 shadow-lg' : 'border-transparent', !isEditing && 'cursor-not-allowed')}
-                            style={{ backgroundColor: color.hex }} />
-                        ))}
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-xl border-2 shadow-inner shrink-0" style={{ backgroundColor: tenantData.kioskSettings?.primaryColor || '#0f172a' }} />
-                        <div className="flex-1 space-y-1">
-                          <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Custom Color (Hex)</Label>
-                          <div className="flex gap-2">
-                            <Input value={kioskCustomHex} onChange={e => setKioskCustomHex(e.target.value)} onBlur={() => { if (/^#[0-9a-fA-F]{6}$/.test(kioskCustomHex)) setTenantData(prev => ({ ...prev, kioskSettings: { ...prev.kioskSettings, primaryColor: kioskCustomHex } })); }} placeholder="#7c3aed" disabled={!isEditing} className="h-10 rounded-xl border-2 font-mono font-black flex-1" />
-                            {tenantData.kioskSettings?.primaryColor && isEditing && (
-                              <Button variant="ghost" size="sm" onClick={() => { setKioskCustomHex(''); setTenantData(prev => ({ ...prev, kioskSettings: { ...prev.kioskSettings, primaryColor: undefined } })); }} className="h-10 px-3 rounded-xl text-[9px] font-black uppercase text-muted-foreground hover:text-destructive">Clear</Button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="p-4 rounded-2xl border-2 border-dashed bg-primary/5 border-primary/20 flex items-center gap-3">
-                      <Eye className="w-5 h-5 text-primary shrink-0" />
-                      <p className="text-[9px] font-bold text-primary uppercase tracking-widest leading-relaxed">
-                        Changes appear live on your kiosk at <span className="font-black">/walk-in/{selectedTenant?.id}</span>. Save settings to lock them in.
-                      </p>
-                    </div>
-                  </div>
-                  <Separator className="border-dashed" />
-                  <SettingRow icon={Clock} title="Specific Kiosk Hours" description="Close walk-ins earlier than business hours">
-                    <Switch checked={!!tenantData.kioskSettings?.useSpecificHours} onCheckedChange={(val) => setTenantData(prev => ({ ...prev, kioskSettings: { ...prev.kioskSettings, useSpecificHours: val } }))} disabled={!isEditing} className="scale-125 data-[state=checked]:bg-primary" />
-                  </SettingRow>
-                  <AnimatePresence>
-                    {tenantData.kioskSettings?.useSpecificHours && (
-                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-4 pt-4 border-t border-dashed">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Walk-in Window Schedule</Label>
-                        <div className="space-y-3">
-                          {dayOrder.map(day => (
-                            <DayHoursRow key={`kiosk-${day}`} day={day} data={localKioskSchedule?.[day] || { enabled: false, start: '09:00 AM', end: '05:00 PM' }} onChange={handleKioskScheduleChange} disabled={!isEditing} />
-                          ))}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </CardContent>
-              </Card>
+                </Section>
+              </More>
             </TabsContent>
 
             {/* ── TIME CLOCK ── */}
-            <TabsContent value="timeclock" className="mt-0 space-y-8 animate-in fade-in duration-500 text-left">
-              <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                  <SectionHeader icon={Clock} title="Clock-In Restrictions" />
-                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Control when and how staff are permitted to start their shift.</CardDescription>
-                </CardHeader>
-                <CardContent className="p-6 md:p-8 space-y-5 text-left">
-                  <div className="p-5 rounded-[2rem] border-2 bg-slate-50 border-slate-200 space-y-4">
-                    <div className="flex items-start gap-4">
-                      <div className="p-2.5 rounded-xl bg-white border-2 shadow-sm shrink-0"><Clock className="w-4 h-4 text-primary" /></div>
-                      <div className="flex-1 space-y-1"><p className="text-sm font-black uppercase tracking-tight text-slate-900">Early Clock-In Window</p><p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">How many minutes before their first appointment staff can clock in</p></div>
-                    </div>
-                    <div className="flex items-center gap-4 pl-12">
-                      <NumberInput value={tenantData.earlyClockInMinutes} onChange={(v: number) => setTenantData(prev => ({ ...prev, earlyClockInMinutes: v }))} disabled={!isEditing} suffix="min" min={0} max={120} placeholder="15" />
-                      <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">before first appointment</p>
-                    </div>
+            <TabsContent value="timeclock" className="mt-0 space-y-10 text-left">
+              {(() => { const Num = ({ field, suffix, min = 0, max = 999, step = 1, width = 'w-24' }: { field: string; suffix?: string; min?: number; max?: number; step?: number; width?: string }) => (
+                <span className="inline-flex items-center gap-2"><input type="number" inputMode="decimal" min={min} max={max} step={step} value={(tenantData as any)[field] ?? ''} placeholder="0"
+                  onChange={(e) => { const v = e.target.value === '' ? undefined : Number(e.target.value); setTenantData((prev) => ({ ...prev, [field]: v } as any)); }} className={`${cfInput} ${width} text-center`} style={cfInputStyle} aria-label={field} />{suffix && <span className="text-[14px] cf-muted">{suffix}</span>}</span>);
+              const T = (field: string, label: string, help?: string) => <Row key={field} label={label} help={help} inline><Toggle checked={!!(tenantData as any)[field]} onChange={(v) => setTenantData((prev) => ({ ...prev, [field]: v } as any))} label={label} /></Row>;
+              return (<>
+              <Section title="Clocking in">
+                {T('geoFenceEnabled', 'Staff must be at a location to clock in', 'Uses their phone’s location. Where counts is set on each location.')}
+                {tenantData.geoFenceEnabled && (<>
+                  <div className="px-5 py-4 [&+&]:border-t" style={{ borderTop: '1px solid var(--line)' }}>
+                    <ul className="space-y-1.5">{(clockLocations || []).map((l: any) => (
+                      <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 text-[13.5px]"><span className="font-medium">{l.name}</span>
+                        <span className={l.coordinates ? 'cf-muted' : 'font-semibold text-amber-700'}>{l.coordinates ? `Within ${Number(l.geoFenceRadiusMeters) || Number(tenantData.geoFenceRadiusMeters) || 200} m` : 'No map pin yet'}</span></li>))}</ul>
+                    <a href="/settings?tab=locations" className="mt-2 inline-block text-[14px] font-medium underline underline-offset-4">Edit in Locations</a>
                   </div>
-                  <SettingRow icon={Calendar}    color="blue"  title="Require Active Appointment"  description="Staff can only clock in if they have an appointment scheduled today">
-                    <Switch checked={!!tenantData.requireAppointmentToClockIn}    onCheckedChange={(val) => setTenantData(prev => ({ ...prev, requireAppointmentToClockIn: val }))}    disabled={!isEditing} className="scale-125 data-[state=checked]:bg-primary" />
-                  </SettingRow>
-                  <SettingRow icon={ShieldAlert} color="red"   title="Block Expired License"        description="Staff with an expired compliance license cannot clock in">
-                    <Switch checked={!!tenantData.blockClockInOnExpiredLicense}   onCheckedChange={(val) => setTenantData(prev => ({ ...prev, blockClockInOnExpiredLicense: val }))}   disabled={!isEditing} className="scale-125 data-[state=checked]:bg-destructive" />
-                  </SettingRow>
-                  <div className="p-5 rounded-[2rem] border-2 bg-slate-50 border-slate-200 space-y-4">
-                    <div className="flex items-start gap-4">
-                      <div className="p-2.5 rounded-xl bg-white border-2 shadow-sm shrink-0"><Timer className="w-4 h-4 text-amber-600" /></div>
-                      <div className="flex-1 space-y-1"><p className="text-sm font-black uppercase tracking-tight text-slate-900">Minimum Shift Length</p><p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Staff must work at least this many minutes before they can clock out</p></div>
-                    </div>
-                    <div className="flex items-center gap-4 pl-12">
-                      <NumberInput value={tenantData.minimumShiftMinutes} onChange={(v: number) => setTenantData(prev => ({ ...prev, minimumShiftMinutes: v }))} disabled={!isEditing} suffix="min" min={0} max={480} placeholder="0" />
-                      <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">minimum shift</p>
-                    </div>
-                  </div>
-                  <SettingRow icon={Shield} color="amber" title="Manager Override for Late Clock-In" description="Require manager PIN authorization when staff clock in after their early window">
-                    <Switch checked={!!tenantData.requireManagerOverrideForLateClockIn} onCheckedChange={(val) => setTenantData(prev => ({ ...prev, requireManagerOverrideForLateClockIn: val }))} disabled={!isEditing} className="scale-125 data-[state=checked]:bg-primary" />
-                  </SettingRow>
-                </CardContent>
-              </Card>
-
-              <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                  <SectionHeader icon={MapPin} title="Geo-Fence Configuration" />
-                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Restrict clock-ins to your physical studio location.</CardDescription>
-                </CardHeader>
-                <CardContent className="p-6 md:p-8 space-y-6 text-left">
-                  <SettingRow icon={MapPin} color="green" title="Enable Geo-Fencing" description="Staff must be at the studio location to clock in">
-                    <Switch checked={!!tenantData.geoFenceEnabled} onCheckedChange={(val) => setTenantData(prev => ({ ...prev, geoFenceEnabled: val }))} disabled={!isEditing} className="scale-125 data-[state=checked]:bg-green-600" />
-                  </SettingRow>
-                  <AnimatePresence>
-                    {tenantData.geoFenceEnabled && (
-                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-5 pt-2">
-                        <div className="p-5 rounded-[2rem] border-2 bg-green-50 border-green-200 space-y-3">
-                          <p className="text-sm font-black uppercase tracking-tight text-green-800">Where staff can clock in</p>
-                          <p className="text-xs text-green-900/80">Set on each location — its address, map pin and how close staff need to be. Each location can be different.</p>
-                          <ul className="space-y-1.5">{(clockLocations || []).map((l: any) => (
-                            <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white px-3 py-2 text-xs">
-                              <span className="font-semibold">{l.name}</span>
-                              <span className={l.coordinates ? 'text-slate-600' : 'font-semibold text-amber-700'}>{l.coordinates ? 'Map pin set' : 'No map pin yet'} · clock in within {Number(l.geoFenceRadiusMeters) || Number(tenantData.geoFenceRadiusMeters) || 200} m · breaks within {Number(l.geoFenceBreakRadiusMeters) || Number(tenantData.geoFenceBreakRadiusMeters) || 500} m</span>
-                            </li>))}</ul>
-                          <a href="/settings?tab=locations" className="inline-flex h-10 items-center rounded-full bg-white px-4 text-xs font-black uppercase tracking-widest text-green-800 border-2 border-green-200">Edit in Locations</a>
-                        </div>
-                        <div className="p-5 rounded-[2rem] border-2 bg-slate-50 border-slate-200 space-y-4">
-                          <div className="flex items-start gap-4">
-                            <div className="p-2.5 rounded-xl bg-white border-2 shadow-sm shrink-0"><AlertTriangle className="w-4 h-4 text-red-500" /></div>
-                            <div className="space-y-1"><p className="text-sm font-black uppercase tracking-tight text-slate-900">Geo Failure Behavior</p><p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">What happens when a staff member is outside the geo-fence</p></div>
-                          </div>
-                          <Select value={tenantData.geoFenceFailBehavior || 'warn'} onValueChange={(v: any) => setTenantData(prev => ({ ...prev, geoFenceFailBehavior: v }))} disabled={!isEditing}>
-                            <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm"><SelectValue /></SelectTrigger>
-                            <SelectContent className="rounded-xl border-2 shadow-2xl">
-                              <SelectItem value="warn"  className="font-bold uppercase text-[10px] tracking-widest py-3"><div className="space-y-0.5"><p>Warn Only</p><p className="text-[8px] opacity-40">Show warning but allow clock-in to proceed</p></div></SelectItem>
-                              <SelectItem value="block" className="font-bold uppercase text-[10px] tracking-widest py-3"><div className="space-y-0.5"><p>Hard Block</p><p className="text-[8px] opacity-40">Prevent clock-in entirely until inside zone</p></div></SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </CardContent>
-              </Card>
-
-              <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                  <SectionHeader icon={TrendingUp} title="Overtime & Hours Policy" />
-                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Define thresholds for overtime, auto clock-out, and break enforcement.</CardDescription>
-                </CardHeader>
-                <CardContent className="p-6 md:p-8 space-y-5 text-left">
-                  {[
-                    { field: 'dailyOvertimeHours',     icon: Clock,         iconColor: 'text-amber-600', label: 'Daily Overtime Threshold',   desc: 'Hours worked in a single day before overtime kicks in',                          suffix: 'hrs', min: 1,   max: 24,  step: 0.5, placeholder: '8'   },
-                    { field: 'overtimeThresholdHours', icon: TrendingUp,    iconColor: 'text-primary',   label: 'Weekly Overtime Threshold',  desc: 'Total hours in a week before overtime rates apply',                              suffix: 'hrs', min: 1,   max: 60,  step: 0.5, placeholder: '40'  },
-                    { field: 'overtimeMultiplier',     icon: DollarSign,    iconColor: 'text-green-600', label: 'Overtime Pay Multiplier',    desc: 'Rate multiplied by hourly rate for overtime hours (e.g. 1.5 = time and a half)', prefix: 'x',   min: 1,   max: 3,   step: 0.25,placeholder: '1.5' },
-                    { field: 'autoClockOutHours',      icon: AlertTriangle, iconColor: 'text-amber-600', label: 'Auto Clock-Out',             desc: 'Automatically clock out staff after this many hours of inactivity',              suffix: 'hrs', min: 1,   max: 24,  step: 1,   placeholder: '10', amber: true },
-                    { field: 'overtimeAlertHours',     icon: Bell,          iconColor: 'text-primary',   label: 'Overtime Approach Alert',    desc: 'Alert manager when a staff member is this many hours away from overtime',       suffix: 'hrs', min: 0.5, max: 8,   step: 0.5, placeholder: '2'   },
-                  ].map(item => (
-                    <div key={item.field} className={cn('p-5 rounded-[2rem] border-2 space-y-4', (item as any).amber ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200')}>
-                      <div className="flex items-start gap-4">
-                        <div className="p-2.5 rounded-xl bg-white border-2 shadow-sm shrink-0"><item.icon className={cn('w-4 h-4', item.iconColor)} /></div>
-                        <div className="space-y-1">
-                          <p className={cn('text-sm font-black uppercase tracking-tight', (item as any).amber ? 'text-amber-800' : 'text-slate-900')}>{item.label}</p>
-                          <p className={cn('text-[9px] font-bold uppercase tracking-widest opacity-60', (item as any).amber ? 'text-amber-700/60' : 'text-muted-foreground')}>{item.desc}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4 pl-12">
-                        <NumberInput value={(tenantData as any)[item.field]} onChange={(v: number) => setTenantData(prev => ({ ...prev, [item.field]: v }))} disabled={!isEditing} suffix={item.suffix} prefix={item.prefix} min={item.min} max={item.max} step={item.step} placeholder={item.placeholder} />
-                      </div>
-                    </div>
-                  ))}
-                  <Separator className="border-dashed" />
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-3 px-1"><BreakIcon className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Break Policy</h3></div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {[
-                        { field: 'minimumBreakMinutes',     label: 'Minimum Break Duration', suffix: 'min', min: 0, max: 120, placeholder: '10', desc: 'Shortest allowed break'           },
-                        { field: 'maximumBreakMinutes',     label: 'Maximum Break Duration', suffix: 'min', min: 0, max: 240, placeholder: '60', desc: 'Alert fires if exceeded'          },
-                        { field: 'requiredBreakAfterHours', label: 'Required Break After',   suffix: 'hrs', min: 0, max: 12,  placeholder: '4',  desc: 'Hours before break is mandated', step: 0.5 },
-                        { field: 'paidBreakMinutes',        label: 'Paid Break Limit',       suffix: 'min', min: 0, max: 120, placeholder: '15', desc: 'Minutes counted as paid time'    },
-                      ].map(item => (
-                        <div key={item.field} className="p-5 rounded-[2rem] border-2 bg-slate-50 border-slate-200 space-y-3">
-                          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{item.label}</p>
-                          <NumberInput value={(tenantData as any)[item.field]} onChange={(v: number) => setTenantData(prev => ({ ...prev, [item.field]: v }))} disabled={!isEditing} suffix={item.suffix} min={item.min} max={item.max} step={item.step} placeholder={item.placeholder} />
-                          <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{item.desc}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+                  <Row label="If their location can’t be checked" help="Phones sometimes can’t get a fix indoors." inline>
+                    <Choice label="If location can’t be checked" value={(tenantData.geoFenceFailBehavior as string) || 'warn'} options={[{ value: 'warn', label: 'Let them in, flag it' }, { value: 'block', label: 'Don’t let them in' }]} onChange={(v) => setTenantData((prev) => ({ ...prev, geoFenceFailBehavior: v } as any))} />
+                  </Row>
+                </>)}
+                <Row label="Staff can clock in early by" help="Before their shift starts. Earlier than this and the clock waits." inline><Num field="earlyClockInMinutes" suffix="minutes" max={120} /></Row>
+              </Section>
+              <More help="Stricter rules, overtime and breaks — most studios leave these as they are.">
+                <Section title="Stricter rules">
+                  {T('requireAppointmentToClockIn', 'Only clock in with an appointment that day')}
+                  {T('blockClockInOnExpiredLicense', 'Block clock-in if their licence has expired')}
+                  {T('requireManagerOverrideForLateClockIn', 'A manager must approve late clock-ins')}
+                  <Row label="Shortest shift that counts" inline><Num field="minimumShiftMinutes" suffix="minutes" max={720} /></Row>
+                </Section>
+                <Section title="Overtime">
+                  <Row label="Overtime after, in a day" inline><Num field="dailyOvertimeHours" suffix="hours" max={24} step={0.5} /></Row>
+                  <Row label="Overtime after, in a week" inline><Num field="overtimeThresholdHours" suffix="hours" max={168} step={0.5} /></Row>
+                  <Row label="Overtime pay rate" help="1.5 = time and a half." inline><Num field="overtimeMultiplier" suffix="× hourly" max={5} step={0.1} /></Row>
+                  <Row label="Warn a manager when someone is this close to overtime" inline><Num field="overtimeAlertHours" suffix="hours" max={24} step={0.5} /></Row>
+                  <Row label="Clock out automatically after" help="Catches forgotten clock-outs." inline><Num field="autoClockOutHours" suffix="hours" max={24} step={0.5} /></Row>
+                </Section>
+                <Section title="Breaks">
+                  <Row label="Shortest break" inline><Num field="minimumBreakMinutes" suffix="minutes" max={120} /></Row>
+                  <Row label="Longest break before a manager is told" inline><Num field="maximumBreakMinutes" suffix="minutes" max={240} /></Row>
+                  <Row label="A break is required after" inline><Num field="requiredBreakAfterHours" suffix="hours" max={12} step={0.5} /></Row>
+                  <Row label="Paid break time" help="Minutes of each break counted as paid." inline><Num field="paidBreakMinutes" suffix="minutes" max={120} /></Row>
+                </Section>
+              </More>
+              </>); })()}
             </TabsContent>
 
           </Tabs>
@@ -1249,4 +1105,3 @@ function SettingsGate() {
 }
 
 // ── Reconnect tally: the last 30 days of the studio's own nudges ──────────
-                  
