@@ -1,5 +1,6 @@
 'use client';
 
+import { useLocation } from '@/context/LocationContext';
 import { ProtocolsCard } from '@/components/settings/ProtocolsCard';
 import { KioskOptionsCard } from '@/components/settings/KioskOptionsCard';
 import { VisitStagesCard } from '@/components/settings/VisitStagesCard';
@@ -275,6 +276,14 @@ function SettingsPageImpl() {
   const [activeTab,        setActiveTab]        = useState(tabParam || 'profile');
   // Settings save as you go (no Edit/Save mode). Kept as constants so every field stays enabled.
   const isEditing = true; const setIsEditing = (_v: boolean) => {};
+  // Where staff can clock in now lives on each LOCATION (address, map pin, radius). The first time an owner or
+  // manager opens the Time clock tab, any location missing those inherits the old studio-wide values once (server).
+  const { locations: clockLocations } = useLocation() as any;
+  React.useEffect(() => {
+    if (activeTab !== 'timeclock' || !selectedTenant?.id || (selectedTenant as any)?.timeclockInheritedAt) return;
+    (async () => { try { const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken();
+      await fetch('/api/settings/timeclock-inherit', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId: selectedTenant.id }) }); } catch { /* tries again next time */ } })();
+  }, [activeTab, selectedTenant?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   // What was edited here — so a save writes ONLY that (never stale copies of settings changed elsewhere).
   const dirty = React.useRef<{ sched: boolean; kiosk: boolean; svc: Set<string> }>({ sched: false, kiosk: false, svc: new Set() });
@@ -953,10 +962,12 @@ function SettingsPageImpl() {
                 </CardHeader>
                 <CardContent className="p-6 md:p-8 space-y-10 text-left">
                   <div className="space-y-8">
-                    <div className="flex items-center gap-3 px-1"><ImageIcon className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Brand Identity</h3></div>
+                    <div className="flex items-center gap-3 px-1"><ImageIcon className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Logo on guest screens</h3></div>
                     <div className="space-y-2">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Kiosk Logo</Label>
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">A different logo for guest screens (optional)</Label>
+                      <p className="text-xs text-muted-foreground ml-1">The kiosk and your guest pages (events, quotes, inquiries, job applications) use your business logo from <a href="/settings?tab=profile" className="underline underline-offset-2">Your business</a>. Only add one here if you want those screens to look different.</p>
                       <ImageUpload onImageUploaded={(url) => setTenantData(prev => ({ ...prev, kioskSettings: { ...prev.kioskSettings, logoUrl: url } }))} initialImage={tenantData.kioskSettings?.logoUrl} />
+                      {tenantData.kioskSettings?.logoUrl && <button type="button" disabled={!isEditing} onClick={() => setTenantData(prev => ({ ...prev, kioskSettings: { ...prev.kioskSettings, logoUrl: '' } } as any))} className="ml-1 text-xs font-semibold underline underline-offset-2 disabled:opacity-40">Use my business logo instead</button>}
                     </div>
                     <div className="space-y-2">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Wordmark / Text Logo (optional)</Label>
@@ -1093,55 +1104,15 @@ function SettingsPageImpl() {
                   <AnimatePresence>
                     {tenantData.geoFenceEnabled && (
                       <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-5 pt-2">
-                        <div className="p-5 rounded-[2rem] border-2 bg-green-50 border-green-200 space-y-5">
-                          <div className="flex items-start gap-4">
-                            <div className="p-2.5 rounded-xl bg-white border-2 shadow-sm shrink-0"><Building className="w-4 h-4 text-green-700" /></div>
-                            <div className="space-y-1"><p className="text-sm font-black uppercase tracking-tight text-green-800">Studio Address</p><p className="text-[9px] font-bold text-green-700/60 uppercase tracking-widest">Enter your full address or use your device GPS to set coordinates</p></div>
-                          </div>
-                          <div className="space-y-3">
-                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-green-800/60 ml-1">Street Address</Label><Input value={geoStreet} onChange={e => setGeoStreet(e.target.value)} disabled={!isEditing} placeholder="123 Main Street, Suite 100" className="h-12 rounded-2xl border-2 font-bold bg-white border-green-200 focus:border-green-400" /></div>
-                            <div className="grid grid-cols-2 gap-3">
-                              <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-green-800/60 ml-1">City</Label><Input value={geoCity}  onChange={e => setGeoCity(e.target.value)}  disabled={!isEditing} placeholder="Greensboro"   className="h-12 rounded-2xl border-2 font-bold bg-white border-green-200 focus:border-green-400" /></div>
-                              <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-green-800/60 ml-1">State</Label><Input value={geoState} onChange={e => setGeoState(e.target.value)} disabled={!isEditing} placeholder="NC"            className="h-12 rounded-2xl border-2 font-bold bg-white border-green-200 focus:border-green-400" /></div>
-                            </div>
-                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-green-800/60 ml-1">ZIP Code</Label><Input value={geoZip} onChange={e => setGeoZip(e.target.value)} disabled={!isEditing} placeholder="27401" className="h-12 rounded-2xl border-2 font-bold bg-white border-green-200 focus:border-green-400" /></div>
-                          </div>
-                          <div className="flex flex-col sm:flex-row gap-3">
-                            <Button onClick={handleGeoLookup} disabled={!isEditing || isGeoLookingUp || (!geoStreet && !geoCity)} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-green-500/20 bg-green-600 hover:bg-green-700">
-                              {isGeoLookingUp ? <Loader className="animate-spin w-4 h-4" /> : <><MapPin className="w-4 h-4 mr-2" />Locate Address</>}
-                            </Button>
-                            <Button onClick={handleUseMyLocation} disabled={!isEditing || isGeoLookingUp} variant="outline" className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 border-green-300 text-green-700 hover:bg-green-100 bg-white">
-                              {isGeoLookingUp ? <Loader className="animate-spin w-4 h-4" /> : <><Target className="w-4 h-4 mr-2" />Use My Location</>}
-                            </Button>
-                          </div>
-                          {tenantData.studioLocation && (
-                            <div className="p-4 rounded-2xl bg-white border-2 border-green-200 space-y-2">
-                              <div className="flex items-center gap-2 text-[10px] font-black uppercase text-green-700"><CheckCircle2 className="w-4 h-4" /> Location Confirmed</div>
-                              {tenantData.studioAddress && <p className="text-[10px] font-bold text-slate-600 ml-6">{tenantData.studioAddress}</p>}
-                              <p className="text-[9px] font-mono text-slate-400 ml-6">{tenantData.studioLocation.lat.toFixed(6)}, {tenantData.studioLocation.lng.toFixed(6)}</p>
-                              <a href={`https://www.google.com/maps?q=${tenantData.studioLocation.lat},${tenantData.studioLocation.lng}`} target="_blank" rel="noopener noreferrer" className="ml-6 text-[9px] font-black uppercase text-green-600 underline underline-offset-2 hover:text-green-800">Verify on Google Maps →</a>
-                            </div>
-                          )}
-                        </div>
-                        <div className="p-5 rounded-[2rem] border-2 bg-slate-50 border-slate-200 space-y-4">
-                          <div className="flex items-start gap-4">
-                            <div className="p-2.5 rounded-xl bg-white border-2 shadow-sm shrink-0"><Target className="w-4 h-4 text-primary" /></div>
-                            <div className="space-y-1"><p className="text-sm font-black uppercase tracking-tight text-slate-900">Clock-In Radius</p><p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">How far from studio center staff can be to clock in</p></div>
-                          </div>
-                          <div className="flex items-center gap-4 pl-12">
-                            <NumberInput value={tenantData.geoFenceRadiusMeters} onChange={(v: number) => setTenantData(prev => ({ ...prev, geoFenceRadiusMeters: v }))} disabled={!isEditing} suffix="m" min={10} max={2000} placeholder="200" />
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">meters ({((tenantData.geoFenceRadiusMeters || 200) * 3.281).toFixed(0)} ft)</p>
-                          </div>
-                        </div>
-                        <div className="p-5 rounded-[2rem] border-2 bg-slate-50 border-slate-200 space-y-4">
-                          <div className="flex items-start gap-4">
-                            <div className="p-2.5 rounded-xl bg-white border-2 shadow-sm shrink-0"><BreakIcon className="w-4 h-4 text-amber-600" /></div>
-                            <div className="space-y-1"><p className="text-sm font-black uppercase tracking-tight text-slate-900">Break-End Radius</p><p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Separate (usually larger) radius allowed when ending a break</p></div>
-                          </div>
-                          <div className="flex items-center gap-4 pl-12">
-                            <NumberInput value={tenantData.geoFenceBreakRadiusMeters} onChange={(v: number) => setTenantData(prev => ({ ...prev, geoFenceBreakRadiusMeters: v }))} disabled={!isEditing} suffix="m" min={10} max={5000} placeholder="500" />
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">meters ({((tenantData.geoFenceBreakRadiusMeters || 500) * 3.281).toFixed(0)} ft)</p>
-                          </div>
+                        <div className="p-5 rounded-[2rem] border-2 bg-green-50 border-green-200 space-y-3">
+                          <p className="text-sm font-black uppercase tracking-tight text-green-800">Where staff can clock in</p>
+                          <p className="text-xs text-green-900/80">Set on each location — its address, map pin and how close staff need to be. Each location can be different.</p>
+                          <ul className="space-y-1.5">{(clockLocations || []).map((l: any) => (
+                            <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white px-3 py-2 text-xs">
+                              <span className="font-semibold">{l.name}</span>
+                              <span className={l.coordinates ? 'text-slate-600' : 'font-semibold text-amber-700'}>{l.coordinates ? 'Map pin set' : 'No map pin yet'} · clock in within {Number(l.geoFenceRadiusMeters) || Number(tenantData.geoFenceRadiusMeters) || 200} m · breaks within {Number(l.geoFenceBreakRadiusMeters) || Number(tenantData.geoFenceBreakRadiusMeters) || 500} m</span>
+                            </li>))}</ul>
+                          <a href="/settings?tab=locations" className="inline-flex h-10 items-center rounded-full bg-white px-4 text-xs font-black uppercase tracking-widest text-green-800 border-2 border-green-200">Edit in Locations</a>
                         </div>
                         <div className="p-5 rounded-[2rem] border-2 bg-slate-50 border-slate-200 space-y-4">
                           <div className="flex items-start gap-4">
