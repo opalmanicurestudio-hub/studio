@@ -1,5 +1,6 @@
 'use client';
 
+import { SettingsStyle } from '@/components/settings/settings-style';
 import { useLocation } from '@/context/LocationContext';
 import { ProtocolsCard } from '@/components/settings/ProtocolsCard';
 import { KioskOptionsCard } from '@/components/settings/KioskOptionsCard';
@@ -19,7 +20,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Activity, AlertTriangle, ArrowRight, Ban, Bell, Box, Building, Calendar, CalendarCheck, Check, CheckCircle2, ChevronDown, Clock, Coffee, Coffee as BreakIcon, CreditCard, DollarSign, Edit, Eye, FileText, FileWarning, Fingerprint, Flame, Globe, HeartHandshake, ImageIcon, Landmark, LayoutGrid, Loader, Mail, Map as MapIcon, MapPin, Monitor, Palette, Percent, PlusCircle, Printer, QrCode, RefreshCw, Save, Scale, Scale as ScaleIcon, Search, Settings as SettingsIcon, Shield, ShieldAlert, ShieldCheck, Smartphone, Sparkles, Star, Tag, Target, Timer, Trash2, TrendingUp, Unlock, Users, Wallet, Wifi, Workflow, Zap, Route, SprayCan } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowRight, Ban, Bell, Box, Building, Calendar, CalendarCheck, Check, CheckCircle2, ChevronDown, Clock, Coffee, Coffee as BreakIcon, CreditCard, DollarSign, Edit, Eye, FileText, FileWarning, Fingerprint, Flame, Globe, HeartHandshake, ImageIcon, Landmark, LayoutGrid, Loader, Mail, Map as MapIcon, MapPin, Monitor, Palette, Percent, PlusCircle, Printer, QrCode, RefreshCw, Save, Scale, Scale as ScaleIcon, Search, Settings as SettingsIcon, Shield, ShieldAlert, ShieldCheck, Smartphone, Sparkles, Star, Tag, Target, Timer, Trash2, TrendingUp, Unlock, Users, Wallet, Wifi, Workflow, Zap, Route, SprayCan, ChevronLeft } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
 import { useFirebase, updateDocumentNonBlocking, useMemoFirebase, useCollection } from '@/firebase';
@@ -471,40 +472,34 @@ function SettingsPageImpl() {
   }
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden bg-slate-50/50">
+    <div className="cf-settings cf-legacy flex h-full w-full flex-col overflow-hidden">
+      <SettingsStyle />
       <AppHeader title="Settings" />
       <main className="flex-1 overflow-y-auto">
-        <div className="max-w-4xl mx-auto space-y-8 md:space-y-10 p-4 md:p-10 pb-32">
+        <div className="max-w-3xl mx-auto space-y-8 md:space-y-10 px-4 py-6 md:px-10 md:py-10 pb-32">
 
-          {/* Page header */}
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 text-left">
-            <div className="space-y-1 text-left">
-              <h1 className="text-3xl md:text-4xl font-light tracking-tight text-slate-900 leading-none">Settings</h1>
-              <p className="text-sm text-muted-foreground">{WHATS_HERE[activeTab] || 'Everything about how your business runs.'}</p>
-            </div>
-            <div className="flex items-center gap-3 w-full sm:w-auto">
+          {/* Page header — back to Settings, this page's name, what it's for, and the pages that belong with it */}
+          <header className="space-y-4 text-left">
+            <Link href="/settings" className="inline-flex items-center gap-1 text-[14px] font-medium cf-muted hover:underline"><ChevronLeft className="h-4 w-4" aria-hidden />Settings</Link>
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div className="space-y-1.5">
+                <h1 className="text-[32px] md:text-[38px] font-light tracking-tight leading-none">{tabs.find((t) => t.value === activeTab)?.label || 'Settings'}</h1>
+                <p className="max-w-[60ch] text-[15px] cf-muted">{WHATS_HERE[activeTab] || 'Everything about how your business runs.'}</p>
+              </div>
               {!selfManagedTabs.includes(activeTab) && (
-                <p className="text-sm text-muted-foreground" aria-live="polite">
-                  {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved ✓' : saveState === 'error' ? <button type="button" className="underline" onClick={() => handleSave()}>Couldn’t save — try again</button> : 'Changes save automatically'}
+                <p className="text-[13px] cf-muted" aria-live="polite">
+                  {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : saveState === 'error' ? <button type="button" className="underline" onClick={() => handleSave()}>Couldn’t save — try again</button> : null}
                 </p>
               )}
             </div>
-          </div>
-
-          {/* Module selector */}
-          <div className="space-y-4 mb-10 text-left">
-            <Label className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground ml-1 opacity-60">Configuration Module</Label>
-            <Select value={activeTab} onValueChange={setActiveTab}>
-              <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest shadow-inner bg-white"><SelectValue placeholder="Select Module" /></SelectTrigger>
-              <SelectContent className="rounded-xl border-2 shadow-2xl">
-                {tabs.map(tab => (
-                  <SelectItem key={tab.value} value={tab.value} className="font-bold uppercase text-[10px] tracking-widest py-3">
-                    <div className="flex items-center gap-2">{tab.icon}{tab.label}</div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+            {(() => { const sibs = (TAB_GROUPS.find((g) => g.includes(activeTab)) || []).filter((v) => tabs.some((t) => t.value === v));
+              return sibs.length > 1 ? (
+                <nav aria-label="Related settings" className="flex flex-wrap gap-2">
+                  {sibs.map((v) => { const t = tabs.find((x) => x.value === v)!; const on = v === activeTab; return (
+                    <button key={v} type="button" onClick={() => { setActiveTab(v); try { window.history.replaceState(null, '', `/settings?tab=${v}`); } catch { /* ignore */ } }} aria-current={on ? 'page' : undefined}
+                      className="h-9 rounded-full px-4 text-[13.5px] font-medium transition-colors" style={on ? { background: 'var(--ink)', color: 'var(--paper)' } : { background: 'var(--soft)', color: 'var(--ink)' }}>{t.label}</button>); })}
+                </nav>) : null; })()}
+          </header>
 
           <Tabs value={activeTab} className="w-full">
 
@@ -1208,8 +1203,13 @@ const WHATS_HERE: Record<string, string> = {
   payments: 'How you get paid and paid out — your Stripe account and payouts.',
   terminal: 'Your card reader for taking payments in person.',
   kiosk: 'The check-in kiosk clients use when they arrive.',
-  timeclock: 'How your team clocks in and out.',
+  timeclock: 'How your team clocks in and out — the rules for the whole business. Where they can clock in is set on each location.',
+  visits: 'The steps every visit goes through, what you call them, and what clients see on their visit link.',
+  operations: 'Your cleaning procedures. Attached to a service, they become its turnover checklist.',
 };
+
+// Settings pages that belong together — shown as quick links at the top of each page.
+const TAB_GROUPS: string[][] = [['profile', 'hours', 'locations'], ['payments', 'terminal', 'policies'], ['visits', 'kiosk', 'experience'], ['operations'], ['timeclock']];
 
 export default function SettingsPage() {
   return (
