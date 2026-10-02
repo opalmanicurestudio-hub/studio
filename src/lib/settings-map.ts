@@ -1,3 +1,4 @@
+import { settingVisible } from '@/lib/modules';
 // ─── settings-map.ts ──────────────────────────────────────────────────────────
 // One description of every configurable thing in the platform: what it is, the
 // question an owner is actually asking when they go looking for it, where it
@@ -318,7 +319,7 @@ export const SETTINGS_MAP: SettingEntry[] = [
 
 /** Entries for one group, with their summaries resolved. */
 export function summariseGroup(tenant: any, group: SettingGroupId) {
-  return SETTINGS_MAP.filter((e) => e.group === group).map((e) => ({
+  return SETTINGS_MAP.filter((e) => e.group === group && settingVisible(tenant, e.href)).map((e) => ({
     ...e,
     summary: e.summarise(tenant),
     needsAttention: e.isUnconfigured ? e.isUnconfigured(tenant) : false,
@@ -328,6 +329,6 @@ export function summariseGroup(tenant: any, group: SettingGroupId) {
 /** Everything currently unconfigured in a way that silently disables something. */
 export function attentionItems(tenant: any) {
   return SETTINGS_MAP
-    .filter((e) => e.isUnconfigured && e.isUnconfigured(tenant))
+    .filter((e) => settingVisible(tenant, e.href) && e.isUnconfigured && e.isUnconfigured(tenant))
     .map((e) => ({ label: e.label, href: e.href, screen: e.screen, warning: e.unconfiguredWarning || '' }));
 }
