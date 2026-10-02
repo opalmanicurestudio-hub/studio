@@ -27,7 +27,7 @@ import { AppointmentAuthoritySettings } from '@/components/settings/AppointmentA
 import { BlockPolicySettings } from '@/components/settings/BlockPolicySettings';
 import {
   DEFAULT_BOOKING_MODE, resolveBookingMode, resolveDepositPolicy, resolveRebookDeposit, resolveGuardian,
-  type BookingMode, type DepositOutcome, type RebookDepositMode,
+  type BookingMode, type RebookDepositMode,
 } from '@/lib/deposit-policy';
 import { cn } from '@/lib/utils';
 
@@ -71,11 +71,6 @@ const MODES: {
   },
 ];
 
-const OUTCOMES: { id: DepositOutcome; label: string; note: string }[] = [
-  { id: 'refund', label: 'Refund', note: 'money goes back' },
-  { id: 'rollover', label: 'Roll over', note: 'credit for next visit' },
-  { id: 'forfeit', label: 'Keep', note: 'studio keeps it' },
-];
 
 export default function BookingSettingsPage() {
   const { firestore } = useFirebase();
@@ -140,25 +135,6 @@ export default function BookingSettingsPage() {
     </div>
   );
 
-  const OutcomeRow = ({ field, label, current, note }: { field: string; label: string; current: DepositOutcome; note: string }) => (
-    <div className="space-y-1.5">
-      <div className="flex items-baseline justify-between gap-2">
-        <p className="text-sm font-black">{label}</p>
-        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{note}</p>
-      </div>
-      <div className="flex gap-1.5">
-        {OUTCOMES.map((o) => (
-          <button key={o.id} type="button" disabled={!isMgr || busy === field}
-            onClick={() => void save(field, `depositPolicy.${field}`, o.id, label)}
-            className={cn('flex-1 rounded-xl border-2 px-2 py-2 text-left transition-all disabled:opacity-60',
-              current === o.id ? 'border-foreground bg-foreground text-background' : 'bg-white hover:border-primary/40')}>
-            <span className="block text-[9px] font-black uppercase tracking-widest">{o.label}</span>
-            <span className={cn('block text-[8px] font-bold', current === o.id ? 'opacity-70' : 'text-muted-foreground')}>{o.note}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
 
   return (
     <div className="min-h-dvh bg-muted/5 pb-24">
