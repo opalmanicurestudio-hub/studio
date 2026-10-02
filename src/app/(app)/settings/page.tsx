@@ -1,5 +1,6 @@
 'use client';
 
+import { Section, Row, Toggle, Choice, More, cfInput, cfInputStyle, toPicker, fromPicker } from '@/components/settings/settings-ui';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import { useLocation } from '@/context/LocationContext';
 import { ProtocolsCard } from '@/components/settings/ProtocolsCard';
@@ -504,27 +505,25 @@ function SettingsPageImpl() {
           <Tabs value={activeTab} className="w-full">
 
             {/* ── PROFILE ── */}
-            <TabsContent value="profile" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
-              <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
-                  <SectionHeader icon={Building} title="Your business" />
-                  <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Registry identification and internal labeling.</CardDescription>
-                </CardHeader>
-                <CardContent className="p-6 md:p-8 space-y-8 text-left">
-                  <div className="space-y-3">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Business Label</Label>
-                    <Input value={tenantData.name || ''} onChange={e => setTenantData(prev => ({ ...prev, name: e.target.value }))} disabled={!isEditing} placeholder="ENTER STUDIO NAME" className="h-14 rounded-2xl border-2 font-black uppercase text-lg md:text-xl tracking-tighter bg-white shadow-inner" />
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* The studio's clock. It lived only on the AI Receptionist page,
-                  which is where it was first needed — but every cron, every
-                  promised ship-by date, the booth kiosk and the booking page
-                  now read the field this card writes, so this is where anyone
-                  would look for it. Same card, same field: setting it in
-                  either place is the same edit. */}
-              <TimezoneSettingCard firestore={firestore} tenantId={tenantId || ''} tenant={selectedTenant} />
+            <TabsContent value="profile" className="mt-0 space-y-10 text-left">
+              <Section title="What clients see" help="Shown on your booking page, kiosk, receipts and messages.">
+                <Row label="Business name"><input className={cfInput} style={cfInputStyle} value={tenantData.name || ''} onChange={(e) => setTenantData((prev) => ({ ...prev, name: e.target.value }))} placeholder="e.g. Opal Manicure Studio" autoComplete="organization" /></Row>
+                <Row label="Logo" help="A square image works best."><ImageUpload label="Upload your logo" onImageUploaded={(url) => setTenantData((prev) => ({ ...prev, logoUrl: url } as any))} initialImage={(tenantData as any).logoUrl} /></Row>
+                <Row label="Phone" help="So clients can call you.">
+                  <input className={cfInput} style={cfInputStyle} type="tel" inputMode="tel" autoComplete="tel" value={(tenantData as any).phone || ''} placeholder="(555) 123-4567"
+                    onChange={(e) => { const v = e.target.value; setTenantData((prev) => ({ ...prev, phone: v, contactPhone: v, businessPhone: v } as any)); }} />
+                </Row>
+                <Row label="Email" help="Where clients’ replies go.">
+                  <input className={cfInput} style={cfInputStyle} type="email" inputMode="email" autoComplete="email" value={(tenantData as any).email || (tenantData as any).contactEmail || ''} placeholder="hello@yourstudio.com"
+                    onChange={(e) => { const v = e.target.value.trim(); setTenantData((prev) => ({ ...prev, email: v, contactEmail: v, businessEmail: v } as any)); }} />
+                </Row>
+                <Row label="Address" help="Printed on receipts and messages. Each location keeps its own address for directions.">
+                  <input className={cfInput} style={cfInputStyle} autoComplete="street-address" value={(tenantData as any).address || ''} placeholder="Street, city, state" onChange={(e) => setTenantData((prev) => ({ ...prev, address: e.target.value } as any))} />
+                </Row>
+              </Section>
+              <More label="Time zone" help="Set when you signed up — change it only if you’ve moved.">
+                <TimezoneSettingCard firestore={firestore} tenantId={tenantId || ''} tenant={selectedTenant} />
+              </More>
             </TabsContent>
 
             {/* ── LOCATIONS ── */}
@@ -533,20 +532,9 @@ function SettingsPageImpl() {
             </TabsContent>
 
             {/* ── PAYMENTS ── */}
-            <TabsContent value="payments" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
-              {tenantId && <SalesTaxCard tenantId={tenantId} tenant={selectedTenant} canEdit={['owner', 'admin', 'manager'].includes(String((role as any) || '').toLowerCase())} />}
-              {tenantId && <CheckoutNudgesCard tenantId={tenantId} tenant={selectedTenant} canEdit={['owner', 'admin', 'manager'].includes(String((role as any) || '').toLowerCase())} />}
-              {tenantId && <VoidsApprovalsCard tenantId={tenantId} tenant={selectedTenant} canEdit={['owner', 'admin', 'manager'].includes(String((role as any) || '').toLowerCase())} />}
-              {tenantId && <TeamDiscountsCard tenantId={tenantId} tenant={selectedTenant} canEdit={['owner', 'admin', 'manager'].includes(String((role as any) || '').toLowerCase())} />}
-              {tenantId && <ClientScreenCard tenantId={tenantId} tenant={selectedTenant} canEdit={['owner', 'admin', 'manager'].includes(String((role as any) || '').toLowerCase())} />}
-              <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                  <SectionHeader icon={DollarSign} title="Payments & Payouts" />
-                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
-                    Connect your Stripe account to collect deposits and fees. Funds are paid directly to your bank.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="p-6 md:p-8">
+            <TabsContent value="payments" className="mt-0 space-y-10 text-left">
+              <Section title="Get paid">
+                <div className="p-5">
                   <StripeConnectSetup
                     tenantId={tenantId || ''}
                     stripeAccountId={(selectedTenant as any)?.stripeAccountId}
@@ -559,9 +547,16 @@ function SettingsPageImpl() {
                       if (!res.ok) throw new Error('Failed to disconnect');
                     }}
                   />
-                  <PayLaterCard tenantId={tenantId || ''} />
-                </CardContent>
-              </Card>
+                </div>
+              </Section>
+              {tenantId && <SalesTaxCard tenantId={tenantId} tenant={selectedTenant} canEdit={['owner', 'admin', 'manager'].includes(String((role as any) || '').toLowerCase())} />}
+              <More label="More checkout options" help="Pay later, tip prompts, refunds and voids, team discounts, and the screen clients see.">
+                <PayLaterCard tenantId={tenantId || ''} />
+                {tenantId && <CheckoutNudgesCard tenantId={tenantId} tenant={selectedTenant} canEdit={['owner', 'admin', 'manager'].includes(String((role as any) || '').toLowerCase())} />}
+                {tenantId && <VoidsApprovalsCard tenantId={tenantId} tenant={selectedTenant} canEdit={['owner', 'admin', 'manager'].includes(String((role as any) || '').toLowerCase())} />}
+                {tenantId && <TeamDiscountsCard tenantId={tenantId} tenant={selectedTenant} canEdit={['owner', 'admin', 'manager'].includes(String((role as any) || '').toLowerCase())} />}
+                {tenantId && <ClientScreenCard tenantId={tenantId} tenant={selectedTenant} canEdit={['owner', 'admin', 'manager'].includes(String((role as any) || '').toLowerCase())} />}
+              </More>
             </TabsContent>
 
             {/* ── TERMINAL READER ── */}
@@ -582,36 +577,49 @@ function SettingsPageImpl() {
             {/* ── AUTOMATIONS ── */}
 
             {/* ── HOURS ── */}
-            <TabsContent value="hours" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
-              <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
-                  <SectionHeader icon={Clock} title="Opening hours" />
-                  <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Configure your weekly studio availability and access tiers.</CardDescription>
-                </CardHeader>
-                <CardContent className="p-6 md:p-8 space-y-10 text-left">
-                  <div className="space-y-4 max-w-sm text-left">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2"><Sparkles className="w-3.5 h-3.5" /> Booking Precision (Interval)</Label>
-                    <Select value={String(localInterval)} onValueChange={(v) => { dirty.current.sched = true; setLocalInterval(parseInt(v)); }} disabled={!isEditing}>
-                      <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-tight shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
-                      <SelectContent className="rounded-xl border-2 shadow-2xl">
-                        <SelectItem value="15" className="font-bold uppercase text-[9px] tracking-widest">15 MINUTE SLOTS</SelectItem>
-                        <SelectItem value="30" className="font-bold uppercase text-[9px] tracking-widest">30 MINUTE SLOTS</SelectItem>
-                        <SelectItem value="60" className="font-bold uppercase text-[9px] tracking-widest">60 MINUTE SLOTS</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Separator className="border-dashed" />
-                  {localSchedule ? (
-                    <div className="space-y-3">
-                      {dayOrder.map(day => (
-                        <DayHoursRow key={day} day={day} data={localSchedule[day] || { enabled: false, start: '09:00 AM', end: '05:00 PM' }} onChange={handleScheduleChange} disabled={!isEditing} />
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="py-12 text-center opacity-30"><Loader className="animate-spin h-8 w-8 mx-auto" /></div>
-                  )}
-                </CardContent>
-              </Card>
+            <TabsContent value="hours" className="mt-0 space-y-10 text-left">
+              <Section title="When are you open?" help="Clients can only book inside these hours.">
+                {localSchedule ? dayOrder.map((day) => { const d = localSchedule[day] || { enabled: false, start: '09:00 AM', end: '05:00 PM' }; const name = day[0].toUpperCase() + day.slice(1); return (
+                  <div key={day} className="flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-4 [&+&]:border-t" style={{ borderColor: 'var(--line)' }}>
+                    <div className="flex w-36 items-center gap-3"><Toggle checked={!!d.enabled} onChange={(v) => handleScheduleChange(day, { enabled: v })} label={`Open on ${name}`} /><span className="text-[15px] font-medium">{name}</span></div>
+                    {d.enabled ? (
+                      <div className="flex flex-1 items-center gap-2 min-w-[15rem]">
+                        <input type="time" aria-label={`${name} opens`} className={cfInput} style={cfInputStyle} value={toPicker(d.start)} onChange={(e) => handleScheduleChange(day, { start: fromPicker(e.target.value) })} />
+                        <span className="text-[14px] cf-muted">to</span>
+                        <input type="time" aria-label={`${name} closes`} className={cfInput} style={cfInputStyle} value={toPicker(d.end)} onChange={(e) => handleScheduleChange(day, { end: fromPicker(e.target.value) })} />
+                      </div>
+                    ) : <span className="text-[14px] cf-muted">Closed</span>}
+                  </div>); })
+                : isInventoryLoading ? <div className="py-12 text-center"><Loader className="mx-auto h-6 w-6 animate-spin cf-muted" /></div>
+                : <div className="space-y-3 px-5 py-6">
+                    <p className="text-[15px]">You haven’t set your opening hours yet.</p>
+                    <button type="button" className="h-11 rounded-full px-5 text-[14px] font-semibold" style={{ background: 'var(--accent)', color: 'hsl(var(--primary-foreground))' }}
+                      onClick={async () => { if (!firestore || !tenantId) return; const { doc: d, setDoc: sd, collection: c } = await import('firebase/firestore'); const ref = d(c(firestore, 'tenants', tenantId, 'scheduleProfiles'));
+                        const day = (on: boolean) => ({ enabled: on, start: '09:00 AM', end: '05:00 PM' });
+                        await sd(ref, { id: ref.id, name: 'Standard hours', isActive: true, isPublic: true, bookingSlotInterval: 15, week: { monday: day(true), tuesday: day(true), wednesday: day(true), thursday: day(true), friday: day(true), saturday: day(false), sunday: day(false) } }); }}>
+                      Set your opening hours</button>
+                    <p className="text-[13.5px] cf-muted">We’ll start you on Monday to Friday, 9 to 5 — change any day after.</p>
+                  </div>}
+                {localSchedule && (localSchedule.monday?.enabled) && (
+                  <div className="px-5 py-3" style={{ borderTop: '1px solid var(--line)' }}>
+                    <button type="button" className="text-[14px] font-medium underline underline-offset-4" onClick={() => { const m = localSchedule.monday; dayOrder.forEach((day) => { if (day !== 'monday' && localSchedule[day]?.enabled) handleScheduleChange(day, { start: m.start, end: m.end }); }); }}>Copy Monday’s hours to every open day</button>
+                  </div>)}
+              </Section>
+              <More help="Booking times, and limiting some days to certain clients.">
+                <Section title="How often a booking can start" help="Every 15 minutes gives clients the most choice.">
+                  <Row label="Clients can start a booking every" inline>
+                    <Choice label="Booking times" value={localInterval} options={[{ value: 15, label: '15 min' }, { value: 30, label: '30 min' }, { value: 60, label: '1 hour' }]} onChange={(v) => { dirty.current.sched = true; setLocalInterval(Number(v)); }} />
+                  </Row>
+                </Section>
+                {localSchedule && <Section title="Only some clients on certain days" help="For example, keep Saturdays for returning clients.">
+                  {dayOrder.filter((day) => localSchedule[day]?.enabled).map((day) => (
+                    <Row key={day} label={day[0].toUpperCase() + day.slice(1)} inline>
+                      <select className="h-10 rounded-xl border px-3 text-[14px]" style={cfInputStyle} value={localSchedule[day]?.accessTier || 'all'} onChange={(e) => handleScheduleChange(day, { accessTier: e.target.value as any })} aria-label={`Who can book on ${day}`}>
+                        <option value="all">Everyone</option><option value="returning">Returning clients</option><option value="members">Members & package holders</option>
+                      </select>
+                    </Row>))}
+                </Section>}
+              </More>
             </TabsContent>
 
             {/* ── EXPERIENCE ── */}
@@ -1197,10 +1205,10 @@ function SettingsPageImpl() {
 const WHATS_HERE: Record<string, string> = {
   profile: 'Your business name, contact details and how you appear to clients.',
   locations: 'Where you work — addresses clients see and use for directions.',
-  hours: 'When you’re open, and the time steps clients can book in.',
+  hours: 'The days and times clients can book.',
   experience: 'What guests are offered while they’re with you — drinks, Wi-Fi and other comforts.',
   policies: 'Money clients owe you: missed payments, credits, retries and when a manager steps in.',
-  payments: 'How you get paid and paid out — your Stripe account and payouts.',
+  payments: 'How clients pay you, and how money reaches your bank.',
   terminal: 'Your card reader for taking payments in person.',
   kiosk: 'The check-in kiosk clients use when they arrive.',
   timeclock: 'How your team clocks in and out — the rules for the whole business. Where they can clock in is set on each location.',
@@ -1237,10 +1245,7 @@ function SettingsGate() {
   const moved: Record<string, string> = { automations: '/settings/automations', builder: '/settings/booking#design' };
   if (tab && moved[tab]) { if (typeof window !== 'undefined') window.location.replace(moved[tab]); return null; }
   if (!tab) return (<><AppHeader title="Settings" /><SettingsHome tenant={selectedTenant} /></>);
-  return (<>
-    <div className="mx-auto w-full max-w-6xl px-4 pt-3 md:px-10"><Link href="/settings" className="text-sm font-bold underline underline-offset-4">← Settings home</Link></div>
-    <SettingsPageImpl />
-  </>);
+  return <SettingsPageImpl />;   // its own header has the way back ("‹ Settings")
 }
 
 // ── Reconnect tally: the last 30 days of the studio's own nudges ──────────
