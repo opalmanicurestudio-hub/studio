@@ -1,4 +1,3 @@
-
 'use client';
 
 import {
@@ -61,11 +60,11 @@ export function AppHeader({ title }: { title?: string }) {
   const initials = getInitials(displayName);
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-border/40 bg-background/80 px-4 backdrop-blur-xl md:px-8 print:hidden">
+    <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-3 border-b border-[#e7e2dc] bg-[#faf8f5]/85 px-4 backdrop-blur-xl md:h-16 md:px-8 print:hidden dark:border-[#342e29] dark:bg-[#171412]/85">
       <div className="flex flex-1 items-center gap-4">
         <SidebarTrigger className="hover:bg-primary/10 transition-colors" />
         {title && (
-          <h1 className="text-sm sm:text-lg font-black uppercase tracking-tighter text-slate-900 md:text-xl truncate max-w-[150px] sm:max-w-none">
+          <h1 className="truncate text-[17px] font-semibold tracking-tight md:text-[19px]">
             {title}
           </h1>
         )}
@@ -86,17 +85,17 @@ export function AppHeader({ title }: { title?: string }) {
                       <span className="sr-only">Toggle notifications</span>
                   </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-80 md:w-96 rounded-[2.5rem] shadow-3xl border-4 p-0 overflow-hidden bg-background">
-                  <DropdownMenuLabel className="flex justify-between items-center px-6 py-5 bg-muted/5 border-b">
+              <DropdownMenuContent align="end" className="w-80 md:w-96 rounded-2xl shadow-lg border border-[#e7e2dc] p-0 overflow-hidden bg-[#faf8f5] dark:border-[#342e29] dark:bg-[#171412]">
+                  <DropdownMenuLabel className="flex justify-between items-center px-5 py-4 border-b border-[#e7e2dc] dark:border-[#342e29]">
                       <div className="flex items-center gap-2">
                         <Sparkles className="w-4 h-4 text-primary" />
-                        <span className="font-black uppercase tracking-[0.2em] text-[10px] text-slate-900">Studio Intel</span>
+                        <span className="text-[15px] font-semibold">Notifications</span>
                       </div>
                       {hasUnread && (
                         <Button 
                           variant="ghost" 
                           size="xs" 
-                          className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm" 
+                          className="h-8 px-3 text-[13px] text-primary rounded-full hover:bg-primary/5" 
                           onClick={markAllAsRead}
                         >
                           Clear Alerts
@@ -116,8 +115,8 @@ export function AppHeader({ title }: { title?: string }) {
                                 >
                                     <div className="mt-1 p-2 bg-background rounded-xl border shadow-inner shrink-0">{notification.icon}</div>
                                     <Link href={notification.link || '#'} className="flex-1 space-y-1 min-w-0">
-                                        <p className="text-[11px] md:text-xs font-black uppercase tracking-tight leading-relaxed text-slate-900 line-clamp-2">{notification.message}</p>
-                                        <p className="text-[8px] font-black uppercase tracking-[0.2em] text-primary/60">Tap to Review</p>
+                                        <p className="text-[14px] leading-snug line-clamp-2">{notification.message}</p>
+                                        <p className="text-[12px] text-muted-foreground">Tap to open</p>
                                     </Link>
                                     {!notification.read && (
                                         <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 rounded-full hover:bg-primary/10 hover:text-primary" onClick={(e) => { e.stopPropagation(); markAsRead(notification.id); }}>
@@ -133,15 +132,15 @@ export function AppHeader({ title }: { title?: string }) {
                                 <Sparkles className="w-8 h-8 text-primary/20" />
                             </div>
                             <div className="space-y-1">
-                                <p className="text-xs font-black text-slate-900 uppercase tracking-widest">Agenda Clear</p>
-                                <p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">No pending intelligence alerts.</p>
+                                <p className="text-[15px] font-medium">You’re all caught up</p>
+                                <p className="text-[13.5px] text-muted-foreground">Nothing needs you right now.</p>
                             </div>
                         </div>
                     )}
                   </div>
                   {hasReadNotifications && (
                     <div className="p-4 bg-muted/5 border-t">
-                        <Button variant="outline" size="sm" className="w-full h-10 rounded-xl font-black uppercase text-[9px] tracking-[0.2em] border-2 shadow-sm" onClick={clearReadNotifications}>
+                        <Button variant="outline" size="sm" className="w-full h-10 rounded-full text-[13px] border" onClick={clearReadNotifications}>
                             <Trash2 className="h-3.5 w-3.5 mr-2" />
                             Purge History
                         </Button>
@@ -156,37 +155,35 @@ export function AppHeader({ title }: { title?: string }) {
             <DropdownMenuTrigger asChild>
                 <div className="flex items-center gap-3 cursor-pointer group transition-all">
                     <div className="hidden sm:flex flex-col items-end">
-                        <p className="text-sm font-black uppercase tracking-tight text-slate-900 group-hover:text-primary transition-colors leading-none">{displayName || 'Admin'}</p>
-                        <p className="text-[10px] text-muted-foreground font-black uppercase tracking-widest opacity-60 leading-none mt-1">{role}</p>
+                        <p className="text-[14px] font-medium leading-none">{displayName || 'Admin'}</p>
+                        <p className="mt-1 text-[12px] capitalize leading-none text-muted-foreground">{role}</p>
                     </div>
-                    <Avatar className="h-10 w-10 border-2 border-transparent group-hover:border-primary/20 transition-all shadow-sm rounded-xl">
+                    <Avatar className="h-9 w-9 rounded-full">
                         <AvatarImage src={avatarUrl || undefined} alt="User" className="object-cover" />
-                        <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{initials}</AvatarFallback>
+                        <AvatarFallback className="text-[12px] font-semibold bg-primary/10 text-primary">{initials}</AvatarFallback>
                     </Avatar>
                 </div>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-64 rounded-[2rem] shadow-3xl border-4 p-2 overflow-hidden bg-background">
-              <DropdownMenuLabel className="px-4 py-3 font-black uppercase tracking-widest text-[10px] text-muted-foreground opacity-60 border-b mb-1">
-                Account Signature
-              </DropdownMenuLabel>
+            <DropdownMenuContent align="end" className="w-60 rounded-2xl shadow-lg border border-[#e7e2dc] p-1.5 overflow-hidden bg-[#faf8f5] dark:border-[#342e29] dark:bg-[#171412]">
+              <DropdownMenuLabel className="px-3 py-2 text-[12px] font-normal text-muted-foreground">Signed in as {displayName || 'Admin'}</DropdownMenuLabel>
               {role === 'owner' && (
                 <div className="space-y-1">
-                  <DropdownMenuItem asChild className="rounded-xl h-11 focus:bg-primary/5 focus:text-primary cursor-pointer">
-                    <Link href="/staff" className="flex items-center w-full font-black uppercase text-[10px] tracking-widest">
+                  <DropdownMenuItem asChild className="rounded-xl h-10 focus:bg-primary/5 focus:text-primary cursor-pointer">
+                    <Link href="/staff" className="flex items-center w-full text-[14px]">
                       <Users className="w-4 h-4 mr-3 text-primary opacity-40" />
-                      <span>Team Manager</span>
+                      <span>Your team</span>
                     </Link>
                   </DropdownMenuItem>
-                  <DropdownMenuItem asChild className="rounded-xl h-11 focus:bg-primary/5 focus:text-primary cursor-pointer">
-                    <Link href="/settings" className="flex items-center w-full font-black uppercase text-[10px] tracking-widest">
+                  <DropdownMenuItem asChild className="rounded-xl h-10 focus:bg-primary/5 focus:text-primary cursor-pointer">
+                    <Link href="/settings" className="flex items-center w-full text-[14px]">
                       <Settings className="w-4 h-4 mr-3 text-primary opacity-40" />
-                      <span>Studio Settings</span>
+                      <span>Settings</span>
                     </Link>
                   </DropdownMenuItem>
-                  <DropdownMenuItem asChild className="rounded-xl h-11 focus:bg-primary/5 focus:text-primary cursor-pointer">
-                    <Link href="/subscriptions" className="flex items-center w-full font-black uppercase text-[10px] tracking-widest">
+                  <DropdownMenuItem asChild className="rounded-xl h-10 focus:bg-primary/5 focus:text-primary cursor-pointer">
+                    <Link href="/subscriptions" className="flex items-center w-full text-[14px]">
                       <CreditCard className="w-4 h-4 mr-3 text-primary opacity-40" />
-                      <span>Billing & Pro</span>
+                      <span>Plan & billing</span>
                     </Link>
                   </DropdownMenuItem>
                 </div>
@@ -194,10 +191,10 @@ export function AppHeader({ title }: { title?: string }) {
               <DropdownMenuSeparator className="mx-1 my-2" />
               <DropdownMenuItem 
                 onClick={handleLogout} 
-                className="rounded-xl h-11 text-destructive font-black uppercase text-[10px] tracking-widest focus:bg-destructive/5 focus:text-destructive cursor-pointer"
+                className="rounded-xl h-10 text-[14px] text-destructive focus:bg-destructive/5 focus:text-destructive cursor-pointer"
               >
                 <LogOut className="w-4 h-4 mr-3" />
-                <span>Sign Out</span>
+                <span>Sign out</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
