@@ -1,5 +1,6 @@
 'use client';
 
+import { guestLogo } from '@/lib/brand';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
@@ -40,26 +41,26 @@ export const ClarityFlowLogo = ({ className }: { className?: string }) => (
 const DAILY_HUB = [
   { href: '/dashboard',   icon: LayoutDashboard, label: 'Dashboard'      },
   { href: '/planner',     icon: Calendar,        label: 'Planner'        },
-  { href: '/pos',         icon: ListChecks,      label: 'Terminal (POS)' },
-  { href: '/host',        icon: ConciergeBell,   label: 'Host Stand'     },
-  { href: '/voice',       icon: Bot,             label: 'AI Receptionist'},
+  { href: '/pos',         icon: ListChecks,      label: 'Front desk' },
+  { href: '/host',        icon: ConciergeBell,   label: 'Host stand'     },
+  { href: '/voice',       icon: Bot,             label: 'Phone assistant'},
   { href: '/messages',    icon: MessageSquare,   label: 'Messages'       },
-  { href: '/message-log', icon: Send,            label: 'Message Log'    },
-  { href: '/my-schedule', icon: Clock,           label: 'My Schedule'    },
+  { href: '/message-log', icon: Send,            label: 'Message log'    },
+  { href: '/my-schedule', icon: Clock,           label: 'My schedule'    },
   // Only rendered when approval mode is producing requests — see the filter
   // at render time. A permanent link to an always-empty queue is clutter.
   { href: '/appointments/requests', icon: CalendarClock, label: 'Requests' },
 ];
 
 const CLIENT_GROWTH = [
-  { href: '/clients',   icon: User,      label: 'Guest Dossier' },
+  { href: '/clients',   icon: User,      label: 'Clients' },
   { href: '/quotes',    icon: FileText,  label: 'Quotes'        },
   { href: '/campaigns', icon: Megaphone, label: 'Outreach'      },
   { href: '/reviews',   icon: Star,      label: 'Reputation'    },
 ];
 
 const STUDIO_ASSETS = [
-  { href: '/services',    icon: BookOpen,      label: 'Service Menu'       },
+  { href: '/services',    icon: BookOpen,      label: 'Services'       },
   { href: '/inventory',   icon: Box,           label: 'Manifest'           },
   { href: '/inventory/distribution', icon: Boxes, label: 'Distribution' },
   { href: '/inventory/formulas', icon: FlaskConical, label: 'Formulas' },
@@ -71,8 +72,8 @@ const STUDIO_ASSETS = [
 ];
 
 const COMMERCE = [
-  { href: '/retail-orders',          icon: PackageCheck, label: 'Shop Orders'   },
-  { href: '/retail-orders/history',  icon: HistoryIcon,  label: 'Order History' },
+  { href: '/retail-orders',          icon: PackageCheck, label: 'Shop orders'   },
+  { href: '/retail-orders/history',  icon: HistoryIcon,  label: 'Order history' },
   { href: '/retail-orders/customers', icon: Users2,      label: 'Shoppers'      },
   { href: '/retail-orders/waves',     icon: Layers,       label: 'Wave picking'  },
   { href: '/retail-orders/bench',     icon: PackageOpen,  label: 'Pack bench'    },
@@ -80,25 +81,25 @@ const COMMERCE = [
   { href: '/retail-orders/returns',  icon: RotateCcw,    label: 'Returns'       },
   { href: '/retail-orders/reviews',  icon: Star,         label: 'Reviews'       },
   { href: '/retail-orders/claims',   icon: ShieldQuestion, label: 'Claims'      },
-  { href: '/retail-orders/support',  icon: LifeBuoy,     label: 'Shop Support'  },
+  { href: '/retail-orders/support',  icon: LifeBuoy,     label: 'Shop support'  },
   { href: '/retail-orders/wholesale', icon: Building2,   label: 'Wholesale'     },
-  { href: '/retail-orders/designer', icon: Paintbrush,   label: 'Shop Designer' },
-  { href: '/retail-orders/settings', icon: ShoppingBag,  label: 'Shop Settings' },
+  { href: '/retail-orders/designer', icon: Paintbrush,   label: 'Shop designer' },
+  { href: '/retail-orders/settings', icon: ShoppingBag,  label: 'Shop settings' },
 ];
 
 const TEAM_FULL = [
-  { href: '/staff',      icon: Users,        label: 'Pro Team'       },
+  { href: '/staff',      icon: Users,        label: 'Team'       },
   { href: '/applicants', icon: Send,         label: 'Applicants'     },
   { href: '/documents',  icon: FileText,     label: 'Documents'      },
-  { href: '/schedule',   icon: CalendarDays, label: 'Shift Schedule' },
+  { href: '/schedule',   icon: CalendarDays, label: 'Shift schedule' },
   { href: '/timesheets', icon: ClipboardList,label: 'Timesheets'     },
 ];
 
 const TEAM_ADMIN = [
-  { href: '/staff',      icon: Users,        label: 'Pro Team'       },
+  { href: '/staff',      icon: Users,        label: 'Team'       },
   { href: '/applicants', icon: Send,         label: 'Applicants'     },
   { href: '/documents',  icon: FileText,     label: 'Documents'      },
-  { href: '/schedule',   icon: CalendarDays, label: 'Shift Schedule' },
+  { href: '/schedule',   icon: CalendarDays, label: 'Shift schedule' },
   { href: '/timesheets', icon: ClipboardList,label: 'Timesheets'     },
 ];
 
@@ -106,9 +107,9 @@ const TEAM_ADMIN = [
 // the tabbed Money Hub at /money. Their old sidebar entries are replaced
 // by a single "Money Hub" link; the hub's internal tabs handle the rest.
 const FINANCIAL_SUITE = [
-  { href: '/financials', icon: Landmark,      label: 'Foundation (TMHR)' },
-  { href: '/money',      icon: Wallet,        label: 'Money Hub'         },
-  { href: '/disputes',   icon: AlertTriangle, label: 'Dispute Center'    },
+  { href: '/financials', icon: Landmark,      label: 'Pricing foundation' },
+  { href: '/money',      icon: Wallet,        label: 'Money'         },
+  { href: '/disputes',   icon: AlertTriangle, label: 'Disputes'    },
   { href: '/reports',    icon: BarChart,      label: 'Analytics'         },
 ];
 
@@ -131,24 +132,24 @@ const EVENTS = [
 ];
 
 const PUBLIC_PORTALS = [
-  { href: '/book',         icon: Globe,       label: 'Booking Page'     },
-  { href: '/shop',         icon: ShoppingBag, label: 'Online Shop'      },
+  { href: '/book',         icon: Globe,       label: 'Booking page'     },
+  { href: '/shop',         icon: ShoppingBag, label: 'Online shop'      },
   // Walk-in APPOINTMENT kiosk (rebuilt) lives at /walk-in/[tenantId].
-  { href: '/walk-in',      icon: Fingerprint, label: 'Walk-in Kiosk'    },
+  { href: '/walk-in',      icon: Fingerprint, label: 'Walk-in kiosk'    },
   // The waiting-room wall screen: who is next, roughly how long, who is free.
   // Sits directly under the kiosk because they are one pair — the kiosk takes
   // the guest in, this screen is what she stares at afterwards. Like every entry
   // in this list it is rendered with isPortal, so NavItem appends the studio id
   // and opens it in a new tab: /lobby/{tenantId}. Cast it to the lobby TV and
   // leave it; it polls on its own.
-  { href: '/lobby',        icon: Hourglass,   label: 'Lobby Board'      },
+  { href: '/lobby',        icon: Hourglass,   label: 'Lobby board'      },
   // The old /kiosk route is now the booth-renter CHECK-IN kiosk.
-  { href: '/kiosk',        icon: DoorOpen,    label: 'Check-in Kiosk'   },
-  { href: '/concierge',    icon: Coffee,      label: 'Lounge Concierge' },
-  { href: '/kds',          icon: ChefHat,     label: 'KDS Display'      },
-  { href: '/floor',        icon: Layers,      label: 'Floor Staff'      },
-  { href: '/timeclock',    icon: Clock,       label: 'Time Clock'       },
-  { href: '/staff-portal', icon: Shield,      label: 'Staff Portal'     },
+  { href: '/kiosk',        icon: DoorOpen,    label: 'Check-in kiosk'   },
+  { href: '/concierge',    icon: Coffee,      label: 'Lounge concierge' },
+  { href: '/kds',          icon: ChefHat,     label: 'Kitchen screen'      },
+  { href: '/floor',        icon: Layers,      label: 'Floor staff'      },
+  { href: '/timeclock',    icon: Clock,       label: 'Time clock'       },
+  { href: '/staff-portal', icon: Shield,      label: 'Staff portal'     },
 ];
 
 // ─── NAV ITEM ──────────────────────────────────────────────────────────────────
@@ -171,11 +172,10 @@ function NavItem({
       asChild
       isActive={isActive}
       className={cn(
-        'rounded-xl h-10 font-black uppercase text-[9px] tracking-widest',
-        'transition-all duration-150',
-        'data-[active=true]:bg-primary data-[active=true]:text-primary-foreground',
-        'data-[active=true]:shadow-md data-[active=true]:shadow-primary/20',
-        'hover:bg-primary/10 hover:text-primary',
+        'rounded-xl h-10 text-[14px] font-medium normal-case tracking-normal',
+        'transition-colors duration-150',
+        'data-[active=true]:bg-primary/10 data-[active=true]:text-primary data-[active=true]:font-semibold',
+        'hover:bg-primary/5 hover:text-primary',
         isCollapsed && 'justify-center',
       )}
     >
@@ -183,7 +183,7 @@ function NavItem({
         <div className="relative shrink-0">
           <Icon className="w-[17px] h-[17px]" />
           {badge !== undefined && badge > 0 && (
-            <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[7px] font-black rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none">
+            <span className="absolute -top-1.5 -right-1.5 bg-primary text-primary-foreground text-[9px] font-semibold rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center leading-none">
               {badge > 9 ? '9+' : badge}
             </span>
           )}
@@ -232,7 +232,7 @@ function NavSection({
   return (
     <SidebarGroup className="py-1">
       {!isCollapsed && (
-        <SidebarGroupLabel className="px-3 mb-1 h-5 font-black uppercase text-[8px] tracking-[0.22em] text-muted-foreground/40">
+        <SidebarGroupLabel className="px-3 mb-0.5 h-6 text-[12px] font-medium normal-case tracking-normal text-muted-foreground">
           {label}
         </SidebarGroupLabel>
       )}
@@ -268,6 +268,7 @@ function CollapseToggle() {
 
 export function AppSidebar() {
   const { selectedTenant, role } = useTenant();
+  const brandLogo = guestLogo(selectedTenant);
   const isHqAdmin = useIsHqAdmin();
   const tenantId = selectedTenant?.id;
   const auth     = useAuth();
@@ -381,21 +382,18 @@ export function AppSidebar() {
     <TooltipProvider delayDuration={0}>
       <Sidebar
         collapsible="icon"
-        className="border-r-2 border-border/40 bg-white"
+        className="border-r border-[#e7e2dc] bg-[#faf8f5] dark:border-[#342e29] dark:bg-[#171412]"
       >
         <SidebarRail />
 
         <SidebarHeader className="border-b border-border/30">
           <div className="flex items-center justify-between px-4 py-4 min-h-[68px]">
+            {/* The business's own identity up top — ClarityFlow's mark sits quietly at the bottom. */}
             <Link href="/dashboard" className="flex items-center gap-3 min-w-0">
-              <ClarityFlowLogo className="w-8 h-8 shrink-0" />
-              <div className="flex flex-col leading-none min-w-0 group-data-[collapsible=icon]:hidden">
-                <span className="text-[19px] font-black uppercase tracking-tighter text-slate-900">
-                  ClarityFlow
-                </span>
-                <span className="text-[7px] font-black uppercase tracking-[0.35em] text-primary opacity-60 mt-0.5">
-                  Studio OS
-                </span>
+              {brandLogo ? <img src={brandLogo} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" /> : <ClarityFlowLogo className="w-8 h-8 shrink-0" />}
+              <div className="flex flex-col leading-tight min-w-0 group-data-[collapsible=icon]:hidden">
+                <span className="truncate text-[15px] font-semibold tracking-tight">{(selectedTenant as any)?.name || 'ClarityFlow'}</span>
+                <span className="text-[12px] text-muted-foreground">{brandLogo || (selectedTenant as any)?.name ? 'Studio' : 'Studio OS'}</span>
               </div>
             </Link>
 
@@ -413,20 +411,20 @@ export function AppSidebar() {
             </div>
           )}
 
-          <NavSection label="Daily" items={dailyItems} badges={Object.keys(dailyBadges).length > 0 ? dailyBadges : undefined} />
+          <NavSection label="Today" items={dailyItems} badges={Object.keys(dailyBadges).length > 0 ? dailyBadges : undefined} />
 
           {isOwner && (
             <>
               <SidebarSeparator className="my-1 opacity-20" />
-              <NavSection label="Clients & Growth" items={CLIENT_GROWTH} />
+              <NavSection label="Clients" items={CLIENT_GROWTH} />
             </>
           )}
 
           {isOwner && (
             <>
               <SidebarSeparator className="my-1 opacity-20" />
-              <NavSection label="Studio Assets" items={STUDIO_ASSETS} />
-              <NavSection label="Commerce" items={COMMERCE} />
+              <NavSection label="Studio" items={STUDIO_ASSETS} />
+              <NavSection label="Shop" items={COMMERCE} />
             </>
           )}
 
@@ -447,7 +445,7 @@ export function AppSidebar() {
             <>
               <SidebarSeparator className="my-1 opacity-20" />
               <NavSection
-                label="Financial Suite"
+                label="Money"
                 items={FINANCIAL_SUITE}
                 badges={financialBadges}
               />
@@ -457,7 +455,7 @@ export function AppSidebar() {
           {isOwner && (
             <>
               <SidebarSeparator className="my-1 opacity-20" />
-              <NavSection label="Booth Rental" items={BOOTH_RENTAL} badges={rentalBadges} />
+              <NavSection label="Booth rental" items={BOOTH_RENTAL} badges={rentalBadges} />
             </>
           )}
 
@@ -472,7 +470,7 @@ export function AppSidebar() {
             <>
               <SidebarSeparator className="my-1 opacity-20" />
               <NavSection
-                label="Public Portals"
+                label="Public pages"
                 items={PUBLIC_PORTALS}
                 isPortal
                 tenantId={tenantId}
@@ -481,10 +479,10 @@ export function AppSidebar() {
           )}
         </SidebarContent>
 
-        <SidebarFooter className="border-t border-border/30 py-2 px-1.5">
+        <SidebarFooter className="border-t border-[#e7e2dc] py-2 px-1.5 dark:border-[#342e29]">
           <SidebarMenu className="gap-px px-0">
 
-            <SidebarMenuItem className="group-data-[collapsible!=icon]:hidden">
+            <SidebarMenuItem className="group-data-[state=expanded]:hidden">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <SidebarMenuButton
@@ -495,18 +493,18 @@ export function AppSidebar() {
                     <span>Expand</span>
                   </SidebarMenuButton>
                 </TooltipTrigger>
-                <TooltipContent side="right" className="font-black uppercase text-[9px] tracking-widest rounded-xl border-2">
+                <TooltipContent side="right" className="rounded-xl border text-[13px]">
                   Expand sidebar (⌘B)
                 </TooltipContent>
               </Tooltip>
             </SidebarMenuItem>
 
             {isOwner && (
-              <NavItem href="/settings" icon={Settings} label="Studio Settings" />
+              <NavItem href="/settings" icon={Settings} label="Settings" />
             )}
             {isHqAdmin && <NavItem href="/admin/tenants" icon={Shield} label="ClarityFlow HQ" />}
             <SidebarMenuItem>
-              <SidebarMenuButton onClick={openHelp} className="rounded-xl h-10 text-muted-foreground hover:bg-primary/10 hover:text-primary transition-all">
+              <SidebarMenuButton onClick={openHelp} className="rounded-xl h-10 text-[14px] font-medium text-muted-foreground hover:bg-primary/5 hover:text-primary transition-colors">
                 <LifeBuoy className="w-[17px] h-[17px] shrink-0" />
                 <span>Help</span>
               </SidebarMenuButton>
@@ -520,16 +518,17 @@ export function AppSidebar() {
                     className="rounded-xl h-10 font-black uppercase text-[9px] tracking-widest text-destructive hover:bg-destructive/8 hover:text-destructive transition-all"
                   >
                     <LogOut className="w-[17px] h-[17px] shrink-0" />
-                    <span>Sign Out</span>
+                    <span>Sign out</span>
                   </SidebarMenuButton>
                 </TooltipTrigger>
-                <TooltipContent side="right" className="font-black uppercase text-[9px] tracking-widest rounded-xl border-2">
-                  Sign Out
+                <TooltipContent side="right" className="rounded-xl border text-[13px]">
+                  Sign out
                 </TooltipContent>
               </Tooltip>
             </SidebarMenuItem>
           </SidebarMenu>
-        </SidebarFooter>
+                  <div className="mt-1 flex items-center gap-2 px-3 py-1.5 text-[11px] text-muted-foreground group-data-[collapsible=icon]:justify-center"><ClarityFlowLogo className="h-4 w-4 opacity-70" /><span className="group-data-[collapsible=icon]:hidden">ClarityFlow</span></div>
+</SidebarFooter>
       </Sidebar>
     </TooltipProvider>
   );
