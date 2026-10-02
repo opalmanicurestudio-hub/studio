@@ -6,6 +6,11 @@
 // shows only what's missing. Every link goes to the exact screen or tab where
 // the setting lives (the tabbed Settings page keeps working at ?tab=…).
 
+import { SETTINGS_MAP } from '@/lib/settings-map';
+import { kioskOptionsShown } from '@/lib/kiosk-options';
+import { clientTimelineSettingsOf } from '@/lib/visit';
+import { SettingsStyle } from '@/components/settings/settings-style';
+import { Building2, CalendarDays, CreditCard, DoorOpen, SprayCan, Users, MessageSquare, Puzzle, Search, ChevronRight, Sparkles } from 'lucide-react';
 import { attentionItems } from '@/lib/settings-map';
 import { moduleEnabled } from '@/lib/modules';
 import { useFirebase } from '@/firebase';
@@ -27,7 +32,7 @@ export const SETTINGS_INDEX: { question: string; icon: string; items: Item[] }[]
     { title: 'Opening hours', meaning: 'When the business is open.', href: T('hours'), words: 'hours open close holiday schedule' },
     { title: 'Locations', meaning: 'Your address and any other locations.', href: T('locations'), words: 'address location map clock in radius geofence time zone' },
     { title: 'Your plan & billing', meaning: 'Your ClarityFlow subscription, what’s included and how many locations you can have.', href: '/subscriptions', words: 'plan billing subscription invoice locations upgrade' },
-    { title: 'How the app looks (Studio or Classic)', meaning: 'Warm and calm in your colour, or the classic look.', href: '/settings', words: 'look appearance theme studio classic colour color design app' },
+    { title: 'How the app looks (Studio or Classic)', meaning: 'Warm and calm in your colour, or the classic look.', href: '/settings#app-look', words: 'look appearance theme studio classic colour color design app' },
   ] },
   { question: 'Booking', icon: '', items: [
     { title: 'Booking policies', meaning: 'Deposits, cancellations, no-shows, rescheduling, late arrivals, how far ahead clients can book — and exactly what clients are told.', href: '/settings/policies', words: 'policy policies cancel cancellation no-show noshow late grace reschedule deposit refund credit window notice fee faq terms members limit lead time advance release horizon hold' },
@@ -68,6 +73,27 @@ export const SETTINGS_INDEX: { question: string; icon: string; items: Item[] }[]
   ] },
 ];
 
+// What each setting is set to NOW, in plain words — the Quick settings sentences where they exist (same source, so
+// the two can never disagree), and a few simple ones read straight from the business for the rest.
+function summaryFor(item: Item, t: any): string | null {
+  const exact = SETTINGS_MAP.find((e) => e.href === item.href);
+  const base = item.href.includes('?settings=') ? SETTINGS_MAP.find((e) => e.href === item.href.split('?')[0]) : null;
+  const m = item.title === 'Win back quiet clients' ? null : exact || base;
+  if (m) { try { const out = m.summarise(t); if (out) return out; } catch { /* fall through */ } }
+  switch (item.title) {
+    case 'Your business details': return t?.phone && t?.address ? `${t?.name || 'Your business'} — phone and address are set.` : 'Add your phone and address so clients can reach you.';
+    case 'Your plan & billing': return ['active', 'trialing'].includes(String(t?.subscriptionStatus)) ? 'Subscribed.' : 'Not subscribed yet — one location is included.';
+    case 'Payments & payouts': return t?.stripeAccountId && t?.stripeChargesEnabled !== false ? 'Card payments are on, and payouts go to your bank.' : 'Not connected yet — clients can’t pay online.';
+    case 'Check-in kiosk': { const n = kioskOptionsShown(t).length; return t?.kioskSettings?.enabled === false ? 'The kiosk is switched off.' : `Arriving guests choose from ${n} option${n === 1 ? '' : 's'}.`; }
+    case 'Time clock': return t?.geoFenceEnabled ? 'Staff must be at a location to clock in.' : 'Staff can clock in from anywhere.';
+    case 'Visit stages': return clientTimelineSettingsOf(t).on ? 'Clients can follow their visit on their link.' : 'Clients don’t see a visit timeline.';
+    case 'How the app looks (Studio or Classic)': return t?.appAppearance === 'classic' ? 'The Classic look.' : 'The Studio look, in your colour.';
+    default: return null;
+  }
+}
+const GROUP_ICON: Record<string, any> = { 'Your business': Building2, Booking: CalendarDays, Payments: CreditCard, 'Front desk & visits': DoorOpen, Operations: SprayCan, Team: Users, 'Messages & automations': MessageSquare, 'Your tools': Puzzle };
+const slug = (q: string) => 'g-' + q.toLowerCase().replace(/[^a-z]+/g, '-');
+
 async function automationsNeedingYou(tenantId: string) {
   try {
     const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
@@ -80,6 +106,7 @@ export function SettingsHome({ tenant }: { tenant: any }) {
   const index = useMemo(() => SETTINGS_INDEX.map((g) => ({ ...g, items: g.items.filter((i) => !i.module || moduleEnabled(tenant, i.module as any)) })).filter((g) => g.items.length), [tenant]);
   const [q, setQ] = useState(''); const [autoCount, setAutoCount] = useState<number | null>(null);
   useEffect(() => { if (tenant?.id) void automationsNeedingYou(tenant.id).then(setAutoCount); }, [tenant?.id]);
+  const checks = 5 + attentionItems(tenant).length;   // the setup checks below (+ anything silently switched off)
   const todo = [
     !tenant?.logoUrl && { title: 'Add your logo', href: T('profile') },
     !(tenant?.phone && tenant?.address) && { title: 'Add your phone and address', href: T('profile') },
@@ -96,31 +123,62 @@ export function SettingsHome({ tenant }: { tenant: any }) {
   }, [q, index]);
 
   return (
-    <main className="mx-auto w-full max-w-4xl space-y-6 p-4 md:p-8">
-      <div><h1 className="text-3xl font-light tracking-tight">Your <b className="font-semibold">settings</b></h1><p className="text-sm text-muted-foreground">Find anything by what you want to do — or search below.</p></div>
-      <Link href="/settings/map" className="flex items-center justify-between gap-3 rounded-2xl border-2 px-4 py-3 transition hover:bg-muted/40"><span><span className="block text-sm font-black">Quick settings</span><span className="block text-xs text-muted-foreground">The switches you change most, on one page.</span></span><span aria-hidden>›</span></Link>
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search settings — e.g. deposit, reminder, logo, wifi" aria-label="Search settings" className="h-12 w-full rounded-2xl border-2 px-4 text-[15px]" />
-      {q.trim().length >= 2 && (
-        <section className="space-y-2" aria-label="Search results">
-          {results.length === 0 ? <p className="text-sm text-muted-foreground">Nothing matches “{q}”. Try another word — like “payments” or “hours”.</p>
-            : results.map((r) => <Link key={`${r.question}-${r.title}`} href={r.href} className="block rounded-2xl border-2 p-3 transition hover:bg-muted/40"><p className="font-bold">{r.title} <span className="text-[12px] font-normal text-muted-foreground">· {r.question}</span></p><p className="text-sm text-muted-foreground">{r.meaning}</p></Link>)}
-        </section>
-      )}
-      {q.trim().length < 2 && <AppLook tenant={tenant} />}
-      {q.trim().length < 2 && <>
-        {todo.length > 0 ? (
-          <section className="space-y-2 rounded-2xl border-2 border-amber-200 bg-amber-50/60 p-4" aria-label="Finish setting up">
-            <p className="font-black">Finish setting up</p>
-            {todo.map((t) => <Link key={t.title} href={t.href} className="flex items-center justify-between gap-3 rounded-xl bg-background px-3 py-2.5 text-sm font-bold transition hover:bg-muted/40"><span>○ {t.title}</span><span aria-hidden>→</span></Link>)}
-          </section>
-        ) : <p className="rounded-2xl border-2 border-emerald-200 bg-emerald-50/60 p-4 text-sm font-bold text-emerald-900">✓ You’re all set up.</p>}
-        <div className="grid gap-3 sm:grid-cols-2">{index.map((g) => (
-          <section key={g.question} className="space-y-1 rounded-2xl border-2 p-4" aria-label={g.question}>
-            <p className="pb-1 text-[15px] font-black">{g.icon} {g.question}</p>
-            {g.items.map((i) => <Link key={i.title} href={i.href} className="block rounded-xl px-2 py-1.5 transition hover:bg-muted/40"><span className="block text-sm font-bold">{i.title}</span><span className="block text-[12px] text-muted-foreground">{i.meaning}</span></Link>)}
-          </section>
-        ))}</div>
-      </>}
+    <main className="cf-settings min-h-full">
+      <SettingsStyle />
+      <div className="mx-auto w-full max-w-5xl px-4 py-8 md:grid md:grid-cols-[208px_minmax(0,1fr)] md:gap-12 md:px-8 md:py-12">
+        {/* The eight groups, always in reach on a computer */}
+        <nav aria-label="Settings groups" className="hidden md:block">
+          <ul className="sticky top-8 space-y-1">{index.map((g) => { const Icon = GROUP_ICON[g.question]; return (
+            <li key={g.question}><a href={`#${slug(g.question)}`} className="flex items-center gap-2.5 whitespace-nowrap rounded-xl px-3 py-2 text-[14px] cf-muted transition-colors hover:bg-[var(--soft)] hover:text-[var(--ink)]">{Icon && <Icon className="h-4 w-4" aria-hidden />}{g.question}</a></li>); })}</ul>
+        </nav>
+        <div className="min-w-0 space-y-8">
+          <header className="relative overflow-hidden rounded-[28px] px-6 pb-6 pt-7 md:px-9 md:pb-8 md:pt-9" style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
+            <div className="flex items-center gap-3">
+              {tenant?.logoUrl ? <img src={tenant.logoUrl} alt="" className="h-9 w-9 rounded-full object-cover ring-2 ring-white/40" /> : null}
+              <p className="text-[15px] font-medium opacity-90">{tenant?.name || 'Your business'}</p>
+            </div>
+            <h1 className="mt-5 text-[44px] md:text-[56px] font-light leading-none tracking-tight">Settings</h1>
+            <p className="mt-3 max-w-[52ch] text-[15px] opacity-90">How your business runs, in plain words. Tap anything to change it.</p>
+            <div className="mt-6">
+              <div className="flex items-baseline justify-between text-[14px]"><span className="font-medium">{todo.length ? `${todo.length} thing${todo.length === 1 ? '' : 's'} left to set up` : 'Everything’s set up'}</span><span className="opacity-80">{Math.max(0, checks - todo.length)} of {checks}</span></div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full" style={{ background: 'color-mix(in srgb, currentColor 22%, transparent)' }} role="progressbar" aria-valuemin={0} aria-valuemax={checks} aria-valuenow={Math.max(0, checks - todo.length)} aria-label="Setup progress">
+                <div className="h-full rounded-full" style={{ width: `${Math.round((Math.max(0, checks - todo.length) / Math.max(1, checks)) * 100)}%`, background: 'currentColor' }} />
+              </div>
+            </div>
+          </header>
+          <div className="space-y-3">
+            <label className="flex h-14 items-center gap-3 rounded-full border px-5" style={{ background: 'var(--card)', borderColor: 'var(--line)' }}>
+              <Search className="h-5 w-5 shrink-0 cf-muted" aria-hidden />
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search settings" aria-label="Search settings" className="h-full w-full bg-transparent text-[16px] outline-none placeholder:text-[var(--muted)]" />
+            </label>
+            {q.trim().length < 2 && <Link href="/settings/map" className="cf-sheet cf-accent-wash cf-row" style={{ borderRadius: 999 }}>
+              <Sparkles className="h-5 w-5 shrink-0" style={{ color: 'var(--accent)' }} aria-hidden />
+              <span className="min-w-0 flex-1"><span className="block text-[15px] font-medium">Quick settings</span><span className="block text-[13.5px] cf-muted">The switches you change most, on one page.</span></span>
+              <ChevronRight className="h-4 w-4 shrink-0 cf-muted" aria-hidden />
+            </Link>}
+          </div>
+          {q.trim().length >= 2 && (
+            <section aria-label="Search results" className="space-y-3">
+              {results.length === 0 ? <p className="text-[15px] cf-muted">Nothing matches “{q}”. Try another word, like “payments” or “hours”.</p>
+                : <div className="cf-sheet">{results.map((r) => <Link key={`${r.question}-${r.title}`} href={r.href} className="cf-row"><span className="min-w-0 flex-1"><span className="block text-[15px] font-medium">{r.title}</span><span className="mt-0.5 block text-[13.5px] leading-snug cf-muted line-clamp-2">{summaryFor(r, tenant) || r.meaning}</span></span><ChevronRight className="h-4 w-4 shrink-0 cf-muted" aria-hidden /></Link>)}</div>}
+            </section>
+          )}
+          {q.trim().length < 2 && <>
+            {todo.length > 0 && (
+              <section aria-label="Finish setting up" className="space-y-3">
+                <h2 className="text-[17px] font-semibold">Finish setting up</h2>
+                <div className="cf-sheet">{todo.map((t) => (
+                  <Link key={t.title} href={t.href} className="cf-row"><span className="h-2 w-2 shrink-0 rounded-full" style={{ background: 'var(--accent)' }} aria-hidden /><span className="min-w-0 flex-1 text-[14.5px] leading-snug">{t.title}</span><ChevronRight className="h-4 w-4 shrink-0 cf-muted" aria-hidden /></Link>))}</div>
+              </section>)}
+            {index.map((g) => { const Icon = GROUP_ICON[g.question]; return (
+              <section key={g.question} id={slug(g.question)} aria-label={g.question} className="scroll-mt-8 space-y-3">
+                <h2 className="flex items-center gap-2.5 text-[17px] font-semibold">{Icon && <Icon className="h-[18px] w-[18px] cf-muted" aria-hidden />}{g.question}</h2>
+                <div className="cf-sheet">{g.items.map((r) => <Link key={r.title} href={r.href} className="cf-row"><span className="min-w-0 flex-1"><span className="block text-[15px] font-medium">{r.title}</span><span className="mt-0.5 block text-[13.5px] leading-snug cf-muted line-clamp-2">{summaryFor(r, tenant) || r.meaning}</span></span><ChevronRight className="h-4 w-4 shrink-0 cf-muted" aria-hidden /></Link>)}</div>
+              </section>); })}
+            <AppLook tenant={tenant} />
+          </>}
+        </div>
+      </div>
     </main>
   );
 }
@@ -138,7 +196,7 @@ function AppLook({ tenant }: { tenant: any }) {
     try { await updateDoc(doc(firestore, 'tenants', tenant.id), { appAppearance: v }); } finally { setBusy(false); }
   };
   return (
-    <section aria-label="How the app looks" className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border bg-card p-4">
+    <section id="app-look" aria-label="How the app looks" className="cf-sheet scroll-mt-8 flex flex-wrap items-center justify-between gap-3 p-5">
       <div><p className="font-semibold">How the app looks</p><p className="text-sm text-muted-foreground">Studio is warm and calm, in your colour — like your front desk and booking page.</p></div>
       <div className="flex gap-1 rounded-full bg-secondary p-1">{(['studio', 'classic'] as const).map((v) => (
         <button key={v} type="button" disabled={busy} onClick={() => pick(v)} aria-pressed={cur === v}
