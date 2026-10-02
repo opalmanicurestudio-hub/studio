@@ -103,13 +103,12 @@ export default function MessageSettingsPage() {
   return (
     <SettingsPage title="Messages" help={`Every automatic message — what goes out, when, and in your words.${isMgr ? '' : ' (View only.)'}`}
       actions={<Link href="/message-log" className="inline-flex h-10 items-center gap-1.5 rounded-full px-4 text-[14px] font-medium" style={{ background: 'var(--soft)' }}><Mail className="h-4 w-4" aria-hidden />Delivery log</Link>}>
-      <Section title="Reminders" help="Reminders include your policy wording, their visit link and anything still to do, like forms or a deposit.">
-        <Row label="Send appointment reminders" inline><CfToggle checked={(selectedTenant as any)?.clientNotify?.enabled !== false} disabled={!isMgr} onChange={(v: boolean) => { void save('rem-on', 'clientNotify.enabled', v, 'Reminders'); }} label="Send appointment reminders" /></Row>
-        {(selectedTenant as any)?.clientNotify?.enabled !== false && <Row label="When they go out" help="In the morning." inline>
-          <select disabled={!isMgr} value={String((selectedTenant as any)?.clientNotify?.daysBefore ?? 1)} onChange={(e) => save('rem-days', 'clientNotify.daysBefore', Number(e.target.value), 'Reminder timing')} className="h-10 rounded-xl border px-3 text-[14px]" style={{ background: 'var(--card)', borderColor: 'var(--line)' }} aria-label="When reminders go out">
-            {[[0, 'The same day'], [1, 'The day before'], [2, '2 days before'], [3, '3 days before'], [7, 'A week before']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-        </Row>}
-      </Section>
+      {(() => { const cn = (selectedTenant as any)?.clientNotify || {}; const d = Number.isFinite(Number(cn.daysBefore)) ? Number(cn.daysBefore) : 1;
+        const when = d === 0 ? 'the same day' : d === 1 ? 'the day before' : d === 7 ? 'a week before' : `${d} days before`;
+        return (<Link href="/settings/automations#sw:appt-reminders" className="cf-sheet cf-row" style={{ borderRadius: 18 }}>
+          <span className="min-w-0 flex-1"><span className="block text-[15px] font-medium">Appointment reminders: {cn.enabled === false ? 'off' : `on, ${when}`}</span>
+            <span className="block text-[13.5px] cf-muted">Whether they go out, and when, is in Automations. Their words are below.</span></span>
+          <span className="text-[14px] font-medium">Change →</span></Link>); })()}
       <section className="space-y-3">
         <div className="space-y-1"><h2 className="text-[19px] font-semibold tracking-tight">Your messages</h2><p className="text-[14.5px] cf-muted">Tap one to change its wording. Anything you don’t change uses our standard wording.</p></div>
         <div className="flex gap-2 overflow-x-auto pb-1">
