@@ -3,7 +3,10 @@
 // The rule they encode: one plain question per row, one short line of help, the answer filled in with a sensible
 // default — and anything most owners never touch tucked under "More options". Fewer decisions, less to read.
 import * as React from 'react';
-import { ChevronDown } from 'lucide-react';
+import Link from 'next/link';
+import { ChevronDown, ChevronLeft } from 'lucide-react';
+import { AppHeader } from '@/components/shared/AppHeader';
+import { SettingsStyle } from '@/components/settings/settings-style';
 
 export const cfInput = 'h-12 w-full rounded-xl border px-4 text-[15px] outline-none transition-colors focus:border-[var(--accent)]';
 export const cfInputStyle: React.CSSProperties = { background: 'var(--card)', borderColor: 'var(--line)', color: 'var(--ink)' };
@@ -73,4 +76,25 @@ export function fromPicker(v: string): string {
   const m = String(v || '').match(/^(\d{2}):(\d{2})$/); if (!m) return v;
   let h = Number(m[1]); const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
   return `${String(h).padStart(2, '0')}:${m[2]} ${ap}`;
+}
+
+/** The frame every settings screen uses — the header bar (search, notifications), "‹ Settings", the page's name and
+ *  one line about it, on the Studio paper. Sub-pages (Booking, Messages, Automations…) look exactly like the tabs. */
+export function SettingsPage({ title, help, actions, children }: { title: string; help?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="cf-settings cf-legacy min-h-full">
+      <SettingsStyle />
+      <AppHeader title="Settings" />
+      <main className="mx-auto w-full max-w-3xl space-y-8 px-4 py-6 pb-32 md:space-y-10 md:px-10 md:py-10">
+        <header className="space-y-4 text-left">
+          <Link href="/settings" className="inline-flex items-center gap-1 text-[14px] font-medium cf-muted hover:underline"><ChevronLeft className="h-4 w-4" aria-hidden />Settings</Link>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="space-y-1.5"><h1 className="text-[32px] font-light leading-none tracking-tight md:text-[38px]">{title}</h1>{help && <p className="max-w-[60ch] text-[15px] cf-muted">{help}</p>}</div>
+            {actions}
+          </div>
+        </header>
+        {children}
+      </main>
+    </div>
+  );
 }
