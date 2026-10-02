@@ -6,6 +6,7 @@
 // shows only what's missing. Every link goes to the exact screen or tab where
 // the setting lives (the tabbed Settings page keeps working at ?tab=…).
 
+import { attentionItems } from '@/lib/settings-map';
 import { moduleEnabled } from '@/lib/modules';
 import { useFirebase } from '@/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
@@ -44,7 +45,6 @@ export const SETTINGS_INDEX: { question: string; icon: string; items: Item[] }[]
     { title: 'Check-in kiosk', meaning: 'The screen clients use to check themselves in.', href: T('kiosk'), words: 'kiosk check in station qr front door what brings you in pickup renter tour help options' },
     { title: 'Guest comforts & Wi-Fi', meaning: 'Wi-Fi for guests, drinks and little extras.', href: T('experience'), words: 'wifi drinks refreshments hospitality concierge' },
     { title: 'Hosting & floor', meaning: 'How you host guests: tables, seating and the host screen.', href: '/settings/hosting', words: 'hosting host tables seating floor plan parties' },
-    { title: 'Quick setup', meaning: 'The settings you change most, on one page.', href: '/settings/map', words: 'quick setup overview everything one page' },
   ] },
   { question: 'Operations', icon: '', items: [
     { title: 'Cleaning protocols', meaning: 'Your cleaning procedures — they become each service’s turnover checklist and release a station from quarantine.', href: T('operations'), words: 'cleaning protocol sanitise disinfect turnover checklist quarantine hygiene' },
@@ -62,7 +62,7 @@ export const SETTINGS_INDEX: { question: string; icon: string; items: Item[] }[]
     { title: 'Voice assistant', meaning: 'The assistant that answers your phone: what it knows and how it speaks.', href: '/voice', words: 'voice phone calls assistant receptionist' },
   ] },
   { question: 'Your tools', icon: '', items: [
-    { title: 'Booth rentals', meaning: 'Chairs and suites for rent, renters, leases and rent.', href: '/booths', words: 'booth chair suite rent renter lease tour', module: 'booth_rental' },
+    { title: 'Booth rentals', meaning: 'Booking rules for your booths and suites — booking window, notice, tours and deposits.', href: '/booths?settings=1', words: 'booth chair suite rent renter lease tour', module: 'booth_rental' },
     { title: 'Academy', meaning: 'Courses, students, admissions, funding and your school website.', href: '/academy', words: 'school courses students admissions website funding', module: 'academy' },
     { title: 'Shop', meaning: 'Your online shop’s returns, delivery and order rules.', href: '/retail-orders/policies', words: 'shop retail store returns shipping pickup orders policies', module: 'retail' },
   ] },
@@ -86,6 +86,8 @@ export function SettingsHome({ tenant }: { tenant: any }) {
     !(tenant?.stripeAccountId && tenant?.stripeChargesEnabled !== false) && { title: 'Connect payments so clients can pay online', href: T('payments') },
     !tenant?.bookingPageSettings?.design && { title: 'Pick your booking page design (optional)', href: '/settings/booking' },
     autoCount ? { title: `${autoCount} automation${autoCount === 1 ? ' needs' : 's need'} you`, href: '/settings/automations' } : null,
+    // Anything switched off in a way that silently disables something (the same checks Quick settings shows).
+    ...attentionItems(tenant).map((a) => ({ title: a.warning || `${a.label} isn’t set up`, href: a.href })),
   ].filter(Boolean) as { title: string; href: string }[];
   const results = useMemo(() => {
     const n = q.trim().toLowerCase(); if (n.length < 2) return [];
@@ -96,6 +98,7 @@ export function SettingsHome({ tenant }: { tenant: any }) {
   return (
     <main className="mx-auto w-full max-w-4xl space-y-6 p-4 md:p-8">
       <div><h1 className="text-3xl font-light tracking-tight">Your <b className="font-semibold">settings</b></h1><p className="text-sm text-muted-foreground">Find anything by what you want to do — or search below.</p></div>
+      <Link href="/settings/map" className="flex items-center justify-between gap-3 rounded-2xl border-2 px-4 py-3 transition hover:bg-muted/40"><span><span className="block text-sm font-black">Quick settings</span><span className="block text-xs text-muted-foreground">The switches you change most, on one page.</span></span><span aria-hidden>›</span></Link>
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search settings — e.g. deposit, reminder, logo, wifi" aria-label="Search settings" className="h-12 w-full rounded-2xl border-2 px-4 text-[15px]" />
       {q.trim().length >= 2 && (
         <section className="space-y-2" aria-label="Search results">
