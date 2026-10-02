@@ -1,5 +1,6 @@
 'use client';
 
+import { guestLogo } from '@/lib/brand';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -251,8 +252,8 @@ export default function GuestRequestPage() {
       {/* Header */}
       <div className="relative z-10 px-6 pt-10 pb-6">
         <div className="flex items-center justify-between mb-6">
-          {tenant?.kioskSettings?.logoUrl ? (
-            <img src={tenant.kioskSettings.logoUrl} alt={tenant.name} className="h-8 w-auto object-contain" style={{ filter: isDark ? 'brightness(0) invert(1)' : 'brightness(0)' }} />
+          {tenant && guestLogo(tenant) ? (
+            <img src={guestLogo(tenant)} alt={tenant.name} className="h-8 w-auto object-contain" style={{ filter: isDark ? 'brightness(0) invert(1)' : 'brightness(0)' }} />
           ) : (
             <span className="font-black text-sm uppercase tracking-widest" style={{ color: textOnBrand, opacity: 0.7 }}>
               {tenant?.name || ''}
