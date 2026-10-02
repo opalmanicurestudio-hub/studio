@@ -560,18 +560,10 @@ function SettingsPageImpl() {
             </TabsContent>
 
             {/* ── TERMINAL READER ── */}
-            <TabsContent value="terminal" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
-              <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                  <SectionHeader icon={Monitor} title="Terminal Reader" />
-                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
-                    Pair and manage your Stripe card reader for in-person payments at checkout.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="p-6 md:p-8">
-                  <TerminalSettings />
-                </CardContent>
-              </Card>
+            <TabsContent value="terminal" className="mt-0 space-y-10 text-left">
+              <Section title="Card reader" help="The card reader at your front desk. Connect it once and the desk uses it automatically.">
+                <div className="p-5"><TerminalSettings /></div>
+              </Section>
             </TabsContent>
 
             {/* ── AUTOMATIONS ── */}
@@ -631,109 +623,50 @@ function SettingsPageImpl() {
               {tenantId && <ProtocolsCard tenantId={tenantId} canEdit={['owner', 'admin', 'manager'].includes(String((role as any) || '').toLowerCase())} />}
             </TabsContent>
 
-            <TabsContent value="experience" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
-              <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                  <SectionHeader icon={Coffee} title="Guest extras" />
-                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Configure the in-service refreshment and amenity module.</CardDescription>
-                </CardHeader>
-                <CardContent className="p-6 md:p-8 space-y-10 text-left">
-                  <div className="flex items-center justify-between gap-6 rounded-[2rem] border-2 p-6">
-                    <div className="space-y-1">
-                      <Label className="text-base font-bold text-slate-900">Show the guest experience after check-in</Label>
-                      <p className="text-sm text-muted-foreground">Once a guest checks in, their link shows refreshments, services to explore and a help button. Leave this off unless someone is available to respond — guests then see a simple “You’re checked in”.</p>
-                    </div>
-                    <Switch checked={(tenantData as any).guestExperienceEnabled === true} onCheckedChange={(val) => setTenantData(prev => ({ ...prev, guestExperienceEnabled: val } as any))} disabled={!isEditing} />
-                  </div>
-                  <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-primary/5 shadow-inner border-primary/10 gap-6">
-                    <div className="space-y-1">
-                      <Label className="text-base font-black uppercase tracking-tight text-slate-900">Activate Refreshment Menu</Label>
-                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Allows guests to request in-stock items from their portal</p>
-                    </div>
-                    <Switch checked={!!tenantData.refreshmentServiceEnabled} onCheckedChange={(val) => setTenantData(prev => ({ ...prev, refreshmentServiceEnabled: val }))} disabled={!isEditing} className="scale-125 data-[state=checked]:bg-primary" />
-                  </div>
-                  <div className="space-y-4">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Complimentary Amenity Limit</Label>
-                    <Input type="number" value={tenantData.complimentaryAmenityLimit || 0} onChange={e => setTenantData(prev => ({ ...prev, complimentaryAmenityLimit: parseInt(e.target.value) || 0 }))} disabled={!isEditing} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 w-full sm:w-48 text-center" />
-                  </div>
-                  <Separator className="border-dashed" />
-                  <div className="space-y-8">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-1">
-                      <div className="space-y-1">
-                        <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2"><QrCode className="w-5 h-5 text-primary" />Name your stations</h3>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Generate physical place-cards for autonomous ordering.</p>
-                      </div>
-                      <Button onClick={() => setIsPrintStationsOpen(true)} className="h-12 px-8 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20 w-full md:w-auto">Generate Cards</Button>
-                    </div>
-                  </div>
-                  <Separator className="border-dashed" />
-                  <div className="space-y-6">
-                    <div className="flex items-center gap-3 px-1"><Wifi className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Wi-Fi for guests</h3></div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 md:gap-8">
-                      <div className="space-y-2">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">WiFi Network SSID</Label>
-                        <Input value={tenantData.wifiNetwork || ''} onChange={e => setTenantData(prev => ({ ...prev, wifiNetwork: e.target.value }))} placeholder="e.g., STUDIO_GUEST_5G" disabled={!isEditing} className="h-12 rounded-xl border-2 font-bold bg-white" />
-                      </div>
-                      <div className="space-y-2">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Access Password</Label>
-                        <Input value={tenantData.wifiPassword || ''} onChange={e => setTenantData(prev => ({ ...prev, wifiPassword: e.target.value }))} placeholder="password" disabled={!isEditing} className="h-12 rounded-xl border-2 font-bold bg-white" />
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+            <TabsContent value="experience" className="mt-0 space-y-10 text-left">
+              <Section title="Wi-Fi for guests" help="Shown to clients when they check in, so nobody has to ask.">
+                <Row label="Network name"><input className={cfInput} style={cfInputStyle} value={tenantData.wifiNetwork || ''} onChange={(e) => setTenantData((prev) => ({ ...prev, wifiNetwork: e.target.value }))} placeholder="e.g. Opal Guest" autoComplete="off" /></Row>
+                <Row label="Password"><input className={cfInput} style={cfInputStyle} value={tenantData.wifiPassword || ''} onChange={(e) => setTenantData((prev) => ({ ...prev, wifiPassword: e.target.value }))} placeholder="Leave empty if there isn’t one" autoComplete="off" /></Row>
+              </Section>
+              <Section title="Guest extras">
+                <Row label="Show the guest experience after check-in" help="Clients see the Wi-Fi, drinks and anything else you offer on their phone." inline><Toggle checked={(tenantData as any).guestExperienceEnabled === true} onChange={(v) => setTenantData((prev) => ({ ...prev, guestExperienceEnabled: v } as any))} label="Show the guest experience after check-in" /></Row>
+                <Row label="Offer drinks and refreshments" help="Clients can order from your refreshment menu while they wait." inline><Toggle checked={!!tenantData.refreshmentServiceEnabled} onChange={(v) => setTenantData((prev) => ({ ...prev, refreshmentServiceEnabled: v }))} label="Offer drinks and refreshments" /></Row>
+                {tenantData.refreshmentServiceEnabled && <Row label="Free items per visit" help="After this, extras are charged." inline>
+                  <input type="number" min={0} max={10} value={tenantData.complimentaryAmenityLimit || 0} onChange={(e) => setTenantData((prev) => ({ ...prev, complimentaryAmenityLimit: parseInt(e.target.value) || 0 }))} className={`${cfInput} w-20 text-center`} style={cfInputStyle} aria-label="Free items per visit" />
+                </Row>}
+              </Section>
             </TabsContent>
 
             {/* ── POLICIES ── */}
-            <TabsContent value="policies" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
-              <div className="flex justify-end mb-4">
-                {isEditing && (
-                  <Button variant="outline" size="sm" onClick={handleLoadStrategicTemplates} className="h-9 px-4 rounded-xl border-2 border-primary/20 bg-primary/5 text-primary font-black uppercase text-[10px] tracking-widest shadow-sm hover:bg-primary/10">
-                    <Sparkles className="w-3.5 h-3.5 mr-2" />Load Studio Best Practices
-                  </Button>
-                )}
-              </div>
-              {/* Booking rules moved to Booking policies — one place, no duplicates. */}
-              <Link href="/settings/policies" className="flex items-center justify-between gap-4 rounded-3xl border bg-card p-5 transition hover:bg-muted/40">
-                <span><span className="block font-semibold">Cancellations, no-shows, deposits, rescheduling and booking windows</span>
-                  <span className="block text-sm text-muted-foreground">Now all in Booking policies — with a preview of exactly what clients are told.</span></span>
-                <span className="shrink-0 text-sm font-semibold">Open →</span>
-              </Link>
-              <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                  <SectionHeader icon={ShieldCheck} title="Service recovery & outreach" />
-                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Define studio-wide defaults for late shifts and cancellations.</CardDescription>
-                </CardHeader>
-                <CardContent className="p-6 md:p-8 space-y-10 text-left">
-                  <div className="space-y-8">
-                    <div className="flex items-center gap-3 px-1"><ScaleIcon className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Missed payments</h3></div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                      <div className="space-y-4 p-6 rounded-[2.5rem] border-2 bg-primary/5 border-primary/10 shadow-inner">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Autonomous Comp Limit</Label>
-                        <div className="flex gap-3">
-                          <div className="relative flex-1"><DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" /><Input type="number" value={tenantData.maxAutonomousRecoveryAmount || ''} onChange={e => setTenantData(prev => ({ ...prev, maxAutonomousRecoveryAmount: parseFloat(e.target.value) || 0 }))} disabled={!isEditing} className="h-14 pl-12 rounded-2xl border-2 font-black text-xl shadow-inner bg-white" /></div>
-                          <div className="relative w-24"><Percent className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" /><Input type="number" value={tenantData.maxAutonomousRecoveryPercent || ''} onChange={e => setTenantData(prev => ({ ...prev, maxAutonomousRecoveryPercent: parseFloat(e.target.value) || 0 }))} disabled={!isEditing} className="h-14 pr-10 rounded-2xl border-2 font-black text-xl shadow-inner bg-white text-center" /></div>
-                        </div>
-                        <p className="text-[9px] font-bold text-slate-500 leading-relaxed uppercase tracking-tight">Max credit or discount staff can apply without manager authorization.</p>
-                      </div>
-                      <div className="space-y-4">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Standing Escalation Orders</Label>
-                        <Textarea value={tenantData.escalationPolicy || ''} onChange={e => setTenantData(prev => ({ ...prev, escalationPolicy: e.target.value }))} placeholder="e.g., Try the $25 Recovery Protocol first..." disabled={!isEditing} className="rounded-2xl border-2 bg-muted/5 min-h-[140px] font-medium" />
-                      </div>
-                    </div>
-                    <div className="space-y-6 pt-4 border-t border-dashed">
-                      <div className="flex items-center justify-between px-1">
-                        <div className="space-y-1">
-                          <h4 className="text-[10px] font-black uppercase tracking-widest text-primary">Tactical Recovery Presets</h4>
-                          <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">One-tap recovery options for the POS terminal.</p>
-                        </div>
-                        {isEditing && (
-                          <Button variant="ghost" size="sm" onClick={handleAddPreset} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
-                            <PlusCircle className="w-3 h-3 mr-1.5" /> Append Preset
-                          </Button>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <TabsContent value="policies" className="mt-0 space-y-10 text-left">
+              {(() => { const Num = ({ field, prefix, suffix, step = 1, width = 'w-24', int = false }: { field: string; prefix?: string; suffix?: string; step?: number; width?: string; int?: boolean }) => (
+                <span className="inline-flex items-center gap-2">{prefix && <span className="text-[14px] cf-muted">{prefix}</span>}<input type="number" inputMode="decimal" min={0} step={step} value={(tenantData as any)[field] ?? ''} placeholder="0"
+                  onChange={(e) => { const v = e.target.value === '' ? undefined : (int ? parseInt(e.target.value) : parseFloat(e.target.value)); setTenantData((prev) => ({ ...prev, [field]: Number.isFinite(v as any) ? v : 0 } as any)); }} className={`${cfInput} ${width} text-center`} style={cfInputStyle} />{suffix && <span className="text-[14px] cf-muted">{suffix}</span>}</span>);
+              const T = (field: string, label: string, help?: string, invert = false) => <Row key={field} label={label} help={help} inline><Toggle checked={invert ? (tenantData as any)[field] !== false : !!(tenantData as any)[field]} onChange={(v) => setTenantData((prev) => ({ ...prev, [field]: v } as any))} label={label} /></Row>;
+              return (<>
+              <Section title="When a client owes you" help="Missed fees, no-show charges and unpaid balances.">
+                {T('autoChargeArrears', 'Charge their card on file automatically', 'Only when the client has saved a card.')}
+                {(tenantData as any).autoChargeArrears && <Row label="When to charge" inline>
+                  <Choice label="When to charge" value={String((tenantData as any).arrearsGracePeriodHours ?? 0)} options={[{ value: '0', label: 'Right away' }, { value: '24', label: 'After a day' }, { value: '72', label: 'After 3 days' }, { value: '168', label: 'After a week' }]}
+                    onChange={(v) => setTenantData((prev) => ({ ...prev, arrearsGracePeriodHours: Number(v) } as any))} />
+                </Row>}
+                {T('retryFailedArrearsCharges', 'Try again if the charge fails', 'After 3, 7 and 14 days — change this under More options.')}
+                {T('allowGuestFeeDeferral', 'Let clients pay fees later', 'They can book again while a fee is still open.')}
+              </Section>
+              <Section title="Store credit">
+                {T('autoApplyStoreCredit', 'Use a client’s credit automatically at checkout', undefined, true)}
+                <Row label="Credit expires after" help="Leave at 0 to never expire." inline><Num field="storeCreditExpiryDays" suffix="days" int /></Row>
+              </Section>
+              <More help="Making things right, credit rules, chasing balances, booking rules, and rules for specific services.">
+                <Section title="Making things right" help="When a visit goes wrong — a late start, a fix that’s needed.">
+                  <Row label="Staff can give up to" help="A credit or discount, without asking a manager." inline>
+                    <span className="inline-flex items-center gap-2"><Num field="maxAutonomousRecoveryAmount" prefix="$" width="w-24" /><span className="text-[14px] cf-muted">or</span><Num field="maxAutonomousRecoveryPercent" suffix="%" width="w-20" /></span>
+                  </Row>
+                  <Row label="Instructions for staff" help="What to do when something goes wrong.">
+                    <textarea rows={4} value={tenantData.escalationPolicy || ''} onChange={(e) => setTenantData((prev) => ({ ...prev, escalationPolicy: e.target.value }))} className="w-full rounded-xl border p-3 text-[15px] outline-none focus:border-[var(--accent)]" style={cfInputStyle} placeholder="e.g. Apologise, offer a fix today, and tell a manager." />
+                  </Row>
+                  <Row label="Quick credits staff can pick">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {tenantData.recoveryPresets?.map(preset => (
                           <div key={preset.id} className="p-4 rounded-2xl border-2 bg-white shadow-sm flex flex-col gap-4 group">
                             <div className="flex items-center justify-between gap-4">
@@ -753,203 +686,34 @@ function SettingsPageImpl() {
                           </div>
                         ))}
                       </div>
-                    </div>
+                    <button type="button" onClick={handleAddPreset} className="mt-2 text-[14px] font-medium underline underline-offset-4">Add a quick credit</button>
+                  </Row>
+                </Section>
+                <Section title="Credit rules">
+                  <Row label="A manager approves credits over" inline><Num field="courtesyCreditApprovalThreshold" prefix="$" /></Row>
+                  {T('allowNegativeCredit', 'Let a client’s credit go below zero')}
+                </Section>
+                <Section title="Chasing unpaid balances">
+                  <Row label="Try again after" help="Days after a failed charge, separated by commas." inline>
+                    <input value={((tenantData as any).arrearsRetryScheduleDays || [3, 7, 14]).join(', ')} onChange={(e) => { const days = e.target.value.split(',').map((x) => parseInt(x.trim())).filter((n) => Number.isFinite(n) && n > 0).slice(0, 6); setTenantData((prev) => ({ ...prev, arrearsRetryScheduleDays: days } as any)); }} className={`${cfInput} w-36 text-center`} style={cfInputStyle} aria-label="Retry days" />
+                  </Row>
+                  <Row label="Ask a manager to review after" help="An unpaid balance this old gets flagged." inline><Num field="autoFlagWriteOffAfterDays" suffix="days" int /></Row>
+                </Section>
+                <Section title="Booking rules" help="How online booking fills your day.">
+                  {T('guardianProtocolEnabled', 'Ask for a deposit from clients who often cancel or don’t show')}
+                  {T('morningAnchorEnabled', 'Start an empty day at opening time', 'The first booking of a day with nothing booked starts when you open.')}
+                  {T('tightSchedulingEnabled', 'Book appointments back to back', 'Clients can only pick times right next to existing bookings.')}
+                  {T('flashYieldEnabled', 'Fill late cancellations quickly', 'A slot freed within 48 hours is open to everyone, even past your usual rules.')}
+                </Section>
+                <Section title="Rules for specific services" help="Override deposits and fees for a particular service.">
+                  <div className="px-5 py-4">
+                    <input placeholder="Search your services" value={serviceSearch} onChange={(e) => setServiceSearch(e.target.value)} className={cfInput} style={cfInputStyle} aria-label="Search services" />
+                    <div className="mt-4 grid grid-cols-1 gap-4">{filteredServices.map((service) => (
+                      <ServicePolicyCard key={service.id} service={service} tmhr={tenantData.tmhr || 50} inventory={inventory} isEditing={isEditing} localPolicy={servicePolicies[service.id]} onPolicyChange={(updates) => handlePolicyChange(service.id, updates)} />))}</div>
                   </div>
-                  <Separator className="border-dashed" />
-                  <div className="space-y-4">
-                    {[
-                      { id: 'guardianProtocolEnabled', color: 'primary', icon: ShieldCheck, label: 'Guardian Revenue Shield',     desc: 'Forced deposit enforcement for high-risk behavioral profiles' },
-                      { id: 'morningAnchorEnabled',    color: 'blue',    icon: Clock,       label: 'Morning Anchor Protocol',      desc: 'The first appointment of an empty day must start at business opening time' },
-                      { id: 'tightSchedulingEnabled',  color: 'primary', icon: Workflow,    label: 'Zero-Gap Adjacency Protocol',  desc: 'Force client bookings to be flush against existing blocks' },
-                      { id: 'flashYieldEnabled',       color: 'amber',   icon: Flame,       label: 'Flash Yield Protocol',         desc: 'Flag 48h cancellations as magnetic slots that bypass standard restrictions' },
-                    ].map(item => (
-                      <SettingRow key={item.id} icon={item.icon} color={item.color} title={item.label} description={item.desc}>
-                        <Switch checked={!!(tenantData as any)[item.id]} onCheckedChange={(val) => setTenantData(prev => ({ ...prev, [item.id]: val }))} disabled={!isEditing} className="scale-125 data-[state=checked]:bg-primary" />
-                      </SettingRow>
-                    ))}
-                  </div>
-                  <Separator className="border-dashed" />
-                  {/* Win-back texts and renter campaigns are messages — they live in Messages now. */}
-                  <Link href="/settings/messages#win-back" className="block rounded-2xl border p-4 text-sm hover:bg-muted/40">
-                    <b>Winning clients back · renter campaigns</b> — now in <span className="underline">Messages</span>, with your other automatic messages →
-                  </Link>
-                  <SettingRow icon={Zap} title="Let clients pay fees later" description="Allow guests to add rescheduling fees to their session bill">
-                    <Switch checked={!!tenantData.allowGuestFeeDeferral} onCheckedChange={(val) => setTenantData(prev => ({ ...prev, allowGuestFeeDeferral: val }))} disabled={!isEditing} className="scale-125 data-[state=checked]:bg-primary" />
-                  </SettingRow>
-                </CardContent>
-              </Card>
-
-
-              {/* ── CREDIT & RECOVERY LEDGER ── */}
-              <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                  <SectionHeader icon={Wallet} title="Store credit" />
-                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
-                    Controls every source of client credit — cancellation deposit conversions, service recovery, goodwill — through one ledger.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="p-6 md:p-8 space-y-8 text-left">
-                  <SettingRow icon={RefreshCw} color="green" title="Auto-Apply Store Credit" description="Automatically reduce a checkout total by the client's available credit before requesting any new payment.">
-                    <Switch
-                      checked={(tenantData as any).autoApplyStoreCredit !== false}
-                      onCheckedChange={(val) => setTenantData(prev => ({ ...prev, autoApplyStoreCredit: val } as any))}
-                      disabled={!isEditing}
-                      className="scale-125 data-[state=checked]:bg-green-600"
-                    />
-                  </SettingRow>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div className="space-y-3">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Credit Expiry (Days)</Label>
-                      <Input
-                        type="number"
-                        value={(tenantData as any).storeCreditExpiryDays ?? ''}
-                        onChange={e => setTenantData(prev => ({ ...prev, storeCreditExpiryDays: parseInt(e.target.value) || 0 } as any))}
-                        disabled={!isEditing}
-                        placeholder="0 = never expires"
-                        className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center"
-                      />
-                      <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 ml-1 leading-relaxed">Applies to all new credit issued — cancellations, goodwill, everything.</p>
-                    </div>
-                    <div className="space-y-3">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Manager Approval Threshold ($)</Label>
-                      <div className="relative">
-                        <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                        <Input
-                          type="number"
-                          value={(tenantData as any).courtesyCreditApprovalThreshold ?? ''}
-                          onChange={e => setTenantData(prev => ({ ...prev, courtesyCreditApprovalThreshold: parseFloat(e.target.value) || 0 } as any))}
-                          disabled={!isEditing}
-                          placeholder="0 = always require"
-                          className="h-14 pl-12 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5"
-                        />
-                      </div>
-                      <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 ml-1 leading-relaxed">Courtesy/goodwill credit above this amount requires the manager PIN already used in Issue Recovery.</p>
-                    </div>
-                  </div>
-                  <Separator className="border-dashed" />
-                  <SettingRow icon={ShieldAlert} color="amber" title="Allow Negative Credit Balances" description="Permit a client's credit total to go below zero (e.g. a voided redemption after the credit was already spent). Off is safer for most studios.">
-                    <Switch
-                      checked={!!(tenantData as any).allowNegativeCredit}
-                      onCheckedChange={(val) => setTenantData(prev => ({ ...prev, allowNegativeCredit: val } as any))}
-                      disabled={!isEditing}
-                      className="scale-125 data-[state=checked]:bg-amber-500"
-                    />
-                  </SettingRow>
-                  <div className="p-4 rounded-2xl border-2 border-dashed bg-primary/5 border-primary/20 flex items-start gap-3">
-                    <Sparkles className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                    <p className="text-[9px] font-bold text-primary uppercase tracking-widest leading-relaxed">
-                      Earned credit (deposit conversions) and courtesy credit (goodwill, service recovery) share this exact ledger — the same balance shown on a client's profile and at checkout, regardless of which screen issued it.
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* ── ACCOUNTS RECEIVABLE & ARREARS ── */}
-              <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                  <SectionHeader icon={Ban} title="Money owed to you" />
-                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
-                    Controls how unpaid balances get collected — and what happens when they don't.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="p-6 md:p-8 space-y-8 text-left">
-                  <SettingRow icon={CreditCard} color="primary" title="Auto-Charge Card on File" description="Automatically attempt to charge an outstanding balance instead of requiring staff to use 'Charge Card on File' manually in the client profile.">
-                    <Switch
-                      checked={!!(tenantData as any).autoChargeArrears}
-                      onCheckedChange={(val) => setTenantData(prev => ({ ...prev, autoChargeArrears: val } as any))}
-                      disabled={!isEditing}
-                      className="scale-125 data-[state=checked]:bg-primary"
-                    />
-                  </SettingRow>
-                  <AnimatePresence>
-                    {(tenantData as any).autoChargeArrears && (
-                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-6 overflow-hidden">
-                        <div className="space-y-3">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Grace Period Before First Attempt</Label>
-                          <Select
-                            value={String((tenantData as any).arrearsGracePeriodHours ?? 0)}
-                            onValueChange={(v: any) => setTenantData(prev => ({ ...prev, arrearsGracePeriodHours: Number(v) } as any))}
-                            disabled={!isEditing}
-                          >
-                            <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm"><SelectValue /></SelectTrigger>
-                            <SelectContent className="rounded-xl border-2 shadow-2xl">
-                              <SelectItem value="0"  className="font-bold uppercase text-[10px] tracking-widest">Immediately</SelectItem>
-                              <SelectItem value="24" className="font-bold uppercase text-[10px] tracking-widest">24 Hours</SelectItem>
-                              <SelectItem value="72" className="font-bold uppercase text-[10px] tracking-widest">72 Hours</SelectItem>
-                              <SelectItem value="168" className="font-bold uppercase text-[10px] tracking-widest">1 Week</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <SettingRow icon={RefreshCw} color="blue" title="Retry Failed Attempts" description="If the first auto-charge attempt fails, try again automatically rather than waiting for staff to notice.">
-                          <Switch
-                            checked={!!(tenantData as any).retryFailedArrearsCharges}
-                            onCheckedChange={(val) => setTenantData(prev => ({ ...prev, retryFailedArrearsCharges: val } as any))}
-                            disabled={!isEditing}
-                            className="scale-125 data-[state=checked]:bg-blue-600"
-                          />
-                        </SettingRow>
-                        {(tenantData as any).retryFailedArrearsCharges && (
-                          <div className="space-y-3">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Retry Schedule (Days After Failure)</Label>
-                            <Input
-                              value={((tenantData as any).arrearsRetryScheduleDays || [3, 7, 14]).join(', ')}
-                              onChange={e => {
-                                const days = e.target.value.split(',').map((s: string) => parseInt(s.trim())).filter((n: number) => !isNaN(n) && n > 0);
-                                setTenantData(prev => ({ ...prev, arrearsRetryScheduleDays: days } as any));
-                              }}
-                              disabled={!isEditing}
-                              placeholder="3, 7, 14"
-                              className="h-12 rounded-2xl border-2 font-black bg-muted/5"
-                            />
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 ml-1 leading-relaxed">Comma-separated days after the first failure. E.g. "3, 7, 14" retries 3 days later, then 7, then 14.</p>
-                          </div>
-                        )}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                  <Separator className="border-dashed" />
-                  <div className="space-y-3">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Flag for Manager Review After (Days)</Label>
-                    <Input
-                      type="number"
-                      value={(tenantData as any).autoFlagWriteOffAfterDays ?? ''}
-                      onChange={e => setTenantData(prev => ({ ...prev, autoFlagWriteOffAfterDays: parseInt(e.target.value) || 0 } as any))}
-                      disabled={!isEditing}
-                      placeholder="0 = manual review only"
-                      className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center max-w-xs"
-                    />
-                    <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 ml-1 leading-relaxed">
-                      This never writes anything off automatically — it only flags old balances so a manager can decide. Write-offs always require an explicit action in the client profile.
-                    </p>
-                  </div>
-                  <div className="p-4 rounded-2xl border-2 border-dashed bg-amber-50 border-amber-200 flex items-start gap-3">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                    <p className="text-[9px] font-bold text-amber-700 uppercase tracking-widest leading-relaxed">
-                      The Ledger's Bad Debt Aging widget reads directly from each client's unpaid fees — every fee added here (cancellation, no-show, manual) carries its own incurred date, so aging buckets stay accurate even as new charges land.
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Service-specific policies */}
-              <div className="space-y-8">
-                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 px-1">
-                  <div className="space-y-1">
-                    <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight text-slate-900 leading-none">Rules for specific services</h2>
-                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Custom logic guards per treatment unit.</p>
-                  </div>
-                  <div className="relative w-full md:w-64">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
-                    <Input placeholder="SEARCH MENU..." value={serviceSearch} onChange={e => setServiceSearch(e.target.value)} className="pl-9 h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest" />
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {filteredServices.map(service => (
-                    <ServicePolicyCard key={service.id} service={service} tmhr={tenantData.tmhr || 50} inventory={inventory} isEditing={isEditing} localPolicy={servicePolicies[service.id]} onPolicyChange={(updates) => handlePolicyChange(service.id, updates)} />
-                  ))}
-                </div>
-              </div>
-
+                </Section>
+              </More>
+              </>); })()}
             </TabsContent>
 
             {/* ── BUILDER ── */}
@@ -1063,7 +827,7 @@ const WHATS_HERE: Record<string, string> = {
   locations: 'Where you work — addresses clients see and use for directions.',
   hours: 'The days and times clients can book.',
   experience: 'What guests are offered while they’re with you — drinks, Wi-Fi and other comforts.',
-  policies: 'Money clients owe you: missed payments, credits, retries and when a manager steps in.',
+  policies: 'What happens when a client owes you money, and how store credit works.',
   payments: 'How clients pay you, and how money reaches your bank.',
   terminal: 'Your card reader for taking payments in person.',
   kiosk: 'The check-in kiosk clients use when they arrive.',
