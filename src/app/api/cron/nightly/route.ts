@@ -13,6 +13,7 @@
 //      Requests without it are rejected, so nobody can trigger a sync
 //      storm from outside.
 
+import { automationOn, noteAutomation } from '@/lib/automation-switches';
 import { recordCronRun } from '@/lib/cron-heartbeat';
 import { linkOrigin } from '@/lib/app-origin';
 import { NextRequest, NextResponse } from 'next/server';
@@ -934,6 +935,7 @@ export async function GET(req: NextRequest) {
         const dueSnap = await db.collection(`tenants/${tid}/rentInvoices`).where('status', '==', 'due').get();
         const soon = todayIn(tz, new Date(Date.now() + 3 * 86400000));
         for (const inv of dueSnap.docs) {
+          if (!automationOn(tDoc.data(), 'rent-due')) break;   // switched off in Automations
           const v = inv.data() as any;
           const due = String(v.dueDate || '').slice(0, 10);
           if (!due || due > soon || due < todayStr || v.renterDueNotifiedAt) continue;
@@ -945,7 +947,7 @@ export async function GET(req: NextRequest) {
           const sent = await sendTenantSms(db, tid, r.phone,
             `Heads up — rent of $${((v.amountCents || 0) / 100).toFixed(2)} is due ${due === todayStr ? 'today' : due}. Pay any time in your portal:${link ? ` ${link}` : ''}`,
             { email: r.email || null, subject: 'Rent due soon' });
-          if (sent.ok) { await inv.ref.set({ renterDueNotifiedAt: new Date().toISOString() }, { merge: true }); nudgeTotals.rentDue++; }
+          if (sent.ok) { await inv.ref.set({ renterDueNotifiedAt: new Date().toISOString() }, { merge: true }); nudgeTotals.rentDue++; await noteAutomation(db, tid, 'rent-due'); }
         }
       } catch { /* isolated */ }
 
@@ -955,6 +957,7 @@ export async function GET(req: NextRequest) {
         const renters = await db.collection(`tenants/${tid}/renters`).get();
         const cutoff = todayIn(tz, new Date(Date.now() + 14 * 86400000));
         for (const rDoc of renters.docs) {
+          if (!automationOn(tDoc.data(), 'renter-paperwork')) break;   // switched off in Automations
           const r = rDoc.data() as any;
           if (!r?.phone || r.status === 'former') continue;
           // Required-but-never-provided: one ask per 30 days, only when the
@@ -971,7 +974,7 @@ export async function GET(req: NextRequest) {
             const sent = await sendTenantSms(db, tid, r.phone,
               `We need a copy of your ${kind} on file to rent here. Add it in your portal (Insurance & licence) — expiry date plus a photo:${link ? ` ${link}` : ''}`,
               { email: r.email || null, subject: `Your ${kind} — we need a copy on file` });
-            if (sent.ok) { await rDoc.ref.set({ [stamp]: todayStr }, { merge: true }); nudgeTotals.credExpiry++; }
+            if (sent.ok) { await rDoc.ref.set({ [stamp]: todayStr }, { merge: true }); nudgeTotals.credExpiry++; await noteAutomation(db, tid, 'renter-paperwork'); }
           }
           for (const [field, label] of [['licenseExpiry', 'license'], ['insuranceExpiry', 'insurance']] as const) {
             const exp = String(r[field] || '').slice(0, 10);
@@ -982,7 +985,7 @@ export async function GET(req: NextRequest) {
             const sent = await sendTenantSms(db, tid, r.phone,
               `Your ${label} on file ${exp < todayStr ? 'expired' : 'expires'} ${exp}. Upload the renewed one in your portal (Insurance & licence):${link ? ` ${link}` : ''}`,
               { email: r.email || null, subject: `Your ${label} ${exp < todayStr ? 'expired' : 'expires soon'}` });
-            if (sent.ok) { await rDoc.ref.set({ [stampField]: exp }, { merge: true }); nudgeTotals.credExpiry++; }
+            if (sent.ok) { await rDoc.ref.set({ [stampField]: exp }, { merge: true }); nudgeTotals.credExpiry++; await noteAutomation(db, tid, 'renter-paperwork'); }
           }
         }
       } catch { /* isolated */ }
@@ -991,7 +994,7 @@ export async function GET(req: NextRequest) {
       try {
         const isMonday = new Date().getUTCDay() === 1;
         const lastDigest = String((tDoc.data() as any)?.lastTechDigestAt || '').slice(0, 10);
-        if (isMonday && lastDigest !== todayStr) {
+        if (isMonday && lastDigest !== todayStr && automationOn(tDoc.data(), 'weekly-digest')) {
           const [ws, ts] = await Promise.all([
             db.collection(`tenants/${tid}/maintenanceWorkers`).get(),
             db.collection(`tenants/${tid}/tickets`).get(),
@@ -1033,6 +1036,7 @@ export async function GET(req: NextRequest) {
   // a maybe, or a signature waiting to happen. The flag just makes sure the
   // question gets asked while the answer is still worth having.
   for (const tDoc of allTenantsSnap.docs) {
+    if (!automationOn(tDoc.data(), 'tour-followup')) continue;   // switched off in Automations
     try {
       const tz = tenantTimeZone(tDoc.data() as any);
       const todayLocal = todayIn(tz);
@@ -1060,7 +1064,7 @@ export async function GET(req: NextRequest) {
       const nowIso = new Date().toISOString();
       for (const x of stale) {
         await x.ref.set({ followUpFlaggedAt: nowIso, followUpNeeded: true }, { merge: true });
-        toursFlagged++;
+        toursFlagged++; void noteAutomation(db, tDoc.id, 'tour-followup');
       }
 
       // ONE notification for the batch. A row per tour would be the fastest
@@ -1320,6 +1324,7 @@ export async function GET(req: NextRequest) {
   // assigned worker. Isolated loop; ticket failures never touch money jobs.
   const slaTotals = { overdueFlagged: 0, techNudges: 0, responseFlagged: 0 };
   for (const tDoc of allTenantsSnap.docs) {
+    if (!automationOn(tDoc.data(), 'maintenance-overdue')) continue;   // switched off in Automations
     try {
       const tid = tDoc.id;
       const nowIso = new Date().toISOString();
@@ -1339,7 +1344,7 @@ export async function GET(req: NextRequest) {
         }
         if (!openish || !t.dueAt || t.dueAt >= nowIso || t.overdueNotifiedAt) continue;
         await d.ref.set({ overdueNotifiedAt: nowIso }, { merge: true });
-        slaTotals.overdueFlagged += 1;
+        slaTotals.overdueFlagged += 1; void noteAutomation(db, tDoc.id, 'maintenance-overdue');
         const nRef = db.collection(`tenants/${tid}/notifications`).doc();
         await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/maintenance',
           message: `Ticket OVERDUE: "${t.title}"${t.boothName ? ` (${t.boothName})` : ''} — ${t.priority} priority, due ${String(t.dueAt).slice(0, 16).replace('T', ' ')}${t.assigneeName ? `, assigned to ${t.assigneeName}` : ', UNASSIGNED'}.` });
