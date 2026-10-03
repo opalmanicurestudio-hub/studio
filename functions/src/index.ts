@@ -21,13 +21,15 @@ import * as admin from 'firebase-admin';
  *   rentCollector                        → /api/cron/autopay-leases (renter autopay OR lease auto-collect)
  *   plaidSync                            → /api/cron/nightly (bank feed)
  *   cleanupEvidence                      → /api/cron/cleanup-evidence
- * What remains below are change-driven jobs (something was created or updated), still to be moved into the app. */
+ *   onCancellationEvent                  → lib/cancellation-events (run by the cancel / no-show routes; swept every 5 min)
+ * Change-driven jobs already moved into the app (screens call /api/comms/dispatch after saving):
+ *   onApplicationCreate, onApplicantMessageCreate, onInterviewInviteUpdate, onDocumentPublish → /api/comms/dispatch
+ * What remains below is still to be moved into the app: phone notifications, and booth-guest / tour texts. */
 
 if (!admin.apps.length) {
   admin.initializeApp();
 }
 
-export { onCancellationEvent } from './onCancellationEvent';
 /* boothAutomation is NOT a Cloud Function. functions/src/boothAutomation.ts
  * is a stray copy of the React component that really lives at
  * src/components/shared/BoothAutomationSettings.tsx — it opens with
@@ -52,7 +54,3 @@ export { conciergeMessenger, tourMessenger } from './conciergeMessenger';
  * onAppointmentCreate stays unexported deliberately: the booking route
  * already sends its own confirmation, so enabling it would double-send. */
 export { onNotificationCreate } from './onNotificationCreate';
-export { onApplicantMessageCreate } from './onApplicantMessageCreate';
-export { onApplicationCreate } from './onApplicationCreate';
-export { onInterviewInviteUpdate } from './onInterviewInviteUpdate';
-export { onDocumentPublish } from './onDocumentPublish';
