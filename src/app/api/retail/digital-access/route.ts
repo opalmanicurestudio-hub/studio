@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAdminStorage } from '@/lib/firebase-admin';   // the NAMED app — getStorage() alone finds no default app
 import { getStorage } from 'firebase-admin/storage';
 import { digitalAccessEndsAt } from '@/lib/retail-orders';
 import { watermarkPdf, looksLikePdf } from '@/lib/pdf-watermark';
@@ -95,7 +96,7 @@ async function downloadFile(path: string, tenantBucket: string | null): Promise<
     if (name !== null && tried.has(name)) continue;
     if (name !== null) tried.add(name);
     try {
-      const bucket = name === null ? getStorage().bucket() : getStorage().bucket(name);
+      const bucket = name === null ? getAdminStorage().bucket() : getAdminStorage().bucket(name);
       const [buf] = await bucket.file(path).download();
       if (buf) return new Uint8Array(buf);
     } catch { /* next candidate */ }
