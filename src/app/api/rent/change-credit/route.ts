@@ -1,10 +1,14 @@
-// src/app/api/rent/change-credit/route.ts — "PUT THE CHANGE TOWARD THEIR NEXT RENT".
-// A renter paid rent in cash and doesn't want the change back: it stays in the till and becomes credit that comes
-// off their next rent invoice (never a tip). { tenantId, receiptId, renterId, cents }. Once per receipt.
+// src/app/api/rent/change-credit/route.ts — "PUT THE CHANGE TOWARD THEIR NEXT PAYMENT" (rent or tuition).
+// Someone paid an account in cash and doesn't want the change back: the cash stays in the till and is applied like any
+// other payment — rent pays off anything still owed first, then becomes credit off the next rent; tuition goes toward
+// the next instalment. Never a tip. Recorded in the books and the till. Once per sale.
+//   { tenantId, receiptId, cents, kind: 'rent', renterId } | { …, kind: 'tuition', planId }
 import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
+import { renterAccount, applyRentPayment } from '@/lib/rent-desk';
+import { tuitionAccount, applyTuitionPayment } from '@/lib/tuition-desk';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
@@ -16,13 +20,27 @@ export async function POST(req: NextRequest) {
   if (!receipt) return NextResponse.json({ ok: false, error: 'That sale wasn’t found.' }, { status: 404 });
   const changeCents = Math.round((Number(receipt.amountTendered) || 0) * 100 - Math.round(((Number(receipt.total) || 0) - (Number(receipt.depositUsed) || 0)) * 100));
   if (!(cents > 0) || cents > Math.max(changeCents, 0) + 1) return NextResponse.json({ ok: false, error: 'That’s more than the change due.' }, { status: 400 });
-  if (receipt.changeKeptAsRentCredit) return NextResponse.json({ ok: false, error: 'Already done for this sale.' }, { status: 409 });
-  const renterId = String(b.renterId || ''); if (!renterId || !(await db.doc(`${T}/renters/${renterId}`).get()).exists) return NextResponse.json({ ok: false, error: 'Renter not found.' }, { status: 404 });
-  const now = new Date().toISOString(); const batch = db.batch(); const c = db.collection(`${T}/rentLedger`).doc();
-  batch.set(c, { renterId, type: 'prepaid_credit', status: 'paid', amountCents: -cents, note: 'Change kept toward the next rent (cash at the front desk)', receiptId: rRef.id, createdAt: now, date: now, createdBy: auth.actor.name || null });
-  batch.set(rRef, { changeKeptAsRentCredit: { cents, creditId: c.id, at: now, by: auth.actor.name || null } }, { merge: true });
+  if (receipt.changeKeptAsRentCredit || receipt.changeKept) return NextResponse.json({ ok: false, error: 'Already done for this sale.' }, { status: 409 });
+  const now = new Date().toISOString(); const by = auth.actor.name || 'Front desk'; const tx = db.collection(`${T}/transactions`).doc();
+  let label = '';
+  if (b.kind === 'tuition') {
+    const acct: any = await tuitionAccount(db, tenantId, String(b.planId || '')); if (!acct) return NextResponse.json({ ok: false, error: 'Tuition plan not found.' }, { status: 404 });
+    if (cents > acct.balanceCents) return NextResponse.json({ ok: false, error: `That’s more than their remaining tuition (${(acct.balanceCents / 100).toFixed(2)}) — hand it back.` }, { status: 400 });
+    await applyTuitionPayment(db, tenantId, acct, { amountCents: cents, method: 'cash (change kept)', receiptId: rRef.id, by, apply: 'ahead' });
+    await tx.set({ id: tx.id, type: 'income', context: 'Business', category: 'Tuition', taxBucket: 'revenue', amount: cents / 100, date: now, createdAt: now, tenantId,
+      description: `Tuition — change kept toward the next instalment (${acct.name})`, clientOrVendor: acct.name, paymentMethod: 'cash', receiptId: rRef.id, hasReceipt: true });
+    label = 'tuition';
+  } else {
+    const renterId = String(b.renterId || ''); const acct: any = renterId ? await renterAccount(db, T, renterId) : null;
+    if (!acct) return NextResponse.json({ ok: false, error: 'Renter not found.' }, { status: 404 });
+    const batch = db.batch();
+    applyRentPayment(batch, db, T, acct, { amountCents: cents, method: 'cash (change kept)', receiptId: rRef.id, transactionId: tx.id, now, by });   // pays off anything still owed first, then credit
+    batch.set(tx, { id: tx.id, type: 'income', context: 'Business', category: 'Booth Rent', taxBucket: 'revenue', amount: cents / 100, date: now, createdAt: now, tenantId,
+      description: `Rent — change kept toward the next rent (${acct.name})`, clientOrVendor: acct.name, paymentMethod: 'cash', receiptId: rRef.id, hasReceipt: true });
+    await batch.commit(); label = 'rent';
+  }
+  await rRef.set({ changeKept: { cents, toward: label, transactionId: tx.id, at: now, by } }, { merge: true });
   // The cash stays in the till, so the till expects it.
-  if (receipt.tillId) batch.set(db.doc(`${T}/tillSessions/${receipt.tillId}`), { expectedCash: FieldValue.increment(cents / 100), totalCashSales: FieldValue.increment(cents / 100) }, { merge: true });
-  await batch.commit();
-  return NextResponse.json({ ok: true, cents });
+  if (receipt.tillId) await db.doc(`${T}/tillSessions/${receipt.tillId}`).set({ expectedCash: FieldValue.increment(cents / 100), totalCashSales: FieldValue.increment(cents / 100) }, { merge: true });
+  return NextResponse.json({ ok: true, cents, toward: label });
 }
