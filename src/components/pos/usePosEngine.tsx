@@ -613,8 +613,8 @@ export function usePosEngine() {
   }, []);
 
   /** Tuition at the desk: one tuition line for a student's plan (checked on the server). */
-  const addTuitionToCart = useCallback((x: { planId: string; name: string; program: string; amount: number }) => {
-    setRetailItems(prev => [...prev.filter((i: any) => !(i.type === 'tuition' && i.planId === x.planId)), { id: `tuition:${x.planId}`, planId: x.planId, name: `Tuition — ${x.name} · ${x.program}`, quantity: 1, price: x.amount, type: 'tuition' as any }]);
+  const addTuitionToCart = useCallback((x: { planId: string; name: string; program: string; amount: number; apply?: 'ahead' | 'paydown' }) => {
+    setRetailItems(prev => [...prev.filter((i: any) => !(i.type === 'tuition' && i.planId === x.planId)), { id: `tuition:${x.planId}`, planId: x.planId, name: `Tuition — ${x.name} · ${x.program}`, quantity: 1, price: x.amount, type: 'tuition' as any, tuitionApply: x.apply === 'paydown' ? 'paydown' : 'ahead' } as any]);
   }, []);
 
   const handleAddToCart = useCallback((item: any) => {
@@ -1105,7 +1105,7 @@ export function usePosEngine() {
   const buildCheckoutPayload = (paymentData?: any) => ({
     tenantId, clientId: checkoutClientId,
     appointmentIds: readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).map(a => a.appointment.id),
-    items: retailItems.map((it: any) => ({ id: it.id, type: it.type, quantity: it.quantity, price: it.price, name: it.name, reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, renterId: it.renterId || null, planId: it.planId || null })),
+    items: retailItems.map((it: any) => ({ id: it.id, type: it.type, quantity: it.quantity, price: it.price, name: it.name, reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, renterId: it.renterId || null, planId: it.planId || null, tuitionApply: (it as any).tuitionApply || null })),
     feeIds: Array.from(appliedAdjustments), discountCodes: appliedDiscountCodes, redeemedOffer: redeemedOffer || null, waivedAppointmentIds: Array.from(waivedAppointmentFees.keys()), waivers: Object.fromEntries(waivedAppointmentFees),   // who approved each waiver, and why
     // A tip chosen on the client screen together with the payment is recorded exactly (it goes to the provider(s) on the ticket).
     tipAllocations: paymentData?.tipOverride !== undefined ? {} : tipAllocations, tip: paymentData?.tipOverride !== undefined ? safeNumber(paymentData.tipOverride) : tipAmount, storeCredit: storeCreditApplied,
