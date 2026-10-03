@@ -14,7 +14,11 @@ const TEXT: Record<PushState, string> = {
 
 export function PushPrompt({ tenantId, tone = 'light' }: { tenantId: string; tone?: 'dark' | 'light' }) {
   const [state, setState] = React.useState<PushState | null>(null); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
-  React.useEffect(() => { setState(pushState()); }, []);
+  React.useEffect(() => {
+    setState(pushState());
+    // Pick up the latest notification helper straight away (rather than whenever the phone next checks).
+    try { navigator.serviceWorker?.getRegistration('/firebase-messaging-sw.js').then((r) => r?.update()).catch(() => null); } catch { /* fine */ }
+  }, []);
   const [test, setTest] = React.useState<{ ok: boolean; text: string } | null>(null);
   if (!state) return null;
   const dark = tone === 'dark';
