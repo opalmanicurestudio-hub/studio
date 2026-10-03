@@ -52,3 +52,16 @@ export function getAdminDb(): Firestore {
 export function getAdminAuth(): Auth {
   return getAuth(getAdminApp());
 }
+
+/** Push notifications and file storage must use the same NAMED app — with no argument, firebase-admin looks for a
+ *  default app that doesn't exist here and throws ("The default Firebase app does not exist"). */
+export function getAdminMessaging() {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { getMessaging } = require('firebase-admin/messaging');
+  return getMessaging(getAdminApp());
+}
+export function getAdminStorage() {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { getStorage } = require('firebase-admin/storage');
+  return getStorage(getAdminApp());
+}
