@@ -26,9 +26,6 @@ export async function GET(req: NextRequest) {
     // Cancellations still waiting to be finished (an interrupted call) — always, whatever the no-show switch says.
     try { const Stripe = (await import('stripe')).default; const { sweepPendingCancellations } = await import('@/lib/cancellation-events');
       await sweepPendingCancellations(db, new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2024-06-20' as any }), t.id); } catch { /* next run */ }
-    // Phones buzz for new app notifications (lib/push) — always, whatever the no-show switch says.
-    try { const { getMessaging } = await import('firebase-admin/messaging'); const { pushNewNotifications } = await import('@/lib/push'); const { linkOrigin } = await import('@/lib/app-origin');
-      await pushNewNotifications(db, getMessaging(), t.id, tenant, linkOrigin(tenant)); } catch { /* next run */ }
     if (!automationOn(tenant, 'no-show-check')) continue;   // switched off in Automations
     const windowMin = Number(tenant.noShowWindowMinutes ?? 15); const confirmMin = Number(tenant.noShowConfirmWindowMinutes ?? 10);
     try {
