@@ -3,7 +3,10 @@
 // `fcmTokens`). This used to be sent by a background function (onNotificationCreate) that was never deployed, so no
 // phone ever buzzed. Now the 5-minute no-shows job sends each new notification (last 20 minutes) to the recipient's
 // phones once — marked `pushedAt` so nothing buzzes twice. A notification for "owner" goes to everyone with the
-// owner role (the old function dropped those). Dead registrations are pruned so the list heals itself.
+// owner role (the old function dropped those); one for nobody in particular (e.g. Station Assist "anyone") goes to owners,
+// admins and managers. Dead registrations are pruned so the list heals itself.
+// SPEED: urgent ones are pushed the moment they're saved (`pushNow`, called by the walk-in, client-text, Station Assist
+// and running-late routes); everything else within a minute (/api/cron/push). Each is claimed once — never twice.
 // Needs NEXT_PUBLIC_FIREBASE_VAPID_KEY in Vercel for phones to register at all; without registered phones this
 // quietly does nothing and the in-app badge still works.
 import { FieldValue } from 'firebase-admin/firestore';
@@ -37,13 +40,15 @@ export async function pushNewNotifications(db: any, messaging: any, tenantId: st
   let sent = 0;
   for (const d of snap.docs) {
     const n: any = d.data() || {};
-    if (n.pushedAt || !n.userId || !n.message) continue;
+    if (n.pushedAt || !n.message) continue;
     // Claim it first — two runs can never send the same one twice.
     const mine = await db.runTransaction(async (tx: any) => { const cur: any = (await tx.get(d.ref)).data() || {}; if (cur.pushedAt) return false; tx.update(d.ref, { pushedAt: new Date().toISOString() }); return true; });
     if (!mine) continue;
     const people = n.userId === 'owner'
       ? (await db.collection(`${T}/staff`).where('role', '==', 'owner').get()).docs
-      : [await db.doc(`${T}/staff/${n.userId}`).get()].filter((s: any) => s.exists);
+      : !n.userId   // for nobody in particular → the people who run the floor
+        ? (await db.collection(`${T}/staff`).where('role', 'in', ['owner', 'admin', 'manager']).get()).docs
+        : [await db.doc(`${T}/staff/${n.userId}`).get()].filter((s: any) => s.exists);
     const outcome: string[] = [];
     if (!people.length) outcome.push('no staff record for this person');
     for (const p of people) {
@@ -63,4 +68,14 @@ export async function pushNewNotifications(db: any, messaging: any, tenantId: st
     await d.ref.update({ pushResult: outcome.join('; ') || 'nothing to send' }).catch(() => null);
   }
   return sent;
+}
+
+/** Push this business's brand-new notifications right now — called straight after an urgent one is saved. Never
+ *  throws (a push must never break the request that made it); anything it misses, the 1-minute job sends. */
+export async function pushNow(db: any, tenantId: string) {
+  try {
+    const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+    const { getMessaging } = await import('firebase-admin/messaging'); const { linkOrigin } = await import('@/lib/app-origin');
+    await pushNewNotifications(db, getMessaging(), tenantId, tenant, linkOrigin(tenant), 2 * 60000);
+  } catch { /* the 1-minute job will send it */ }
 }
