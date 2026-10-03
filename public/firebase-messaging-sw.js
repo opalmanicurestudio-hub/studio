@@ -1,49 +1,37 @@
-/* firebase-messaging-sw.js — v1
+/* firebase-messaging-sw.js — v2. Shows every phone notification the app sends.
  *
- * Service worker that receives pushes when the app tab is closed or in
- * the background. Must live in /public so it serves from the site root.
- *
- * ⚠️ FILL IN THE CONFIG: copy the SAME values your client app already
- * uses — they're the NEXT_PUBLIC_FIREBASE_* values in Vercel (or in
- * src/firebase/config). These are PUBLIC identifiers (they ship in every
- * page load already), so hardcoding them here is standard and safe.
+ * Firebase Cloud Messaging delivers standard Web Push messages; this handles them directly, so no Firebase settings
+ * are needed here (v1 needed config pasted in and never had it, so every push arrived and nothing was shown — and
+ * iPhone cancels the registration of a site whose pushes never show anything).
+ * Every push shows a notification — whether the app is open or closed. Tapping it opens the page it's about.
  */
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
-importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js');
-
-firebase.initializeApp({
-  apiKey: 'PASTE_NEXT_PUBLIC_FIREBASE_API_KEY',
-  authDomain: 'PASTE_NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN',
-  projectId: 'PASTE_NEXT_PUBLIC_FIREBASE_PROJECT_ID',
-  storageBucket: 'PASTE_NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET',
-  messagingSenderId: 'PASTE_NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID',
-  appId: 'PASTE_NEXT_PUBLIC_FIREBASE_APP_ID',
-});
-
-const messaging = firebase.messaging();
-
-// Background messages: the payload's notification block renders
-// automatically; this handler covers data-only messages and click-through.
-messaging.onBackgroundMessage((payload) => {
-  const title = payload?.notification?.title || 'ClarityFlow';
-  const body = payload?.notification?.body || '';
-  self.registration.showNotification(title, {
+self.addEventListener('push', (event) => {
+  let p = {};
+  try { p = event.data ? event.data.json() : {}; } catch (e) { p = { notification: { body: event.data ? event.data.text() : '' } }; }
+  // FCM wraps its fields a few different ways depending on the sender — accept them all.
+  const n = p.notification || (p.data && p.data.notification) || {};
+  const title = n.title || (p.data && p.data.title) || 'New notification';
+  const body = n.body || (p.data && p.data.body) || '';
+  const link = (p.fcmOptions && p.fcmOptions.link) || (p.webpush && p.webpush.fcmOptions && p.webpush.fcmOptions.link) || (p.data && p.data.link) || n.click_action || '/';
+  event.waitUntil(self.registration.showNotification(title, {
     body,
-    icon: '/icon-192.png',
-    data: { link: payload?.fcmOptions?.link || payload?.data?.link || '/' },
-  });
+    icon: n.icon || '/icon-192.png',
+    badge: '/icon-192.png',
+    tag: p.fcmMessageId || undefined,
+    data: { link },
+  }));
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const link = event.notification?.data?.link || '/';
+  const link = (event.notification && event.notification.data && event.notification.data.link) || '/';
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
-      for (const w of wins) {
-        if ('focus' in w) { w.navigate(link); return w.focus(); }
-      }
-      return clients.openWindow(link);
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
+      for (const w of wins) { if ('focus' in w) { try { w.navigate(link); } catch (e) {} return w.focus(); } }
+      return self.clients.openWindow(link);
     }),
   );
 });
