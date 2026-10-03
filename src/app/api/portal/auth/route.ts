@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
         const sd = s.data() as any;
         const priv = (await db.doc(`tenants/${tenantId}/staff/${s.id}/private/auth`).get()).data() as any;
         const idx0 = ((await db.doc(`tenants/${tenantId}/private/pinIndex`).get()).data() as any) || {};
-        const hasPin = !!sd.pin || !!sd.pinHash || !!priv?.pinHash || Object.values(idx0).includes(s.id);
+        const hasPin = sd.hasPin === true || !!sd.pin || !!sd.pinHash || !!priv?.pinHash || Object.values(idx0).includes(s.id);
         if (hasPin) return NextResponse.json({ ok: false, error: 'This team member has a PIN — enter it.' }, { status: 401 });
         const staff0 = safeStaff(s.id, sd);
         await logAuditAdmin(db, tenantId, {
@@ -111,27 +111,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, error: 'Too many attempts — locked for 15 minutes. Use Forgot PIN or ask a manager.' }, { status: 423 });
       }
 
-      // v79 — PIN lookup order:
-      //  1. pinIndex (tenants/{id}/private/pinIndex — server-only, written
-      //     by the migrate-pins action): hash → staffId, one doc read.
-      //  2. Legacy fallback for unmigrated tenants: plaintext/pinHash
-      //     queries on staff docs.
-      let hitId: string | null = null;
-      let hitData: any = null;
-      const idx = ((await db.doc(`tenants/${tenantId}/private/pinIndex`).get()).data() as any) || null;
-      if (idx && idx[sha256(pin)]) {
-        hitId = idx[sha256(pin)];
-        const s = await db.doc(`tenants/${tenantId}/staff/${hitId}`).get();
-        if (s.exists) hitData = s.data(); else hitId = null;
-      }
-      if (!hitId) {
-        const [byPin, byHash] = await Promise.all([
-          db.collection(`tenants/${tenantId}/staff`).where('pin', '==', pin).limit(1).get(),
-          db.collection(`tenants/${tenantId}/staff`).where('pinHash', '==', sha256(pin)).limit(1).get(),
-        ]);
-        const hit = !byPin.empty ? byPin.docs[0] : (!byHash.empty ? byHash.docs[0] : null);
-        if (hit) { hitId = hit.id; hitData = hit.data(); }
-      }
+      // One PIN library (lib/pin): strong store first; older stores recognised once and converted.
+      let hitId: string | null = null; let hitData: any = null;
+      { const { findStaffByPin } = await import('@/lib/pin'); const hit = await findStaffByPin(db, tenantId, pin); if (hit) { hitId = hit.id; hitData = hit.data; } }
       await recordAttempt(db, tenantId, !!hitId);
       if (!hitId) {
         return NextResponse.json({ ok: false, error: 'Incorrect PIN. Try again.' }, { status: 401 });
@@ -218,24 +200,9 @@ export async function POST(req: NextRequest) {
         await resetsRef.set({ [staffId]: { ...entry, attempts: (entry.attempts || 0) + 1 } }, { merge: true });
         return NextResponse.json({ ok: false, error: 'Wrong code. Check with your manager.' }, { status: 401 });
       }
-      // v79 — maintain all PIN stores consistently:
-      //  - private/pinIndex + staff/{id}/private/auth: the target state
-      //  - plaintext on the staff doc: kept ONLY until the tenant has run
-      //    migrate-pins with removePlaintext (pinsPrivate flag) — then
-      //    never written again.
-      const pinsPrivate = !!((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.pinsPrivate;
-      const oldHashEntries = ((await db.doc(`tenants/${tenantId}/private/pinIndex`).get()).data() as any) || {};
-      const cleaned: any = {};
-      for (const [h, sid] of Object.entries(oldHashEntries)) if (sid !== staffId) cleaned[h] = sid;
-      cleaned[sha256(newPin)] = staffId;
-      await db.doc(`tenants/${tenantId}/private/pinIndex`).set(cleaned);
-      await db.doc(`tenants/${tenantId}/staff/${staffId}/private/auth`).set(
-        { pinHash: sha256(newPin), updatedAt: new Date().toISOString() }, { merge: true });
-      await db.doc(`tenants/${tenantId}/staff/${staffId}`).set(
-        pinsPrivate
-          ? { pinUpdatedAt: new Date().toISOString() }
-          : { pin: newPin, pinHash: sha256(newPin), pinUpdatedAt: new Date().toISOString() },
-        { merge: true });
+      // Stored the one strong way (lib/pin); every older copy for this person is removed.
+      { const { setStaffPin } = await import('@/lib/pin'); const r = await setStaffPin(db, tenantId, staffId, newPin);
+        if (!r.ok) return NextResponse.json({ ok: false, error: r.error }, { status: 409 }); }
       await resetsRef.set({ [staffId]: null }, { merge: true });
       const sName = ((await db.doc(`tenants/${tenantId}/staff/${staffId}`).get()).data() as any)?.name || 'Team member';
       await logAuditAdmin(db, tenantId, {
@@ -260,7 +227,7 @@ export async function POST(req: NextRequest) {
           id: d.id, name: s.name || '', role: s.role || 'staff',
           avatarUrl: s.avatarUrl || null,
           isRenter: !!s.isRenter || s.role === 'renter',
-          hasPin: !!s.pin || !!s.pinHash || claimed.has(d.id),
+          hasPin: s.hasPin === true || !!s.pin || !!s.pinHash || claimed.has(d.id),
         };
       });
       return NextResponse.json({ ok: true, staff: roster });
@@ -276,22 +243,8 @@ export async function POST(req: NextRequest) {
       const { locked } = await checkRateLimit(db, tenantId);
       if (locked) return NextResponse.json({ ok: false, error: 'Too many attempts — locked for 15 minutes.' }, { status: 423 });
 
-      let hitId: string | null = null;
-      let hitData: any = null;
-      const idx = ((await db.doc(`tenants/${tenantId}/private/pinIndex`).get()).data() as any) || null;
-      if (idx && idx[sha256(pin)]) {
-        hitId = idx[sha256(pin)];
-        const s = await db.doc(`tenants/${tenantId}/staff/${hitId}`).get();
-        if (s.exists) hitData = s.data(); else hitId = null;
-      }
-      if (!hitId) {
-        const [byPin, byHash] = await Promise.all([
-          db.collection(`tenants/${tenantId}/staff`).where('pin', '==', pin).limit(1).get(),
-          db.collection(`tenants/${tenantId}/staff`).where('pinHash', '==', sha256(pin)).limit(1).get(),
-        ]);
-        const hit = !byPin.empty ? byPin.docs[0] : (!byHash.empty ? byHash.docs[0] : null);
-        if (hit) { hitId = hit.id; hitData = hit.data(); }
-      }
+      let hitId: string | null = null; let hitData: any = null;
+      { const { findStaffByPin } = await import('@/lib/pin'); const hit = await findStaffByPin(db, tenantId, pin); if (hit) { hitId = hit.id; hitData = hit.data; } }
       const role = hitData?.role;
       const isManager = !!hitId && (role === 'owner' || role === 'admin');
       await recordAttempt(db, tenantId, isManager);
@@ -308,41 +261,10 @@ export async function POST(req: NextRequest) {
     // .pinsPrivate=true so resets never write plaintext again. Run B only
     // after every PIN surface (kiosk, timeclock, floor) verifies via API.
     if (action === 'migrate-pins') {
-      const remove = body.removePlaintext === true;
-      if (remove) {
-        const secret = process.env.CRON_SECRET;
-        if (!secret || req.headers.get('authorization') !== `Bearer ${secret}`) {
-          return NextResponse.json({ ok: false, error: 'removePlaintext requires the CRON_SECRET bearer token.' }, { status: 401 });
-        }
-      }
-      const staffSnap = await db.collection(`tenants/${tenantId}/staff`).get();
-      const index: Record<string, string> = {};
-      let indexed = 0, cleaned = 0;
-      for (const d of staffSnap.docs) {
-        const s = d.data() as any;
-        const hash = s.pin ? sha256(String(s.pin)) : (s.pinHash || null);
-        if (!hash) continue;
-        index[hash] = d.id;
-        await db.doc(`tenants/${tenantId}/staff/${d.id}/private/auth`).set(
-          { pinHash: hash, updatedAt: new Date().toISOString() }, { merge: true });
-        indexed++;
-        if (remove && (s.pin || s.pinHash)) {
-          // v80 — strip BOTH: a sha256 of a 4-digit PIN on a client-readable
-          // doc is offline-brute-forceable in 10,000 tries. The hash lives
-          // only in private/auth + pinIndex now.
-          const { FieldValue } = await import('firebase-admin/firestore');
-          await d.ref.update({ pin: FieldValue.delete(), pinHash: FieldValue.delete() });
-          cleaned++;
-        }
-      }
-      await db.doc(`tenants/${tenantId}/private/pinIndex`).set(index);
-      if (remove) await db.doc(`tenants/${tenantId}`).set({ pinsPrivate: true }, { merge: true });
-      await logAuditAdmin(db, tenantId, {
-        action: 'portal.pins_migrated', targetType: 'staff',
-        summary: `PIN privacy migration: ${indexed} PIN${indexed === 1 ? '' : 's'} indexed server-side${remove ? `, ${cleaned} plaintext PINs removed from staff docs` : ' (plaintext kept — compatibility phase)'}`,
-        actor: { type: 'system', name: 'pin-migration' },
-      });
-      return NextResponse.json({ ok: true, indexed, plaintextRemoved: remove ? cleaned : 0 });
+      // Kept for older callers — now the one PIN library's conversion (no plain-text phase any more).
+      const { migrateTenantPins } = await import('@/lib/pin'); const r = await migrateTenantPins(db, tenantId);
+      await logAuditAdmin(db, tenantId, { action: 'portal.pins_migrated', targetType: 'staff', summary: `PINs secured: ${r.converted} converted, ${r.waiting} convert on next use`, actor: { type: 'system', name: 'pin-migration' } } as any);
+      return NextResponse.json({ ok: true, ...r });
     }
 
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
