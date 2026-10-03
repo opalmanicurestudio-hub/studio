@@ -1,5 +1,6 @@
 'use client';
 
+import { verifyPin } from '@/lib/pin-client';
 import React, {
   useState, useMemo, useEffect, useRef, Suspense, useCallback,
 } from 'react';
@@ -371,6 +372,7 @@ const AllergyPill = ({ allergy }: { allergy: any }) => {
 const PIN_KEYS = ['1','2','3','4','5','6','7','8','9','','0','⌫'];
 
 const PinLogin = ({ staff, onLogin }: { staff: Staff[]; onLogin: (m: Staff) => void }) => {
+  const { tenantId } = useParams() as { tenantId: string };
   const [pin, setPin]         = useState('');
   const [shake, setShake]     = useState(false);
   const [welcome, setWelcome] = useState<Staff | null>(null);
@@ -381,9 +383,12 @@ const PinLogin = ({ staff, onLogin }: { staff: Staff[]; onLogin: (m: Staff) => v
     const next = pin + key;
     setPin(next);
     if (next.length === 4) {
-      const found = staff.find(s => s.pin === next);
-      if (found) { setWelcome(found); setTimeout(() => onLogin(found), 500); }
-      else { setShake(true); setTimeout(() => { setShake(false); setPin(''); }, 600); }
+      // Checked on the server — this screen never sees PINs.
+      void verifyPin(tenantId, next).then((r) => {
+        const found = r.ok ? (staff.find((s) => s.id === r.staff.id) || ({ ...r.staff } as any)) : null;
+        if (found) { setWelcome(found); setTimeout(() => onLogin(found), 500); }
+        else { setShake(true); setTimeout(() => { setShake(false); setPin(''); }, 600); }
+      });
     }
   };
 
