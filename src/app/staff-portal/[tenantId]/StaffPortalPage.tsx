@@ -2690,16 +2690,9 @@ function PinEntry({ onSuccess, tenantId, firestore, notice }: any) {
       // Fallback: legacy client-side check, ONLY when the auth API is not
       // deployed (404). Any other failure surfaces instead of silently
       // creating an unauthenticated session that fails every upload later.
-      if (String(apiErr?.message) !== '__legacy__') {
-        setError('Couldn\u2019t reach the sign-in service. Check your connection and try again.');
-        setShake(true); setTimeout(() => { setShake(false); setPin(''); }, 600);
-      } else {
-        try {
-          const snap = await getDocs(query(collection(firestore, `tenants/${tenantId}/staff`), where('pin', '==', entered)));
-          if (!snap.empty) { onSuccess({ id: snap.docs[0].id, ...snap.docs[0].data() }); }
-          else { setError('Incorrect PIN. Try again.'); setShake(true); setTimeout(() => { setShake(false); setPin(''); }, 600); }
-        } catch { setError('Error. Try again.'); setPin(''); }
-      }
+      // PINs are only ever checked on the server — never searched from this device.
+      setError('Couldn\u2019t reach the sign-in service. Check your connection and try again.');
+      setShake(true); setTimeout(() => { setShake(false); setPin(''); }, 600);
     }
     finally { setChecking(false); }
   };
