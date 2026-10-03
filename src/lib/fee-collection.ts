@@ -28,7 +28,7 @@ const friendly = (e: any): { text: string; stop: boolean } => {
 
 /** When this fee is next due to be tried (or null if it shouldn't be). */
 export function nextTryAt(fee: any, firstAfterHours: number, now = Date.now()): number | null {
-  if (!fee || fee.collectGaveUp || !(Number(fee.feeAmount) > 0)) return null;
+  if (!fee || fee.collectGaveUp || fee.autoCollect === false || !(Number(fee.feeAmount) > 0)) return null;   // autoCollect:false = the owner chose to collect it in person
   const born = Date.parse(fee.appointmentDate || fee.createdAt || '');
   if (!Number.isFinite(born) || now - born > MAX_FEE_AGE_DAYS * DAY) return null;   // too old, or no date: yours to handle
   if (fee.nextCollectAt) return Date.parse(fee.nextCollectAt);
