@@ -4467,6 +4467,12 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { toast } = useToast();
   const router = useRouter();
   const [activeTab, setActiveTab]   = useState<'today'|'schedule'|'requests'|'earnings'|'inbox'|'messages'|'team'|'documents'|'rent'|'orders'>(staffMember.role === 'renter' ? 'rent' : 'today');
+  // Opened from a phone notification (?tab=…) → that tab. Only the portal's own tabs; anything else is ignored.
+  useEffect(() => {
+    try { const t = new URLSearchParams(window.location.search).get('tab') as any;
+      const allowed = staffMember.role === 'renter' ? ['rent', 'messages', 'inbox', 'documents'] : ['today', 'schedule', 'requests', 'earnings', 'inbox', 'messages', 'team', 'documents', 'orders'];
+      if (t && allowed.includes(t)) setActiveTab(t); } catch { /* fine */ }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [drawerApt, setDrawerApt]   = useState<any>(null);
   const [drawerSvc, setDrawerSvc]   = useState<any>(null);
@@ -4795,6 +4801,13 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     // or /clients link) just silently marked it read, despite the row
     // showing a "View →" indicator implying it was tappable. Falls
     // through to real navigation for anything else.
+    // Team members stay in their own portal (the same rule as phone notifications) — never an owner page.
+    if (n.link && !['owner', 'admin', 'manager'].includes(String(staffMember.role || '').toLowerCase())) {
+      const l = String(n.link);
+      const tab = /^\/(my-)?schedule\/requests/.test(l) ? 'requests' : /^\/(my-)?schedule/.test(l) ? 'schedule' : /^\/messages/.test(l) ? 'messages' : null;
+      if (tab) setActiveTab(tab as any);
+      return;
+    }
     if (n.link) {
       // v31 — re-assert PIN identity before leaving the portal, so a reply
       // sent from the admin-shell messages page still attributes to the
