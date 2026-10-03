@@ -1,5 +1,6 @@
 'use client';
 
+import { CancellationReview } from '@/components/settings/CancellationReview';
 import { moduleEnabled, MODULES, SETTINGS_TAB_MODULE } from '@/lib/modules';
 import { Section, Row, Toggle, Choice, More, cfInput, cfInputStyle, toPicker, fromPicker } from '@/components/settings/settings-ui';
 import { SettingsStyle } from '@/components/settings/settings-style';
@@ -646,6 +647,7 @@ function SettingsPageImpl() {
 
             {/* ── POLICIES ── */}
             <TabsContent value="policies" className="mt-0 space-y-10 text-left">
+              <CancellationReview firestore={firestore as any} tenantId={tenantId || ''} timezone={(selectedTenant as any)?.timezone} canDecide={['owner', 'admin', 'manager'].includes(String((role as any) || '').toLowerCase())} />
               {(() => { const Num = ({ field, prefix, suffix, step = 1, width = 'w-24', int = false }: { field: string; prefix?: string; suffix?: string; step?: number; width?: string; int?: boolean }) => (
                 <span className="inline-flex items-center gap-2">{prefix && <span className="text-[14px] cf-muted">{prefix}</span>}<input type="number" inputMode="decimal" min={0} step={step} value={(tenantData as any)[field] ?? ''} placeholder="0"
                   onChange={(e) => { const v = e.target.value === '' ? undefined : (int ? parseInt(e.target.value) : parseFloat(e.target.value)); setTenantData((prev) => ({ ...prev, [field]: Number.isFinite(v as any) ? v : 0 } as any)); }} className={`${cfInput} ${width} text-center`} style={cfInputStyle} />{suffix && <span className="text-[14px] cf-muted">{suffix}</span>}</span>);
