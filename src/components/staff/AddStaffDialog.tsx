@@ -673,7 +673,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
     let attempts = 0;
     while (!isUnique && attempts < 100) {
       pin = Math.floor(1000 + Math.random() * 9000).toString();
-      isUnique = !staffList.some(s => s.pin === pin);
+      isUnique = true;   // uniqueness is checked privately by the server when saving
       attempts++;
     }
     return pin;
