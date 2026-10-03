@@ -34,6 +34,8 @@ export function DeskFollowUp({ e, visit, accent, onClose }: { e: any; visit: any
   const [times, setTimes] = useState<Record<string, string[] | null>>({}); // `${staffId}|date` → times (null = loading)
   const [pick, setPick] = useState<{ date: string; time: string } | null>(null);
   const [dep, setDep] = useState<{ appointmentId: string; cents: number; when: Date; staffName?: string } | null>(null);
+  // The booking just made — Undo reverses it (no fee, no cancellation; a deposit goes back). Desk, 30 minutes.
+  const [bookedId, setBookedId] = useState<string | null>(null); const [undone, setUndone] = useState<string | null>(null);
   const [depBusy, setDepBusy] = useState(''); const [waiveWhy, setWaiveWhy] = useState(''); const [depErr, setDepErr] = useState('');
   const [otherDate, setOtherDate] = useState(''); const [month, setMonth] = useState(() => startOfMonth(addDays(new Date(), 14))); const [busy, setBusy] = useState(false); const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const presets = useMemo(() => WEEKS.map((w) => ({ w, d: addDays(base, w * 7) })), [visit?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -75,6 +77,7 @@ export function DeskFollowUp({ e, visit, accent, onClose }: { e: any; visit: any
         holdUntil: (() => { const x = new Date(); x.setHours(23, 59, 0, 0); return x.toISOString(); })() });
       if (!d.ok) { setMsg({ ok: false, text: d.error || 'That time was just taken — pick another.' }); setTimes((t) => { const n = { ...t }; delete n[`${staffId}|${pick.date}`]; return n; }); void load(pick.date); return; }
       if (d.status === 'pending_payment' && Number(d.depositCents) > 0) { setDep({ appointmentId: d.appointmentId, cents: Number(d.depositCents), when: start, staffName: d.staffName }); return; }
+      setBookedId(d.appointmentId || null); setUndone(null);
       setMsg({ ok: true, text: `Booked ${first} · ${format(start, 'EEE, MMM d · h:mm a')}${d.staffName ? ` with ${String(d.staffName).split(' ')[0]}` : ''}` });
     } finally { setBusy(false); }
   };
@@ -133,7 +136,21 @@ export function DeskFollowUp({ e, visit, accent, onClose }: { e: any; visit: any
   return (
     <Drawer accent={accent} open={!!visit} onClose={onClose} title={`Book ${first}’s next visit`}>
       {msg?.ok ? <div className="space-y-4 py-8 text-center"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full text-[28px]" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>✓</div>
-        <p className="text-[18px] font-semibold">{msg.text}</p><p className="text-[13px]" style={{ color: 'var(--muted)' }}>They’ll get the usual confirmation. It’s in the planner now.</p><Btn onClick={onClose}>Done</Btn></div> : (
+        <p className="text-[18px] font-semibold">{undone || msg.text}</p>{undone ? null : <p className="text-[13px]" style={{ color: 'var(--muted)' }}>They’ll get the usual confirmation. It’s in the planner now.</p>}
+        <Btn onClick={onClose}>Done</Btn>
+        {bookedId && !undone && <button type="button" disabled={busy} className="block w-full text-[14px] font-medium underline underline-offset-4 disabled:opacity-50" style={{ color: 'var(--muted)' }}
+          onClick={async () => {
+            if (!window.confirm('Undo this booking? It’s removed as if it never happened — no fee, and any deposit goes back.')) return;
+            setBusy(true);
+            try {
+              const r = await staffPost('/api/appointments/undo-booking', { tenantId: e.tenantId, appointmentId: bookedId });
+              if (!r.ok) { setUndone(null); setMsg({ ok: true, text: r.error || 'That couldn’t be undone.' }); return; }
+              e.setRetailItems?.((prev: any[]) => (prev || []).filter((i: any) => i.id !== `deposit-${bookedId}`));   // off today's bill
+              setUndone(`Undone — the booking is gone.${r.refundedCents ? ` $${(r.refundedCents / 100).toFixed(2)} deposit refunded.` : r.handBackCents ? ` Hand back $${(r.handBackCents / 100).toFixed(2)} cash.` : ''}`);
+              setBookedId(null);
+            } finally { setBusy(false); }
+          }}>Undo — booked by mistake</button>}
+        </div> : (
       <div className="space-y-3">
         <Card><p className="text-[12px]" style={{ color: 'var(--muted)' }}>Same as this visit</p>
           <p className="text-[16px] font-semibold">{[svc(visit.serviceId)?.name || visit.serviceName, ...((visit.addOnIds || []) as string[]).map((id) => svc(id)?.name)].filter(Boolean).join(' + ') || 'Their service'}</p>
