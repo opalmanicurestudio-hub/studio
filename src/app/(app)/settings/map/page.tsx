@@ -17,6 +17,7 @@
 // message — still links out, because a switch is a poor interface for a
 // decision that needs context.
 
+import { SettingsPage } from '@/components/settings/settings-ui';
 import { doc, updateDoc, type Firestore } from 'firebase/firestore';
 import { AlertTriangle, ArrowRight, Check, Loader } from 'lucide-react';
 import Link from 'next/link';
@@ -55,17 +56,8 @@ export default function SettingsSetupPage() {
   };
 
   return (
-    <div className="min-h-dvh bg-muted/5 pb-24">
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
-        <div className="max-w-3xl mx-auto px-4 py-4">
-          <h1 className="font-black uppercase tracking-tighter text-2xl leading-none">Quick settings</h1>
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-1">
-            How your studio runs, in plain words{isMgr ? '' : ' · view only'}
-          </p>
-        </div>
-      </header>
-
-      <main className="max-w-3xl mx-auto px-4 py-6 space-y-5">
+    <SettingsPage title="Quick settings" help={`The switches you change most, on one page. Each one changes the same setting as its own page.${isMgr ? '' : ' (View only.)'}`}>
+      <div className="space-y-6">
         {attention.length > 0 && (
           <Card className="border-2 border-amber-300 rounded-[2rem] bg-amber-50">
             <CardContent className="p-5 space-y-3">
@@ -188,7 +180,7 @@ export default function SettingsSetupPage() {
             </Card>
           );
         })}
-      </main>
-    </div>
+      </div>
+    </SettingsPage>
   );
 }
