@@ -91,7 +91,8 @@ export async function POST(req: NextRequest) {
     // Paid at the desk covers a balance collected with this deposit too.
     const bal = balanceDueWith(ap);
     if (bal > 0) await settleCollectedBalance(db, tenantId, appointmentId, bal, { paymentMethod: 'Paid at the desk', via: 'front desk', actorName: auth.actor.name });
-    return settle(cents, 'checkout');
+    // Which sale paid it, and how — so an undo can refund it through that payment.
+    return settle(cents, 'checkout', { depositReceiptId: b.receiptId ? String(b.receiptId) : null, depositPaidMethod: b.paidMethod ? String(b.paidMethod) : null });
   }
 
   if (action === 'charge') {
