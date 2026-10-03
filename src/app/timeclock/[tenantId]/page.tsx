@@ -179,7 +179,8 @@ export default function TimeClockPage() {
         member = (staff || []).find((s: any) => s.id === d.staff.id) || d.staff;
       }
     } catch {
-      member = (staff || []).find((s: any) => s.pin && s.pin === pin);
+      // PINs are only ever checked on the server — never compared on this device.
+      setIsProcessing(false); showError('No connection', 'Check the internet connection and try again.'); return;
     } finally {
       setIsProcessing(false);
     }
