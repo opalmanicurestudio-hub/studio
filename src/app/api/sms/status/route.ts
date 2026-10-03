@@ -82,7 +82,9 @@ export async function POST(req: NextRequest) {
     if (status === 'undelivered' || status === 'failed') {
       try {
         const log = ((await db.doc(`tenants/${tenantId}/messageLog/${logId}`).get()).data() as any) || {};
-        const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+        // One notice per text — the provider reports 'failed' AND 'undelivered' for the same text; the second just
+        // updates the first instead of making a duplicate.
+        const nRef = db.doc(`tenants/${tenantId}/notifications/sms-failed-${sid}`);
         await nRef.set({
           id: nRef.id, type: 'message', read: false, createdAt: at,
           link: '/planner',
