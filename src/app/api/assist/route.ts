@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
   const auth: any = await verifyStaffActor(req, tenantId);
   if (!auth?.ok) return NextResponse.json({ ok: false, error: 'Please sign in again.' }, { status: 401 });
   const me = auth.actor; const db = getAdminDb(); const T = `tenants/${tenantId}`; const now = new Date().toISOString();
-  const notify = async (patch: any) => { const n = db.collection(`${T}/notifications`).doc(); await n.set({ id: n.id, createdAt: now, read: false, resolved: false, link: '/pos', ...patch }); };
+  const notify = async (patch: any) => { const n = db.collection(`${T}/notifications`).doc(); await n.set({ id: n.id, createdAt: now, read: false, resolved: false, link: '/pos', ...patch });  await (await import('@/lib/push')).pushNow(db, tenantId); };
 
   if (b.action === 'create') {
     const urgency: AssistUrgency = ['now', 'soon', 'by'].includes(b.urgency) ? b.urgency : 'soon';
