@@ -68,6 +68,9 @@ export type Staff = {
   email: string;
   phone?: string;
   role: 'admin' | 'manager' | 'staff' | 'owner';
+  /** Has a PIN set (the PIN itself is kept on the server only — see lib/pin). */
+  hasPin?: boolean;
+  pinUpdatedAt?: string;
   pricingTierId?: string;
   avatarUrl: string;
   payStructure: 'commission' | 'hourly' | 'salary' | 'hourly_plus_commission';
