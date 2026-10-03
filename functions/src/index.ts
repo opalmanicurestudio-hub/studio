@@ -22,9 +22,10 @@ import * as admin from 'firebase-admin';
  *   plaidSync                            → /api/cron/nightly (bank feed)
  *   cleanupEvidence                      → /api/cron/cleanup-evidence
  *   onCancellationEvent                  → lib/cancellation-events (run by the cancel / no-show routes; swept every 5 min)
+ *   onNotificationCreate                 → lib/push (phones buzz; sent by the 5-minute no-shows job)
  * Change-driven jobs already moved into the app (screens call /api/comms/dispatch after saving):
  *   onApplicationCreate, onApplicantMessageCreate, onInterviewInviteUpdate, onDocumentPublish → /api/comms/dispatch
- * What remains below is still to be moved into the app: phone notifications, and booth-guest / tour texts. */
+ * What remains below is still to be moved into the app: booth-guest and tour texts. */
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -53,4 +54,3 @@ export { conciergeMessenger, tourMessenger } from './conciergeMessenger';
  *
  * onAppointmentCreate stays unexported deliberately: the booking route
  * already sends its own confirmation, so enabling it would double-send. */
-export { onNotificationCreate } from './onNotificationCreate';
