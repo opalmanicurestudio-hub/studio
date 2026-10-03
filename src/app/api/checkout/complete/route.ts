@@ -194,6 +194,12 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   const redeemedOffer = b.redeemedOffer && b.redeemedOffer.id ? { type: String(b.redeemedOffer.type), id: String(b.redeemedOffer.id), itemId: b.redeemedOffer.itemId ? String(b.redeemedOffer.itemId) : undefined } : null;
   const waivedIds: string[] = Array.isArray(b.waivedAppointmentIds) ? b.waivedAppointmentIds.map(String) : [];
   const tipAllocations: Record<string, number> = b.tipAllocations && typeof b.tipAllocations === 'object' ? b.tipAllocations : {};
+  // WHO EARNS EACH LINE. Retail: the seller (chosen at the till, else whoever rang it up) — for retail commission.
+  // A renter's visit (and a tip for a renter) is THEIR money: recorded as collected for them, never studio revenue,
+  // and owed to them in their Books until the owner settles it (rule: renters' money is kept separate).
+  const soldBy: string | null = b.soldBy && staff.some((s: any) => s.id === String(b.soldBy)) ? String(b.soldBy) : (auth.actor.uid || null);
+  const renterOf = (sid: string) => { const s = staff.find((x: any) => x.id === sid); return s?.isRenter === true ? s : null; };
+  const deskCollected: { renterId: string; staffId: string; cents: number; kind: 'service' | 'tip'; appointmentId: string | null; clientName?: string; serviceName?: string }[] = [];
   const tip = Math.max(0, num(b.tip)) + (typeof splitTips === 'number' ? splitTips : 0);   // + tips added on split shares
   // Moments (birthday / first visit / milestone) — worked out here from the client's own record and visit count.
   const doneBefore = (await db.collection(`${T}/appointments`).where('clientId', '==', clientId).get()).docs.filter((d: any) => (d.data() as any).status === 'completed' && !apptIds.includes(d.id)).length;
@@ -262,12 +268,15 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     const had = whoHad(v); const forHad = { clientId: had.id, clientOrVendor: had.name || 'Client' };   // the visit is theirs; the payer is on every line
     const before = totalLtvIncrease;
     add(vc.mainPrice);
-    txn({ ...forHad, description: vc.mainRedeemed ? `Redemption: ${v.service.name}` : `Service: ${v.service.name}`, type: 'income', context: 'Business', category: 'Service Revenue', taxBucket: 'revenue', amount: vc.mainPrice, paymentMethod: method, staffId: vc.mainStaffId, appointmentId: a.id, hasReceipt: true });
+    const rStaff = vc.renter ? staff.find((s: any) => s.id === vc.renterStaffId) : null;
+    const asRenter = vc.renter ? { category: 'Collected for renter', taxBucket: 'pass_through', renterId: String(rStaff?.renterId || a.renterId || '') || null, renterStaffId: vc.renterStaffId } : {};
+    const tookOver = (sid: string) => (a.staffId && sid && sid !== a.staffId ? { bookedWithStaffId: a.staffId } : {});   // someone else stepped in
+    txn({ ...forHad, description: vc.mainRedeemed ? `Redemption: ${v.service.name}` : `Service: ${vc.renter && a.renterServiceName ? a.renterServiceName : v.service.name}`, type: 'income', context: 'Business', category: 'Service Revenue', taxBucket: 'revenue', amount: vc.mainPrice, paymentMethod: method, staffId: vc.mainStaffId, appointmentId: a.id, hasReceipt: true, ...asRenter, ...tookOver(vc.mainStaffId) });
     if (vc.mainRedeemed) { const cost = computeServiceCost(v.service, a, mainStaff, inventory, tmhr); if (cost.total > 0) txn({ description: `Redemption Cost: ${v.service.name}`, type: 'expense', context: 'Business', category: 'Comp & Redemption Cost', taxBucket: 'operating_cost', amount: cost.total, paymentMethod: 'Internal', staffId: vc.mainStaffId, appointmentId: a.id, hasReceipt: false, notes: `Materials $${cost.materials.toFixed(2)} · Overhead $${cost.overhead.toFixed(2)} · Labor $${cost.labor.toFixed(2)}` }); }
     for (const ad of vc.addOns) {
       if (ad.redeemed) { const cost = computeServiceCost(ad.addon, a, staff.find((s: any) => s.id === ad.staffId), inventory, tmhr); if (cost.total > 0) txn({ description: `Redemption Cost: ${ad.addon.name}`, type: 'expense', context: 'Business', category: 'Comp & Redemption Cost', taxBucket: 'operating_cost', amount: cost.total, paymentMethod: 'Internal', staffId: ad.staffId, appointmentId: a.id, hasReceipt: false }); }
       add(ad.price);
-      txn({ ...forHad, description: `${ad.redeemed ? 'Redemption' : 'Add-on'}: ${ad.addon.name}`, type: 'income', context: 'Business', category: 'Service Revenue', taxBucket: 'revenue', amount: ad.price, paymentMethod: method, staffId: ad.staffId, appointmentId: a.id, hasReceipt: true });
+      txn({ ...forHad, description: `${ad.redeemed ? 'Redemption' : 'Add-on'}: ${ad.addon.name}`, type: 'income', context: 'Business', category: 'Service Revenue', taxBucket: 'revenue', amount: ad.price, paymentMethod: method, staffId: ad.staffId, appointmentId: a.id, hasReceipt: true, ...asRenter, ...tookOver(ad.staffId) });
     }
     const fee = (amount: number, description: string, category: string) => { if (amount > 0) { add(amount); txn({ ...forHad, description, type: 'income', context: 'Business', category, taxBucket: 'adjustment', amount, paymentMethod: method, staffId: vc.mainStaffId, appointmentId: a.id, hasReceipt: false }); } };
     fee(vc.rescheduleFee, `Reschedule Recovery: ${v.service.name}`, 'Protocol Recovery');
@@ -276,6 +285,8 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     fee(vc.additionalCharge, 'Strategic Adjustment Fee', 'Adjustment Fee');
     for (const r of vc.refreshments) { const amt = r.price * r.qty; if (amt > 0) { add(amt); txn({ ...forHad, description: `Concierge: ${r.name} (x${r.qty})`, type: 'income', context: 'Business', category: 'Hospitality Revenue', taxBucket: 'revenue', amount: amt, paymentMethod: method, appointmentId: a.id, hasReceipt: false }); } }
     credit(had.id, totalLtvIncrease - before);   // the visit's value counts for the person who had it
+    if (vc.renter) { const cents = Math.round((vc.mainPrice + vc.addOns.reduce((t: number, x: any) => t + x.price, 0)) * 100);
+      if (cents > 0) deskCollected.push({ renterId: String((asRenter as any).renterId || ''), staffId: String(vc.renterStaffId || ''), cents, kind: 'service', appointmentId: a.id, clientName: had.name || 'Client', serviceName: a.renterServiceName || v.service?.name || 'Service' }); }
     const revenue = vc.mainPrice + vc.addOns.reduce((s: number, x: any) => s + x.price, 0);
     const waiver = vc.waived ? { authorizerId: b.waivers?.[a.id]?.authorizerId, reason: approvedWaivers[a.id]?.reason || b.waivers?.[a.id]?.reason, verifiedBy: approvedWaivers[a.id]?.by } : null;   // who approved (verified above), and why
     batch.set(db.doc(`${T}/appointments/${a.id}`), clean({ status: 'completed', stage: 'complete', timeline: [...(Array.isArray(a.timeline) ? a.timeline : []), { at: now, kind: 'stage', stage: 'complete', text: `Paid — ${method === 'split' ? 'split between payments' : method.replace(/_/g, ' ')}`, by: auth.actor.name || 'Staff', via: 'checkout' }].slice(-60), statusBeforeCheckout: a.status || 'checked_in', revenue, actualEndTime: now, checkoutSessionId, checkedOutAt: now, checkedOutBy: auth.actor.name,
@@ -292,7 +303,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     const value = it.price * it.quantity;
     const category = it.type === 'deposit' ? 'Retainers' : it.type === 'service' ? 'Service Revenue' : it.type === 'membership' ? 'Membership Sales' : it.type === 'package' ? 'Package Sales' : it.type === 'rental' ? 'Space Rental' : it.type === 'rent' ? 'Booth Rent' : it.type === 'tuition' ? 'Tuition' : 'Retail';
     const description = it.type === 'deposit' ? `Deposit: ${it.name}` : it.type === 'service' ? `Service (POS): ${it.quantity}x ${it.name}` : it.type === 'membership' ? `Membership: ${it.name}` : it.type === 'package' ? `Package: ${it.name}` : it.type === 'rental' ? `Space rental: ${it.name}` : it.type === 'rent' ? `Booth rent: ${it.name}` : it.type === 'tuition' ? `Tuition: ${it.name}` : `Retail Product: ${it.quantity}x ${it.name}`;
-    txn({ description, type: 'income', context: 'Business', category, amount: value, paymentMethod: method, hasReceipt: true, itemId: it.id, itemType: it.type, quantity: it.quantity });
+    txn({ description, type: 'income', context: 'Business', category, amount: value, paymentMethod: method, hasReceipt: true, itemId: it.id, itemType: it.type, quantity: it.quantity, ...(it.type === 'product' && soldBy ? { staffId: soldBy, soldBy } : {}) });
     if (it.type === 'product') {
       batch.set(db.doc(`${T}/inventory/${it.id}`), { totalStock: FieldValue.increment(-it.quantity) }, { merge: true });
       const sc = db.collection(`${T}/stockCorrections`).doc();
@@ -347,7 +358,8 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   if (tip > 0 && !Object.keys(alloc).length) alloc[visits[0] ? calc.visits[0].mainStaffId : (auth.actor.uid || 'unassigned')] = tip;
   else if (split && splitTips > 0) { const k = visits[0] ? calc.visits[0].mainStaffId : (auth.actor.uid || 'unassigned'); alloc[k] = num(alloc[k]) + splitTips; }   // tips added on split shares
   for (const [sid, amount] of Object.entries(alloc)) { const amt = num(amount); if (amt <= 0) continue;
-    txn({ description: sid === '__school' ? 'Gratuity — school (student salon)' : 'Gratuity', type: 'income', context: 'Business', category: 'Tips', taxBucket: 'gratuity', amount: amt, paymentMethod: method, staffId: sid, hasReceipt: true });
+    const rt = renterOf(sid); if (rt) deskCollected.push({ renterId: String(rt.renterId || ''), staffId: sid, cents: Math.round(amt * 100), kind: 'tip', appointmentId: apptIds[0] || null });
+    txn({ description: sid === '__school' ? 'Gratuity — school (student salon)' : 'Gratuity', type: 'income', context: 'Business', category: rt ? 'Tips collected for renter' : 'Tips', taxBucket: rt ? 'pass_through' : 'gratuity', ...(rt ? { renterId: rt.renterId || null, renterStaffId: sid } : {}), amount: amt, paymentMethod: method, staffId: sid, hasReceipt: true });
     if (method === 'cash') { cashTipsTotal += amt; cashTipsByStaff[sid] = FieldValue.increment(amt); cashTipsPlain[sid] = (cashTipsPlain[sid] || 0) + amt; } }
   if (calc.codeDiscount > 0) txn({ description: 'Promotion Applied', clientOrVendor: 'Internal', type: 'expense', context: 'Business', category: 'Discounts', taxBucket: 'adjustment', amount: calc.codeDiscount, paymentMethod: 'Internal', hasReceipt: false });
   if (calc.momentDiscount > 0 && calc.moment) txn({ description: `${calc.moment.label} — ${client.name || 'client'}`, type: 'expense', context: 'Business', category: 'Discounts', taxBucket: 'adjustment', amount: calc.momentDiscount, paymentMethod: 'Internal', hasReceipt: false, discountKind: 'moment', momentKey: calc.moment.key });
@@ -378,6 +390,10 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   const cashSalesAmt = Math.max(0, Math.round((cashIn - cashTipsTotal) * 100) / 100);
   void cashDepositOffset;
   if ((method === 'cash' || (split && cashIn > 0)) && b.tillId) batch.set(db.doc(`${T}/tillSessions/${String(b.tillId)}`), { expectedCash: FieldValue.increment(cashIn), totalCashSales: FieldValue.increment(cashSalesAmt), totalCashTips: FieldValue.increment(cashTipsTotal), ...(Object.keys(cashTipsByStaff).length ? { cashTipsByStaff } : {}) }, { merge: true });   // nested, so each provider's cash tips really add up
+  // What the desk collected for renters → their Books, owed to them until the owner settles it (never auto-netted).
+  for (const d of deskCollected) { if (!d.renterId || d.cents <= 0) continue; const ref = db.collection(`${T}/rentLedger`).doc();
+    batch.set(ref, clean({ id: ref.id, renterId: d.renterId, staffId: d.staffId, type: 'desk_collected', kind: d.kind, amountCents: d.cents, status: 'owed', appointmentId: d.appointmentId, receiptId: receiptRef.id,
+      note: d.kind === 'tip' ? 'Tip collected at the front desk' : `Collected at the front desk — ${d.serviceName || 'service'} for ${d.clientName || 'a client'}`, date: now, createdAt: now, collectedBy: auth.actor.name || null })); }
   // The receipt.
   const tendered = num(pay.amountTendered);
   batch.set(receiptRef, clean({ id: receiptRef.id, viewKey: `${rid()}${rid()}`, checkoutSessionId, clientId, clientName: client.name || 'Guest', tenantId, date: now, paymentMethod: method, amountTendered: tendered, change: Math.max(0, tendered - calc.total),
