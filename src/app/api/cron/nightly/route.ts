@@ -330,7 +330,7 @@ export async function GET(req: NextRequest) {
         try {
           const credSnap = await db.collection(`tenants/${tDoc.id}/rentLedger`).where('renterId', '==', lease.renterId).get();
           const creds = credSnap.docs.map((d) => ({ ref: d.ref, ...(d.data() as any) }))
-            .filter((c: any) => ['rent_abatement', 'leave_credit', 'sublet_credit'].includes(String(c.type || '')))
+            .filter((c: any) => ['rent_abatement', 'leave_credit', 'sublet_credit', 'desk_offset'].includes(String(c.type || '')))
             .map((c: any) => ({ ...c, remaining: Math.abs(Number(c.amountCents) || 0) - (Number(c.appliedCents) || 0) }))
             .filter((c: any) => c.remaining > 0)
             .sort((a: any, b: any) => String(a.date || a.createdAt || '').localeCompare(String(b.date || b.createdAt || '')));
@@ -340,7 +340,7 @@ export async function GET(req: NextRequest) {
             const take = Math.min(c.remaining, due);
             due -= take; creditApplied += take;
             batch.set(c.ref, { appliedCents: (Number(c.appliedCents) || 0) + take, lastAppliedInvoiceId: ref.id, lastAppliedAt: nowIso }, { merge: true });
-            creditLines.push(`${String(c.type).replace('_', ' ')} $${(take / 100).toFixed(2)}`);
+            creditLines.push(`${c.type === 'desk_offset' ? 'front-desk collections' : String(c.type).replace('_', ' ')} $${(take / 100).toFixed(2)}`);
           }
           if (creditApplied > 0) {
             (inv as any).grossCents = inv.amountCents;
