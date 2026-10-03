@@ -1229,6 +1229,20 @@ export function MyBooks({ tenantId, token }: { tenantId: string; token: string }
             </div>
           )}
           <p className="text-[10px] font-bold text-slate-500">Earned = {led.visits.length} completed visit{led.visits.length === 1 ? '' : 's'} at your prices ({$(led.totals.servicesCents)}) + {led.packages.length} package sale{led.packages.length === 1 ? '' : 's'} ({$(led.totals.packagesCents)}). Package-covered visits count $0 on the day — the money came in when the package sold. Tips paid to you directly aren&apos;t tracked here.</p>
+          {Array.isArray(led.desk) && led.desk.length > 0 && (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 space-y-2">
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="text-[12px] font-bold text-amber-900">Collected for you at the front desk</p>
+                <p className="text-[12px] font-bold text-amber-900">{$(led.totals.deskCollectedCents || 0)}</p>
+              </div>
+              <p className="text-[11px] text-amber-800">{(led.totals.deskOwedCents || 0) > 0 ? `${$(led.totals.deskOwedCents)} is owed to you — the studio pays it out or takes it off your rent.` : 'All settled.'}</p>
+              {led.desk.map((r: any) => (
+                <div key={r.id} className="flex items-baseline justify-between gap-2 text-[11px] text-amber-900">
+                  <span className="min-w-0 truncate">{r.date} · {r.note}</span>
+                  <span className="shrink-0">{$(r.cents)}{r.status === 'settled' ? ` · ${r.settledHow === 'rent' ? 'taken off rent' : 'paid'}` : ' · owed'}</span>
+                </div>))}
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Expenses</p>
             <button type="button" onClick={() => setExp({ date: new Date().toISOString().slice(0, 10), amount: '', category: 'Supplies', note: '' })} className="h-8 rounded-lg bg-slate-900 px-3 text-[9px] font-black uppercase tracking-widest text-white">+ Add</button>
