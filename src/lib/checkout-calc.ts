@@ -21,17 +21,22 @@ export interface CalcInput {
   momentReward?: { pct: number; label: string; key: string } | null;   // birthday / milestone treat (lib/moments)
 }
 export interface VisitCalc { appointmentId: string; mainStaffId: string; mainPrice: number; mainRedeemed: boolean; addOns: { addon: any; staffId: string; price: number; redeemed: boolean }[];
-  rescheduleFee: number; timeOverage: number; materialOverage: number; additionalCharge: number; refreshments: { name: string; qty: number; price: number }[]; waived: boolean }
+  rescheduleFee: number; timeOverage: number; materialOverage: number; additionalCharge: number; refreshments: { name: string; qty: number; price: number }[]; waived: boolean;
+  /** A renter's visit: THEIR sale — their price, no studio tax, no studio discounts (the desk only collects it). */
+  renter: boolean; renterStaffId: string | null }
 
 export function computeCheckout(i: CalcInput) {
   const staffById = (id: string) => (i.staff || []).find((s: any) => s.id === id);
   const visits: VisitCalc[] = [];
-  let servicesSub = 0, taxableServices = 0;
+  let servicesSub = 0, taxableServices = 0, renterSub = 0;
   for (const v of i.visits) {
     const a = v.appointment || {}; const cs = a.checkoutState || {}; const overrides = cs.serviceStaffOverrides || {};
     const mainStaffId = overrides[v.service?.id] || a.staffId;
     const mainRedeemed = i.redeemedOffer?.itemId === v.service?.id;
-    const mainPrice = mainRedeemed ? 0 : num(getServicePrice(v.service, staffById(mainStaffId)));
+    // A renter's visit is theirs: priced at THEIR price (the studio's service price can differ).
+    const renterStaff = a.isRenterBooking === true ? staffById(a.renterProviderId || mainStaffId) : staffById(mainStaffId)?.isRenter === true ? staffById(mainStaffId) : null;
+    const renter = !!renterStaff || a.isRenterBooking === true;
+    const mainPrice = mainRedeemed ? 0 : renter && a.renterServicePrice != null ? num(a.renterServicePrice) : num(getServicePrice(v.service, staffById(mainStaffId)));
     const addOns = (v.addOnServices || []).map((ad: any) => { const sid = overrides[ad.id] || a.staffId; const redeemed = i.redeemedOffer?.itemId === ad.id; return { addon: ad, staffId: sid, redeemed, price: redeemed ? 0 : num(getServicePrice(ad, staffById(sid))) }; });
     const waived = (i.waivedIds || []).includes(a.id);
     const adj = cs.adjustments;
@@ -41,8 +46,9 @@ export function computeCheckout(i: CalcInput) {
     const refreshSum = refreshments.reduce((s: number, r: any) => s + r.price * r.qty, 0);
     const addOnSum = addOns.reduce((s: number, x: any) => s + x.price, 0);
     servicesSub += mainPrice + addOnSum + rescheduleFee + timeOverage + materialOverage + additionalCharge + refreshSum;
-    taxableServices += mainPrice + addOnSum + timeOverage + materialOverage + additionalCharge + refreshSum;   // not the reschedule fee
-    visits.push({ appointmentId: a.id, mainStaffId, mainPrice, mainRedeemed, addOns, rescheduleFee, timeOverage, materialOverage, additionalCharge, refreshments, waived });
+    if (renter) renterSub += mainPrice + addOnSum;   // their sale: no studio tax, no studio discounts
+    taxableServices += (renter ? 0 : mainPrice + addOnSum) + timeOverage + materialOverage + additionalCharge + refreshSum;   // not the reschedule fee
+    visits.push({ appointmentId: a.id, mainStaffId, mainPrice, mainRedeemed, addOns, rescheduleFee, timeOverage, materialOverage, additionalCharge, refreshments, waived, renter, renterStaffId: renter ? (renterStaff?.id || a.renterProviderId || mainStaffId) : null });
   }
   const retailSub = (i.items || []).reduce((s, it) => s + num(it.price) * num(it.quantity), 0);
   const taxableProducts = (i.items || []).filter((it) => it.type === 'product').reduce((s, it) => s + num(it.price) * num(it.quantity), 0);
@@ -51,12 +57,12 @@ export function computeCheckout(i: CalcInput) {
   const subtotal = round2(servicesSub + retailSub + feeSub);
   // Rent and tuition are account payments: no discount code, staff or member discount reduces them.
   const accountSub = (i.items || []).filter((it) => it.type === 'rent' || it.type === 'tuition').reduce((s, it) => s + num(it.price) * num(it.quantity), 0);
-  const discountable = round2(Math.max(0, subtotal - accountSub));
+  const discountable = round2(Math.max(0, subtotal - accountSub - renterSub));   // studio discounts never cut a renter's price
   let codeDiscount = round2((i.discounts || []).reduce((s, d: any) => s + (d.type === 'percentage' ? discountable * (num(d.value) / 100) : Math.min(num(d.value), discountable)), 0));
   // Team / family & friends: services (not fees) and real products only; within the monthly cap; by default it
   // doesn't combine with codes — whichever is bigger applies.
   const group = i.skipGroupDiscount ? null : groupDiscountFor(i.tenant, i.client);
-  const eligibleServices = visits.reduce((s, v) => s + v.mainPrice + v.addOns.reduce((a, x) => a + x.price, 0), 0) + (i.items || []).filter((it) => it.type === 'service').reduce((s, it) => s + num(it.price) * num(it.quantity), 0);
+  const eligibleServices = visits.filter((v) => !v.renter).reduce((s, v) => s + v.mainPrice + v.addOns.reduce((a, x) => a + x.price, 0), 0) + (i.items || []).filter((it) => it.type === 'service').reduce((s, it) => s + num(it.price) * num(it.quantity), 0);
   let groupDiscount = groupDiscountAmount(group, { services: eligibleServices, products: taxableProducts });
   if (group && groupDiscount > 0 && codeDiscount > 0 && !group.stackWithCodes) { if (groupDiscount >= codeDiscount) codeDiscount = 0; else groupDiscount = 0; }
   const sd = i.staffDiscount; const staffDiscount = sd ? round2(Math.min(discountable, sd.kind === 'pct' ? discountable * (num(sd.value) / 100) : num(sd.value))) : 0;
@@ -75,5 +81,5 @@ export function computeCheckout(i: CalcInput) {
   const tax = posTaxAmount(i.tenant, { services: taxableServices, products: taxableProducts });
   const tip = round2(num(i.tip)); const storeCredit = round2(num(i.storeCredit));
   const total = round2(Math.max(0, subtotal + tax + tip - discount - memberDiscount - storeCredit));
-  return { visits, servicesSub: round2(servicesSub), retailSub: round2(retailSub), feeSub: round2(feeSub), subtotal, discount, codeDiscount, staffDiscount, groupDiscount, momentDiscount, moment: momentDiscount > 0 && i.momentReward ? i.momentReward : null, group: group && groupDiscount > 0 ? { type: group.type, label: group.label, staffId: group.staffId } : null, memberDiscount, tax, taxLabel: posTaxLabel(i.tenant), tip, storeCredit, total };
+  return { visits, renterSub: round2(renterSub), servicesSub: round2(servicesSub), retailSub: round2(retailSub), feeSub: round2(feeSub), subtotal, discount, codeDiscount, staffDiscount, groupDiscount, momentDiscount, moment: momentDiscount > 0 && i.momentReward ? i.momentReward : null, group: group && groupDiscount > 0 ? { type: group.type, label: group.label, staffId: group.staffId } : null, memberDiscount, tax, taxLabel: posTaxLabel(i.tenant), tip, storeCredit, total };
 }
