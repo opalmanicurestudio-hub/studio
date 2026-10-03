@@ -2563,6 +2563,7 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any, bas
         });
       });
       await batch.commit();
+      await (await import('@/lib/push')).pushNow(db, tenantId);   // buzz now, not in a minute
     }
   } catch {
     // A notification that fails to send must never undo a guest's place in
