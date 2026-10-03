@@ -1,5 +1,7 @@
 'use client';
 
+import { verifyPin } from '@/lib/pin-client';
+import { useTenant } from '@/context/TenantContext';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Dialog,
@@ -318,6 +320,9 @@ export const TillManagement = ({
 }) => {
     const isMobile = useIsMobile();
     const { toast } = useToast();
+    // PINs are checked on the server; the people confirmed at "verify" are remembered here for the signature step.
+    const { selectedTenant } = useTenant() as any;
+    const verified = useRef<{ primary: Staff | null; witness: Staff | null }>({ primary: null, witness: null });
     const { tillSessions } = useInventory();
     
     const [counts, setCounts] = useState<Record<string, number>>({});
@@ -381,7 +386,7 @@ export const TillManagement = ({
         setFloatCounts(prev => ({ ...prev, [key]: val }));
     };
 
-    const handleStepTransition = () => {
+    const handleStepTransition = async () => {
         if (step === 'count') {
             setStep(activeTill ? 'float_select' : 'verify');
         } else if (step === 'float_select') {
@@ -390,13 +395,17 @@ export const TillManagement = ({
         } else if (step === 'allocation') {
             setStep('verify');
         } else if (step === 'verify') {
-            const authorizedStaff = staff.find(s => s.pin === primaryPin);
+            const pv = await verifyPin(selectedTenant?.id || '', primaryPin);
+            const authorizedStaff: Staff | null = pv.ok ? ((staff.find((s) => s.id === pv.staff.id) || (pv.staff as any)) as Staff) : null;
             if (!authorizedStaff) {
-                toast({ variant: 'destructive', title: 'Invalid PIN', description: 'Primary auditor not identified.' });
+                toast({ variant: 'destructive', title: 'Invalid PIN', description: pv.ok ? 'Primary auditor not identified.' : pv.error });
                 return;
             }
+            verified.current = { primary: authorizedStaff, witness: null };
             if (activeTill && requireTillWitness) {
-                const witnessStaff = staff.find(s => s.pin === witnessPin);
+                const wv = await verifyPin(selectedTenant?.id || '', witnessPin);
+                const witnessStaff: Staff | null = wv.ok ? ((staff.find((s) => s.id === wv.staff.id) || (wv.staff as any)) as Staff) : null;
+                verified.current.witness = witnessStaff;
                 if (!witnessStaff) {
                     toast({ variant: 'destructive', title: 'Witness Required', description: 'Invalid Witness PIN.' });
                     return;
@@ -411,7 +420,7 @@ export const TillManagement = ({
     };
 
     const handleAction = () => {
-        const authorizedStaff = staff.find(s => s.pin === primaryPin);
+        const authorizedStaff = verified.current.primary;   // confirmed by the server at the verify step
         if (!authorizedStaff) return;
 
         const mainSig = sigCanvasRef.current?.getTrimmedCanvas().toDataURL('image/png');
@@ -421,7 +430,7 @@ export const TillManagement = ({
         }
 
         if (activeTill) {
-            const witnessStaff = requireTillWitness ? staff.find(s => s.pin === witnessPin) : null;
+            const witnessStaff = requireTillWitness ? verified.current.witness : null;
             const witnessSig = requireTillWitness ? witnessSigCanvasRef.current?.getTrimmedCanvas().toDataURL('image/png') : null;
             
             if (requireTillWitness && !witnessSig) {
