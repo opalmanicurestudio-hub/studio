@@ -16,13 +16,14 @@ export function SaleComplete({ sale, tenantId, onNewSale, onDone, screenName, on
   // tuition, a membership or a retail-only sale. Older results (no outcomes) keep the old rule.
   const outcomes: any[] = Array.isArray(sale.outcomes) ? sale.outcomes : [];
   const hadVisit = outcomes.length ? outcomes.some((o) => o.kind === 'visit') : !!sale.serviceId;
-  const rent = outcomes.find((o) => o.kind === 'rent');
+  const rent = outcomes.find((o) => o.kind === 'rent'); const tuition = outcomes.find((o) => o.kind === 'tuition' && o.remainingCents > 0);
+  const account = rent?.renterId ? { kind: 'rent', renterId: rent.renterId, name: rent.name, what: 'their next rent' } : tuition?.planId ? { kind: 'tuition', planId: tuition.planId, name: tuition.name, what: 'their next instalment' } : null;
   const [kept, setKept] = React.useState<string | null>(null);
   const keepChange = async () => {
     const cents = Math.round(Number(sale.change) * 100); setBusy(true);
     try { const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken();
-      const r = await fetch('/api/rent/change-credit', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, receiptId: sale.receiptId, renterId: rent?.renterId, cents }) }).then((x) => x.json());
-      setKept(r.ok ? `${money(cents / 100)} kept in the till — it comes off ${rent?.name?.split(' ')[0] || 'their'}’s next rent.` : r.error || 'That didn’t save.');
+      const r = await fetch('/api/rent/change-credit', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, receiptId: sale.receiptId, cents, ...account }) }).then((x) => x.json());
+      setKept(r.ok ? `${money(cents / 100)} kept in the till — it goes toward ${String(account?.name || '').split(' ')[0] || 'their'}’s ${account?.kind === 'tuition' ? 'next instalment' : 'next rent'}.` : r.error || 'That didn’t save.');
     } catch { setKept('No connection — try again.'); } finally { setBusy(false); }
   };
   const send = async () => {
@@ -45,7 +46,7 @@ export function SaleComplete({ sale, tenantId, onNewSale, onDone, screenName, on
           {o.kind === 'rent' && <><p className="text-[15px] font-semibold">Rent — {o.name}</p>
             <p className="text-[14px]">Paid {money(o.paidCents / 100)}.{' '}{o.owedAfterCents > 0 ? `Still owed: ${money(o.owedAfterCents / 100)}.` : o.creditCents > 0 ? `${money(o.creditCents / 100)} paid ahead — it comes off their next rent.` : 'All paid up.'}</p></>}
           {o.kind === 'tuition' && <><p className="text-[15px] font-semibold">Tuition — {o.name}{o.program ? ` (${o.program})` : ''}</p>
-            <p className="text-[14px]">Paid {money(o.paidCents / 100)}. {o.remainingCents > 0 ? `Remaining: ${money(o.remainingCents / 100)}.` : 'Paid in full.'}</p></>}
+            <p className="text-[14px]">Paid {money(o.paidCents / 100)}{o.remainingCents > 0 && o.apply === 'paydown' ? ' toward the balance' : ''}. {o.remainingCents > 0 ? `Remaining: ${money(o.remainingCents / 100)}.` : 'Paid in full.'}</p></>}
           {(o.kind === 'membership' || o.kind === 'package') && <p className="text-[15px]"><b>{o.name}</b> is on their account.</p>}
           {o.kind === 'booth' && <p className="text-[15px]"><b>Booth time paid</b>{o.name ? ` — ${o.name}` : ''}. Book their next day from Booths.</p>}
         </section>))}
@@ -53,7 +54,7 @@ export function SaleComplete({ sale, tenantId, onNewSale, onDone, screenName, on
         <p className="text-[14px] font-semibold" style={{ color: 'var(--muted)' }}>Change due</p>
         <p className="text-[36px] font-semibold tabular-nums">{money(sale.change)}</p>
         <p className="text-[13px]" style={{ color: 'var(--muted)' }}>From {money(sale.tendered)} handed over</p>
-        {rent?.renterId && !kept && <button type="button" disabled={busy} onClick={() => { setLeft(null); void keepChange(); }} className="mt-2 h-11 w-full rounded-full text-[14px] font-semibold disabled:opacity-50" style={{ background: 'var(--soft)' }}>Put the {money(sale.change)} change toward their next rent</button>}
+        {account && !kept && <button type="button" disabled={busy} onClick={() => { setLeft(null); void keepChange(); }} className="mt-2 h-11 w-full rounded-full text-[14px] font-semibold disabled:opacity-50" style={{ background: 'var(--soft)' }}>Put the {money(sale.change)} change toward {account?.what}</button>}
         {kept && <p className="mt-2 text-[13px] font-semibold">{kept}</p>}
       </section>}
       {sale.receiptId && <section className="space-y-2 rounded-3xl p-4" style={box}>
