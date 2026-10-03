@@ -104,7 +104,8 @@ const editStaffSchema = z.object({
     licenseExpiry: z.date().optional(),
     documentUrl: z.string().optional(),
   }).optional(),
-  pin: z.string().length(4, 'PIN must be exactly 4 digits.'),
+  // Blank = keep their current PIN (PINs are kept on the server, never shown); 4 digits = a new one.
+  pin: z.string().regex(/^(\d{4})?$/, 'PIN must be 4 digits.').optional(),
   showOnPublicPage: z.boolean().default(true),
 });
 
@@ -260,9 +261,10 @@ const EditStaffFormInternal = ({
                 className="text-center text-5xl h-20 font-black tracking-[0.5em] bg-white border-primary/20 rounded-3xl shadow-xl"
                 maxLength={4}
                 readOnly
+                placeholder="••••"
               />
-              <p className="text-[10px] text-center text-muted-foreground uppercase font-bold tracking-tight opacity-60">
-                Authentication key for terminal and overrides.
+              <p className="text-[12px] text-center text-muted-foreground">
+                Their PIN is kept private. Tap Reset PIN to give them a new one — it shows here once, so tell them before saving.
               </p>
             </div>
           </div>
@@ -762,7 +764,7 @@ export const EditStaffDialog: React.FC<any> = ({
             : undefined,
         },
         assignedFormIds: staffMember.assignedFormIds || [],
-        pin: staffMember.pin || '',
+        pin: '',
         showOnPublicPage: staffMember.showOnPublicPage !== false,
       });
     }
@@ -784,7 +786,7 @@ export const EditStaffDialog: React.FC<any> = ({
     let isUnique = false;
     while (!isUnique) {
       pin = Math.floor(1000 + Math.random() * 9000).toString();
-      isUnique = !existingStaff.some((s: Staff) => s.id !== staffMember?.id && s.pin === pin);
+      isUnique = true;   // uniqueness is checked privately by the server when saving
     }
     methods.setValue('pin', pin, { shouldDirty: true });
     uiToast({ title: 'PIN Synchronized', description: "The provider's security signature has been updated." });
