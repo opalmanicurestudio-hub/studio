@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   const batch = db.batch(); const by = auth.actor.name || 'Owner';
   let offsetId: string | null = null;
   if (how === 'rent') { const ref = db.collection(`${T}/rentLedger`).doc(); offsetId = ref.id;
-    batch.set(ref, { id: ref.id, renterId, type: 'desk_offset', amountCents: cents, date: now, createdAt: now, note: 'Front-desk collections taken off your rent', createdBy: by }); }
+    batch.set(ref, { id: ref.id, renterId, type: 'desk_offset', status: 'paid', amountCents: -cents, date: now, createdAt: now, note: 'Front-desk collections taken off your rent', createdBy: by }); }
   for (const d of owed) batch.set(d.ref, { status: 'settled', settledHow: how, settledAt: now, settledBy: by, ...(offsetId ? { offsetId } : {}) }, { merge: true });
   await batch.commit();
   return NextResponse.json({ ok: true, cents, how });
