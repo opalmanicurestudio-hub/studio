@@ -13,6 +13,7 @@
 // Fail-soft everywhere: a photo that can't upload never blocks the note,
 // the status change, or the ticket — callers get null and continue.
 
+import { getAdminStorage } from '@/lib/firebase-admin';   // the NAMED app — getStorage() alone finds no default app
 import { getStorage } from 'firebase-admin/storage';
 import { pickRotationWorker } from './maintenance';
 
@@ -175,7 +176,7 @@ export async function uploadPortalImageFromDataUrl(
       if (name !== null && tried.has(name)) continue;
       if (name !== null) tried.add(name);
       try {
-        const bucket = name === null ? getStorage().bucket() : getStorage().bucket(name);
+        const bucket = name === null ? getAdminStorage().bucket() : getAdminStorage().bucket(name);
         await bucket.file(path).save(buf, {
           contentType: mime,
           metadata: { metadata: { firebaseStorageDownloadTokens: token } },
