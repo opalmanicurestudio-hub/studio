@@ -396,7 +396,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       note: d.kind === 'tip' ? 'Tip collected at the front desk' : `Collected at the front desk — ${d.serviceName || 'service'} for ${d.clientName || 'a client'}`, date: now, createdAt: now, collectedBy: auth.actor.name || null })); }
   // The receipt.
   const tendered = num(pay.amountTendered);
-  batch.set(receiptRef, clean({ id: receiptRef.id, viewKey: `${rid()}${rid()}`, checkoutSessionId, clientId, clientName: client.name || 'Guest', tenantId, date: now, paymentMethod: method, amountTendered: tendered, change: Math.max(0, tendered - calc.total),
+  batch.set(receiptRef, clean({ id: receiptRef.id, tillId: b.tillId ? String(b.tillId) : null, viewKey: `${rid()}${rid()}`, checkoutSessionId, clientId, clientName: client.name || 'Guest', tenantId, date: now, paymentMethod: method, amountTendered: tendered, change: Math.max(0, tendered - calc.total),
     paidBy: client.name || 'Guest', people: Object.values(people).map((p: any) => p.name).filter(Boolean),
     // Everything a void needs to undo this sale exactly.
     ...(split ? { payments: split.map((x) => ({ method: x.method, amount: num(x.amount), tip: num(x.tip), payerName: x.payerName || null, label: x.label || null, stripePaymentIntentId: x.stripePaymentIntentId || null, via: x.via || null })) } : {}),
@@ -439,7 +439,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       if (!r?.ok) warnings.push(`${o.offeringType === 'membership' ? 'The membership' : 'The package'} was sold but not activated — please check the client’s profile.`); } catch { warnings.push('An enrolment didn’t go through — please check the client’s profile.'); }
   }
   for (const it of items.filter((x) => x.type === 'deposit' && x.depositForAppointmentId)) {
-    try { const r = await fetch(`${origin}/api/appointments/desk-deposit`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authz }, body: JSON.stringify({ action: 'settled', tenantId, appointmentId: it.depositForAppointmentId, amountCents: Math.round(it.price * 100) }) }).then((x) => x.json()).catch(() => ({ ok: false }));
+    try { const r = await fetch(`${origin}/api/appointments/desk-deposit`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authz }, body: JSON.stringify({ action: 'settled', tenantId, appointmentId: it.depositForAppointmentId, amountCents: Math.round(it.price * 100), receiptId: receiptRef.id, paidMethod: String(method) }) }).then((x) => x.json()).catch(() => ({ ok: false }));
       if (!r?.ok) warnings.push(`The deposit for ${it.name} was paid — confirm that booking from the planner.`); } catch { warnings.push(`The deposit for ${it.name} was paid — confirm that booking from the planner.`); }
   }
   await logAuditAdmin(db, tenantId, { action: 'checkout.completed', targetType: 'client', targetId: clientId, amount: calc.total,
@@ -451,5 +451,19 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       if (r?.lines?.some((l: any) => l.shortfall)) warnings.push(`${v.appointment.clientName || 'A visit'} used more of ${r.lines.filter((l: any) => l.shortfall).map((l: any) => l.name).join(', ')} than your stock shows — check the shelf.`);
     } catch (e: any) { console.error('[checkout] usage', e?.message); } }
   if (pendingRef) await pendingRef.set({ status: 'completed', completedAt: now, receiptId: receiptRef.id, checkoutSessionId, total: calc.total, ...(pay.stripePaymentIntentId ? { paymentIntentId: String(pay.stripePaymentIntentId) } : {}) }, { merge: true }).catch(() => {});
-  return json({ ok: true, checkoutSessionId, receiptId: receiptRef.id, total: calc.total, collected: Math.max(0, Math.round((calc.total - depositUsed) * 100) / 100), depositUsed, subtotal: calc.subtotal, tax: calc.tax, mismatch, warnings });
+  // WHAT THIS SALE DID — so the finished screen says the right thing for each kind of sale (a visit, rent, tuition,
+  // a booth day, a membership…) and only offers "book their next visit" where there was a visit.
+  const outcomes: any[] = [];
+  if (visits.length) outcomes.push({ kind: 'visit', serviceId: visits[0].service?.id || null, renter: calc.visits.some((v: any) => v.renter) });
+  let rentIdx = 0;
+  for (const it of items as any[]) {
+    if (it.type === 'rent' && it.__acct) { const r: any = rentPayments[rentIdx++] || {}; const paid = Math.round(num(it.price) * 100); const acct = it.__acct;
+      const owedBefore = acct.usesInvoices ? num(acct.invoiceOwedCents) : num(acct.owedCents);
+      outcomes.push({ kind: 'rent', renterId: acct.renter?.id || null, name: acct.name, paidCents: paid, owedAfterCents: Math.max(0, owedBefore - paid), creditCents: num(r.creditCents) }); }
+    else if (it.type === 'tuition' && it.__tacct) outcomes.push({ kind: 'tuition', name: it.__tacct.name, program: it.__tacct.program || null, paidCents: Math.round(num(it.price) * 100), remainingCents: Math.max(0, num(it.__tacct.balanceCents) - Math.round(num(it.price) * 100)) });
+    else if (it.type === 'membership' || it.type === 'package') outcomes.push({ kind: it.type, name: it.name });
+    else if (it.type === 'rental' && it.reservationId) outcomes.push({ kind: 'booth', name: it.name, reservationId: it.reservationId });
+    else if (it.type === 'product') { if (!outcomes.some((o) => o.kind === 'retail')) outcomes.push({ kind: 'retail' }); }
+  }
+  return json({ ok: true, checkoutSessionId, receiptId: receiptRef.id, total: calc.total, collected: Math.max(0, Math.round((calc.total - depositUsed) * 100) / 100), depositUsed, subtotal: calc.subtotal, tax: calc.tax, mismatch, warnings, outcomes });
 }
