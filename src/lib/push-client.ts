@@ -39,3 +39,13 @@ export async function enablePush(tenantId: string): Promise<{ state: PushState; 
     return { state: 'on' };
   } catch (e: any) { return { state: 'off', error: String(e?.message || 'That didn’t work — try again.').slice(0, 160) }; }
 }
+
+/** "Send me a test" — returns what happened, in plain words. */
+export async function sendTestPush(tenantId: string): Promise<{ ok: boolean; text: string }> {
+  try {
+    const idToken = await getAuth().currentUser?.getIdToken();
+    const r = await fetch('/api/push/test', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) }, body: JSON.stringify({ tenantId }) }).then((x) => x.json());
+    if (r.ok) return { ok: true, text: `Sent (${String(r.result).replace(/^sent to /, '')}) — your phone should buzz now.` };
+    return { ok: false, text: r.error || r.result || 'That didn’t send.' };
+  } catch { return { ok: false, text: 'No connection — try again.' }; }
+}
