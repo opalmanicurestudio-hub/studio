@@ -55,7 +55,7 @@ export async function collectFees(db: any, stripe: any, tenantId: string, tenant
       });
       if (!locked) continue;
       const attempt = Number(locked.collectAttempts || 0) + 1; const cents = Math.round(Number(locked.feeAmount) * 100);
-      const reason = String(locked.reason || 'Fee').replace(/\s*[—–-]\s*auto-charge failed.*$/i, '').slice(0, 120);
+      const reason = String(locked.reason || 'Fee').replace(/\s*[—–-]\s*(auto-charge failed|card declined|no card on file|payments not connected).*$/i, '').slice(0, 120);
       out.tried++; let intent: any = null; let err: any = null;
       try {
         intent = await stripe.paymentIntents.create({ amount: cents, currency: 'usd', customer: card.customerId, payment_method: card.paymentMethodId, off_session: true, confirm: true,
