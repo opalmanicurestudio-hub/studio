@@ -19,6 +19,7 @@
  *     initial={selectedTenant?.bookingPageSettings?.automationRules} />
  */
 
+import { SettingsStyle } from '@/components/settings/settings-style';
 import React, { useState } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
 import type { Firestore } from 'firebase/firestore';
@@ -110,10 +111,11 @@ export function BoothAutomationSettings({
   );
 
   return (
-    <div className="space-y-4 max-w-2xl">
-      <div>
-        <h2 className="text-xl font-black tracking-tight">Booking automation</h2>
-        <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest mt-0.5">Set the rules once — the system runs your business by them</p>
+    <div className="cf-settings cf-legacy max-w-2xl space-y-5 rounded-2xl">
+      <SettingsStyle />
+      <div className="space-y-1">
+        <h2 className="text-[22px] font-semibold tracking-tight">Booth rental settings</h2>
+        <p className="text-[14.5px] cf-muted">The rules for how guests book your booths and suites — set once, applied to every booking.</p>
       </div>
 
       <Section title="Booking window">
@@ -124,7 +126,7 @@ export function BoothAutomationSettings({
             it saved to automationRules while the engine reads a different
             field. Booking Release replaced it, and is enforced. */}
         <p className="mt-3 text-[11px] font-bold text-muted-foreground">
-          How far ahead clients can book — and how much earlier members can — is set in <span className="font-black">Settings → Booking Release</span>.
+          How far ahead clients can book — and how much earlier members can — is set in <a href="/settings/policies" className="font-semibold underline underline-offset-2">Settings → Booking policies</a>.
         </p>
       </Section>
 
