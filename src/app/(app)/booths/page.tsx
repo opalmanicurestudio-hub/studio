@@ -6917,7 +6917,7 @@ export default function BoothsPage() {
       </Dialog>
 
       <Dialog open={autoSettingsOpen} onOpenChange={setAutoSettingsOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl">
+        <DialogContent className="cf-settings max-w-2xl max-h-[90vh] overflow-y-auto rounded-[28px] border-0 p-6 md:p-8">
           <BoothAutomationSettings
             tenantId={tenantId}
             firestore={firestore}
