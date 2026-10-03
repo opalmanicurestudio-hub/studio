@@ -23,6 +23,9 @@ export async function GET(req: NextRequest) {
   const tenants = (await db.collection('tenants').get()).docs;
   for (const t of tenants) {
     const tenant: any = t.data() || {}; const T = `tenants/${t.id}`;
+    // Cancellations still waiting to be finished (an interrupted call) — always, whatever the no-show switch says.
+    try { const Stripe = (await import('stripe')).default; const { sweepPendingCancellations } = await import('@/lib/cancellation-events');
+      await sweepPendingCancellations(db, new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2024-06-20' as any }), t.id); } catch { /* next run */ }
     if (!automationOn(tenant, 'no-show-check')) continue;   // switched off in Automations
     const windowMin = Number(tenant.noShowWindowMinutes ?? 15); const confirmMin = Number(tenant.noShowConfirmWindowMinutes ?? 10);
     try {
