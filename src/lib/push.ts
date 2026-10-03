@@ -75,7 +75,9 @@ export async function pushNewNotifications(db: any, messaging: any, tenantId: st
 export async function pushNow(db: any, tenantId: string) {
   try {
     const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
-    const { getMessaging } = await import('firebase-admin/messaging'); const { linkOrigin } = await import('@/lib/app-origin');
-    await pushNewNotifications(db, getMessaging(), tenantId, tenant, linkOrigin(tenant), 2 * 60000);
-  } catch { /* the 1-minute job will send it */ }
+    const { getAdminMessaging } = await import('@/lib/firebase-admin'); const { linkOrigin } = await import('@/lib/app-origin');
+    await pushNewNotifications(db, getAdminMessaging(), tenantId, tenant, linkOrigin(tenant), 2 * 60000);
+  } catch (e: any) {   // the 1-minute job will send it — but say why it failed, where it can be seen
+    await db.doc('platformHealth/push_last_error').set({ at: new Date().toISOString(), tenantId, error: String(e?.message || e).slice(0, 300), where: 'instant' }).catch(() => null);
+  }
 }
