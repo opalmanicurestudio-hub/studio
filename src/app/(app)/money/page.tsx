@@ -694,10 +694,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
         if (d.ok && d.manager?.id) authorizerId = d.manager.id;
         else { toast({ variant: 'destructive', title: 'Unauthorized', description: d.error }); return; }
       } catch {
-        // Fallback: legacy client-side compare until the auth API deploys.
-        const authorized = staff.find((s: any) => s.pin === pin && (s.role === 'admin' || s.role === 'owner'));
-        if (!authorized) { toast({ variant: 'destructive', title: 'Unauthorized' }); return; }
-        authorizerId = authorized.id;
+        toast({ variant: 'destructive', title: 'No connection', description: 'PINs are checked online — try again.' }); return;   // never compared on this device
       }
       onConfirm({ amount: refundAmount, refundTip: refundTip && (transaction.tipAmount || 0) > 0, tipStrategy, reason, logIncident, authorizerId });
       setPin('');
