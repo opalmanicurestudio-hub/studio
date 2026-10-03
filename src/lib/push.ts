@@ -19,6 +19,18 @@ function titleFor(type: string | undefined, business: string): string {
   }
 }
 
+/** Where tapping it opens. App links start with "/" (/planner, /pos…). Staff-portal notifications carry a bare tab
+ *  name ("today", "inbox", "pos") — those open the staff portal. Firebase refuses a push whose link isn't a real
+ *  address, so a bad one would sink the whole send. */
+export function pushLink(base: string, tenantId: string, link?: string): string {
+  const b = String(base || '').replace(/\/+$/, '');
+  const l = String(link || '').trim();
+  if (/^https:\/\//.test(l)) return l;
+  if (l.startsWith('/')) return `${b}${l}`;
+  if (l) return `${b}/staff-portal/${tenantId}`;
+  return b;
+}
+
 export async function pushNewNotifications(db: any, messaging: any, tenantId: string, tenant: any, base: string, windowMs = 20 * 60000) {
   const T = `tenants/${tenantId}`; const since = new Date(Date.now() - windowMs).toISOString();
   const snap = await db.collection(`${T}/notifications`).where('createdAt', '>=', since).limit(100).get();
@@ -32,18 +44,23 @@ export async function pushNewNotifications(db: any, messaging: any, tenantId: st
     const people = n.userId === 'owner'
       ? (await db.collection(`${T}/staff`).where('role', '==', 'owner').get()).docs
       : [await db.doc(`${T}/staff/${n.userId}`).get()].filter((s: any) => s.exists);
+    const outcome: string[] = [];
+    if (!people.length) outcome.push('no staff record for this person');
     for (const p of people) {
       const tokens: string[] = (p.data() as any)?.fcmTokens || [];
-      if (!tokens.length) continue;
-      const link = n.link ? `${base}${n.link}` : base;
+      if (!tokens.length) { outcome.push('no phone registered'); continue; }
+      const link = pushLink(base, tenantId, n.link);
       try {
         const res = await messaging.sendEachForMulticast({ tokens, notification: { title: titleFor(n.type, tenant?.name), body: String(n.message).slice(0, 180) },
           webpush: { fcmOptions: { link }, notification: { icon: `${base}/icon-192.png`, badge: `${base}/icon-192.png` } } });
         sent += res.successCount || 0;
+        outcome.push(res.successCount ? `sent to ${res.successCount} device${res.successCount === 1 ? '' : 's'}` : `failed: ${String(res.responses.find((r: any) => r?.error)?.error?.code || 'unknown')}`);
         const dead = tokens.filter((_, i) => { const r = res.responses[i]; const code = String(r?.error?.code || ''); return !r?.success && (code.includes('registration-token-not-registered') || code.includes('invalid-argument')); });
         if (dead.length) await p.ref.set({ fcmTokens: FieldValue.arrayRemove(...dead) }, { merge: true }).catch(() => null);
-      } catch { /* a push must never break the job */ }
+      } catch (e: any) { outcome.push(`failed: ${String(e?.code || e?.message || e).slice(0, 120)}`); }   // a push must never break the job
     }
+    // What happened, on the notification itself — so a missing buzz can be explained, not guessed at.
+    await d.ref.update({ pushResult: outcome.join('; ') || 'nothing to send' }).catch(() => null);
   }
   return sent;
 }
