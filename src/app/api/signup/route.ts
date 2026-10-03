@@ -24,6 +24,7 @@
 //   • firestore.rules — tenants can't be created from the browser, and the
 //     account-status fields can only be changed by the server.
 
+import { ownerProfileFor } from '@/lib/owner-staff';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { signupIsOpen } from '@/lib/platform-admin';
@@ -130,6 +131,8 @@ export async function POST(req: NextRequest) {
       ...(code ? { inviteCode: code } : {}),
       signupIp: ip, signupAt: at,
     });
+    // The owner is on the team from day one (lib/owner-staff) — so owner notifications have somewhere to land.
+    batch.set(db.doc(`tenants/${tenantId}/staff/${userId}`), ownerProfileFor({ teamSize }, tenantId, { uid: userId, name, email, phone }));
     const lp = id(); batch.set(db.doc(`tenants/${tenantId}/lifestyleProfiles/${lp}`), { id: lp, name: 'Primary Lifestyle', isActive: true, categories: [] });
     const bp = id(); batch.set(db.doc(`tenants/${tenantId}/businessProfiles/${bp}`), { id: bp, name: 'Core Studio Costs', isActive: true, categories: [] });
     const sp = id();
