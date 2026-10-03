@@ -1,5 +1,6 @@
 'use client';
 
+import { DeskOwedCard } from '@/components/rent/DeskOwedCard';
 import { useState, useMemo, useEffect } from 'react';
 import {
   collection,
@@ -2242,6 +2243,7 @@ export default function RentRollPage() {
             }, { merge: true });
           }} />
       )}
+      {tenantId && <DeskOwedCard tenantId={tenantId} firestore={firestore} renters={(renters || []) as any[]} />}
       {tenantId && <RenterProvidersCard tenantId={tenantId} firestore={firestore} renters={(renters || []) as any[]} staff={(allStaff || []) as any[]} allAppointments={(allAppointments || []) as any[]} />}
       {tenantId && <RenterSwapsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
       {tenantId && <RentCommsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
