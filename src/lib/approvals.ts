@@ -10,18 +10,11 @@ export const isApprover = (role: any) => APPROVER_ROLES.includes(String(role || 
 export const pinHash = (tenantId: string, pin: string) =>
   crypto.createHmac('sha256', process.env.PIN_PEPPER || process.env.CRON_SECRET || 'clarityflow-pin').update(`${tenantId}:${String(pin).trim()}`).digest('hex');
 
-/** Whose PIN is this? Checked on the server. (PINs still live on staff records for now — the time clock, floor and
- *  kitchen screens, till, portal login and more read them; moving every one of those to the server, then removing PINs
- *  from staff records, is its own task. A scrambled copy in staffSecrets is used first when one exists.) */
+/** Whose PIN is this? Checked on the server, through the one PIN library (lib/pin). */
 export async function findByPin(db: any, tenantId: string, pin: string): Promise<{ id: string; name: string; role: string } | null> {
-  if (!/^\d{4,8}$/.test(String(pin || ''))) return null;
-  const T = `tenants/${tenantId}`;
-  let id: string | null = (await db.collection(`${T}/staffSecrets`).where('pinHash', '==', pinHash(tenantId, pin)).get()).docs[0]?.id || null;
-  if (!id) id = (await db.collection(`${T}/staff`).where('pin', '==', String(pin)).get()).docs[0]?.id || null;
-  if (!id) return null;
-  const st: any = (await db.doc(`${T}/staff/${id}`).get()).data();
-  if (!st || st.isActive === false) return null;
-  return { id, name: st.name || 'Manager', role: String(st.role || '') };
+  const { findStaffByPin } = await import('@/lib/pin');
+  const hit = await findStaffByPin(db, tenantId, pin);
+  return hit ? { id: hit.id, name: hit.name || 'Manager', role: hit.role } : null;
 }
 
 export async function issueApproval(db: any, tenantId: string, a: { kind: string; amount?: number | null; ref?: string | null; reason?: string | null; approver: { id: string; name: string; role?: string }; requestedBy?: { id?: string; name?: string } | null; via: 'pin' | 'phone' | 'self' }) {
