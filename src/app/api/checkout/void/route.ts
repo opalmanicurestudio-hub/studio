@@ -65,6 +65,10 @@ export async function POST(req: NextRequest) {
 
   const batch = db.batch();
   for (const x of (Array.isArray(R.rentPayments) ? R.rentPayments : [])) reverseRentPayment(batch, db, T, x, now, reason);   // rent: the payment stops counting; its charges are owed again
+  // What the desk collected for renters on this sale is no longer owed to them.
+  for (const d of (await db.collection(`${T}/rentLedger`).where('receiptId', '==', receiptId).get()).docs) {
+    const v: any = d.data() || {}; if (v.type === 'desk_collected' && v.status !== 'settled') batch.set(d.ref, { status: 'voided', voidedAt: now, voidReason: reason || null }, { merge: true });
+  }
   // Payment lines: originals marked void, one reversing line each (same shape as a single-line void).
   const lines = (await db.collection(`${T}/transactions`).where('checkoutSessionId', '==', rc.checkoutSessionId).get()).docs;
   const cardLines = R.stripePaymentIntentId ? (await db.collection(`${T}/transactions`).where('stripePaymentIntentId', '==', String(R.stripePaymentIntentId)).get()).docs : [];
