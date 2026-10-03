@@ -9,17 +9,18 @@ const money = (c: number) => `$${((Number(c) || 0) / 100).toFixed(2)}`;
 async function call(body: any) { const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
   return fetch('/api/tuition-desk', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify(body) }).then((r) => r.json()).catch(() => ({ ok: false, error: 'We couldn’t reach the server.' })); }
 
-export function CollectTuition({ tenantId, onTake }: { tenantId: string; onTake: (x: { clientId: string; planId: string; name: string; program: string; amount: number }) => void }) {
+export function CollectTuition({ tenantId, onTake }: { tenantId: string; onTake: (x: { clientId: string; planId: string; name: string; program: string; amount: number; apply?: 'ahead' | 'paydown' }) => void }) {
   const [list, setList] = React.useState<any[] | null>(null); const [q, setQ] = React.useState(''); const [sel, setSel] = React.useState<any>(null);
   const [amt, setAmt] = React.useState(''); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState<string | null>(null);
-  const [bf, setBf] = React.useState<string | null>(null);   // with the other hooks — below the early return it crashed the panel (React #300)
+  const [bf, setBf] = React.useState<string | null>(null);
+  const [apply, setApply] = React.useState<'ahead' | 'paydown'>('ahead');   // more than one instalment: where the extra goes   // with the other hooks — below the early return it crashed the panel (React #300)
   React.useEffect(() => { call({ tenantId, action: 'list' }).then((r: any) => (r?.ok ? setList(r.students) : (setList([]), setErr(r?.error || 'Couldn’t load students.')))); }, [tenantId]);
   const box = { background: 'var(--card)', border: '1px solid var(--line)' } as React.CSSProperties; const soft = { background: 'var(--soft)' } as React.CSSProperties; const muted = { color: 'var(--muted)' } as React.CSSProperties;
   const warn = { background: 'color-mix(in srgb, var(--warn) 12%, transparent)', color: 'var(--warn)' } as React.CSSProperties;
   const take = async () => { const amount = Math.round(Number(amt) * 100) / 100; if (!(amount > 0)) { setErr('Enter the amount they’re paying.'); return; }
     if (Math.round(amount * 100) > sel.balanceCents) { setErr(`That’s more than they owe (${money(sel.balanceCents)}).`); return; }
     setBusy(true); setErr(null); const r: any = await call({ tenantId, action: 'payer', planId: sel.id }); setBusy(false);
-    if (!r?.ok) { setErr(r?.error || 'That didn’t work.'); return; } onTake({ clientId: r.clientId, planId: sel.id, name: sel.name, program: sel.program, amount }); };
+    if (!r?.ok) { setErr(r?.error || 'That didn’t work.'); return; } onTake({ clientId: r.clientId, planId: sel.id, name: sel.name, program: sel.program, amount, apply }); };
   if (sel) { const n = Number(amt) * 100;
     return (
       <div className="space-y-3">
@@ -37,6 +38,15 @@ export function CollectTuition({ tenantId, onTake }: { tenantId: string; onTake:
           <p className="text-[12px]" style={muted}>{!(n > 0) ? '' : n > sel.balanceCents ? 'More than they owe — lower it.' : n === sel.balanceCents ? 'Pays off their tuition.' : n >= sel.installmentCents && sel.installmentCents > 0 ? 'Counts as their next instalment.' : 'A part-payment toward their balance.'}</p>
         </section>
         {err && <p className="text-[14px] font-semibold" style={{ color: 'var(--warn)' }} role="alert">{err}</p>}
+        {sel.installmentCents > 0 && n > sel.installmentCents && n < sel.balanceCents && (
+          <div className="space-y-2 rounded-2xl p-3" style={soft} role="radiogroup" aria-label="Where the extra goes">
+            <p className="text-[13px] font-semibold">That's more than one instalment. The extra {money(n - sel.installmentCents)}:</p>
+            {([['ahead', 'Covers the next instalments', 'Their next autopay charges are smaller or skipped.'], ['paydown', 'Pays down the balance', 'Instalments stay the same — they finish sooner.']] as const).map(([k, t, d]) => (
+              <button key={k} type="button" role="radio" aria-checked={apply === k} onClick={() => setApply(k)} className="flex w-full items-start gap-2 rounded-xl p-2 text-left" style={apply === k ? { background: 'var(--card)', boxShadow: '0 0 0 2px var(--accent)' } : undefined}>
+                <span className="mt-1 h-3.5 w-3.5 shrink-0 rounded-full border-2" style={{ borderColor: 'var(--accent)', background: apply === k ? 'var(--accent)' : 'transparent' }} />
+                <span><span className="block text-[14px] font-semibold">{t}</span><span className="block text-[12px]" style={muted}>{d}</span></span>
+              </button>))}
+          </div>)}
         <button type="button" disabled={busy || !(n > 0) || n > sel.balanceCents} onClick={take} className="h-12 w-full rounded-full text-[15px] font-semibold disabled:opacity-40" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>{busy ? 'One moment…' : `Take payment — ${money(n || 0)}`}</button>
         <button type="button" onClick={() => { setSel(null); setErr(null); }} className="text-[13px] underline underline-offset-4">Back to students</button>
       </div>); }
