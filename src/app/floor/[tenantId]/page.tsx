@@ -118,7 +118,6 @@ const PinLogin = ({ staff, tenantId, tenantName, onLogin, isLoading }: {
   const fail = () => { setShake(true); setTimeout(() => { setShake(false); setPin(''); }, 600); };
 
   // PINs are verified server-side so staff PINs never need to reach this device.
-  // If the auth API isn't deployed yet (404), fall back to the legacy local compare.
   const verifyPin = async (next: string) => {
     setVerifying(true);
     try {
@@ -133,9 +132,7 @@ const PinLogin = ({ staff, tenantId, tenantName, onLogin, isLoading }: {
         setOk(m); setTimeout(() => onLogin(m), 600);
       } else fail();
     } catch {
-      const found = staff.find(s => s.pin && s.pin === next);
-      if (found) { setOk(found); setTimeout(() => onLogin(found), 600); }
-      else fail();
+      fail();   // PINs are only ever checked on the server — never compared on this device
     } finally { setVerifying(false); }
   };
 
