@@ -175,15 +175,20 @@ export async function completeDownPayment(tenantId: string, session: any) {
 /** Charge one plan's next instalment now (autopay, or right after a card update). */
 export async function chargePlan(tenantId: string, stripeAccountId: string, ref: any, p: any) {
   const { balanceCents } = await planBalance(tenantId, ref.id);
-  const amount = Math.min(balanceCents, p.installmentsPaid + 1 >= p.installmentsTotal ? balanceCents : p.installmentCents);
-  if (amount <= 0) { await ref.set({ status: 'paid', nextDueAt: null }, { merge: true }); return { ok: true, amount: 0 }; }
+  const base = Math.min(balanceCents, p.installmentsPaid + 1 >= p.installmentsTotal ? balanceCents : p.installmentCents);
+  if (base <= 0) { await ref.set({ status: 'paid', nextDueAt: null, prepaidCents: 0 }, { merge: true }); return { ok: true, amount: 0 }; }
+  // Part of this instalment was paid ahead at the front desk → charge only the rest (or nothing, and move on).
+  const prepaid = Math.max(0, Number(p.prepaidCents) || 0); const amount = Math.max(0, base - prepaid);
+  if (amount <= 0) { const paid = p.installmentsPaid + 1;
+    await ref.set({ installmentsPaid: paid, prepaidCents: prepaid - base, failures: 0, lastError: null, status: paid >= p.installmentsTotal ? 'paid' : 'active', nextDueAt: paid >= p.installmentsTotal ? null : addInterval(p.nextDueAt || new Date().toISOString(), p.interval) }, { merge: true });
+    return { ok: true, amount: 0, coveredByPrepaid: true }; }
   try {
     const pi = await stripe().paymentIntents.create({ amount, currency: 'usd', customer: p.customerId, payment_method: p.paymentMethodId, off_session: true, confirm: true,
       description: `Tuition instalment ${p.installmentsPaid + 1} of ${p.installmentsTotal}`, metadata: { type: 'academy_tuition_installment', planId: ref.id } }, { stripeAccount: stripeAccountId, idempotencyKey: `tuition_${ref.id}_${p.installmentsPaid + 1}_${(p.failures || 0)}_${p.paymentMethodId}` });
     if (pi.status !== 'succeeded') throw new Error(pi.status);
     await ledger(tenantId, ref.id, p.studentId, 'payment', amount, `Instalment ${p.installmentsPaid + 1} of ${p.installmentsTotal} (autopay)`, 'autopay', pi.id);
     const paid = p.installmentsPaid + 1;
-    await ref.set({ installmentsPaid: paid, failures: 0, lastError: null, lastAttemptAt: new Date().toISOString(), status: paid >= p.installmentsTotal ? 'paid' : 'active', nextDueAt: paid >= p.installmentsTotal ? null : addInterval(p.nextDueAt || new Date().toISOString(), p.interval) }, { merge: true });
+    await ref.set({ installmentsPaid: paid, prepaidCents: 0, failures: 0, lastError: null, lastAttemptAt: new Date().toISOString(), status: paid >= p.installmentsTotal ? 'paid' : 'active', nextDueAt: paid >= p.installmentsTotal ? null : addInterval(p.nextDueAt || new Date().toISOString(), p.interval) }, { merge: true });
     return { ok: true, amount };
   } catch (e: any) {
     await ref.set({ status: 'past_due', failures: (p.failures || 0) + 1, lastAttemptAt: new Date().toISOString(), lastError: String(e?.message || e).slice(0, 200) }, { merge: true });
