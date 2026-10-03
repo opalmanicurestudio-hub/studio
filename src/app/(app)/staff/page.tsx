@@ -1,5 +1,6 @@
 'use client';
 
+import { verifyPin, setPin as setStaffPinServer } from '@/lib/pin-client';
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
@@ -580,6 +581,12 @@ export default function StaffPage() {
   }, [editingInline, addingInline, viewingInline]);
   const { selectedTenant, role } = useTenant();
   const tenantId = selectedTenant?.id;
+  // Once per business: convert every PIN to the private server-only store and remove them from team records.
+  useEffect(() => {
+    if (!tenantId || (selectedTenant as any)?.pinsPrivate === true || !['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase())) return;
+    (async () => { try { const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken();
+      await fetch('/api/pin/migrate', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId }) }); } catch { /* tries again next visit */ } })();
+  }, [tenantId, role]); // eslint-disable-line react-hooks/exhaustive-deps
   const studioName = selectedTenant?.name || 'the studio';
   const canManage = role === 'owner' || role === 'admin';
   const { toast: uiToast } = useToast();
@@ -906,13 +913,18 @@ export default function StaffPage() {
         commissionRate: data.commissionRate ?? 40,
         retailCommissionRate: data.retailCommissionRate ?? 10,
         hourlyRate: data.hourlyRate,
-        pin: data.pin,
+        hasPin: false,   // the PIN itself is stored by the server, never on the team member's record
         showOnPublicPage: data.showOnPublicPage,
       };
 
+      // Is the PIN free? Checked on the server before anything is saved (nobody's PIN is ever sent to this screen).
+      const free = await setStaffPinServer(tenantId, staffId, data.pin, true);
+      if (!free.ok) { uiToast({ variant: 'destructive', title: 'Choose another PIN', description: free.error || 'That PIN is already in use.' }); return; }
       const sanitizedData = JSON.parse(JSON.stringify(fullStaffObject));
       const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
       await setDoc(staffDocRef, sanitizedData);
+      const pinSaved = await setStaffPinServer(tenantId, staffId, data.pin);
+      if (!pinSaved.ok) uiToast({ variant: 'destructive', title: 'Added, but the PIN wasn’t set', description: `${pinSaved.error || 'Try again'} — set it from their card.` });
 
       uiToast({
         title: (data as any).payPending ? 'Added — pay not set yet' : 'Added to the team',
@@ -936,8 +948,15 @@ export default function StaffPage() {
   const handleUpdateStaff = (updatedStaffData: Staff) => {
     if (!firestore || !tenantId) return;
     const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', updatedStaffData.id);
-    const sanitizedData = JSON.parse(JSON.stringify(updatedStaffData));
+    // A changed PIN goes to the server only — it's never saved on the team member's record.
+    const { pin: newPin, pinHash: _ph, ...rest } = updatedStaffData as any;
+    const sanitizedData = JSON.parse(JSON.stringify(rest));
     updateDocumentNonBlocking(staffDocRef, sanitizedData);
+    if (newPin && /^\d{4}$/.test(String(newPin))) {
+      void setStaffPinServer(tenantId, updatedStaffData.id, String(newPin)).then((r) => {
+        if (!r.ok) uiToast({ variant: 'destructive', title: 'PIN not changed', description: r.error || 'Try again.' });
+      });
+    }
   };
   
   const handleStatusChange = (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
@@ -975,11 +994,11 @@ export default function StaffPage() {
       setIsPinAuthOpen(true);
   };
 
-  const handleVerifyPin = () => {
+  const handleVerifyPin = async () => {
     if (!pendingStatusAction || !staff) return;
-    const targetStaff = staff.find(s => s.id === pendingStatusAction.staffId);
-    
-    if (targetStaff && targetStaff.pin === authPin) {
+    // Checked on the server: the PIN must belong to this team member. No PINs are sent to this screen.
+    const pv = await verifyPin(selectedTenant?.id || '', authPin);
+    if (pv.ok && pv.staff.id === pendingStatusAction.staffId) {
         handleStatusChange(pendingStatusAction.staffId, pendingStatusAction.action);
         setIsPinAuthOpen(false);
         setAuthPin('');
