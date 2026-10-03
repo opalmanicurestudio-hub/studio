@@ -2900,13 +2900,17 @@ export async function POST(req: NextRequest) {
       // Rent they PAID: 'payment' entries (manual, card, autopay's rent_charge
       // when it succeeded). Credits (leave, sublet, abatement) reduce rent and
       // show as negatives so the month's rent line is what actually left them.
-      const rent = rentSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((r: any) => String(r.date || r.createdAt || '').slice(0, 7) === month && ['payment', 'rent_charge', 'leave_credit', 'sublet_credit', 'rent_abatement'].includes(String(r.type || '')))
-        .map((r: any) => { const c = Math.abs(Number(r.amountCents) || Math.round((Number(r.amount) || 0) * 100)); const credit = ['leave_credit', 'sublet_credit', 'rent_abatement'].includes(String(r.type)); return { id: r.id, date: String(r.date || r.createdAt).slice(0, 10), cents: credit ? -c : c, method: credit ? String(r.type).replace('_', ' ') : (r.method || 'payment') }; });
+      const rent = rentSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((r: any) => String(r.date || r.createdAt || '').slice(0, 7) === month && ['payment', 'rent_charge', 'leave_credit', 'sublet_credit', 'rent_abatement', 'desk_offset'].includes(String(r.type || '')))
+        .map((r: any) => { const c = Math.abs(Number(r.amountCents) || Math.round((Number(r.amount) || 0) * 100)); const credit = ['leave_credit', 'sublet_credit', 'rent_abatement', 'desk_offset'].includes(String(r.type)); return { id: r.id, date: String(r.date || r.createdAt).slice(0, 10), cents: credit ? -c : c, method: credit ? String(r.type).replace('_', ' ') : (r.method || 'payment') }; });
+      // Money the front desk collected for you (your clients paying at the studio's till) — owed to you until settled.
+      const desk = rentSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((r: any) => r.type === 'desk_collected' && r.status !== 'voided' && String(r.date || r.createdAt || '').slice(0, 7) === month)
+        .map((r: any) => ({ id: r.id, date: String(r.date || r.createdAt || '').slice(0, 10), cents: Number(r.amountCents) || 0, note: r.note || 'Collected at the front desk', status: r.status === 'settled' ? 'settled' : 'owed', settledHow: r.settledHow || null }))
+        .sort((x: any, y: any) => String(x.date).localeCompare(String(y.date)));
       const expSnap = await db.collection(`tenants/${tenantId}/renterExpenses`).where('renterId', '==', session.renterId).get().catch(() => ({ docs: [] } as any));
       const expenses = expSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((e: any) => String(e.date || '').slice(0, 7) === month).sort((x: any, y: any) => String(x.date).localeCompare(String(y.date)));
       const sum = (rows: any[]) => rows.reduce((n, r) => n + (Number(r.cents) || 0), 0);
       const totals = { servicesCents: sum(visits), packagesCents: sum(packages), rentCents: sum(rent), expensesCents: sum(expenses) };
-      return NextResponse.json({ ok: true, month, visits, packages, rent, expenses, totals: { ...totals, earnedCents: totals.servicesCents + totals.packagesCents, netCents: totals.servicesCents + totals.packagesCents - totals.rentCents - totals.expensesCents } });
+      return NextResponse.json({ ok: true, month, visits, packages, rent, expenses, desk, totals: { ...totals, deskCollectedCents: desk.reduce((n: number, r: any) => n + r.cents, 0), deskOwedCents: desk.filter((r: any) => r.status === 'owed').reduce((n: number, r: any) => n + r.cents, 0), earnedCents: totals.servicesCents + totals.packagesCents, netCents: totals.servicesCents + totals.packagesCents - totals.rentCents - totals.expensesCents } });
     }
     if (action === 'expense-save') {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
