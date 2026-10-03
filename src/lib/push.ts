@@ -46,16 +46,30 @@ function titleFor(type: string | undefined, business: string): string {
   }
 }
 
-/** Where tapping it opens. App links start with "/" (/planner, /pos…). Staff-portal notifications carry a bare tab
- *  name ("today", "inbox", "pos") — those open the staff portal. Firebase refuses a push whose link isn't a real
- *  address, so a bad one would sink the whole send. */
-export function pushLink(base: string, tenantId: string, link?: string): string {
+/** WHERE TAPPING IT OPENS — chosen per person, so nobody is sent anywhere that isn't theirs.
+ *   • Owners, admins, managers → the matching page in the main app.
+ *   • Everyone else → ALWAYS their own staff portal, on the right tab — never an owner page.
+ *   • Only ever inside this app (outside addresses are refused). What anyone can actually SEE is still decided by
+ *     signing in — the portal asks for their PIN, the app for their login — not by the link. */
+const PORTAL_TABS = ['today', 'schedule', 'requests', 'earnings', 'inbox', 'messages', 'team', 'documents', 'rent', 'orders'];
+const PORTAL_TO_APP: Record<string, string> = { today: '/dashboard', schedule: '/schedule', requests: '/schedule/requests', earnings: '/financials', inbox: '/messages', messages: '/messages', team: '/staff', documents: '/documents', rent: '/rent', orders: '/retail-orders' };
+const TYPE_TO_TAB: Record<string, string> = { staff_message: 'messages', swap_request: 'requests', swap_approved: 'requests', request_approved: 'requests', request_denied: 'requests', day_off_approved: 'requests', schedule_published: 'schedule', task: 'documents', renter_message: 'messages', rent_late: 'rent' };
+export const MANAGER_ROLES_PUSH = ['owner', 'admin', 'manager'];
+
+export function pushLink(base: string, tenantId: string, link?: string, opts: { role?: string; type?: string } = {}): string {
   const b = String(base || '').replace(/\/+$/, '');
-  const l = String(link || '').trim();
-  if (/^https:\/\//.test(l)) return l;
-  if (l.startsWith('/')) return `${b}${l}`;
-  if (l) return `${b}/staff-portal/${tenantId}`;
-  return b;
+  let l = String(link || '').trim();
+  if (/^https?:\/\//.test(l)) l = l.startsWith(b) ? l.slice(b.length) || '/' : '';   // outside this app → refused
+  const isManager = MANAGER_ROLES_PUSH.includes(String(opts.role || '').toLowerCase());
+  if (isManager) {
+    if (l.startsWith('/')) return `${b}${l}`;
+    return `${b}${PORTAL_TO_APP[l] || '/dashboard'}`;
+  }
+  // Team members: their own portal, on the right tab.
+  let tab = PORTAL_TABS.includes(l) ? l : '';
+  if (!tab && l.startsWith('/')) tab = /^\/(my-)?schedule\/requests/.test(l) ? 'requests' : /^\/(my-)?schedule/.test(l) ? 'schedule' : /^\/messages/.test(l) ? 'messages' : '';
+  if (!tab) tab = TYPE_TO_TAB[String(opts.type || '')] || 'today';
+  return `${b}/staff-portal/${tenantId}?tab=${tab}`;
 }
 
 export async function pushNewNotifications(db: any, messaging: any, tenantId: string, tenant: any, base: string, windowMs = 20 * 60000) {
@@ -81,7 +95,7 @@ export async function pushNewNotifications(db: any, messaging: any, tenantId: st
     for (const p of people) {
       const tokens: string[] = (p.data() as any)?.fcmTokens || [];
       if (!tokens.length) { outcome.push('no phone registered'); continue; }
-      const link = pushLink(base, tenantId, n.link);
+      const link = pushLink(base, tenantId, n.link, { role: (p.data() as any)?.role, type: n.type });   // per person — never somewhere that isn't theirs
       try {
         const res = await messaging.sendEachForMulticast({ tokens, notification: { title: titleFor(n.type, tenant?.name), body: String(n.message).slice(0, 180) },
           webpush: { fcmOptions: { link }, notification: { icon: `${base}/icon-192.png`, badge: `${base}/icon-192.png` } } });
