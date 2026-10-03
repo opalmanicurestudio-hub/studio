@@ -419,6 +419,30 @@ export function RenterProfileDrawer({
                   <p className="text-[9px] font-black uppercase tracking-widest text-white/50">Current lease</p>
                   <p className="font-black text-sm uppercase">{booth.name}</p>
                   <p className="text-xs font-bold text-white/80">{formatCents(lease.rentAmountCents)}/{lease.frequency} · {lease.endDate ? `ends ${lease.endDate}` : 'month-to-month'}</p>
+                  {(() => {
+                    // Automatic rent — the same rule the autopay job uses: the renter's own autopay, OR this lease set to
+                    // auto-collect, with a saved card. One plain line; a switch only when it's the owner's call.
+                    const r: any = renter; const hasCard = !!(r.stripeCustomerId && (r.stripePaymentMethodId || r.defaultPaymentMethodId));
+                    if (r.autopayEnabled === true) return <p className="text-xs text-white/80">Rent is paid automatically — they set up autopay.</p>;
+                    if (!hasCard) return <p className="text-xs text-white/60">To charge rent automatically, they need to save a card in their portal first.</p>;
+                    const on = (lease as any).autoCollect === true;
+                    const flip = async () => {
+                      if (!on && !window.confirm(`Charge ${r.firstName || 'this renter'}’s card on file for rent on each due date?\n\nOnly do this if they’ve agreed — for example in their lease. They’re told each time.`)) return;
+                      try {
+                        await setDoc(doc(firestore, 'tenants', tenantId, 'leases', (lease as any).id), { autoCollect: !on, updatedAt: new Date().toISOString() }, { merge: true });
+                        writeBoothAudit(firestore, tenantId, { action: 'booth.autocollect_' + (!on ? 'on' : 'off'), targetType: 'lease', targetId: (lease as any).id,
+                          summary: `Rent charged automatically turned ${!on ? 'on' : 'off'} for ${`${r.firstName || ''} ${r.lastName || ''}`.trim() || 'a renter'}` });
+                      } catch { window.alert('That didn’t save — try again.'); }
+                    };
+                    return (
+                      <div className="flex items-center justify-between gap-3 pt-1">
+                        <p className="text-xs text-white/80">{on ? 'Rent is charged to their card automatically on each due date.' : 'Charge rent to their card automatically'}</p>
+                        <button type="button" role="switch" aria-checked={on} aria-label="Charge rent to their card automatically" onClick={() => void flip()}
+                          className="relative h-6 w-11 shrink-0 rounded-full transition-colors" style={{ background: on ? 'hsl(var(--primary))' : 'rgba(255,255,255,.25)' }}>
+                          <span className="absolute top-0.5 h-5 w-5 rounded-full shadow" style={{ left: on ? 22 : 2, background: '#fff', transition: 'left .15s' }} />
+                        </button>
+                      </div>);
+                  })()}
                   <button onClick={onEndLease} className="text-[9px] font-black uppercase tracking-widest text-red-300 underline underline-offset-2">End lease</button>
                 </div>
               ) : (
