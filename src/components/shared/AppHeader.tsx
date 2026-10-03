@@ -1,5 +1,6 @@
 'use client';
 
+import { PushPrompt } from '@/components/shared/PushPrompt';
 import { AppSearch } from '@/components/shared/AppSearch';
 import {
   DropdownMenu,
@@ -28,7 +29,7 @@ export function AppHeader({ title }: { title?: string }) {
   const { user } = useUser();
   const auth = useAuth();
   const router = useRouter();
-  const { role } = useTenant();
+  const { role, selectedTenant } = useTenant() as any;
   const { staff } = useInventory();
   
   const { notifications, unreadCount, markAsRead, markAllAsRead, clearReadNotifications } = useNotifications();
@@ -104,6 +105,7 @@ export function AppHeader({ title }: { title?: string }) {
                         </Button>
                       )}
                   </DropdownMenuLabel>
+                  {selectedTenant?.id && <div className="px-4 pt-3"><PushPrompt tenantId={selectedTenant.id} /></div>}
                   <div className="max-h-[450px] overflow-y-auto">
                     {notifications.length > 0 ? (
                         <div className="divide-y-2 divide-dashed divide-border/50">
