@@ -301,6 +301,13 @@ export async function POST(req: NextRequest) {
   });
 
   await batch.commit();
+  // Finish the cancellation now — charge the fee, record it, tell the client (lib/cancellation-events). It used to be
+  // left to a background function that never ran. If this is interrupted, the 5-minute no-shows job sweeps it up.
+  try {
+    const Stripe = (await import('stripe')).default; const { processCancellationEvent } = await import('@/lib/cancellation-events');
+    await processCancellationEvent(db, new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2024-06-20' as any }), tenantId, eventId);
+  } catch (e: any) { console.error('[cancellation] finishing failed — the sweep will retry', e?.message); }
+
 
   // ── Behavior ledger + recovery, post-commit (the slot is now genuinely dead).
   //    A no-show is the trigger; the Resolution ticket is the cancellationEvent
