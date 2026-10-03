@@ -1,5 +1,6 @@
 'use client';
 
+import { verifyPin } from '@/lib/pin-client';
 import React, { useMemo, useState } from 'react';
 import { useParams, notFound } from 'next/navigation';
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -157,9 +158,10 @@ export default function ProductDetailPage() {
         return [...new Set(allCategories)];
     }, [inventory]);
 
-    const handleUnlockVault = () => {
+    const handleUnlockVault = async () => {
         setIsVerifyingVault(true);
-        const authorized = staff.find(s => s.pin === vaultPin && (s.role === 'admin' || s.role === 'owner'));
+        const pv = await verifyPin(selectedTenant?.id || '', vaultPin, ['owner', 'admin']);   // checked on the server, owners & admins only
+        const authorized = pv.ok;
         
         if (authorized) {
             setIsVaultUnlocked(true);
