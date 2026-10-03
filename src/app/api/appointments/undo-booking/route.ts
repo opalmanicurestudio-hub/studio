@@ -5,13 +5,14 @@
 // are told how much to hand back. The client — who just got a confirmation — gets one short "it's been removed" note.
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
+import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { logAuditAdmin } from '@/lib/audit';
 export const dynamic = 'force-dynamic';
 
 const DESK_SOURCES = ['front_desk', 'planner', 'pos_add_appointment', 'staff', 'admin', 'add_appointment', 'staff_portal'];
-export const UNDO_WINDOW_MS = 30 * 60000;
+const UNDO_WINDOW_MS = 30 * 60000;
 
 export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({})); const tenantId = String(b.tenantId || '').slice(0, 80); const appointmentId = String(b.appointmentId || '').slice(0, 120);
@@ -26,17 +27,38 @@ export async function POST(req: NextRequest) {
   if (['cancelled', 'canceled', 'completed', 'checked_in', 'in_service', 'no_show'].includes(String(a.status || '')) || Date.parse(a.startTime || '') <= Date.now())
     return NextResponse.json({ ok: false, error: 'This booking has already started or changed — cancel it from the planner instead.' }, { status: 409 });
   const now = new Date().toISOString(); const tenant: any = (await db.doc(T).get()).data() || {};
-  // A deposit taken for it goes back.
+  // A deposit taken for it goes back — through the payment that took it — with a refund record in the books and,
+  // when it was paid on a sale, a refund line on that sale's receipt.
   let refundedCents = 0, handBackCents = 0;
   if (a.depositStatus === 'paid' && Number(a.depositAmountCents) > 0) {
-    const cents = Number(a.depositAmountCents);
-    if (a.depositPaidVia === 'card_on_file' && a.stripePaymentIntentId && tenant.stripeAccountId) {
-      try { await new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2024-06-20' as any }).refunds.create({ payment_intent: a.stripePaymentIntentId, reason: 'requested_by_customer', metadata: { tenantId, appointmentId, why: 'booking undone at the desk' } },
+    const cents = Number(a.depositAmountCents); const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2024-06-20' as any });
+    const receiptRef = a.depositReceiptId ? db.doc(`${T}/receipts/${a.depositReceiptId}`) : null; const receipt: any = receiptRef ? (await receiptRef.get()).data() : null;
+    // Which card payment to refund: a deposit charged on its own, or this sale's card payment (or a card share of a split).
+    const piFor = (): string | null => {
+      if (a.depositPaidVia === 'card_on_file') return a.stripePaymentIntentId || null;
+      if (!receipt) return null;
+      if (Array.isArray(receipt.payments)) { const share = receipt.payments.find((x: any) => x.stripePaymentIntentId && (Number(x.amount) || 0) * 100 >= cents); return share?.stripePaymentIntentId || null; }
+      return receipt.paymentMethod !== 'cash' ? receipt.stripePaymentIntentId || null : null;
+    };
+    const pi = piFor();
+    if (pi && tenant.stripeAccountId) {
+      try { await stripe.refunds.create({ payment_intent: pi, amount: cents, reason: 'requested_by_customer', metadata: { tenantId, appointmentId, why: 'booking undone at the desk' } },
         { stripeAccount: tenant.stripeAccountId, idempotencyKey: `undo-${tenantId}-${appointmentId}` }); refundedCents = cents; }
       catch (e: any) { return NextResponse.json({ ok: false, error: `The deposit couldn’t be refunded (${String(e?.message || 'card error').slice(0, 80)}) — nothing was changed.` }, { status: 502 }); }
     } else handBackCents = cents;
     for (const c of (await db.collection(`${T}/depositCredits`).where('sourceAppointmentId', '==', appointmentId).get()).docs)
       await c.ref.set({ status: refundedCents ? 'refunded' : 'void', voidedAt: now, voidReason: 'booking undone at the desk' }, { merge: true });
+    // The refund, in the books (same shape as every other refund).
+    const tx = db.collection(`${T}/transactions`).doc();
+    await tx.set({ id: tx.id, type: 'reversal', context: 'Business', taxBucket: 'refund', category: 'Refunds', amount: cents / 100, date: now, createdAt: now, tenantId,
+      description: `Refund — deposit for a booking undone at the desk (${a.clientName || 'client'})`, clientOrVendor: a.clientName || 'Client', clientId: a.clientId || null,
+      paymentMethod: refundedCents ? 'Card (Stripe refund)' : 'Cash handed back', appointmentId, receiptId: a.depositReceiptId || null, hasReceipt: !!a.depositReceiptId });
+    // The refund ticket on the sale it was paid on; cash handed back leaves the till.
+    if (receiptRef && receipt) {
+      await receiptRef.set({ refunds: FieldValue.arrayUnion({ line: `deposit-${appointmentId}`, cents, at: now, by: auth.actor.name || 'Front desk', how: refundedCents ? 'card' : 'cash', reason: 'Booking undone at the desk', transactionId: tx.id }),
+        refundedCents: FieldValue.increment(cents) }, { merge: true });
+      if (!refundedCents && receipt.tillId) await db.doc(`${T}/tillSessions/${receipt.tillId}`).set({ expectedCash: FieldValue.increment(-cents / 100), totalCashRefunds: FieldValue.increment(cents / 100) }, { merge: true });
+    }
   }
   await ref.set({ status: 'cancelled', cancelReason: 'undone_at_desk', undoneAt: now, undoneBy: auth.actor.name || 'Front desk', noFee: true, paymentDueAt: null,
     ...(refundedCents || handBackCents ? { depositStatus: refundedCents ? 'refunded' : 'returned', depositReturnedCents: refundedCents || handBackCents } : {}),
