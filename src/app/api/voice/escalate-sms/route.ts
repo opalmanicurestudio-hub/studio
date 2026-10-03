@@ -201,6 +201,7 @@ export async function POST(req: NextRequest) {
         });
       });
       await notifBatch.commit();
+      await (await import('@/lib/push')).pushNow(db, tenantId);   // buzz now, not in a minute
     }
 
     return NextResponse.json({
